@@ -1,0 +1,34 @@
+{
+  "category": "select/column_alias",
+  "description": "Column alias renames output column in result set",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "full_name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "ListUserFullNames",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "simple_alias",
+  "query_sql": "-- @name ListUserFullNames\n-- @returns :many\nSELECT id, name AS full_name FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "select",
+    "alias"
+  ]
+}

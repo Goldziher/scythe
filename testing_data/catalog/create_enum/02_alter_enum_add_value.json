@@ -1,0 +1,23 @@
+{
+  "name": "alter_enum_add_value",
+  "description": "ALTER TYPE ADD VALUE appends a new value to an existing enum",
+  "category": "catalog/create_enum",
+  "tags": ["enum", "alter_type", "add_value"],
+  "schema_sql": [
+    "CREATE TYPE status AS ENUM ('active', 'inactive')",
+    "ALTER TYPE status ADD VALUE 'banned'"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {},
+      "enums": {
+        "status": {
+          "values": ["active", "inactive", "banned"]
+        }
+      },
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

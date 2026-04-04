@@ -1,0 +1,51 @@
+{
+  "category": "types/network",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Select inet and cidr network columns mapped to ipnetwork::IpNetwork",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetHostsRow {\n    pub id: i32,\n    pub ip_addr: ipnetwork::IpNetwork,\n    pub subnet: ipnetwork::IpNetwork,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "ip_addr",
+          "nullable": false,
+          "type": "inet"
+        },
+        {
+          "name": "subnet",
+          "nullable": false,
+          "type": "inet"
+        }
+      ],
+      "command": "many",
+      "name": "GetHosts",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "select_network_types",
+  "query_sql": "-- @name GetHosts\n-- @returns :many\nSELECT id, ip_addr, subnet FROM hosts;",
+  "schema_sql": [
+    "CREATE TABLE hosts (id SERIAL PRIMARY KEY, ip_addr INET NOT NULL, subnet CIDR NOT NULL);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "network",
+    "inet",
+    "cidr"
+  ]
+}

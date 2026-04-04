@@ -1,0 +1,57 @@
+{
+  "category": "params/coalesce_param",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Parameter type inferred from COALESCE context with column reference",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserByCoalesceNameRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetUserByCoalesceName",
+      "params": [
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "coalesce_param_type",
+  "query_sql": "-- @name GetUserByCoalesceName\n-- @returns :many\nSELECT id, name, email FROM users WHERE name = COALESCE($1, name);",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "param",
+    "coalesce",
+    "type_inference"
+  ]
+}

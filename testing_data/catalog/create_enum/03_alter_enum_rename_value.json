@@ -1,0 +1,23 @@
+{
+  "name": "alter_enum_rename_value",
+  "description": "ALTER TYPE RENAME VALUE changes an existing enum value name",
+  "category": "catalog/create_enum",
+  "tags": ["enum", "alter_type", "rename_value"],
+  "schema_sql": [
+    "CREATE TYPE status AS ENUM ('active', 'inactive', 'banned')",
+    "ALTER TYPE status RENAME VALUE 'banned' TO 'suspended'"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {},
+      "enums": {
+        "status": {
+          "values": ["active", "inactive", "suspended"]
+        }
+      },
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

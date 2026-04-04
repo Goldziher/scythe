@@ -1,0 +1,6 @@
+#[derive(Debug, sqlx::FromRow)]
+pub struct {{ query.row_struct_name }} {
+{%- for col in query.columns %}
+    pub {{ col.field_name }}: {{ col.full_type }},
+{%- endfor %}
+}

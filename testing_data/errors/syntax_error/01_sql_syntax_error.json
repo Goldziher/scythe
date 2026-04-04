@@ -1,0 +1,24 @@
+{
+  "name": "sql_syntax_error",
+  "description": "SQL with a typo (SELCT instead of SELECT) should produce a syntax error",
+  "category": "errors/syntax_error",
+  "tags": ["error", "syntax"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+  ],
+  "query_sql": "-- @name GetUsers\n-- @returns :many\nSELCT * FROM users;",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "SYNTAX_ERROR",
+      "message_contains": "syntax error"
+    }
+  },
+  "source": "sqlc"
+}

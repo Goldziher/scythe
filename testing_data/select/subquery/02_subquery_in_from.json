@@ -1,0 +1,35 @@
+{
+  "category": "select/subquery",
+  "description": "Subquery in FROM clause (derived table) projects columns from the inner query",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetActiveUserSubquery",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "subquery_in_from",
+  "query_sql": "-- @name GetActiveUserSubquery\n-- @returns :many\nSELECT sub.id, sub.name FROM (SELECT id, name FROM users WHERE status = 'active') sub",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "select",
+    "subquery",
+    "derived_table"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "category": "expressions/cast_advanced",
+  "description": "Accessing fields from a composite type column — fields are nullable even if composite is NOT NULL",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "street",
+          "note": "Composite fields are nullable by default even if composite itself is NOT NULL",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "city",
+          "note": "Composite fields are nullable by default even if composite itself is NOT NULL",
+          "nullable": true,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetContactAddressFields",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "cast_composite_field_access",
+  "query_sql": "-- @name GetContactAddressFields\n-- @returns :many\nSELECT id, (home_address).street, (home_address).city FROM contacts",
+  "schema_sql": [
+    "CREATE TYPE address AS (street TEXT, city TEXT, zip TEXT);",
+    "CREATE TABLE contacts (id SERIAL PRIMARY KEY, home_address address NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "composite",
+    "field_access",
+    "nullability"
+  ]
+}

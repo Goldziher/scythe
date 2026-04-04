@@ -1,0 +1,47 @@
+{
+  "category": "nullability/coalesce_non_null",
+  "description": "COALESCE with a literal default makes the result non-nullable since the literal guarantees a non-NULL value",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "bio",
+          "note": "COALESCE with literal default guarantees non-NULL",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "one",
+      "name": "GetUserWithDefaultBio",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "position": 1,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "coalesce_nullable_with_default",
+  "query_sql": "-- @name GetUserWithDefaultBio\n-- @returns :one\nSELECT id, COALESCE(bio, 'N/A') AS bio FROM users WHERE id = $1",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe analyzes COALESCE arguments and recognizes that a literal default makes the result non-nullable",
+    "sqlc_behavior": "sqlc marks the COALESCE result as nullable because the first argument (bio) is nullable"
+  },
+  "tags": [
+    "nullability",
+    "coalesce",
+    "improvement_over_sqlc"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "category": "joins/lateral_join",
+  "description": "LATERAL subquery with COUNT aggregation joined implicitly in FROM clause",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "order_count",
+          "note": "COUNT(*) never returns null",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "GetUsersWithOrderCount",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "lateral_subquery_basic",
+  "query_sql": "-- @name GetUsersWithOrderCount\n-- @returns :many\nSELECT u.id, u.name, o.order_count FROM users u, LATERAL (SELECT COUNT(*) AS order_count FROM orders WHERE user_id = u.id) AS o",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "join",
+    "lateral",
+    "subquery",
+    "count"
+  ]
+}

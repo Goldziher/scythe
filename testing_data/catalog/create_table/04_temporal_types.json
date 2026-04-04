@@ -1,0 +1,29 @@
+{
+  "name": "temporal_types",
+  "description": "Table with all PostgreSQL temporal types: date, time, timetz, timestamp, timestamptz, interval",
+  "category": "catalog/create_table",
+  "tags": ["types", "temporal"],
+  "schema_sql": [
+    "CREATE TABLE temporal_types (a date, b time, c timetz, d timestamp, e timestamptz, f interval)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "temporal_types": {
+          "columns": [
+            { "name": "a", "sql_type": "date", "nullable": true },
+            { "name": "b", "sql_type": "time", "nullable": true },
+            { "name": "c", "sql_type": "timetz", "nullable": true },
+            { "name": "d", "sql_type": "timestamp", "nullable": true },
+            { "name": "e", "sql_type": "timestamptz", "nullable": true },
+            { "name": "f", "sql_type": "interval", "nullable": true }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

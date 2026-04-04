@@ -1,0 +1,28 @@
+{
+  "name": "materialized_view",
+  "description": "CREATE MATERIALIZED VIEW with aggregation query",
+  "category": "catalog/create_view",
+  "tags": ["view", "materialized"],
+  "schema_sql": [
+    "CREATE TABLE orders (id serial PRIMARY KEY, customer_id integer NOT NULL, total numeric(10,2) NOT NULL, created_at date NOT NULL)",
+    "CREATE MATERIALIZED VIEW order_summary AS SELECT customer_id, count(*) AS order_count, sum(total) AS total_spent FROM orders GROUP BY customer_id"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "orders": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "customer_id", "sql_type": "integer", "nullable": false },
+            { "name": "total", "sql_type": "numeric(10,2)", "nullable": false },
+            { "name": "created_at", "sql_type": "date", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

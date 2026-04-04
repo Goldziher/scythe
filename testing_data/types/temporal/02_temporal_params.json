@@ -1,0 +1,59 @@
+{
+  "category": "types/temporal",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Use a timestamptz column in a WHERE clause parameter",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn get_events_after(pool: &sqlx::PgPool, created_at: &chrono::DateTime<chrono::Utc>) -> Result<Vec<GetEventsAfterRow>, sqlx::Error> {\n    sqlx::query_as!(GetEventsAfterRow, \"SELECT id, name, created_at FROM events WHERE created_at > $1\", created_at)\n        .fetch_all(pool)\n        .await\n}",
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventsAfterRow {\n    pub id: i32,\n    pub name: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "many",
+      "name": "GetEventsAfter",
+      "params": [
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "temporal_params",
+  "query_sql": "-- @name GetEventsAfter\n-- @returns :many\nSELECT id, name, created_at FROM events WHERE created_at > $1;",
+  "schema_sql": [
+    "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "temporal",
+    "param",
+    "timestamptz",
+    "chrono"
+  ]
+}

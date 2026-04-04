@@ -1,0 +1,35 @@
+{
+  "category": "select/union",
+  "description": "UNION ALL of two SELECT statements preserves all rows including duplicates",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "ListAllNamesWithDuplicates",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "union_all",
+  "query_sql": "-- @name ListAllNamesWithDuplicates\n-- @returns :many\nSELECT id, name FROM users UNION ALL SELECT id, name FROM products",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT NOT NULL)"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "select",
+    "union_all"
+  ]
+}

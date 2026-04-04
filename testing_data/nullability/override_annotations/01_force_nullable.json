@@ -1,0 +1,43 @@
+{
+  "category": "nullability/override_annotations",
+  "description": "The @nullable annotation overrides a NOT NULL column to become nullable in the output",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "note": "forced nullable via @nullable annotation despite NOT NULL in schema",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "one",
+      "name": "GetUserForceNullableId",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "position": 1,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "force_nullable",
+  "query_sql": "-- @name GetUserForceNullableId\n-- @returns :one\n-- @nullable id\nSELECT id, name FROM users WHERE id = $1",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "nullability",
+    "annotations",
+    "override"
+  ]
+}

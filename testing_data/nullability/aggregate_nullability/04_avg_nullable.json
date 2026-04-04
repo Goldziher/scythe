@@ -1,0 +1,35 @@
+{
+  "category": "nullability/aggregate_nullability",
+  "description": "AVG returns NULL on empty set and produces a numeric/decimal type",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "avg_price",
+          "note": "AVG returns numeric type and NULL on empty set",
+          "nullable": true,
+          "type": "decimal"
+        }
+      ],
+      "command": "one",
+      "name": "AvgProductPrice",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "avg_nullable",
+  "query_sql": "-- @name AvgProductPrice\n-- @returns :one\nSELECT AVG(price) AS avg_price FROM products",
+  "schema_sql": [
+    "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price INTEGER NOT NULL, description TEXT, category TEXT NOT NULL)"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe correctly infers that AVG returns NULL on empty sets and widens the type to numeric/Decimal",
+    "sqlc_behavior": "sqlc may mark AVG result as non-nullable when the input column is NOT NULL"
+  },
+  "tags": [
+    "nullability",
+    "aggregate",
+    "improvement_over_sqlc"
+  ]
+}

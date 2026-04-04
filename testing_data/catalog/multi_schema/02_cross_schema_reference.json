@@ -1,0 +1,35 @@
+{
+  "name": "cross_schema_reference",
+  "description": "Tables in different schemas with foreign key references across schemas",
+  "category": "catalog/multi_schema",
+  "tags": ["schema", "foreign_key", "cross_schema"],
+  "schema_sql": [
+    "CREATE SCHEMA core",
+    "CREATE SCHEMA billing",
+    "CREATE TABLE core.users (id serial PRIMARY KEY, name text NOT NULL)",
+    "CREATE TABLE billing.invoices (id serial PRIMARY KEY, user_id integer NOT NULL REFERENCES core.users (id), amount numeric(10,2) NOT NULL)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "core.users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false }
+          ]
+        },
+        "billing.invoices": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "user_id", "sql_type": "integer", "nullable": false },
+            { "name": "amount", "sql_type": "numeric(10,2)", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

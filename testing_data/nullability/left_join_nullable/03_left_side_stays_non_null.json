@@ -1,0 +1,43 @@
+{
+  "category": "nullability/left_join_nullable",
+  "description": "LEFT JOIN preserves non-nullability of left-side columns while making right-side columns nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "note": "left-side column stays non-nullable",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "note": "left-side column stays non-nullable",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "total",
+          "note": "right-side column becomes nullable",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "GetUsersWithOptionalOrders",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "left_side_stays_non_null",
+  "query_sql": "-- @name GetUsersWithOptionalOrders\n-- @returns :many\nSELECT u.id, u.name, o.total FROM users u LEFT JOIN orders o ON u.id = o.user_id",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "nullability",
+    "left_join"
+  ]
+}

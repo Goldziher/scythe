@@ -1,0 +1,62 @@
+{
+  "category": "select/star_expansion",
+  "description": "SELECT u.* with a JOIN expands only the aliased table's columns, plus explicitly selected columns from the other table",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "status",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "bio",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        },
+        {
+          "name": "total",
+          "nullable": false,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "GetUsersWithOrderTotal",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "star_with_join",
+  "query_sql": "-- @name GetUsersWithOrderTotal\n-- @returns :many\nSELECT u.*, o.total FROM users u JOIN orders o ON u.id = o.user_id",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "select",
+    "star",
+    "expansion",
+    "join"
+  ]
+}

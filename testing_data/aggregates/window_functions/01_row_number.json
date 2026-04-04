@@ -1,0 +1,39 @@
+{
+  "category": "aggregates/window_functions",
+  "description": "ROW_NUMBER() window function returns i64 non-nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "amount",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "rn",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "RankedSales",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "window_row_number",
+  "query_sql": "-- @name RankedSales\n-- @returns :many\nSELECT id, amount, ROW_NUMBER() OVER (ORDER BY amount DESC) AS rn FROM sales",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "window_function",
+    "row_number"
+  ]
+}

@@ -1,0 +1,36 @@
+{
+  "category": "expressions/pattern_matching",
+  "description": "LIKE expression in SELECT returns a non-nullable bool when the input column is NOT NULL",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "starts_with_a",
+          "note": "LIKE on NOT NULL column returns non-nullable bool",
+          "nullable": false,
+          "type": "bool"
+        }
+      ],
+      "command": "many",
+      "name": "GetUsersStartingWithA",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "like_returns_bool",
+  "query_sql": "-- @name GetUsersStartingWithA\n-- @returns :many\nSELECT id, name LIKE 'A%' AS starts_with_a FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "expressions",
+    "pattern_matching",
+    "like"
+  ]
+}

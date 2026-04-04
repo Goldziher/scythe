@@ -1,0 +1,35 @@
+{
+  "category": "select/where_clause",
+  "description": "WHERE IS NULL with no parameters",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetUsersWithNoBio",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "where_is_null",
+  "query_sql": "-- @name GetUsersWithNoBio\n-- @returns :many\nSELECT id, name FROM users WHERE bio IS NULL",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "select",
+    "where",
+    "is_null"
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "category": "nullability/coalesce_non_null",
+  "description": "COALESCE with multiple nullable args but a literal as the last argument is non-nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "result",
+          "note": "last argument is a literal, guaranteeing non-NULL",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "one",
+      "name": "GetUserDisplayText",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "position": 1,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "coalesce_with_literal_last",
+  "query_sql": "-- @name GetUserDisplayText\n-- @returns :one\nSELECT COALESCE(bio, age::text, 'unknown') AS result FROM users WHERE id = $1",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe checks all COALESCE arguments and determines non-nullability when any argument is a non-null literal or NOT NULL column",
+    "sqlc_behavior": "sqlc marks the result as nullable because the first argument is nullable"
+  },
+  "tags": [
+    "nullability",
+    "coalesce",
+    "improvement_over_sqlc"
+  ]
+}

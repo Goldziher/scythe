@@ -1,0 +1,42 @@
+{
+  "category": "expressions/date_functions",
+  "description": "EXTRACT returns double precision (f64) for year and month parts",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "yr",
+          "note": "PostgreSQL EXTRACT returns double precision",
+          "nullable": false,
+          "type": "float64"
+        },
+        {
+          "name": "mo",
+          "note": "PostgreSQL EXTRACT returns double precision",
+          "nullable": false,
+          "type": "float64"
+        }
+      ],
+      "command": "many",
+      "name": "ExtractDateParts",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "date_extract",
+  "query_sql": "-- @name ExtractDateParts\n-- @returns :many\nSELECT id, EXTRACT(YEAR FROM occurred_at) AS yr, EXTRACT(MONTH FROM occurred_at) AS mo FROM events",
+  "schema_sql": [
+    "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "expression",
+    "date",
+    "extract"
+  ]
+}

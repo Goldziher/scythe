@@ -1,0 +1,33 @@
+{
+  "name": "constraints_foreign_key",
+  "description": "Foreign key constraint referencing another table",
+  "category": "catalog/create_table",
+  "tags": ["constraints", "foreign_key"],
+  "schema_sql": [
+    "CREATE TABLE authors (id serial PRIMARY KEY, name text NOT NULL)",
+    "CREATE TABLE books (id serial PRIMARY KEY, title text NOT NULL, author_id integer NOT NULL REFERENCES authors (id))"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "authors": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false }
+          ]
+        },
+        "books": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "title", "sql_type": "text", "nullable": false },
+            { "name": "author_id", "sql_type": "integer", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

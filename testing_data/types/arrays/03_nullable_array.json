@@ -1,0 +1,46 @@
+{
+  "category": "types/arrays",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Select a nullable integer array column mapped to Option<Vec<i32>>",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetScoresNullableRow {\n    pub id: i32,\n    pub values: Option<Vec<i32>>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "values",
+          "nullable": true,
+          "type": "array<int32>"
+        }
+      ],
+      "command": "many",
+      "name": "GetScoresNullable",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "nullable_array",
+  "query_sql": "-- @name GetScoresNullable\n-- @returns :many\nSELECT id, values FROM scores;",
+  "schema_sql": [
+    "CREATE TABLE scores (id SERIAL PRIMARY KEY, values INT[]);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "array",
+    "nullable",
+    "option"
+  ]
+}

@@ -1,0 +1,43 @@
+{
+  "category": "dml/returning_expressions",
+  "description": "INSERT with RETURNING NOW() as a computed server timestamp",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "server_time",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "one",
+      "name": "CreateEventWithServerTime",
+      "params": [
+        {
+          "name": "name",
+          "nullable": false,
+          "position": 1,
+          "type": "string"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "insert_returning_now",
+  "query_sql": "-- @name CreateEventWithServerTime\n-- @returns :one\nINSERT INTO events (name) VALUES ($1) RETURNING id, NOW() AS server_time",
+  "schema_sql": [
+    "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+  ],
+  "source": "original",
+  "tags": [
+    "insert",
+    "returning",
+    "now",
+    "expression"
+  ]
+}

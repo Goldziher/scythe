@@ -1,0 +1,41 @@
+{
+  "category": "expressions/string_functions",
+  "description": "UPPER and LOWER string functions preserve non-nullability of input",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "upper_name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "lower_name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "UpperLowerNames",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "string_upper_lower",
+  "query_sql": "-- @name UpperLowerNames\n-- @returns :many\nSELECT id, UPPER(name) AS upper_name, LOWER(name) AS lower_name FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);"
+  ],
+  "source": "original",
+  "tags": [
+    "expression",
+    "string",
+    "upper",
+    "lower"
+  ]
+}

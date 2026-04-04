@@ -1,0 +1,27 @@
+{
+  "name": "all_string_types",
+  "description": "Table with all PostgreSQL string types: text, varchar, char, bytea",
+  "category": "catalog/create_table",
+  "tags": ["types", "string"],
+  "schema_sql": [
+    "CREATE TABLE string_types (a text, b varchar(255), c char(10), d bytea)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "string_types": {
+          "columns": [
+            { "name": "a", "sql_type": "text", "nullable": true },
+            { "name": "b", "sql_type": "varchar(255)", "nullable": true },
+            { "name": "c", "sql_type": "char(10)", "nullable": true },
+            { "name": "d", "sql_type": "bytea", "nullable": true }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

@@ -1,0 +1,31 @@
+{
+  "category": "expressions/case",
+  "description": "CASE expression infers String type from string literal branches",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "tier",
+          "note": "all branches are string literals with ELSE, so non-nullable String",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetProductTier",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "case_type_from_branches",
+  "query_sql": "-- @name GetProductTier\n-- @returns :many\nSELECT CASE WHEN price > 100 THEN 'expensive' ELSE 'cheap' END AS tier FROM products",
+  "schema_sql": [
+    "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price INTEGER NOT NULL, description TEXT, category TEXT NOT NULL)"
+  ],
+  "source": "original",
+  "tags": [
+    "expressions",
+    "case",
+    "type_inference"
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "category": "params/between",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "BETWEEN with two timestamptz parameters",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn get_events_between(pool: &sqlx::PgPool, start: &chrono::DateTime<chrono::Utc>, end: &chrono::DateTime<chrono::Utc>) -> Result<Vec<GetEventsBetweenRow>, sqlx::Error> {\n    sqlx::query_as!(GetEventsBetweenRow, \"SELECT id, name, created_at FROM events WHERE created_at BETWEEN $1 AND $2\", start, end)\n        .fetch_all(pool)\n        .await\n}",
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventsBetweenRow {\n    pub id: i32,\n    pub name: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "many",
+      "name": "GetEventsBetween",
+      "params": [
+        {
+          "name": "start",
+          "nullable": false,
+          "type": "datetime_tz"
+        },
+        {
+          "name": "end",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "between_dates",
+  "query_sql": "-- @name GetEventsBetween\n-- @returns :many\nSELECT id, name, created_at FROM events WHERE created_at BETWEEN $1 AND $2;",
+  "schema_sql": [
+    "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "param",
+    "between",
+    "temporal"
+  ]
+}

@@ -1,0 +1,35 @@
+{
+  "category": "select/basic",
+  "description": "SELECT with column alias renames the output column",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "username",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "ListUsernames",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "select_with_alias",
+  "query_sql": "-- @name ListUsernames\n-- @returns :many\nSELECT id, name AS username FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "select",
+    "basic",
+    "alias"
+  ]
+}

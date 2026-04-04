@@ -1,0 +1,36 @@
+{
+  "category": "nullability/aggregate_nullability",
+  "description": "COUNT with GROUP BY returns non-nullable count alongside the grouping column",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "status",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "cnt",
+          "note": "COUNT(*) is always non-nullable",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "CountUsersByStatus",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "count_with_group_by",
+  "query_sql": "-- @name CountUsersByStatus\n-- @returns :many\nSELECT status, COUNT(*) AS cnt FROM users GROUP BY status",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "nullability",
+    "aggregate",
+    "group_by"
+  ]
+}

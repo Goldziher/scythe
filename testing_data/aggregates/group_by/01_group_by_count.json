@@ -1,0 +1,35 @@
+{
+  "category": "aggregates/group_by",
+  "description": "GROUP BY with COUNT(*) aggregate returns i64 non-nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "department",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "cnt",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "CountByDepartment",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "group_by_count",
+  "query_sql": "-- @name CountByDepartment\n-- @returns :many\nSELECT department, COUNT(*) AS cnt FROM sales GROUP BY department",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "aggregate",
+    "group_by",
+    "count"
+  ]
+}

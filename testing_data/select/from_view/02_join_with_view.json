@@ -1,0 +1,39 @@
+{
+  "category": "select/from_view",
+  "description": "LEFT JOIN a table with a view — right side columns become nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "order_count",
+          "note": "RIGHT side of LEFT JOIN: view column becomes nullable because unmatched left rows produce NULL",
+          "nullable": true,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "GetUsersWithOrderSummary",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "join_table_with_view",
+  "query_sql": "-- @name GetUsersWithOrderSummary\n-- @returns :many\nSELECT u.name, s.order_count FROM users u LEFT JOIN user_order_summary s ON u.id = s.user_id",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL);",
+    "CREATE VIEW user_order_summary AS SELECT u.id AS user_id, u.name, COUNT(*) AS order_count FROM users u JOIN orders o ON u.id = o.user_id GROUP BY u.id, u.name;"
+  ],
+  "source": "original",
+  "tags": [
+    "view",
+    "select",
+    "left_join",
+    "nullability"
+  ]
+}

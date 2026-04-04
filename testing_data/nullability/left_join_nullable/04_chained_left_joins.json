@@ -1,0 +1,62 @@
+{
+  "category": "nullability/left_join_nullable",
+  "description": "Chained LEFT JOINs make all right-side columns from every join nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "name",
+          "note": "left-side of all joins, stays non-nullable",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "total",
+          "note": "right-side of first LEFT JOIN",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "quantity",
+          "note": "right-side of second LEFT JOIN",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "product_name",
+          "note": "right-side of third LEFT JOIN",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "price",
+          "note": "right-side of third LEFT JOIN",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "GetUserOrderProducts",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "chained_left_joins",
+  "query_sql": "-- @name GetUserOrderProducts\n-- @returns :many\nSELECT u.name, o.total, oi.quantity, p.name AS product_name, p.price FROM users u LEFT JOIN orders o ON u.id = o.user_id LEFT JOIN order_items oi ON o.id = oi.order_id LEFT JOIN products p ON oi.product_id = p.id",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price INTEGER NOT NULL, description TEXT, category TEXT NOT NULL)",
+    "CREATE TABLE order_items (id SERIAL PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id), product_id INTEGER NOT NULL REFERENCES products(id), quantity INTEGER NOT NULL)"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe tracks nullability propagation through chained LEFT JOINs correctly",
+    "sqlc_behavior": "sqlc marks NOT NULL columns from chained joins as non-nullable, ignoring the cascading LEFT JOIN effect"
+  },
+  "tags": [
+    "nullability",
+    "left_join",
+    "improvement_over_sqlc"
+  ]
+}

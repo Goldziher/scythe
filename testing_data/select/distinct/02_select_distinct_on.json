@@ -1,0 +1,51 @@
+{
+  "category": "select/distinct",
+  "description": "PostgreSQL DISTINCT ON returns first row per group with correct column expansion",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "user_id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "total",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "notes",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "many",
+      "name": "GetLatestOrderPerUser",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "select_distinct_on",
+  "query_sql": "-- @name GetLatestOrderPerUser\n-- @returns :many\nSELECT DISTINCT ON (user_id) * FROM orders ORDER BY user_id, created_at DESC",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "select",
+    "distinct_on",
+    "postgresql"
+  ]
+}

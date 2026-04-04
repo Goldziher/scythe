@@ -1,0 +1,67 @@
+{
+  "category": "params/insert_values",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Insert with many typed columns to verify correct param type inference",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct CreateProductRow {\n    pub id: i32,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "one",
+      "name": "CreateProduct",
+      "params": [
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "price",
+          "nullable": false,
+          "type": "decimal"
+        },
+        {
+          "name": "quantity",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "active",
+          "nullable": false,
+          "type": "bool"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "insert_all_columns",
+  "query_sql": "-- @name CreateProduct\n-- @returns :one\nINSERT INTO products (name, price, quantity, active) VALUES ($1, $2, $3, $4) RETURNING id, created_at;",
+  "schema_sql": [
+    "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price NUMERIC(10,2) NOT NULL, quantity INTEGER NOT NULL, active BOOLEAN NOT NULL DEFAULT true, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "param",
+    "insert",
+    "multi_type"
+  ]
+}

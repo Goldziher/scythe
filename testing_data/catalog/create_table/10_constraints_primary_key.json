@@ -1,0 +1,33 @@
+{
+  "name": "constraints_primary_key",
+  "description": "Single column and composite primary key constraints (PK implies NOT NULL)",
+  "category": "catalog/create_table",
+  "tags": ["constraints", "primary_key"],
+  "schema_sql": [
+    "CREATE TABLE single_pk (id integer PRIMARY KEY, name text)",
+    "CREATE TABLE composite_pk (tenant_id integer, user_id integer, data text, PRIMARY KEY (tenant_id, user_id))"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "single_pk": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": true }
+          ]
+        },
+        "composite_pk": {
+          "columns": [
+            { "name": "tenant_id", "sql_type": "integer", "nullable": false },
+            { "name": "user_id", "sql_type": "integer", "nullable": false },
+            { "name": "data", "sql_type": "text", "nullable": true }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

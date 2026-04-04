@@ -1,0 +1,43 @@
+{
+  "category": "aggregates/group_by",
+  "description": "GROUP BY with HAVING clause and parameter",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "department",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "cnt",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "CountByDepartmentHaving",
+      "params": [
+        {
+          "name": "min_count",
+          "nullable": false,
+          "position": 1,
+          "type": "int64"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "group_by_having",
+  "query_sql": "-- @name CountByDepartmentHaving\n-- @returns :many\nSELECT department, COUNT(*) AS cnt FROM sales GROUP BY department HAVING COUNT(*) > $1",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "aggregate",
+    "group_by",
+    "having",
+    "param"
+  ]
+}

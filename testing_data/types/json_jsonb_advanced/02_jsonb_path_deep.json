@@ -1,0 +1,36 @@
+{
+  "category": "types/json_jsonb_advanced",
+  "description": "Test #>> operator for deep path extraction from JSONB, returning text that may be null if path does not exist",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "deep_val",
+          "note": "Key path may not exist in the JSONB data, so result can be NULL",
+          "nullable": true,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetDeepValue",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "jsonb_deep_path_extraction",
+  "query_sql": "-- @name GetDeepValue\n-- @returns :many\nSELECT id, data #>> '{nested,deep,key}' AS deep_val FROM documents",
+  "schema_sql": [
+    "CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"
+  ],
+  "source": "original",
+  "tags": [
+    "jsonb",
+    "operator",
+    "path_extraction"
+  ]
+}

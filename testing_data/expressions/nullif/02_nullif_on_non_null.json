@@ -1,0 +1,31 @@
+{
+  "category": "expressions/nullif",
+  "description": "NULLIF on a NOT NULL column still produces nullable result",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "name",
+          "note": "NULLIF can always return NULL, regardless of input column nullability",
+          "nullable": true,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetNonEmptyName",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "nullif_on_non_null",
+  "query_sql": "-- @name GetNonEmptyName\n-- @returns :many\nSELECT NULLIF(name, '') AS name FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "expressions",
+    "nullif",
+    "nullability"
+  ]
+}

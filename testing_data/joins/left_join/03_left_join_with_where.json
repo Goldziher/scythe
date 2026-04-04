@@ -1,0 +1,54 @@
+{
+  "category": "joins/left_join",
+  "description": "LEFT JOIN with WHERE on left table only, right-side columns still nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "total",
+          "note": "RIGHT side of LEFT JOIN: becomes nullable",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "GetActiveUsersWithOrders",
+      "params": [
+        {
+          "name": "status",
+          "nullable": false,
+          "position": 1,
+          "type": "string"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "left_join_with_where",
+  "query_sql": "-- @name GetActiveUsersWithOrders\n-- @returns :many\nSELECT u.id, u.name, o.total FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.status = $1",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe correctly marks o.total as nullable due to LEFT JOIN",
+    "sqlc_behavior": "sqlc marks o.total as non-nullable"
+  },
+  "tags": [
+    "join",
+    "left_join",
+    "where",
+    "nullability"
+  ]
+}

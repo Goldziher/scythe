@@ -1,0 +1,54 @@
+{
+  "category": "types/json_jsonb",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    },
+    "type_overrides": [
+      {
+        "column": "events.data",
+        "json": true,
+        "lang_type": "EventData"
+      }
+    ]
+  },
+  "description": "Map a JSON column to a strongly-typed Rust struct using @json annotation and type override",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventsTypedRow {\n    pub id: i32,\n    pub data: sqlx::types::Json<EventData>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "data",
+          "nullable": false,
+          "type": "json_typed<EventData>"
+        }
+      ],
+      "command": "many",
+      "name": "GetEventsTyped",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "json_typed_mapping",
+  "query_sql": "-- @name GetEventsTyped\n-- @returns :many\n-- @json data = EventData\nSELECT id, data FROM events;",
+  "schema_sql": [
+    "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "json",
+    "typed",
+    "annotation",
+    "override"
+  ]
+}

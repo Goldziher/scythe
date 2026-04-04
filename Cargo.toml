@@ -1,0 +1,17 @@
+[workspace]
+members = [
+  ".",
+  "crates/scythe-backend",
+  "tools/test-generator",
+  "tools/migrate-fixtures",
+]
+
+[package]
+name = "scythe"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+
+[dev-dependencies]

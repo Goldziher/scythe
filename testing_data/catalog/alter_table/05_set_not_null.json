@@ -1,0 +1,26 @@
+{
+  "name": "alter_set_not_null",
+  "description": "ALTER TABLE ALTER COLUMN SET NOT NULL makes a nullable column required",
+  "category": "catalog/alter_table",
+  "tags": ["alter_table", "set_not_null"],
+  "schema_sql": [
+    "CREATE TABLE users (id serial PRIMARY KEY, email text)",
+    "ALTER TABLE users ALTER COLUMN email SET NOT NULL"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "email", "sql_type": "text", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

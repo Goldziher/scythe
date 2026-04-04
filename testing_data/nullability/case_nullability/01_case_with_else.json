@@ -1,0 +1,35 @@
+{
+  "category": "nullability/case_nullability",
+  "description": "CASE with all non-null branches and an ELSE clause is non-nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "active",
+          "note": "all THEN branches and ELSE are non-null literals",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetUserActiveFlag",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "case_with_else",
+  "query_sql": "-- @name GetUserActiveFlag\n-- @returns :many\nSELECT CASE WHEN status = 'active' THEN 'yes' ELSE 'no' END AS active FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe analyzes all CASE branches and ELSE to determine nullability precisely",
+    "sqlc_behavior": "sqlc may conservatively mark CASE expressions as nullable"
+  },
+  "tags": [
+    "nullability",
+    "case",
+    "improvement_over_sqlc"
+  ]
+}

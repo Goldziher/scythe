@@ -1,0 +1,42 @@
+{
+  "category": "nullability/right_join_nullable",
+  "description": "RIGHT JOIN makes left-side NOT NULL columns nullable because unmatched rows produce NULLs",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "name",
+          "note": "NOT NULL in schema but nullable due to RIGHT JOIN (left side)",
+          "nullable": true,
+          "type": "string"
+        },
+        {
+          "name": "id",
+          "note": "right-side column stays non-nullable",
+          "nullable": false,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "GetOrdersWithOptionalUser",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "left_side_becomes_nullable",
+  "query_sql": "-- @name GetOrdersWithOptionalUser\n-- @returns :many\nSELECT u.name, o.id FROM users u RIGHT JOIN orders o ON u.id = o.user_id",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe correctly infers that left-side columns of a RIGHT JOIN become nullable",
+    "sqlc_behavior": "sqlc marks u.name as non-nullable based on schema NOT NULL constraint, ignoring RIGHT JOIN"
+  },
+  "tags": [
+    "nullability",
+    "right_join",
+    "improvement_over_sqlc"
+  ]
+}

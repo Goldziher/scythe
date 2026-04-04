@@ -1,0 +1,39 @@
+{
+  "category": "aggregates/window_functions",
+  "description": "NTILE() window function returns i64 non-nullable bucket number",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "amount",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "quartile",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "NtileSales",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "window_ntile",
+  "query_sql": "-- @name NtileSales\n-- @returns :many\nSELECT id, amount, NTILE(4) OVER (ORDER BY amount) AS quartile FROM sales",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "window_function",
+    "ntile"
+  ]
+}

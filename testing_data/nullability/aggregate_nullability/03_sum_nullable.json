@@ -1,0 +1,35 @@
+{
+  "category": "nullability/aggregate_nullability",
+  "description": "SUM returns NULL on an empty set, so it is always nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "total_sum",
+          "note": "SUM returns NULL on empty result set, even though total is NOT NULL",
+          "nullable": true,
+          "type": "int64"
+        }
+      ],
+      "command": "one",
+      "name": "SumOrderTotals",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "sum_nullable",
+  "query_sql": "-- @name SumOrderTotals\n-- @returns :one\nSELECT SUM(total) AS total_sum FROM orders",
+  "schema_sql": [
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe correctly recognizes that SUM, AVG, MIN, MAX return NULL on empty sets",
+    "sqlc_behavior": "sqlc often marks SUM of a NOT NULL column as non-nullable"
+  },
+  "tags": [
+    "nullability",
+    "aggregate",
+    "improvement_over_sqlc"
+  ]
+}

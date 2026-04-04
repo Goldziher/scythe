@@ -1,0 +1,27 @@
+{
+  "name": "alter_add_column",
+  "description": "ALTER TABLE ADD COLUMN adds a new column to an existing table",
+  "category": "catalog/alter_table",
+  "tags": ["alter_table", "add_column"],
+  "schema_sql": [
+    "CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL)",
+    "ALTER TABLE users ADD COLUMN email text NOT NULL"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false },
+            { "name": "email", "sql_type": "text", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}
