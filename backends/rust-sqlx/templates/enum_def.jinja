@@ -1,0 +1,7 @@
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
+#[sqlx(type_name = "{{ enum.sql_name }}", rename_all = "snake_case")]
+pub enum {{ enum.type_name }} {
+{%- for variant in enum.variants %}
+    {{ variant.variant_name }},
+{%- endfor %}
+}

@@ -1,0 +1,51 @@
+pub async fn {{ query.fn_name }}(
+    pool: &sqlx::PgPool,
+{%- for param in query.params %}
+    {{ param.field_name }}: {{ param.full_type }},
+{%- endfor %}
+) -> Result<{% if query.command == "one" %}Option<{{ query.row_struct_name }}>{% elif query.command == "many" %}Vec<{{ query.row_struct_name }}>{% elif query.command == "exec" %}(){% elif query.command == "exec_result" %}sqlx::postgres::PgQueryResult{% elif query.command == "exec_rows" %}u64{% endif %}, sqlx::Error> {
+{%- if query.command == "one" or query.command == "many" %}
+    sqlx::query_as!(
+        {{ query.row_struct_name }},
+        r#"{{ query.sql }}"#,
+{%- for param in query.params %}
+        {{ param.field_name }},
+{%- endfor %}
+    )
+{%- if query.command == "one" %}
+    .fetch_optional(pool)
+{%- else %}
+    .fetch_all(pool)
+{%- endif %}
+    .await
+{%- elif query.command == "exec" %}
+    sqlx::query!(
+        r#"{{ query.sql }}"#,
+{%- for param in query.params %}
+        {{ param.field_name }},
+{%- endfor %}
+    )
+    .execute(pool)
+    .await?;
+    Ok(())
+{%- elif query.command == "exec_result" %}
+    sqlx::query!(
+        r#"{{ query.sql }}"#,
+{%- for param in query.params %}
+        {{ param.field_name }},
+{%- endfor %}
+    )
+    .execute(pool)
+    .await
+{%- elif query.command == "exec_rows" %}
+    let result = sqlx::query!(
+        r#"{{ query.sql }}"#,
+{%- for param in query.params %}
+        {{ param.field_name }},
+{%- endfor %}
+    )
+    .execute(pool)
+    .await?;
+    Ok(result.rows_affected())
+{%- endif %}
+}

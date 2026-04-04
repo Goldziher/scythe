@@ -1,0 +1,48 @@
+{
+  "category": "aggregates/window_functions",
+  "description": "LAG and LEAD window functions return nullable values when there is no row at the offset",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "amount",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "prev_amount",
+          "note": "LAG returns NULL when there is no previous row",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "next_amount",
+          "note": "LEAD returns NULL when there is no next row",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "LagLeadSales",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "window_lag_lead",
+  "query_sql": "-- @name LagLeadSales\n-- @returns :many\nSELECT id, amount, LAG(amount, 1) OVER (ORDER BY sale_date) AS prev_amount, LEAD(amount, 1) OVER (ORDER BY sale_date) AS next_amount FROM sales",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "window_function",
+    "lag",
+    "lead",
+    "nullable"
+  ]
+}

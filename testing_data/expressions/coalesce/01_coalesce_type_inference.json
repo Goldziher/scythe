@@ -1,0 +1,38 @@
+{
+  "category": "expressions/coalesce",
+  "description": "COALESCE infers the type from the first argument and literal default makes it non-nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "age",
+          "note": "type from first arg (integer), non-nullable due to literal default 0",
+          "nullable": false,
+          "type": "int32"
+        }
+      ],
+      "command": "one",
+      "name": "GetUserAge",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "position": 1,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "coalesce_type_inference",
+  "query_sql": "-- @name GetUserAge\n-- @returns :one\nSELECT COALESCE(age, 0) AS age FROM users WHERE id = $1",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "expressions",
+    "coalesce",
+    "type_inference"
+  ]
+}

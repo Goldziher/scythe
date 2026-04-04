@@ -1,0 +1,31 @@
+{
+  "category": "expressions/case",
+  "description": "CASE expression with numeric column references preserves the column type",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "adjusted",
+          "note": "both branches reference non-nullable integer column with ELSE clause",
+          "nullable": false,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "GetAdjustedPrice",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "case_numeric_branches",
+  "query_sql": "-- @name GetAdjustedPrice\n-- @returns :many\nSELECT CASE WHEN price > 100 THEN price * 2 ELSE price END AS adjusted FROM products",
+  "schema_sql": [
+    "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price INTEGER NOT NULL, description TEXT, category TEXT NOT NULL)"
+  ],
+  "source": "original",
+  "tags": [
+    "expressions",
+    "case",
+    "type_inference"
+  ]
+}

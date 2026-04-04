@@ -1,0 +1,30 @@
+{
+  "category": "nullability/aggregate_nullability",
+  "description": "COUNT(*) always returns a non-nullable i64, even on empty tables",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "cnt",
+          "note": "COUNT(*) never returns NULL, returns 0 on empty set",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "one",
+      "name": "CountUsers",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "count_star_non_null",
+  "query_sql": "-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) AS cnt FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "nullability",
+    "aggregate"
+  ]
+}

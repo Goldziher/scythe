@@ -1,0 +1,27 @@
+{
+  "name": "alter_drop_column",
+  "description": "ALTER TABLE DROP COLUMN removes a column from an existing table",
+  "category": "catalog/alter_table",
+  "tags": ["alter_table", "drop_column"],
+  "schema_sql": [
+    "CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL, nickname text, email text NOT NULL)",
+    "ALTER TABLE users DROP COLUMN nickname"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false },
+            { "name": "email", "sql_type": "text", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

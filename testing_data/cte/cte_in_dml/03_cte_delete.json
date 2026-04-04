@@ -1,0 +1,21 @@
+{
+  "name": "cte_delete",
+  "description": "CTE used with DELETE ... USING for targeted deletes",
+  "category": "cte/cte_in_dml",
+  "tags": ["cte", "delete", "dml"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "query_sql": "-- @name DeleteOldInactiveUsers\n-- @returns :exec\nWITH old_inactive AS (SELECT id FROM users WHERE status = 'inactive' AND created_at < now() - interval '1 year') DELETE FROM users USING old_inactive WHERE users.id = old_inactive.id",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "DeleteOldInactiveUsers",
+      "command": "exec",
+      "params": [],
+      "columns": []
+    }
+  },
+  "source": "original"
+}

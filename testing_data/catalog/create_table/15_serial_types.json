@@ -1,0 +1,26 @@
+{
+  "name": "serial_types",
+  "description": "serial, bigserial, smallserial columns with implicit NOT NULL and underlying integer types",
+  "category": "catalog/create_table",
+  "tags": ["types", "serial"],
+  "schema_sql": [
+    "CREATE TABLE serials (a smallserial, b serial, c bigserial)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "serials": {
+          "columns": [
+            { "name": "a", "sql_type": "smallint", "nullable": false },
+            { "name": "b", "sql_type": "integer", "nullable": false },
+            { "name": "c", "sql_type": "bigint", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

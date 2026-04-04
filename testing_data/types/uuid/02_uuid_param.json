@@ -1,0 +1,52 @@
+{
+  "category": "types/uuid",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Use a UUID primary key as a query parameter",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn get_user_by_id(pool: &sqlx::PgPool, id: &uuid::Uuid) -> Result<GetUserByIdRow, sqlx::Error> {\n    sqlx::query_as!(GetUserByIdRow, \"SELECT id, name FROM users WHERE id = $1\", id)\n        .fetch_one(pool)\n        .await\n}",
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserByIdRow {\n    pub id: uuid::Uuid,\n    pub name: String,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "one",
+      "name": "GetUserById",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "uuid"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "uuid_param",
+  "query_sql": "-- @name GetUserById\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;",
+  "schema_sql": [
+    "CREATE TABLE users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "uuid",
+    "param"
+  ]
+}

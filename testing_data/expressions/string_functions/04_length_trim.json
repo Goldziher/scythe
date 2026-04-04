@@ -1,0 +1,41 @@
+{
+  "category": "expressions/string_functions",
+  "description": "LENGTH returns i32 and TRIM returns String, both non-nullable on NOT NULL input",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name_len",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "trimmed",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "LengthTrimNames",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "string_length_trim",
+  "query_sql": "-- @name LengthTrimNames\n-- @returns :many\nSELECT id, LENGTH(name) AS name_len, TRIM(name) AS trimmed FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);"
+  ],
+  "source": "original",
+  "tags": [
+    "expression",
+    "string",
+    "length",
+    "trim"
+  ]
+}

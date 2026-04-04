@@ -1,0 +1,35 @@
+{
+  "category": "annotations/returns",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Verify :exec_rows return annotation returns the number of affected rows",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn deactivate_users(pool: &sqlx::PgPool) -> Result<u64, sqlx::Error> {\n    let result = sqlx::query!(\"UPDATE users SET active = false WHERE active = true\")\n        .execute(pool)\n        .await?;\n    Ok(result.rows_affected())\n}"
+      }
+    },
+    "query": {
+      "columns": [],
+      "command": "exec_rows",
+      "name": "DeactivateUsers",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "returns_exec_rows",
+  "query_sql": "-- @name DeactivateUsers\n-- @returns :exec_rows\nUPDATE users SET active = false WHERE active = true;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, active BOOLEAN NOT NULL DEFAULT true);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "annotation",
+    "returns",
+    "exec_rows"
+  ]
+}

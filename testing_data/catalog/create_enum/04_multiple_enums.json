@@ -1,0 +1,30 @@
+{
+  "name": "multiple_enums",
+  "description": "Multiple enum types defined together",
+  "category": "catalog/create_enum",
+  "tags": ["enum", "multiple"],
+  "schema_sql": [
+    "CREATE TYPE status AS ENUM ('active', 'inactive')",
+    "CREATE TYPE role AS ENUM ('admin', 'editor', 'viewer')",
+    "CREATE TYPE priority AS ENUM ('low', 'medium', 'high', 'critical')"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {},
+      "enums": {
+        "status": {
+          "values": ["active", "inactive"]
+        },
+        "role": {
+          "values": ["admin", "editor", "viewer"]
+        },
+        "priority": {
+          "values": ["low", "medium", "high", "critical"]
+        }
+      },
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

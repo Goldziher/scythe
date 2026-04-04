@@ -1,0 +1,31 @@
+{
+  "name": "catalog_all_numeric_types",
+  "description": "Table with all PostgreSQL numeric types: smallint, integer, bigint, real, double precision, numeric, serial, bigserial",
+  "category": "catalog/create_table",
+  "tags": ["types", "numeric"],
+  "schema_sql": [
+    "CREATE TABLE numeric_types (a smallint, b integer, c bigint, d real, e double precision, f numeric(10,2), g serial, h bigserial)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "numeric_types": {
+          "columns": [
+            { "name": "a", "sql_type": "smallint", "nullable": true },
+            { "name": "b", "sql_type": "integer", "nullable": true },
+            { "name": "c", "sql_type": "bigint", "nullable": true },
+            { "name": "d", "sql_type": "real", "nullable": true },
+            { "name": "e", "sql_type": "double precision", "nullable": true },
+            { "name": "f", "sql_type": "numeric(10,2)", "nullable": true },
+            { "name": "g", "sql_type": "integer", "nullable": false },
+            { "name": "h", "sql_type": "bigint", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

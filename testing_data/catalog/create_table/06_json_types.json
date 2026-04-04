@@ -1,0 +1,26 @@
+{
+  "name": "json_types",
+  "description": "Table with json and jsonb column types",
+  "category": "catalog/create_table",
+  "tags": ["types", "json"],
+  "schema_sql": [
+    "CREATE TABLE documents (id serial, metadata json, payload jsonb NOT NULL)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "documents": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "metadata", "sql_type": "json", "nullable": true },
+            { "name": "payload", "sql_type": "jsonb", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

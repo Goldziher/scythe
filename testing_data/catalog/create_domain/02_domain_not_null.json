@@ -1,0 +1,18 @@
+{
+  "name": "domain_not_null",
+  "description": "CREATE DOMAIN with NOT NULL constraint",
+  "category": "catalog/create_domain",
+  "tags": ["domain", "not_null"],
+  "schema_sql": [
+    "CREATE DOMAIN non_empty_text AS text NOT NULL"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {},
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

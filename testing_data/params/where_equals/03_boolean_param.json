@@ -1,0 +1,53 @@
+{
+  "category": "params/where_equals",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Boolean parameter in WHERE equals clause",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn get_users_by_active(pool: &sqlx::PgPool, active: bool) -> Result<Vec<GetUsersByActiveRow>, sqlx::Error> {\n    sqlx::query_as!(GetUsersByActiveRow, \"SELECT id, name FROM users WHERE active = $1\", active)\n        .fetch_all(pool)\n        .await\n}",
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUsersByActiveRow {\n    pub id: i32,\n    pub name: String,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetUsersByActive",
+      "params": [
+        {
+          "name": "active",
+          "nullable": false,
+          "type": "bool"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "boolean_param",
+  "query_sql": "-- @name GetUsersByActive\n-- @returns :many\nSELECT id, name FROM users WHERE active = $1;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, active BOOLEAN NOT NULL DEFAULT true);"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "param",
+    "boolean",
+    "where"
+  ]
+}

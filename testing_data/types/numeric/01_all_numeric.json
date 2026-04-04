@@ -1,0 +1,72 @@
+{
+  "category": "types/numeric",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Select all numeric types and verify correct Rust type mappings",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetNumericDataRow {\n    pub id: i32,\n    pub small: i16,\n    pub med: i32,\n    pub big: i64,\n    pub r: f32,\n    pub d: f64,\n    pub n: rust_decimal::Decimal,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "small",
+          "nullable": false,
+          "type": "int16"
+        },
+        {
+          "name": "med",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "big",
+          "nullable": false,
+          "type": "int64"
+        },
+        {
+          "name": "r",
+          "nullable": false,
+          "type": "float32"
+        },
+        {
+          "name": "d",
+          "nullable": false,
+          "type": "float64"
+        },
+        {
+          "name": "n",
+          "nullable": false,
+          "type": "decimal"
+        }
+      ],
+      "command": "many",
+      "name": "GetNumericData",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "select_all_numeric_types",
+  "query_sql": "-- @name GetNumericData\n-- @returns :many\nSELECT id, small, med, big, r, d, n FROM numeric_data;",
+  "schema_sql": [
+    "CREATE TABLE numeric_data (id SERIAL PRIMARY KEY, small SMALLINT NOT NULL, med INTEGER NOT NULL, big BIGINT NOT NULL, r REAL NOT NULL, d DOUBLE PRECISION NOT NULL, n NUMERIC(10,2) NOT NULL);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "numeric",
+    "integer",
+    "float",
+    "decimal"
+  ]
+}

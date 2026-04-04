@@ -1,0 +1,27 @@
+{
+  "name": "array_columns",
+  "description": "Table with array column types: int[], text[], boolean[]",
+  "category": "catalog/create_table",
+  "tags": ["types", "array"],
+  "schema_sql": [
+    "CREATE TABLE arrays_example (id serial, int_list int[], tags text[], flags boolean[])"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "arrays_example": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "int_list", "sql_type": "int[]", "nullable": true },
+            { "name": "tags", "sql_type": "text[]", "nullable": true },
+            { "name": "flags", "sql_type": "boolean[]", "nullable": true }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

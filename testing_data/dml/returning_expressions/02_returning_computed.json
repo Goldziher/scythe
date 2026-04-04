@@ -1,0 +1,49 @@
+{
+  "category": "dml/returning_expressions",
+  "description": "UPDATE with RETURNING a computed expression (total * 2)",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "doubled",
+          "nullable": false,
+          "type": "int32"
+        }
+      ],
+      "command": "one",
+      "name": "UpdateOrderReturnDoubled",
+      "params": [
+        {
+          "name": "total",
+          "nullable": false,
+          "position": 1,
+          "type": "int32"
+        },
+        {
+          "name": "id",
+          "nullable": false,
+          "position": 2,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "update_returning_computed",
+  "query_sql": "-- @name UpdateOrderReturnDoubled\n-- @returns :one\nUPDATE orders SET total = $1 WHERE id = $2 RETURNING id, total * 2 AS doubled",
+  "schema_sql": [
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, total INTEGER NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "update",
+    "returning",
+    "expression",
+    "computed"
+  ]
+}

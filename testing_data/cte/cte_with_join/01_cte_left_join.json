@@ -1,0 +1,53 @@
+{
+  "category": "cte/cte_with_join",
+  "description": "CTE result used in a LEFT JOIN, making right-side columns nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "total",
+          "note": "RIGHT side of LEFT JOIN: becomes nullable",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "notes",
+          "note": "Already nullable in schema AND on right side of LEFT JOIN",
+          "nullable": true,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetActiveUsersWithOptionalOrders",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "cte_left_join",
+  "query_sql": "-- @name GetActiveUsersWithOptionalOrders\n-- @returns :many\nWITH active AS (SELECT id, name FROM users WHERE status = 'active') SELECT a.id, a.name, o.total, o.notes FROM active a LEFT JOIN orders o ON a.id = o.user_id",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe correctly marks o.total as nullable because it is on the right side of a LEFT JOIN",
+    "sqlc_behavior": "sqlc marks o.total as non-nullable because orders.total is NOT NULL"
+  },
+  "tags": [
+    "cte",
+    "left_join",
+    "nullability",
+    "key_improvement"
+  ]
+}

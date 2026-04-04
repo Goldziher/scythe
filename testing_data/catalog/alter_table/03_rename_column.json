@@ -1,0 +1,26 @@
+{
+  "name": "alter_rename_column",
+  "description": "ALTER TABLE RENAME COLUMN changes a column name",
+  "category": "catalog/alter_table",
+  "tags": ["alter_table", "rename_column"],
+  "schema_sql": [
+    "CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL)",
+    "ALTER TABLE users RENAME COLUMN name TO full_name"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "full_name", "sql_type": "text", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

@@ -1,0 +1,58 @@
+{
+  "category": "params/where_equals",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "String parameter in WHERE equals clause",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn get_user_by_name(pool: &sqlx::PgPool, name: &str) -> Result<GetUserByNameRow, sqlx::Error> {\n    sqlx::query_as!(GetUserByNameRow, \"SELECT id, name, email FROM users WHERE name = $1\", name)\n        .fetch_one(pool)\n        .await\n}",
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserByNameRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "one",
+      "name": "GetUserByName",
+      "params": [
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "string_param",
+  "query_sql": "-- @name GetUserByName\n-- @returns :one\nSELECT id, name, email FROM users WHERE name = $1;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "param",
+    "string",
+    "where"
+  ]
+}

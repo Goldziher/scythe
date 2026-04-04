@@ -1,0 +1,41 @@
+{
+  "category": "annotations/returns",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Verify :exec_result return annotation returns PgQueryResult",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn delete_inactive_users(pool: &sqlx::PgPool, id: i32) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {\n    sqlx::query!(\"DELETE FROM users WHERE id < $1\", id)\n        .execute(pool)\n        .await\n}"
+      }
+    },
+    "query": {
+      "columns": [],
+      "command": "exec_result",
+      "name": "DeleteInactiveUsers",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "returns_exec_result",
+  "query_sql": "-- @name DeleteInactiveUsers\n-- @returns :exec_result\nDELETE FROM users WHERE id < $1;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "annotation",
+    "returns",
+    "exec_result"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "name": "composite_with_types",
+  "description": "Composite type with various field types including arrays",
+  "category": "catalog/create_composite",
+  "tags": ["composite", "create_type", "arrays"],
+  "schema_sql": [
+    "CREATE TYPE inventory_item AS (name text, supplier_id integer, price numeric(10,2), tags text[], in_stock boolean)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {},
+      "enums": {},
+      "composites": {
+        "inventory_item": {
+          "fields": [
+            { "name": "name", "sql_type": "text" },
+            { "name": "supplier_id", "sql_type": "integer" },
+            { "name": "price", "sql_type": "numeric(10,2)" },
+            { "name": "tags", "sql_type": "text[]" },
+            { "name": "in_stock", "sql_type": "boolean" }
+          ]
+        }
+      }
+    }
+  },
+  "source": "original"
+}

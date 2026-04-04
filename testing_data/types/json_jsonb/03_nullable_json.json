@@ -1,0 +1,46 @@
+{
+  "category": "types/json_jsonb",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Select a nullable JSON column mapped to Option<serde_json::Value>",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventsNullableJsonRow {\n    pub id: i32,\n    pub data: Option<serde_json::Value>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "data",
+          "nullable": true,
+          "type": "json"
+        }
+      ],
+      "command": "many",
+      "name": "GetEventsNullableJson",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "nullable_json",
+  "query_sql": "-- @name GetEventsNullableJson\n-- @returns :many\nSELECT id, data FROM events;",
+  "schema_sql": [
+    "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSON);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "json",
+    "nullable",
+    "option"
+  ]
+}

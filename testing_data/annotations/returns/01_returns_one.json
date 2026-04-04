@@ -1,0 +1,52 @@
+{
+  "category": "annotations/returns",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Verify :one return annotation maps to fetch_one",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn get_one_user(pool: &sqlx::PgPool, id: i32) -> Result<GetOneUserRow, sqlx::Error> {\n    sqlx::query_as!(GetOneUserRow, \"SELECT id, name FROM users WHERE id = $1\", id)\n        .fetch_one(pool)\n        .await\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "one",
+      "name": "GetOneUser",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "returns_one",
+  "query_sql": "-- @name GetOneUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "annotation",
+    "returns",
+    "one"
+  ]
+}

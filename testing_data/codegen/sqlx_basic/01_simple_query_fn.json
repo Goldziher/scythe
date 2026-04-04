@@ -1,0 +1,58 @@
+{
+  "category": "codegen/sqlx_basic",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Full codegen test showing both row struct and query function with sqlx query_as! macro",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn list_users(pool: &sqlx::PgPool) -> Result<Vec<ListUsersRow>, sqlx::Error> {\n    sqlx::query_as!(ListUsersRow, \"SELECT id, name, email, created_at FROM users ORDER BY created_at DESC\")\n        .fetch_all(pool)\n        .await\n}",
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct ListUsersRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "many",
+      "name": "ListUsers",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "simple_query_fn",
+  "query_sql": "-- @name ListUsers\n-- @returns :many\nSELECT id, name, email, created_at FROM users ORDER BY created_at DESC;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "codegen",
+    "sqlx",
+    "query_as",
+    "many"
+  ]
+}

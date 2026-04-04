@@ -1,0 +1,34 @@
+{
+  "name": "alter_add_constraint",
+  "description": "ALTER TABLE ADD CONSTRAINT adds a foreign key constraint to an existing table",
+  "category": "catalog/alter_table",
+  "tags": ["alter_table", "add_constraint", "foreign_key"],
+  "schema_sql": [
+    "CREATE TABLE departments (id serial PRIMARY KEY, name text NOT NULL)",
+    "CREATE TABLE employees (id serial PRIMARY KEY, name text NOT NULL, department_id integer NOT NULL)",
+    "ALTER TABLE employees ADD CONSTRAINT fk_department FOREIGN KEY (department_id) REFERENCES departments (id)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "departments": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false }
+          ]
+        },
+        "employees": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false },
+            { "name": "department_id", "sql_type": "integer", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

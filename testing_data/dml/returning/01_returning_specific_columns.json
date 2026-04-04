@@ -1,0 +1,57 @@
+{
+  "category": "dml/returning",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "INSERT with RETURNING only specific columns (not *)",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct CreateUserReturnIdAndDateRow {\n    pub id: i32,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "one",
+      "name": "CreateUserReturnIdAndDate",
+      "params": [
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "returning_specific_columns",
+  "query_sql": "-- @name CreateUserReturnIdAndDate\n-- @returns :one\nINSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, created_at;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "insert",
+    "returning",
+    "specific_columns"
+  ]
+}

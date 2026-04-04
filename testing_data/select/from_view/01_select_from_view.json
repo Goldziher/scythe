@@ -1,0 +1,40 @@
+{
+  "category": "select/from_view",
+  "description": "SELECT from a VIEW should resolve column types from the underlying table",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "ListActiveUsers",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "select_from_view",
+  "query_sql": "-- @name ListActiveUsers\n-- @returns :many\nSELECT id, name, email FROM active_users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');",
+    "CREATE VIEW active_users AS SELECT id, name, email FROM users WHERE status = 'active';"
+  ],
+  "source": "original",
+  "tags": [
+    "view",
+    "select"
+  ]
+}

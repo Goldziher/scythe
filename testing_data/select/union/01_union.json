@@ -1,0 +1,35 @@
+{
+  "category": "select/union",
+  "description": "UNION of two SELECT statements with matching column types deduplicates rows",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "ListAllNames",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "union",
+  "query_sql": "-- @name ListAllNames\n-- @returns :many\nSELECT id, name FROM users UNION SELECT id, name FROM products",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT NOT NULL)"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "select",
+    "union"
+  ]
+}

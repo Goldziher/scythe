@@ -1,0 +1,35 @@
+{
+  "category": "annotations/returns",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Verify :exec return annotation maps to execute with no return value",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn delete_all_users(pool: &sqlx::PgPool) -> Result<(), sqlx::Error> {\n    sqlx::query!(\"DELETE FROM users\")\n        .execute(pool)\n        .await?;\n    Ok(())\n}"
+      }
+    },
+    "query": {
+      "columns": [],
+      "command": "exec",
+      "name": "DeleteAllUsers",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "returns_exec",
+  "query_sql": "-- @name DeleteAllUsers\n-- @returns :exec\nDELETE FROM users;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "annotation",
+    "returns",
+    "exec"
+  ]
+}

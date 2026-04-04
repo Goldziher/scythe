@@ -1,0 +1,28 @@
+{
+  "name": "constraints_default",
+  "description": "Columns with DEFAULT values",
+  "category": "catalog/create_table",
+  "tags": ["constraints", "default"],
+  "schema_sql": [
+    "CREATE TABLE posts (id serial PRIMARY KEY, title text NOT NULL, status text NOT NULL DEFAULT 'draft', view_count integer NOT NULL DEFAULT 0, created_at timestamptz NOT NULL DEFAULT now())"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "posts": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "title", "sql_type": "text", "nullable": false },
+            { "name": "status", "sql_type": "text", "nullable": false },
+            { "name": "view_count", "sql_type": "integer", "nullable": false },
+            { "name": "created_at", "sql_type": "timestamptz", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

@@ -1,0 +1,36 @@
+{
+  "category": "expressions/date_functions",
+  "description": "DATE_TRUNC preserves the timezone type of the input timestamp",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "month_start",
+          "note": "DATE_TRUNC preserves timezone type of input",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "many",
+      "name": "DateTruncMonth",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "date_trunc",
+  "query_sql": "-- @name DateTruncMonth\n-- @returns :many\nSELECT id, DATE_TRUNC('month', occurred_at) AS month_start FROM events",
+  "schema_sql": [
+    "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "expression",
+    "date",
+    "date_trunc"
+  ]
+}

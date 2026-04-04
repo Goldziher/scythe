@@ -1,0 +1,27 @@
+{
+  "name": "generated_columns",
+  "description": "GENERATED ALWAYS AS stored columns",
+  "category": "catalog/create_table",
+  "tags": ["generated", "computed"],
+  "schema_sql": [
+    "CREATE TABLE rectangles (id serial PRIMARY KEY, width real NOT NULL, height real NOT NULL, area real GENERATED ALWAYS AS (width * height) STORED)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "rectangles": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "width", "sql_type": "real", "nullable": false },
+            { "name": "height", "sql_type": "real", "nullable": false },
+            { "name": "area", "sql_type": "real", "nullable": true }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

@@ -1,0 +1,48 @@
+{
+  "category": "types/composite",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Select a composite type column mapped to a generated Rust struct",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "model_struct": "#[derive(Debug, Clone, sqlx::Type)]\n#[sqlx(type_name = \"address\")]\npub struct Address {\n    pub street: String,\n    pub city: String,\n    pub zip: String,\n}",
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetContactsRow {\n    pub id: i32,\n    pub home_address: Address,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "home_address",
+          "nullable": false,
+          "type": "composite::address"
+        }
+      ],
+      "command": "many",
+      "name": "GetContacts",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "composite_column",
+  "query_sql": "-- @name GetContacts\n-- @returns :many\nSELECT id, home_address FROM contacts;",
+  "schema_sql": [
+    "CREATE TYPE address AS (street TEXT, city TEXT, zip TEXT);",
+    "CREATE TABLE contacts (id SERIAL PRIMARY KEY, home_address address NOT NULL);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "composite",
+    "struct",
+    "custom_type"
+  ]
+}

@@ -1,0 +1,59 @@
+{
+  "category": "codegen/model_sharing",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "SELECT * returns all columns and should reuse the shared User model struct instead of creating a duplicate Row type",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "model_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct User {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}",
+        "query_fn": "pub async fn get_all_users(pool: &sqlx::PgPool) -> Result<Vec<User>, sqlx::Error> {\n    sqlx::query_as!(User, \"SELECT * FROM users\")\n        .fetch_all(pool)\n        .await\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "many",
+      "name": "GetAllUsers",
+      "params": []
+    },
+    "sqlc_comparison": "sqlc creates duplicate types for SELECT * queries instead of reusing the model",
+    "success": true
+  },
+  "name": "select_all_reuses_model",
+  "query_sql": "-- @name GetAllUsers\n-- @returns :many\nSELECT * FROM users;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+  ],
+  "source": "original",
+  "tags": [
+    "codegen",
+    "model",
+    "reuse",
+    "select_star"
+  ]
+}

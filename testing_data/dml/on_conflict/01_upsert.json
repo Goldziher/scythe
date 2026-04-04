@@ -1,0 +1,68 @@
+{
+  "category": "dml/on_conflict",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "INSERT ON CONFLICT DO UPDATE (upsert) with RETURNING *",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn upsert_user(pool: &sqlx::PgPool, name: &str, email: &str) -> Result<UpsertUserRow, sqlx::Error> {\n    sqlx::query_as!(UpsertUserRow, \"INSERT INTO users (name, email) VALUES ($1, $2) ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name RETURNING *\", name, email)\n        .fetch_one(pool)\n        .await\n}",
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct UpsertUserRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "one",
+      "name": "UpsertUser",
+      "params": [
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "upsert",
+  "query_sql": "-- @name UpsertUser\n-- @returns :one\nINSERT INTO users (name, email) VALUES ($1, $2) ON CONFLICT (email) DO UPDATE SET name = EXCLUDED.name RETURNING *;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL UNIQUE, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "upsert",
+    "on_conflict",
+    "returning"
+  ]
+}

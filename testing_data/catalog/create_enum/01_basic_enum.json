@@ -1,0 +1,22 @@
+{
+  "name": "basic_enum",
+  "description": "CREATE TYPE AS ENUM with three values",
+  "category": "catalog/create_enum",
+  "tags": ["enum", "create_type"],
+  "schema_sql": [
+    "CREATE TYPE status AS ENUM ('active', 'inactive', 'banned')"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {},
+      "enums": {
+        "status": {
+          "values": ["active", "inactive", "banned"]
+        }
+      },
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

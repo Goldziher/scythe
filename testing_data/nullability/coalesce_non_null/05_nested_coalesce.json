@@ -1,0 +1,36 @@
+{
+  "category": "nullability/coalesce_non_null",
+  "description": "Nested COALESCE where the outer call has a literal default is non-nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "val",
+          "note": "outer COALESCE has literal default, guaranteeing non-NULL even though inner COALESCE is nullable",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetNestedCoalesce",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "nested_coalesce",
+  "query_sql": "-- @name GetNestedCoalesce\n-- @returns :many\nSELECT COALESCE(COALESCE(u.bio, o.notes), 'default') AS val FROM users u LEFT JOIN orders o ON u.id = o.user_id",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe recursively analyzes nested COALESCE expressions to determine nullability",
+    "sqlc_behavior": "sqlc does not analyze nested COALESCE and marks the result as nullable"
+  },
+  "tags": [
+    "nullability",
+    "coalesce",
+    "improvement_over_sqlc"
+  ]
+}

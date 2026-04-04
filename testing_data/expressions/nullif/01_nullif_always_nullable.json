@@ -1,0 +1,31 @@
+{
+  "category": "expressions/nullif",
+  "description": "NULLIF always produces a nullable result because it can return NULL when arguments match",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "active_status",
+          "note": "NULLIF returns NULL when the two arguments are equal",
+          "nullable": true,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetActiveStatus",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "nullif_always_nullable",
+  "query_sql": "-- @name GetActiveStatus\n-- @returns :many\nSELECT NULLIF(status, 'inactive') AS active_status FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "expressions",
+    "nullif",
+    "nullability"
+  ]
+}

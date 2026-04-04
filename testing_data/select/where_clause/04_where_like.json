@@ -1,0 +1,48 @@
+{
+  "category": "select/where_clause",
+  "description": "WHERE LIKE with string parameter for pattern matching",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "SearchUsersByName",
+      "params": [
+        {
+          "name": "name",
+          "nullable": false,
+          "position": 1,
+          "type": "string"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "where_like",
+  "query_sql": "-- @name SearchUsersByName\n-- @returns :many\nSELECT id, name, email FROM users WHERE name LIKE $1",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "select",
+    "where",
+    "like",
+    "param"
+  ]
+}

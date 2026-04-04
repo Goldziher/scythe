@@ -1,0 +1,41 @@
+{
+  "category": "nullability/column_not_null",
+  "description": "Selecting only NOT NULL columns returns non-nullable types",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "one",
+      "name": "GetUserIdAndName",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "position": 1,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "not_null_columns",
+  "query_sql": "-- @name GetUserIdAndName\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "nullability",
+    "basic"
+  ]
+}

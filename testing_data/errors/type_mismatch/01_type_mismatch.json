@@ -1,0 +1,24 @@
+{
+  "name": "type_mismatch",
+  "description": "Compare incompatible types in WHERE clause, expecting an error",
+  "category": "errors/type_mismatch",
+  "tags": ["error", "type_mismatch"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+  ],
+  "query_sql": "-- @name GetTypeMismatch\n-- @returns :many\nSELECT id, name FROM users WHERE id = name;",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "TYPE_MISMATCH",
+      "message_contains": "operator does not exist: integer = text"
+    }
+  },
+  "source": "original"
+}

@@ -1,0 +1,40 @@
+{
+  "category": "select/basic",
+  "description": "SELECT specific columns from a single table, all non-nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "ListUsers",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "select_all_columns",
+  "query_sql": "-- @name ListUsers\n-- @returns :many\nSELECT id, name, email FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "select",
+    "basic",
+    "columns"
+  ]
+}

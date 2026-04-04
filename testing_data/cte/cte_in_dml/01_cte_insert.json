@@ -1,0 +1,21 @@
+{
+  "name": "cte_insert",
+  "description": "CTE used with INSERT ... SELECT for bulk data insertion",
+  "category": "cte/cte_in_dml",
+  "tags": ["cte", "insert", "dml"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE archived_users (id INTEGER NOT NULL, name TEXT NOT NULL, email TEXT NOT NULL)"
+  ],
+  "query_sql": "-- @name ArchiveInactiveUsers\n-- @returns :exec\nWITH inactive AS (SELECT id, name, email FROM users WHERE status = 'inactive') INSERT INTO archived_users (id, name, email) SELECT id, name, email FROM inactive",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "ArchiveInactiveUsers",
+      "command": "exec",
+      "params": [],
+      "columns": []
+    }
+  },
+  "source": "original"
+}

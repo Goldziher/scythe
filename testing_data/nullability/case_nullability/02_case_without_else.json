@@ -1,0 +1,30 @@
+{
+  "category": "nullability/case_nullability",
+  "description": "CASE without ELSE is nullable because unmatched cases produce NULL implicitly",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "active",
+          "note": "no ELSE clause means implicit NULL for unmatched cases",
+          "nullable": true,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetUserActiveOnly",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "case_without_else",
+  "query_sql": "-- @name GetUserActiveOnly\n-- @returns :many\nSELECT CASE WHEN status = 'active' THEN 'yes' END AS active FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "nullability",
+    "case"
+  ]
+}

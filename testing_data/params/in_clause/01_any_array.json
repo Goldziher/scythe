@@ -1,0 +1,59 @@
+{
+  "category": "params/in_clause",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Use ANY($1) for IN-style filtering with array parameter",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn get_users_by_ids(pool: &sqlx::PgPool, ids: &[i32]) -> Result<Vec<GetUsersByIdsRow>, sqlx::Error> {\n    sqlx::query_as!(GetUsersByIdsRow, \"SELECT id, name, email FROM users WHERE id = ANY($1)\", ids)\n        .fetch_all(pool)\n        .await\n}",
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUsersByIdsRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetUsersByIds",
+      "params": [
+        {
+          "name": "ids",
+          "nullable": false,
+          "type": "array<int32>"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "any_array_param",
+  "query_sql": "-- @name GetUsersByIds\n-- @returns :many\nSELECT id, name, email FROM users WHERE id = ANY($1);",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "param",
+    "any",
+    "array",
+    "in"
+  ]
+}

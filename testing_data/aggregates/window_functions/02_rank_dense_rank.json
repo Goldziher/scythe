@@ -1,0 +1,45 @@
+{
+  "category": "aggregates/window_functions",
+  "description": "RANK() and DENSE_RANK() window functions return i64 non-nullable",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "amount",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "rnk",
+          "nullable": false,
+          "type": "int64"
+        },
+        {
+          "name": "drnk",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "RankDenseRankSales",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "window_rank_dense_rank",
+  "query_sql": "-- @name RankDenseRankSales\n-- @returns :many\nSELECT id, amount, RANK() OVER (ORDER BY amount DESC) AS rnk, DENSE_RANK() OVER (ORDER BY amount DESC) AS drnk FROM sales",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "window_function",
+    "rank",
+    "dense_rank"
+  ]
+}

@@ -1,0 +1,63 @@
+{
+  "category": "dml/insert",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "INSERT with RETURNING specific columns",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "query_fn": "pub async fn create_user_returning(pool: &sqlx::PgPool, name: &str, email: &str) -> Result<CreateUserReturningRow, sqlx::Error> {\n    sqlx::query_as!(CreateUserReturningRow, \"INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name, created_at\", name, email)\n        .fetch_one(pool)\n        .await\n}",
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct CreateUserReturningRow {\n    pub id: i32,\n    pub name: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "created_at",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "one",
+      "name": "CreateUserReturning",
+      "params": [
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "insert_returning",
+  "query_sql": "-- @name CreateUserReturning\n-- @returns :one\nINSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name, created_at;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+  ],
+  "source": "sqlc",
+  "tags": [
+    "insert",
+    "returning",
+    "one"
+  ]
+}

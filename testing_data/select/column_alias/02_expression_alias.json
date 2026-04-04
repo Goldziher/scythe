@@ -1,0 +1,36 @@
+{
+  "category": "select/column_alias",
+  "description": "Expression with alias infers correct type from the function return type",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "upper_name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "ListUpperNames",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "expression_alias",
+  "query_sql": "-- @name ListUpperNames\n-- @returns :many\nSELECT id, UPPER(name) AS upper_name FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "select",
+    "alias",
+    "expression",
+    "function"
+  ]
+}

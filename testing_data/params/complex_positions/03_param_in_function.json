@@ -1,0 +1,43 @@
+{
+  "category": "params/complex_positions",
+  "description": "Parameter cast to interval type used in date arithmetic with NOW() function",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetRecentEvents",
+      "params": [
+        {
+          "name": "duration",
+          "nullable": false,
+          "position": 1,
+          "type": "interval"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "param_in_interval_arithmetic",
+  "query_sql": "-- @name GetRecentEvents\n-- @returns :many\nSELECT id, name FROM events WHERE occurred_at > NOW() - $1::interval",
+  "schema_sql": [
+    "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "param",
+    "interval",
+    "cast",
+    "date_arithmetic"
+  ]
+}

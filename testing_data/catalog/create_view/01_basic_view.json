@@ -1,0 +1,28 @@
+{
+  "name": "basic_view",
+  "description": "CREATE VIEW with a SELECT from an existing table",
+  "category": "catalog/create_view",
+  "tags": ["view", "select"],
+  "schema_sql": [
+    "CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL, email text NOT NULL, is_active boolean NOT NULL DEFAULT true)",
+    "CREATE VIEW active_users AS SELECT id, name, email FROM users WHERE is_active = true"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false },
+            { "name": "email", "sql_type": "text", "nullable": false },
+            { "name": "is_active", "sql_type": "boolean", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

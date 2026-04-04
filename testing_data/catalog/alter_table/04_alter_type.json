@@ -1,0 +1,26 @@
+{
+  "name": "alter_column_type",
+  "description": "ALTER TABLE ALTER COLUMN SET DATA TYPE changes a column type",
+  "category": "catalog/alter_table",
+  "tags": ["alter_table", "alter_type"],
+  "schema_sql": [
+    "CREATE TABLE users (id serial PRIMARY KEY, age smallint NOT NULL)",
+    "ALTER TABLE users ALTER COLUMN age SET DATA TYPE integer"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "age", "sql_type": "integer", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

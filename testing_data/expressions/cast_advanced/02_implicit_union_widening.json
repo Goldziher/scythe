@@ -1,0 +1,32 @@
+{
+  "category": "expressions/cast_advanced",
+  "description": "Type widening in UNION — result uses the wider type",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "val",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "GetAllNums",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "cast_union_type_widening",
+  "note": "Type widening in UNION — result uses the wider type",
+  "query_sql": "-- @name GetAllNums\n-- @returns :many\nSELECT val FROM small_nums UNION ALL SELECT val FROM big_nums",
+  "schema_sql": [
+    "CREATE TABLE small_nums (val SMALLINT NOT NULL);",
+    "CREATE TABLE big_nums (val BIGINT NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "cast",
+    "union",
+    "type_widening"
+  ]
+}

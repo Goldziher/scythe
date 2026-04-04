@@ -1,0 +1,38 @@
+{
+  "category": "expressions/cast",
+  "description": "Casting a nullable column to text preserves nullability",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "age_str",
+          "note": "cast changes type to String but age is nullable, so result is nullable",
+          "nullable": true,
+          "type": "string"
+        }
+      ],
+      "command": "one",
+      "name": "GetAgeAsText",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "position": 1,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "cast_text",
+  "query_sql": "-- @name GetAgeAsText\n-- @returns :one\nSELECT age::text AS age_str FROM users WHERE id = $1",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": [
+    "expressions",
+    "cast",
+    "nullability"
+  ]
+}

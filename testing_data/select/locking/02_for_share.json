@@ -1,0 +1,42 @@
+{
+  "category": "select/locking",
+  "description": "SELECT with FOR SHARE locking clause for shared read locks",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "one",
+      "name": "LockUserForShare",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "position": 1,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "select_for_share",
+  "query_sql": "-- @name LockUserForShare\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1 FOR SHARE",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "select",
+    "locking",
+    "for_share"
+  ]
+}

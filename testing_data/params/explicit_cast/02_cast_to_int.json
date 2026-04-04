@@ -1,0 +1,52 @@
+{
+  "category": "params/explicit_cast",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Explicit cast $1::integer determines parameter type as i32",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserByCastIntRow {\n    pub id: i32,\n    pub name: String,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "one",
+      "name": "GetUserByCastInt",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "cast_to_int",
+  "query_sql": "-- @name GetUserByCastInt\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1::integer;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "param",
+    "cast",
+    "integer"
+  ]
+}

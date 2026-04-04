@@ -1,0 +1,18 @@
+{
+  "name": "error_union_column_mismatch",
+  "description": "UNION with different column counts should produce an error",
+  "category": "errors/invalid_union",
+  "tags": ["error", "union", "column_count"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+  ],
+  "query_sql": "-- @name UnionMismatch\n-- @returns :many\nSELECT id, name, email FROM users UNION SELECT id, name FROM users",
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "COLUMN_COUNT_MISMATCH",
+      "message_contains": "column"
+    }
+  },
+  "source": "original"
+}

@@ -1,0 +1,46 @@
+{
+  "category": "types/arrays",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Select a non-nullable integer array column mapped to Vec<i32>",
+  "expected": {
+    "generated_code": {
+      "rust-sqlx": {
+        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetScoresRow {\n    pub id: i32,\n    pub values: Vec<i32>,\n}"
+      }
+    },
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "values",
+          "nullable": false,
+          "type": "array<int32>"
+        }
+      ],
+      "command": "many",
+      "name": "GetScores",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "integer_array",
+  "query_sql": "-- @name GetScores\n-- @returns :many\nSELECT id, values FROM scores;",
+  "schema_sql": [
+    "CREATE TABLE scores (id SERIAL PRIMARY KEY, values INT[] NOT NULL);"
+  ],
+  "source": "sqlc_expanded",
+  "tags": [
+    "array",
+    "integer",
+    "vec"
+  ]
+}

@@ -1,0 +1,47 @@
+{
+  "category": "expressions/math_functions",
+  "description": "ABS, CEIL, and FLOOR math functions preserve non-nullability",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "abs_qty",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "ceil_val",
+          "nullable": false,
+          "type": "float64"
+        },
+        {
+          "name": "floor_val",
+          "nullable": false,
+          "type": "float64"
+        }
+      ],
+      "command": "many",
+      "name": "AbsCeilFloor",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "math_abs_ceil_floor",
+  "query_sql": "-- @name AbsCeilFloor\n-- @returns :many\nSELECT id, ABS(quantity) AS abs_qty, CEIL(value) AS ceil_val, FLOOR(value) AS floor_val FROM measurements",
+  "schema_sql": [
+    "CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION NOT NULL, quantity INTEGER NOT NULL);"
+  ],
+  "source": "original",
+  "tags": [
+    "expression",
+    "math",
+    "abs",
+    "ceil",
+    "floor"
+  ]
+}

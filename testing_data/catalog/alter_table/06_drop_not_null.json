@@ -1,0 +1,26 @@
+{
+  "name": "alter_drop_not_null",
+  "description": "ALTER TABLE ALTER COLUMN DROP NOT NULL makes a required column nullable",
+  "category": "catalog/alter_table",
+  "tags": ["alter_table", "drop_not_null"],
+  "schema_sql": [
+    "CREATE TABLE users (id serial PRIMARY KEY, email text NOT NULL)",
+    "ALTER TABLE users ALTER COLUMN email DROP NOT NULL"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "email", "sql_type": "text", "nullable": true }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "sqlc"
+}

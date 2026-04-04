@@ -1,0 +1,6 @@
+#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize)]
+pub struct {{ model.type_name }} {
+{%- for field in model.fields %}
+    pub {{ field.field_name }}: {{ field.full_type }},
+{%- endfor %}
+}
