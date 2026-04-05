@@ -130,6 +130,16 @@ impl Catalog {
         })
     }
 
+    /// Iterate over all table names in the catalog.
+    pub fn tables(&self) -> impl Iterator<Item = &String> {
+        self.tables.keys()
+    }
+
+    /// Iterate over all enum names in the catalog.
+    pub fn enums_iter(&self) -> impl Iterator<Item = (&String, &EnumType)> {
+        self.enums.iter()
+    }
+
     pub fn get_composite(&self, name: &str) -> Option<&CompositeType> {
         let lower = name.to_lowercase();
         self.composites.get(&lower).or_else(|| {

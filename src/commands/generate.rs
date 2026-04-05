@@ -18,6 +18,8 @@ struct ScytheConfig {
     #[allow(dead_code)]
     scythe: ScytheMeta,
     sql: Vec<SqlConfig>,
+    #[serde(default)]
+    pub lint: Option<crate::lint::types::LintConfig>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -255,10 +257,21 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
 // ---------------------------------------------------------------------------
 
 pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+    use crate::lint::{LintContext, LintEngine, QueryViolation, Severity, default_registry};
+
     let config_str = std::fs::read_to_string(config_path)
         .map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: ScytheConfig = toml::from_str(&config_str)
         .map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+
+    // Build lint engine from config
+    let mut registry = default_registry();
+    if let Some(ref lint_config) = config.lint {
+        registry.apply_config(lint_config);
+    }
+    let engine = LintEngine::new(registry);
+
+    let mut all_violations: Vec<QueryViolation> = Vec::new();
 
     for sql_config in &config.sql {
         eprintln!("[{}] Parsing schema...", sql_config.name);
@@ -290,12 +303,91 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
             all_query_blocks.len()
         );
 
+        let mut query_names: Vec<String> = Vec::new();
+
         for block in &all_query_blocks {
             let parsed = parse_query(block)?;
-            let _analyzed = analyze(&catalog, &parsed)?;
+            let analyzed = analyze(&catalog, &parsed)?;
+
+            query_names.push(analyzed.name.clone());
+
+            let ctx = LintContext {
+                sql: &parsed.sql,
+                stmt: &parsed.stmt,
+                analyzed: &analyzed,
+                catalog: &catalog,
+                annotations: &parsed.annotations,
+            };
+            let violations = engine.check_query(&ctx);
+            for (v, sev) in violations {
+                all_violations.push(QueryViolation {
+                    query_name: analyzed.name.clone(),
+                    rule_id: v.rule_id,
+                    severity: sev,
+                    message: v.message,
+                });
+            }
+        }
+
+        // Check catalog-level rules
+        let cat_violations = engine.check_catalog(&catalog);
+        for (v, sev) in cat_violations {
+            all_violations.push(QueryViolation {
+                query_name: String::new(),
+                rule_id: v.rule_id,
+                severity: sev,
+                message: v.message,
+            });
+        }
+
+        // Duplicate query name detection (SC-C03)
+        let mut seen_names: AHashSet<String> = AHashSet::new();
+        for name in &query_names {
+            if !seen_names.insert(name.clone()) {
+                all_violations.push(QueryViolation {
+                    query_name: name.clone(),
+                    rule_id: "SC-C03",
+                    severity: Severity::Error,
+                    message: format!("duplicate query name: \"{}\"", name),
+                });
+            }
         }
 
         eprintln!("[{}] All queries valid.", sql_config.name);
+    }
+
+    // Print diagnostics
+    let mut error_count = 0usize;
+    let mut warning_count = 0usize;
+    for qv in &all_violations {
+        match qv.severity {
+            Severity::Error => {
+                error_count += 1;
+                eprintln!(
+                    "error: [{}] {} (query: {})",
+                    qv.rule_id, qv.message, qv.query_name
+                );
+            }
+            Severity::Warn => {
+                warning_count += 1;
+                eprintln!(
+                    "warning: [{}] {} (query: {})",
+                    qv.rule_id, qv.message, qv.query_name
+                );
+            }
+            Severity::Off => {}
+        }
+    }
+
+    if error_count > 0 {
+        return Err(format!(
+            "lint: {} error(s), {} warning(s)",
+            error_count, warning_count
+        )
+        .into());
+    }
+    if warning_count > 0 {
+        eprintln!("lint: {} warning(s)", warning_count);
     }
 
     eprintln!("Check passed.");
