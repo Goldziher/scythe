@@ -20,21 +20,51 @@ fn test_ambiguous_column() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("AMBIGUOUS_COLUMN"), "error should contain code {:?}, got: {}", "AMBIGUOUS_COLUMN", err_msg);
-            assert!(err_msg.contains("ambiguous"), "error should contain {:?}, got: {}", "ambiguous", err_msg);
+            assert!(
+                err_msg.contains("AMBIGUOUS_COLUMN"),
+                "error should contain code {:?}, got: {}",
+                "AMBIGUOUS_COLUMN",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("ambiguous"),
+                "error should contain {:?}, got: {}",
+                "ambiguous",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("AMBIGUOUS_COLUMN"), "error should contain code {:?}, got: {}", "AMBIGUOUS_COLUMN", err_msg);
-            assert!(err_msg.contains("ambiguous"), "error should contain {:?}, got: {}", "ambiguous", err_msg);
+            assert!(
+                err_msg.contains("AMBIGUOUS_COLUMN"),
+                "error should contain code {:?}, got: {}",
+                "AMBIGUOUS_COLUMN",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("ambiguous"),
+                "error should contain {:?}, got: {}",
+                "ambiguous",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("AMBIGUOUS_COLUMN"), "error should contain code {:?}, got: {}", "AMBIGUOUS_COLUMN", err_msg);
-        assert!(err_msg.contains("ambiguous"), "error should contain {:?}, got: {}", "ambiguous", err_msg);
+        assert!(
+            err_msg.contains("AMBIGUOUS_COLUMN"),
+            "error should contain code {:?}, got: {}",
+            "AMBIGUOUS_COLUMN",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("ambiguous"),
+            "error should contain {:?}, got: {}",
+            "ambiguous",
+            err_msg
+        );
     }
 }
 
@@ -42,9 +72,8 @@ fn test_ambiguous_column() {
 fn test_error_circular_cte() {
     // From: testing_data/errors/circular_cte/01_circular_cte.json
     // "Recursive CTE with no proper base case should produce an error"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
     let query_sql = "-- @name CircularCte\n-- @returns :many\nWITH RECURSIVE inf AS (SELECT * FROM inf) SELECT * FROM inf";
 
@@ -56,21 +85,51 @@ fn test_error_circular_cte() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("INVALID_RECURSION"), "error should contain code {:?}, got: {}", "INVALID_RECURSION", err_msg);
-            assert!(err_msg.contains("recursive"), "error should contain {:?}, got: {}", "recursive", err_msg);
+            assert!(
+                err_msg.contains("INVALID_RECURSION"),
+                "error should contain code {:?}, got: {}",
+                "INVALID_RECURSION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("recursive"),
+                "error should contain {:?}, got: {}",
+                "recursive",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("INVALID_RECURSION"), "error should contain code {:?}, got: {}", "INVALID_RECURSION", err_msg);
-            assert!(err_msg.contains("recursive"), "error should contain {:?}, got: {}", "recursive", err_msg);
+            assert!(
+                err_msg.contains("INVALID_RECURSION"),
+                "error should contain code {:?}, got: {}",
+                "INVALID_RECURSION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("recursive"),
+                "error should contain {:?}, got: {}",
+                "recursive",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("INVALID_RECURSION"), "error should contain code {:?}, got: {}", "INVALID_RECURSION", err_msg);
-        assert!(err_msg.contains("recursive"), "error should contain {:?}, got: {}", "recursive", err_msg);
+        assert!(
+            err_msg.contains("INVALID_RECURSION"),
+            "error should contain code {:?}, got: {}",
+            "INVALID_RECURSION",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("recursive"),
+            "error should contain {:?}, got: {}",
+            "recursive",
+            err_msg
+        );
     }
 }
 
@@ -78,11 +137,11 @@ fn test_error_circular_cte() {
 fn test_error_duplicate_column_alias() {
     // From: testing_data/errors/duplicate_column_alias/01_duplicate_alias.json
     // "Duplicate column aliases in SELECT should produce an error"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
-    let query_sql = "-- @name DuplicateAlias\n-- @returns :many\nSELECT id AS x, name AS x FROM users";
+    let query_sql =
+        "-- @name DuplicateAlias\n-- @returns :many\nSELECT id AS x, name AS x FROM users";
 
     let catalog_result = scythe::catalog::Catalog::from_ddl(schema_sql);
     if let Ok(catalog) = catalog_result {
@@ -92,21 +151,51 @@ fn test_error_duplicate_column_alias() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("DUPLICATE_ALIAS"), "error should contain code {:?}, got: {}", "DUPLICATE_ALIAS", err_msg);
-            assert!(err_msg.contains("duplicate"), "error should contain {:?}, got: {}", "duplicate", err_msg);
+            assert!(
+                err_msg.contains("DUPLICATE_ALIAS"),
+                "error should contain code {:?}, got: {}",
+                "DUPLICATE_ALIAS",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("duplicate"),
+                "error should contain {:?}, got: {}",
+                "duplicate",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("DUPLICATE_ALIAS"), "error should contain code {:?}, got: {}", "DUPLICATE_ALIAS", err_msg);
-            assert!(err_msg.contains("duplicate"), "error should contain {:?}, got: {}", "duplicate", err_msg);
+            assert!(
+                err_msg.contains("DUPLICATE_ALIAS"),
+                "error should contain code {:?}, got: {}",
+                "DUPLICATE_ALIAS",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("duplicate"),
+                "error should contain {:?}, got: {}",
+                "duplicate",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("DUPLICATE_ALIAS"), "error should contain code {:?}, got: {}", "DUPLICATE_ALIAS", err_msg);
-        assert!(err_msg.contains("duplicate"), "error should contain {:?}, got: {}", "duplicate", err_msg);
+        assert!(
+            err_msg.contains("DUPLICATE_ALIAS"),
+            "error should contain code {:?}, got: {}",
+            "DUPLICATE_ALIAS",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("duplicate"),
+            "error should contain {:?}, got: {}",
+            "duplicate",
+            err_msg
+        );
     }
 }
 
@@ -114,9 +203,7 @@ fn test_error_duplicate_column_alias() {
 fn test_invalid_returns_value() {
     // From: testing_data/errors/invalid_annotation/03_invalid_returns_value.json
     // "Query with invalid @returns value should produce an error"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
 
     let query_sql = "-- @name GetUsers\n-- @returns :invalid\nSELECT id, name FROM users;";
 
@@ -128,21 +215,51 @@ fn test_invalid_returns_value() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("INVALID_ANNOTATION"), "error should contain code {:?}, got: {}", "INVALID_ANNOTATION", err_msg);
-            assert!(err_msg.contains("invalid @returns value"), "error should contain {:?}, got: {}", "invalid @returns value", err_msg);
+            assert!(
+                err_msg.contains("INVALID_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "INVALID_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("invalid @returns value"),
+                "error should contain {:?}, got: {}",
+                "invalid @returns value",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("INVALID_ANNOTATION"), "error should contain code {:?}, got: {}", "INVALID_ANNOTATION", err_msg);
-            assert!(err_msg.contains("invalid @returns value"), "error should contain {:?}, got: {}", "invalid @returns value", err_msg);
+            assert!(
+                err_msg.contains("INVALID_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "INVALID_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("invalid @returns value"),
+                "error should contain {:?}, got: {}",
+                "invalid @returns value",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("INVALID_ANNOTATION"), "error should contain code {:?}, got: {}", "INVALID_ANNOTATION", err_msg);
-        assert!(err_msg.contains("invalid @returns value"), "error should contain {:?}, got: {}", "invalid @returns value", err_msg);
+        assert!(
+            err_msg.contains("INVALID_ANNOTATION"),
+            "error should contain code {:?}, got: {}",
+            "INVALID_ANNOTATION",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("invalid @returns value"),
+            "error should contain {:?}, got: {}",
+            "invalid @returns value",
+            err_msg
+        );
     }
 }
 
@@ -150,9 +267,7 @@ fn test_invalid_returns_value() {
 fn test_missing_name_annotation() {
     // From: testing_data/errors/invalid_annotation/01_missing_name.json
     // "Query without @name annotation should produce an error"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
 
     let query_sql = "-- @returns :many\nSELECT id, name FROM users;";
 
@@ -164,21 +279,51 @@ fn test_missing_name_annotation() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("MISSING_ANNOTATION"), "error should contain code {:?}, got: {}", "MISSING_ANNOTATION", err_msg);
-            assert!(err_msg.contains("missing @name annotation"), "error should contain {:?}, got: {}", "missing @name annotation", err_msg);
+            assert!(
+                err_msg.contains("MISSING_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "MISSING_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("missing @name annotation"),
+                "error should contain {:?}, got: {}",
+                "missing @name annotation",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("MISSING_ANNOTATION"), "error should contain code {:?}, got: {}", "MISSING_ANNOTATION", err_msg);
-            assert!(err_msg.contains("missing @name annotation"), "error should contain {:?}, got: {}", "missing @name annotation", err_msg);
+            assert!(
+                err_msg.contains("MISSING_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "MISSING_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("missing @name annotation"),
+                "error should contain {:?}, got: {}",
+                "missing @name annotation",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("MISSING_ANNOTATION"), "error should contain code {:?}, got: {}", "MISSING_ANNOTATION", err_msg);
-        assert!(err_msg.contains("missing @name annotation"), "error should contain {:?}, got: {}", "missing @name annotation", err_msg);
+        assert!(
+            err_msg.contains("MISSING_ANNOTATION"),
+            "error should contain code {:?}, got: {}",
+            "MISSING_ANNOTATION",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("missing @name annotation"),
+            "error should contain {:?}, got: {}",
+            "missing @name annotation",
+            err_msg
+        );
     }
 }
 
@@ -186,9 +331,7 @@ fn test_missing_name_annotation() {
 fn test_missing_returns_annotation() {
     // From: testing_data/errors/invalid_annotation/02_missing_returns.json
     // "Query without @returns annotation should produce an error"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
 
     let query_sql = "-- @name GetUsers\nSELECT id, name FROM users;";
 
@@ -200,21 +343,51 @@ fn test_missing_returns_annotation() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("MISSING_ANNOTATION"), "error should contain code {:?}, got: {}", "MISSING_ANNOTATION", err_msg);
-            assert!(err_msg.contains("missing @returns annotation"), "error should contain {:?}, got: {}", "missing @returns annotation", err_msg);
+            assert!(
+                err_msg.contains("MISSING_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "MISSING_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("missing @returns annotation"),
+                "error should contain {:?}, got: {}",
+                "missing @returns annotation",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("MISSING_ANNOTATION"), "error should contain code {:?}, got: {}", "MISSING_ANNOTATION", err_msg);
-            assert!(err_msg.contains("missing @returns annotation"), "error should contain {:?}, got: {}", "missing @returns annotation", err_msg);
+            assert!(
+                err_msg.contains("MISSING_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "MISSING_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("missing @returns annotation"),
+                "error should contain {:?}, got: {}",
+                "missing @returns annotation",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("MISSING_ANNOTATION"), "error should contain code {:?}, got: {}", "MISSING_ANNOTATION", err_msg);
-        assert!(err_msg.contains("missing @returns annotation"), "error should contain {:?}, got: {}", "missing @returns annotation", err_msg);
+        assert!(
+            err_msg.contains("MISSING_ANNOTATION"),
+            "error should contain code {:?}, got: {}",
+            "MISSING_ANNOTATION",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("missing @returns annotation"),
+            "error should contain {:?}, got: {}",
+            "missing @returns annotation",
+            err_msg
+        );
     }
 }
 
@@ -222,9 +395,8 @@ fn test_missing_returns_annotation() {
 fn test_error_union_column_mismatch() {
     // From: testing_data/errors/invalid_union/01_column_count_mismatch.json
     // "UNION with different column counts should produce an error"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
     let query_sql = "-- @name UnionMismatch\n-- @returns :many\nSELECT id, name, email FROM users UNION SELECT id, name FROM users";
 
@@ -236,21 +408,51 @@ fn test_error_union_column_mismatch() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("COLUMN_COUNT_MISMATCH"), "error should contain code {:?}, got: {}", "COLUMN_COUNT_MISMATCH", err_msg);
-            assert!(err_msg.contains("column"), "error should contain {:?}, got: {}", "column", err_msg);
+            assert!(
+                err_msg.contains("COLUMN_COUNT_MISMATCH"),
+                "error should contain code {:?}, got: {}",
+                "COLUMN_COUNT_MISMATCH",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("column"),
+                "error should contain {:?}, got: {}",
+                "column",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("COLUMN_COUNT_MISMATCH"), "error should contain code {:?}, got: {}", "COLUMN_COUNT_MISMATCH", err_msg);
-            assert!(err_msg.contains("column"), "error should contain {:?}, got: {}", "column", err_msg);
+            assert!(
+                err_msg.contains("COLUMN_COUNT_MISMATCH"),
+                "error should contain code {:?}, got: {}",
+                "COLUMN_COUNT_MISMATCH",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("column"),
+                "error should contain {:?}, got: {}",
+                "column",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("COLUMN_COUNT_MISMATCH"), "error should contain code {:?}, got: {}", "COLUMN_COUNT_MISMATCH", err_msg);
-        assert!(err_msg.contains("column"), "error should contain {:?}, got: {}", "column", err_msg);
+        assert!(
+            err_msg.contains("COLUMN_COUNT_MISMATCH"),
+            "error should contain code {:?}, got: {}",
+            "COLUMN_COUNT_MISMATCH",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("column"),
+            "error should contain {:?}, got: {}",
+            "column",
+            err_msg
+        );
     }
 }
 
@@ -258,9 +460,7 @@ fn test_error_union_column_mismatch() {
 fn test_sql_syntax_error() {
     // From: testing_data/errors/syntax_error/01_sql_syntax_error.json
     // "SQL with a typo (SELCT instead of SELECT) should produce a syntax error"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
 
     let query_sql = "-- @name GetUsers\n-- @returns :many\nSELCT * FROM users;";
 
@@ -272,21 +472,51 @@ fn test_sql_syntax_error() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("SYNTAX_ERROR"), "error should contain code {:?}, got: {}", "SYNTAX_ERROR", err_msg);
-            assert!(err_msg.contains("syntax error"), "error should contain {:?}, got: {}", "syntax error", err_msg);
+            assert!(
+                err_msg.contains("SYNTAX_ERROR"),
+                "error should contain code {:?}, got: {}",
+                "SYNTAX_ERROR",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("syntax error"),
+                "error should contain {:?}, got: {}",
+                "syntax error",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("SYNTAX_ERROR"), "error should contain code {:?}, got: {}", "SYNTAX_ERROR", err_msg);
-            assert!(err_msg.contains("syntax error"), "error should contain {:?}, got: {}", "syntax error", err_msg);
+            assert!(
+                err_msg.contains("SYNTAX_ERROR"),
+                "error should contain code {:?}, got: {}",
+                "SYNTAX_ERROR",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("syntax error"),
+                "error should contain {:?}, got: {}",
+                "syntax error",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("SYNTAX_ERROR"), "error should contain code {:?}, got: {}", "SYNTAX_ERROR", err_msg);
-        assert!(err_msg.contains("syntax error"), "error should contain {:?}, got: {}", "syntax error", err_msg);
+        assert!(
+            err_msg.contains("SYNTAX_ERROR"),
+            "error should contain code {:?}, got: {}",
+            "SYNTAX_ERROR",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("syntax error"),
+            "error should contain {:?}, got: {}",
+            "syntax error",
+            err_msg
+        );
     }
 }
 
@@ -298,7 +528,8 @@ fn test_type_mismatch() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());",
     ];
 
-    let query_sql = "-- @name GetTypeMismatch\n-- @returns :many\nSELECT id, name FROM users WHERE id = name;";
+    let query_sql =
+        "-- @name GetTypeMismatch\n-- @returns :many\nSELECT id, name FROM users WHERE id = name;";
 
     let catalog_result = scythe::catalog::Catalog::from_ddl(schema_sql);
     if let Ok(catalog) = catalog_result {
@@ -308,21 +539,51 @@ fn test_type_mismatch() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("TYPE_MISMATCH"), "error should contain code {:?}, got: {}", "TYPE_MISMATCH", err_msg);
-            assert!(err_msg.contains("operator does not exist: integer = text"), "error should contain {:?}, got: {}", "operator does not exist: integer = text", err_msg);
+            assert!(
+                err_msg.contains("TYPE_MISMATCH"),
+                "error should contain code {:?}, got: {}",
+                "TYPE_MISMATCH",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("operator does not exist: integer = text"),
+                "error should contain {:?}, got: {}",
+                "operator does not exist: integer = text",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("TYPE_MISMATCH"), "error should contain code {:?}, got: {}", "TYPE_MISMATCH", err_msg);
-            assert!(err_msg.contains("operator does not exist: integer = text"), "error should contain {:?}, got: {}", "operator does not exist: integer = text", err_msg);
+            assert!(
+                err_msg.contains("TYPE_MISMATCH"),
+                "error should contain code {:?}, got: {}",
+                "TYPE_MISMATCH",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("operator does not exist: integer = text"),
+                "error should contain {:?}, got: {}",
+                "operator does not exist: integer = text",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("TYPE_MISMATCH"), "error should contain code {:?}, got: {}", "TYPE_MISMATCH", err_msg);
-        assert!(err_msg.contains("operator does not exist: integer = text"), "error should contain {:?}, got: {}", "operator does not exist: integer = text", err_msg);
+        assert!(
+            err_msg.contains("TYPE_MISMATCH"),
+            "error should contain code {:?}, got: {}",
+            "TYPE_MISMATCH",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("operator does not exist: integer = text"),
+            "error should contain {:?}, got: {}",
+            "operator does not exist: integer = text",
+            err_msg
+        );
     }
 }
 
@@ -330,9 +591,8 @@ fn test_type_mismatch() {
 fn test_unknown_column() {
     // From: testing_data/errors/unknown_column/01_unknown_column.json
     // "Reference a nonexistent column in SELECT, expecting an error"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
     let query_sql = "-- @name GetNonexistent\n-- @returns :many\nSELECT nonexistent FROM users;";
 
@@ -344,21 +604,51 @@ fn test_unknown_column() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("UNKNOWN_COLUMN"), "error should contain code {:?}, got: {}", "UNKNOWN_COLUMN", err_msg);
-            assert!(err_msg.contains("column \"nonexistent\" does not exist"), "error should contain {:?}, got: {}", "column \"nonexistent\" does not exist", err_msg);
+            assert!(
+                err_msg.contains("UNKNOWN_COLUMN"),
+                "error should contain code {:?}, got: {}",
+                "UNKNOWN_COLUMN",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("column \"nonexistent\" does not exist"),
+                "error should contain {:?}, got: {}",
+                "column \"nonexistent\" does not exist",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("UNKNOWN_COLUMN"), "error should contain code {:?}, got: {}", "UNKNOWN_COLUMN", err_msg);
-            assert!(err_msg.contains("column \"nonexistent\" does not exist"), "error should contain {:?}, got: {}", "column \"nonexistent\" does not exist", err_msg);
+            assert!(
+                err_msg.contains("UNKNOWN_COLUMN"),
+                "error should contain code {:?}, got: {}",
+                "UNKNOWN_COLUMN",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("column \"nonexistent\" does not exist"),
+                "error should contain {:?}, got: {}",
+                "column \"nonexistent\" does not exist",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("UNKNOWN_COLUMN"), "error should contain code {:?}, got: {}", "UNKNOWN_COLUMN", err_msg);
-        assert!(err_msg.contains("column \"nonexistent\" does not exist"), "error should contain {:?}, got: {}", "column \"nonexistent\" does not exist", err_msg);
+        assert!(
+            err_msg.contains("UNKNOWN_COLUMN"),
+            "error should contain code {:?}, got: {}",
+            "UNKNOWN_COLUMN",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("column \"nonexistent\" does not exist"),
+            "error should contain {:?}, got: {}",
+            "column \"nonexistent\" does not exist",
+            err_msg
+        );
     }
 }
 
@@ -366,9 +656,8 @@ fn test_unknown_column() {
 fn test_error_unknown_function() {
     // From: testing_data/errors/unknown_function/01_unknown_function.json
     // "Calling a nonexistent function should produce an error"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
     let query_sql = "-- @name UnknownFunc\n-- @returns :many\nSELECT id, nonexistent_func(name) AS result FROM users";
 
@@ -380,21 +669,51 @@ fn test_error_unknown_function() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("UNKNOWN_FUNCTION"), "error should contain code {:?}, got: {}", "UNKNOWN_FUNCTION", err_msg);
-            assert!(err_msg.contains("nonexistent_func"), "error should contain {:?}, got: {}", "nonexistent_func", err_msg);
+            assert!(
+                err_msg.contains("UNKNOWN_FUNCTION"),
+                "error should contain code {:?}, got: {}",
+                "UNKNOWN_FUNCTION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("nonexistent_func"),
+                "error should contain {:?}, got: {}",
+                "nonexistent_func",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("UNKNOWN_FUNCTION"), "error should contain code {:?}, got: {}", "UNKNOWN_FUNCTION", err_msg);
-            assert!(err_msg.contains("nonexistent_func"), "error should contain {:?}, got: {}", "nonexistent_func", err_msg);
+            assert!(
+                err_msg.contains("UNKNOWN_FUNCTION"),
+                "error should contain code {:?}, got: {}",
+                "UNKNOWN_FUNCTION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("nonexistent_func"),
+                "error should contain {:?}, got: {}",
+                "nonexistent_func",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("UNKNOWN_FUNCTION"), "error should contain code {:?}, got: {}", "UNKNOWN_FUNCTION", err_msg);
-        assert!(err_msg.contains("nonexistent_func"), "error should contain {:?}, got: {}", "nonexistent_func", err_msg);
+        assert!(
+            err_msg.contains("UNKNOWN_FUNCTION"),
+            "error should contain code {:?}, got: {}",
+            "UNKNOWN_FUNCTION",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("nonexistent_func"),
+            "error should contain {:?}, got: {}",
+            "nonexistent_func",
+            err_msg
+        );
     }
 }
 
@@ -402,9 +721,7 @@ fn test_error_unknown_function() {
 fn test_unknown_table() {
     // From: testing_data/errors/unknown_table/01_unknown_table.json
     // "Reference a nonexistent table in FROM, expecting an error"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
 
     let query_sql = "-- @name GetFromNonexistent\n-- @returns :many\nSELECT * FROM nonexistent;";
 
@@ -416,20 +733,50 @@ fn test_unknown_table() {
             assert!(result.is_err(), "expected analysis to fail");
             let err = result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("UNKNOWN_TABLE"), "error should contain code {:?}, got: {}", "UNKNOWN_TABLE", err_msg);
-            assert!(err_msg.contains("relation \"nonexistent\" does not exist"), "error should contain {:?}, got: {}", "relation \"nonexistent\" does not exist", err_msg);
+            assert!(
+                err_msg.contains("UNKNOWN_TABLE"),
+                "error should contain code {:?}, got: {}",
+                "UNKNOWN_TABLE",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("relation \"nonexistent\" does not exist"),
+                "error should contain {:?}, got: {}",
+                "relation \"nonexistent\" does not exist",
+                err_msg
+            );
         } else {
             // Parse failed -- that counts as expected failure.
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
-            assert!(err_msg.contains("UNKNOWN_TABLE"), "error should contain code {:?}, got: {}", "UNKNOWN_TABLE", err_msg);
-            assert!(err_msg.contains("relation \"nonexistent\" does not exist"), "error should contain {:?}, got: {}", "relation \"nonexistent\" does not exist", err_msg);
+            assert!(
+                err_msg.contains("UNKNOWN_TABLE"),
+                "error should contain code {:?}, got: {}",
+                "UNKNOWN_TABLE",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("relation \"nonexistent\" does not exist"),
+                "error should contain {:?}, got: {}",
+                "relation \"nonexistent\" does not exist",
+                err_msg
+            );
         }
     } else {
         // DDL processing failed -- that counts as expected failure.
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
-        assert!(err_msg.contains("UNKNOWN_TABLE"), "error should contain code {:?}, got: {}", "UNKNOWN_TABLE", err_msg);
-        assert!(err_msg.contains("relation \"nonexistent\" does not exist"), "error should contain {:?}, got: {}", "relation \"nonexistent\" does not exist", err_msg);
+        assert!(
+            err_msg.contains("UNKNOWN_TABLE"),
+            "error should contain code {:?}, got: {}",
+            "UNKNOWN_TABLE",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("relation \"nonexistent\" does not exist"),
+            "error should contain {:?}, got: {}",
+            "relation \"nonexistent\" does not exist",
+            err_msg
+        );
     }
 }

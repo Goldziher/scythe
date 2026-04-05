@@ -5,9 +5,8 @@
 fn test_deprecated_annotation() {
     // From: testing_data/annotations/deprecated/01_deprecated_annotation.json
     // "Verify @deprecated annotation generates #[deprecated] attribute on the query function"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
     let query_sql = "-- @name GetUserV1\n-- @returns :one\n-- @deprecated Use GetUserV2 instead\nSELECT id, name, email FROM users WHERE id = $1;";
 
@@ -32,30 +31,41 @@ fn test_deprecated_annotation() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[2].name, "email", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "string", "column neutral_type for email");
-    assert_eq!(analyzed.columns[2].nullable, false, "column nullable for email");
-
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "string",
+        "column neutral_type for email"
+    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for email");
 }
 
 #[test]
 fn test_valid_name_pascal() {
     // From: testing_data/annotations/name/01_valid_name.json
     // "Verify @name annotation with PascalCase is parsed correctly"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
-    let query_sql = "-- @name GetUser\n-- @returns :one\nSELECT id, name, email FROM users WHERE id = $1;";
+    let query_sql =
+        "-- @name GetUser\n-- @returns :one\nSELECT id, name, email FROM users WHERE id = $1;";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -73,30 +83,41 @@ fn test_valid_name_pascal() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[2].name, "email", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "string", "column neutral_type for email");
-    assert_eq!(analyzed.columns[2].nullable, false, "column nullable for email");
-
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "string",
+        "column neutral_type for email"
+    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for email");
 }
 
 #[test]
 fn test_valid_name_snake() {
     // From: testing_data/annotations/name/02_snake_case_name.json
     // "Verify @name annotation with snake_case is parsed correctly"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
-    let query_sql = "-- @name get_user\n-- @returns :one\nSELECT id, name, email FROM users WHERE id = $1;";
+    let query_sql =
+        "-- @name get_user\n-- @returns :one\nSELECT id, name, email FROM users WHERE id = $1;";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -114,28 +135,37 @@ fn test_valid_name_snake() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[2].name, "email", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "string", "column neutral_type for email");
-    assert_eq!(analyzed.columns[2].nullable, false, "column nullable for email");
-
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "string",
+        "column neutral_type for email"
+    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for email");
 }
 
 #[test]
 fn test_returns_exec() {
     // From: testing_data/annotations/returns/03_returns_exec.json
     // "Verify :exec return annotation maps to execute with no return value"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
 
     let query_sql = "-- @name DeleteAllUsers\n-- @returns :exec\nDELETE FROM users;";
 
@@ -153,18 +183,16 @@ fn test_returns_exec() {
 
     assert_eq!(analyzed.name, "DeleteAllUsers", "query name");
     assert_eq!(analyzed.command.to_string(), "exec", "query command");
-
 }
 
 #[test]
 fn test_returns_exec_result() {
     // From: testing_data/annotations/returns/04_returns_exec_result.json
     // "Verify :exec_result return annotation returns PgQueryResult"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
 
-    let query_sql = "-- @name DeleteInactiveUsers\n-- @returns :exec_result\nDELETE FROM users WHERE id < $1;";
+    let query_sql =
+        "-- @name DeleteInactiveUsers\n-- @returns :exec_result\nDELETE FROM users WHERE id < $1;";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -182,9 +210,11 @@ fn test_returns_exec_result() {
     assert_eq!(analyzed.command.to_string(), "exec_result", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
-
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
 }
 
 #[test]
@@ -211,16 +241,13 @@ fn test_returns_exec_rows() {
 
     assert_eq!(analyzed.name, "DeactivateUsers", "query name");
     assert_eq!(analyzed.command.to_string(), "exec_rows", "query command");
-
 }
 
 #[test]
 fn test_returns_many() {
     // From: testing_data/annotations/returns/02_returns_many.json
     // "Verify :many return annotation maps to fetch_all"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
 
     let query_sql = "-- @name GetAllUsers\n-- @returns :many\nSELECT id, name FROM users;";
 
@@ -240,23 +267,27 @@ fn test_returns_many() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
 }
 
 #[test]
 fn test_returns_one() {
     // From: testing_data/annotations/returns/01_returns_one.json
     // "Verify :one return annotation maps to fetch_one"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
 
-    let query_sql = "-- @name GetOneUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;";
+    let query_sql =
+        "-- @name GetOneUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -274,14 +305,22 @@ fn test_returns_one() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
 }

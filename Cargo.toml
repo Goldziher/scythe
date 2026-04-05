@@ -13,5 +13,9 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
+sqlparser = { version = "0.61", features = ["visitor"] }
+ahash = { version = "0.8", features = ["serde"] }
+scythe-backend = { path = "crates/scythe-backend" }
+toml = "1.1.2"
 
 [dev-dependencies]
