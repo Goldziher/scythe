@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use sqlparser::ast::*;
 
 use crate::lint::rule::LintRule;
@@ -68,7 +70,7 @@ impl LintRule for ExecWithReturning {
 
         if has_returning {
             return vec![Violation {
-                rule_id: self.id(),
+                rule_id: Cow::Borrowed(self.id()),
                 message: ":exec command with RETURNING clause — returned rows will be discarded"
                     .into(),
                 fix: Some(LintFix {

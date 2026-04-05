@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use ahash::AHashSet;
 
 use super::registry::RuleRegistry;
@@ -11,7 +13,7 @@ use crate::catalog::Catalog;
 #[derive(Debug)]
 pub struct QueryViolation {
     pub query_name: String,
-    pub rule_id: &'static str,
+    pub rule_id: Cow<'static, str>,
     pub severity: Severity,
     pub message: String,
 }
@@ -114,7 +116,7 @@ impl LintEngine {
         for dup in &duplicate_names {
             violations.push(QueryViolation {
                 query_name: dup.clone(),
-                rule_id: "SC-C03",
+                rule_id: Cow::Borrowed("SC-C03"),
                 severity: Severity::Error,
                 message: format!("duplicate query name: \"{}\"", dup),
             });

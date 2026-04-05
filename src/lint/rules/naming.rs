@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use sqlparser::ast::*;
 
 use crate::catalog::Catalog;
@@ -34,7 +36,7 @@ impl LintRule for PreferSnakeCaseColumns {
                 let name = &alias.value;
                 if !is_snake_case(name) {
                     violations.push(Violation {
-                        rule_id: self.id(),
+                        rule_id: Cow::Borrowed(self.id()),
                         message: format!("column alias \"{}\" is not snake_case", name),
                         fix: Some(LintFix {
                             description: "Rename to snake_case".into(),
@@ -78,7 +80,7 @@ impl LintRule for PreferSnakeCaseTables {
             let bare = name.rsplit('.').next().unwrap_or(name);
             if !is_snake_case(bare) {
                 violations.push(Violation {
-                    rule_id: self.id(),
+                    rule_id: Cow::Borrowed(self.id()),
                     message: format!("table \"{}\" is not snake_case", name),
                     fix: None,
                 });
@@ -140,7 +142,7 @@ impl LintRule for QueryNameConvention {
         let has_prefix = ALLOWED_PREFIXES.iter().any(|p| name.starts_with(p));
         if !has_prefix {
             return vec![Violation {
-                rule_id: self.id(),
+                rule_id: Cow::Borrowed(self.id()),
                 message: format!(
                     "query name \"{}\" does not start with an accepted verb prefix",
                     name
@@ -180,7 +182,7 @@ impl LintRule for ConsistentAliasCasing {
         walk_from_tables(ctx.stmt, &mut |alias: &str| {
             if alias != alias.to_lowercase() {
                 violations.push(Violation {
-                    rule_id: self.id(),
+                    rule_id: Cow::Borrowed(self.id()),
                     message: format!("table alias \"{}\" should be lowercase", alias),
                     fix: Some(LintFix {
                         description: "Lowercase the alias".into(),
