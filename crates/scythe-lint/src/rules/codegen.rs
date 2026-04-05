@@ -186,4 +186,124 @@ mod tests {
         let v = ExecWithReturning.check_query(&ctx);
         assert!(v.is_empty());
     }
+
+    // SC-C01: MissingReturnsAnnotation is a no-op — always returns empty
+
+    #[test]
+    fn missing_returns_annotation_is_noop() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = MissingReturnsAnnotation.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn missing_returns_annotation_metadata() {
+        let rule = MissingReturnsAnnotation;
+        assert_eq!(rule.id(), "SC-C01");
+        assert_eq!(rule.name(), "missing-returns-annotation");
+        assert_eq!(rule.category(), RuleCategory::Codegen);
+        assert_eq!(rule.default_severity(), Severity::Off);
+    }
+
+    // SC-C02: :exec_result with RETURNING should NOT fire (only :exec fires)
+
+    #[test]
+    fn exec_result_with_returning_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name CreateUser\n-- @returns :exec_result\nINSERT INTO users (name, email) VALUES ($1, $2) RETURNING id;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ExecWithReturning.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-C02: :many with RETURNING should NOT fire
+
+    #[test]
+    fn many_with_returning_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name CreateUsers\n-- @returns :many\nINSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name, email;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ExecWithReturning.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-C02: :exec with UPDATE RETURNING should fire
+
+    #[test]
+    fn exec_with_update_returning_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name UpdateUser\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2 RETURNING id;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ExecWithReturning.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].rule_id, "SC-C02");
+        assert!(v[0].fix.is_some());
+    }
+
+    // SC-C02: :exec with DELETE RETURNING should fire
+
+    #[test]
+    fn exec_with_delete_returning_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name DeleteUser\n-- @returns :exec\nDELETE FROM users WHERE id = $1 RETURNING id;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ExecWithReturning.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].rule_id, "SC-C02");
+    }
+
+    // SC-C02: :exec with SELECT should not fire (SELECT is not INSERT/UPDATE/DELETE)
+
+    #[test]
+    fn exec_with_select_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name CountUsers\n-- @returns :exec\nSELECT count(*) FROM users;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ExecWithReturning.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-C03: DuplicateQueryNames is a no-op at query level
+
+    #[test]
+    fn duplicate_query_names_is_noop() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = DuplicateQueryNames.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn duplicate_query_names_metadata() {
+        let rule = DuplicateQueryNames;
+        assert_eq!(rule.id(), "SC-C03");
+        assert_eq!(rule.name(), "duplicate-query-names");
+        assert_eq!(rule.category(), RuleCategory::Codegen);
+        assert_eq!(rule.default_severity(), Severity::Error);
+    }
 }

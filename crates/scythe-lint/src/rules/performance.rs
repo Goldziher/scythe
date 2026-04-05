@@ -337,4 +337,116 @@ mod tests {
         let v = NotInSubquery.check_query(&ctx);
         assert!(v.is_empty());
     }
+
+    // SC-P01 additional tests
+
+    #[test]
+    fn order_with_limit_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users ORDER BY name LIMIT 5;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = OrderWithoutLimit.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn order_in_subquery_outer_has_limit() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name ListUsers\n-- @returns :many\nSELECT * FROM (SELECT id, name FROM users ORDER BY name) sub LIMIT 10;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        // The outer query has LIMIT, so the rule should not fire on the outer query
+        let v = OrderWithoutLimit.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn order_in_subquery_only() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name ListUsers\n-- @returns :many\nSELECT * FROM (SELECT id, name FROM users ORDER BY name LIMIT 5) sub;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        // Outer query has no ORDER BY, so P01 should not fire
+        let v = OrderWithoutLimit.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-P02 additional tests
+
+    #[test]
+    fn like_suffix_wildcard_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE 'foo%';",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = LikeStartsWithWildcard.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn no_like_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :many\nSELECT id, name FROM users WHERE name = 'foo';",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = LikeStartsWithWildcard.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn ilike_leading_wildcard_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name ILIKE '%foo';",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = LikeStartsWithWildcard.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    // SC-P03 additional tests
+
+    #[test]
+    fn not_in_values_list_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetActive\n-- @returns :many\nSELECT id FROM users WHERE id NOT IN (1, 2, 3);",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = NotInSubquery.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn in_subquery_positive_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetActive\n-- @returns :many\nSELECT id FROM users WHERE id IN (SELECT id FROM users WHERE name IS NOT NULL);",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = NotInSubquery.check_query(&ctx);
+        assert!(v.is_empty());
+    }
 }

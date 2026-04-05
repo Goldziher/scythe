@@ -424,4 +424,194 @@ mod tests {
         let v = ConsistentAliasCasing.check_query(&ctx);
         assert!(v.is_empty());
     }
+
+    // --- Additional SC-N01 tests ---
+
+    #[test]
+    fn no_aliases_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferSnakeCaseColumns.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn already_snake_case_alias_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :one\nSELECT id AS user_id, name AS user_name FROM users WHERE id = $1;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferSnakeCaseColumns.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn expression_without_alias_clean() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) FROM users;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferSnakeCaseColumns.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // --- Additional SC-N02 tests ---
+
+    #[test]
+    fn all_snake_case_tables_clean() {
+        let cat = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+            "CREATE TABLE user_profiles (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL);",
+        ])
+        .unwrap();
+        let v = PreferSnakeCaseTables.check_catalog(&cat);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn non_snake_case_table_name_fires() {
+        // Use a hyphenated name which remains non-snake_case even after lowercasing
+        // (the catalog lowercases names, so camelCase becomes "camelcase" which passes)
+        let cat = Catalog::from_ddl(&[
+            "CREATE TABLE \"user-profiles\" (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL);",
+        ])
+        .unwrap();
+        let v = PreferSnakeCaseTables.check_catalog(&cat);
+        assert_eq!(v.len(), 1);
+    }
+
+    // --- Additional SC-N03 tests ---
+
+    #[test]
+    fn get_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn list_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn create_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING id;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn delete_prefix_ok() {
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name DeleteUser\n-- @returns :exec\nDELETE FROM users WHERE id = $1;")
+                .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn count_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) FROM users;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn upsert_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name UpsertUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) ON CONFLICT (id) DO UPDATE SET name = $1 RETURNING id;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn record_prefix_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name RecordLogin\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn lowercase_query_name_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name getuser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = QueryNameConvention.check_query(&ctx);
+        // "getuser" does not start with "Get" (case-sensitive), so it should fire
+        assert_eq!(v.len(), 1);
+    }
+
+    // --- Additional SC-N04 tests ---
+
+    #[test]
+    fn no_alias_clean() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ConsistentAliasCasing.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn lowercase_multichar_alias_clean() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT usr.id FROM users usr;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ConsistentAliasCasing.check_query(&ctx);
+        assert!(v.is_empty());
+    }
 }

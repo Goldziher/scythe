@@ -338,4 +338,113 @@ mod tests {
         let v = OrInJoinCondition.check_query(&ctx);
         assert!(v.is_empty());
     }
+
+    // SC-A01 additional tests
+
+    #[test]
+    fn not_equal_null_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name != NULL;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = NotEqualNull.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn not_equal_null_angle_brackets_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name <> NULL;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = NotEqualNull.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn null_equals_col_reversed_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE NULL = name;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = NotEqualNull.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn is_not_null_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name IS NOT NULL;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = NotEqualNull.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-A02
+
+    #[test]
+    fn implicit_type_coercion_returns_empty() {
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE id = 1;")
+                .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = ImplicitTypeCoercion.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-A03 additional tests
+
+    #[test]
+    fn or_with_multiple_conditions_in_join_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name ListJoined\n-- @returns :many\nSELECT u.id, p.title FROM users u JOIN posts p ON u.id = p.user_id OR u.name = p.title OR u.id > 0;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = OrInJoinCondition.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn no_join_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :many\nSELECT id, name FROM users WHERE id = 1;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = OrInJoinCondition.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn or_in_subquery_not_outer_join() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE id IN (SELECT user_id FROM posts WHERE user_id = 1 OR title = 'test');",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = OrInJoinCondition.check_query(&ctx);
+        assert!(v.is_empty());
+    }
 }
