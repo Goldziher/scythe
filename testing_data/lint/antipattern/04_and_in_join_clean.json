@@ -1,0 +1,18 @@
+{
+	"name": "and_in_join_clean",
+	"description": "AND condition in JOIN ON clause should not trigger SC-A03",
+	"category": "lint/antipattern",
+	"tags": ["lint", "antipattern", "join", "and"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL, total INT NOT NULL);"
+	],
+	"query_sql": "-- @name GetUserOrders\n-- @returns :many\nSELECT u.id, o.total FROM users u JOIN orders o ON u.id = o.user_id AND o.total > 0;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

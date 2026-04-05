@@ -1,0 +1,17 @@
+{
+	"name": "order_with_limit_clean",
+	"description": "ORDER BY with LIMIT should not trigger SC-P01",
+	"category": "lint/performance",
+	"tags": ["lint", "performance", "order_by", "limit"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetTopUsers\n-- @returns :many\nSELECT id, name FROM users ORDER BY name LIMIT 10;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

@@ -27,7 +27,6 @@ pub struct Catalog {
 }
 
 #[derive(Debug, Clone)]
-#[allow(dead_code)]
 pub(crate) struct DomainDef {
     pub(crate) base_type: String,
     pub(crate) not_null: bool,

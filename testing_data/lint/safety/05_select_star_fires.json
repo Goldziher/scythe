@@ -1,0 +1,22 @@
+{
+	"name": "select_star_fires",
+	"description": "SELECT * should trigger SC-S03 violation",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "select", "star"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetAllUsers\n-- @returns :many\nSELECT * FROM users;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-S03",
+					"message_contains": "SELECT *"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

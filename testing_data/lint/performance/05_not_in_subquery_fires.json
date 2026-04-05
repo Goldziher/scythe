@@ -1,0 +1,23 @@
+{
+	"name": "not_in_subquery_fires",
+	"description": "NOT IN with subquery should trigger SC-P03 (prefer NOT EXISTS)",
+	"category": "lint/performance",
+	"tags": ["lint", "performance", "not_in", "subquery"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL, total INT NOT NULL);"
+	],
+	"query_sql": "-- @name GetUsersWithoutOrders\n-- @returns :many\nSELECT id, name FROM users WHERE id NOT IN (SELECT user_id FROM orders);",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-P03",
+					"message_contains": "NOT IN"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

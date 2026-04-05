@@ -1,0 +1,17 @@
+{
+	"name": "one_with_returning_clean",
+	"description": ":one with RETURNING clause is correct usage, should not trigger SC-C02",
+	"category": "lint/codegen",
+	"tags": ["lint", "codegen", "one", "returning"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING id;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

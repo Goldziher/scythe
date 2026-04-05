@@ -1,0 +1,17 @@
+{
+	"name": "good_query_name_clean",
+	"description": "Query name in PascalCase should not trigger SC-N03",
+	"category": "lint/naming",
+	"tags": ["lint", "naming", "query_name", "pascal_case"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetUser\n-- @returns :many\nSELECT id, name FROM users;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

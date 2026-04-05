@@ -1,0 +1,22 @@
+{
+	"name": "update_without_where_fires",
+	"description": "UPDATE without WHERE clause should trigger SC-S01 violation",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "update", "where"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name UpdateAllUsers\n-- @returns :exec\nUPDATE users SET name = $1;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-S01",
+					"message_contains": "UPDATE without WHERE"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

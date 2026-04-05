@@ -1,0 +1,22 @@
+{
+	"name": "exec_with_returning_fires",
+	"description": ":exec with RETURNING clause should trigger SC-C02 (wasted RETURNING result)",
+	"category": "lint/codegen",
+	"tags": ["lint", "codegen", "exec", "returning"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name CreateUser\n-- @returns :exec\nINSERT INTO users (name) VALUES ($1) RETURNING id;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-C02",
+					"message_contains": "RETURNING"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

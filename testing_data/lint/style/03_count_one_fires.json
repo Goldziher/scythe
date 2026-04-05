@@ -1,0 +1,22 @@
+{
+	"name": "count_one_fires",
+	"description": "COUNT(1) should trigger SC-T03 (prefer COUNT(*))",
+	"category": "lint/style",
+	"tags": ["lint", "style", "count", "aggregate"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name CountUsers\n-- @returns :one\nSELECT COUNT(1) AS total FROM users;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-T03",
+					"message_contains": "COUNT(*)"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

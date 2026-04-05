@@ -1,0 +1,22 @@
+{
+	"name": "delete_without_where_fires",
+	"description": "DELETE without WHERE clause should trigger SC-S02 violation",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "delete", "where"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name DeleteAllUsers\n-- @returns :exec\nDELETE FROM users;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-S02",
+					"message_contains": "DELETE without WHERE"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

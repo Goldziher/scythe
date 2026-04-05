@@ -1,0 +1,17 @@
+{
+	"name": "delete_with_where_clean",
+	"description": "DELETE with WHERE clause should not trigger SC-S02",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "delete", "where"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name DeleteUser\n-- @returns :exec\nDELETE FROM users WHERE id = $1;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

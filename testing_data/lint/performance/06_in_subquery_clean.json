@@ -1,0 +1,18 @@
+{
+	"name": "in_subquery_clean",
+	"description": "IN with subquery (not NOT IN) should not trigger SC-P03",
+	"category": "lint/performance",
+	"tags": ["lint", "performance", "in", "subquery"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL, total INT NOT NULL);"
+	],
+	"query_sql": "-- @name GetUsersWithOrders\n-- @returns :many\nSELECT id, name FROM users WHERE id IN (SELECT user_id FROM orders);",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

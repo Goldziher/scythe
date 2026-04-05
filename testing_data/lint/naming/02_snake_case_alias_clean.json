@@ -1,0 +1,17 @@
+{
+	"name": "snake_case_alias_clean",
+	"description": "Column alias in snake_case should not trigger SC-N01",
+	"category": "lint/naming",
+	"tags": ["lint", "naming", "alias", "snake_case"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetUsers\n-- @returns :many\nSELECT id AS user_id FROM users;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

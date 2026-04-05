@@ -1,0 +1,18 @@
+{
+	"name": "qualified_column_clean",
+	"description": "Fully qualified column in JOIN should not trigger SC-S06",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "ambiguous", "join"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL, total INT NOT NULL);"
+	],
+	"query_sql": "-- @name GetUserOrders\n-- @returns :many\nSELECT u.id FROM users u JOIN orders o ON u.id = o.user_id;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

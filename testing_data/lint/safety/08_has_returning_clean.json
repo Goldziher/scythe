@@ -1,0 +1,17 @@
+{
+	"name": "has_returning_clean",
+	"description": "INSERT with :one and RETURNING clause should not trigger SC-S05",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "returning", "insert"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING id;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

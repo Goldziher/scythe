@@ -1,0 +1,22 @@
+{
+	"name": "order_without_limit_fires",
+	"description": "ORDER BY without LIMIT should trigger SC-P01",
+	"category": "lint/performance",
+	"tags": ["lint", "performance", "order_by", "limit"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetUsersSorted\n-- @returns :many\nSELECT id, name FROM users ORDER BY name;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-P01",
+					"message_contains": "LIMIT"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

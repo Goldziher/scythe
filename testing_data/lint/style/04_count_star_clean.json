@@ -1,0 +1,17 @@
+{
+	"name": "count_star_clean",
+	"description": "COUNT(*) should not trigger SC-T03",
+	"category": "lint/style",
+	"tags": ["lint", "style", "count", "aggregate"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) AS total FROM users;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

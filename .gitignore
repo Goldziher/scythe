@@ -4,6 +4,8 @@
 
 # IDE
 .idea/
+.claude/
+.rumdl_cache/
 .vscode/
 *.swp
 *.swo

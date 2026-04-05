@@ -1,0 +1,22 @@
+{
+	"name": "like_leading_wildcard_fires",
+	"description": "LIKE with leading wildcard should trigger SC-P02 (prevents index usage)",
+	"category": "lint/performance",
+	"tags": ["lint", "performance", "like", "wildcard"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE '%test%';",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-P02",
+					"message_contains": "wildcard"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

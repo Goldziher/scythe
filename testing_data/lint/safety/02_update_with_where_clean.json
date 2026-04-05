@@ -1,0 +1,17 @@
+{
+	"name": "update_with_where_clean",
+	"description": "UPDATE with WHERE clause should not trigger SC-S01",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "update", "where"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name UpdateUser\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

@@ -1,0 +1,22 @@
+{
+	"name": "equal_null_fires",
+	"description": "Comparing with = NULL instead of IS NULL should trigger SC-A01",
+	"category": "lint/antipattern",
+	"tags": ["lint", "antipattern", "null", "equality"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetNullStatus\n-- @returns :many\nSELECT id, name FROM users WHERE status = NULL;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-A01",
+					"message_contains": "NULL"
+				}
+			]
+		}
+	},
+	"source": "original"
+}
