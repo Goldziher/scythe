@@ -1,47 +1,43 @@
 {
-  "category": "select/locking",
-  "description": "SELECT with FOR UPDATE locking clause for pessimistic concurrency control",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "one",
-      "name": "LockUserForUpdate",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "select_for_update",
-  "query_sql": "-- @name LockUserForUpdate\n-- @returns :one\nSELECT id, name, email FROM users WHERE id = $1 FOR UPDATE",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "select",
-    "locking",
-    "for_update"
-  ]
+	"category": "select/locking",
+	"description": "SELECT with FOR UPDATE locking clause for pessimistic concurrency control",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "one",
+			"name": "LockUserForUpdate",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "select_for_update",
+	"query_sql": "-- @name LockUserForUpdate\n-- @returns :one\nSELECT id, name, email FROM users WHERE id = $1 FOR UPDATE",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["select", "locking", "for_update"]
 }

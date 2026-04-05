@@ -1,36 +1,33 @@
 {
-  "category": "joins/join_using",
-  "description": "JOIN with USING clause on shared column name between two tables",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "order_id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "body",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetOrdersAndComments",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "join_using",
-  "query_sql": "-- @name GetOrdersAndComments\n-- @returns :many\nSELECT o.id AS order_id, c.body FROM orders o JOIN comments c USING (user_id)",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE comments (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "join",
-    "using"
-  ]
+	"category": "joins/join_using",
+	"description": "JOIN with USING clause on shared column name between two tables",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "order_id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "body",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetOrdersAndComments",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "join_using",
+	"query_sql": "-- @name GetOrdersAndComments\n-- @returns :many\nSELECT o.id AS order_id, c.body FROM orders o JOIN comments c USING (user_id)",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE comments (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), body TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["join", "using"]
 }

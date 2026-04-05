@@ -1,389 +1,396 @@
 {
-  "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "Scythe Test Fixture",
-  "description": "Schema for Scythe test fixture files. Each fixture defines a self-contained test case with DDL, optional query SQL, configuration, and expected outputs.",
-  "type": "object",
-  "required": ["name", "description", "category", "schema_sql", "expected", "source"],
-  "additionalProperties": false,
-  "properties": {
-    "name": {
-      "type": "string",
-      "description": "Unique snake_case test identifier.",
-      "pattern": "^[a-z][a-z0-9_]*$"
-    },
-    "description": {
-      "type": "string",
-      "description": "Human-readable description of what this test validates."
-    },
-    "category": {
-      "type": "string",
-      "description": "Directory-path category, e.g. 'nullability/left_join_nullable'."
-    },
-    "tags": {
-      "type": "array",
-      "description": "Optional searchable tags for filtering tests.",
-      "items": {
-        "type": "string"
-      }
-    },
-    "schema_sql": {
-      "type": "array",
-      "description": "DDL statements executed in order to set up the database schema.",
-      "items": {
-        "type": "string"
-      },
-      "minItems": 1
-    },
-    "query_sql": {
-      "type": "string",
-      "description": "The annotated SQL query under test. Omit for catalog-only tests."
-    },
-    "config": {
-      "$ref": "#/definitions/config"
-    },
-    "expected": {
-      "$ref": "#/definitions/expected"
-    },
-    "source": {
-      "type": "string",
-      "description": "Origin of this test fixture.",
-      "enum": ["sqlc", "original", "sqlc_expanded"]
-    },
-    "sqlc_comparison": {
-      "$ref": "#/definitions/sqlc_comparison"
-    }
-  },
-  "definitions": {
-    "config": {
-      "type": "object",
-      "description": "Test configuration controlling engine, codegen target, and overrides.",
-      "additionalProperties": false,
-      "properties": {
-        "engine": {
-          "type": "string",
-          "description": "Database engine for this test.",
-          "enum": ["postgresql", "mysql", "sqlite"]
-        },
-        "gen": {
-          "type": "object",
-          "description": "Code generation settings.",
-          "additionalProperties": false,
-          "properties": {
-            "target": {
-              "type": "string",
-              "description": "Codegen target crate.",
-              "enum": ["sqlx", "tokio-postgres"]
-            }
-          }
-        },
-        "type_overrides": {
-          "type": "array",
-          "description": "Custom type mappings from SQL types to Rust types.",
-          "items": {
-            "$ref": "#/definitions/type_override"
-          }
-        },
-        "naming": {
-          "$ref": "#/definitions/naming_config"
-        }
-      }
-    },
-    "type_override": {
-      "type": "object",
-      "description": "A single SQL-to-Rust type override.",
-      "required": ["db_type", "rust_type"],
-      "additionalProperties": false,
-      "properties": {
-        "db_type": {
-          "type": "string",
-          "description": "The SQL type to override."
-        },
-        "rust_type": {
-          "type": "string",
-          "description": "The Rust type to map to."
-        },
-        "column": {
-          "type": "string",
-          "description": "Optional column name to restrict the override to."
-        },
-        "json": {
-          "type": "boolean",
-          "description": "Whether this type should be treated as JSON."
-        }
-      }
-    },
-    "naming_config": {
-      "type": "object",
-      "description": "Naming convention configuration.",
-      "additionalProperties": false,
-      "properties": {
-        "enum_style": {
-          "type": "string",
-          "description": "Naming style for generated Rust enums."
-        },
-        "row_suffix": {
-          "type": "string",
-          "description": "Suffix appended to generated row struct names."
-        }
-      }
-    },
-    "expected": {
-      "type": "object",
-      "description": "Expected test outputs.",
-      "required": ["success"],
-      "additionalProperties": false,
-      "properties": {
-        "success": {
-          "type": "boolean",
-          "description": "Whether the test is expected to succeed."
-        },
-        "catalog": {
-          "$ref": "#/definitions/expected_catalog"
-        },
-        "query": {
-          "$ref": "#/definitions/expected_query"
-        },
-        "generated_rust": {
-          "$ref": "#/definitions/expected_generated_rust"
-        },
-        "error": {
-          "$ref": "#/definitions/expected_error"
-        }
-      }
-    },
-    "expected_catalog": {
-      "type": "object",
-      "description": "Expected catalog state after DDL processing.",
-      "additionalProperties": false,
-      "properties": {
-        "tables": {
-          "type": "object",
-          "description": "Expected tables keyed by name.",
-          "additionalProperties": {
-            "$ref": "#/definitions/expected_table"
-          }
-        },
-        "enums": {
-          "type": "object",
-          "description": "Expected enum types keyed by name.",
-          "additionalProperties": {
-            "$ref": "#/definitions/expected_enum"
-          }
-        },
-        "composites": {
-          "type": "object",
-          "description": "Expected composite types keyed by name.",
-          "additionalProperties": {
-            "$ref": "#/definitions/expected_composite"
-          }
-        }
-      }
-    },
-    "expected_table": {
-      "type": "object",
-      "description": "Expected table definition.",
-      "required": ["columns"],
-      "additionalProperties": false,
-      "properties": {
-        "columns": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/expected_column"
-          }
-        }
-      }
-    },
-    "expected_column": {
-      "type": "object",
-      "description": "Expected column definition.",
-      "required": ["name", "sql_type", "nullable"],
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "sql_type": {
-          "type": "string"
-        },
-        "nullable": {
-          "type": "boolean"
-        },
-        "default": {
-          "type": "string",
-          "description": "Default value expression, if any."
-        },
-        "primary_key": {
-          "type": "boolean",
-          "description": "Whether this column is part of the primary key."
-        }
-      }
-    },
-    "expected_enum": {
-      "type": "object",
-      "description": "Expected enum type definition.",
-      "required": ["values"],
-      "additionalProperties": false,
-      "properties": {
-        "values": {
-          "type": "array",
-          "items": {
-            "type": "string"
-          }
-        }
-      }
-    },
-    "expected_composite": {
-      "type": "object",
-      "description": "Expected composite type definition.",
-      "required": ["fields"],
-      "additionalProperties": false,
-      "properties": {
-        "fields": {
-          "type": "array",
-          "items": {
-            "$ref": "#/definitions/expected_composite_field"
-          }
-        }
-      }
-    },
-    "expected_composite_field": {
-      "type": "object",
-      "description": "A single field within a composite type.",
-      "required": ["name", "sql_type"],
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "sql_type": {
-          "type": "string"
-        }
-      }
-    },
-    "expected_query": {
-      "type": "object",
-      "description": "Expected query analysis results.",
-      "required": ["name", "command"],
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string",
-          "description": "Expected query function name."
-        },
-        "command": {
-          "type": "string",
-          "description": "Expected command type.",
-          "enum": ["one", "many", "exec", "exec_result", "exec_rows", "batch"]
-        },
-        "params": {
-          "type": "array",
-          "description": "Expected query parameters.",
-          "items": {
-            "$ref": "#/definitions/expected_param"
-          }
-        },
-        "columns": {
-          "type": "array",
-          "description": "Expected return columns.",
-          "items": {
-            "$ref": "#/definitions/expected_return_column"
-          }
-        }
-      }
-    },
-    "expected_param": {
-      "type": "object",
-      "description": "Expected query parameter.",
-      "required": ["name", "rust_type", "nullable"],
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "rust_type": {
-          "type": "string"
-        },
-        "nullable": {
-          "type": "boolean"
-        },
-        "position": {
-          "type": "integer"
-        }
-      }
-    },
-    "expected_return_column": {
-      "type": "object",
-      "description": "Expected return column from a query.",
-      "required": ["name", "rust_type", "nullable"],
-      "additionalProperties": false,
-      "properties": {
-        "name": {
-          "type": "string"
-        },
-        "rust_type": {
-          "type": "string"
-        },
-        "nullable": {
-          "type": "boolean"
-        },
-        "note": {
-          "type": "string",
-          "description": "Optional note explaining nullable reasoning or other details."
-        }
-      }
-    },
-    "expected_generated_rust": {
-      "type": "object",
-      "description": "Expected generated Rust code snippets.",
-      "additionalProperties": false,
-      "properties": {
-        "row_struct": {
-          "type": "string",
-          "description": "Expected Rust struct code for the row type."
-        },
-        "query_fn": {
-          "type": "string",
-          "description": "Expected Rust function signature."
-        },
-        "enum_def": {
-          "type": "string",
-          "description": "Expected Rust enum definition."
-        },
-        "model_struct": {
-          "type": "string",
-          "description": "Expected shared model struct code."
-        }
-      }
-    },
-    "expected_error": {
-      "type": "object",
-      "description": "Expected error details when success is false.",
-      "additionalProperties": false,
-      "properties": {
-        "code": {
-          "type": "string",
-          "description": "Expected error code."
-        },
-        "message_contains": {
-          "type": "string",
-          "description": "Substring that should appear in the error message."
-        }
-      }
-    },
-    "sqlc_comparison": {
-      "type": "object",
-      "description": "Notes comparing behavior with sqlc.",
-      "additionalProperties": false,
-      "properties": {
-        "sqlc_behavior": {
-          "type": "string",
-          "description": "How sqlc handles this case."
-        },
-        "scythe_improvement": {
-          "type": "string",
-          "description": "How scythe improves on sqlc behavior."
-        }
-      }
-    }
-  }
+	"$schema": "http://json-schema.org/draft-07/schema#",
+	"title": "Scythe Test Fixture",
+	"description": "Schema for Scythe test fixture files. Each fixture defines a self-contained test case with DDL, optional query SQL, configuration, and expected outputs.",
+	"type": "object",
+	"required": [
+		"name",
+		"description",
+		"category",
+		"schema_sql",
+		"expected",
+		"source"
+	],
+	"additionalProperties": false,
+	"properties": {
+		"name": {
+			"type": "string",
+			"description": "Unique snake_case test identifier.",
+			"pattern": "^[a-z][a-z0-9_]*$"
+		},
+		"description": {
+			"type": "string",
+			"description": "Human-readable description of what this test validates."
+		},
+		"category": {
+			"type": "string",
+			"description": "Directory-path category, e.g. 'nullability/left_join_nullable'."
+		},
+		"tags": {
+			"type": "array",
+			"description": "Optional searchable tags for filtering tests.",
+			"items": {
+				"type": "string"
+			}
+		},
+		"schema_sql": {
+			"type": "array",
+			"description": "DDL statements executed in order to set up the database schema.",
+			"items": {
+				"type": "string"
+			},
+			"minItems": 1
+		},
+		"query_sql": {
+			"type": "string",
+			"description": "The annotated SQL query under test. Omit for catalog-only tests."
+		},
+		"config": {
+			"$ref": "#/definitions/config"
+		},
+		"expected": {
+			"$ref": "#/definitions/expected"
+		},
+		"source": {
+			"type": "string",
+			"description": "Origin of this test fixture.",
+			"enum": ["sqlc", "original", "sqlc_expanded"]
+		},
+		"sqlc_comparison": {
+			"$ref": "#/definitions/sqlc_comparison"
+		}
+	},
+	"definitions": {
+		"config": {
+			"type": "object",
+			"description": "Test configuration controlling engine, codegen target, and overrides.",
+			"additionalProperties": false,
+			"properties": {
+				"engine": {
+					"type": "string",
+					"description": "Database engine for this test.",
+					"enum": ["postgresql", "mysql", "sqlite"]
+				},
+				"gen": {
+					"type": "object",
+					"description": "Code generation settings.",
+					"additionalProperties": false,
+					"properties": {
+						"target": {
+							"type": "string",
+							"description": "Codegen target crate.",
+							"enum": ["sqlx", "tokio-postgres"]
+						}
+					}
+				},
+				"type_overrides": {
+					"type": "array",
+					"description": "Custom type mappings from SQL types to Rust types.",
+					"items": {
+						"$ref": "#/definitions/type_override"
+					}
+				},
+				"naming": {
+					"$ref": "#/definitions/naming_config"
+				}
+			}
+		},
+		"type_override": {
+			"type": "object",
+			"description": "A single SQL-to-Rust type override.",
+			"required": ["db_type", "rust_type"],
+			"additionalProperties": false,
+			"properties": {
+				"db_type": {
+					"type": "string",
+					"description": "The SQL type to override."
+				},
+				"rust_type": {
+					"type": "string",
+					"description": "The Rust type to map to."
+				},
+				"column": {
+					"type": "string",
+					"description": "Optional column name to restrict the override to."
+				},
+				"json": {
+					"type": "boolean",
+					"description": "Whether this type should be treated as JSON."
+				}
+			}
+		},
+		"naming_config": {
+			"type": "object",
+			"description": "Naming convention configuration.",
+			"additionalProperties": false,
+			"properties": {
+				"enum_style": {
+					"type": "string",
+					"description": "Naming style for generated Rust enums."
+				},
+				"row_suffix": {
+					"type": "string",
+					"description": "Suffix appended to generated row struct names."
+				}
+			}
+		},
+		"expected": {
+			"type": "object",
+			"description": "Expected test outputs.",
+			"required": ["success"],
+			"additionalProperties": false,
+			"properties": {
+				"success": {
+					"type": "boolean",
+					"description": "Whether the test is expected to succeed."
+				},
+				"catalog": {
+					"$ref": "#/definitions/expected_catalog"
+				},
+				"query": {
+					"$ref": "#/definitions/expected_query"
+				},
+				"generated_rust": {
+					"$ref": "#/definitions/expected_generated_rust"
+				},
+				"error": {
+					"$ref": "#/definitions/expected_error"
+				}
+			}
+		},
+		"expected_catalog": {
+			"type": "object",
+			"description": "Expected catalog state after DDL processing.",
+			"additionalProperties": false,
+			"properties": {
+				"tables": {
+					"type": "object",
+					"description": "Expected tables keyed by name.",
+					"additionalProperties": {
+						"$ref": "#/definitions/expected_table"
+					}
+				},
+				"enums": {
+					"type": "object",
+					"description": "Expected enum types keyed by name.",
+					"additionalProperties": {
+						"$ref": "#/definitions/expected_enum"
+					}
+				},
+				"composites": {
+					"type": "object",
+					"description": "Expected composite types keyed by name.",
+					"additionalProperties": {
+						"$ref": "#/definitions/expected_composite"
+					}
+				}
+			}
+		},
+		"expected_table": {
+			"type": "object",
+			"description": "Expected table definition.",
+			"required": ["columns"],
+			"additionalProperties": false,
+			"properties": {
+				"columns": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/expected_column"
+					}
+				}
+			}
+		},
+		"expected_column": {
+			"type": "object",
+			"description": "Expected column definition.",
+			"required": ["name", "sql_type", "nullable"],
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"sql_type": {
+					"type": "string"
+				},
+				"nullable": {
+					"type": "boolean"
+				},
+				"default": {
+					"type": "string",
+					"description": "Default value expression, if any."
+				},
+				"primary_key": {
+					"type": "boolean",
+					"description": "Whether this column is part of the primary key."
+				}
+			}
+		},
+		"expected_enum": {
+			"type": "object",
+			"description": "Expected enum type definition.",
+			"required": ["values"],
+			"additionalProperties": false,
+			"properties": {
+				"values": {
+					"type": "array",
+					"items": {
+						"type": "string"
+					}
+				}
+			}
+		},
+		"expected_composite": {
+			"type": "object",
+			"description": "Expected composite type definition.",
+			"required": ["fields"],
+			"additionalProperties": false,
+			"properties": {
+				"fields": {
+					"type": "array",
+					"items": {
+						"$ref": "#/definitions/expected_composite_field"
+					}
+				}
+			}
+		},
+		"expected_composite_field": {
+			"type": "object",
+			"description": "A single field within a composite type.",
+			"required": ["name", "sql_type"],
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"sql_type": {
+					"type": "string"
+				}
+			}
+		},
+		"expected_query": {
+			"type": "object",
+			"description": "Expected query analysis results.",
+			"required": ["name", "command"],
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string",
+					"description": "Expected query function name."
+				},
+				"command": {
+					"type": "string",
+					"description": "Expected command type.",
+					"enum": ["one", "many", "exec", "exec_result", "exec_rows", "batch"]
+				},
+				"params": {
+					"type": "array",
+					"description": "Expected query parameters.",
+					"items": {
+						"$ref": "#/definitions/expected_param"
+					}
+				},
+				"columns": {
+					"type": "array",
+					"description": "Expected return columns.",
+					"items": {
+						"$ref": "#/definitions/expected_return_column"
+					}
+				}
+			}
+		},
+		"expected_param": {
+			"type": "object",
+			"description": "Expected query parameter.",
+			"required": ["name", "rust_type", "nullable"],
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"rust_type": {
+					"type": "string"
+				},
+				"nullable": {
+					"type": "boolean"
+				},
+				"position": {
+					"type": "integer"
+				}
+			}
+		},
+		"expected_return_column": {
+			"type": "object",
+			"description": "Expected return column from a query.",
+			"required": ["name", "rust_type", "nullable"],
+			"additionalProperties": false,
+			"properties": {
+				"name": {
+					"type": "string"
+				},
+				"rust_type": {
+					"type": "string"
+				},
+				"nullable": {
+					"type": "boolean"
+				},
+				"note": {
+					"type": "string",
+					"description": "Optional note explaining nullable reasoning or other details."
+				}
+			}
+		},
+		"expected_generated_rust": {
+			"type": "object",
+			"description": "Expected generated Rust code snippets.",
+			"additionalProperties": false,
+			"properties": {
+				"row_struct": {
+					"type": "string",
+					"description": "Expected Rust struct code for the row type."
+				},
+				"query_fn": {
+					"type": "string",
+					"description": "Expected Rust function signature."
+				},
+				"enum_def": {
+					"type": "string",
+					"description": "Expected Rust enum definition."
+				},
+				"model_struct": {
+					"type": "string",
+					"description": "Expected shared model struct code."
+				}
+			}
+		},
+		"expected_error": {
+			"type": "object",
+			"description": "Expected error details when success is false.",
+			"additionalProperties": false,
+			"properties": {
+				"code": {
+					"type": "string",
+					"description": "Expected error code."
+				},
+				"message_contains": {
+					"type": "string",
+					"description": "Substring that should appear in the error message."
+				}
+			}
+		},
+		"sqlc_comparison": {
+			"type": "object",
+			"description": "Notes comparing behavior with sqlc.",
+			"additionalProperties": false,
+			"properties": {
+				"sqlc_behavior": {
+					"type": "string",
+					"description": "How sqlc handles this case."
+				},
+				"scythe_improvement": {
+					"type": "string",
+					"description": "How scythe improves on sqlc behavior."
+				}
+			}
+		}
+	}
 }

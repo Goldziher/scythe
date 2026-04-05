@@ -1,47 +1,42 @@
 {
-  "category": "joins/right_join",
-  "description": "RIGHT JOIN makes left-side columns nullable even if declared NOT NULL",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "name",
-          "note": "LEFT side of RIGHT JOIN: users.name is NOT NULL in schema but becomes nullable",
-          "nullable": true,
-          "type": "string"
-        },
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "total",
-          "nullable": false,
-          "type": "int32"
-        }
-      ],
-      "command": "many",
-      "name": "GetOrdersWithOptionalUsers",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "basic_right_join",
-  "query_sql": "-- @name GetOrdersWithOptionalUsers\n-- @returns :many\nSELECT u.name, o.id, o.total FROM users u RIGHT JOIN orders o ON u.id = o.user_id",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks u.name as nullable because it is on the LEFT side of a RIGHT JOIN",
-    "sqlc_behavior": "sqlc marks u.name as non-nullable based on schema definition"
-  },
-  "tags": [
-    "join",
-    "right_join",
-    "nullability",
-    "key_improvement"
-  ]
+	"category": "joins/right_join",
+	"description": "RIGHT JOIN makes left-side columns nullable even if declared NOT NULL",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "name",
+					"note": "LEFT side of RIGHT JOIN: users.name is NOT NULL in schema but becomes nullable",
+					"nullable": true,
+					"type": "string"
+				},
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "total",
+					"nullable": false,
+					"type": "int32"
+				}
+			],
+			"command": "many",
+			"name": "GetOrdersWithOptionalUsers",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "basic_right_join",
+	"query_sql": "-- @name GetOrdersWithOptionalUsers\n-- @returns :many\nSELECT u.name, o.id, o.total FROM users u RIGHT JOIN orders o ON u.id = o.user_id",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "scythe correctly marks u.name as nullable because it is on the LEFT side of a RIGHT JOIN",
+		"sqlc_behavior": "sqlc marks u.name as non-nullable based on schema definition"
+	},
+	"tags": ["join", "right_join", "nullability", "key_improvement"]
 }

@@ -1,44 +1,42 @@
 {
-  "category": "types/uuid",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Select a UUID column mapped to uuid::Uuid",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUsersRow {\n    pub id: uuid::Uuid,\n    pub name: String,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "uuid"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsers",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "uuid_column",
-  "query_sql": "-- @name GetUsers\n-- @returns :many\nSELECT id, name FROM users;",
-  "schema_sql": [
-    "CREATE TABLE users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL);"
-  ],
-  "source": "sqlc_expanded",
-  "tags": [
-    "uuid"
-  ]
+	"category": "types/uuid",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Select a UUID column mapped to uuid::Uuid",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUsersRow {\n    pub id: uuid::Uuid,\n    pub name: String,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "uuid"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUsers",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "uuid_column",
+	"query_sql": "-- @name GetUsers\n-- @returns :many\nSELECT id, name FROM users;",
+	"schema_sql": [
+		"CREATE TABLE users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL);"
+	],
+	"source": "sqlc_expanded",
+	"tags": ["uuid"]
 }

@@ -1,26 +1,26 @@
 {
-  "name": "alter_rename_table",
-  "description": "ALTER TABLE RENAME TO changes the table name",
-  "category": "catalog/alter_table",
-  "tags": ["alter_table", "rename_table"],
-  "schema_sql": [
-    "CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL)",
-    "ALTER TABLE users RENAME TO people"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {
-        "people": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "name", "sql_type": "text", "nullable": false }
-          ]
-        }
-      },
-      "enums": {},
-      "composites": {}
-    }
-  },
-  "source": "sqlc"
+	"name": "alter_rename_table",
+	"description": "ALTER TABLE RENAME TO changes the table name",
+	"category": "catalog/alter_table",
+	"tags": ["alter_table", "rename_table"],
+	"schema_sql": [
+		"CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL)",
+		"ALTER TABLE users RENAME TO people"
+	],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {
+				"people": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "name", "sql_type": "text", "nullable": false }
+					]
+				}
+			},
+			"enums": {},
+			"composites": {}
+		}
+	},
+	"source": "sqlc"
 }

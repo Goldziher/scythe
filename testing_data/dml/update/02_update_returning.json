@@ -1,72 +1,68 @@
 {
-  "category": "dml/update",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "UPDATE with RETURNING * to get the updated row",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct UpdateUserReturningRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "created_at",
-          "nullable": false,
-          "type": "datetime_tz"
-        }
-      ],
-      "command": "one",
-      "name": "UpdateUserReturning",
-      "params": [
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "update_returning",
-  "query_sql": "-- @name UpdateUserReturning\n-- @returns :one\nUPDATE users SET name = $1, email = $2 WHERE id = $3 RETURNING *;",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "update",
-    "returning",
-    "one"
-  ]
+	"category": "dml/update",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "UPDATE with RETURNING * to get the updated row",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct UpdateUserReturningRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "created_at",
+					"nullable": false,
+					"type": "datetime_tz"
+				}
+			],
+			"command": "one",
+			"name": "UpdateUserReturning",
+			"params": [
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "update_returning",
+	"query_sql": "-- @name UpdateUserReturning\n-- @returns :one\nUPDATE users SET name = $1, email = $2 WHERE id = $3 RETURNING *;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+	],
+	"source": "sqlc",
+	"tags": ["update", "returning", "one"]
 }

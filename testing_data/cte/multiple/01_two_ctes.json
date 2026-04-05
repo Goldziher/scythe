@@ -1,41 +1,37 @@
 {
-  "category": "cte/multiple",
-  "description": "Two independent CTEs joined together in the outer SELECT",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "total",
-          "nullable": false,
-          "type": "int32"
-        }
-      ],
-      "command": "many",
-      "name": "GetActiveUsersWithRecentOrders",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "two_ctes",
-  "query_sql": "-- @name GetActiveUsersWithRecentOrders\n-- @returns :many\nWITH active_users AS (SELECT id, name FROM users WHERE status = 'active'), big_orders AS (SELECT user_id, total FROM orders WHERE total > 100) SELECT a.id, a.name, b.total FROM active_users a JOIN big_orders b ON a.id = b.user_id",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "cte",
-    "multiple",
-    "join"
-  ]
+	"category": "cte/multiple",
+	"description": "Two independent CTEs joined together in the outer SELECT",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "total",
+					"nullable": false,
+					"type": "int32"
+				}
+			],
+			"command": "many",
+			"name": "GetActiveUsersWithRecentOrders",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "two_ctes",
+	"query_sql": "-- @name GetActiveUsersWithRecentOrders\n-- @returns :many\nWITH active_users AS (SELECT id, name FROM users WHERE status = 'active'), big_orders AS (SELECT user_id, total FROM orders WHERE total > 100) SELECT a.id, a.name, b.total FROM active_users a JOIN big_orders b ON a.id = b.user_id",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["cte", "multiple", "join"]
 }

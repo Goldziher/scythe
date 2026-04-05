@@ -1,36 +1,32 @@
 {
-  "category": "expressions/string_functions",
-  "description": "CONCAT function never returns null, coerces null arguments to empty string",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "display",
-          "note": "CONCAT never returns null, even with null args it coerces to empty string",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "ConcatDisplay",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "string_concat_function",
-  "query_sql": "-- @name ConcatDisplay\n-- @returns :many\nSELECT id, CONCAT(name, ' <', email, '>') AS display FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);"
-  ],
-  "source": "original",
-  "tags": [
-    "expression",
-    "string",
-    "concat"
-  ]
+	"category": "expressions/string_functions",
+	"description": "CONCAT function never returns null, coerces null arguments to empty string",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "display",
+					"note": "CONCAT never returns null, even with null args it coerces to empty string",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "ConcatDisplay",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "string_concat_function",
+	"query_sql": "-- @name ConcatDisplay\n-- @returns :many\nSELECT id, CONCAT(name, ' <', email, '>') AS display FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);"
+	],
+	"source": "original",
+	"tags": ["expression", "string", "concat"]
 }

@@ -1,55 +1,50 @@
 {
-  "category": "params/complex_positions",
-  "description": "Multiple parameters used inside an ARRAY constructor with ANY for matching against a set of values",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersByIds",
-      "params": [
-        {
-          "name": "id1",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        },
-        {
-          "name": "id2",
-          "nullable": false,
-          "position": 2,
-          "type": "int32"
-        },
-        {
-          "name": "id3",
-          "nullable": false,
-          "position": 3,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "param_in_array_literal",
-  "query_sql": "-- @name GetUsersByIds\n-- @returns :many\nSELECT id, name FROM users WHERE id = ANY(ARRAY[$1, $2, $3])",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "param",
-    "array",
-    "any",
-    "constructor"
-  ]
+	"category": "params/complex_positions",
+	"description": "Multiple parameters used inside an ARRAY constructor with ANY for matching against a set of values",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersByIds",
+			"params": [
+				{
+					"name": "id1",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				},
+				{
+					"name": "id2",
+					"nullable": false,
+					"position": 2,
+					"type": "int32"
+				},
+				{
+					"name": "id3",
+					"nullable": false,
+					"position": 3,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "param_in_array_literal",
+	"query_sql": "-- @name GetUsersByIds\n-- @returns :many\nSELECT id, name FROM users WHERE id = ANY(ARRAY[$1, $2, $3])",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["param", "array", "any", "constructor"]
 }

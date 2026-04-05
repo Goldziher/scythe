@@ -1,28 +1,28 @@
 {
-  "name": "constraints_not_null",
-  "description": "Mix of NOT NULL and nullable columns to verify nullable flag",
-  "category": "catalog/create_table",
-  "tags": ["constraints", "not_null"],
-  "schema_sql": [
-    "CREATE TABLE profiles (id integer NOT NULL, username text NOT NULL, bio text, email text NOT NULL, avatar_url text)"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {
-        "profiles": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "username", "sql_type": "text", "nullable": false },
-            { "name": "bio", "sql_type": "text", "nullable": true },
-            { "name": "email", "sql_type": "text", "nullable": false },
-            { "name": "avatar_url", "sql_type": "text", "nullable": true }
-          ]
-        }
-      },
-      "enums": {},
-      "composites": {}
-    }
-  },
-  "source": "sqlc"
+	"name": "constraints_not_null",
+	"description": "Mix of NOT NULL and nullable columns to verify nullable flag",
+	"category": "catalog/create_table",
+	"tags": ["constraints", "not_null"],
+	"schema_sql": [
+		"CREATE TABLE profiles (id integer NOT NULL, username text NOT NULL, bio text, email text NOT NULL, avatar_url text)"
+	],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {
+				"profiles": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "username", "sql_type": "text", "nullable": false },
+						{ "name": "bio", "sql_type": "text", "nullable": true },
+						{ "name": "email", "sql_type": "text", "nullable": false },
+						{ "name": "avatar_url", "sql_type": "text", "nullable": true }
+					]
+				}
+			},
+			"enums": {},
+			"composites": {}
+		}
+	},
+	"source": "sqlc"
 }

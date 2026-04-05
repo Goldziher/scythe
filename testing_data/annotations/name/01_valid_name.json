@@ -1,57 +1,53 @@
 {
-  "category": "annotations/name",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Verify @name annotation with PascalCase is parsed correctly",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "one",
-      "name": "GetUser",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "valid_name_pascal",
-  "query_sql": "-- @name GetUser\n-- @returns :one\nSELECT id, name, email FROM users WHERE id = $1;",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "annotation",
-    "name",
-    "pascal_case"
-  ]
+	"category": "annotations/name",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Verify @name annotation with PascalCase is parsed correctly",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "one",
+			"name": "GetUser",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "valid_name_pascal",
+	"query_sql": "-- @name GetUser\n-- @returns :one\nSELECT id, name, email FROM users WHERE id = $1;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"source": "sqlc",
+	"tags": ["annotation", "name", "pascal_case"]
 }

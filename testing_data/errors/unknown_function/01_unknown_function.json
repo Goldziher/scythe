@@ -1,18 +1,18 @@
 {
-  "name": "error_unknown_function",
-  "description": "Calling a nonexistent function should produce an error",
-  "category": "errors/unknown_function",
-  "tags": ["error", "function", "unknown"],
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "query_sql": "-- @name UnknownFunc\n-- @returns :many\nSELECT id, nonexistent_func(name) AS result FROM users",
-  "expected": {
-    "success": false,
-    "error": {
-      "code": "UNKNOWN_FUNCTION",
-      "message_contains": "nonexistent_func"
-    }
-  },
-  "source": "original"
+	"name": "error_unknown_function",
+	"description": "Calling a nonexistent function should produce an error",
+	"category": "errors/unknown_function",
+	"tags": ["error", "function", "unknown"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"query_sql": "-- @name UnknownFunc\n-- @returns :many\nSELECT id, nonexistent_func(name) AS result FROM users",
+	"expected": {
+		"success": false,
+		"error": {
+			"code": "UNKNOWN_FUNCTION",
+			"message_contains": "nonexistent_func"
+		}
+	},
+	"source": "original"
 }

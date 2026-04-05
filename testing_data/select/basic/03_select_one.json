@@ -1,43 +1,38 @@
 {
-  "category": "select/basic",
-  "description": "SELECT a single row by primary key with :one return type",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "one",
-      "name": "GetUser",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "select_one",
-  "query_sql": "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "select",
-    "basic",
-    "one",
-    "param"
-  ]
+	"category": "select/basic",
+	"description": "SELECT a single row by primary key with :one return type",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "one",
+			"name": "GetUser",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "select_one",
+	"query_sql": "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "sqlc",
+	"tags": ["select", "basic", "one", "param"]
 }

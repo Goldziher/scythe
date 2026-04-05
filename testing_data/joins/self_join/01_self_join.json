@@ -1,44 +1,41 @@
 {
-  "category": "joins/self_join",
-  "description": "Self JOIN on the same table using different aliases",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "manager_name",
-          "note": "RIGHT side of LEFT JOIN: m.name becomes nullable for employees with no manager",
-          "nullable": true,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetEmployeesWithManagers",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "self_join",
-  "query_sql": "-- @name GetEmployeesWithManagers\n-- @returns :many\nSELECT e.id, e.name, m.name AS manager_name FROM employees e LEFT JOIN employees m ON e.manager_id = m.id",
-  "schema_sql": [
-    "CREATE TABLE employees (id SERIAL PRIMARY KEY, name TEXT NOT NULL, manager_id INTEGER REFERENCES employees(id))"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks manager_name as nullable due to LEFT JOIN on self-referencing table",
-    "sqlc_behavior": "sqlc marks manager_name as non-nullable because employees.name is NOT NULL"
-  },
-  "tags": [
-    "join",
-    "self_join"
-  ]
+	"category": "joins/self_join",
+	"description": "Self JOIN on the same table using different aliases",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "manager_name",
+					"note": "RIGHT side of LEFT JOIN: m.name becomes nullable for employees with no manager",
+					"nullable": true,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetEmployeesWithManagers",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "self_join",
+	"query_sql": "-- @name GetEmployeesWithManagers\n-- @returns :many\nSELECT e.id, e.name, m.name AS manager_name FROM employees e LEFT JOIN employees m ON e.manager_id = m.id",
+	"schema_sql": [
+		"CREATE TABLE employees (id SERIAL PRIMARY KEY, name TEXT NOT NULL, manager_id INTEGER REFERENCES employees(id))"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "scythe correctly marks manager_name as nullable due to LEFT JOIN on self-referencing table",
+		"sqlc_behavior": "sqlc marks manager_name as non-nullable because employees.name is NOT NULL"
+	},
+	"tags": ["join", "self_join"]
 }

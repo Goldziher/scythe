@@ -1,35 +1,31 @@
 {
-  "category": "types/json_jsonb_advanced",
-  "description": "Test @> containment operator in WHERE clause with JSONB",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "data",
-          "nullable": false,
-          "type": "json"
-        }
-      ],
-      "command": "many",
-      "name": "FindDocsByContent",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "jsonb_contains_operator",
-  "query_sql": "-- @name FindDocsByContent\n-- @returns :many\nSELECT id, data FROM documents WHERE data @> '{\"type\": \"report\"}'",
-  "schema_sql": [
-    "CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"
-  ],
-  "source": "original",
-  "tags": [
-    "jsonb",
-    "operator",
-    "containment"
-  ]
+	"category": "types/json_jsonb_advanced",
+	"description": "Test @> containment operator in WHERE clause with JSONB",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "data",
+					"nullable": false,
+					"type": "json"
+				}
+			],
+			"command": "many",
+			"name": "FindDocsByContent",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "jsonb_contains_operator",
+	"query_sql": "-- @name FindDocsByContent\n-- @returns :many\nSELECT id, data FROM documents WHERE data @> '{\"type\": \"report\"}'",
+	"schema_sql": [
+		"CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"
+	],
+	"source": "original",
+	"tags": ["jsonb", "operator", "containment"]
 }

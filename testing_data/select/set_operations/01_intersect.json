@@ -1,36 +1,32 @@
 {
-  "category": "select/set_operations",
-  "description": "INTERSECT of two SELECT statements returns only rows present in both result sets",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "FindCommonContacts",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "select_intersect",
-  "query_sql": "-- @name FindCommonContacts\n-- @returns :many\nSELECT name, email FROM users INTERSECT SELECT name, email FROM contacts",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
-    "CREATE TABLE contacts (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "select",
-    "intersect",
-    "set_operation"
-  ]
+	"category": "select/set_operations",
+	"description": "INTERSECT of two SELECT statements returns only rows present in both result sets",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "FindCommonContacts",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "select_intersect",
+	"query_sql": "-- @name FindCommonContacts\n-- @returns :many\nSELECT name, email FROM users INTERSECT SELECT name, email FROM contacts",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
+		"CREATE TABLE contacts (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["select", "intersect", "set_operation"]
 }

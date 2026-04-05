@@ -1,53 +1,50 @@
 {
-  "category": "nullability/column_not_null",
-  "description": "Selecting a mix of NOT NULL and nullable columns returns correct nullability for each",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "bio",
-          "note": "bio allows NULL",
-          "nullable": true,
-          "type": "string"
-        },
-        {
-          "name": "age",
-          "note": "age allows NULL",
-          "nullable": true,
-          "type": "int32"
-        }
-      ],
-      "command": "one",
-      "name": "GetUserProfile",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "mixed_nullability",
-  "query_sql": "-- @name GetUserProfile\n-- @returns :one\nSELECT id, name, bio, age FROM users WHERE id = $1",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "nullability",
-    "basic"
-  ]
+	"category": "nullability/column_not_null",
+	"description": "Selecting a mix of NOT NULL and nullable columns returns correct nullability for each",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "bio",
+					"note": "bio allows NULL",
+					"nullable": true,
+					"type": "string"
+				},
+				{
+					"name": "age",
+					"note": "age allows NULL",
+					"nullable": true,
+					"type": "int32"
+				}
+			],
+			"command": "one",
+			"name": "GetUserProfile",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "mixed_nullability",
+	"query_sql": "-- @name GetUserProfile\n-- @returns :one\nSELECT id, name, bio, age FROM users WHERE id = $1",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["nullability", "basic"]
 }

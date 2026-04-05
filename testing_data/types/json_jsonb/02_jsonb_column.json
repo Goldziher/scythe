@@ -1,45 +1,42 @@
 {
-  "category": "types/json_jsonb",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Select a non-nullable JSONB column mapped to serde_json::Value",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventsJsonbRow {\n    pub id: i32,\n    pub data: serde_json::Value,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "data",
-          "nullable": false,
-          "type": "json"
-        }
-      ],
-      "command": "many",
-      "name": "GetEventsJsonb",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "jsonb_column",
-  "query_sql": "-- @name GetEventsJsonb\n-- @returns :many\nSELECT id, data FROM events;",
-  "schema_sql": [
-    "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"
-  ],
-  "source": "sqlc_expanded",
-  "tags": [
-    "jsonb",
-    "serde"
-  ]
+	"category": "types/json_jsonb",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Select a non-nullable JSONB column mapped to serde_json::Value",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventsJsonbRow {\n    pub id: i32,\n    pub data: serde_json::Value,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "data",
+					"nullable": false,
+					"type": "json"
+				}
+			],
+			"command": "many",
+			"name": "GetEventsJsonb",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "jsonb_column",
+	"query_sql": "-- @name GetEventsJsonb\n-- @returns :many\nSELECT id, data FROM events;",
+	"schema_sql": [
+		"CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"
+	],
+	"source": "sqlc_expanded",
+	"tags": ["jsonb", "serde"]
 }

@@ -1,40 +1,36 @@
 {
-  "category": "expressions/cast_advanced",
-  "description": "PostgreSQL :: cast syntax works alongside CAST() — confirms type resolution for double-colon casts",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "big_id",
-          "nullable": false,
-          "type": "int64"
-        },
-        {
-          "name": "short_name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "ListUsersWithCasts",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "cast_pg_double_colon",
-  "query_sql": "-- @name ListUsersWithCasts\n-- @returns :many\nSELECT id, id::bigint AS big_id, name::varchar(10) AS short_name FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');"
-  ],
-  "source": "original",
-  "tags": [
-    "cast",
-    "pg_syntax",
-    "double_colon"
-  ]
+	"category": "expressions/cast_advanced",
+	"description": "PostgreSQL :: cast syntax works alongside CAST() — confirms type resolution for double-colon casts",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "big_id",
+					"nullable": false,
+					"type": "int64"
+				},
+				{
+					"name": "short_name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "ListUsersWithCasts",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "cast_pg_double_colon",
+	"query_sql": "-- @name ListUsersWithCasts\n-- @returns :many\nSELECT id, id::bigint AS big_id, name::varchar(10) AS short_name FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');"
+	],
+	"source": "original",
+	"tags": ["cast", "pg_syntax", "double_colon"]
 }

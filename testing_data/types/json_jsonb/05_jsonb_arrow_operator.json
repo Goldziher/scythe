@@ -1,47 +1,42 @@
 {
-  "category": "types/json_jsonb",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Use ->> operator to extract text from JSONB; result is nullable String since key may not exist",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventNameRow {\n    pub id: i32,\n    pub name: Option<String>,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": true,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetEventName",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "jsonb_arrow_text_extraction",
-  "query_sql": "-- @name GetEventName\n-- @returns :many\nSELECT id, data->>'name' AS name FROM events;",
-  "schema_sql": [
-    "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"
-  ],
-  "source": "sqlc_expanded",
-  "tags": [
-    "jsonb",
-    "operator",
-    "text_extraction",
-    "nullable"
-  ]
+	"category": "types/json_jsonb",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Use ->> operator to extract text from JSONB; result is nullable String since key may not exist",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventNameRow {\n    pub id: i32,\n    pub name: Option<String>,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": true,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetEventName",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "jsonb_arrow_text_extraction",
+	"query_sql": "-- @name GetEventName\n-- @returns :many\nSELECT id, data->>'name' AS name FROM events;",
+	"schema_sql": [
+		"CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"
+	],
+	"source": "sqlc_expanded",
+	"tags": ["jsonb", "operator", "text_extraction", "nullable"]
 }

@@ -1,35 +1,31 @@
 {
-  "category": "types/json_jsonb_advanced",
-  "description": "Test jsonb_array_elements set-returning function in FROM clause to expand a JSONB array into rows",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "item",
-          "nullable": true,
-          "type": "json"
-        }
-      ],
-      "command": "many",
-      "name": "GetDocItems",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "jsonb_array_elements_from",
-  "query_sql": "-- @name GetDocItems\n-- @returns :many\nSELECT id, elem.value AS item FROM documents, jsonb_array_elements(data->'items') AS elem",
-  "schema_sql": [
-    "CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"
-  ],
-  "source": "original",
-  "tags": [
-    "jsonb",
-    "set_returning_function",
-    "array_elements"
-  ]
+	"category": "types/json_jsonb_advanced",
+	"description": "Test jsonb_array_elements set-returning function in FROM clause to expand a JSONB array into rows",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "item",
+					"nullable": true,
+					"type": "json"
+				}
+			],
+			"command": "many",
+			"name": "GetDocItems",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "jsonb_array_elements_from",
+	"query_sql": "-- @name GetDocItems\n-- @returns :many\nSELECT id, elem.value AS item FROM documents, jsonb_array_elements(data->'items') AS elem",
+	"schema_sql": [
+		"CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"
+	],
+	"source": "original",
+	"tags": ["jsonb", "set_returning_function", "array_elements"]
 }

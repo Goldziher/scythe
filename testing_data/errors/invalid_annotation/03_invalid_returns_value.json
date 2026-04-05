@@ -1,24 +1,24 @@
 {
-  "name": "invalid_returns_value",
-  "description": "Query with invalid @returns value should produce an error",
-  "category": "errors/invalid_annotation",
-  "tags": ["error", "annotation", "invalid_returns"],
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
-  ],
-  "query_sql": "-- @name GetUsers\n-- @returns :invalid\nSELECT id, name FROM users;",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "expected": {
-    "success": false,
-    "error": {
-      "code": "INVALID_ANNOTATION",
-      "message_contains": "invalid @returns value"
-    }
-  },
-  "source": "original"
+	"name": "invalid_returns_value",
+	"description": "Query with invalid @returns value should produce an error",
+	"category": "errors/invalid_annotation",
+	"tags": ["error", "annotation", "invalid_returns"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+	],
+	"query_sql": "-- @name GetUsers\n-- @returns :invalid\nSELECT id, name FROM users;",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"expected": {
+		"success": false,
+		"error": {
+			"code": "INVALID_ANNOTATION",
+			"message_contains": "invalid @returns value"
+		}
+	},
+	"source": "original"
 }

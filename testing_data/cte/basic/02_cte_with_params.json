@@ -1,42 +1,38 @@
 {
-  "category": "cte/basic",
-  "description": "CTE with parameterized WHERE clause passes parameters through",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersByStatus",
-      "params": [
-        {
-          "name": "status",
-          "nullable": false,
-          "position": 1,
-          "type": "string"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "cte_with_params",
-  "query_sql": "-- @name GetUsersByStatus\n-- @returns :many\nWITH filtered AS (SELECT id, name FROM users WHERE status = $1) SELECT * FROM filtered",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "cte",
-    "with",
-    "param"
-  ]
+	"category": "cte/basic",
+	"description": "CTE with parameterized WHERE clause passes parameters through",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersByStatus",
+			"params": [
+				{
+					"name": "status",
+					"nullable": false,
+					"position": 1,
+					"type": "string"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "cte_with_params",
+	"query_sql": "-- @name GetUsersByStatus\n-- @returns :many\nWITH filtered AS (SELECT id, name FROM users WHERE status = $1) SELECT * FROM filtered",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "sqlc",
+	"tags": ["cte", "with", "param"]
 }

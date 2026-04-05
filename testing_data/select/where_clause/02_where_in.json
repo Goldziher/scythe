@@ -1,48 +1,43 @@
 {
-  "category": "select/where_clause",
-  "description": "WHERE clause with ANY($1) for array parameter matching",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersByIds",
-      "params": [
-        {
-          "name": "ids",
-          "nullable": false,
-          "position": 1,
-          "type": "array<int32>"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "where_in",
-  "query_sql": "-- @name GetUsersByIds\n-- @returns :many\nSELECT id, name, email FROM users WHERE id = ANY($1)",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "select",
-    "where",
-    "any",
-    "array_param"
-  ]
+	"category": "select/where_clause",
+	"description": "WHERE clause with ANY($1) for array parameter matching",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersByIds",
+			"params": [
+				{
+					"name": "ids",
+					"nullable": false,
+					"position": 1,
+					"type": "array<int32>"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "where_in",
+	"query_sql": "-- @name GetUsersByIds\n-- @returns :many\nSELECT id, name, email FROM users WHERE id = ANY($1)",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "sqlc",
+	"tags": ["select", "where", "any", "array_param"]
 }

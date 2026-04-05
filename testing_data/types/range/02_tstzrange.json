@@ -1,43 +1,38 @@
 {
-  "category": "types/range",
-  "description": "Select a TSTZRANGE column mapped to PgRange<DateTime<Utc>>",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "time_slot",
-          "nullable": false,
-          "type": "range<datetime_tz>"
-        }
-      ],
-      "command": "one",
-      "name": "GetBooking",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "range_tstzrange",
-  "query_sql": "-- @name GetBooking\n-- @returns :one\nSELECT id, time_slot FROM bookings WHERE id = $1",
-  "schema_sql": [
-    "CREATE TABLE bookings (id SERIAL PRIMARY KEY, time_slot TSTZRANGE NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "range",
-    "tstzrange",
-    "type",
-    "temporal"
-  ]
+	"category": "types/range",
+	"description": "Select a TSTZRANGE column mapped to PgRange<DateTime<Utc>>",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "time_slot",
+					"nullable": false,
+					"type": "range<datetime_tz>"
+				}
+			],
+			"command": "one",
+			"name": "GetBooking",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "range_tstzrange",
+	"query_sql": "-- @name GetBooking\n-- @returns :one\nSELECT id, time_slot FROM bookings WHERE id = $1",
+	"schema_sql": [
+		"CREATE TABLE bookings (id SERIAL PRIMARY KEY, time_slot TSTZRANGE NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["range", "tstzrange", "type", "temporal"]
 }

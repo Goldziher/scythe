@@ -1,36 +1,32 @@
 {
-  "category": "select/set_operations",
-  "description": "EXCEPT returns rows from the first SELECT that are not present in the second SELECT",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "FindUsersNotInContacts",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "select_except",
-  "query_sql": "-- @name FindUsersNotInContacts\n-- @returns :many\nSELECT name, email FROM users EXCEPT SELECT name, email FROM contacts",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
-    "CREATE TABLE contacts (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "select",
-    "except",
-    "set_operation"
-  ]
+	"category": "select/set_operations",
+	"description": "EXCEPT returns rows from the first SELECT that are not present in the second SELECT",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "FindUsersNotInContacts",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "select_except",
+	"query_sql": "-- @name FindUsersNotInContacts\n-- @returns :many\nSELECT name, email FROM users EXCEPT SELECT name, email FROM contacts",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);",
+		"CREATE TABLE contacts (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["select", "except", "set_operation"]
 }

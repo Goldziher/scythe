@@ -1,45 +1,42 @@
 {
-  "category": "dml/insert",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Simple INSERT with :exec return type (no returning clause)",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "query_fn": "pub async fn insert_user(pool: &sqlx::PgPool, name: &str, email: &str) -> Result<(), sqlx::Error> {\n    sqlx::query!(\"INSERT INTO users (name, email) VALUES ($1, $2)\", name, email)\n        .execute(pool)\n        .await?;\n    Ok(())\n}"
-      }
-    },
-    "query": {
-      "columns": [],
-      "command": "exec",
-      "name": "InsertUser",
-      "params": [
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "insert_exec",
-  "query_sql": "-- @name InsertUser\n-- @returns :exec\nINSERT INTO users (name, email) VALUES ($1, $2);",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "insert",
-    "exec"
-  ]
+	"category": "dml/insert",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Simple INSERT with :exec return type (no returning clause)",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"query_fn": "pub async fn insert_user(pool: &sqlx::PgPool, name: &str, email: &str) -> Result<(), sqlx::Error> {\n    sqlx::query!(\"INSERT INTO users (name, email) VALUES ($1, $2)\", name, email)\n        .execute(pool)\n        .await?;\n    Ok(())\n}"
+			}
+		},
+		"query": {
+			"columns": [],
+			"command": "exec",
+			"name": "InsertUser",
+			"params": [
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "insert_exec",
+	"query_sql": "-- @name InsertUser\n-- @returns :exec\nINSERT INTO users (name, email) VALUES ($1, $2);",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"source": "sqlc",
+	"tags": ["insert", "exec"]
 }

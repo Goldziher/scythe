@@ -1,24 +1,24 @@
 {
-  "name": "unknown_table",
-  "description": "Reference a nonexistent table in FROM, expecting an error",
-  "category": "errors/unknown_table",
-  "tags": ["error", "unknown_table"],
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
-  ],
-  "query_sql": "-- @name GetFromNonexistent\n-- @returns :many\nSELECT * FROM nonexistent;",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "expected": {
-    "success": false,
-    "error": {
-      "code": "UNKNOWN_TABLE",
-      "message_contains": "relation \"nonexistent\" does not exist"
-    }
-  },
-  "source": "sqlc"
+	"name": "unknown_table",
+	"description": "Reference a nonexistent table in FROM, expecting an error",
+	"category": "errors/unknown_table",
+	"tags": ["error", "unknown_table"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+	],
+	"query_sql": "-- @name GetFromNonexistent\n-- @returns :many\nSELECT * FROM nonexistent;",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"expected": {
+		"success": false,
+		"error": {
+			"code": "UNKNOWN_TABLE",
+			"message_contains": "relation \"nonexistent\" does not exist"
+		}
+	},
+	"source": "sqlc"
 }

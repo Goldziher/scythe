@@ -1,18 +1,18 @@
 {
-  "name": "error_circular_cte",
-  "description": "Recursive CTE with no proper base case should produce an error",
-  "category": "errors/circular_cte",
-  "tags": ["error", "cte", "recursive"],
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "query_sql": "-- @name CircularCte\n-- @returns :many\nWITH RECURSIVE inf AS (SELECT * FROM inf) SELECT * FROM inf",
-  "expected": {
-    "success": false,
-    "error": {
-      "code": "INVALID_RECURSION",
-      "message_contains": "recursive"
-    }
-  },
-  "source": "original"
+	"name": "error_circular_cte",
+	"description": "Recursive CTE with no proper base case should produce an error",
+	"category": "errors/circular_cte",
+	"tags": ["error", "cte", "recursive"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"query_sql": "-- @name CircularCte\n-- @returns :many\nWITH RECURSIVE inf AS (SELECT * FROM inf) SELECT * FROM inf",
+	"expected": {
+		"success": false,
+		"error": {
+			"code": "INVALID_RECURSION",
+			"message_contains": "recursive"
+		}
+	},
+	"source": "original"
 }

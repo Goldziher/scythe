@@ -1,34 +1,31 @@
 {
-  "category": "nullability/coalesce_non_null",
-  "description": "COALESCE used in WHERE clause does not affect output column nullability",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersWithBio",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "coalesce_in_where",
-  "query_sql": "-- @name GetUsersWithBio\n-- @returns :many\nSELECT id, name FROM users WHERE COALESCE(bio, '') != ''",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "nullability",
-    "coalesce"
-  ]
+	"category": "nullability/coalesce_non_null",
+	"description": "COALESCE used in WHERE clause does not affect output column nullability",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersWithBio",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "coalesce_in_where",
+	"query_sql": "-- @name GetUsersWithBio\n-- @returns :many\nSELECT id, name FROM users WHERE COALESCE(bio, '') != ''",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["nullability", "coalesce"]
 }

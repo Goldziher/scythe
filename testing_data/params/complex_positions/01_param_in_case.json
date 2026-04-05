@@ -1,43 +1,39 @@
 {
-  "category": "params/complex_positions",
-  "description": "Parameter used as a boolean condition in a CASE WHEN expression to toggle which column is returned",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "display",
-          "note": "Both branches (name, email) are NOT NULL so result is non-null",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUserDisplay",
-      "params": [
-        {
-          "name": "flag",
-          "nullable": false,
-          "position": 1,
-          "type": "bool"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "param_in_case_when",
-  "query_sql": "-- @name GetUserDisplay\n-- @returns :many\nSELECT id, CASE WHEN $1 THEN name ELSE email END AS display FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "param",
-    "case",
-    "boolean"
-  ]
+	"category": "params/complex_positions",
+	"description": "Parameter used as a boolean condition in a CASE WHEN expression to toggle which column is returned",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "display",
+					"note": "Both branches (name, email) are NOT NULL so result is non-null",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUserDisplay",
+			"params": [
+				{
+					"name": "flag",
+					"nullable": false,
+					"position": 1,
+					"type": "bool"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "param_in_case_when",
+	"query_sql": "-- @name GetUserDisplay\n-- @returns :many\nSELECT id, CASE WHEN $1 THEN name ELSE email END AS display FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["param", "case", "boolean"]
 }

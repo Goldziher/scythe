@@ -1,60 +1,60 @@
 {
-  "category": "joins/right_join",
-  "description": "RIGHT JOIN with multiple left-side columns all becoming nullable",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "user_id",
-          "note": "LEFT side of RIGHT JOIN: becomes nullable",
-          "nullable": true,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "note": "LEFT side of RIGHT JOIN: becomes nullable",
-          "nullable": true,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "note": "LEFT side of RIGHT JOIN: becomes nullable",
-          "nullable": true,
-          "type": "string"
-        },
-        {
-          "name": "order_id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "total",
-          "nullable": false,
-          "type": "int32"
-        }
-      ],
-      "command": "many",
-      "name": "GetOrdersWithUserInfo",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "right_join_left_cols_nullable",
-  "query_sql": "-- @name GetOrdersWithUserInfo\n-- @returns :many\nSELECT u.id AS user_id, u.name, u.email, o.id AS order_id, o.total FROM users u RIGHT JOIN orders o ON u.id = o.user_id",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks all left-side columns as nullable due to RIGHT JOIN semantics",
-    "sqlc_behavior": "sqlc marks user_id, name, email as non-nullable based on schema"
-  },
-  "tags": [
-    "join",
-    "right_join",
-    "nullability",
-    "multiple_columns",
-    "key_improvement"
-  ]
+	"category": "joins/right_join",
+	"description": "RIGHT JOIN with multiple left-side columns all becoming nullable",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "user_id",
+					"note": "LEFT side of RIGHT JOIN: becomes nullable",
+					"nullable": true,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"note": "LEFT side of RIGHT JOIN: becomes nullable",
+					"nullable": true,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"note": "LEFT side of RIGHT JOIN: becomes nullable",
+					"nullable": true,
+					"type": "string"
+				},
+				{
+					"name": "order_id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "total",
+					"nullable": false,
+					"type": "int32"
+				}
+			],
+			"command": "many",
+			"name": "GetOrdersWithUserInfo",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "right_join_left_cols_nullable",
+	"query_sql": "-- @name GetOrdersWithUserInfo\n-- @returns :many\nSELECT u.id AS user_id, u.name, u.email, o.id AS order_id, o.total FROM users u RIGHT JOIN orders o ON u.id = o.user_id",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "scythe correctly marks all left-side columns as nullable due to RIGHT JOIN semantics",
+		"sqlc_behavior": "sqlc marks user_id, name, email as non-nullable based on schema"
+	},
+	"tags": [
+		"join",
+		"right_join",
+		"nullability",
+		"multiple_columns",
+		"key_improvement"
+	]
 }

@@ -1,27 +1,27 @@
 {
-  "name": "reserved_words",
-  "description": "Table and column names that are SQL reserved words using quoted identifiers",
-  "category": "catalog/create_table",
-  "tags": ["reserved_words", "quoted_identifiers"],
-  "schema_sql": [
-    "CREATE TABLE \"order\" (\"id\" serial PRIMARY KEY, \"select\" text NOT NULL, \"from\" text, \"group\" integer NOT NULL)"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {
-        "order": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "select", "sql_type": "text", "nullable": false },
-            { "name": "from", "sql_type": "text", "nullable": true },
-            { "name": "group", "sql_type": "integer", "nullable": false }
-          ]
-        }
-      },
-      "enums": {},
-      "composites": {}
-    }
-  },
-  "source": "original"
+	"name": "reserved_words",
+	"description": "Table and column names that are SQL reserved words using quoted identifiers",
+	"category": "catalog/create_table",
+	"tags": ["reserved_words", "quoted_identifiers"],
+	"schema_sql": [
+		"CREATE TABLE \"order\" (\"id\" serial PRIMARY KEY, \"select\" text NOT NULL, \"from\" text, \"group\" integer NOT NULL)"
+	],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {
+				"order": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "select", "sql_type": "text", "nullable": false },
+						{ "name": "from", "sql_type": "text", "nullable": true },
+						{ "name": "group", "sql_type": "integer", "nullable": false }
+					]
+				}
+			},
+			"enums": {},
+			"composites": {}
+		}
+	},
+	"source": "original"
 }

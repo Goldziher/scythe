@@ -1,62 +1,58 @@
 {
-  "category": "dml/delete",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "DELETE with RETURNING * to get the deleted row",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct DeleteUserReturningRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "created_at",
-          "nullable": false,
-          "type": "datetime_tz"
-        }
-      ],
-      "command": "one",
-      "name": "DeleteUserReturning",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "delete_returning",
-  "query_sql": "-- @name DeleteUserReturning\n-- @returns :one\nDELETE FROM users WHERE id = $1 RETURNING *;",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "delete",
-    "returning",
-    "one"
-  ]
+	"category": "dml/delete",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "DELETE with RETURNING * to get the deleted row",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct DeleteUserReturningRow {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "created_at",
+					"nullable": false,
+					"type": "datetime_tz"
+				}
+			],
+			"command": "one",
+			"name": "DeleteUserReturning",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "delete_returning",
+	"query_sql": "-- @name DeleteUserReturning\n-- @returns :one\nDELETE FROM users WHERE id = $1 RETURNING *;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());"
+	],
+	"source": "sqlc",
+	"tags": ["delete", "returning", "one"]
 }

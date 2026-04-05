@@ -1,38 +1,34 @@
 {
-  "category": "expressions/cast",
-  "description": "Explicit cast changes the Rust type mapping while preserving nullability",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "big_id",
-          "note": "cast to bigint changes type to i64, non-nullable because id is NOT NULL",
-          "nullable": false,
-          "type": "int64"
-        }
-      ],
-      "command": "one",
-      "name": "GetUserBigId",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "explicit_cast",
-  "query_sql": "-- @name GetUserBigId\n-- @returns :one\nSELECT id::bigint AS big_id FROM users WHERE id = $1",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "expressions",
-    "cast",
-    "type_inference"
-  ]
+	"category": "expressions/cast",
+	"description": "Explicit cast changes the Rust type mapping while preserving nullability",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "big_id",
+					"note": "cast to bigint changes type to i64, non-nullable because id is NOT NULL",
+					"nullable": false,
+					"type": "int64"
+				}
+			],
+			"command": "one",
+			"name": "GetUserBigId",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "explicit_cast",
+	"query_sql": "-- @name GetUserBigId\n-- @returns :one\nSELECT id::bigint AS big_id FROM users WHERE id = $1",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["expressions", "cast", "type_inference"]
 }

@@ -1,47 +1,42 @@
 {
-  "category": "joins/left_join",
-  "description": "LEFT JOIN makes right-side columns nullable even if declared NOT NULL, since unmatched rows produce NULLs",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "total",
-          "note": "RIGHT side of LEFT JOIN: orders.total is NOT NULL in schema but becomes nullable because unmatched left rows produce NULL",
-          "nullable": true,
-          "type": "int32"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersWithOptionalOrders",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "basic_left_join",
-  "query_sql": "-- @name GetUsersWithOptionalOrders\n-- @returns :many\nSELECT u.id, u.name, o.total FROM users u LEFT JOIN orders o ON u.id = o.user_id",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks o.total as nullable (Option<i32>) because LEFT JOIN can produce NULL for unmatched rows",
-    "sqlc_behavior": "sqlc marks o.total as non-nullable (i32) because orders.total is declared NOT NULL"
-  },
-  "tags": [
-    "join",
-    "left_join",
-    "nullability",
-    "key_improvement"
-  ]
+	"category": "joins/left_join",
+	"description": "LEFT JOIN makes right-side columns nullable even if declared NOT NULL, since unmatched rows produce NULLs",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "total",
+					"note": "RIGHT side of LEFT JOIN: orders.total is NOT NULL in schema but becomes nullable because unmatched left rows produce NULL",
+					"nullable": true,
+					"type": "int32"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersWithOptionalOrders",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "basic_left_join",
+	"query_sql": "-- @name GetUsersWithOptionalOrders\n-- @returns :many\nSELECT u.id, u.name, o.total FROM users u LEFT JOIN orders o ON u.id = o.user_id",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "scythe correctly marks o.total as nullable (Option<i32>) because LEFT JOIN can produce NULL for unmatched rows",
+		"sqlc_behavior": "sqlc marks o.total as non-nullable (i32) because orders.total is declared NOT NULL"
+	},
+	"tags": ["join", "left_join", "nullability", "key_improvement"]
 }

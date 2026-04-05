@@ -1,26 +1,26 @@
 {
-  "name": "boolean_and_uuid",
-  "description": "Table with boolean and uuid column types",
-  "category": "catalog/create_table",
-  "tags": ["types", "boolean", "uuid"],
-  "schema_sql": [
-    "CREATE TABLE flags (id uuid NOT NULL, is_active boolean NOT NULL, is_deleted boolean)"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {
-        "flags": {
-          "columns": [
-            { "name": "id", "sql_type": "uuid", "nullable": false },
-            { "name": "is_active", "sql_type": "boolean", "nullable": false },
-            { "name": "is_deleted", "sql_type": "boolean", "nullable": true }
-          ]
-        }
-      },
-      "enums": {},
-      "composites": {}
-    }
-  },
-  "source": "original"
+	"name": "boolean_and_uuid",
+	"description": "Table with boolean and uuid column types",
+	"category": "catalog/create_table",
+	"tags": ["types", "boolean", "uuid"],
+	"schema_sql": [
+		"CREATE TABLE flags (id uuid NOT NULL, is_active boolean NOT NULL, is_deleted boolean)"
+	],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {
+				"flags": {
+					"columns": [
+						{ "name": "id", "sql_type": "uuid", "nullable": false },
+						{ "name": "is_active", "sql_type": "boolean", "nullable": false },
+						{ "name": "is_deleted", "sql_type": "boolean", "nullable": true }
+					]
+				}
+			},
+			"enums": {},
+			"composites": {}
+		}
+	},
+	"source": "original"
 }

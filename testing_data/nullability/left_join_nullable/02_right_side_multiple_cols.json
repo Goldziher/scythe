@@ -1,53 +1,49 @@
 {
-  "category": "nullability/left_join_nullable",
-  "description": "LEFT JOIN makes all right-side columns nullable, including those already nullable in schema",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "total",
-          "note": "NOT NULL in schema but nullable due to LEFT JOIN",
-          "nullable": true,
-          "type": "int32"
-        },
-        {
-          "name": "notes",
-          "note": "already nullable in schema, still nullable",
-          "nullable": true,
-          "type": "string"
-        },
-        {
-          "name": "created_at",
-          "note": "NOT NULL in schema but nullable due to LEFT JOIN",
-          "nullable": true,
-          "type": "datetime_tz"
-        }
-      ],
-      "command": "many",
-      "name": "GetUserWithOrderDetails",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "right_side_multiple_cols",
-  "query_sql": "-- @name GetUserWithOrderDetails\n-- @returns :many\nSELECT u.name, o.total, o.notes, o.created_at FROM users u LEFT JOIN orders o ON u.id = o.user_id",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks all right-side columns as nullable due to LEFT JOIN semantics",
-    "sqlc_behavior": "sqlc marks o.total and o.created_at as non-nullable based on schema NOT NULL constraints"
-  },
-  "tags": [
-    "nullability",
-    "left_join",
-    "improvement_over_sqlc"
-  ]
+	"category": "nullability/left_join_nullable",
+	"description": "LEFT JOIN makes all right-side columns nullable, including those already nullable in schema",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "total",
+					"note": "NOT NULL in schema but nullable due to LEFT JOIN",
+					"nullable": true,
+					"type": "int32"
+				},
+				{
+					"name": "notes",
+					"note": "already nullable in schema, still nullable",
+					"nullable": true,
+					"type": "string"
+				},
+				{
+					"name": "created_at",
+					"note": "NOT NULL in schema but nullable due to LEFT JOIN",
+					"nullable": true,
+					"type": "datetime_tz"
+				}
+			],
+			"command": "many",
+			"name": "GetUserWithOrderDetails",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "right_side_multiple_cols",
+	"query_sql": "-- @name GetUserWithOrderDetails\n-- @returns :many\nSELECT u.name, o.total, o.notes, o.created_at FROM users u LEFT JOIN orders o ON u.id = o.user_id",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "scythe correctly marks all right-side columns as nullable due to LEFT JOIN semantics",
+		"sqlc_behavior": "sqlc marks o.total and o.created_at as non-nullable based on schema NOT NULL constraints"
+	},
+	"tags": ["nullability", "left_join", "improvement_over_sqlc"]
 }

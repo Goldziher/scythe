@@ -1,36 +1,31 @@
 {
-  "category": "select/star_expansion",
-  "description": "SELECT * from a CTE expands the CTE's projected columns",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetActiveUsers",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "star_from_cte",
-  "query_sql": "-- @name GetActiveUsers\n-- @returns :many\nWITH active AS (SELECT id, name FROM users WHERE status = 'active') SELECT * FROM active",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "select",
-    "star",
-    "expansion",
-    "cte"
-  ]
+	"category": "select/star_expansion",
+	"description": "SELECT * from a CTE expands the CTE's projected columns",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetActiveUsers",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "star_from_cte",
+	"query_sql": "-- @name GetActiveUsers\n-- @returns :many\nWITH active AS (SELECT id, name FROM users WHERE status = 'active') SELECT * FROM active",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["select", "star", "expansion", "cte"]
 }

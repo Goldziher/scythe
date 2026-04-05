@@ -1,50 +1,47 @@
 {
-  "category": "types/bytea",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Select a bytea column mapped to Vec<u8>",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetFilesRow {\n    pub id: i32,\n    pub name: String,\n    pub content: Vec<u8>,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "content",
-          "nullable": false,
-          "type": "bytes"
-        }
-      ],
-      "command": "many",
-      "name": "GetFiles",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "bytea_column",
-  "query_sql": "-- @name GetFiles\n-- @returns :many\nSELECT id, name, content FROM files;",
-  "schema_sql": [
-    "CREATE TABLE files (id SERIAL PRIMARY KEY, name TEXT NOT NULL, content BYTEA NOT NULL);"
-  ],
-  "source": "sqlc_expanded",
-  "tags": [
-    "bytea",
-    "binary"
-  ]
+	"category": "types/bytea",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Select a bytea column mapped to Vec<u8>",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetFilesRow {\n    pub id: i32,\n    pub name: String,\n    pub content: Vec<u8>,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "content",
+					"nullable": false,
+					"type": "bytes"
+				}
+			],
+			"command": "many",
+			"name": "GetFiles",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "bytea_column",
+	"query_sql": "-- @name GetFiles\n-- @returns :many\nSELECT id, name, content FROM files;",
+	"schema_sql": [
+		"CREATE TABLE files (id SERIAL PRIMARY KEY, name TEXT NOT NULL, content BYTEA NOT NULL);"
+	],
+	"source": "sqlc_expanded",
+	"tags": ["bytea", "binary"]
 }

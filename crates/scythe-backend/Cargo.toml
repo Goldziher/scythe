@@ -5,8 +5,8 @@ edition = "2024"
 license = "MIT"
 
 [dependencies]
-serde = { version = "1", features = ["derive"] }
-toml = "1.1"
-minijinja = { version = "2", features = ["loader"] }
-thiserror = "2"
 ahash = { version = "0.8", features = ["serde"] }
+minijinja = { version = "2", features = ["loader"] }
+serde = { version = "1", features = ["derive"] }
+thiserror = "2"
+toml = "1.1"

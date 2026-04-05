@@ -1,42 +1,50 @@
 {
-  "name": "multiple_tables",
-  "description": "Multiple tables with foreign key relationships between them",
-  "category": "catalog/create_table",
-  "tags": ["multiple_tables", "foreign_key"],
-  "schema_sql": [
-    "CREATE TABLE departments (id serial PRIMARY KEY, name text NOT NULL)",
-    "CREATE TABLE employees (id serial PRIMARY KEY, name text NOT NULL, department_id integer NOT NULL REFERENCES departments (id))",
-    "CREATE TABLE projects (id serial PRIMARY KEY, title text NOT NULL, lead_id integer REFERENCES employees (id), department_id integer NOT NULL REFERENCES departments (id))"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {
-        "departments": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "name", "sql_type": "text", "nullable": false }
-          ]
-        },
-        "employees": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "name", "sql_type": "text", "nullable": false },
-            { "name": "department_id", "sql_type": "integer", "nullable": false }
-          ]
-        },
-        "projects": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "title", "sql_type": "text", "nullable": false },
-            { "name": "lead_id", "sql_type": "integer", "nullable": true },
-            { "name": "department_id", "sql_type": "integer", "nullable": false }
-          ]
-        }
-      },
-      "enums": {},
-      "composites": {}
-    }
-  },
-  "source": "sqlc"
+	"name": "multiple_tables",
+	"description": "Multiple tables with foreign key relationships between them",
+	"category": "catalog/create_table",
+	"tags": ["multiple_tables", "foreign_key"],
+	"schema_sql": [
+		"CREATE TABLE departments (id serial PRIMARY KEY, name text NOT NULL)",
+		"CREATE TABLE employees (id serial PRIMARY KEY, name text NOT NULL, department_id integer NOT NULL REFERENCES departments (id))",
+		"CREATE TABLE projects (id serial PRIMARY KEY, title text NOT NULL, lead_id integer REFERENCES employees (id), department_id integer NOT NULL REFERENCES departments (id))"
+	],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {
+				"departments": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "name", "sql_type": "text", "nullable": false }
+					]
+				},
+				"employees": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "name", "sql_type": "text", "nullable": false },
+						{
+							"name": "department_id",
+							"sql_type": "integer",
+							"nullable": false
+						}
+					]
+				},
+				"projects": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "title", "sql_type": "text", "nullable": false },
+						{ "name": "lead_id", "sql_type": "integer", "nullable": true },
+						{
+							"name": "department_id",
+							"sql_type": "integer",
+							"nullable": false
+						}
+					]
+				}
+			},
+			"enums": {},
+			"composites": {}
+		}
+	},
+	"source": "sqlc"
 }

@@ -1,41 +1,37 @@
 {
-  "category": "cte/multiple",
-  "description": "Second CTE references the first CTE, forming a chain",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "user_id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "total",
-          "nullable": false,
-          "type": "int32"
-        }
-      ],
-      "command": "many",
-      "name": "GetTopActiveUserOrders",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "chained_ctes",
-  "query_sql": "-- @name GetTopActiveUserOrders\n-- @returns :many\nWITH active_users AS (SELECT id, name FROM users WHERE status = 'active'), active_orders AS (SELECT au.id AS user_id, au.name, o.total FROM active_users au JOIN orders o ON au.id = o.user_id) SELECT * FROM active_orders",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "cte",
-    "multiple",
-    "chained"
-  ]
+	"category": "cte/multiple",
+	"description": "Second CTE references the first CTE, forming a chain",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "user_id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "total",
+					"nullable": false,
+					"type": "int32"
+				}
+			],
+			"command": "many",
+			"name": "GetTopActiveUserOrders",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "chained_ctes",
+	"query_sql": "-- @name GetTopActiveUserOrders\n-- @returns :many\nWITH active_users AS (SELECT id, name FROM users WHERE status = 'active'), active_orders AS (SELECT au.id AS user_id, au.name, o.total FROM active_users au JOIN orders o ON au.id = o.user_id) SELECT * FROM active_orders",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["cte", "multiple", "chained"]
 }

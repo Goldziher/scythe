@@ -1,50 +1,46 @@
 {
-  "category": "aggregates/window_functions",
-  "description": "Window SUM over partition operates on existing rows and is non-nullable unlike aggregate SUM",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "department",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "amount",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "dept_total",
-          "note": "Window SUM always operates on at least the current row, so non-nullable",
-          "nullable": false,
-          "type": "int64"
-        }
-      ],
-      "command": "many",
-      "name": "SumOverPartition",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "window_sum_over_partition",
-  "query_sql": "-- @name SumOverPartition\n-- @returns :many\nSELECT id, department, amount, SUM(amount) OVER (PARTITION BY department) AS dept_total FROM sales",
-  "schema_sql": [
-    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "Window SUM always operates on at least the current row, so correctly marked non-nullable",
-    "sqlc_behavior": "May incorrectly mark window SUM as nullable like aggregate SUM"
-  },
-  "tags": [
-    "window_function",
-    "sum",
-    "partition_by"
-  ]
+	"category": "aggregates/window_functions",
+	"description": "Window SUM over partition operates on existing rows and is non-nullable unlike aggregate SUM",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "department",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "amount",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "dept_total",
+					"note": "Window SUM always operates on at least the current row, so non-nullable",
+					"nullable": false,
+					"type": "int64"
+				}
+			],
+			"command": "many",
+			"name": "SumOverPartition",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "window_sum_over_partition",
+	"query_sql": "-- @name SumOverPartition\n-- @returns :many\nSELECT id, department, amount, SUM(amount) OVER (PARTITION BY department) AS dept_total FROM sales",
+	"schema_sql": [
+		"CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "Window SUM always operates on at least the current row, so correctly marked non-nullable",
+		"sqlc_behavior": "May incorrectly mark window SUM as nullable like aggregate SUM"
+	},
+	"tags": ["window_function", "sum", "partition_by"]
 }

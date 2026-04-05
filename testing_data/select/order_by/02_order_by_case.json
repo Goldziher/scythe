@@ -1,40 +1,36 @@
 {
-  "category": "select/order_by",
-  "description": "ORDER BY with a CASE expression does not affect return types",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "status",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "ListUsersByStatusPriority",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "order_by_case_expression",
-  "query_sql": "-- @name ListUsersByStatusPriority\n-- @returns :many\nSELECT id, name, status FROM users ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, name",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');"
-  ],
-  "source": "original",
-  "tags": [
-    "select",
-    "order_by",
-    "case"
-  ]
+	"category": "select/order_by",
+	"description": "ORDER BY with a CASE expression does not affect return types",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "status",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "ListUsersByStatusPriority",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "order_by_case_expression",
+	"query_sql": "-- @name ListUsersByStatusPriority\n-- @returns :many\nSELECT id, name, status FROM users ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, name",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');"
+	],
+	"source": "original",
+	"tags": ["select", "order_by", "case"]
 }

@@ -1,66 +1,66 @@
 {
-  "category": "joins/left_join",
-  "description": "LEFT JOIN with multiple columns from right side all become nullable",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "order_id",
-          "note": "RIGHT side of LEFT JOIN: becomes nullable",
-          "nullable": true,
-          "type": "int32"
-        },
-        {
-          "name": "total",
-          "note": "RIGHT side of LEFT JOIN: becomes nullable",
-          "nullable": true,
-          "type": "int32"
-        },
-        {
-          "name": "notes",
-          "note": "Already nullable in schema AND on right side of LEFT JOIN",
-          "nullable": true,
-          "type": "string"
-        },
-        {
-          "name": "order_date",
-          "note": "RIGHT side of LEFT JOIN: becomes nullable",
-          "nullable": true,
-          "type": "datetime_tz"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersWithOrderDetails",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "left_join_multiple_cols",
-  "query_sql": "-- @name GetUsersWithOrderDetails\n-- @returns :many\nSELECT u.id, u.name, o.id AS order_id, o.total, o.notes, o.created_at AS order_date FROM users u LEFT JOIN orders o ON u.id = o.user_id",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks all right-side columns as nullable due to LEFT JOIN semantics",
-    "sqlc_behavior": "sqlc marks order_id, total, and order_date as non-nullable based on schema definitions"
-  },
-  "tags": [
-    "join",
-    "left_join",
-    "nullability",
-    "multiple_columns",
-    "key_improvement"
-  ]
+	"category": "joins/left_join",
+	"description": "LEFT JOIN with multiple columns from right side all become nullable",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "order_id",
+					"note": "RIGHT side of LEFT JOIN: becomes nullable",
+					"nullable": true,
+					"type": "int32"
+				},
+				{
+					"name": "total",
+					"note": "RIGHT side of LEFT JOIN: becomes nullable",
+					"nullable": true,
+					"type": "int32"
+				},
+				{
+					"name": "notes",
+					"note": "Already nullable in schema AND on right side of LEFT JOIN",
+					"nullable": true,
+					"type": "string"
+				},
+				{
+					"name": "order_date",
+					"note": "RIGHT side of LEFT JOIN: becomes nullable",
+					"nullable": true,
+					"type": "datetime_tz"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersWithOrderDetails",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "left_join_multiple_cols",
+	"query_sql": "-- @name GetUsersWithOrderDetails\n-- @returns :many\nSELECT u.id, u.name, o.id AS order_id, o.total, o.notes, o.created_at AS order_date FROM users u LEFT JOIN orders o ON u.id = o.user_id",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "scythe correctly marks all right-side columns as nullable due to LEFT JOIN semantics",
+		"sqlc_behavior": "sqlc marks order_id, total, and order_date as non-nullable based on schema definitions"
+	},
+	"tags": [
+		"join",
+		"left_join",
+		"nullability",
+		"multiple_columns",
+		"key_improvement"
+	]
 }

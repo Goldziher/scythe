@@ -1,43 +1,39 @@
 {
-  "category": "nullability/override_annotations",
-  "description": "The @nonnull annotation overrides a nullable column to become non-nullable in the output",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "bio",
-          "note": "forced non-nullable via @nonnull annotation despite allowing NULL in schema",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "one",
-      "name": "GetUserForceNonnullBio",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "force_nonnull",
-  "query_sql": "-- @name GetUserForceNonnullBio\n-- @returns :one\n-- @nonnull bio\nSELECT id, bio FROM users WHERE id = $1",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "nullability",
-    "annotations",
-    "override"
-  ]
+	"category": "nullability/override_annotations",
+	"description": "The @nonnull annotation overrides a nullable column to become non-nullable in the output",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "bio",
+					"note": "forced non-nullable via @nonnull annotation despite allowing NULL in schema",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "one",
+			"name": "GetUserForceNonnullBio",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "force_nonnull",
+	"query_sql": "-- @name GetUserForceNonnullBio\n-- @returns :one\n-- @nonnull bio\nSELECT id, bio FROM users WHERE id = $1",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["nullability", "annotations", "override"]
 }

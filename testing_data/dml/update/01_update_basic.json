@@ -1,45 +1,42 @@
 {
-  "category": "dml/update",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Basic UPDATE with SET and WHERE parameters",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "query_fn": "pub async fn update_user_name(pool: &sqlx::PgPool, name: &str, id: i32) -> Result<(), sqlx::Error> {\n    sqlx::query!(\"UPDATE users SET name = $1 WHERE id = $2\", name, id)\n        .execute(pool)\n        .await?;\n    Ok(())\n}"
-      }
-    },
-    "query": {
-      "columns": [],
-      "command": "exec",
-      "name": "UpdateUserName",
-      "params": [
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "update_basic",
-  "query_sql": "-- @name UpdateUserName\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "update",
-    "exec"
-  ]
+	"category": "dml/update",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Basic UPDATE with SET and WHERE parameters",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"query_fn": "pub async fn update_user_name(pool: &sqlx::PgPool, name: &str, id: i32) -> Result<(), sqlx::Error> {\n    sqlx::query!(\"UPDATE users SET name = $1 WHERE id = $2\", name, id)\n        .execute(pool)\n        .await?;\n    Ok(())\n}"
+			}
+		},
+		"query": {
+			"columns": [],
+			"command": "exec",
+			"name": "UpdateUserName",
+			"params": [
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "update_basic",
+	"query_sql": "-- @name UpdateUserName\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"source": "sqlc",
+	"tags": ["update", "exec"]
 }

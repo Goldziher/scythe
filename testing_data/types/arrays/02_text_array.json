@@ -1,46 +1,42 @@
 {
-  "category": "types/arrays",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Select a non-nullable text array column mapped to Vec<String>",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetPostTagsRow {\n    pub id: i32,\n    pub tags: Vec<String>,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "tags",
-          "nullable": false,
-          "type": "array<string>"
-        }
-      ],
-      "command": "many",
-      "name": "GetPostTags",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "text_array",
-  "query_sql": "-- @name GetPostTags\n-- @returns :many\nSELECT id, tags FROM posts;",
-  "schema_sql": [
-    "CREATE TABLE posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, tags TEXT[] NOT NULL);"
-  ],
-  "source": "sqlc_expanded",
-  "tags": [
-    "array",
-    "text",
-    "vec"
-  ]
+	"category": "types/arrays",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Select a non-nullable text array column mapped to Vec<String>",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetPostTagsRow {\n    pub id: i32,\n    pub tags: Vec<String>,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "tags",
+					"nullable": false,
+					"type": "array<string>"
+				}
+			],
+			"command": "many",
+			"name": "GetPostTags",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "text_array",
+	"query_sql": "-- @name GetPostTags\n-- @returns :many\nSELECT id, tags FROM posts;",
+	"schema_sql": [
+		"CREATE TABLE posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, tags TEXT[] NOT NULL);"
+	],
+	"source": "sqlc_expanded",
+	"tags": ["array", "text", "vec"]
 }

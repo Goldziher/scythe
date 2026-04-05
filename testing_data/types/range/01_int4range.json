@@ -1,47 +1,43 @@
 {
-  "category": "types/range",
-  "description": "Select an INT4RANGE column mapped to PgRange<i32>",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "room_id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "during",
-          "nullable": false,
-          "type": "range<int32>"
-        }
-      ],
-      "command": "one",
-      "name": "GetReservation",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "range_int4range",
-  "query_sql": "-- @name GetReservation\n-- @returns :one\nSELECT id, room_id, during FROM reservations WHERE id = $1",
-  "schema_sql": [
-    "CREATE TABLE reservations (id SERIAL PRIMARY KEY, room_id INTEGER NOT NULL, during INT4RANGE NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "range",
-    "int4range",
-    "type"
-  ]
+	"category": "types/range",
+	"description": "Select an INT4RANGE column mapped to PgRange<i32>",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "room_id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "during",
+					"nullable": false,
+					"type": "range<int32>"
+				}
+			],
+			"command": "one",
+			"name": "GetReservation",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "range_int4range",
+	"query_sql": "-- @name GetReservation\n-- @returns :one\nSELECT id, room_id, during FROM reservations WHERE id = $1",
+	"schema_sql": [
+		"CREATE TABLE reservations (id SERIAL PRIMARY KEY, room_id INTEGER NOT NULL, during INT4RANGE NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["range", "int4range", "type"]
 }

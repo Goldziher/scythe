@@ -1,55 +1,50 @@
 {
-  "category": "joins/full_join",
-  "description": "FULL OUTER JOIN makes columns from BOTH sides nullable",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "user_id",
-          "note": "FULL JOIN: left side becomes nullable",
-          "nullable": true,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "note": "FULL JOIN: left side becomes nullable",
-          "nullable": true,
-          "type": "string"
-        },
-        {
-          "name": "order_id",
-          "note": "FULL JOIN: right side becomes nullable",
-          "nullable": true,
-          "type": "int32"
-        },
-        {
-          "name": "total",
-          "note": "FULL JOIN: right side becomes nullable",
-          "nullable": true,
-          "type": "int32"
-        }
-      ],
-      "command": "many",
-      "name": "GetAllUsersAndOrders",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "basic_full_join",
-  "query_sql": "-- @name GetAllUsersAndOrders\n-- @returns :many\nSELECT u.id AS user_id, u.name, o.id AS order_id, o.total FROM users u FULL OUTER JOIN orders o ON u.id = o.user_id",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks ALL columns from both sides as nullable due to FULL OUTER JOIN semantics",
-    "sqlc_behavior": "sqlc marks all columns as non-nullable based on schema definitions"
-  },
-  "tags": [
-    "join",
-    "full_join",
-    "nullability",
-    "key_improvement"
-  ]
+	"category": "joins/full_join",
+	"description": "FULL OUTER JOIN makes columns from BOTH sides nullable",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "user_id",
+					"note": "FULL JOIN: left side becomes nullable",
+					"nullable": true,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"note": "FULL JOIN: left side becomes nullable",
+					"nullable": true,
+					"type": "string"
+				},
+				{
+					"name": "order_id",
+					"note": "FULL JOIN: right side becomes nullable",
+					"nullable": true,
+					"type": "int32"
+				},
+				{
+					"name": "total",
+					"note": "FULL JOIN: right side becomes nullable",
+					"nullable": true,
+					"type": "int32"
+				}
+			],
+			"command": "many",
+			"name": "GetAllUsersAndOrders",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "basic_full_join",
+	"query_sql": "-- @name GetAllUsersAndOrders\n-- @returns :many\nSELECT u.id AS user_id, u.name, o.id AS order_id, o.total FROM users u FULL OUTER JOIN orders o ON u.id = o.user_id",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "scythe correctly marks ALL columns from both sides as nullable due to FULL OUTER JOIN semantics",
+		"sqlc_behavior": "sqlc marks all columns as non-nullable based on schema definitions"
+	},
+	"tags": ["join", "full_join", "nullability", "key_improvement"]
 }

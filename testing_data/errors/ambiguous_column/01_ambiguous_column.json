@@ -1,25 +1,25 @@
 {
-  "name": "ambiguous_column",
-  "description": "SELECT unqualified column that exists in multiple joined tables, expecting ambiguous error",
-  "category": "errors/ambiguous_column",
-  "tags": ["error", "ambiguous", "join"],
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC(10,2) NOT NULL);"
-  ],
-  "query_sql": "-- @name GetAmbiguous\n-- @returns :many\nSELECT id FROM users u JOIN orders o ON u.id = o.user_id;",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "expected": {
-    "success": false,
-    "error": {
-      "code": "AMBIGUOUS_COLUMN",
-      "message_contains": "ambiguous"
-    }
-  },
-  "source": "sqlc"
+	"name": "ambiguous_column",
+	"description": "SELECT unqualified column that exists in multiple joined tables, expecting ambiguous error",
+	"category": "errors/ambiguous_column",
+	"tags": ["error", "ambiguous", "join"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC(10,2) NOT NULL);"
+	],
+	"query_sql": "-- @name GetAmbiguous\n-- @returns :many\nSELECT id FROM users u JOIN orders o ON u.id = o.user_id;",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"expected": {
+		"success": false,
+		"error": {
+			"code": "AMBIGUOUS_COLUMN",
+			"message_contains": "ambiguous"
+		}
+	},
+	"source": "sqlc"
 }
