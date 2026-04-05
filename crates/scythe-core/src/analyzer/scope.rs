@@ -367,3 +367,306 @@ impl<'a> Analyzer<'a> {
         None
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::catalog::Catalog;
+    use ahash::AHashMap;
+    use sqlparser::ast::Statement;
+    use sqlparser::dialect::PostgreSqlDialect;
+    use sqlparser::parser::Parser;
+
+    fn make_catalog(ddl: &[&str]) -> Catalog {
+        Catalog::from_ddl(ddl).unwrap()
+    }
+
+    fn make_analyzer(catalog: &Catalog) -> Analyzer<'_> {
+        Analyzer {
+            catalog,
+            params: Vec::new(),
+            ctes: AHashMap::new(),
+            type_errors: Vec::new(),
+        }
+    }
+
+    fn parse_from(sql: &str) -> Vec<ast::TableWithJoins> {
+        let dialect = PostgreSqlDialect {};
+        let stmts = Parser::parse_sql(&dialect, sql).unwrap();
+        match &stmts[0] {
+            Statement::Query(q) => {
+                if let ast::SetExpr::Select(sel) = q.body.as_ref() {
+                    sel.from.clone()
+                } else {
+                    panic!("expected SELECT");
+                }
+            }
+            _ => panic!("expected Query statement"),
+        }
+    }
+
+    // -----------------------------------------------------------------------
+    // 1. build_scope_for_table
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_build_scope_for_table_columns_and_types() {
+        let catalog = make_catalog(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);",
+        ]);
+        let analyzer = make_analyzer(&catalog);
+        let scope = analyzer.build_scope_for_table("users").unwrap();
+
+        assert_eq!(scope.sources.len(), 1);
+        let src = &scope.sources[0];
+        assert_eq!(src.alias, "users");
+        assert_eq!(src.table_name, "users");
+        assert!(!src.nullable_from_join);
+
+        // Check columns
+        assert_eq!(src.columns.len(), 3);
+        assert_eq!(src.columns[0].name, "id");
+        assert!(!src.columns[0].base_nullable); // serial PK
+        assert_eq!(src.columns[1].name, "name");
+        assert!(!src.columns[1].base_nullable); // NOT NULL
+        assert_eq!(src.columns[2].name, "email");
+        assert!(src.columns[2].base_nullable); // nullable
+    }
+
+    #[test]
+    fn test_build_scope_for_table_unknown_returns_empty() {
+        let catalog = make_catalog(&["CREATE TABLE users (id INT);"]);
+        let analyzer = make_analyzer(&catalog);
+        let scope = analyzer.build_scope_for_table("nonexistent").unwrap();
+        assert_eq!(scope.sources.len(), 0);
+    }
+
+    // -----------------------------------------------------------------------
+    // 2. build_scope_from_from — single table
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_build_scope_from_from_single_table() {
+        let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT NOT NULL);"]);
+        let analyzer = make_analyzer(&catalog);
+        let from = parse_from("SELECT * FROM users");
+        let scope = analyzer.build_scope_from_from(&from).unwrap();
+
+        assert_eq!(scope.sources.len(), 1);
+        let src = &scope.sources[0];
+        assert_eq!(src.alias, "users");
+        assert_eq!(src.columns.len(), 2);
+        assert_eq!(src.columns[0].name, "id");
+        assert_eq!(src.columns[1].name, "name");
+        assert!(!src.nullable_from_join);
+    }
+
+    // -----------------------------------------------------------------------
+    // 3. build_scope_from_from with alias
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_build_scope_from_from_with_alias() {
+        let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT NOT NULL);"]);
+        let analyzer = make_analyzer(&catalog);
+        let from = parse_from("SELECT * FROM users u");
+        let scope = analyzer.build_scope_from_from(&from).unwrap();
+
+        assert_eq!(scope.sources.len(), 1);
+        assert_eq!(scope.sources[0].alias, "u");
+        assert_eq!(scope.sources[0].table_name, "users");
+    }
+
+    // -----------------------------------------------------------------------
+    // 4. INNER JOIN — both sides non-nullable
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_build_scope_from_from_inner_join() {
+        let catalog = make_catalog(&[
+            "CREATE TABLE users (id INT NOT NULL);",
+            "CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL);",
+        ]);
+        let analyzer = make_analyzer(&catalog);
+        let from = parse_from("SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id");
+        let scope = analyzer.build_scope_from_from(&from).unwrap();
+
+        assert_eq!(scope.sources.len(), 2);
+        assert!(!scope.sources[0].nullable_from_join); // users
+        assert!(!scope.sources[1].nullable_from_join); // orders
+    }
+
+    // -----------------------------------------------------------------------
+    // 5. LEFT JOIN — right side marked nullable
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_build_scope_from_from_left_join() {
+        let catalog = make_catalog(&[
+            "CREATE TABLE users (id INT NOT NULL);",
+            "CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL);",
+        ]);
+        let analyzer = make_analyzer(&catalog);
+        let from = parse_from("SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id");
+        let scope = analyzer.build_scope_from_from(&from).unwrap();
+
+        assert_eq!(scope.sources.len(), 2);
+        assert!(!scope.sources[0].nullable_from_join); // users — left side stays non-nullable
+        assert!(scope.sources[1].nullable_from_join); // orders — right side becomes nullable
+    }
+
+    // -----------------------------------------------------------------------
+    // 6. RIGHT JOIN — left side marked nullable
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_build_scope_from_from_right_join() {
+        let catalog = make_catalog(&[
+            "CREATE TABLE users (id INT NOT NULL);",
+            "CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL);",
+        ]);
+        let analyzer = make_analyzer(&catalog);
+        let from = parse_from("SELECT * FROM users RIGHT JOIN orders ON users.id = orders.user_id");
+        let scope = analyzer.build_scope_from_from(&from).unwrap();
+
+        assert_eq!(scope.sources.len(), 2);
+        assert!(scope.sources[0].nullable_from_join); // users — left side becomes nullable
+        assert!(!scope.sources[1].nullable_from_join); // orders — right side stays non-nullable
+    }
+
+    // -----------------------------------------------------------------------
+    // FULL OUTER JOIN — both sides nullable
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_build_scope_from_from_full_outer_join() {
+        let catalog = make_catalog(&[
+            "CREATE TABLE users (id INT NOT NULL);",
+            "CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL);",
+        ]);
+        let analyzer = make_analyzer(&catalog);
+        let from =
+            parse_from("SELECT * FROM users FULL OUTER JOIN orders ON users.id = orders.user_id");
+        let scope = analyzer.build_scope_from_from(&from).unwrap();
+
+        assert_eq!(scope.sources.len(), 2);
+        assert!(scope.sources[0].nullable_from_join); // both sides nullable
+        assert!(scope.sources[1].nullable_from_join);
+    }
+
+    // -----------------------------------------------------------------------
+    // 7. Subquery in FROM
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_add_table_factor_subquery() {
+        let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT NOT NULL);"]);
+        let analyzer = make_analyzer(&catalog);
+        let from = parse_from("SELECT * FROM (SELECT id, name FROM users) AS sub");
+        let scope = analyzer.build_scope_from_from(&from).unwrap();
+
+        assert_eq!(scope.sources.len(), 1);
+        assert_eq!(scope.sources[0].alias, "sub");
+        assert_eq!(scope.sources[0].columns.len(), 2);
+        assert_eq!(scope.sources[0].columns[0].name, "id");
+        assert_eq!(scope.sources[0].columns[1].name, "name");
+    }
+
+    // -----------------------------------------------------------------------
+    // 8. CTE reference in scope
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_cte_reference_in_build_scope_for_table() {
+        let catalog = make_catalog(&[]);
+        let mut analyzer = make_analyzer(&catalog);
+
+        // Simulate a CTE being registered
+        analyzer.ctes.insert(
+            "my_cte".to_string(),
+            vec![
+                ScopeColumn {
+                    name: "x".to_string(),
+                    neutral_type: "int32".to_string(),
+                    base_nullable: false,
+                },
+                ScopeColumn {
+                    name: "y".to_string(),
+                    neutral_type: "string".to_string(),
+                    base_nullable: true,
+                },
+            ],
+        );
+
+        let scope = analyzer.build_scope_for_table("my_cte").unwrap();
+        assert_eq!(scope.sources.len(), 1);
+        assert_eq!(scope.sources[0].alias, "my_cte");
+        assert_eq!(scope.sources[0].columns.len(), 2);
+        assert_eq!(scope.sources[0].columns[0].name, "x");
+        assert_eq!(scope.sources[0].columns[1].name, "y");
+    }
+
+    #[test]
+    fn test_cte_reference_in_from_clause() {
+        let catalog = make_catalog(&[]);
+        let mut analyzer = make_analyzer(&catalog);
+
+        analyzer.ctes.insert(
+            "my_cte".to_string(),
+            vec![ScopeColumn {
+                name: "val".to_string(),
+                neutral_type: "int32".to_string(),
+                base_nullable: false,
+            }],
+        );
+
+        let from = parse_from("SELECT * FROM my_cte");
+        let scope = analyzer.build_scope_from_from(&from).unwrap();
+        assert_eq!(scope.sources.len(), 1);
+        assert_eq!(scope.sources[0].alias, "my_cte");
+        assert_eq!(scope.sources[0].columns[0].name, "val");
+    }
+
+    // -----------------------------------------------------------------------
+    // 9. get_column_type
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_get_column_type_found() {
+        let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT);"]);
+        let analyzer = make_analyzer(&catalog);
+
+        let ty = analyzer.get_column_type("users", "id");
+        assert!(ty.is_some());
+        assert_eq!(ty.unwrap(), "int32");
+
+        let ty = analyzer.get_column_type("users", "name");
+        assert!(ty.is_some());
+        assert_eq!(ty.unwrap(), "string");
+    }
+
+    #[test]
+    fn test_get_column_type_not_found() {
+        let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL);"]);
+        let analyzer = make_analyzer(&catalog);
+
+        assert!(analyzer.get_column_type("users", "nonexistent").is_none());
+        assert!(analyzer.get_column_type("nonexistent", "id").is_none());
+    }
+
+    // -----------------------------------------------------------------------
+    // Unknown table in FROM should error
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_unknown_table_errors() {
+        let catalog = make_catalog(&[]);
+        let analyzer = make_analyzer(&catalog);
+        let from = parse_from("SELECT * FROM nonexistent_table");
+        let result = analyzer.build_scope_from_from(&from);
+        assert!(result.is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // Known set-returning functions
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_known_function_jsonb_array_elements() {
+        let catalog = make_catalog(&[]);
+        let analyzer = make_analyzer(&catalog);
+        let from = parse_from("SELECT * FROM jsonb_array_elements('[1,2]')");
+        let scope = analyzer.build_scope_from_from(&from).unwrap();
+        assert_eq!(scope.sources.len(), 1);
+        // The function should produce a "value" column
+        assert!(scope.sources[0].columns.iter().any(|c| c.name == "value"));
+    }
+}

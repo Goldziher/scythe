@@ -501,4 +501,228 @@ mod tests {
         let v = AmbiguousColumnInJoin.check_query(&ctx);
         assert!(v.is_empty());
     }
+
+    // SC-S04: UnusedParams — additional coverage
+
+    #[test]
+    fn unused_params_gap_fires() {
+        // $1 and $2 declared but only $1 used → $2 gap not possible here;
+        // use $1 and $3 to create a gap at $2
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name UpdateSome\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $3;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = UnusedParams.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+        assert!(v[0].message.contains("$2"));
+    }
+
+    #[test]
+    fn unused_params_all_used_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name UpdateOne\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = UnusedParams.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn unused_params_no_params_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListAll\n-- @returns :many\nSELECT id, name FROM users;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = UnusedParams.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-S06: AmbiguousColumnInJoin — additional coverage
+
+    #[test]
+    fn no_join_no_ambiguity() {
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name ListUsers\n-- @returns :many\nSELECT name FROM users;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = AmbiguousColumnInJoin.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn select_star_in_join_s06_does_not_fire() {
+        // SELECT * with JOIN: S06 looks at Wildcard via walk_select_items.
+        // Wildcard is not UnnamedExpr(Identifier), so S06 should NOT fire for *.
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name ListJoined\n-- @returns :many\nSELECT u.id, p.title FROM users u JOIN posts p ON u.id = p.user_id;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+
+        let v_s06 = AmbiguousColumnInJoin.check_query(&ctx);
+        assert!(
+            v_s06.is_empty(),
+            "S06 should not fire on fully qualified columns"
+        );
+    }
+
+    // SC-S01/S02: WHERE clause edge cases
+
+    #[test]
+    fn update_with_subquery_in_where_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name UpdateSub\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id IN (SELECT user_id FROM posts);",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = UpdateWithoutWhere.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn delete_with_subquery_in_where_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name DeleteSub\n-- @returns :exec\nDELETE FROM users WHERE id IN (SELECT user_id FROM posts);",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = DeleteWithoutWhere.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn update_with_where_true_ok() {
+        // WHERE TRUE is still a WHERE clause — rule should not fire
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name UpdateAll\n-- @returns :exec\nUPDATE users SET name = $1 WHERE TRUE;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = UpdateWithoutWhere.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn delete_with_where_true_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name DeleteAll\n-- @returns :exec\nDELETE FROM users WHERE TRUE;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = DeleteWithoutWhere.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-S03: table-qualified wildcard
+
+    #[test]
+    fn select_qualified_star_ok() {
+        // SELECT users.* is a QualifiedWildcard, not a Wildcard — S03 should NOT fire
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name ListAll\n-- @returns :many\nSELECT users.* FROM users;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = NoSelectStar.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-S05: :exec should not fire even without RETURNING
+
+    #[test]
+    fn missing_returning_exec_ok() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name CreateUser\n-- @returns :exec\nINSERT INTO users (name, email) VALUES ($1, $2);",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = MissingReturning.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-S05: SELECT always returns rows — should not fire
+
+    #[test]
+    fn missing_returning_select_ok() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = MissingReturning.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-S05: UPDATE :many without RETURNING should fire
+
+    #[test]
+    fn missing_returning_update_many_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name UpdateMany\n-- @returns :many\nUPDATE users SET name = $1 WHERE id = $2;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = MissingReturning.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    // SC-S05: DELETE :one without RETURNING should fire
+
+    #[test]
+    fn missing_returning_delete_one_fires() {
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name DeleteOne\n-- @returns :one\nDELETE FROM users WHERE id = $1;")
+                .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = MissingReturning.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    // SC-S01: non-UPDATE statement should not fire
+
+    #[test]
+    fn update_without_where_on_select_noop() {
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id FROM users;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = UpdateWithoutWhere.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // SC-S02: non-DELETE statement should not fire
+
+    #[test]
+    fn delete_without_where_on_select_noop() {
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id FROM users;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = DeleteWithoutWhere.check_query(&ctx);
+        assert!(v.is_empty());
+    }
 }

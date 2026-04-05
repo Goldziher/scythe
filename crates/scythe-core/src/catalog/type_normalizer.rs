@@ -173,3 +173,128 @@ pub(crate) fn ident_to_lower(ident: &sqlparser::ast::Ident) -> String {
 pub(crate) fn bare_name(key: &str) -> &str {
     key.rsplit_once('.').map_or(key, |(_, name)| name)
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::catalog::Catalog;
+
+    /// Helper to create a single-column table and return (sql_type, nullable).
+    fn col_type(col_ddl: &str) -> (String, bool) {
+        let ddl = format!("CREATE TABLE _t_ ({});", col_ddl);
+        let catalog = Catalog::from_ddl(&[&ddl]).unwrap();
+        let table = catalog.get_table("_t_").unwrap();
+        let col = &table.columns[0];
+        (col.sql_type.clone(), col.nullable)
+    }
+
+    #[test]
+    fn test_timestamp_variants() {
+        assert_eq!(col_type("a TIMESTAMP").0, "timestamp");
+        assert_eq!(col_type("a TIMESTAMP WITH TIME ZONE").0, "timestamptz");
+        assert_eq!(col_type("a TIMESTAMP WITHOUT TIME ZONE").0, "timestamp");
+        assert_eq!(col_type("a TIMESTAMPTZ").0, "timestamptz");
+    }
+
+    #[test]
+    fn test_varchar_with_length() {
+        assert_eq!(col_type("a VARCHAR(255)").0, "varchar(255)");
+        assert_eq!(col_type("a VARCHAR").0, "text");
+    }
+
+    #[test]
+    fn test_numeric_with_precision() {
+        assert_eq!(col_type("a NUMERIC(10,2)").0, "numeric(10,2)");
+        assert_eq!(col_type("a NUMERIC(5)").0, "numeric(5)");
+        assert_eq!(col_type("a NUMERIC").0, "numeric");
+    }
+
+    #[test]
+    fn test_array_types() {
+        assert_eq!(col_type("a INTEGER[]").0, "int[]");
+        assert_eq!(col_type("a TEXT[]").0, "text[]");
+    }
+
+    #[test]
+    fn test_boolean() {
+        assert_eq!(col_type("a BOOLEAN").0, "boolean");
+        assert_eq!(col_type("a BOOL").0, "boolean");
+    }
+
+    #[test]
+    fn test_serial_types() {
+        let (ty, nullable) = col_type("a SERIAL");
+        assert_eq!(ty, "integer");
+        assert!(!nullable, "SERIAL should be NOT NULL");
+
+        let (ty, nullable) = col_type("a BIGSERIAL");
+        assert_eq!(ty, "bigint");
+        assert!(!nullable, "BIGSERIAL should be NOT NULL");
+
+        let (ty, _) = col_type("a SMALLSERIAL");
+        assert_eq!(ty, "smallint");
+    }
+
+    #[test]
+    fn test_domain_types() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE DOMAIN positive_int AS INTEGER CHECK (VALUE > 0);",
+            "CREATE TABLE _t_ (a positive_int);",
+        ])
+        .unwrap();
+        let table = catalog.get_table("_t_").unwrap();
+        assert_eq!(table.columns[0].sql_type, "integer");
+    }
+
+    #[test]
+    fn test_domain_not_null() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE DOMAIN nonempty_text AS TEXT NOT NULL;",
+            "CREATE TABLE _t_ (a nonempty_text);",
+        ])
+        .unwrap();
+        let table = catalog.get_table("_t_").unwrap();
+        assert_eq!(table.columns[0].sql_type, "text");
+    }
+
+    #[test]
+    fn test_interval() {
+        assert_eq!(col_type("a INTERVAL").0, "interval");
+    }
+
+    #[test]
+    fn test_uuid() {
+        assert_eq!(col_type("a UUID").0, "uuid");
+    }
+
+    #[test]
+    fn test_json_jsonb() {
+        assert_eq!(col_type("a JSON").0, "json");
+        assert_eq!(col_type("a JSONB").0, "jsonb");
+    }
+
+    #[test]
+    fn test_object_name_to_key() {
+        use super::object_name_to_key;
+        use sqlparser::ast::{Ident, ObjectName, ObjectNamePart};
+        let name = ObjectName(vec![
+            ObjectNamePart::Identifier(Ident::new("Public")),
+            ObjectNamePart::Identifier(Ident::new("Users")),
+        ]);
+        assert_eq!(object_name_to_key(&name), "public.users");
+    }
+
+    #[test]
+    fn test_ident_to_lower() {
+        use super::ident_to_lower;
+        use sqlparser::ast::Ident;
+        assert_eq!(ident_to_lower(&Ident::new("FooBar")), "foobar");
+        assert_eq!(ident_to_lower(&Ident::with_quote('"', "FooBar")), "FooBar");
+    }
+
+    #[test]
+    fn test_bare_name() {
+        use super::bare_name;
+        assert_eq!(bare_name("public.users"), "users");
+        assert_eq!(bare_name("users"), "users");
+    }
+}

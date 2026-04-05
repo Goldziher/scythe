@@ -10,3 +10,6 @@ scythe-core = { path = "../scythe-core" }
 serde = { version = "1", features = ["derive"] }
 sqlparser = { version = "0.61", features = ["visitor"] }
 sqruff-lib = "0.37"
+
+[dev-dependencies]
+serde_json = "1"

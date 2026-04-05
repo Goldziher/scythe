@@ -656,6 +656,7 @@ dependencies = [
  "ahash",
  "scythe-core",
  "serde",
+ "serde_json",
  "sqlparser",
  "sqruff-lib",
 ]

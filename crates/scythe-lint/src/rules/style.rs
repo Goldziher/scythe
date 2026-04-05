@@ -386,4 +386,107 @@ mod tests {
         let v = PreferCountStar.check_query(&ctx);
         assert!(v.is_empty());
     }
+
+    // --- Additional SC-T01 tests ---
+
+    #[test]
+    fn implicit_join_three_tables_fires() {
+        let cat = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+            "CREATE TABLE posts (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, title TEXT NOT NULL);",
+            "CREATE TABLE comments (id SERIAL PRIMARY KEY, post_id INTEGER NOT NULL, body TEXT);",
+        ])
+        .unwrap();
+        let q = parse_query(
+            "-- @name ListAll\n-- @returns :many\nSELECT u.id, p.title, c.body FROM users u, posts p, comments c WHERE u.id = p.user_id AND p.id = c.post_id;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferExplicitJoin.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+    }
+
+    #[test]
+    fn single_table_no_implicit_join() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
+            .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferExplicitJoin.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    // --- Additional SC-T02 tests ---
+
+    #[test]
+    fn case_is_not_null_pattern_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetEmail\n-- @returns :many\nSELECT CASE WHEN email IS NOT NULL THEN email ELSE 'none' END AS email_val FROM users;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferCoalesceOverCase.check_query(&ctx);
+        // IS NOT NULL is not the same pattern as IS NULL, so should not fire
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn case_non_null_condition_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetStatus\n-- @returns :many\nSELECT CASE WHEN id = 1 THEN 'admin' ELSE 'user' END AS role FROM users;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferCoalesceOverCase.check_query(&ctx);
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn nested_case_inner_matches_outer_does_not() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name GetNested\n-- @returns :many\nSELECT CASE WHEN id = 1 THEN CASE WHEN email IS NULL THEN 'none' ELSE email END ELSE name END AS val FROM users;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferCoalesceOverCase.check_query(&ctx);
+        // Inner CASE matches the coalesce pattern, outer does not
+        assert_eq!(v.len(), 1);
+    }
+
+    // --- Additional SC-T03 tests ---
+
+    #[test]
+    fn count_column_name_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name CountEmails\n-- @returns :one\nSELECT COUNT(email) AS total FROM users;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferCountStar.check_query(&ctx);
+        // COUNT(column_name) has different semantics (excludes NULLs), should NOT fire
+        assert!(v.is_empty());
+    }
+
+    #[test]
+    fn count_distinct_clean() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name CountDistinctNames\n-- @returns :one\nSELECT COUNT(DISTINCT name) AS total FROM users;",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = PreferCountStar.check_query(&ctx);
+        assert!(v.is_empty());
+    }
 }

@@ -199,3 +199,102 @@ impl Catalog {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use crate::catalog::Catalog;
+
+    #[test]
+    fn test_simple_view() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);",
+            "CREATE VIEW active_users AS SELECT id, name FROM users WHERE status = 'active';",
+        ])
+        .unwrap();
+        let view = catalog
+            .get_table("active_users")
+            .expect("view should exist");
+        assert_eq!(view.columns.len(), 2);
+        assert_eq!(view.columns[0].name, "id");
+        assert_eq!(view.columns[0].sql_type, "integer");
+        assert_eq!(view.columns[1].name, "name");
+        assert_eq!(view.columns[1].sql_type, "text");
+    }
+
+    #[test]
+    fn test_view_with_join() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+            "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, total NUMERIC(10,2));",
+            "CREATE VIEW user_orders AS SELECT u.id, u.name, o.total FROM users u JOIN orders o ON u.id = o.user_id;",
+        ])
+        .unwrap();
+        let view = catalog.get_table("user_orders").expect("view should exist");
+        assert_eq!(view.columns.len(), 3);
+        assert_eq!(view.columns[0].name, "id");
+        assert_eq!(view.columns[0].sql_type, "integer");
+        assert_eq!(view.columns[1].name, "name");
+        assert_eq!(view.columns[1].sql_type, "text");
+        assert_eq!(view.columns[2].name, "total");
+        assert_eq!(view.columns[2].sql_type, "numeric(10,2)");
+    }
+
+    #[test]
+    fn test_view_with_alias() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+            "CREATE VIEW aliased AS SELECT id AS user_id FROM users;",
+        ])
+        .unwrap();
+        let view = catalog.get_table("aliased").expect("view should exist");
+        assert_eq!(view.columns.len(), 1);
+        assert_eq!(view.columns[0].name, "user_id");
+        assert_eq!(view.columns[0].sql_type, "integer");
+    }
+
+    #[test]
+    fn test_view_with_star() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email VARCHAR(255));",
+            "CREATE VIEW all_users AS SELECT * FROM users;",
+        ])
+        .unwrap();
+        let view = catalog.get_table("all_users").expect("view should exist");
+        assert_eq!(view.columns.len(), 3);
+        assert_eq!(view.columns[0].name, "id");
+        assert_eq!(view.columns[1].name, "name");
+        assert_eq!(view.columns[2].name, "email");
+        assert_eq!(view.columns[2].sql_type, "varchar(255)");
+    }
+
+    #[test]
+    fn test_materialized_view() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);",
+            "CREATE MATERIALIZED VIEW mv AS SELECT id, name FROM users WHERE status = 'active';",
+        ])
+        .unwrap();
+        let view = catalog
+            .get_table("mv")
+            .expect("materialized view should exist");
+        assert_eq!(view.columns.len(), 2);
+        assert_eq!(view.columns[0].name, "id");
+        assert_eq!(view.columns[1].name, "name");
+    }
+
+    #[test]
+    fn test_view_from_view() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);",
+            "CREATE VIEW active_users AS SELECT id, name FROM users WHERE status = 'active';",
+            "CREATE VIEW active_names AS SELECT name FROM active_users;",
+        ])
+        .unwrap();
+        let view = catalog
+            .get_table("active_names")
+            .expect("view-from-view should exist");
+        assert_eq!(view.columns.len(), 1);
+        assert_eq!(view.columns[0].name, "name");
+        assert_eq!(view.columns[0].sql_type, "text");
+    }
+}
