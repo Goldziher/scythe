@@ -1,12 +1,17 @@
+pub(crate) mod type_normalizer;
+mod view_resolver;
+
 use ahash::AHashMap;
 use sqlparser::ast::{
-    AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ArrayElemTypeDef, ColumnOption,
-    DataType, ObjectName, Statement, TableConstraint, TimezoneInfo, UserDefinedTypeRepresentation,
+    AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ColumnOption, ObjectName,
+    Statement, TableConstraint, UserDefinedTypeRepresentation,
 };
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
 use crate::errors::ScytheError;
+
+use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key};
 
 // ---------------------------------------------------------------------------
 // Public data structures
@@ -23,9 +28,9 @@ pub struct Catalog {
 
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
-struct DomainDef {
-    base_type: String,
-    not_null: bool,
+pub(crate) struct DomainDef {
+    pub(crate) base_type: String,
+    pub(crate) not_null: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -516,230 +521,11 @@ impl Catalog {
 
         Ok(())
     }
-
-    // -----------------------------------------------------------------------
-    // CREATE VIEW / CREATE MATERIALIZED VIEW
-    // -----------------------------------------------------------------------
-
-    fn process_create_view(
-        &mut self,
-        name: ObjectName,
-        view_columns: Vec<sqlparser::ast::ViewColumnDef>,
-        query: sqlparser::ast::Query,
-        _materialized: bool,
-    ) -> Result<(), ScytheError> {
-        let view_key = object_name_to_key(&name);
-
-        // If explicit column list is provided with types, use those
-        if !view_columns.is_empty() {
-            let columns: Vec<Column> = view_columns
-                .iter()
-                .map(|vc| {
-                    let sql_type = vc
-                        .data_type
-                        .as_ref()
-                        .map(|dt| {
-                            let (t, _) = normalize_data_type(dt, &self.domains);
-                            t
-                        })
-                        .unwrap_or_else(|| "unknown".to_string());
-                    Column {
-                        name: ident_to_lower(&vc.name),
-                        sql_type,
-                        nullable: true,
-                        default: None,
-                        primary_key: false,
-                    }
-                })
-                .collect();
-            self.tables.insert(view_key, Table { columns });
-            return Ok(());
-        }
-
-        // Try to resolve column types from the view's query
-        let columns = self.resolve_view_columns(&query);
-        self.tables.insert(view_key, Table { columns });
-        Ok(())
-    }
-
-    /// Resolve columns from a view's SELECT query by matching against known tables.
-    fn resolve_view_columns(&self, query: &sqlparser::ast::Query) -> Vec<Column> {
-        use sqlparser::ast::{SelectItem, SetExpr, TableFactor};
-
-        if let SetExpr::Select(select) = query.body.as_ref() {
-            // Build a map of alias/table -> columns from FROM clause
-            let mut source_cols: Vec<(String, String, Vec<Column>)> = Vec::new(); // (alias, table_name, columns)
-            for twj in &select.from {
-                if let TableFactor::Table { name, alias, .. } = &twj.relation {
-                    let table_name = object_name_to_key(name);
-                    let alias_name = alias
-                        .as_ref()
-                        .map(|a| a.name.value.to_lowercase())
-                        .unwrap_or_else(|| bare_name(&table_name).to_string());
-                    if let Some(table) = self
-                        .tables
-                        .get(&table_name)
-                        .or_else(|| self.tables.get(bare_name(&table_name)))
-                    {
-                        source_cols.push((alias_name, table_name, table.columns.clone()));
-                    }
-                }
-                for join in &twj.joins {
-                    if let TableFactor::Table { name, alias, .. } = &join.relation {
-                        let table_name = object_name_to_key(name);
-                        let alias_name = alias
-                            .as_ref()
-                            .map(|a| a.name.value.to_lowercase())
-                            .unwrap_or_else(|| bare_name(&table_name).to_string());
-                        if let Some(table) = self
-                            .tables
-                            .get(&table_name)
-                            .or_else(|| self.tables.get(bare_name(&table_name)))
-                        {
-                            source_cols.push((alias_name, table_name, table.columns.clone()));
-                        }
-                    }
-                }
-            }
-
-            let mut result = Vec::new();
-            for item in &select.projection {
-                match item {
-                    SelectItem::UnnamedExpr(expr) => {
-                        let (name, sql_type, nullable) = self.resolve_view_expr(expr, &source_cols);
-                        result.push(Column {
-                            name,
-                            sql_type,
-                            nullable,
-                            default: None,
-                            primary_key: false,
-                        });
-                    }
-                    SelectItem::ExprWithAlias { expr, alias } => {
-                        let (_, sql_type, nullable) = self.resolve_view_expr(expr, &source_cols);
-                        result.push(Column {
-                            name: ident_to_lower(alias),
-                            sql_type,
-                            nullable,
-                            default: None,
-                            primary_key: false,
-                        });
-                    }
-                    SelectItem::Wildcard(_) => {
-                        for (_, _, cols) in &source_cols {
-                            for col in cols {
-                                result.push(col.clone());
-                            }
-                        }
-                    }
-                    SelectItem::QualifiedWildcard(kind, _) => {
-                        let qualifier = match kind {
-                            sqlparser::ast::SelectItemQualifiedWildcardKind::ObjectName(name) => {
-                                object_name_to_key(name)
-                            }
-                            _ => String::new(),
-                        };
-                        for (alias, tname, cols) in &source_cols {
-                            if *alias == qualifier || *tname == qualifier {
-                                for col in cols {
-                                    result.push(col.clone());
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-            if !result.is_empty() {
-                return result;
-            }
-        }
-        Vec::new()
-    }
-
-    /// Resolve a single expression in a view SELECT to (name, sql_type, nullable)
-    fn resolve_view_expr(
-        &self,
-        expr: &sqlparser::ast::Expr,
-        sources: &[(String, String, Vec<Column>)],
-    ) -> (String, String, bool) {
-        use sqlparser::ast::Expr;
-        match expr {
-            Expr::Identifier(ident) => {
-                let col_name = ident_to_lower(ident);
-                for (_, _, cols) in sources {
-                    if let Some(col) = cols.iter().find(|c| c.name == col_name) {
-                        return (col_name, col.sql_type.clone(), col.nullable);
-                    }
-                }
-                (col_name, "unknown".to_string(), true)
-            }
-            Expr::CompoundIdentifier(parts) if parts.len() == 2 => {
-                let qualifier = parts[0].value.to_lowercase();
-                let col_name = ident_to_lower(&parts[1]);
-                for (alias, _, cols) in sources {
-                    if *alias == qualifier
-                        && let Some(col) = cols.iter().find(|c| c.name == col_name)
-                    {
-                        return (col_name, col.sql_type.clone(), col.nullable);
-                    }
-                }
-                (col_name, "unknown".to_string(), true)
-            }
-            Expr::Function(func) => {
-                let func_name = object_name_to_key(&func.name).to_lowercase();
-                let name = func_name.clone();
-                match func_name.as_str() {
-                    "count" => (name, "bigint".to_string(), false),
-                    "sum" => (name, "bigint".to_string(), true),
-                    "avg" => (name, "numeric".to_string(), true),
-                    "min" | "max" => {
-                        // Try to get arg type
-                        if let sqlparser::ast::FunctionArguments::List(args) = &func.args
-                            && let Some(first) = args.args.first()
-                            && let sqlparser::ast::FunctionArg::Unnamed(
-                                sqlparser::ast::FunctionArgExpr::Expr(e),
-                            ) = first
-                        {
-                            let (_, t, _) = self.resolve_view_expr(e, sources);
-                            return (name, t, true);
-                        }
-                        (name, "unknown".to_string(), true)
-                    }
-                    _ => (name, "unknown".to_string(), true),
-                }
-            }
-            _ => ("unknown".to_string(), "unknown".to_string(), true),
-        }
-    }
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-fn object_name_to_key(name: &ObjectName) -> String {
-    name.0
-        .iter()
-        .map(|part| match part {
-            sqlparser::ast::ObjectNamePart::Identifier(ident) => ident.value.to_lowercase(),
-            _ => String::new(),
-        })
-        .collect::<Vec<_>>()
-        .join(".")
-}
-
-fn ident_to_lower(ident: &sqlparser::ast::Ident) -> String {
-    // Preserve case for double-quoted identifiers
-    if ident.quote_style.is_some() {
-        ident.value.clone()
-    } else {
-        ident.value.to_lowercase()
-    }
-}
-
-fn bare_name(key: &str) -> &str {
-    key.rsplit_once('.').map_or(key, |(_, name)| name)
-}
 
 fn get_table_mut<'a>(tables: &'a mut AHashMap<String, Table>, key: &str) -> Option<&'a mut Table> {
     if tables.contains_key(key) {
@@ -751,150 +537,6 @@ fn get_table_mut<'a>(tables: &'a mut AHashMap<String, Table>, key: &str) -> Opti
         .find(|k| k.as_str() == bare || k.ends_with(&format!(".{}", bare)))
         .cloned();
     found_key.and_then(move |k| tables.get_mut(&k))
-}
-
-/// Normalize a sqlparser DataType into a lowercase PostgreSQL type string.
-/// Returns (type_string, is_serial).
-fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, DomainDef>) -> (String, bool) {
-    match dt {
-        // Custom types (includes serial, timestamptz, and user-defined types)
-        DataType::Custom(name, _tokens) => {
-            let raw = object_name_to_key(name);
-            match raw.as_str() {
-                "serial" | "serial4" => return ("integer".to_string(), true),
-                "bigserial" | "serial8" => return ("bigint".to_string(), true),
-                "smallserial" | "serial2" => return ("smallint".to_string(), true),
-                "timestamptz" => return ("timestamptz".to_string(), false),
-                "timetz" => return ("timetz".to_string(), false),
-                _ => {}
-            }
-            // Check if it's a domain
-            if let Some(domain) = domains.get(&raw) {
-                return (domain.base_type.clone(), false);
-            }
-            (raw, false)
-        }
-
-        // Integer family
-        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) => {
-            ("integer".to_string(), false)
-        }
-        DataType::SmallInt(_) | DataType::Int2(_) => ("smallint".to_string(), false),
-        DataType::BigInt(_) | DataType::Int8(_) => ("bigint".to_string(), false),
-
-        // Boolean
-        DataType::Bool | DataType::Boolean => ("boolean".to_string(), false),
-
-        // Float family
-        DataType::Real | DataType::Float4 => ("real".to_string(), false),
-        DataType::DoublePrecision | DataType::Float8 => ("double precision".to_string(), false),
-        DataType::Float(info) => {
-            use sqlparser::ast::ExactNumberInfo;
-            match info {
-                ExactNumberInfo::Precision(p) if *p <= 24 => ("real".to_string(), false),
-                ExactNumberInfo::Precision(_) | ExactNumberInfo::PrecisionAndScale(_, _) => {
-                    ("double precision".to_string(), false)
-                }
-                ExactNumberInfo::None => ("double precision".to_string(), false),
-            }
-        }
-
-        // Character types
-        DataType::Varchar(len) | DataType::CharVarying(len) | DataType::CharacterVarying(len) => {
-            match len {
-                Some(sqlparser::ast::CharacterLength::IntegerLength { length, .. }) => {
-                    (format!("varchar({})", length), false)
-                }
-                _ => ("text".to_string(), false),
-            }
-        }
-        DataType::Char(len) | DataType::Character(len) => match len {
-            Some(sqlparser::ast::CharacterLength::IntegerLength { length, .. }) => {
-                (format!("char({})", length), false)
-            }
-            _ => ("char(1)".to_string(), false),
-        },
-        DataType::Text => ("text".to_string(), false),
-
-        // Numeric
-        DataType::Numeric(info) | DataType::Decimal(info) | DataType::Dec(info) => {
-            use sqlparser::ast::ExactNumberInfo;
-            match info {
-                ExactNumberInfo::PrecisionAndScale(p, s) => {
-                    (format!("numeric({},{})", p, s), false)
-                }
-                ExactNumberInfo::Precision(p) => (format!("numeric({})", p), false),
-                ExactNumberInfo::None => ("numeric".to_string(), false),
-            }
-        }
-
-        // Date/time
-        DataType::Date => ("date".to_string(), false),
-        DataType::Time(prec, tz) => {
-            let base = match tz {
-                TimezoneInfo::WithTimeZone | TimezoneInfo::Tz => "timetz",
-                TimezoneInfo::WithoutTimeZone | TimezoneInfo::None => "time",
-            };
-            match prec {
-                Some(p) => (format!("{}({})", base, p), false),
-                None => (base.to_string(), false),
-            }
-        }
-        DataType::Timestamp(prec, tz) => {
-            let base = match tz {
-                TimezoneInfo::WithTimeZone | TimezoneInfo::Tz => "timestamptz",
-                TimezoneInfo::WithoutTimeZone | TimezoneInfo::None => "timestamp",
-            };
-            match prec {
-                Some(p) => (format!("{}({})", base, p), false),
-                None => (base.to_string(), false),
-            }
-        }
-        DataType::Interval { .. } => ("interval".to_string(), false),
-
-        // JSON
-        DataType::JSON => ("json".to_string(), false),
-        DataType::JSONB => ("jsonb".to_string(), false),
-
-        // Binary
-        DataType::Bytea => ("bytea".to_string(), false),
-
-        // UUID
-        DataType::Uuid => ("uuid".to_string(), false),
-
-        // Array types
-        DataType::Array(elem) => {
-            let inner = match elem {
-                ArrayElemTypeDef::SquareBracket(inner_dt, _) => {
-                    let (inner_type, _) = normalize_data_type(inner_dt, domains);
-                    inner_type
-                }
-                ArrayElemTypeDef::AngleBracket(inner_dt) => {
-                    let (inner_type, _) = normalize_data_type(inner_dt, domains);
-                    inner_type
-                }
-                ArrayElemTypeDef::Parenthesis(inner_dt) => {
-                    let (inner_type, _) = normalize_data_type(inner_dt, domains);
-                    inner_type
-                }
-                ArrayElemTypeDef::None => "unknown".to_string(),
-            };
-            // Use short forms for common array element types
-            let short = match inner.as_str() {
-                "integer" => "int",
-                "character varying" => "text",
-                _ => &inner,
-            };
-            (format!("{}[]", short), false)
-        }
-
-        // Bit types
-        DataType::Bit(_) => ("bit".to_string(), false),
-        DataType::BitVarying(_) | DataType::VarBit(_) => ("bit varying".to_string(), false),
-
-        // Fallback: use the Display impl and lowercase it
-        other => (other.to_string().to_lowercase(), false),
-    }
 }
 
 #[cfg(test)]

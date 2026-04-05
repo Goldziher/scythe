@@ -104,7 +104,7 @@ pub fn parse_query(query_sql: &str) -> Result<Query, ScytheError> {
                 None => (body, ""),
             };
 
-            match keyword {
+            match keyword.to_ascii_lowercase().as_str() {
                 "name" => {
                     name = Some(value.to_string());
                 }
@@ -227,4 +227,168 @@ pub fn parse_query(query_sql: &str) -> Result<Query, ScytheError> {
         stmt,
         annotations,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::errors::ErrorCode;
+
+    fn parse(sql: &str) -> Result<Query, ScytheError> {
+        parse_query(sql)
+    }
+
+    #[test]
+    fn test_basic_parse() {
+        let input = "-- @name GetUsers\n-- @returns :many\nSELECT * FROM users;";
+        let q = parse(input).unwrap();
+        assert_eq!(q.name, "GetUsers");
+        assert_eq!(q.command, QueryCommand::Many);
+        assert!(q.sql.contains("SELECT"));
+    }
+
+    #[test]
+    fn test_all_command_types() {
+        let cases = vec![
+            (":one", QueryCommand::One),
+            (":many", QueryCommand::Many),
+            (":exec", QueryCommand::Exec),
+            (":exec_result", QueryCommand::ExecResult),
+            (":exec_rows", QueryCommand::ExecRows),
+        ];
+        for (tag, expected) in cases {
+            let input = format!("-- @name Q\n-- @returns {}\nSELECT 1", tag);
+            let q = parse(&input).unwrap();
+            assert_eq!(q.command, expected, "failed for {}", tag);
+        }
+    }
+
+    #[test]
+    fn test_case_insensitive_keywords() {
+        let input = "-- @Name GetUsers\n-- @RETURNS :many\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.name, "GetUsers");
+        assert_eq!(q.command, QueryCommand::Many);
+    }
+
+    #[test]
+    fn test_missing_name_errors() {
+        let input = "-- @returns :many\nSELECT 1";
+        let err = parse(input).unwrap_err();
+        assert_eq!(err.code, ErrorCode::MissingAnnotation);
+        assert!(err.message.contains("name"));
+    }
+
+    #[test]
+    fn test_missing_returns_errors() {
+        let input = "-- @name Foo\nSELECT 1";
+        let err = parse(input).unwrap_err();
+        assert_eq!(err.code, ErrorCode::MissingAnnotation);
+        assert!(err.message.contains("returns"));
+    }
+
+    #[test]
+    fn test_invalid_returns_value() {
+        let input = "-- @name Foo\n-- @returns :invalid\nSELECT 1";
+        let err = parse(input).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidAnnotation);
+    }
+
+    #[test]
+    fn test_empty_name_value() {
+        // An empty name is accepted by the parser (it stores "")
+        let input = "-- @name\n-- @returns :one\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.name, "");
+    }
+
+    #[test]
+    fn test_param_annotation() {
+        let input = "-- @name Foo\n-- @returns :one\n-- @param id: the user ID\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.param_docs.len(), 1);
+        assert_eq!(q.annotations.param_docs[0].name, "id");
+        assert_eq!(q.annotations.param_docs[0].description, "the user ID");
+    }
+
+    #[test]
+    fn test_param_no_description() {
+        let input = "-- @name Foo\n-- @returns :one\n-- @param id\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.param_docs.len(), 1);
+        assert_eq!(q.annotations.param_docs[0].name, "id");
+        assert_eq!(q.annotations.param_docs[0].description, "");
+    }
+
+    #[test]
+    fn test_nullable_annotation() {
+        let input = "-- @name Foo\n-- @returns :one\n-- @nullable col1, col2\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.nullable_overrides, vec!["col1", "col2"]);
+    }
+
+    #[test]
+    fn test_nonnull_annotation() {
+        let input = "-- @name Foo\n-- @returns :one\n-- @nonnull col1\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.nonnull_overrides, vec!["col1"]);
+    }
+
+    #[test]
+    fn test_json_annotation() {
+        let input = "-- @name Foo\n-- @returns :one\n-- @json data = EventData\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.json_mappings.len(), 1);
+        assert_eq!(q.annotations.json_mappings[0].column, "data");
+        assert_eq!(q.annotations.json_mappings[0].rust_type, "EventData");
+    }
+
+    #[test]
+    fn test_deprecated_annotation() {
+        let input = "-- @name Foo\n-- @returns :one\n-- @deprecated Use V2\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.deprecated, Some("Use V2".to_string()));
+    }
+
+    #[test]
+    fn test_sql_syntax_error() {
+        let input = "-- @name Foo\n-- @returns :one\nSELCT * FROM users";
+        let err = parse(input).unwrap_err();
+        assert_eq!(err.code, ErrorCode::SyntaxError);
+    }
+
+    #[test]
+    fn test_trailing_semicolon() {
+        let input = "-- @name Foo\n-- @returns :one\nSELECT 1;";
+        let q = parse(input).unwrap();
+        assert_eq!(q.name, "Foo");
+    }
+
+    #[test]
+    fn test_multiple_statements_error() {
+        let input = "-- @name Foo\n-- @returns :one\nSELECT 1; SELECT 2;";
+        let err = parse(input).unwrap_err();
+        assert_eq!(err.code, ErrorCode::SyntaxError);
+    }
+
+    #[test]
+    fn test_sql_preserved_without_annotations() {
+        let input = "-- @name Foo\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.sql, "SELECT id, name FROM users WHERE id = $1");
+    }
+
+    #[test]
+    fn test_returns_without_colon_prefix() {
+        let input = "-- @name Foo\n-- @returns many\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.command, QueryCommand::Many);
+    }
+
+    #[test]
+    fn test_batch_command() {
+        let input = "-- @name Foo\n-- @returns :batch\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.command, QueryCommand::Batch);
+    }
 }
