@@ -73,7 +73,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
     analyzer.params.sort_by_key(|p| p.position);
     analyzer.params.dedup_by_key(|p| p.position);
 
-    let params: Vec<AnalyzedParam> = analyzer
+    let mut params: Vec<AnalyzedParam> = analyzer
         .params
         .iter()
         .map(|p| {
@@ -90,6 +90,22 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
             }
         })
         .collect();
+
+    // Disambiguate duplicate param names by appending _N suffix
+    {
+        let mut name_counts: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
+        for p in &params {
+            *name_counts.entry(p.name.clone()).or_insert(0) += 1;
+        }
+        let mut name_seen: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
+        for p in &mut params {
+            if name_counts.get(&p.name).copied().unwrap_or(0) > 1 {
+                let idx = name_seen.entry(p.name.clone()).or_insert(0);
+                *idx += 1;
+                p.name = format!("{}_{}", p.name, idx);
+            }
+        }
+    }
 
     // Detect SELECT * from single table for model struct reuse
     let source_table = detect_select_star_source(&query.stmt);
