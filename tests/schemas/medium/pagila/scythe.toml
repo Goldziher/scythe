@@ -1,0 +1,9 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "pagila"
+engine = "postgresql"
+schema = ["schema.sql"]
+queries = ["queries/*.sql"]
+output = "generated"
