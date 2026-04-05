@@ -1,31 +1,27 @@
 {
-  "category": "expressions/operators",
-  "description": "Arithmetic on two NOT NULL columns produces a non-nullable result",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "line_total",
-          "note": "both price and quantity are NOT NULL, so product is non-nullable",
-          "nullable": false,
-          "type": "int32"
-        }
-      ],
-      "command": "many",
-      "name": "GetLineTotal",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "arithmetic",
-  "query_sql": "-- @name GetLineTotal\n-- @returns :many\nSELECT price * quantity AS line_total FROM order_items",
-  "schema_sql": [
-    "CREATE TABLE order_items (id SERIAL PRIMARY KEY, order_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL)"
-  ],
-  "source": "original",
-  "tags": [
-    "expressions",
-    "operators",
-    "arithmetic"
-  ]
+	"category": "expressions/operators",
+	"description": "Arithmetic on two NOT NULL columns produces a non-nullable result",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "line_total",
+					"note": "both price and quantity are NOT NULL, so product is non-nullable",
+					"nullable": false,
+					"type": "int32"
+				}
+			],
+			"command": "many",
+			"name": "GetLineTotal",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "arithmetic",
+	"query_sql": "-- @name GetLineTotal\n-- @returns :many\nSELECT price * quantity AS line_total FROM order_items",
+	"schema_sql": [
+		"CREATE TABLE order_items (id SERIAL PRIMARY KEY, order_id INTEGER NOT NULL, product_id INTEGER NOT NULL, quantity INTEGER NOT NULL, price INTEGER NOT NULL)"
+	],
+	"source": "original",
+	"tags": ["expressions", "operators", "arithmetic"]
 }

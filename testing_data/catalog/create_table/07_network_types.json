@@ -1,27 +1,27 @@
 {
-  "name": "catalog_network_types",
-  "description": "Table with PostgreSQL network types: inet, cidr, macaddr",
-  "category": "catalog/create_table",
-  "tags": ["types", "network"],
-  "schema_sql": [
-    "CREATE TABLE network_info (id serial, ip_address inet NOT NULL, subnet cidr, mac macaddr)"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {
-        "network_info": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "ip_address", "sql_type": "inet", "nullable": false },
-            { "name": "subnet", "sql_type": "cidr", "nullable": true },
-            { "name": "mac", "sql_type": "macaddr", "nullable": true }
-          ]
-        }
-      },
-      "enums": {},
-      "composites": {}
-    }
-  },
-  "source": "original"
+	"name": "catalog_network_types",
+	"description": "Table with PostgreSQL network types: inet, cidr, macaddr",
+	"category": "catalog/create_table",
+	"tags": ["types", "network"],
+	"schema_sql": [
+		"CREATE TABLE network_info (id serial, ip_address inet NOT NULL, subnet cidr, mac macaddr)"
+	],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {
+				"network_info": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "ip_address", "sql_type": "inet", "nullable": false },
+						{ "name": "subnet", "sql_type": "cidr", "nullable": true },
+						{ "name": "mac", "sql_type": "macaddr", "nullable": true }
+					]
+				}
+			},
+			"enums": {},
+			"composites": {}
+		}
+	},
+	"source": "original"
 }

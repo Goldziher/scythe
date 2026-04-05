@@ -1,32 +1,27 @@
 {
-  "category": "expressions/operators",
-  "description": "Arithmetic involving a nullable column produces a nullable result",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "next_age",
-          "note": "age is nullable, so age + 1 is also nullable",
-          "nullable": true,
-          "type": "int32"
-        }
-      ],
-      "command": "many",
-      "name": "GetNextAge",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "arithmetic_with_nullable",
-  "query_sql": "-- @name GetNextAge\n-- @returns :many\nSELECT age + 1 AS next_age FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "expressions",
-    "operators",
-    "arithmetic",
-    "nullability"
-  ]
+	"category": "expressions/operators",
+	"description": "Arithmetic involving a nullable column produces a nullable result",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "next_age",
+					"note": "age is nullable, so age + 1 is also nullable",
+					"nullable": true,
+					"type": "int32"
+				}
+			],
+			"command": "many",
+			"name": "GetNextAge",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "arithmetic_with_nullable",
+	"query_sql": "-- @name GetNextAge\n-- @returns :many\nSELECT age + 1 AS next_age FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["expressions", "operators", "arithmetic", "nullability"]
 }

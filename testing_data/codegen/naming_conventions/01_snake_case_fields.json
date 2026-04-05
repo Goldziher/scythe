@@ -1,56 +1,52 @@
 {
-  "category": "codegen/naming_conventions",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Verify SQL column names are converted to snake_case Rust field names",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserFieldsRow {\n    pub id: i32,\n    pub user_id: i32,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n    pub first_name: String,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "userId",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "created_at",
-          "nullable": false,
-          "type": "datetime_tz"
-        },
-        {
-          "name": "firstName",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUserFields",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "snake_case_fields",
-  "query_sql": "-- @name GetUserFields\n-- @returns :many\nSELECT id, \"userId\", created_at, \"firstName\" FROM users;",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, \"userId\" INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), \"firstName\" TEXT NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "codegen",
-    "naming",
-    "snake_case"
-  ]
+	"category": "codegen/naming_conventions",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Verify SQL column names are converted to snake_case Rust field names",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserFieldsRow {\n    pub id: i32,\n    pub user_id: i32,\n    pub created_at: chrono::DateTime<chrono::Utc>,\n    pub first_name: String,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "userId",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "created_at",
+					"nullable": false,
+					"type": "datetime_tz"
+				},
+				{
+					"name": "firstName",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUserFields",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "snake_case_fields",
+	"query_sql": "-- @name GetUserFields\n-- @returns :many\nSELECT id, \"userId\", created_at, \"firstName\" FROM users;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, \"userId\" INTEGER NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(), \"firstName\" TEXT NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["codegen", "naming", "snake_case"]
 }

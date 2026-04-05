@@ -1,45 +1,39 @@
 {
-  "category": "select/subquery",
-  "description": "Subquery in WHERE clause with IN operator and parameterized condition",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersWithLargeOrders",
-      "params": [
-        {
-          "name": "total",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "subquery_in_where",
-  "query_sql": "-- @name GetUsersWithLargeOrders\n-- @returns :many\nSELECT id, name FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > $1)",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "select",
-    "subquery",
-    "where",
-    "in",
-    "param"
-  ]
+	"category": "select/subquery",
+	"description": "Subquery in WHERE clause with IN operator and parameterized condition",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersWithLargeOrders",
+			"params": [
+				{
+					"name": "total",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "subquery_in_where",
+	"query_sql": "-- @name GetUsersWithLargeOrders\n-- @returns :many\nSELECT id, name FROM users WHERE id IN (SELECT user_id FROM orders WHERE total > $1)",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["select", "subquery", "where", "in", "param"]
 }

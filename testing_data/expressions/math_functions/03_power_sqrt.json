@@ -1,41 +1,36 @@
 {
-  "category": "expressions/math_functions",
-  "description": "POWER and SQRT math functions return f64 non-nullable on non-null input",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "squared",
-          "nullable": false,
-          "type": "float64"
-        },
-        {
-          "name": "root",
-          "nullable": false,
-          "type": "float64"
-        }
-      ],
-      "command": "many",
-      "name": "PowerSqrt",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "math_power_sqrt",
-  "query_sql": "-- @name PowerSqrt\n-- @returns :many\nSELECT id, POWER(value, 2) AS squared, SQRT(value) AS root FROM measurements",
-  "schema_sql": [
-    "CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION NOT NULL, quantity INTEGER NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "expression",
-    "math",
-    "power",
-    "sqrt"
-  ]
+	"category": "expressions/math_functions",
+	"description": "POWER and SQRT math functions return f64 non-nullable on non-null input",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "squared",
+					"nullable": false,
+					"type": "float64"
+				},
+				{
+					"name": "root",
+					"nullable": false,
+					"type": "float64"
+				}
+			],
+			"command": "many",
+			"name": "PowerSqrt",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "math_power_sqrt",
+	"query_sql": "-- @name PowerSqrt\n-- @returns :many\nSELECT id, POWER(value, 2) AS squared, SQRT(value) AS root FROM measurements",
+	"schema_sql": [
+		"CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION NOT NULL, quantity INTEGER NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["expression", "math", "power", "sqrt"]
 }

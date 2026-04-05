@@ -1,26 +1,24 @@
 {
-  "name": "basic_composite",
-  "description": "CREATE TYPE AS composite with text fields for an address",
-  "category": "catalog/create_composite",
-  "tags": ["composite", "create_type"],
-  "schema_sql": [
-    "CREATE TYPE address AS (street text, city text, zip text)"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {},
-      "enums": {},
-      "composites": {
-        "address": {
-          "fields": [
-            { "name": "street", "sql_type": "text" },
-            { "name": "city", "sql_type": "text" },
-            { "name": "zip", "sql_type": "text" }
-          ]
-        }
-      }
-    }
-  },
-  "source": "sqlc"
+	"name": "basic_composite",
+	"description": "CREATE TYPE AS composite with text fields for an address",
+	"category": "catalog/create_composite",
+	"tags": ["composite", "create_type"],
+	"schema_sql": ["CREATE TYPE address AS (street text, city text, zip text)"],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {},
+			"enums": {},
+			"composites": {
+				"address": {
+					"fields": [
+						{ "name": "street", "sql_type": "text" },
+						{ "name": "city", "sql_type": "text" },
+						{ "name": "zip", "sql_type": "text" }
+					]
+				}
+			}
+		}
+	},
+	"source": "sqlc"
 }

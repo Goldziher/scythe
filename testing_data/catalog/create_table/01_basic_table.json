@@ -1,26 +1,26 @@
 {
-  "name": "basic_table",
-  "description": "Simple table with id, name, and created_at columns",
-  "category": "catalog/create_table",
-  "tags": ["basic", "create_table"],
-  "schema_sql": [
-    "CREATE TABLE users (id integer NOT NULL, name text NOT NULL, created_at timestamp NOT NULL)"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {
-        "users": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "name", "sql_type": "text", "nullable": false },
-            { "name": "created_at", "sql_type": "timestamp", "nullable": false }
-          ]
-        }
-      },
-      "enums": {},
-      "composites": {}
-    }
-  },
-  "source": "sqlc"
+	"name": "basic_table",
+	"description": "Simple table with id, name, and created_at columns",
+	"category": "catalog/create_table",
+	"tags": ["basic", "create_table"],
+	"schema_sql": [
+		"CREATE TABLE users (id integer NOT NULL, name text NOT NULL, created_at timestamp NOT NULL)"
+	],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {
+				"users": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "name", "sql_type": "text", "nullable": false },
+						{ "name": "created_at", "sql_type": "timestamp", "nullable": false }
+					]
+				}
+			},
+			"enums": {},
+			"composites": {}
+		}
+	},
+	"source": "sqlc"
 }

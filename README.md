@@ -17,7 +17,7 @@ Inspired by [sqlc](https://github.com/sqlc-dev/sqlc), scythe improves on it in s
 
 ## How It Works
 
-```
+```text
 SQL Schema + Annotated Queries
         |
         v
@@ -86,7 +86,7 @@ nullable = "Option<{T}>"
 
 Code generation uses MiniJinja templates. A backend is a directory with a `manifest.toml` and `templates/`:
 
-```
+```text
 backends/rust-sqlx/
   manifest.toml           # type mappings, naming rules
   templates/
@@ -115,7 +115,7 @@ A test generator tool reads these fixtures and produces Rust test code.
 
 ## Project Structure
 
-```
+```text
 scythe/
   src/                          # main binary (CLI)
   crates/scythe-backend/        # shared backend infrastructure

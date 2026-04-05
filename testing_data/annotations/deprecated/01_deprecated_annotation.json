@@ -1,57 +1,54 @@
 {
-  "category": "annotations/deprecated",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Verify @deprecated annotation generates #[deprecated] attribute on the query function",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "query_fn": "#[deprecated(note = \"Use GetUserV2 instead\")]\npub async fn get_user_v1(pool: &sqlx::PgPool, id: i32) -> Result<GetUserV1Row, sqlx::Error> {\n    sqlx::query_as!(GetUserV1Row, \"SELECT id, name, email FROM users WHERE id = $1\", id)\n        .fetch_one(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserV1Row {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "one",
-      "name": "GetUserV1",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "deprecated_annotation",
-  "query_sql": "-- @name GetUserV1\n-- @returns :one\n-- @deprecated Use GetUserV2 instead\nSELECT id, name, email FROM users WHERE id = $1;",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "annotation",
-    "deprecated"
-  ]
+	"category": "annotations/deprecated",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Verify @deprecated annotation generates #[deprecated] attribute on the query function",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"query_fn": "#[deprecated(note = \"Use GetUserV2 instead\")]\npub async fn get_user_v1(pool: &sqlx::PgPool, id: i32) -> Result<GetUserV1Row, sqlx::Error> {\n    sqlx::query_as!(GetUserV1Row, \"SELECT id, name, email FROM users WHERE id = $1\", id)\n        .fetch_one(pool)\n        .await\n}",
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUserV1Row {\n    pub id: i32,\n    pub name: String,\n    pub email: String,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "one",
+			"name": "GetUserV1",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "deprecated_annotation",
+	"query_sql": "-- @name GetUserV1\n-- @returns :one\n-- @deprecated Use GetUserV2 instead\nSELECT id, name, email FROM users WHERE id = $1;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["annotation", "deprecated"]
 }

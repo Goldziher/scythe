@@ -1,35 +1,31 @@
 {
-  "category": "select/order_by",
-  "description": "ORDER BY with a function expression does not affect return types",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "ListUsersByLowerName",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "order_by_function_expression",
-  "query_sql": "-- @name ListUsersByLowerName\n-- @returns :many\nSELECT id, name FROM users ORDER BY LOWER(name)",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');"
-  ],
-  "source": "original",
-  "tags": [
-    "select",
-    "order_by",
-    "function"
-  ]
+	"category": "select/order_by",
+	"description": "ORDER BY with a function expression does not affect return types",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "ListUsersByLowerName",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "order_by_function_expression",
+	"query_sql": "-- @name ListUsersByLowerName\n-- @returns :many\nSELECT id, name FROM users ORDER BY LOWER(name)",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');"
+	],
+	"source": "original",
+	"tags": ["select", "order_by", "function"]
 }

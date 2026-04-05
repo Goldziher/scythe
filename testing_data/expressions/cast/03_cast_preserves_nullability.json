@@ -1,38 +1,34 @@
 {
-  "category": "expressions/cast",
-  "description": "Casting a nullable column preserves the nullable status in the output",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "short_bio",
-          "note": "bio is nullable in schema, cast to varchar does not change nullability",
-          "nullable": true,
-          "type": "string"
-        }
-      ],
-      "command": "one",
-      "name": "GetShortBio",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "cast_preserves_nullability",
-  "query_sql": "-- @name GetShortBio\n-- @returns :one\nSELECT bio::varchar(100) AS short_bio FROM users WHERE id = $1",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "expressions",
-    "cast",
-    "nullability"
-  ]
+	"category": "expressions/cast",
+	"description": "Casting a nullable column preserves the nullable status in the output",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "short_bio",
+					"note": "bio is nullable in schema, cast to varchar does not change nullability",
+					"nullable": true,
+					"type": "string"
+				}
+			],
+			"command": "one",
+			"name": "GetShortBio",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "cast_preserves_nullability",
+	"query_sql": "-- @name GetShortBio\n-- @returns :one\nSELECT bio::varchar(100) AS short_bio FROM users WHERE id = $1",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["expressions", "cast", "nullability"]
 }

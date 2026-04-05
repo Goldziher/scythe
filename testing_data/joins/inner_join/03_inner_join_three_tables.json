@@ -1,48 +1,44 @@
 {
-  "category": "joins/inner_join",
-  "description": "INNER JOIN across three tables: users, orders, and order_items",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "user_name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "order_id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "quantity",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "product_name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetOrderDetails",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "inner_join_three_tables",
-  "query_sql": "-- @name GetOrderDetails\n-- @returns :many\nSELECT u.name AS user_name, o.id AS order_id, oi.quantity, p.name AS product_name FROM users u INNER JOIN orders o ON u.id = o.user_id INNER JOIN order_items oi ON o.id = oi.order_id INNER JOIN products p ON oi.product_id = p.id",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT NOT NULL)",
-    "CREATE TABLE order_items (id SERIAL PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id), product_id INTEGER NOT NULL REFERENCES products(id), quantity INTEGER NOT NULL)"
-  ],
-  "source": "original",
-  "tags": [
-    "join",
-    "inner_join",
-    "multi_table"
-  ]
+	"category": "joins/inner_join",
+	"description": "INNER JOIN across three tables: users, orders, and order_items",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "user_name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "order_id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "quantity",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "product_name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetOrderDetails",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "inner_join_three_tables",
+	"query_sql": "-- @name GetOrderDetails\n-- @returns :many\nSELECT u.name AS user_name, o.id AS order_id, oi.quantity, p.name AS product_name FROM users u INNER JOIN orders o ON u.id = o.user_id INNER JOIN order_items oi ON o.id = oi.order_id INNER JOIN products p ON oi.product_id = p.id",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price INTEGER NOT NULL, category TEXT NOT NULL)",
+		"CREATE TABLE order_items (id SERIAL PRIMARY KEY, order_id INTEGER NOT NULL REFERENCES orders(id), product_id INTEGER NOT NULL REFERENCES products(id), quantity INTEGER NOT NULL)"
+	],
+	"source": "original",
+	"tags": ["join", "inner_join", "multi_table"]
 }

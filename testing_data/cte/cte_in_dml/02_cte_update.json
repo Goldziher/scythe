@@ -1,21 +1,21 @@
 {
-  "name": "cte_update",
-  "description": "CTE used with UPDATE ... FROM for targeted updates",
-  "category": "cte/cte_in_dml",
-  "tags": ["cte", "update", "dml"],
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "query_sql": "-- @name DeactivateUsersWithNoOrders\n-- @returns :exec\nWITH no_orders AS (SELECT u.id FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL) UPDATE users SET status = 'inactive' FROM no_orders WHERE users.id = no_orders.id",
-  "expected": {
-    "success": true,
-    "query": {
-      "name": "DeactivateUsersWithNoOrders",
-      "command": "exec",
-      "params": [],
-      "columns": []
-    }
-  },
-  "source": "original"
+	"name": "cte_update",
+	"description": "CTE used with UPDATE ... FROM for targeted updates",
+	"category": "cte/cte_in_dml",
+	"tags": ["cte", "update", "dml"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"query_sql": "-- @name DeactivateUsersWithNoOrders\n-- @returns :exec\nWITH no_orders AS (SELECT u.id FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE o.id IS NULL) UPDATE users SET status = 'inactive' FROM no_orders WHERE users.id = no_orders.id",
+	"expected": {
+		"success": true,
+		"query": {
+			"name": "DeactivateUsersWithNoOrders",
+			"command": "exec",
+			"params": [],
+			"columns": []
+		}
+	},
+	"source": "original"
 }

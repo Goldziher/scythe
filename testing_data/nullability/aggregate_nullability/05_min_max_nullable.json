@@ -1,41 +1,37 @@
 {
-  "category": "nullability/aggregate_nullability",
-  "description": "MIN and MAX return NULL on empty sets",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "earliest",
-          "note": "MIN returns NULL on empty set",
-          "nullable": true,
-          "type": "datetime_tz"
-        },
-        {
-          "name": "latest",
-          "note": "MAX returns NULL on empty set",
-          "nullable": true,
-          "type": "datetime_tz"
-        }
-      ],
-      "command": "one",
-      "name": "GetUserDateRange",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "min_max_nullable",
-  "query_sql": "-- @name GetUserDateRange\n-- @returns :one\nSELECT MIN(created_at) AS earliest, MAX(created_at) AS latest FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly recognizes that MIN and MAX return NULL on empty result sets",
-    "sqlc_behavior": "sqlc marks MIN/MAX of NOT NULL columns as non-nullable"
-  },
-  "tags": [
-    "nullability",
-    "aggregate",
-    "improvement_over_sqlc"
-  ]
+	"category": "nullability/aggregate_nullability",
+	"description": "MIN and MAX return NULL on empty sets",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "earliest",
+					"note": "MIN returns NULL on empty set",
+					"nullable": true,
+					"type": "datetime_tz"
+				},
+				{
+					"name": "latest",
+					"note": "MAX returns NULL on empty set",
+					"nullable": true,
+					"type": "datetime_tz"
+				}
+			],
+			"command": "one",
+			"name": "GetUserDateRange",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "min_max_nullable",
+	"query_sql": "-- @name GetUserDateRange\n-- @returns :one\nSELECT MIN(created_at) AS earliest, MAX(created_at) AS latest FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "scythe correctly recognizes that MIN and MAX return NULL on empty result sets",
+		"sqlc_behavior": "sqlc marks MIN/MAX of NOT NULL columns as non-nullable"
+	},
+	"tags": ["nullability", "aggregate", "improvement_over_sqlc"]
 }

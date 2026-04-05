@@ -1,31 +1,28 @@
 {
-  "category": "nullability/coalesce_non_null",
-  "description": "COALESCE with only nullable arguments and no literal default is still nullable",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "text",
-          "note": "both arguments are nullable and no literal default, so result can still be NULL",
-          "nullable": true,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetCoalescedText",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "coalesce_two_nullable",
-  "query_sql": "-- @name GetCoalescedText\n-- @returns :many\nSELECT COALESCE(u.bio, o.notes) AS text FROM users u LEFT JOIN orders o ON u.id = o.user_id",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "nullability",
-    "coalesce"
-  ]
+	"category": "nullability/coalesce_non_null",
+	"description": "COALESCE with only nullable arguments and no literal default is still nullable",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "text",
+					"note": "both arguments are nullable and no literal default, so result can still be NULL",
+					"nullable": true,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetCoalescedText",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "coalesce_two_nullable",
+	"query_sql": "-- @name GetCoalescedText\n-- @returns :many\nSELECT COALESCE(u.bio, o.notes) AS text FROM users u LEFT JOIN orders o ON u.id = o.user_id",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["nullability", "coalesce"]
 }

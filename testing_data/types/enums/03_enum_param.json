@@ -1,54 +1,50 @@
 {
-  "category": "types/enums",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Use an enum type as a query parameter in a WHERE clause",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "query_fn": "pub async fn get_users_by_status(pool: &sqlx::PgPool, status: &UserStatus) -> Result<Vec<GetUsersByStatusRow>, sqlx::Error> {\n    sqlx::query_as!(GetUsersByStatusRow, \"SELECT id, name FROM users WHERE status = $1\", status as &UserStatus)\n        .fetch_all(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUsersByStatusRow {\n    pub id: i32,\n    pub name: String,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersByStatus",
-      "params": [
-        {
-          "name": "status",
-          "nullable": false,
-          "type": "enum::user_status"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "enum_param",
-  "query_sql": "-- @name GetUsersByStatus\n-- @returns :many\nSELECT id, name FROM users WHERE status = $1;",
-  "schema_sql": [
-    "CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned');",
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status user_status NOT NULL);"
-  ],
-  "source": "sqlc_expanded",
-  "tags": [
-    "enum",
-    "param",
-    "where"
-  ]
+	"category": "types/enums",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Use an enum type as a query parameter in a WHERE clause",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"query_fn": "pub async fn get_users_by_status(pool: &sqlx::PgPool, status: &UserStatus) -> Result<Vec<GetUsersByStatusRow>, sqlx::Error> {\n    sqlx::query_as!(GetUsersByStatusRow, \"SELECT id, name FROM users WHERE status = $1\", status as &UserStatus)\n        .fetch_all(pool)\n        .await\n}",
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetUsersByStatusRow {\n    pub id: i32,\n    pub name: String,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersByStatus",
+			"params": [
+				{
+					"name": "status",
+					"nullable": false,
+					"type": "enum::user_status"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "enum_param",
+	"query_sql": "-- @name GetUsersByStatus\n-- @returns :many\nSELECT id, name FROM users WHERE status = $1;",
+	"schema_sql": [
+		"CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned');",
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status user_status NOT NULL);"
+	],
+	"source": "sqlc_expanded",
+	"tags": ["enum", "param", "where"]
 }

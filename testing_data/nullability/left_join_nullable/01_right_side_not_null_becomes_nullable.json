@@ -1,41 +1,37 @@
 {
-  "category": "nullability/left_join_nullable",
-  "description": "LEFT JOIN makes right-side NOT NULL columns nullable because unmatched rows produce NULLs",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "total",
-          "note": "NOT NULL in schema but nullable due to LEFT JOIN",
-          "nullable": true,
-          "type": "int32"
-        }
-      ],
-      "command": "many",
-      "name": "GetUserWithOrderTotal",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "right_side_not_null_becomes_nullable",
-  "query_sql": "-- @name GetUserWithOrderTotal\n-- @returns :many\nSELECT u.id, o.total FROM users u LEFT JOIN orders o ON u.id = o.user_id",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly infers that all right-side columns of a LEFT JOIN become nullable, regardless of schema constraints",
-    "sqlc_behavior": "sqlc marks o.total as non-nullable (i32) because the column is NOT NULL in the schema, ignoring the LEFT JOIN"
-  },
-  "tags": [
-    "nullability",
-    "left_join",
-    "improvement_over_sqlc"
-  ]
+	"category": "nullability/left_join_nullable",
+	"description": "LEFT JOIN makes right-side NOT NULL columns nullable because unmatched rows produce NULLs",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "total",
+					"note": "NOT NULL in schema but nullable due to LEFT JOIN",
+					"nullable": true,
+					"type": "int32"
+				}
+			],
+			"command": "many",
+			"name": "GetUserWithOrderTotal",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "right_side_not_null_becomes_nullable",
+	"query_sql": "-- @name GetUserWithOrderTotal\n-- @returns :many\nSELECT u.id, o.total FROM users u LEFT JOIN orders o ON u.id = o.user_id",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "scythe correctly infers that all right-side columns of a LEFT JOIN become nullable, regardless of schema constraints",
+		"sqlc_behavior": "sqlc marks o.total as non-nullable (i32) because the column is NOT NULL in the schema, ignoring the LEFT JOIN"
+	},
+	"tags": ["nullability", "left_join", "improvement_over_sqlc"]
 }

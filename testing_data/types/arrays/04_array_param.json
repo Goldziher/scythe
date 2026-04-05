@@ -1,53 +1,49 @@
 {
-  "category": "types/arrays",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Use an array parameter with ANY() for IN-style filtering",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "query_fn": "pub async fn get_scores_by_ids(pool: &sqlx::PgPool, ids: &[i32]) -> Result<Vec<GetScoresByIdsRow>, sqlx::Error> {\n    sqlx::query_as!(GetScoresByIdsRow, \"SELECT id, values FROM scores WHERE id = ANY($1)\", ids)\n        .fetch_all(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetScoresByIdsRow {\n    pub id: i32,\n    pub values: Vec<i32>,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "values",
-          "nullable": false,
-          "type": "array<int32>"
-        }
-      ],
-      "command": "many",
-      "name": "GetScoresByIds",
-      "params": [
-        {
-          "name": "ids",
-          "nullable": false,
-          "type": "array<int32>"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "array_param",
-  "query_sql": "-- @name GetScoresByIds\n-- @returns :many\nSELECT id, values FROM scores WHERE id = ANY($1);",
-  "schema_sql": [
-    "CREATE TABLE scores (id SERIAL PRIMARY KEY, values INT[] NOT NULL);"
-  ],
-  "source": "sqlc_expanded",
-  "tags": [
-    "array",
-    "param",
-    "any"
-  ]
+	"category": "types/arrays",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Use an array parameter with ANY() for IN-style filtering",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"query_fn": "pub async fn get_scores_by_ids(pool: &sqlx::PgPool, ids: &[i32]) -> Result<Vec<GetScoresByIdsRow>, sqlx::Error> {\n    sqlx::query_as!(GetScoresByIdsRow, \"SELECT id, values FROM scores WHERE id = ANY($1)\", ids)\n        .fetch_all(pool)\n        .await\n}",
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetScoresByIdsRow {\n    pub id: i32,\n    pub values: Vec<i32>,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "values",
+					"nullable": false,
+					"type": "array<int32>"
+				}
+			],
+			"command": "many",
+			"name": "GetScoresByIds",
+			"params": [
+				{
+					"name": "ids",
+					"nullable": false,
+					"type": "array<int32>"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "array_param",
+	"query_sql": "-- @name GetScoresByIds\n-- @returns :many\nSELECT id, values FROM scores WHERE id = ANY($1);",
+	"schema_sql": [
+		"CREATE TABLE scores (id SERIAL PRIMARY KEY, values INT[] NOT NULL);"
+	],
+	"source": "sqlc_expanded",
+	"tags": ["array", "param", "any"]
 }

@@ -1,49 +1,43 @@
 {
-  "category": "aggregates/group_by",
-  "description": "GROUP BY with multiple aggregate functions: COUNT, SUM, AVG",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "department",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "cnt",
-          "nullable": false,
-          "type": "int64"
-        },
-        {
-          "name": "total",
-          "note": "SUM return type is nullable per PostgreSQL catalog even within GROUP BY",
-          "nullable": true,
-          "type": "int64"
-        },
-        {
-          "name": "avg_amount",
-          "note": "AVG return type is nullable per PostgreSQL catalog",
-          "nullable": true,
-          "type": "decimal"
-        }
-      ],
-      "command": "many",
-      "name": "MultiAggByDepartment",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "group_by_multiple_aggregates",
-  "query_sql": "-- @name MultiAggByDepartment\n-- @returns :many\nSELECT department, COUNT(*) AS cnt, SUM(amount) AS total, AVG(amount) AS avg_amount FROM sales GROUP BY department",
-  "schema_sql": [
-    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "aggregate",
-    "group_by",
-    "count",
-    "sum",
-    "avg"
-  ]
+	"category": "aggregates/group_by",
+	"description": "GROUP BY with multiple aggregate functions: COUNT, SUM, AVG",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "department",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "cnt",
+					"nullable": false,
+					"type": "int64"
+				},
+				{
+					"name": "total",
+					"note": "SUM return type is nullable per PostgreSQL catalog even within GROUP BY",
+					"nullable": true,
+					"type": "int64"
+				},
+				{
+					"name": "avg_amount",
+					"note": "AVG return type is nullable per PostgreSQL catalog",
+					"nullable": true,
+					"type": "decimal"
+				}
+			],
+			"command": "many",
+			"name": "MultiAggByDepartment",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "group_by_multiple_aggregates",
+	"query_sql": "-- @name MultiAggByDepartment\n-- @returns :many\nSELECT department, COUNT(*) AS cnt, SUM(amount) AS total, AVG(amount) AS avg_amount FROM sales GROUP BY department",
+	"schema_sql": [
+		"CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["aggregate", "group_by", "count", "sum", "avg"]
 }

@@ -1,27 +1,27 @@
 {
-  "name": "schema_qualified",
-  "description": "CREATE SCHEMA and CREATE TABLE with schema-qualified names",
-  "category": "catalog/multi_schema",
-  "tags": ["schema", "qualified_names"],
-  "schema_sql": [
-    "CREATE SCHEMA app",
-    "CREATE TABLE app.users (id serial PRIMARY KEY, name text NOT NULL, email text NOT NULL)"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {
-        "app.users": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "name", "sql_type": "text", "nullable": false },
-            { "name": "email", "sql_type": "text", "nullable": false }
-          ]
-        }
-      },
-      "enums": {},
-      "composites": {}
-    }
-  },
-  "source": "sqlc"
+	"name": "schema_qualified",
+	"description": "CREATE SCHEMA and CREATE TABLE with schema-qualified names",
+	"category": "catalog/multi_schema",
+	"tags": ["schema", "qualified_names"],
+	"schema_sql": [
+		"CREATE SCHEMA app",
+		"CREATE TABLE app.users (id serial PRIMARY KEY, name text NOT NULL, email text NOT NULL)"
+	],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {
+				"app.users": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "name", "sql_type": "text", "nullable": false },
+						{ "name": "email", "sql_type": "text", "nullable": false }
+					]
+				}
+			},
+			"enums": {},
+			"composites": {}
+		}
+	},
+	"source": "sqlc"
 }

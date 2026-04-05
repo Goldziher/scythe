@@ -1,62 +1,58 @@
 {
-  "category": "select/star_expansion",
-  "description": "SELECT * from a single table expands all columns with correct types and nullability",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "status",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "bio",
-          "nullable": true,
-          "type": "string"
-        },
-        {
-          "name": "created_at",
-          "nullable": false,
-          "type": "datetime_tz"
-        }
-      ],
-      "command": "one",
-      "name": "GetUserById",
-      "params": [
-        {
-          "name": "id",
-          "nullable": false,
-          "position": 1,
-          "type": "int32"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "star_single_table",
-  "query_sql": "-- @name GetUserById\n-- @returns :one\nSELECT * FROM users WHERE id = $1",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "select",
-    "star",
-    "expansion"
-  ]
+	"category": "select/star_expansion",
+	"description": "SELECT * from a single table expands all columns with correct types and nullability",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "status",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "bio",
+					"nullable": true,
+					"type": "string"
+				},
+				{
+					"name": "created_at",
+					"nullable": false,
+					"type": "datetime_tz"
+				}
+			],
+			"command": "one",
+			"name": "GetUserById",
+			"params": [
+				{
+					"name": "id",
+					"nullable": false,
+					"position": 1,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "star_single_table",
+	"query_sql": "-- @name GetUserById\n-- @returns :one\nSELECT * FROM users WHERE id = $1",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "sqlc",
+	"tags": ["select", "star", "expansion"]
 }

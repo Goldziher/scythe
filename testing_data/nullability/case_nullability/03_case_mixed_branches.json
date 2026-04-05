@@ -1,30 +1,27 @@
 {
-  "category": "nullability/case_nullability",
-  "description": "CASE where all branches including ELSE resolve to non-nullable values is non-nullable",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "display",
-          "note": "ELSE branch is NOT NULL column (name), and THEN branch is guarded by IS NOT NULL check",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUserDisplayName",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "case_mixed_branches",
-  "query_sql": "-- @name GetUserDisplayName\n-- @returns :many\nSELECT CASE WHEN bio IS NOT NULL THEN bio ELSE name END AS display FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "nullability",
-    "case"
-  ]
+	"category": "nullability/case_nullability",
+	"description": "CASE where all branches including ELSE resolve to non-nullable values is non-nullable",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "display",
+					"note": "ELSE branch is NOT NULL column (name), and THEN branch is guarded by IS NOT NULL check",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUserDisplayName",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "case_mixed_branches",
+	"query_sql": "-- @name GetUserDisplayName\n-- @returns :many\nSELECT CASE WHEN bio IS NOT NULL THEN bio ELSE name END AS display FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["nullability", "case"]
 }

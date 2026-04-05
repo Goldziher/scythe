@@ -1,74 +1,68 @@
 {
-  "category": "types/temporal",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Select all temporal types and verify correct Rust type mappings",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetTemporalDataRow {\n    pub id: i32,\n    pub d: chrono::NaiveDate,\n    pub t: chrono::NaiveTime,\n    pub tz: sqlx::postgres::types::PgTimeTz,\n    pub ts: chrono::NaiveDateTime,\n    pub tstz: chrono::DateTime<chrono::Utc>,\n    pub dur: sqlx::postgres::types::PgInterval,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "d",
-          "nullable": false,
-          "type": "date"
-        },
-        {
-          "name": "t",
-          "nullable": false,
-          "type": "time"
-        },
-        {
-          "name": "tz",
-          "note": "TIMETZ maps to PgTimeTz (time + UTC offset), not NaiveTime",
-          "nullable": false,
-          "type": "time_tz"
-        },
-        {
-          "name": "ts",
-          "nullable": false,
-          "type": "datetime"
-        },
-        {
-          "name": "tstz",
-          "nullable": false,
-          "type": "datetime_tz"
-        },
-        {
-          "name": "dur",
-          "nullable": false,
-          "type": "interval"
-        }
-      ],
-      "command": "many",
-      "name": "GetTemporalData",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "all_temporal_types",
-  "query_sql": "-- @name GetTemporalData\n-- @returns :many\nSELECT id, d, t, tz, ts, tstz, dur FROM temporal_data;",
-  "schema_sql": [
-    "CREATE TABLE temporal_data (id SERIAL PRIMARY KEY, d DATE NOT NULL, t TIME NOT NULL, tz TIMETZ NOT NULL, ts TIMESTAMP NOT NULL, tstz TIMESTAMPTZ NOT NULL, dur INTERVAL NOT NULL);"
-  ],
-  "source": "sqlc_expanded",
-  "tags": [
-    "temporal",
-    "date",
-    "time",
-    "timestamp",
-    "chrono"
-  ]
+	"category": "types/temporal",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Select all temporal types and verify correct Rust type mappings",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetTemporalDataRow {\n    pub id: i32,\n    pub d: chrono::NaiveDate,\n    pub t: chrono::NaiveTime,\n    pub tz: sqlx::postgres::types::PgTimeTz,\n    pub ts: chrono::NaiveDateTime,\n    pub tstz: chrono::DateTime<chrono::Utc>,\n    pub dur: sqlx::postgres::types::PgInterval,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "d",
+					"nullable": false,
+					"type": "date"
+				},
+				{
+					"name": "t",
+					"nullable": false,
+					"type": "time"
+				},
+				{
+					"name": "tz",
+					"note": "TIMETZ maps to PgTimeTz (time + UTC offset), not NaiveTime",
+					"nullable": false,
+					"type": "time_tz"
+				},
+				{
+					"name": "ts",
+					"nullable": false,
+					"type": "datetime"
+				},
+				{
+					"name": "tstz",
+					"nullable": false,
+					"type": "datetime_tz"
+				},
+				{
+					"name": "dur",
+					"nullable": false,
+					"type": "interval"
+				}
+			],
+			"command": "many",
+			"name": "GetTemporalData",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "all_temporal_types",
+	"query_sql": "-- @name GetTemporalData\n-- @returns :many\nSELECT id, d, t, tz, ts, tstz, dur FROM temporal_data;",
+	"schema_sql": [
+		"CREATE TABLE temporal_data (id SERIAL PRIMARY KEY, d DATE NOT NULL, t TIME NOT NULL, tz TIMETZ NOT NULL, ts TIMESTAMP NOT NULL, tstz TIMESTAMPTZ NOT NULL, dur INTERVAL NOT NULL);"
+	],
+	"source": "sqlc_expanded",
+	"tags": ["temporal", "date", "time", "timestamp", "chrono"]
 }

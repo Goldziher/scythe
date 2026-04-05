@@ -1,53 +1,49 @@
 {
-  "category": "params/insert_values",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Insert with two string params and RETURNING id",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "query_fn": "pub async fn create_user(pool: &sqlx::PgPool, name: &str, email: &str) -> Result<CreateUserRow, sqlx::Error> {\n    sqlx::query_as!(CreateUserRow, \"INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id\", name, email)\n        .fetch_one(pool)\n        .await\n}",
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct CreateUserRow {\n    pub id: i32,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        }
-      ],
-      "command": "one",
-      "name": "CreateUser",
-      "params": [
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "insert_basic_returning",
-  "query_sql": "-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name, email) VALUES ($1, $2) RETURNING id;",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "param",
-    "insert",
-    "returning"
-  ]
+	"category": "params/insert_values",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Insert with two string params and RETURNING id",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"query_fn": "pub async fn create_user(pool: &sqlx::PgPool, name: &str, email: &str) -> Result<CreateUserRow, sqlx::Error> {\n    sqlx::query_as!(CreateUserRow, \"INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id\", name, email)\n        .fetch_one(pool)\n        .await\n}",
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct CreateUserRow {\n    pub id: i32,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				}
+			],
+			"command": "one",
+			"name": "CreateUser",
+			"params": [
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "insert_basic_returning",
+	"query_sql": "-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name, email) VALUES ($1, $2) RETURNING id;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"
+	],
+	"source": "sqlc",
+	"tags": ["param", "insert", "returning"]
 }

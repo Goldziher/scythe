@@ -1,35 +1,31 @@
 {
-  "category": "select/where_clause",
-  "description": "WHERE IS NOT NULL with no parameters",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersWithBio",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "where_is_not_null",
-  "query_sql": "-- @name GetUsersWithBio\n-- @returns :many\nSELECT id, name FROM users WHERE bio IS NOT NULL",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "select",
-    "where",
-    "is_not_null"
-  ]
+	"category": "select/where_clause",
+	"description": "WHERE IS NOT NULL with no parameters",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersWithBio",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "where_is_not_null",
+	"query_sql": "-- @name GetUsersWithBio\n-- @returns :many\nSELECT id, name FROM users WHERE bio IS NOT NULL",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "sqlc",
+	"tags": ["select", "where", "is_not_null"]
 }

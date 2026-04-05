@@ -1,27 +1,27 @@
 {
-  "name": "constraints_unique",
-  "description": "Single column UNIQUE and composite UNIQUE constraints",
-  "category": "catalog/create_table",
-  "tags": ["constraints", "unique"],
-  "schema_sql": [
-    "CREATE TABLE accounts (id serial PRIMARY KEY, email text NOT NULL UNIQUE, first_name text NOT NULL, last_name text NOT NULL, UNIQUE (first_name, last_name))"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {
-        "accounts": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "email", "sql_type": "text", "nullable": false },
-            { "name": "first_name", "sql_type": "text", "nullable": false },
-            { "name": "last_name", "sql_type": "text", "nullable": false }
-          ]
-        }
-      },
-      "enums": {},
-      "composites": {}
-    }
-  },
-  "source": "original"
+	"name": "constraints_unique",
+	"description": "Single column UNIQUE and composite UNIQUE constraints",
+	"category": "catalog/create_table",
+	"tags": ["constraints", "unique"],
+	"schema_sql": [
+		"CREATE TABLE accounts (id serial PRIMARY KEY, email text NOT NULL UNIQUE, first_name text NOT NULL, last_name text NOT NULL, UNIQUE (first_name, last_name))"
+	],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {
+				"accounts": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "email", "sql_type": "text", "nullable": false },
+						{ "name": "first_name", "sql_type": "text", "nullable": false },
+						{ "name": "last_name", "sql_type": "text", "nullable": false }
+					]
+				}
+			},
+			"enums": {},
+			"composites": {}
+		}
+	},
+	"source": "original"
 }

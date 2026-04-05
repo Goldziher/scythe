@@ -1,31 +1,27 @@
 {
-  "category": "expressions/operators",
-  "description": "String concatenation of NOT NULL columns produces a non-nullable String",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "display",
-          "note": "all operands (name, email, literals) are non-nullable",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUserDisplay",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "string_concat",
-  "query_sql": "-- @name GetUserDisplay\n-- @returns :many\nSELECT name || ' <' || email || '>' AS display FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "expressions",
-    "operators",
-    "string"
-  ]
+	"category": "expressions/operators",
+	"description": "String concatenation of NOT NULL columns produces a non-nullable String",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "display",
+					"note": "all operands (name, email, literals) are non-nullable",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUserDisplay",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "string_concat",
+	"query_sql": "-- @name GetUserDisplay\n-- @returns :many\nSELECT name || ' <' || email || '>' AS display FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["expressions", "operators", "string"]
 }

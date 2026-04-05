@@ -1,36 +1,32 @@
 {
-  "category": "types/json_jsonb_advanced",
-  "description": "Test jsonb_object_keys function which returns text keys from a JSONB object as a set",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "key_name",
-          "note": "jsonb_object_keys returns text, never null",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetDocKeys",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "jsonb_object_keys_func",
-  "query_sql": "-- @name GetDocKeys\n-- @returns :many\nSELECT id, jsonb_object_keys(data) AS key_name FROM documents",
-  "schema_sql": [
-    "CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"
-  ],
-  "source": "original",
-  "tags": [
-    "jsonb",
-    "set_returning_function",
-    "object_keys"
-  ]
+	"category": "types/json_jsonb_advanced",
+	"description": "Test jsonb_object_keys function which returns text keys from a JSONB object as a set",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "key_name",
+					"note": "jsonb_object_keys returns text, never null",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetDocKeys",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "jsonb_object_keys_func",
+	"query_sql": "-- @name GetDocKeys\n-- @returns :many\nSELECT id, jsonb_object_keys(data) AS key_name FROM documents",
+	"schema_sql": [
+		"CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"
+	],
+	"source": "original",
+	"tags": ["jsonb", "set_returning_function", "object_keys"]
 }

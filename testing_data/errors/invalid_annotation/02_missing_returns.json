@@ -1,24 +1,24 @@
 {
-  "name": "missing_returns_annotation",
-  "description": "Query without @returns annotation should produce an error",
-  "category": "errors/invalid_annotation",
-  "tags": ["error", "annotation", "missing_returns"],
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
-  ],
-  "query_sql": "-- @name GetUsers\nSELECT id, name FROM users;",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "expected": {
-    "success": false,
-    "error": {
-      "code": "MISSING_ANNOTATION",
-      "message_contains": "missing @returns annotation"
-    }
-  },
-  "source": "original"
+	"name": "missing_returns_annotation",
+	"description": "Query without @returns annotation should produce an error",
+	"category": "errors/invalid_annotation",
+	"tags": ["error", "annotation", "missing_returns"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+	],
+	"query_sql": "-- @name GetUsers\nSELECT id, name FROM users;",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"expected": {
+		"success": false,
+		"error": {
+			"code": "MISSING_ANNOTATION",
+			"message_contains": "missing @returns annotation"
+		}
+	},
+	"source": "original"
 }

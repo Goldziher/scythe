@@ -1,30 +1,27 @@
 {
-  "category": "nullability/aggregate_nullability",
-  "description": "COUNT(column) is always non-nullable regardless of column nullability",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "cnt",
-          "note": "COUNT never returns NULL, even when counting a nullable column",
-          "nullable": false,
-          "type": "int64"
-        }
-      ],
-      "command": "one",
-      "name": "CountUsersWithBio",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "count_column_non_null",
-  "query_sql": "-- @name CountUsersWithBio\n-- @returns :one\nSELECT COUNT(bio) AS cnt FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "nullability",
-    "aggregate"
-  ]
+	"category": "nullability/aggregate_nullability",
+	"description": "COUNT(column) is always non-nullable regardless of column nullability",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "cnt",
+					"note": "COUNT never returns NULL, even when counting a nullable column",
+					"nullable": false,
+					"type": "int64"
+				}
+			],
+			"command": "one",
+			"name": "CountUsersWithBio",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "count_column_non_null",
+	"query_sql": "-- @name CountUsersWithBio\n-- @returns :one\nSELECT COUNT(bio) AS cnt FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["nullability", "aggregate"]
 }

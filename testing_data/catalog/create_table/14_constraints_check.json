@@ -1,27 +1,27 @@
 {
-  "name": "constraints_check",
-  "description": "CHECK constraints on columns",
-  "category": "catalog/create_table",
-  "tags": ["constraints", "check"],
-  "schema_sql": [
-    "CREATE TABLE products (id serial PRIMARY KEY, name text NOT NULL, price numeric(10,2) NOT NULL CHECK (price > 0), quantity integer NOT NULL CHECK (quantity >= 0))"
-  ],
-  "expected": {
-    "success": true,
-    "catalog": {
-      "tables": {
-        "products": {
-          "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "name", "sql_type": "text", "nullable": false },
-            { "name": "price", "sql_type": "numeric(10,2)", "nullable": false },
-            { "name": "quantity", "sql_type": "integer", "nullable": false }
-          ]
-        }
-      },
-      "enums": {},
-      "composites": {}
-    }
-  },
-  "source": "original"
+	"name": "constraints_check",
+	"description": "CHECK constraints on columns",
+	"category": "catalog/create_table",
+	"tags": ["constraints", "check"],
+	"schema_sql": [
+		"CREATE TABLE products (id serial PRIMARY KEY, name text NOT NULL, price numeric(10,2) NOT NULL CHECK (price > 0), quantity integer NOT NULL CHECK (quantity >= 0))"
+	],
+	"expected": {
+		"success": true,
+		"catalog": {
+			"tables": {
+				"products": {
+					"columns": [
+						{ "name": "id", "sql_type": "integer", "nullable": false },
+						{ "name": "name", "sql_type": "text", "nullable": false },
+						{ "name": "price", "sql_type": "numeric(10,2)", "nullable": false },
+						{ "name": "quantity", "sql_type": "integer", "nullable": false }
+					]
+				}
+			},
+			"enums": {},
+			"composites": {}
+		}
+	},
+	"source": "original"
 }

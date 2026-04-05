@@ -1,54 +1,49 @@
 {
-  "category": "select/where_clause",
-  "description": "WHERE clause with multiple conditions using AND, two parameters",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "SearchActiveUsers",
-      "params": [
-        {
-          "name": "status",
-          "nullable": false,
-          "position": 1,
-          "type": "string"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "position": 2,
-          "type": "string"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "where_multiple",
-  "query_sql": "-- @name SearchActiveUsers\n-- @returns :many\nSELECT id, name, email FROM users WHERE status = $1 AND name LIKE $2",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "select",
-    "where",
-    "and",
-    "multiple_params"
-  ]
+	"category": "select/where_clause",
+	"description": "WHERE clause with multiple conditions using AND, two parameters",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "SearchActiveUsers",
+			"params": [
+				{
+					"name": "status",
+					"nullable": false,
+					"position": 1,
+					"type": "string"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"position": 2,
+					"type": "string"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "where_multiple",
+	"query_sql": "-- @name SearchActiveUsers\n-- @returns :many\nSELECT id, name, email FROM users WHERE status = $1 AND name LIKE $2",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "sqlc",
+	"tags": ["select", "where", "and", "multiple_params"]
 }

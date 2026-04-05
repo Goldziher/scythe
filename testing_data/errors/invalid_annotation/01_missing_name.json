@@ -1,24 +1,24 @@
 {
-  "name": "missing_name_annotation",
-  "description": "Query without @name annotation should produce an error",
-  "category": "errors/invalid_annotation",
-  "tags": ["error", "annotation", "missing_name"],
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
-  ],
-  "query_sql": "-- @returns :many\nSELECT id, name FROM users;",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "expected": {
-    "success": false,
-    "error": {
-      "code": "MISSING_ANNOTATION",
-      "message_contains": "missing @name annotation"
-    }
-  },
-  "source": "original"
+	"name": "missing_name_annotation",
+	"description": "Query without @name annotation should produce an error",
+	"category": "errors/invalid_annotation",
+	"tags": ["error", "annotation", "missing_name"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
+	],
+	"query_sql": "-- @returns :many\nSELECT id, name FROM users;",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"expected": {
+		"success": false,
+		"error": {
+			"code": "MISSING_ANNOTATION",
+			"message_contains": "missing @name annotation"
+		}
+	},
+	"source": "original"
 }

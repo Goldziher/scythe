@@ -1,56 +1,51 @@
 {
-  "category": "select/basic",
-  "description": "SELECT * expands to all columns with correct nullability (bio is nullable)",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "email",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "status",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "bio",
-          "nullable": true,
-          "type": "string"
-        },
-        {
-          "name": "created_at",
-          "nullable": false,
-          "type": "datetime_tz"
-        }
-      ],
-      "command": "many",
-      "name": "GetAllUsers",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "select_star",
-  "query_sql": "-- @name GetAllUsers\n-- @returns :many\nSELECT * FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "select",
-    "basic",
-    "star",
-    "nullability"
-  ]
+	"category": "select/basic",
+	"description": "SELECT * expands to all columns with correct nullability (bio is nullable)",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "email",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "status",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "bio",
+					"nullable": true,
+					"type": "string"
+				},
+				{
+					"name": "created_at",
+					"nullable": false,
+					"type": "datetime_tz"
+				}
+			],
+			"command": "many",
+			"name": "GetAllUsers",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "select_star",
+	"query_sql": "-- @name GetAllUsers\n-- @returns :many\nSELECT * FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "sqlc",
+	"tags": ["select", "basic", "star", "nullability"]
 }

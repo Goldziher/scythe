@@ -1,48 +1,42 @@
 {
-  "category": "joins/lateral_join",
-  "description": "LEFT JOIN LATERAL makes the right-side columns nullable when no matching rows exist",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "latest_total",
-          "note": "LEFT JOIN LATERAL makes right side nullable for unmatched rows",
-          "nullable": true,
-          "type": "int32"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersWithLatestOrder",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "lateral_left_join_nullable",
-  "query_sql": "-- @name GetUsersWithLatestOrder\n-- @returns :many\nSELECT u.id, u.name, o.latest_total FROM users u LEFT JOIN LATERAL (SELECT total AS latest_total FROM orders WHERE user_id = u.id ORDER BY id DESC LIMIT 1) AS o ON true",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
-    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL);"
-  ],
-  "source": "original",
-  "sqlc_comparison": {
-    "scythe_improvement": "scythe correctly marks latest_total as nullable due to LEFT JOIN LATERAL",
-    "sqlc_behavior": "sqlc may not correctly handle LEFT JOIN LATERAL nullability"
-  },
-  "tags": [
-    "join",
-    "lateral",
-    "left_join",
-    "nullability",
-    "key_improvement"
-  ]
+	"category": "joins/lateral_join",
+	"description": "LEFT JOIN LATERAL makes the right-side columns nullable when no matching rows exist",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "latest_total",
+					"note": "LEFT JOIN LATERAL makes right side nullable for unmatched rows",
+					"nullable": true,
+					"type": "int32"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersWithLatestOrder",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "lateral_left_join_nullable",
+	"query_sql": "-- @name GetUsersWithLatestOrder\n-- @returns :many\nSELECT u.id, u.name, o.latest_total FROM users u LEFT JOIN LATERAL (SELECT total AS latest_total FROM orders WHERE user_id = u.id ORDER BY id DESC LIMIT 1) AS o ON true",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL);"
+	],
+	"source": "original",
+	"sqlc_comparison": {
+		"scythe_improvement": "scythe correctly marks latest_total as nullable due to LEFT JOIN LATERAL",
+		"sqlc_behavior": "sqlc may not correctly handle LEFT JOIN LATERAL nullability"
+	},
+	"tags": ["join", "lateral", "left_join", "nullability", "key_improvement"]
 }

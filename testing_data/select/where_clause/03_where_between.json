@@ -1,55 +1,49 @@
 {
-  "category": "select/where_clause",
-  "description": "WHERE BETWEEN with two timestamptz parameters for range filtering",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "created_at",
-          "nullable": false,
-          "type": "datetime_tz"
-        }
-      ],
-      "command": "many",
-      "name": "GetUsersCreatedBetween",
-      "params": [
-        {
-          "name": "start",
-          "nullable": false,
-          "position": 1,
-          "type": "datetime_tz"
-        },
-        {
-          "name": "end",
-          "nullable": false,
-          "position": 2,
-          "type": "datetime_tz"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "where_between",
-  "query_sql": "-- @name GetUsersCreatedBetween\n-- @returns :many\nSELECT id, name, created_at FROM users WHERE created_at BETWEEN $1 AND $2",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "original",
-  "tags": [
-    "select",
-    "where",
-    "between",
-    "timestamp",
-    "param"
-  ]
+	"category": "select/where_clause",
+	"description": "WHERE BETWEEN with two timestamptz parameters for range filtering",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "created_at",
+					"nullable": false,
+					"type": "datetime_tz"
+				}
+			],
+			"command": "many",
+			"name": "GetUsersCreatedBetween",
+			"params": [
+				{
+					"name": "start",
+					"nullable": false,
+					"position": 1,
+					"type": "datetime_tz"
+				},
+				{
+					"name": "end",
+					"nullable": false,
+					"position": 2,
+					"type": "datetime_tz"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "where_between",
+	"query_sql": "-- @name GetUsersCreatedBetween\n-- @returns :many\nSELECT id, name, created_at FROM users WHERE created_at BETWEEN $1 AND $2",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "original",
+	"tags": ["select", "where", "between", "timestamp", "param"]
 }

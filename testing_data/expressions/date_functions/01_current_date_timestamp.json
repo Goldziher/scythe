@@ -1,42 +1,36 @@
 {
-  "category": "expressions/date_functions",
-  "description": "CURRENT_DATE, CURRENT_TIMESTAMP, and NOW() return non-nullable date/time values",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "today",
-          "nullable": false,
-          "type": "date"
-        },
-        {
-          "name": "now_ts",
-          "nullable": false,
-          "type": "datetime_tz"
-        },
-        {
-          "name": "now_fn",
-          "nullable": false,
-          "type": "datetime_tz"
-        }
-      ],
-      "command": "one",
-      "name": "CurrentDateTimestamp",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "date_current_functions",
-  "query_sql": "-- @name CurrentDateTimestamp\n-- @returns :one\nSELECT CURRENT_DATE AS today, CURRENT_TIMESTAMP AS now_ts, NOW() AS now_fn",
-  "schema_sql": [
-    "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "expression",
-    "date",
-    "current_date",
-    "current_timestamp",
-    "now"
-  ]
+	"category": "expressions/date_functions",
+	"description": "CURRENT_DATE, CURRENT_TIMESTAMP, and NOW() return non-nullable date/time values",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "today",
+					"nullable": false,
+					"type": "date"
+				},
+				{
+					"name": "now_ts",
+					"nullable": false,
+					"type": "datetime_tz"
+				},
+				{
+					"name": "now_fn",
+					"nullable": false,
+					"type": "datetime_tz"
+				}
+			],
+			"command": "one",
+			"name": "CurrentDateTimestamp",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "date_current_functions",
+	"query_sql": "-- @name CurrentDateTimestamp\n-- @returns :one\nSELECT CURRENT_DATE AS today, CURRENT_TIMESTAMP AS now_ts, NOW() AS now_fn",
+	"schema_sql": [
+		"CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["expression", "date", "current_date", "current_timestamp", "now"]
 }

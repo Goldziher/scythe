@@ -1,47 +1,42 @@
 {
-  "category": "types/json_jsonb",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Use -> operator to extract nested JSON from JSONB; result is nullable serde_json::Value",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventNestedRow {\n    pub id: i32,\n    pub nested: Option<serde_json::Value>,\n}"
-      }
-    },
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "nested",
-          "nullable": true,
-          "type": "json"
-        }
-      ],
-      "command": "many",
-      "name": "GetEventNested",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "jsonb_arrow_json_extraction",
-  "query_sql": "-- @name GetEventNested\n-- @returns :many\nSELECT id, data->'nested' AS nested FROM events;",
-  "schema_sql": [
-    "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"
-  ],
-  "source": "sqlc_expanded",
-  "tags": [
-    "jsonb",
-    "operator",
-    "json_extraction",
-    "nullable"
-  ]
+	"category": "types/json_jsonb",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Use -> operator to extract nested JSON from JSONB; result is nullable serde_json::Value",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"row_struct": "#[derive(Debug, sqlx::FromRow)]\npub struct GetEventNestedRow {\n    pub id: i32,\n    pub nested: Option<serde_json::Value>,\n}"
+			}
+		},
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "nested",
+					"nullable": true,
+					"type": "json"
+				}
+			],
+			"command": "many",
+			"name": "GetEventNested",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "jsonb_arrow_json_extraction",
+	"query_sql": "-- @name GetEventNested\n-- @returns :many\nSELECT id, data->'nested' AS nested FROM events;",
+	"schema_sql": [
+		"CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"
+	],
+	"source": "sqlc_expanded",
+	"tags": ["jsonb", "operator", "json_extraction", "nullable"]
 }

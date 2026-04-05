@@ -1,35 +1,31 @@
 {
-  "category": "expressions/string_functions",
-  "description": "SUBSTRING function on a NOT NULL column returns non-nullable String",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "prefix",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "SubstringPrefix",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "string_substring",
-  "query_sql": "-- @name SubstringPrefix\n-- @returns :many\nSELECT id, SUBSTRING(name FROM 1 FOR 3) AS prefix FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);"
-  ],
-  "source": "original",
-  "tags": [
-    "expression",
-    "string",
-    "substring"
-  ]
+	"category": "expressions/string_functions",
+	"description": "SUBSTRING function on a NOT NULL column returns non-nullable String",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "prefix",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "SubstringPrefix",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "string_substring",
+	"query_sql": "-- @name SubstringPrefix\n-- @returns :many\nSELECT id, SUBSTRING(name FROM 1 FOR 3) AS prefix FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);"
+	],
+	"source": "original",
+	"tags": ["expression", "string", "substring"]
 }

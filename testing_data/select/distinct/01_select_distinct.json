@@ -1,29 +1,26 @@
 {
-  "category": "select/distinct",
-  "description": "SELECT DISTINCT returns unique values with correct types",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "status",
-          "nullable": false,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "ListDistinctStatuses",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "select_distinct",
-  "query_sql": "-- @name ListDistinctStatuses\n-- @returns :many\nSELECT DISTINCT status FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "select",
-    "distinct"
-  ]
+	"category": "select/distinct",
+	"description": "SELECT DISTINCT returns unique values with correct types",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "status",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "ListDistinctStatuses",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "select_distinct",
+	"query_sql": "-- @name ListDistinctStatuses\n-- @returns :many\nSELECT DISTINCT status FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "sqlc",
+	"tags": ["select", "distinct"]
 }

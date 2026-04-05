@@ -1,37 +1,32 @@
 {
-  "category": "expressions/date_functions",
-  "description": "AGE function returns PgInterval, non-nullable when both arguments are non-null",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "elapsed",
-          "note": "Both arguments are non-null so result is non-null",
-          "nullable": false,
-          "type": "interval"
-        }
-      ],
-      "command": "many",
-      "name": "AgeInterval",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "date_age_interval",
-  "query_sql": "-- @name AgeInterval\n-- @returns :many\nSELECT id, AGE(NOW(), occurred_at) AS elapsed FROM events",
-  "schema_sql": [
-    "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "expression",
-    "date",
-    "age",
-    "interval"
-  ]
+	"category": "expressions/date_functions",
+	"description": "AGE function returns PgInterval, non-nullable when both arguments are non-null",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "elapsed",
+					"note": "Both arguments are non-null so result is non-null",
+					"nullable": false,
+					"type": "interval"
+				}
+			],
+			"command": "many",
+			"name": "AgeInterval",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "date_age_interval",
+	"query_sql": "-- @name AgeInterval\n-- @returns :many\nSELECT id, AGE(NOW(), occurred_at) AS elapsed FROM events",
+	"schema_sql": [
+		"CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["expression", "date", "age", "interval"]
 }

@@ -1,47 +1,43 @@
 {
-  "category": "types/enums",
-  "config": {
-    "engine": "postgresql",
-    "gen": {
-      "target": "sqlx"
-    }
-  },
-  "description": "Insert a row with an enum-typed parameter",
-  "expected": {
-    "generated_code": {
-      "rust-sqlx": {
-        "query_fn": "pub async fn insert_user(pool: &sqlx::PgPool, name: &str, status: &UserStatus) -> Result<(), sqlx::Error> {\n    sqlx::query!(\"INSERT INTO users (name, status) VALUES ($1, $2)\", name, status as &UserStatus)\n        .execute(pool)\n        .await?;\n    Ok(())\n}"
-      }
-    },
-    "query": {
-      "columns": [],
-      "command": "exec",
-      "name": "InsertUser",
-      "params": [
-        {
-          "name": "name",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "status",
-          "nullable": false,
-          "type": "enum::user_status"
-        }
-      ]
-    },
-    "success": true
-  },
-  "name": "insert_enum",
-  "query_sql": "-- @name InsertUser\n-- @returns :exec\nINSERT INTO users (name, status) VALUES ($1, $2);",
-  "schema_sql": [
-    "CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned');",
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status user_status NOT NULL);"
-  ],
-  "source": "sqlc_expanded",
-  "tags": [
-    "enum",
-    "insert",
-    "exec"
-  ]
+	"category": "types/enums",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Insert a row with an enum-typed parameter",
+	"expected": {
+		"generated_code": {
+			"rust-sqlx": {
+				"query_fn": "pub async fn insert_user(pool: &sqlx::PgPool, name: &str, status: &UserStatus) -> Result<(), sqlx::Error> {\n    sqlx::query!(\"INSERT INTO users (name, status) VALUES ($1, $2)\", name, status as &UserStatus)\n        .execute(pool)\n        .await?;\n    Ok(())\n}"
+			}
+		},
+		"query": {
+			"columns": [],
+			"command": "exec",
+			"name": "InsertUser",
+			"params": [
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "status",
+					"nullable": false,
+					"type": "enum::user_status"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "insert_enum",
+	"query_sql": "-- @name InsertUser\n-- @returns :exec\nINSERT INTO users (name, status) VALUES ($1, $2);",
+	"schema_sql": [
+		"CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned');",
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status user_status NOT NULL);"
+	],
+	"source": "sqlc_expanded",
+	"tags": ["enum", "insert", "exec"]
 }

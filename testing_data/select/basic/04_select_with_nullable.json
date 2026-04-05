@@ -1,35 +1,31 @@
 {
-  "category": "select/basic",
-  "description": "SELECT includes a nullable column (bio), should map to Option<String>",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "bio",
-          "nullable": true,
-          "type": "string"
-        }
-      ],
-      "command": "many",
-      "name": "GetUserBio",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "select_with_nullable",
-  "query_sql": "-- @name GetUserBio\n-- @returns :many\nSELECT id, bio FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "select",
-    "basic",
-    "nullability"
-  ]
+	"category": "select/basic",
+	"description": "SELECT includes a nullable column (bio), should map to Option<String>",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "bio",
+					"nullable": true,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "GetUserBio",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "select_with_nullable",
+	"query_sql": "-- @name GetUserBio\n-- @returns :many\nSELECT id, bio FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "sqlc",
+	"tags": ["select", "basic", "nullability"]
 }

@@ -1,45 +1,41 @@
 {
-  "category": "aggregates/window_functions",
-  "description": "ROW_NUMBER() with PARTITION BY clause returns i64 non-nullable",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "id",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "department",
-          "nullable": false,
-          "type": "string"
-        },
-        {
-          "name": "amount",
-          "nullable": false,
-          "type": "int32"
-        },
-        {
-          "name": "dept_rank",
-          "nullable": false,
-          "type": "int64"
-        }
-      ],
-      "command": "many",
-      "name": "PartitionedSales",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "window_partition_by",
-  "query_sql": "-- @name PartitionedSales\n-- @returns :many\nSELECT id, department, amount, ROW_NUMBER() OVER (PARTITION BY department ORDER BY amount DESC) AS dept_rank FROM sales",
-  "schema_sql": [
-    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
-  ],
-  "source": "original",
-  "tags": [
-    "window_function",
-    "partition_by",
-    "row_number"
-  ]
+	"category": "aggregates/window_functions",
+	"description": "ROW_NUMBER() with PARTITION BY clause returns i64 non-nullable",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "department",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "amount",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "dept_rank",
+					"nullable": false,
+					"type": "int64"
+				}
+			],
+			"command": "many",
+			"name": "PartitionedSales",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "window_partition_by",
+	"query_sql": "-- @name PartitionedSales\n-- @returns :many\nSELECT id, department, amount, ROW_NUMBER() OVER (PARTITION BY department ORDER BY amount DESC) AS dept_rank FROM sales",
+	"schema_sql": [
+		"CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, sale_date DATE NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["window_function", "partition_by", "row_number"]
 }

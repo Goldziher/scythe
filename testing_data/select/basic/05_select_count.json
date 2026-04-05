@@ -1,31 +1,26 @@
 {
-  "category": "select/basic",
-  "description": "SELECT COUNT(*) aggregate returns i64 and is non-nullable",
-  "expected": {
-    "query": {
-      "columns": [
-        {
-          "name": "count",
-          "nullable": false,
-          "type": "int64"
-        }
-      ],
-      "command": "one",
-      "name": "CountUsers",
-      "params": []
-    },
-    "success": true
-  },
-  "name": "select_count",
-  "query_sql": "-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) AS count FROM users",
-  "schema_sql": [
-    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
-  ],
-  "source": "sqlc",
-  "tags": [
-    "select",
-    "basic",
-    "aggregate",
-    "count"
-  ]
+	"category": "select/basic",
+	"description": "SELECT COUNT(*) aggregate returns i64 and is non-nullable",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "count",
+					"nullable": false,
+					"type": "int64"
+				}
+			],
+			"command": "one",
+			"name": "CountUsers",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "select_count",
+	"query_sql": "-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) AS count FROM users",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+	],
+	"source": "sqlc",
+	"tags": ["select", "basic", "aggregate", "count"]
 }
