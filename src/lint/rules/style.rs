@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use sqlparser::ast::*;
 
 use crate::lint::rule::LintRule;
@@ -45,7 +47,7 @@ fn walk_set_expr_for_implicit_join(
             // Multiple tables in FROM with no JOINs = implicit join
             if select.from.len() > 1 && select.from.iter().all(|twj| twj.joins.is_empty()) {
                 violations.push(Violation {
-                    rule_id,
+                    rule_id: Cow::Borrowed(rule_id),
                     message: "implicit join (comma-separated tables) — prefer explicit JOIN".into(),
                     fix: None,
                 });
@@ -90,7 +92,7 @@ impl LintRule for PreferCoalesceOverCase {
         walk_exprs(ctx.stmt, &mut |expr| {
             if is_coalesce_pattern(expr) {
                 violations.push(Violation {
-                    rule_id: "SC-T02",
+                    rule_id: Cow::Borrowed("SC-T02"),
                     message: "CASE WHEN x IS NULL THEN y ELSE x END — use COALESCE(x, y)".into(),
                     fix: None,
                 });
@@ -158,7 +160,7 @@ impl LintRule for PreferCountStar {
                     && matches!(&v.value, Value::Number(n, _) if n == "1")
                 {
                     violations.push(Violation {
-                        rule_id: "SC-T03",
+                        rule_id: Cow::Borrowed("SC-T03"),
                         message: "COUNT(1) — prefer COUNT(*)".into(),
                         fix: Some(LintFix {
                             description: "Replace with COUNT(*)".into(),

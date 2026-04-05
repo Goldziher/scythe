@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use sqlparser::ast::*;
 
 use crate::lint::rule::LintRule;
@@ -33,7 +35,7 @@ impl LintRule for OrderWithoutLimit {
             && query.fetch.is_none()
         {
             return vec![Violation {
-                rule_id: self.id(),
+                rule_id: Cow::Borrowed(self.id()),
                 message: "ORDER BY without LIMIT — consider adding LIMIT".into(),
                 fix: None,
             }];
@@ -73,7 +75,7 @@ impl LintRule for LikeStartsWithWildcard {
                     && s.starts_with('%')
                 {
                     violations.push(Violation {
-                        rule_id: "SC-P02",
+                        rule_id: Cow::Borrowed("SC-P02"),
                         message: format!(
                             "LIKE pattern \"{}\" starts with % — index cannot be used",
                             s
@@ -116,7 +118,7 @@ impl LintRule for NotInSubquery {
         walk_exprs(ctx.stmt, &mut |expr| {
             if let Expr::InSubquery { negated: true, .. } = expr {
                 violations.push(Violation {
-                    rule_id: "SC-P03",
+                    rule_id: Cow::Borrowed("SC-P03"),
                     message: "NOT IN (SELECT ...) — consider NOT EXISTS for NULL safety".into(),
                     fix: None,
                 });

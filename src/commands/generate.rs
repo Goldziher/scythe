@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::path::Path;
 
 use serde::Deserialize;
@@ -322,7 +323,7 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
             for (v, sev) in violations {
                 all_violations.push(QueryViolation {
                     query_name: analyzed.name.clone(),
-                    rule_id: v.rule_id,
+                    rule_id: v.rule_id.clone(),
                     severity: sev,
                     message: v.message,
                 });
@@ -334,7 +335,7 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         for (v, sev) in cat_violations {
             all_violations.push(QueryViolation {
                 query_name: String::new(),
-                rule_id: v.rule_id,
+                rule_id: v.rule_id.clone(),
                 severity: sev,
                 message: v.message,
             });
@@ -346,7 +347,7 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
             if !seen_names.insert(name.clone()) {
                 all_violations.push(QueryViolation {
                     query_name: name.clone(),
-                    rule_id: "SC-C03",
+                    rule_id: Cow::Borrowed("SC-C03"),
                     severity: Severity::Error,
                     message: format!("duplicate query name: \"{}\"", name),
                 });

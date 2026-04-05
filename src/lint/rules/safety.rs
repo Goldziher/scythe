@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use sqlparser::ast::*;
 
 use crate::lint::rule::LintRule;
@@ -32,7 +34,7 @@ impl LintRule for UpdateWithoutWhere {
             && update.selection.is_none()
         {
             return vec![Violation {
-                rule_id: self.id(),
+                rule_id: Cow::Borrowed(self.id()),
                 message: "UPDATE statement has no WHERE clause — all rows will be affected".into(),
                 fix: None,
             }];
@@ -69,7 +71,7 @@ impl LintRule for DeleteWithoutWhere {
             && delete.selection.is_none()
         {
             return vec![Violation {
-                rule_id: self.id(),
+                rule_id: Cow::Borrowed(self.id()),
                 message: "DELETE statement has no WHERE clause — all rows will be affected".into(),
                 fix: None,
             }];
@@ -106,7 +108,7 @@ impl LintRule for NoSelectStar {
         walk_select_items(ctx.stmt, &mut |item| {
             if matches!(item, SelectItem::Wildcard(_)) {
                 violations.push(Violation {
-                    rule_id: self.id(),
+                    rule_id: Cow::Borrowed(self.id()),
                     message: "avoid SELECT * — list columns explicitly".into(),
                     fix: None,
                 });
@@ -175,7 +177,7 @@ impl LintRule for UnusedParams {
         for n in 1..=max_ref {
             if !referenced.contains(&n) {
                 violations.push(Violation {
-                    rule_id: self.id(),
+                    rule_id: Cow::Borrowed(self.id()),
                     message: format!("parameter ${} is declared but never used", n),
                     fix: None,
                 });
@@ -223,7 +225,7 @@ impl LintRule for MissingReturning {
 
         if !has_returning {
             return vec![Violation {
-                rule_id: self.id(),
+                rule_id: Cow::Borrowed(self.id()),
                 message: format!(
                     "DML with :{} command but no RETURNING clause",
                     ctx.analyzed.command
@@ -269,7 +271,7 @@ impl LintRule for AmbiguousColumnInJoin {
             SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
                 if let Expr::Identifier(ident) = expr {
                     violations.push(Violation {
-                            rule_id: "SC-S06",
+                            rule_id: Cow::Borrowed("SC-S06"),
                             message: format!(
                                 "column \"{}\" is unqualified in a JOIN query — prefix with table alias",
                                 ident.value

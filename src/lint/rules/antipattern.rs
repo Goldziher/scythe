@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use sqlparser::ast::*;
 
 use crate::lint::rule::LintRule;
@@ -38,7 +40,7 @@ impl LintRule for NotEqualNull {
                         _ => "?",
                     };
                     violations.push(Violation {
-                        rule_id: "SC-A01",
+                        rule_id: Cow::Borrowed("SC-A01"),
                         message: format!(
                             "comparison `{} NULL` always yields NULL — use IS NULL or IS NOT NULL",
                             op_str
@@ -106,7 +108,7 @@ impl LintRule for OrInJoinCondition {
         walk_join_conditions(ctx.stmt, &mut |expr| {
             if has_top_level_or(expr) {
                 violations.push(Violation {
-                    rule_id: "SC-A03",
+                    rule_id: Cow::Borrowed("SC-A03"),
                     message: "OR in JOIN ON condition — consider restructuring".into(),
                     fix: None,
                 });

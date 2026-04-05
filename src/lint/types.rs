@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -52,7 +54,7 @@ pub struct LintFix {
 
 #[derive(Debug, Clone)]
 pub struct Violation {
-    pub rule_id: &'static str,
+    pub rule_id: Cow<'static, str>,
     pub message: String,
     pub fix: Option<LintFix>,
 }
