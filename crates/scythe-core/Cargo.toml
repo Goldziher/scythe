@@ -1,0 +1,9 @@
+[package]
+name = "scythe-core"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+ahash = { version = "0.8", features = ["serde"] }
+sqlparser = { version = "0.61", features = ["visitor"] }

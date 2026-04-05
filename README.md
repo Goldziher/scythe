@@ -1,23 +1,37 @@
 # Scythe
 
 <div align="center">
-  <img width="3384" height="573" alt="Banner" src="./logo.svg" />
+  <img width="3384" height="573" alt="Banner" src="https://raw.githubusercontent.com/Goldziher/scythe/main/logo.svg" />
 </div>
 
-A polyglot SQL-to-code generator. Write SQL, get type-safe code.
+A polyglot SQL-to-code generator with built-in linting and formatting. Write SQL, get type-safe code.
 
-Scythe parses your SQL schema and annotated queries, infers types with precision, and generates idiomatic code for your language and database driver of choice. Starting with Rust/sqlx and PostgreSQL, with more languages coming.
+> **Status**: Under active development. Core pipeline is functional and tested against production workloads.
+
+## What It Does
+
+Scythe parses your SQL schema and annotated queries, infers types with precision, and generates idiomatic code for your language and database driver. It also lints your SQL for correctness, style, and performance — combining 22 scythe-specific rules with 71 rules from [sqruff](https://github.com/quarylabs/sqruff).
+
+### CLI
+
+```bash
+scythe generate   # SQL → type-safe code (Rust/sqlx, tokio-postgres)
+scythe check      # parse + analyze + lint (93 rules)
+scythe lint       # standalone lint with --fix auto-repair
+scythe fmt        # SQL formatting with --check and --diff modes
+scythe migrate    # convert from sqlc to scythe format
+```
 
 ## Why Scythe
 
-SQL is the best language for talking to databases. ORMs obscure it. Query builders leak abstractions. Scythe takes a different approach: you write real SQL, and it generates the type-safe glue code.
-
 Inspired by [sqlc](https://github.com/sqlc-dev/sqlc), scythe improves on it in several ways:
 
-- **Standard SQL parameters** -- uses `$1`, `$2` (valid PostgreSQL), not custom `sqlc.arg()` syntax
-- **Smart nullability inference** -- LEFT JOIN right-side columns become nullable; COALESCE with a literal default is non-nullable; COUNT is non-nullable while SUM/AVG are nullable on empty sets
-- **Polyglot from the ground up** -- template-based backends mean adding a new language is writing a manifest + templates, not forking the project
-- **Better type system** -- first-class JSON/JSONB mapping, correct enum nullable handling, shared model structs with deduplication
+- **Standard SQL parameters** — `$1`, `$2` (valid PostgreSQL), not `sqlc.arg()` custom syntax
+- **Smart nullability** — LEFT JOIN right-side columns become nullable; COALESCE with literal is non-nullable; COUNT is non-nullable while SUM/AVG are nullable on empty sets
+- **93 lint rules** — safety, performance, antipatterns, naming, style, formatting (via sqruff integration)
+- **SQL formatting** — `scythe fmt` formats SQL files with configurable style
+- **Polyglot architecture** — template-based backends; adding a language is a manifest + templates
+- **Multi-dialect** — PostgreSQL, MySQL, BigQuery, Snowflake, and more via sqruff
 
 ## How It Works
 
@@ -29,6 +43,9 @@ SQL Schema + Annotated Queries
         |
         v
     Analyze (type inference, nullability)
+        |
+        v
+    Lint (93 rules) + Format (sqruff)
         |
         v
     Backend (manifest.toml + MiniJinja templates)
@@ -50,7 +67,7 @@ WHERE u.status = $1;
 
 ### Get Type-Safe Code
 
-Scythe knows `o.total` is nullable (RIGHT side of LEFT JOIN, even though `orders.total` is `NOT NULL` in the schema) and generates:
+Scythe infers that `o.total` is nullable (right side of LEFT JOIN) and generates:
 
 ```rust
 pub struct GetUserOrdersRow {
@@ -69,9 +86,20 @@ pub async fn get_user_orders(
 
 ## Architecture
 
+### Workspace Crates
+
+```text
+crates/
+  scythe-core/        # catalog, parser, analyzer, errors
+  scythe-codegen/     # code generation via backend templates
+  scythe-lint/        # 22 custom rules + 71 sqruff rules + engine
+  scythe-backend/     # type resolution, naming, MiniJinja rendering
+  scythe-cli/         # CLI binary (generate, check, lint, fmt, migrate)
+```
+
 ### Language-Neutral Type System
 
-Fixtures and the analyzer work with a neutral type vocabulary (`int32`, `string`, `datetime_tz`, `array<int32>`, `enum::user_status`, etc.). Each backend maps these to language-specific types via a manifest:
+The analyzer outputs a neutral type vocabulary. Each backend maps these to language types:
 
 ```toml
 # backends/rust-sqlx/manifest.toml
@@ -88,56 +116,85 @@ nullable = "Option<{T}>"
 
 ### Template-Based Backends
 
-Code generation uses MiniJinja templates. A backend is a directory with a `manifest.toml` and `templates/`:
-
 ```text
 backends/rust-sqlx/
   manifest.toml           # type mappings, naming rules
   templates/
-    row_struct.jinja      # struct generation
-    query_fn.jinja        # function generation
-    enum_def.jinja        # enum generation
-    model_struct.jinja    # shared model generation
+    row_struct.jinja
+    query_fn.jinja
+    enum_def.jinja
+    model_struct.jinja
 ```
 
 Adding a new language means writing a manifest and templates. No Rust code required.
 
-### Test-Driven Development
+### Lint Rules (93 total)
 
-235 JSON test fixtures define expected behavior across:
+**Scythe rules (22)** — codegen-aware, uses type inference and catalog:
 
-- Catalog DDL (tables, enums, composites, views, domains, multi-schema)
-- SELECT queries (basic, joins, CTEs, subqueries, star expansion, set operations)
-- Nullability inference (JOIN propagation, COALESCE, aggregates, CASE, overrides)
-- Type system (enums, arrays, JSON/JSONB, composites, ranges, temporals)
-- Parameters (WHERE, INSERT, CAST, BETWEEN, complex positions)
-- Expressions (string/math/date functions, operators, pattern matching, window functions)
-- Code generation (sqlx output, model sharing, naming conventions)
-- Error cases (unknown columns/tables, type mismatches, invalid annotations)
+| Category | Rules | Examples |
+|----------|-------|---------|
+| Safety | 6 | UPDATE without WHERE, SELECT *, ambiguous columns |
+| Codegen | 3 | exec with RETURNING, duplicate query names |
+| Naming | 4 | snake_case columns, PascalCase query names |
+| Antipattern | 3 | `= NULL` instead of `IS NULL`, OR in JOIN |
+| Performance | 3 | ORDER BY without LIMIT, leading wildcard LIKE |
+| Style | 3 | implicit joins, COUNT(1) vs COUNT(*) |
 
-A test generator tool reads these fixtures and produces Rust test code.
+**sqruff rules (71)** — formatting, capitalization, structure:
 
-## Project Structure
+Aliasing, ambiguity, capitalization, conventions, layout (spacing/indentation), references, structure rules — all configurable via `scythe.toml`.
 
-```text
-scythe/
-  src/                          # main binary (CLI)
-  crates/scythe-backend/        # shared backend infrastructure
-    src/
-      manifest.rs               # backend manifest parsing
-      types.rs                  # neutral type -> language type resolution
-      naming.rs                 # case conversion utilities
-      renderer.rs               # MiniJinja template rendering
-  backends/rust-sqlx/           # built-in Rust/sqlx backend
-  tools/test-generator/         # generates tests from fixtures
-  tools/migrate-fixtures/       # fixture migration utility
-  testing_data/                 # 235 JSON test fixtures
-  tests/generated/              # auto-generated test files
+### Configuration
+
+```toml
+# scythe.toml
+[[sql]]
+name = "main"
+engine = "postgresql"
+schema = ["sql/schema.sql"]
+queries = ["sql/queries/*.sql"]
+output = "src/db/generated"
+
+[sql.gen.rust]
+target = "sqlx"
+
+[lint.rules]
+"SC-S03" = "off"      # allow SELECT *
+"SC-P01" = "error"    # enforce ORDER BY + LIMIT
+
+[lint.sqruff]
+"LT01" = "warn"       # spacing
+"CP01" = "off"        # keyword caps
 ```
 
-## Status
+### Test-Driven Development
 
-Early development. The test infrastructure and backend architecture are in place. Core implementation (SQL parsing, catalog building, query analysis, code generation) is next.
+275 JSON test fixtures define expected behavior across:
+
+- Catalog DDL, SELECT queries, JOINs, CTEs, subqueries
+- Nullability inference (JOIN propagation, COALESCE, aggregates, CASE)
+- Type system (enums, arrays, JSON/JSONB, composites, ranges)
+- Parameters, expressions, code generation, error cases
+- Lint rules (40 fixtures covering all 22 scythe rules)
+
+A test generator reads fixtures and produces Rust test code.
+
+## Getting Started
+
+```bash
+# Generate code
+scythe generate --config scythe.toml
+
+# Lint SQL
+scythe lint --config scythe.toml
+
+# Format SQL
+scythe fmt --config scythe.toml
+
+# Migrate from sqlc
+scythe migrate sqlc.yaml
+```
 
 ## License
 
