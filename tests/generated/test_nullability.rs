@@ -9,7 +9,8 @@ fn test_avg_nullable() {
         "CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price INTEGER NOT NULL, description TEXT, category TEXT NOT NULL)",
     ];
 
-    let query_sql = "-- @name AvgProductPrice\n-- @returns :one\nSELECT AVG(price) AS avg_price FROM products";
+    let query_sql =
+        "-- @name AvgProductPrice\n-- @returns :one\nSELECT AVG(price) AS avg_price FROM products";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -19,9 +20,14 @@ fn test_avg_nullable() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "avg_price", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "decimal", "column neutral_type for avg_price");
-    assert_eq!(analyzed.columns[0].nullable, true, "column nullable for avg_price");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "decimal",
+        "column neutral_type for avg_price"
+    );
+    assert!(
+        analyzed.columns[0].nullable,
+        "column nullable for avg_price"
+    );
 }
 
 #[test]
@@ -32,7 +38,8 @@ fn test_count_column_non_null() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];
 
-    let query_sql = "-- @name CountUsersWithBio\n-- @returns :one\nSELECT COUNT(bio) AS cnt FROM users";
+    let query_sql =
+        "-- @name CountUsersWithBio\n-- @returns :one\nSELECT COUNT(bio) AS cnt FROM users";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -42,9 +49,11 @@ fn test_count_column_non_null() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "cnt", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int64", "column neutral_type for cnt");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for cnt");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int64",
+        "column neutral_type for cnt"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for cnt");
 }
 
 #[test]
@@ -65,9 +74,11 @@ fn test_count_star_non_null() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "cnt", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int64", "column neutral_type for cnt");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for cnt");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int64",
+        "column neutral_type for cnt"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for cnt");
 }
 
 #[test]
@@ -88,12 +99,17 @@ fn test_count_with_group_by() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "status", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for status");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for status");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for status"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for status");
     assert_eq!(analyzed.columns[1].name, "cnt", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "int64", "column neutral_type for cnt");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for cnt");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int64",
+        "column neutral_type for cnt"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for cnt");
 }
 
 #[test]
@@ -114,12 +130,17 @@ fn test_min_max_nullable() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "earliest", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "datetime_tz", "column neutral_type for earliest");
-    assert_eq!(analyzed.columns[0].nullable, true, "column nullable for earliest");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "datetime_tz",
+        "column neutral_type for earliest"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for earliest");
     assert_eq!(analyzed.columns[1].name, "latest", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "datetime_tz", "column neutral_type for latest");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for latest");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "datetime_tz",
+        "column neutral_type for latest"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for latest");
 }
 
 #[test]
@@ -130,7 +151,8 @@ fn test_sum_nullable() {
         "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, total INTEGER NOT NULL, discount INTEGER, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];
 
-    let query_sql = "-- @name SumOrderTotals\n-- @returns :one\nSELECT SUM(total) AS total_sum FROM orders";
+    let query_sql =
+        "-- @name SumOrderTotals\n-- @returns :one\nSELECT SUM(total) AS total_sum FROM orders";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -140,9 +162,14 @@ fn test_sum_nullable() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "total_sum", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int64", "column neutral_type for total_sum");
-    assert_eq!(analyzed.columns[0].nullable, true, "column nullable for total_sum");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int64",
+        "column neutral_type for total_sum"
+    );
+    assert!(
+        analyzed.columns[0].nullable,
+        "column nullable for total_sum"
+    );
 }
 
 #[test]
@@ -163,9 +190,11 @@ fn test_case_mixed_branches() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "display", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for display");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for display");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for display"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for display");
 }
 
 #[test]
@@ -186,9 +215,11 @@ fn test_case_nullable_branch() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "info", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for info");
-    assert_eq!(analyzed.columns[0].nullable, true, "column nullable for info");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for info"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for info");
 }
 
 #[test]
@@ -209,9 +240,11 @@ fn test_case_with_else() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "active", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for active");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for active");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for active"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for active");
 }
 
 #[test]
@@ -232,9 +265,11 @@ fn test_case_without_else() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "active", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for active");
-    assert_eq!(analyzed.columns[0].nullable, true, "column nullable for active");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for active"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for active");
 }
 
 #[test]
@@ -255,12 +290,17 @@ fn test_coalesce_in_where() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
 }
 
 #[test]
@@ -281,17 +321,25 @@ fn test_coalesce_nullable_with_default() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "bio", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for bio");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for bio");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for bio"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for bio");
 }
 
 #[test]
@@ -313,9 +361,11 @@ fn test_coalesce_two_nullable() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "text", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for text");
-    assert_eq!(analyzed.columns[0].nullable, true, "column nullable for text");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for text"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for text");
 }
 
 #[test]
@@ -336,14 +386,19 @@ fn test_coalesce_with_literal_last() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "result", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for result");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for result");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for result"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for result");
 }
 
 #[test]
@@ -365,9 +420,11 @@ fn test_nested_coalesce() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "val", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for val");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for val");
-
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for val"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for val");
 }
 
 #[test]
@@ -388,23 +445,37 @@ fn test_mixed_nullability() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 4, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[2].name, "bio", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "string", "column neutral_type for bio");
-    assert_eq!(analyzed.columns[2].nullable, true, "column nullable for bio");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "string",
+        "column neutral_type for bio"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for bio");
     assert_eq!(analyzed.columns[3].name, "age", "column name");
-    assert_eq!(analyzed.columns[3].neutral_type, "int32", "column neutral_type for age");
-    assert_eq!(analyzed.columns[3].nullable, true, "column nullable for age");
-
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "int32",
+        "column neutral_type for age"
+    );
+    assert!(analyzed.columns[3].nullable, "column nullable for age");
 }
 
 #[test]
@@ -415,7 +486,8 @@ fn test_not_null_columns() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];
 
-    let query_sql = "-- @name GetUserIdAndName\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1";
+    let query_sql =
+        "-- @name GetUserIdAndName\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -425,17 +497,25 @@ fn test_not_null_columns() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
 }
 
 #[test]
@@ -446,7 +526,8 @@ fn test_nullable_column() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];
 
-    let query_sql = "-- @name GetUserIdAndBio\n-- @returns :one\nSELECT id, bio FROM users WHERE id = $1";
+    let query_sql =
+        "-- @name GetUserIdAndBio\n-- @returns :one\nSELECT id, bio FROM users WHERE id = $1";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -456,17 +537,25 @@ fn test_nullable_column() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "bio", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for bio");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for bio");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for bio"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for bio");
 }
 
 #[test]
@@ -490,21 +579,38 @@ fn test_chained_left_joins() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 5, "column count");
     assert_eq!(analyzed.columns[0].name, "name", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[1].name, "total", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "int32", "column neutral_type for total");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for total");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int32",
+        "column neutral_type for total"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for total");
     assert_eq!(analyzed.columns[2].name, "quantity", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "int32", "column neutral_type for quantity");
-    assert_eq!(analyzed.columns[2].nullable, true, "column nullable for quantity");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for quantity"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for quantity");
     assert_eq!(analyzed.columns[3].name, "product_name", "column name");
-    assert_eq!(analyzed.columns[3].neutral_type, "string", "column neutral_type for product_name");
-    assert_eq!(analyzed.columns[3].nullable, true, "column nullable for product_name");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "string",
+        "column neutral_type for product_name"
+    );
+    assert!(
+        analyzed.columns[3].nullable,
+        "column nullable for product_name"
+    );
     assert_eq!(analyzed.columns[4].name, "price", "column name");
-    assert_eq!(analyzed.columns[4].neutral_type, "int32", "column neutral_type for price");
-    assert_eq!(analyzed.columns[4].nullable, true, "column nullable for price");
-
+    assert_eq!(
+        analyzed.columns[4].neutral_type, "int32",
+        "column neutral_type for price"
+    );
+    assert!(analyzed.columns[4].nullable, "column nullable for price");
 }
 
 #[test]
@@ -526,15 +632,23 @@ fn test_left_side_stays_non_null() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[2].name, "total", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "int32", "column neutral_type for total");
-    assert_eq!(analyzed.columns[2].nullable, true, "column nullable for total");
-
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for total"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for total");
 }
 
 #[test]
@@ -556,18 +670,32 @@ fn test_right_side_multiple_cols() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 4, "column count");
     assert_eq!(analyzed.columns[0].name, "name", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[1].name, "total", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "int32", "column neutral_type for total");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for total");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int32",
+        "column neutral_type for total"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for total");
     assert_eq!(analyzed.columns[2].name, "notes", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "string", "column neutral_type for notes");
-    assert_eq!(analyzed.columns[2].nullable, true, "column nullable for notes");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "string",
+        "column neutral_type for notes"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for notes");
     assert_eq!(analyzed.columns[3].name, "created_at", "column name");
-    assert_eq!(analyzed.columns[3].neutral_type, "datetime_tz", "column neutral_type for created_at");
-    assert_eq!(analyzed.columns[3].nullable, true, "column nullable for created_at");
-
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "datetime_tz",
+        "column neutral_type for created_at"
+    );
+    assert!(
+        analyzed.columns[3].nullable,
+        "column nullable for created_at"
+    );
 }
 
 #[test]
@@ -589,12 +717,17 @@ fn test_right_side_not_null_becomes_nullable() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "total", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "int32", "column neutral_type for total");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for total");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int32",
+        "column neutral_type for total"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for total");
 }
 
 #[test]
@@ -615,17 +748,25 @@ fn test_force_nonnull() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "bio", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for bio");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for bio");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for bio"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for bio");
 }
 
 #[test]
@@ -646,17 +787,25 @@ fn test_force_nullable() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, true, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
 }
 
 #[test]
@@ -678,12 +827,17 @@ fn test_left_side_becomes_nullable() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "name", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[0].nullable, true, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[1].name, "id", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for id");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for id");
 }
 
 #[test]
@@ -705,16 +859,27 @@ fn test_left_side_multiple_cols() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 4, "column count");
     assert_eq!(analyzed.columns[0].name, "user_id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for user_id");
-    assert_eq!(analyzed.columns[0].nullable, true, "column nullable for user_id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for user_id"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for user_id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[2].name, "email", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "string", "column neutral_type for email");
-    assert_eq!(analyzed.columns[2].nullable, true, "column nullable for email");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "string",
+        "column neutral_type for email"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for email");
     assert_eq!(analyzed.columns[3].name, "total", "column name");
-    assert_eq!(analyzed.columns[3].neutral_type, "int32", "column neutral_type for total");
-    assert_eq!(analyzed.columns[3].nullable, false, "column nullable for total");
-
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "int32",
+        "column neutral_type for total"
+    );
+    assert!(!analyzed.columns[3].nullable, "column nullable for total");
 }

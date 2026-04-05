@@ -5,9 +5,7 @@
 fn test_array_param() {
     // From: testing_data/types/arrays/04_array_param.json
     // "Use an array parameter with ANY() for IN-style filtering"
-    let schema_sql = &[
-        "CREATE TABLE scores (id SERIAL PRIMARY KEY, values INT[] NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE scores (id SERIAL PRIMARY KEY, values INT[] NOT NULL);"];
 
     let query_sql = "-- @name GetScoresByIds\n-- @returns :many\nSELECT id, values FROM scores WHERE id = ANY($1);";
 
@@ -32,25 +30,31 @@ fn test_array_param() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "ids", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "array<int32>", "param neutral_type for ids");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for ids");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "array<int32>",
+        "param neutral_type for ids"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for ids");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "values", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "array<int32>", "column neutral_type for values");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for values");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "array<int32>",
+        "column neutral_type for values"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for values");
 }
 
 #[test]
 fn test_integer_array() {
     // From: testing_data/types/arrays/01_integer_array.json
     // "Select a non-nullable integer array column mapped to Vec<i32>"
-    let schema_sql = &[
-        "CREATE TABLE scores (id SERIAL PRIMARY KEY, values INT[] NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE scores (id SERIAL PRIMARY KEY, values INT[] NOT NULL);"];
 
     let query_sql = "-- @name GetScores\n-- @returns :many\nSELECT id, values FROM scores;";
 
@@ -70,21 +74,24 @@ fn test_integer_array() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "values", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "array<int32>", "column neutral_type for values");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for values");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "array<int32>",
+        "column neutral_type for values"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for values");
 }
 
 #[test]
 fn test_nullable_array() {
     // From: testing_data/types/arrays/03_nullable_array.json
     // "Select a nullable integer array column mapped to Option<Vec<i32>>"
-    let schema_sql = &[
-        "CREATE TABLE scores (id SERIAL PRIMARY KEY, values INT[]);",
-    ];
+    let schema_sql = &["CREATE TABLE scores (id SERIAL PRIMARY KEY, values INT[]);"];
 
     let query_sql = "-- @name GetScoresNullable\n-- @returns :many\nSELECT id, values FROM scores;";
 
@@ -104,21 +111,25 @@ fn test_nullable_array() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "values", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "array<int32>", "column neutral_type for values");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for values");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "array<int32>",
+        "column neutral_type for values"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for values");
 }
 
 #[test]
 fn test_text_array() {
     // From: testing_data/types/arrays/02_text_array.json
     // "Select a non-nullable text array column mapped to Vec<String>"
-    let schema_sql = &[
-        "CREATE TABLE posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, tags TEXT[] NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE posts (id SERIAL PRIMARY KEY, title TEXT NOT NULL, tags TEXT[] NOT NULL);"];
 
     let query_sql = "-- @name GetPostTags\n-- @returns :many\nSELECT id, tags FROM posts;";
 
@@ -138,12 +149,17 @@ fn test_text_array() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "tags", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "array<string>", "column neutral_type for tags");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for tags");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "array<string>",
+        "column neutral_type for tags"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for tags");
 }
 
 #[test]
@@ -172,15 +188,23 @@ fn test_bytea_column() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[2].name, "content", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "bytes", "column neutral_type for content");
-    assert_eq!(analyzed.columns[2].nullable, false, "column nullable for content");
-
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "bytes",
+        "column neutral_type for content"
+    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for content");
 }
 
 #[test]
@@ -192,7 +216,8 @@ fn test_composite_column() {
         "CREATE TABLE contacts (id SERIAL PRIMARY KEY, home_address address NOT NULL);",
     ];
 
-    let query_sql = "-- @name GetContacts\n-- @returns :many\nSELECT id, home_address FROM contacts;";
+    let query_sql =
+        "-- @name GetContacts\n-- @returns :many\nSELECT id, home_address FROM contacts;";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -215,12 +240,20 @@ fn test_composite_column() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "home_address", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "composite::address", "column neutral_type for home_address");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for home_address");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "composite::address",
+        "column neutral_type for home_address"
+    );
+    assert!(
+        !analyzed.columns[1].nullable,
+        "column nullable for home_address"
+    );
 }
 
 #[test]
@@ -255,16 +288,24 @@ fn test_enum_param() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "status", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "enum::user_status", "param neutral_type for status");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for status");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "enum::user_status",
+        "param neutral_type for status"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for status");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
 }
 
 #[test]
@@ -276,7 +317,8 @@ fn test_insert_enum() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status user_status NOT NULL);",
     ];
 
-    let query_sql = "-- @name InsertUser\n-- @returns :exec\nINSERT INTO users (name, status) VALUES ($1, $2);";
+    let query_sql =
+        "-- @name InsertUser\n-- @returns :exec\nINSERT INTO users (name, status) VALUES ($1, $2);";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -294,12 +336,17 @@ fn test_insert_enum() {
     assert_eq!(analyzed.command.to_string(), "exec", "query command");
     assert_eq!(analyzed.params.len(), 2, "param count");
     assert_eq!(analyzed.params[0].name, "name", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "string", "param neutral_type for name");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for name");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "string",
+        "param neutral_type for name"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for name");
     assert_eq!(analyzed.params[1].name, "status", "param name");
-    assert_eq!(analyzed.params[1].neutral_type, "enum::user_status", "param neutral_type for status");
-    assert_eq!(analyzed.params[1].nullable, false, "param nullable for status");
-
+    assert_eq!(
+        analyzed.params[1].neutral_type, "enum::user_status",
+        "param neutral_type for status"
+    );
+    assert!(!analyzed.params[1].nullable, "param nullable for status");
 }
 
 #[test]
@@ -311,7 +358,8 @@ fn test_nullable_enum() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status user_status);",
     ];
 
-    let query_sql = "-- @name GetUserStatusNullable\n-- @returns :many\nSELECT id, status FROM users;";
+    let query_sql =
+        "-- @name GetUserStatusNullable\n-- @returns :many\nSELECT id, status FROM users;";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -339,12 +387,17 @@ fn test_nullable_enum() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "status", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "enum::user_status", "column neutral_type for status");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for status");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "enum::user_status",
+        "column neutral_type for status"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for status");
 }
 
 #[test]
@@ -384,21 +437,24 @@ fn test_select_enum_column() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "status", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "enum::user_status", "column neutral_type for status");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for status");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "enum::user_status",
+        "column neutral_type for status"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for status");
 }
 
 #[test]
 fn test_json_column() {
     // From: testing_data/types/json_jsonb/01_json_column.json
     // "Select a non-nullable JSON column mapped to serde_json::Value"
-    let schema_sql = &[
-        "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSON NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE events (id SERIAL PRIMARY KEY, data JSON NOT NULL);"];
 
     let query_sql = "-- @name GetEvents\n-- @returns :many\nSELECT id, data FROM events;";
 
@@ -418,21 +474,24 @@ fn test_json_column() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "data", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "json", "column neutral_type for data");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for data");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "json",
+        "column neutral_type for data"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for data");
 }
 
 #[test]
 fn test_json_typed_mapping() {
     // From: testing_data/types/json_jsonb/04_json_typed_mapping.json
     // "Map a JSON column to a strongly-typed Rust struct using @json annotation and type override"
-    let schema_sql = &[
-        "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"];
 
     let query_sql = "-- @name GetEventsTyped\n-- @returns :many\n-- @json data = EventData\nSELECT id, data FROM events;";
 
@@ -452,21 +511,24 @@ fn test_json_typed_mapping() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "data", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "json_typed<EventData>", "column neutral_type for data");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for data");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "json_typed<EventData>",
+        "column neutral_type for data"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for data");
 }
 
 #[test]
 fn test_jsonb_arrow_json_extraction() {
     // From: testing_data/types/json_jsonb/06_jsonb_arrow_json.json
     // "Use -> operator to extract nested JSON from JSONB; result is nullable serde_json::Value"
-    let schema_sql = &[
-        "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"];
 
     let query_sql = "-- @name GetEventNested\n-- @returns :many\nSELECT id, data->'nested' AS nested FROM events;";
 
@@ -486,23 +548,27 @@ fn test_jsonb_arrow_json_extraction() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "nested", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "json", "column neutral_type for nested");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for nested");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "json",
+        "column neutral_type for nested"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for nested");
 }
 
 #[test]
 fn test_jsonb_arrow_text_extraction() {
     // From: testing_data/types/json_jsonb/05_jsonb_arrow_operator.json
     // "Use ->> operator to extract text from JSONB; result is nullable String since key may not exist"
-    let schema_sql = &[
-        "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"];
 
-    let query_sql = "-- @name GetEventName\n-- @returns :many\nSELECT id, data->>'name' AS name FROM events;";
+    let query_sql =
+        "-- @name GetEventName\n-- @returns :many\nSELECT id, data->>'name' AS name FROM events;";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -520,21 +586,24 @@ fn test_jsonb_arrow_text_extraction() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for name");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for name");
 }
 
 #[test]
 fn test_jsonb_column() {
     // From: testing_data/types/json_jsonb/02_jsonb_column.json
     // "Select a non-nullable JSONB column mapped to serde_json::Value"
-    let schema_sql = &[
-        "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);",
-    ];
+    let schema_sql = &["CREATE TABLE events (id SERIAL PRIMARY KEY, data JSONB NOT NULL);"];
 
     let query_sql = "-- @name GetEventsJsonb\n-- @returns :many\nSELECT id, data FROM events;";
 
@@ -554,23 +623,27 @@ fn test_jsonb_column() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "data", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "json", "column neutral_type for data");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for data");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "json",
+        "column neutral_type for data"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for data");
 }
 
 #[test]
 fn test_nullable_json() {
     // From: testing_data/types/json_jsonb/03_nullable_json.json
     // "Select a nullable JSON column mapped to Option<serde_json::Value>"
-    let schema_sql = &[
-        "CREATE TABLE events (id SERIAL PRIMARY KEY, data JSON);",
-    ];
+    let schema_sql = &["CREATE TABLE events (id SERIAL PRIMARY KEY, data JSON);"];
 
-    let query_sql = "-- @name GetEventsNullableJson\n-- @returns :many\nSELECT id, data FROM events;";
+    let query_sql =
+        "-- @name GetEventsNullableJson\n-- @returns :many\nSELECT id, data FROM events;";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -588,21 +661,25 @@ fn test_nullable_json() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "data", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "json", "column neutral_type for data");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for data");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "json",
+        "column neutral_type for data"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for data");
 }
 
 #[test]
 fn test_jsonb_array_elements_from() {
     // From: testing_data/types/json_jsonb_advanced/03_jsonb_array_elements.json
     // "Test jsonb_array_elements set-returning function in FROM clause to expand a JSONB array into rows"
-    let schema_sql = &[
-        "CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"];
 
     let query_sql = "-- @name GetDocItems\n-- @returns :many\nSELECT id, elem.value AS item FROM documents, jsonb_array_elements(data->'items') AS elem";
 
@@ -614,21 +691,25 @@ fn test_jsonb_array_elements_from() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "item", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "json", "column neutral_type for item");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for item");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "json",
+        "column neutral_type for item"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for item");
 }
 
 #[test]
 fn test_jsonb_contains_operator() {
     // From: testing_data/types/json_jsonb_advanced/01_jsonb_contains.json
     // "Test @> containment operator in WHERE clause with JSONB"
-    let schema_sql = &[
-        "CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"];
 
     let query_sql = "-- @name FindDocsByContent\n-- @returns :many\nSELECT id, data FROM documents WHERE data @> '{\"type\": \"report\"}'";
 
@@ -640,21 +721,25 @@ fn test_jsonb_contains_operator() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "data", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "json", "column neutral_type for data");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for data");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "json",
+        "column neutral_type for data"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for data");
 }
 
 #[test]
 fn test_jsonb_deep_path_extraction() {
     // From: testing_data/types/json_jsonb_advanced/02_jsonb_path_deep.json
     // "Test #>> operator for deep path extraction from JSONB, returning text that may be null if path does not exist"
-    let schema_sql = &[
-        "CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"];
 
     let query_sql = "-- @name GetDeepValue\n-- @returns :many\nSELECT id, data #>> '{nested,deep,key}' AS deep_val FROM documents";
 
@@ -666,21 +751,25 @@ fn test_jsonb_deep_path_extraction() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "deep_val", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for deep_val");
-    assert_eq!(analyzed.columns[1].nullable, true, "column nullable for deep_val");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for deep_val"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for deep_val");
 }
 
 #[test]
 fn test_jsonb_object_keys_func() {
     // From: testing_data/types/json_jsonb_advanced/04_jsonb_object_keys.json
     // "Test jsonb_object_keys function which returns text keys from a JSONB object as a set"
-    let schema_sql = &[
-        "CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"];
 
     let query_sql = "-- @name GetDocKeys\n-- @returns :many\nSELECT id, jsonb_object_keys(data) AS key_name FROM documents";
 
@@ -692,12 +781,20 @@ fn test_jsonb_object_keys_func() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "key_name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for key_name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for key_name");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for key_name"
+    );
+    assert!(
+        !analyzed.columns[1].nullable,
+        "column nullable for key_name"
+    );
 }
 
 #[test]
@@ -726,15 +823,23 @@ fn test_select_network_types() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "ip_addr", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "inet", "column neutral_type for ip_addr");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for ip_addr");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "inet",
+        "column neutral_type for ip_addr"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for ip_addr");
     assert_eq!(analyzed.columns[2].name, "subnet", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "inet", "column neutral_type for subnet");
-    assert_eq!(analyzed.columns[2].nullable, false, "column nullable for subnet");
-
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "inet",
+        "column neutral_type for subnet"
+    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for subnet");
 }
 
 #[test]
@@ -763,27 +868,47 @@ fn test_select_all_numeric_types() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 7, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "small", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "int16", "column neutral_type for small");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for small");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int16",
+        "column neutral_type for small"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for small");
     assert_eq!(analyzed.columns[2].name, "med", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "int32", "column neutral_type for med");
-    assert_eq!(analyzed.columns[2].nullable, false, "column nullable for med");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for med"
+    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for med");
     assert_eq!(analyzed.columns[3].name, "big", "column name");
-    assert_eq!(analyzed.columns[3].neutral_type, "int64", "column neutral_type for big");
-    assert_eq!(analyzed.columns[3].nullable, false, "column nullable for big");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "int64",
+        "column neutral_type for big"
+    );
+    assert!(!analyzed.columns[3].nullable, "column nullable for big");
     assert_eq!(analyzed.columns[4].name, "r", "column name");
-    assert_eq!(analyzed.columns[4].neutral_type, "float32", "column neutral_type for r");
-    assert_eq!(analyzed.columns[4].nullable, false, "column nullable for r");
+    assert_eq!(
+        analyzed.columns[4].neutral_type, "float32",
+        "column neutral_type for r"
+    );
+    assert!(!analyzed.columns[4].nullable, "column nullable for r");
     assert_eq!(analyzed.columns[5].name, "d", "column name");
-    assert_eq!(analyzed.columns[5].neutral_type, "float64", "column neutral_type for d");
-    assert_eq!(analyzed.columns[5].nullable, false, "column nullable for d");
+    assert_eq!(
+        analyzed.columns[5].neutral_type, "float64",
+        "column neutral_type for d"
+    );
+    assert!(!analyzed.columns[5].nullable, "column nullable for d");
     assert_eq!(analyzed.columns[6].name, "n", "column name");
-    assert_eq!(analyzed.columns[6].neutral_type, "decimal", "column neutral_type for n");
-    assert_eq!(analyzed.columns[6].nullable, false, "column nullable for n");
-
+    assert_eq!(
+        analyzed.columns[6].neutral_type, "decimal",
+        "column neutral_type for n"
+    );
+    assert!(!analyzed.columns[6].nullable, "column nullable for n");
 }
 
 #[test]
@@ -804,31 +929,42 @@ fn test_range_int4range() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "room_id", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "int32", "column neutral_type for room_id");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for room_id");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int32",
+        "column neutral_type for room_id"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for room_id");
     assert_eq!(analyzed.columns[2].name, "during", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "range<int32>", "column neutral_type for during");
-    assert_eq!(analyzed.columns[2].nullable, false, "column nullable for during");
-
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "range<int32>",
+        "column neutral_type for during"
+    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for during");
 }
 
 #[test]
 fn test_range_tstzrange() {
     // From: testing_data/types/range/02_tstzrange.json
     // "Select a TSTZRANGE column mapped to PgRange<DateTime<Utc>>"
-    let schema_sql = &[
-        "CREATE TABLE bookings (id SERIAL PRIMARY KEY, time_slot TSTZRANGE NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE bookings (id SERIAL PRIMARY KEY, time_slot TSTZRANGE NOT NULL);"];
 
-    let query_sql = "-- @name GetBooking\n-- @returns :one\nSELECT id, time_slot FROM bookings WHERE id = $1";
+    let query_sql =
+        "-- @name GetBooking\n-- @returns :one\nSELECT id, time_slot FROM bookings WHERE id = $1";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -838,17 +974,28 @@ fn test_range_tstzrange() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "int32",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "time_slot", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "range<datetime_tz>", "column neutral_type for time_slot");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for time_slot");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "range<datetime_tz>",
+        "column neutral_type for time_slot"
+    );
+    assert!(
+        !analyzed.columns[1].nullable,
+        "column nullable for time_slot"
+    );
 }
 
 #[test]
@@ -877,27 +1024,47 @@ fn test_all_temporal_types() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 7, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "d", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "date", "column neutral_type for d");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for d");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "date",
+        "column neutral_type for d"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for d");
     assert_eq!(analyzed.columns[2].name, "t", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "time", "column neutral_type for t");
-    assert_eq!(analyzed.columns[2].nullable, false, "column nullable for t");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "time",
+        "column neutral_type for t"
+    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for t");
     assert_eq!(analyzed.columns[3].name, "tz", "column name");
-    assert_eq!(analyzed.columns[3].neutral_type, "time_tz", "column neutral_type for tz");
-    assert_eq!(analyzed.columns[3].nullable, false, "column nullable for tz");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "time_tz",
+        "column neutral_type for tz"
+    );
+    assert!(!analyzed.columns[3].nullable, "column nullable for tz");
     assert_eq!(analyzed.columns[4].name, "ts", "column name");
-    assert_eq!(analyzed.columns[4].neutral_type, "datetime", "column neutral_type for ts");
-    assert_eq!(analyzed.columns[4].nullable, false, "column nullable for ts");
+    assert_eq!(
+        analyzed.columns[4].neutral_type, "datetime",
+        "column neutral_type for ts"
+    );
+    assert!(!analyzed.columns[4].nullable, "column nullable for ts");
     assert_eq!(analyzed.columns[5].name, "tstz", "column name");
-    assert_eq!(analyzed.columns[5].neutral_type, "datetime_tz", "column neutral_type for tstz");
-    assert_eq!(analyzed.columns[5].nullable, false, "column nullable for tstz");
+    assert_eq!(
+        analyzed.columns[5].neutral_type, "datetime_tz",
+        "column neutral_type for tstz"
+    );
+    assert!(!analyzed.columns[5].nullable, "column nullable for tstz");
     assert_eq!(analyzed.columns[6].name, "dur", "column name");
-    assert_eq!(analyzed.columns[6].neutral_type, "interval", "column neutral_type for dur");
-    assert_eq!(analyzed.columns[6].nullable, false, "column nullable for dur");
-
+    assert_eq!(
+        analyzed.columns[6].neutral_type, "interval",
+        "column neutral_type for dur"
+    );
+    assert!(!analyzed.columns[6].nullable, "column nullable for dur");
 }
 
 #[test]
@@ -931,19 +1098,36 @@ fn test_temporal_params() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "created_at", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "datetime_tz", "param neutral_type for created_at");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for created_at");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "datetime_tz",
+        "param neutral_type for created_at"
+    );
+    assert!(
+        !analyzed.params[0].nullable,
+        "param nullable for created_at"
+    );
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
     assert_eq!(analyzed.columns[2].name, "created_at", "column name");
-    assert_eq!(analyzed.columns[2].neutral_type, "datetime_tz", "column neutral_type for created_at");
-    assert_eq!(analyzed.columns[2].nullable, false, "column nullable for created_at");
-
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "datetime_tz",
+        "column neutral_type for created_at"
+    );
+    assert!(
+        !analyzed.columns[2].nullable,
+        "column nullable for created_at"
+    );
 }
 
 #[test]
@@ -972,12 +1156,17 @@ fn test_uuid_column() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "uuid", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "uuid",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
 }
 
 #[test]
@@ -988,7 +1177,8 @@ fn test_uuid_param() {
         "CREATE TABLE users (id UUID PRIMARY KEY DEFAULT gen_random_uuid(), name TEXT NOT NULL);",
     ];
 
-    let query_sql = "-- @name GetUserById\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;";
+    let query_sql =
+        "-- @name GetUserById\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;";
 
     let catalog = scythe::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe::parser::parse_query(query_sql).unwrap();
@@ -1011,14 +1201,22 @@ fn test_uuid_param() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(analyzed.params[0].neutral_type, "uuid", "param neutral_type for id");
-    assert_eq!(analyzed.params[0].nullable, false, "param nullable for id");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "uuid",
+        "param neutral_type for id"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "uuid", "column neutral_type for id");
-    assert_eq!(analyzed.columns[0].nullable, false, "column nullable for id");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "uuid",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "string", "column neutral_type for name");
-    assert_eq!(analyzed.columns[1].nullable, false, "column nullable for name");
-
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
 }
