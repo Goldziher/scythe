@@ -534,7 +534,7 @@ impl<'a> Analyzer<'a> {
             | "statement_timestamp"
             | "transaction_timestamp"
             | "clock_timestamp" => TypeInfo::new("datetime_tz", false),
-            "current_date" | "localdate" => TypeInfo::new("date", false),
+            "current_date" | "localdate" | "date" => TypeInfo::new("date", false),
             "current_time" | "localtime" => TypeInfo::new("time_tz", false),
             "date_trunc" => {
                 let args = self.get_function_args(func);

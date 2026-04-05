@@ -36,8 +36,15 @@ pub fn to_pascal_case(s: &str) -> Cow<'_, str> {
                 result.extend(first.to_uppercase());
                 result.push_str(chars.as_str());
             }
+        } else if s.chars().all(|c| c.is_uppercase() || c == '_') {
+            // ALL CAPS word like "ACTIVE" → "Active"
+            let mut chars = s.chars();
+            if let Some(first) = chars.next() {
+                result.extend(first.to_uppercase());
+                result.push_str(&chars.as_str().to_lowercase());
+            }
         } else {
-            // Already PascalCase or single uppercase word
+            // Already PascalCase
             return Cow::Borrowed(s);
         }
     } else {

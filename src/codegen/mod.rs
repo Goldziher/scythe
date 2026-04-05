@@ -13,6 +13,7 @@ use crate::errors::{ErrorCode, ScytheError};
 use crate::parser::QueryCommand;
 
 use enum_gen::generate_enum_defs;
+pub use enum_gen::generate_single_enum_def;
 use query_fn::generate_query_fn;
 use structs::{generate_composite_defs, generate_model_struct, generate_row_struct};
 
@@ -35,7 +36,7 @@ pub struct GeneratedCode {
 /// Default embedded manifest TOML for rust-sqlx, used as fallback.
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../backends/rust-sqlx/manifest.toml");
 
-fn load_or_default_manifest() -> Result<BackendManifest, ScytheError> {
+pub fn load_or_default_manifest() -> Result<BackendManifest, ScytheError> {
     let manifest_path = Path::new("backends/rust-sqlx/manifest.toml");
     if manifest_path.exists() {
         load_manifest(manifest_path).map_err(|e| {

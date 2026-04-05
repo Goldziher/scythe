@@ -1,0 +1,49 @@
+pub struct {{ query.name }} {
+{%- for param in query.params %}
+    {{ param.field_name }}: {{ param.full_type }},
+{%- endfor %}
+}
+
+impl {{ query.name }} {
+    pub const QUERY: &'static str = "{{ query.sql }}";
+
+    pub fn new(
+{%- for param in query.params %}
+        {{ param.field_name }}: {{ param.full_type }},
+{%- endfor %}
+    ) -> Self {
+        Self {
+{%- for param in query.params %}
+            {{ param.field_name }},
+{%- endfor %}
+        }
+    }
+
+{%- if query.command == "one" %}
+    pub async fn query_one(&self, client: &impl tokio_postgres::GenericClient) -> Result<{{ query.row_struct_name }}, tokio_postgres::Error> {
+        let row = client.query_one(Self::QUERY, &[
+{%- for param in query.params %}
+            &self.{{ param.field_name }},
+{%- endfor %}
+        ]).await?;
+        Ok({{ query.row_struct_name }}::from_row(&row))
+    }
+{%- elif query.command == "many" %}
+    pub async fn query_many(&self, client: &impl tokio_postgres::GenericClient) -> Result<Vec<{{ query.row_struct_name }}>, tokio_postgres::Error> {
+        let rows = client.query(Self::QUERY, &[
+{%- for param in query.params %}
+            &self.{{ param.field_name }},
+{%- endfor %}
+        ]).await?;
+        Ok(rows.iter().map({{ query.row_struct_name }}::from_row).collect())
+    }
+{%- elif query.command == "exec" %}
+    pub async fn execute(&self, client: &impl tokio_postgres::GenericClient) -> Result<u64, tokio_postgres::Error> {
+        client.execute(Self::QUERY, &[
+{%- for param in query.params %}
+            &self.{{ param.field_name }},
+{%- endfor %}
+        ]).await
+    }
+{%- endif %}
+}

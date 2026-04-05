@@ -63,6 +63,34 @@ pub(super) fn generate_enum_defs(
     Ok(out)
 }
 
+/// Generate a single enum definition from an EnumInfo.
+pub fn generate_single_enum_def(
+    enum_info: &crate::analyzer::EnumInfo,
+    manifest: &BackendManifest,
+) -> String {
+    use scythe_backend::naming::enum_variant_name;
+
+    let mut out = String::with_capacity(256);
+    let type_name = enum_type_name(&enum_info.sql_name, &manifest.naming);
+
+    writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]").unwrap();
+    writeln!(
+        out,
+        "#[sqlx(type_name = \"{}\", rename_all = \"snake_case\")]",
+        enum_info.sql_name
+    )
+    .unwrap();
+    writeln!(out, "pub enum {type_name} {{").unwrap();
+
+    for value in &enum_info.values {
+        let variant = enum_variant_name(value, &manifest.naming);
+        writeln!(out, "    {variant},").unwrap();
+    }
+
+    write!(out, "}}").unwrap();
+    out
+}
+
 /// Rewrite SQL to add enum type annotations for sqlx.
 /// For enum columns in SELECT, adds `column AS "column: EnumType"` aliases.
 pub(super) fn rewrite_sql_for_enums(
