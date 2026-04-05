@@ -13,6 +13,18 @@ use super::enum_gen::rewrite_sql_for_enums;
 use super::resolve_param_type;
 use super::structs::singularize;
 
+/// Strip SQL comments, trailing semicolons, and excess whitespace.
+fn clean_sql(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_string()
+}
+
 pub(super) fn generate_query_fn(
     analyzed: &AnalyzedQuery,
     manifest: &BackendManifest,
@@ -61,11 +73,11 @@ pub(super) fn generate_query_fn(
     )
     .unwrap();
 
-    // Strip trailing semicolons from SQL
-    let sql_raw = analyzed.sql.trim_end_matches(';').trim();
+    // Clean SQL: strip comments, trailing semicolons, whitespace
+    let sql_raw = clean_sql(&analyzed.sql);
 
     // Rewrite SQL for enum columns: add "column: EnumType" aliases for sqlx
-    let sql = rewrite_sql_for_enums(sql_raw, &analyzed.columns, manifest);
+    let sql = rewrite_sql_for_enums(&sql_raw, &analyzed.columns, manifest);
 
     // Query body
     let has_row_struct = matches!(

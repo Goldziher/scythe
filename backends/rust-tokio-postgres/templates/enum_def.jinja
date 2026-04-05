@@ -1,0 +1,39 @@
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum {{ enum.type_name }} {
+{%- for variant in enum.variants %}
+    {{ variant.variant_name }},
+{%- endfor %}
+}
+
+impl postgres_types::ToSql for {{ enum.type_name }} {
+    fn to_sql(&self, ty: &postgres_types::Type, out: &mut bytes::BytesMut) -> Result<postgres_types::IsNull, Box<dyn std::error::Error + Send + Sync>> {
+        let s = match self {
+{%- for variant in enum.variants %}
+            Self::{{ variant.variant_name }} => "{{ variant.sql_value }}",
+{%- endfor %}
+        };
+        s.to_sql(ty, out)
+    }
+
+    fn accepts(ty: &postgres_types::Type) -> bool {
+        ty.name() == "{{ enum.sql_name }}"
+    }
+
+    postgres_types::to_sql_checked!();
+}
+
+impl<'a> postgres_types::FromSql<'a> for {{ enum.type_name }} {
+    fn from_sql(ty: &postgres_types::Type, raw: &'a [u8]) -> Result<Self, Box<dyn std::error::Error + Send + Sync>> {
+        let s: &str = <&str as postgres_types::FromSql>::from_sql(ty, raw)?;
+        match s {
+{%- for variant in enum.variants %}
+            "{{ variant.sql_value }}" => Ok(Self::{{ variant.variant_name }}),
+{%- endfor %}
+            _ => Err(format!("unknown {} value: {}", "{{ enum.sql_name }}", s).into()),
+        }
+    }
+
+    fn accepts(ty: &postgres_types::Type) -> bool {
+        ty.name() == "{{ enum.sql_name }}"
+    }
+}

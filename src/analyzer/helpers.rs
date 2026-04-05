@@ -217,6 +217,13 @@ pub(super) fn is_comparable_types(a: &str, b: &str) -> bool {
     if temporal.contains(&a) && temporal.contains(&b) {
         return true;
     }
+    // Enums are comparable with strings (PG implicit cast) and with themselves
+    if (a.starts_with("enum::") && b == "string") || (b.starts_with("enum::") && a == "string") {
+        return true;
+    }
+    if a.starts_with("enum::") && b.starts_with("enum::") {
+        return true;
+    }
     false
 }
 

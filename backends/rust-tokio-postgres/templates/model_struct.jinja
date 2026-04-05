@@ -1,0 +1,16 @@
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct {{ model.type_name }} {
+{%- for field in model.fields %}
+    pub {{ field.field_name }}: {{ field.full_type }},
+{%- endfor %}
+}
+
+impl {{ model.type_name }} {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+{%- for field in model.fields %}
+            {{ field.field_name }}: row.get("{{ field.name }}"),
+{%- endfor %}
+        }
+    }
+}
