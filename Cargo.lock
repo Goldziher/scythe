@@ -604,23 +604,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "scythe"
-version = "0.1.0"
-dependencies = [
- "ahash",
- "clap",
- "glob",
- "regex",
- "scythe-backend",
- "serde",
- "serde_json",
- "serde_yaml",
- "sqlparser",
- "sqruff-lib",
- "toml",
-]
-
-[[package]]
 name = "scythe-backend"
 version = "0.1.0"
 dependencies = [
@@ -629,6 +612,52 @@ dependencies = [
  "serde",
  "thiserror",
  "toml",
+]
+
+[[package]]
+name = "scythe-cli"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "clap",
+ "glob",
+ "regex",
+ "scythe-codegen",
+ "scythe-core",
+ "scythe-lint",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "toml",
+]
+
+[[package]]
+name = "scythe-codegen"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "scythe-backend",
+ "scythe-core",
+ "toml",
+]
+
+[[package]]
+name = "scythe-core"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "sqlparser",
+]
+
+[[package]]
+name = "scythe-lint"
+version = "0.1.0"
+dependencies = [
+ "ahash",
+ "scythe-core",
+ "serde",
+ "sqlparser",
+ "sqruff-lib",
 ]
 
 [[package]]

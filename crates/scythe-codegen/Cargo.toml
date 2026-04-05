@@ -1,0 +1,11 @@
+[package]
+name = "scythe-codegen"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+ahash = { version = "0.8", features = ["serde"] }
+scythe-backend = { path = "../scythe-backend" }
+scythe-core = { path = "../scythe-core" }
+toml = "1.1"

@@ -1,28 +1,11 @@
-
-[package]
-name = "scythe"
-version = "0.1.0"
-edition = "2024"
-license = "MIT"
 [workspace]
+resolver = "3"
 members = [
-    ".",
     "crates/scythe-backend",
+    "crates/scythe-cli",
+    "crates/scythe-codegen",
+    "crates/scythe-core",
+    "crates/scythe-lint",
     "tools/migrate-fixtures",
     "tools/test-generator",
 ]
-
-[dependencies]
-ahash = { version = "0.8", features = ["serde"] }
-clap = { version = "4", features = ["derive"] }
-glob = "0.3"
-regex = "1"
-scythe-backend = { path = "crates/scythe-backend" }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_yaml = "0.9"
-sqlparser = { version = "0.61", features = ["visitor"] }
-sqruff-lib = "0.37"
-toml = "1.1.2"
-
-[dev-dependencies]
