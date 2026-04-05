@@ -156,6 +156,12 @@ impl<'a> Analyzer<'a> {
             }
             Expr::Function(func) => {
                 let _ = self.infer_function_type(func, scope);
+                // Also recurse into function args to collect params
+                // (e.g., SUM(CASE WHEN col >= $1 THEN ...))
+                let args = self.get_function_args(func);
+                for arg in &args {
+                    self.collect_params_from_where(arg, scope);
+                }
             }
             Expr::Cast {
                 expr: inner,
@@ -290,6 +296,15 @@ impl<'a> Analyzer<'a> {
         left_name: &str,
     ) {
         match expr {
+            Expr::Value(vws) => {
+                if let Some(p) = value_is_placeholder(vws)
+                    && let Some(pos) = parse_placeholder(p)
+                {
+                    let array_type = format!("array<{}>", left_ti.neutral_type);
+                    let name = pluralize(left_name);
+                    self.register_param(pos, Some(name), Some(array_type), false);
+                }
+            }
             Expr::Cast {
                 expr: inner,
                 data_type,

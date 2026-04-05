@@ -199,11 +199,12 @@ impl<'a> Analyzer<'a> {
             self.collect_params_from_where(having, &scope);
         }
 
-        // 4. Resolve select items
+        // 4. Resolve select items (also collect params from expressions)
         let mut columns = Vec::new();
         for item in &select.projection {
             match item {
                 SelectItem::UnnamedExpr(expr) => {
+                    self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
                     let name = expr_to_name(expr);
                     columns.push(AnalyzedColumn {
@@ -213,6 +214,7 @@ impl<'a> Analyzer<'a> {
                     });
                 }
                 SelectItem::ExprWithAlias { expr, alias } => {
+                    self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
                     columns.push(AnalyzedColumn {
                         name: alias.value.to_lowercase(),
