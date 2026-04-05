@@ -1,21 +1,17 @@
-mod enum_gen;
-mod query_fn;
-mod structs;
+pub mod backend_trait;
+pub mod backends;
+pub mod resolve;
 
-use std::path::Path;
+pub use backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+pub use backends::get_backend;
 
-use scythe_backend::manifest::{BackendManifest, load_manifest};
-use scythe_backend::types::resolve_type;
+use scythe_backend::manifest::BackendManifest;
+use scythe_backend::naming::{row_struct_name, to_pascal_case};
 
-use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery};
+use scythe_core::analyzer::{AnalyzedQuery, EnumInfo};
 use scythe_core::catalog::Catalog;
-use scythe_core::errors::{ErrorCode, ScytheError};
+use scythe_core::errors::ScytheError;
 use scythe_core::parser::QueryCommand;
-
-use enum_gen::generate_enum_defs;
-pub use enum_gen::generate_single_enum_def;
-use query_fn::generate_query_fn;
-use structs::{generate_composite_defs, generate_model_struct, generate_row_struct};
 
 // ---------------------------------------------------------------------------
 // Output types
@@ -30,28 +26,59 @@ pub struct GeneratedCode {
 }
 
 // ---------------------------------------------------------------------------
-// Manifest loading
+// Utility (shared across backends)
 // ---------------------------------------------------------------------------
 
-/// Default embedded manifest TOML for rust-sqlx, used as fallback.
-const DEFAULT_MANIFEST_TOML: &str = include_str!("../../../backends/rust-sqlx/manifest.toml");
-
-pub fn load_or_default_manifest() -> Result<BackendManifest, ScytheError> {
-    let manifest_path = Path::new("backends/rust-sqlx/manifest.toml");
-    if manifest_path.exists() {
-        load_manifest(manifest_path).map_err(|e| {
-            ScytheError::new(
-                ErrorCode::InternalError,
-                format!("failed to load manifest: {e}"),
-            )
-        })
+/// Simple singularization: remove trailing 's'.
+pub(crate) fn singularize(name: &str) -> String {
+    if let Some(stem) = name.strip_suffix("ies") {
+        format!("{stem}y")
+    } else if name.ends_with("sses")
+        || name.ends_with("shes")
+        || name.ends_with("ches")
+        || name.ends_with("xes")
+        || name.ends_with("zes")
+        || name.ends_with("ses")
+    {
+        name[..name.len() - 2].to_string()
+    } else if name.ends_with('s') && !name.ends_with("ss") {
+        name[..name.len() - 1].to_string()
     } else {
-        toml::from_str(DEFAULT_MANIFEST_TOML).map_err(|e| {
-            ScytheError::new(
+        name.to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Manifest helpers
+// ---------------------------------------------------------------------------
+
+fn get_manifest_for_backend(backend_name: &str) -> Result<BackendManifest, ScytheError> {
+    match backend_name {
+        "rust-sqlx" | "sqlx" => {
+            let b = backends::sqlx::SqlxBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "rust-tokio-postgres" | "tokio-postgres" => {
+            let b = backends::tokio_postgres::TokioPostgresBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        _ => {
+            use scythe_core::errors::ErrorCode;
+            Err(ScytheError::new(
                 ErrorCode::InternalError,
-                format!("failed to parse embedded manifest: {e}"),
-            )
-        })
+                format!("unknown backend: {}", backend_name),
+            ))
+        }
+    }
+}
+
+/// Determine the struct name for a query (model struct or row struct).
+fn determine_struct_name(analyzed: &AnalyzedQuery, manifest: &BackendManifest) -> String {
+    if let Some(ref table_name) = analyzed.source_table {
+        let singular = singularize(table_name);
+        to_pascal_case(&singular).into_owned()
+    } else {
+        row_struct_name(&analyzed.name, &manifest.naming)
     }
 }
 
@@ -59,29 +86,20 @@ pub fn load_or_default_manifest() -> Result<BackendManifest, ScytheError> {
 // Public API
 // ---------------------------------------------------------------------------
 
-/// Generate Rust code from an analyzed query.
-pub fn generate(analyzed: &AnalyzedQuery) -> Result<GeneratedCode, ScytheError> {
-    let manifest = load_or_default_manifest()?;
-    generate_with_manifest(analyzed, &manifest)
-}
-
-/// Stub for catalog-level codegen. Returns default for now.
-pub fn generate_from_catalog(_catalog: &Catalog) -> Result<GeneratedCode, ScytheError> {
-    Ok(GeneratedCode::default())
-}
-
-// ---------------------------------------------------------------------------
-// Internal generation
-// ---------------------------------------------------------------------------
-
-fn generate_with_manifest(
+/// Generate code using a specific backend.
+pub fn generate_with_backend(
     analyzed: &AnalyzedQuery,
-    manifest: &BackendManifest,
+    backend: &dyn CodegenBackend,
 ) -> Result<GeneratedCode, ScytheError> {
+    let manifest = get_manifest_for_backend(backend.name())?;
+    let columns = resolve::resolve_columns(&analyzed.columns, &manifest)?;
+    let params = resolve::resolve_params(&analyzed.params, &manifest)?;
+
     let mut result = GeneratedCode::default();
 
     // Generate enum definitions for any enum-typed columns
-    let enum_def = generate_enum_defs(analyzed, manifest)?;
+    // Use the backend-specific enum generation for proper derives
+    let enum_def = generate_enum_defs_via_backend(analyzed, backend)?;
     if !enum_def.is_empty() {
         result.enum_def = Some(enum_def);
     }
@@ -89,19 +107,23 @@ fn generate_with_manifest(
     // Generate row/model struct for :one and :many commands
     let needs_row_struct = matches!(analyzed.command, QueryCommand::One | QueryCommand::Many);
     if needs_row_struct && !analyzed.columns.is_empty() {
-        if analyzed.source_table.is_some() {
-            // SELECT * from single table: generate model_struct with table name
-            result.model_struct = Some(generate_model_struct(analyzed, manifest)?);
+        if let Some(ref table_name) = analyzed.source_table {
+            result.model_struct = Some(backend.generate_model_struct(table_name, &columns)?);
         } else {
-            result.row_struct = Some(generate_row_struct(analyzed, manifest)?);
+            result.row_struct = Some(backend.generate_row_struct(&analyzed.name, &columns)?);
         }
     }
 
     // Generate composite type definitions
     if !analyzed.composites.is_empty() {
-        let comp_defs = generate_composite_defs(&analyzed.composites, manifest)?;
+        let mut comp_defs = String::new();
+        for (i, comp) in analyzed.composites.iter().enumerate() {
+            if i > 0 {
+                comp_defs.push_str("\n\n");
+            }
+            comp_defs.push_str(&backend.generate_composite_def(comp)?);
+        }
         if !comp_defs.is_empty() {
-            // Append to model_struct or create new
             if let Some(ref mut existing) = result.model_struct {
                 existing.push_str("\n\n");
                 existing.push_str(&comp_defs);
@@ -112,42 +134,115 @@ fn generate_with_manifest(
     }
 
     // Generate query function
-    result.query_fn = Some(generate_query_fn(analyzed, manifest)?);
+    let struct_name = determine_struct_name(analyzed, &manifest);
+    result.query_fn = Some(backend.generate_query_fn(analyzed, &struct_name, &columns, &params)?);
 
     Ok(result)
 }
 
-// ---------------------------------------------------------------------------
-// Type resolution helpers
-// ---------------------------------------------------------------------------
-
-fn resolve_col_type(
-    col: &AnalyzedColumn,
-    manifest: &BackendManifest,
+/// Generate enum definitions via the backend trait.
+fn generate_enum_defs_via_backend(
+    analyzed: &AnalyzedQuery,
+    backend: &dyn CodegenBackend,
 ) -> Result<String, ScytheError> {
-    resolve_type(&col.neutral_type, manifest, col.nullable)
-        .map(|t| t.into_owned())
-        .map_err(|e| {
-            ScytheError::new(
-                ErrorCode::InternalError,
-                format!("type resolution failed for column '{}': {}", col.name, e),
-            )
-        })
+    use ahash::AHashSet;
+    use std::fmt::Write;
+
+    let mut out = String::new();
+    let mut seen_enums: AHashSet<String> = AHashSet::new();
+
+    let enum_sources: Vec<&str> = analyzed
+        .columns
+        .iter()
+        .filter_map(|col| col.neutral_type.strip_prefix("enum::"))
+        .chain(
+            analyzed
+                .params
+                .iter()
+                .filter_map(|p| p.neutral_type.strip_prefix("enum::")),
+        )
+        .collect();
+
+    for sql_name in enum_sources {
+        if !seen_enums.insert(sql_name.to_string()) {
+            continue;
+        }
+
+        if !out.is_empty() {
+            let _ = writeln!(out);
+        }
+
+        if let Some(enum_info) = analyzed.enums.iter().find(|e| e.sql_name == sql_name) {
+            out.push_str(&backend.generate_enum_def(enum_info)?);
+        } else {
+            // Generate a stub enum with no variants (for enum types referenced but
+            // not fully defined in the query's EnumInfo list).
+            let stub_info = EnumInfo {
+                sql_name: sql_name.to_string(),
+                values: vec![],
+            };
+            out.push_str(&backend.generate_enum_def(&stub_info)?);
+        }
+    }
+
+    Ok(out)
 }
 
-fn resolve_param_type(
-    param: &AnalyzedParam,
-    manifest: &BackendManifest,
-) -> Result<String, ScytheError> {
-    resolve_type(&param.neutral_type, manifest, param.nullable)
-        .map(|t| t.into_owned())
-        .map_err(|e| {
-            ScytheError::new(
-                ErrorCode::InternalError,
-                format!("type resolution failed for param '{}': {}", param.name, e),
-            )
-        })
+/// Backward-compatible: generate code using the default sqlx backend.
+pub fn generate(analyzed: &AnalyzedQuery) -> Result<GeneratedCode, ScytheError> {
+    let backend = get_backend("rust-sqlx")?;
+    generate_with_backend(analyzed, &*backend)
 }
+
+/// Stub for catalog-level codegen. Returns default for now.
+pub fn generate_from_catalog(_catalog: &Catalog) -> Result<GeneratedCode, ScytheError> {
+    Ok(GeneratedCode::default())
+}
+
+/// Generate a single enum definition using a specific backend.
+pub fn generate_single_enum_def_with_backend(
+    enum_info: &EnumInfo,
+    backend: &dyn CodegenBackend,
+) -> Result<String, ScytheError> {
+    backend.generate_enum_def(enum_info)
+}
+
+/// Backward-compatible: generate a single enum definition (sqlx backend).
+/// Uses the manifest directly for backward compatibility with existing callers.
+pub fn generate_single_enum_def(enum_info: &EnumInfo, manifest: &BackendManifest) -> String {
+    // Reproduce the old behavior exactly using the sqlx backend's logic
+    use scythe_backend::naming::{enum_type_name, enum_variant_name};
+    use std::fmt::Write;
+
+    let mut out = String::with_capacity(256);
+    let type_name = enum_type_name(&enum_info.sql_name, &manifest.naming);
+
+    let _ = writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]");
+    let _ = writeln!(
+        out,
+        "#[sqlx(type_name = \"{}\", rename_all = \"snake_case\")]",
+        enum_info.sql_name
+    );
+    let _ = writeln!(out, "pub enum {type_name} {{");
+
+    for value in &enum_info.values {
+        let variant = enum_variant_name(value, &manifest.naming);
+        let _ = writeln!(out, "    {variant},");
+    }
+
+    let _ = write!(out, "}}");
+    out
+}
+
+/// Backward-compatible: load the default sqlx manifest.
+pub fn load_or_default_manifest() -> Result<BackendManifest, ScytheError> {
+    let b = backends::sqlx::SqlxBackend::new()?;
+    Ok(b.manifest().clone())
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -318,5 +413,98 @@ mod tests {
         let result = generate_from_catalog(&catalog).unwrap();
         assert!(result.query_fn.is_none());
         assert!(result.row_struct.is_none());
+    }
+
+    #[test]
+    fn test_singularize_basic() {
+        assert_eq!(singularize("users"), "user");
+        assert_eq!(singularize("orders"), "order");
+        assert_eq!(singularize("posts"), "post");
+    }
+
+    #[test]
+    fn test_singularize_ies() {
+        assert_eq!(singularize("categories"), "category");
+        assert_eq!(singularize("entries"), "entry");
+    }
+
+    #[test]
+    fn test_singularize_sses() {
+        assert_eq!(singularize("addresses"), "address");
+        assert_eq!(singularize("classes"), "class");
+    }
+
+    #[test]
+    fn test_singularize_no_change() {
+        assert_eq!(singularize("status"), "statu");
+        assert_eq!(singularize("boss"), "boss");
+        assert_eq!(singularize("address"), "address");
+    }
+
+    #[test]
+    fn test_singularize_shes_ches_xes() {
+        assert_eq!(singularize("batches"), "batch");
+        assert_eq!(singularize("boxes"), "box");
+        assert_eq!(singularize("wishes"), "wish");
+    }
+
+    #[test]
+    fn test_tokio_postgres_backend_basic() {
+        let backend = get_backend("tokio-postgres").unwrap();
+
+        let query = make_query(
+            "ListUsers",
+            QueryCommand::Many,
+            "SELECT id, name FROM users",
+            vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                },
+                AnalyzedColumn {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                },
+            ],
+            vec![],
+        );
+
+        let result = generate_with_backend(&query, &*backend).unwrap();
+
+        let row_struct = result.row_struct.unwrap();
+        assert!(row_struct.contains("pub struct ListUsersRow"));
+        assert!(row_struct.contains("pub id: i32"));
+        assert!(row_struct.contains("pub name: String"));
+        assert!(row_struct.contains("from_row"));
+        assert!(row_struct.contains("tokio_postgres::Row"));
+        // Should NOT contain sqlx
+        assert!(!row_struct.contains("sqlx"));
+
+        let query_fn = result.query_fn.unwrap();
+        assert!(query_fn.contains("pub async fn list_users("));
+        assert!(query_fn.contains("tokio_postgres::Client"));
+        assert!(query_fn.contains("tokio_postgres::Error"));
+        assert!(!query_fn.contains("sqlx"));
+    }
+
+    #[test]
+    fn test_tokio_postgres_enum() {
+        let backend = get_backend("tokio-postgres").unwrap();
+
+        let enum_info = scythe_core::analyzer::EnumInfo {
+            sql_name: "user_status".to_string(),
+            values: vec!["active".to_string(), "inactive".to_string()],
+        };
+
+        let def = backend.generate_enum_def(&enum_info).unwrap();
+        assert!(def.contains("pub enum UserStatus"));
+        assert!(def.contains("Active"));
+        assert!(def.contains("Inactive"));
+        assert!(def.contains("impl std::fmt::Display"));
+        assert!(def.contains("impl std::str::FromStr"));
+        // Should NOT contain sqlx
+        assert!(!def.contains("sqlx"));
     }
 }
