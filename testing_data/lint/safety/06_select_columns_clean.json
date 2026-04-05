@@ -1,0 +1,17 @@
+{
+	"name": "select_columns_clean",
+	"description": "SELECT with explicit columns should not trigger SC-S03",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "select"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetUsers\n-- @returns :many\nSELECT id, name FROM users;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

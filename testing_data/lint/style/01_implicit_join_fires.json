@@ -1,0 +1,23 @@
+{
+	"name": "implicit_join_fires",
+	"description": "Implicit join using comma in FROM clause should trigger SC-T01",
+	"category": "lint/style",
+	"tags": ["lint", "style", "join", "implicit"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL, total INT NOT NULL);"
+	],
+	"query_sql": "-- @name GetUserOrders\n-- @returns :many\nSELECT users.id, orders.total FROM users, orders WHERE users.id = orders.user_id;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-T01",
+					"message_contains": "implicit join"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

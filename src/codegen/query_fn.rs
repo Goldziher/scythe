@@ -41,7 +41,7 @@ pub(super) fn generate_query_fn(
 
     // Deprecated annotation
     if let Some(ref msg) = analyzed.deprecated {
-        writeln!(out, "#[deprecated(note = \"{}\")]", msg).unwrap();
+        let _ = writeln!(out, "#[deprecated(note = \"{}\")]", msg);
     }
 
     // Build parameter list
@@ -64,14 +64,13 @@ pub(super) fn generate_query_fn(
     };
 
     // Function signature - all params on one line
-    writeln!(
+    let _ = writeln!(
         out,
         "pub async fn {}({}) -> Result<{}, sqlx::Error> {{",
         func_name,
         param_parts.join(", "),
         return_type
-    )
-    .unwrap();
+    );
 
     // Clean SQL: strip comments, trailing semicolons, whitespace
     let sql_raw = clean_sql(&analyzed.sql);
@@ -106,32 +105,29 @@ pub(super) fn generate_query_fn(
     if is_exec_rows {
         // ExecRows: let result = sqlx::query!(...) pattern
         if has_row_struct && !analyzed.columns.is_empty() {
-            write!(
+            let _ = write!(
                 out,
                 "    let result = sqlx::query_as!({}, \"{}\"{})",
                 struct_name, sql, bind_params
-            )
-            .unwrap();
+            );
         } else {
-            write!(
+            let _ = write!(
                 out,
                 "    let result = sqlx::query!(\"{}\"{})",
                 sql, bind_params
-            )
-            .unwrap();
+            );
         }
     } else if has_row_struct && !analyzed.columns.is_empty() {
-        write!(
+        let _ = write!(
             out,
             "    sqlx::query_as!({}, \"{}\"{})",
             struct_name, sql, bind_params
-        )
-        .unwrap();
+        );
     } else {
-        write!(out, "    sqlx::query!(\"{}\"{})", sql, bind_params).unwrap();
+        let _ = write!(out, "    sqlx::query!(\"{}\"{})", sql, bind_params);
     }
 
-    writeln!(out).unwrap();
+    let _ = writeln!(out);
 
     // Fetch method
     let fetch_method = match &analyzed.command {
@@ -143,25 +139,25 @@ pub(super) fn generate_query_fn(
         QueryCommand::Batch => ".fetch_all(pool)",
     };
 
-    write!(out, "        {}", fetch_method).unwrap();
-    writeln!(out).unwrap();
+    let _ = write!(out, "        {}", fetch_method);
+    let _ = writeln!(out);
 
     // Post-processing for exec variants
     match &analyzed.command {
         QueryCommand::Exec => {
-            writeln!(out, "        .await?;").unwrap();
-            writeln!(out, "    Ok(())").unwrap();
+            let _ = writeln!(out, "        .await?;");
+            let _ = writeln!(out, "    Ok(())");
         }
         QueryCommand::ExecRows => {
-            writeln!(out, "        .await?;").unwrap();
-            writeln!(out, "    Ok(result.rows_affected())").unwrap();
+            let _ = writeln!(out, "        .await?;");
+            let _ = writeln!(out, "    Ok(result.rows_affected())");
         }
         _ => {
-            writeln!(out, "        .await").unwrap();
+            let _ = writeln!(out, "        .await");
         }
     }
 
-    write!(out, "}}").unwrap();
+    let _ = write!(out, "}}");
 
     Ok(out)
 }

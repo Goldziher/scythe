@@ -37,27 +37,26 @@ pub(super) fn generate_enum_defs(
         let type_name = enum_type_name(sql_name, &manifest.naming);
 
         if !out.is_empty() {
-            writeln!(out).unwrap();
+            let _ = writeln!(out);
         }
 
-        writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]").unwrap();
-        writeln!(
+        let _ = writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]");
+        let _ = writeln!(
             out,
             "#[sqlx(type_name = \"{}\", rename_all = \"snake_case\")]",
             sql_name
-        )
-        .unwrap();
-        writeln!(out, "pub enum {} {{", type_name).unwrap();
+        );
+        let _ = writeln!(out, "pub enum {} {{", type_name);
 
         // Use actual enum values from the analyzed query
         if let Some(enum_info) = analyzed.enums.iter().find(|e| e.sql_name == sql_name) {
             for value in &enum_info.values {
                 let variant = enum_variant_name(value, &manifest.naming);
-                writeln!(out, "    {},", variant).unwrap();
+                let _ = writeln!(out, "    {},", variant);
             }
         }
 
-        write!(out, "}}").unwrap();
+        let _ = write!(out, "}}");
     }
 
     Ok(out)
@@ -73,21 +72,21 @@ pub fn generate_single_enum_def(
     let mut out = String::with_capacity(256);
     let type_name = enum_type_name(&enum_info.sql_name, &manifest.naming);
 
-    writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]").unwrap();
-    writeln!(
+    let _ = writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]");
+    let _ = writeln!(
         out,
         "#[sqlx(type_name = \"{}\", rename_all = \"snake_case\")]",
         enum_info.sql_name
-    )
-    .unwrap();
-    writeln!(out, "pub enum {type_name} {{").unwrap();
+    );
+    let _ = writeln!(out, "pub enum {type_name} {{");
 
     for value in &enum_info.values {
         let variant = enum_variant_name(value, &manifest.naming);
-        writeln!(out, "    {variant},").unwrap();
+        let _ = writeln!(out, "    {variant},");
     }
 
-    write!(out, "}}").unwrap();
+    let _ = write!(out, "}}");
+
     out
 }
 

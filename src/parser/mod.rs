@@ -189,7 +189,10 @@ pub fn parse_query(query_sql: &str) -> Result<Query, ScytheError> {
         if non_empty.len() != 1 {
             return Err(ScytheError::syntax("expected exactly one SQL statement"));
         }
-        let stmt = non_empty.into_iter().next().unwrap();
+        let stmt = non_empty
+            .into_iter()
+            .next()
+            .expect("filtered to exactly one statement");
         let annotations = Annotations {
             name: name.clone(),
             command: command.clone(),
@@ -208,7 +211,10 @@ pub fn parse_query(query_sql: &str) -> Result<Query, ScytheError> {
         });
     }
 
-    let stmt = statements.into_iter().next().unwrap();
+    let stmt = statements
+        .into_iter()
+        .next()
+        .expect("filtered to exactly one statement");
 
     let annotations = Annotations {
         name: name.clone(),

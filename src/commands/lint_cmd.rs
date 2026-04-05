@@ -4,6 +4,8 @@ use std::path::Path;
 use crate::lint::sqruff_adapter;
 use crate::lint::types::Severity;
 
+use super::shared::{resolve_globs, split_query_file};
+
 /// A combined lint violation that can come from either scythe rules or sqruff.
 struct FileViolation {
     file: String,
@@ -324,43 +326,4 @@ fn print_violations(violations: &[FileViolation]) -> Result<(), Box<dyn std::err
         }
         Ok(())
     }
-}
-
-/// Splits a .sql file containing multiple queries separated by `-- name:` or
-/// `-- @name` annotations.
-fn split_query_file(content: &str) -> Vec<String> {
-    let mut blocks: Vec<String> = Vec::new();
-    let mut current_block: Option<String> = None;
-
-    for line in content.lines() {
-        let trimmed = line.trim_start();
-        let is_annotation = trimmed.starts_with("-- name:") || trimmed.starts_with("-- @name");
-
-        if is_annotation {
-            if let Some(block) = current_block.take() {
-                blocks.push(block);
-            }
-            current_block = Some(String::from(line));
-        } else if let Some(ref mut block) = current_block {
-            block.push('\n');
-            block.push_str(line);
-        }
-    }
-
-    if let Some(block) = current_block {
-        blocks.push(block);
-    }
-
-    blocks
-}
-
-fn resolve_globs(patterns: &[String]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
-    let mut paths = Vec::new();
-    for pattern in patterns {
-        let matches: Vec<_> = glob::glob(pattern)?.collect::<Result<Vec<_>, _>>()?;
-        for path in matches {
-            paths.push(path.display().to_string());
-        }
-    }
-    Ok(paths)
 }

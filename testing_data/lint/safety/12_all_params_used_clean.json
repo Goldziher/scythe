@@ -1,0 +1,17 @@
+{
+	"name": "all_params_used_clean",
+	"description": "Query with all parameters used consecutively should not trigger SC-S04",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "params"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetUserByNameAndStatus\n-- @returns :many\nSELECT id, name FROM users WHERE name = $1 AND status = $2;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

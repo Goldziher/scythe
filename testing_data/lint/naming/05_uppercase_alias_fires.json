@@ -1,0 +1,22 @@
+{
+	"name": "uppercase_alias_fires",
+	"description": "Uppercase table alias should trigger SC-N04",
+	"category": "lint/naming",
+	"tags": ["lint", "naming", "alias", "table", "lowercase"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetUsers\n-- @returns :many\nSELECT id FROM users U;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-N04",
+					"message_contains": "lowercase"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

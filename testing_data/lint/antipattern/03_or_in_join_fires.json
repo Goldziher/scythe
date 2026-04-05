@@ -1,0 +1,23 @@
+{
+	"name": "or_in_join_fires",
+	"description": "OR condition in JOIN ON clause should trigger SC-A03",
+	"category": "lint/antipattern",
+	"tags": ["lint", "antipattern", "join", "or"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL, total INT NOT NULL);"
+	],
+	"query_sql": "-- @name GetUserOrders\n-- @returns :many\nSELECT u.id, o.total FROM users u JOIN orders o ON u.id = o.user_id OR u.name = o.total::text;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-A03",
+					"message_contains": "OR"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

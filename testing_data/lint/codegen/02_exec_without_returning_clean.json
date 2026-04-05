@@ -1,0 +1,17 @@
+{
+	"name": "exec_without_returning_clean",
+	"description": ":exec without RETURNING clause should not trigger SC-C02",
+	"category": "lint/codegen",
+	"tags": ["lint", "codegen", "exec"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name CreateUser\n-- @returns :exec\nINSERT INTO users (name) VALUES ($1);",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

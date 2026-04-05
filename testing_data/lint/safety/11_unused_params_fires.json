@@ -1,0 +1,22 @@
+{
+	"name": "unused_params_fires",
+	"description": "Query with gap in parameter numbering (unused $2) should trigger SC-S04",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "params", "unused"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetUserByName\n-- @returns :many\nSELECT id, name FROM users WHERE name = $1 AND id > $3;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-S04",
+					"message_contains": "unused"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

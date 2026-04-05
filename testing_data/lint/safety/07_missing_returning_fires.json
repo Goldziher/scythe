@@ -1,0 +1,22 @@
+{
+	"name": "missing_returning_fires",
+	"description": "INSERT with :one but no RETURNING clause should trigger SC-S05",
+	"category": "lint/safety",
+	"tags": ["lint", "safety", "returning", "insert"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1);",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-S05",
+					"message_contains": "RETURNING"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

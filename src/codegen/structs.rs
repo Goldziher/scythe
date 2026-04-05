@@ -15,16 +15,16 @@ pub(super) fn generate_row_struct(
     let struct_name = row_struct_name(&analyzed.name, &manifest.naming);
     let mut out = String::new();
 
-    writeln!(out, "#[derive(Debug, sqlx::FromRow)]").unwrap();
-    writeln!(out, "pub struct {} {{", struct_name).unwrap();
+    let _ = writeln!(out, "#[derive(Debug, sqlx::FromRow)]");
+    let _ = writeln!(out, "pub struct {} {{", struct_name);
 
     for col in &analyzed.columns {
         let field_name = to_snake_case(&col.name);
         let rust_type = resolve_col_type(col, manifest)?;
-        writeln!(out, "    pub {}: {},", field_name, rust_type).unwrap();
+        let _ = writeln!(out, "    pub {}: {},", field_name, rust_type);
     }
 
-    write!(out, "}}").unwrap();
+    let _ = write!(out, "}}");
 
     Ok(out)
 }
@@ -39,16 +39,16 @@ pub(super) fn generate_model_struct(
     let struct_name = to_pascal_case(&singular).into_owned();
     let mut out = String::new();
 
-    writeln!(out, "#[derive(Debug, sqlx::FromRow)]").unwrap();
-    writeln!(out, "pub struct {} {{", struct_name).unwrap();
+    let _ = writeln!(out, "#[derive(Debug, sqlx::FromRow)]");
+    let _ = writeln!(out, "pub struct {} {{", struct_name);
 
     for col in &analyzed.columns {
         let field_name = to_snake_case(&col.name);
         let rust_type = resolve_col_type(col, manifest)?;
-        writeln!(out, "    pub {}: {},", field_name, rust_type).unwrap();
+        let _ = writeln!(out, "    pub {}: {},", field_name, rust_type);
     }
 
-    write!(out, "}}").unwrap();
+    let _ = write!(out, "}}");
 
     Ok(out)
 }
@@ -62,13 +62,13 @@ pub(super) fn generate_composite_defs(
     let mut out = String::new();
     for (i, comp) in composites.iter().enumerate() {
         if i > 0 {
-            writeln!(out).unwrap();
-            writeln!(out).unwrap();
+            let _ = writeln!(out);
+            let _ = writeln!(out);
         }
         let struct_name = to_pascal_case(&comp.sql_name).into_owned();
-        writeln!(out, "#[derive(Debug, Clone, sqlx::Type)]").unwrap();
-        writeln!(out, "#[sqlx(type_name = \"{}\")]", comp.sql_name).unwrap();
-        writeln!(out, "pub struct {} {{", struct_name).unwrap();
+        let _ = writeln!(out, "#[derive(Debug, Clone, sqlx::Type)]");
+        let _ = writeln!(out, "#[sqlx(type_name = \"{}\")]", comp.sql_name);
+        let _ = writeln!(out, "pub struct {} {{", struct_name);
         for field in &comp.fields {
             let rust_type = resolve_type(&field.neutral_type, manifest, false)
                 .map(|t| t.into_owned())
@@ -78,15 +78,14 @@ pub(super) fn generate_composite_defs(
                         format!("composite field type error: {}", e),
                     )
                 })?;
-            writeln!(
+            let _ = writeln!(
                 out,
                 "    pub {}: {},",
                 to_snake_case(&field.name),
                 rust_type
-            )
-            .unwrap();
+            );
         }
-        write!(out, "}}").unwrap();
+        let _ = write!(out, "}}");
     }
     Ok(out)
 }

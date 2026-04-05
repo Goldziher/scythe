@@ -1,0 +1,17 @@
+{
+	"name": "like_suffix_wildcard_clean",
+	"description": "LIKE with only trailing wildcard should not trigger SC-P02",
+	"category": "lint/performance",
+	"tags": ["lint", "performance", "like", "wildcard"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name SearchUsersByPrefix\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE 'test%';",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

@@ -1,0 +1,17 @@
+{
+	"name": "coalesce_clean",
+	"description": "COALESCE usage should not trigger SC-T02",
+	"category": "lint/style",
+	"tags": ["lint", "style", "coalesce", "null"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetUserStatus\n-- @returns :many\nSELECT id, COALESCE(status, 'unknown') AS display_status FROM users;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

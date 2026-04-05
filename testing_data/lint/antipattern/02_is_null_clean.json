@@ -1,0 +1,17 @@
+{
+	"name": "is_null_clean",
+	"description": "Using IS NULL instead of = NULL should not trigger SC-A01",
+	"category": "lint/antipattern",
+	"tags": ["lint", "antipattern", "null"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetNullStatus\n-- @returns :many\nSELECT id, name FROM users WHERE status IS NULL;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

@@ -1,0 +1,17 @@
+{
+	"name": "snake_case_table_clean",
+	"description": "Table named in snake_case should not trigger SC-N02",
+	"category": "lint/naming",
+	"tags": ["lint", "naming", "table", "snake_case"],
+	"schema_sql": [
+		"CREATE TABLE user_accounts (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetAccounts\n-- @returns :many\nSELECT id, name FROM user_accounts;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

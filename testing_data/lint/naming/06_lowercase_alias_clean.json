@@ -1,0 +1,17 @@
+{
+	"name": "lowercase_alias_clean",
+	"description": "Lowercase table alias should not trigger SC-N04",
+	"category": "lint/naming",
+	"tags": ["lint", "naming", "alias", "table", "lowercase"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetUsers\n-- @returns :many\nSELECT id FROM users u;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

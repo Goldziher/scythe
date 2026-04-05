@@ -1,0 +1,22 @@
+{
+	"name": "case_null_pattern_fires",
+	"description": "CASE WHEN x IS NULL THEN y ELSE x END should trigger SC-T02 (use COALESCE)",
+	"category": "lint/style",
+	"tags": ["lint", "style", "case", "coalesce", "null"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+	],
+	"query_sql": "-- @name GetUserStatus\n-- @returns :many\nSELECT id, CASE WHEN status IS NULL THEN 'unknown' ELSE status END AS display_status FROM users;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-T02",
+					"message_contains": "COALESCE"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

@@ -1,5 +1,9 @@
 # Scythe
 
+<div align="center">
+  <img width="3384" height="573" alt="Banner" src="./logo.svg" />
+</div>
+
 A polyglot SQL-to-code generator. Write SQL, get type-safe code.
 
 Scythe parses your SQL schema and annotated queries, infers types with precision, and generates idiomatic code for your language and database driver of choice. Starting with Rust/sqlx and PostgreSQL, with more languages coming.
