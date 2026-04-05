@@ -145,11 +145,33 @@ pub fn enum_type_name(sql_name: &str, naming: &NamingConfig) -> String {
     apply_case(sql_name, &naming.struct_case).into_owned()
 }
 
+/// Sanitize a string to be a valid Rust identifier fragment.
+///
+/// Replaces hyphens, dots, and other non-alphanumeric/non-underscore characters
+/// with underscores, and prefixes with `V` if the result starts with a digit.
+fn sanitize_for_identifier(s: &str) -> String {
+    let mut result = String::with_capacity(s.len());
+    for ch in s.chars() {
+        if ch.is_alphanumeric() || ch == '_' {
+            result.push(ch);
+        } else {
+            result.push('_');
+        }
+    }
+    // If the result starts with a digit, prefix with 'V'
+    if result.starts_with(|c: char| c.is_ascii_digit()) {
+        result.insert(0, 'V');
+    }
+    result
+}
+
 /// Generate an enum variant name from its SQL value.
 ///
 /// E.g., sql value "active" with PascalCase -> "Active"
+/// Handles special characters: "gpt-3.5-turbo" -> "Gpt3_5Turbo", "PG-13" -> "Pg13"
 pub fn enum_variant_name(sql_value: &str, naming: &NamingConfig) -> String {
-    apply_case(sql_value, &naming.enum_variant_case).into_owned()
+    let sanitized = sanitize_for_identifier(sql_value);
+    apply_case(&sanitized, &naming.enum_variant_case).into_owned()
 }
 
 #[cfg(test)]
@@ -229,6 +251,27 @@ mod tests {
             enum_variant_name("pending_review", &config),
             "PendingReview"
         );
+    }
+
+    #[test]
+    fn test_enum_variant_name_with_hyphens_and_dots() {
+        let config = test_config();
+        assert_eq!(enum_variant_name("gpt-3.5-turbo", &config), "Gpt35Turbo");
+        assert_eq!(enum_variant_name("gpt-4-32k", &config), "Gpt432k");
+        assert_eq!(
+            enum_variant_name("command-light-nightly", &config),
+            "CommandLightNightly"
+        );
+        assert_eq!(enum_variant_name("PG-13", &config), "Pg13");
+        assert_eq!(enum_variant_name("NC-17", &config), "Nc17");
+    }
+
+    #[test]
+    fn test_sanitize_for_identifier() {
+        assert_eq!(sanitize_for_identifier("gpt-3.5-turbo"), "gpt_3_5_turbo");
+        assert_eq!(sanitize_for_identifier("PG-13"), "PG_13");
+        assert_eq!(sanitize_for_identifier("123abc"), "V123abc");
+        assert_eq!(sanitize_for_identifier("normal_value"), "normal_value");
     }
 
     #[test]

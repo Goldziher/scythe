@@ -78,18 +78,17 @@ impl Catalog {
         let dialect = PostgreSqlDialect {};
 
         for sql in schema_sql {
-            // Handle CREATE DOMAIN manually since sqlparser doesn't support it
-            if catalog.try_parse_create_domain(sql) {
-                continue;
-            }
-            // Handle CREATE SCHEMA (silently ignore)
-            let trimmed = sql.trim().to_lowercase();
-            if trimmed.starts_with("create schema") {
+            // Pre-process: extract CREATE DOMAIN and CREATE SCHEMA statements
+            // that sqlparser cannot handle, then feed the remainder to sqlparser.
+            let cleaned = catalog.extract_unsupported_statements(sql);
+
+            let trimmed = cleaned.trim();
+            if trimmed.is_empty() {
                 continue;
             }
 
-            let statements =
-                Parser::parse_sql(&dialect, sql).map_err(|e| ScytheError::syntax(e.to_string()))?;
+            let statements = Parser::parse_sql(&dialect, &cleaned)
+                .map_err(|e| ScytheError::syntax(e.to_string()))?;
 
             for stmt in statements {
                 catalog.process_statement(stmt)?;
@@ -139,6 +138,24 @@ impl Catalog {
         self.enums.iter()
     }
 
+    /// Look up a domain's resolved base type by name.
+    pub fn get_domain_base_type(&self, name: &str) -> Option<&str> {
+        let lower = name.to_lowercase();
+        self.domains
+            .get(&lower)
+            .map(|d| d.base_type.as_str())
+            .or_else(|| {
+                if let Some((_schema, type_name)) = lower.split_once('.') {
+                    self.domains.get(type_name).map(|d| d.base_type.as_str())
+                } else {
+                    self.domains
+                        .iter()
+                        .find(|(k, _)| k.ends_with(&format!(".{}", lower)))
+                        .map(|(_, d)| d.base_type.as_str())
+                }
+            })
+    }
+
     pub fn get_composite(&self, name: &str) -> Option<&CompositeType> {
         let lower = name.to_lowercase();
         self.composites.get(&lower).or_else(|| {
@@ -159,6 +176,144 @@ impl Catalog {
 // ---------------------------------------------------------------------------
 
 impl Catalog {
+    /// Pre-process a SQL string to extract statements that sqlparser cannot handle
+    /// (CREATE DOMAIN, CREATE SCHEMA). Processes them internally and returns the
+    /// remaining SQL with those statements removed.
+    fn extract_unsupported_statements(&mut self, sql: &str) -> String {
+        let mut result = String::with_capacity(sql.len());
+        // Split on semicolons, but be careful about content within parentheses and quotes
+        for raw_stmt in Self::split_top_level_statements(sql) {
+            let trimmed = raw_stmt.trim();
+            if trimmed.is_empty() || trimmed.starts_with("--") && !trimmed.contains('\n') {
+                result.push_str(raw_stmt);
+                continue;
+            }
+            // Strip leading comments to check the actual statement
+            let no_comments = Self::strip_leading_comments(trimmed);
+            let upper = no_comments.to_uppercase();
+            if upper.starts_with("CREATE DOMAIN") {
+                self.try_parse_create_domain(no_comments);
+                // Replace with empty to remove from output
+            } else if upper.starts_with("CREATE SCHEMA") {
+                // Silently ignore
+            } else {
+                result.push_str(raw_stmt);
+                // Ensure there's a semicolon separator if the original had one
+                if !raw_stmt.ends_with(';') {
+                    result.push(';');
+                }
+            }
+        }
+        result
+    }
+
+    /// Split SQL text into top-level statements by semicolons, preserving
+    /// the semicolons and whitespace in the returned fragments.
+    fn split_top_level_statements(sql: &str) -> Vec<&str> {
+        let mut statements = Vec::new();
+        let mut start = 0;
+        let mut in_single_quote = false;
+        let mut in_double_quote = false;
+        let mut in_line_comment = false;
+        let mut in_block_comment = false;
+        let bytes = sql.as_bytes();
+        let mut i = 0;
+        while i < bytes.len() {
+            if in_line_comment {
+                if bytes[i] == b'\n' {
+                    in_line_comment = false;
+                }
+                i += 1;
+                continue;
+            }
+            if in_block_comment {
+                if i + 1 < bytes.len() && bytes[i] == b'*' && bytes[i + 1] == b'/' {
+                    in_block_comment = false;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+            if in_single_quote {
+                if bytes[i] == b'\'' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                        i += 2; // escaped quote
+                    } else {
+                        in_single_quote = false;
+                        i += 1;
+                    }
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+            if in_double_quote {
+                if bytes[i] == b'"' {
+                    in_double_quote = false;
+                }
+                i += 1;
+                continue;
+            }
+            match bytes[i] {
+                b'\'' => {
+                    in_single_quote = true;
+                    i += 1;
+                }
+                b'"' => {
+                    in_double_quote = true;
+                    i += 1;
+                }
+                b'-' if i + 1 < bytes.len() && bytes[i + 1] == b'-' => {
+                    in_line_comment = true;
+                    i += 2;
+                }
+                b'/' if i + 1 < bytes.len() && bytes[i + 1] == b'*' => {
+                    in_block_comment = true;
+                    i += 2;
+                }
+                b';' => {
+                    statements.push(&sql[start..=i]);
+                    start = i + 1;
+                    i += 1;
+                }
+                _ => {
+                    i += 1;
+                }
+            }
+        }
+        if start < sql.len() {
+            let remainder = &sql[start..];
+            if !remainder.trim().is_empty() {
+                statements.push(remainder);
+            }
+        }
+        statements
+    }
+
+    /// Strip leading SQL comments (-- and /* */) from a string.
+    fn strip_leading_comments(s: &str) -> &str {
+        let mut rest = s;
+        loop {
+            rest = rest.trim_start();
+            if rest.starts_with("--") {
+                if let Some(nl) = rest.find('\n') {
+                    rest = &rest[nl + 1..];
+                } else {
+                    return "";
+                }
+            } else if rest.starts_with("/*") {
+                if let Some(end) = rest.find("*/") {
+                    rest = &rest[end + 2..];
+                } else {
+                    return "";
+                }
+            } else {
+                return rest;
+            }
+        }
+    }
+
     /// Try to parse `CREATE DOMAIN <name> AS <type> [NOT NULL] [CHECK ...]`.
     /// Returns true if the SQL was a CREATE DOMAIN statement (even if parsing
     /// was only partial).

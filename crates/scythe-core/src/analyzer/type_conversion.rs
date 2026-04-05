@@ -52,6 +52,10 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
                 let inner_neutral = sql_type_to_neutral(inner, catalog);
                 return Cow::Owned(format!("array<{}>", inner_neutral));
             }
+            // Check if it's a domain type and resolve to base type
+            if let Some(base_type) = catalog.get_domain_base_type(&normalized) {
+                return sql_type_to_neutral(base_type, catalog);
+            }
             // Check enums
             if catalog.get_enum(&normalized).is_some() {
                 return Cow::Owned(format!("enum::{}", normalized));
