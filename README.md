@@ -1,11 +1,36 @@
 <div align="center">
-  <img width="3384" height="573" alt="Scythe" src="https://raw.githubusercontent.com/Goldziher/scythe/main/logo.svg" />
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="https://raw.githubusercontent.com/Goldziher/scythe/main/logo.svg">
+    <source media="(prefers-color-scheme: light)" srcset="https://raw.githubusercontent.com/Goldziher/scythe/main/logo.svg">
+    <img width="400" alt="Scythe" src="https://raw.githubusercontent.com/Goldziher/scythe/main/logo.svg" />
+  </picture>
 
-  **SQL-to-code generator with built-in linting and formatting. Write SQL, get type-safe code.**
+  **Polyglot SQL-to-code generator with built-in linting and formatting.**
 
-  [![CI](https://github.com/Goldziher/scythe/actions/workflows/ci.yml/badge.svg)](https://github.com/Goldziher/scythe/actions/workflows/ci.yml)
-  [![crates.io](https://img.shields.io/crates/v/scythe-cli.svg)](https://crates.io/crates/scythe-cli)
-  [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+<div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 20px 0;">
+
+  <!-- Package -->
+  <a href="https://crates.io/crates/scythe-cli">
+    <img src="https://img.shields.io/crates/v/scythe-cli?label=crates.io&color=007ec6" alt="crates.io">
+  </a>
+  <a href="https://github.com/Goldziher/homebrew-tap">
+    <img src="https://img.shields.io/badge/Homebrew-tap-007ec6" alt="Homebrew">
+  </a>
+
+  <!-- Project Info -->
+  <a href="https://github.com/Goldziher/scythe/actions/workflows/ci.yml">
+    <img src="https://img.shields.io/github/actions/workflow/status/Goldziher/scythe/ci.yml?label=CI&color=007ec6" alt="CI">
+  </a>
+  <a href="https://github.com/Goldziher/scythe/blob/main/LICENSE">
+    <img src="https://img.shields.io/badge/License-MIT-007ec6" alt="License">
+  </a>
+
+  <!-- Community -->
+  <a href="https://discord.gg/xt9WY3GnKR">
+    <img src="https://img.shields.io/badge/Discord-Join%20our%20community-7289da?logo=discord&logoColor=white" alt="Discord">
+  </a>
+
+</div>
 </div>
 
 ---
