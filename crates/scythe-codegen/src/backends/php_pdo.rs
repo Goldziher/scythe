@@ -231,13 +231,8 @@ impl CodegenBackend for PhpPdoBackend {
         if composite.fields.is_empty() {
             // empty constructor
         } else {
-            for (i, field) in composite.fields.iter().enumerate() {
-                let sep = if i + 1 < composite.fields.len() {
-                    ","
-                } else {
-                    ","
-                };
-                let _ = writeln!(out, "        public mixed ${}{}", field.name, sep);
+            for field in &composite.fields {
+                let _ = writeln!(out, "        public mixed ${},", field.name);
             }
         }
         let _ = writeln!(out, "    ) {{}}");

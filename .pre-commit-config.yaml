@@ -12,6 +12,11 @@ repos:
         args: ["--write"]
         stages: [commit-msg]
 
+  - repo: https://github.com/Goldziher/ai-rulez
+    rev: v3.11.3
+    hooks:
+      - id: ai-rulez-generate
+
   # General file checks
   - repo: https://github.com/pre-commit/pre-commit-hooks
     rev: v6.0.0

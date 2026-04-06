@@ -3,6 +3,11 @@ name = "scythe-codegen"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Polyglot code generation backends for scythe"
+repository = "https://github.com/Goldziher/scythe"
+authors = ["Na'aman Hirschfeld"]
+keywords = ["sql", "codegen", "type-safe", "database"]
+categories = ["development-tools", "database"]
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }

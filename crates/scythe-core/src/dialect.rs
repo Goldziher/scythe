@@ -18,6 +18,8 @@ impl SqlDialect {
     }
 
     /// Parse a dialect name from a string (case-insensitive).
+    /// Returns `Option<Self>` instead of `Result` since unknown dialects are not errors.
+    #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "postgresql" | "postgres" | "pg" => Some(Self::PostgreSQL),

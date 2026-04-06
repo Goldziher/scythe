@@ -120,4 +120,6 @@ pub(super) struct Analyzer<'a> {
     pub(super) ctes: AHashMap<String, Vec<ScopeColumn>>,
     /// Collected type errors during analysis
     pub(super) type_errors: Vec<String>,
+    /// Auto-incrementing counter for MySQL `?` positional placeholders
+    pub(super) positional_param_counter: i64,
 }

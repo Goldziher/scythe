@@ -5,6 +5,20 @@ use super::type_conversion::datatype_to_neutral;
 use super::types::*;
 
 impl<'a> Analyzer<'a> {
+    /// Resolve a placeholder string to a position number.
+    /// For `$N` placeholders, returns the parsed number.
+    /// For `?` (MySQL positional), auto-increments and returns the next position.
+    pub(super) fn resolve_placeholder_position(&mut self, placeholder: &str) -> Option<i64> {
+        if let Some(pos) = parse_placeholder(placeholder) {
+            Some(pos)
+        } else if is_positional_placeholder(placeholder) {
+            self.positional_param_counter += 1;
+            Some(self.positional_param_counter)
+        } else {
+            None
+        }
+    }
+
     pub(super) fn register_param(
         &mut self,
         position: i64,
@@ -90,7 +104,7 @@ impl<'a> Analyzer<'a> {
             } => {
                 if let Expr::Value(vws) = pattern.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = parse_placeholder(p)
+                    && let Some(pos) = self.resolve_placeholder_position(p)
                 {
                     let name = expr_to_name(col_expr);
                     self.register_param(pos, Some(name), Some("string".to_string()), false);
@@ -106,7 +120,7 @@ impl<'a> Analyzer<'a> {
                 for item in list {
                     if let Expr::Value(vws) = item
                         && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = parse_placeholder(p)
+                        && let Some(pos) = self.resolve_placeholder_position(p)
                     {
                         self.register_param(
                             pos,
@@ -124,7 +138,7 @@ impl<'a> Analyzer<'a> {
                 let left_ti = self.infer_expr_type(left, scope);
                 if let Expr::Value(vws) = right.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = parse_placeholder(p)
+                    && let Some(pos) = self.resolve_placeholder_position(p)
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&expr_to_name(left));
@@ -188,7 +202,7 @@ impl<'a> Analyzer<'a> {
         match param_side {
             Expr::Value(vws) => {
                 if let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = parse_placeholder(p)
+                    && let Some(pos) = self.resolve_placeholder_position(p)
                 {
                     let col_ti = self.infer_expr_type(col_side, scope);
                     let col_name = expr_to_name(col_side);
@@ -205,7 +219,7 @@ impl<'a> Analyzer<'a> {
             } => {
                 if let Expr::Value(vws) = inner.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = parse_placeholder(p)
+                    && let Some(pos) = self.resolve_placeholder_position(p)
                 {
                     let neutral = datatype_to_neutral(data_type, self.catalog);
                     let col_name = expr_to_name(col_side);
@@ -221,7 +235,7 @@ impl<'a> Analyzer<'a> {
     pub(super) fn collect_param_from_expr(&mut self, expr: &Expr, name: &str, type_str: &str) {
         if let Expr::Value(vws) = expr {
             if let Some(p) = value_is_placeholder(vws)
-                && let Some(pos) = parse_placeholder(p)
+                && let Some(pos) = self.resolve_placeholder_position(p)
             {
                 self.register_param(
                     pos,
@@ -237,7 +251,7 @@ impl<'a> Analyzer<'a> {
         } = expr
             && let Expr::Value(vws) = inner.as_ref()
             && let Some(p) = value_is_placeholder(vws)
-            && let Some(pos) = parse_placeholder(p)
+            && let Some(pos) = self.resolve_placeholder_position(p)
         {
             let neutral = datatype_to_neutral(data_type, self.catalog);
             self.register_param(pos, Some(name.to_string()), Some(neutral), false);
@@ -252,7 +266,7 @@ impl<'a> Analyzer<'a> {
     ) {
         if let Expr::Value(vws) = expr {
             if let Some(p) = value_is_placeholder(vws)
-                && let Some(pos) = parse_placeholder(p)
+                && let Some(pos) = self.resolve_placeholder_position(p)
             {
                 self.register_param(
                     pos,
@@ -268,7 +282,7 @@ impl<'a> Analyzer<'a> {
         } = expr
             && let Expr::Value(vws) = inner.as_ref()
             && let Some(p) = value_is_placeholder(vws)
-            && let Some(pos) = parse_placeholder(p)
+            && let Some(pos) = self.resolve_placeholder_position(p)
         {
             let neutral = datatype_to_neutral(data_type, self.catalog);
             self.register_param(pos, Some(name.to_string()), Some(neutral), false);
@@ -278,7 +292,7 @@ impl<'a> Analyzer<'a> {
     pub(super) fn collect_param_type_from_cast(&mut self, expr: &Expr, neutral_type: &str) {
         if let Expr::Value(vws) = expr
             && let Some(p) = value_is_placeholder(vws)
-            && let Some(pos) = parse_placeholder(p)
+            && let Some(pos) = self.resolve_placeholder_position(p)
         {
             // Give semantic names for certain types
             let name = match neutral_type {
@@ -298,7 +312,7 @@ impl<'a> Analyzer<'a> {
         match expr {
             Expr::Value(vws) => {
                 if let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = parse_placeholder(p)
+                    && let Some(pos) = self.resolve_placeholder_position(p)
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(left_name);
@@ -312,7 +326,7 @@ impl<'a> Analyzer<'a> {
             } => {
                 if let Expr::Value(vws) = inner.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = parse_placeholder(p)
+                    && let Some(pos) = self.resolve_placeholder_position(p)
                 {
                     let neutral = datatype_to_neutral(data_type, self.catalog);
                     self.register_param(pos, None, Some(neutral), false);
@@ -324,7 +338,7 @@ impl<'a> Analyzer<'a> {
                 for (i, elem) in arr.elem.iter().enumerate() {
                     if let Expr::Value(vws) = elem
                         && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = parse_placeholder(p)
+                        && let Some(pos) = self.resolve_placeholder_position(p)
                     {
                         let name = format!("{}{}", left_name, i + 1);
                         self.register_param(
@@ -359,6 +373,7 @@ mod tests {
             params: Vec::new(),
             ctes: AHashMap::new(),
             type_errors: Vec::new(),
+            positional_param_counter: 0,
         }
     }
 
@@ -443,6 +458,7 @@ mod tests {
             params: Vec::new(),
             ctes: AHashMap::new(),
             type_errors: Vec::new(),
+            positional_param_counter: 0,
         };
         let scope = Scope {
             sources: vec![ScopeSource {

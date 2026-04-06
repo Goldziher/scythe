@@ -3,6 +3,11 @@ name = "scythe-lint"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "SQL linting engine with 93 rules for scythe"
+repository = "https://github.com/Goldziher/scythe"
+authors = ["Na'aman Hirschfeld"]
+keywords = ["sql", "codegen", "type-safe", "database"]
+categories = ["development-tools", "database"]
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }

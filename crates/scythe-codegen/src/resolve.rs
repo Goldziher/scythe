@@ -1,6 +1,6 @@
 use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::to_snake_case;
-use scythe_backend::types::resolve_type;
+use scythe_backend::types::resolve_type_pair;
 
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -15,22 +15,15 @@ pub fn resolve_columns(
     columns
         .iter()
         .map(|col| {
-            let full_type = resolve_type(&col.neutral_type, manifest, col.nullable)
-                .map(|t| t.into_owned())
-                .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("type resolution failed for column '{}': {}", col.name, e),
-                    )
-                })?;
-            let lang_type = resolve_type(&col.neutral_type, manifest, false)
-                .map(|t| t.into_owned())
-                .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("type resolution failed for column '{}': {}", col.name, e),
-                    )
-                })?;
+            let (full_type, lang_type) =
+                resolve_type_pair(&col.neutral_type, manifest, col.nullable)
+                    .map(|(f, l)| (f.into_owned(), l.into_owned()))
+                    .map_err(|e| {
+                        ScytheError::new(
+                            ErrorCode::InternalError,
+                            format!("type resolution failed for column '{}': {}", col.name, e),
+                        )
+                    })?;
             Ok(ResolvedColumn {
                 name: col.name.clone(),
                 field_name: to_snake_case(&col.name).into_owned(),
@@ -51,22 +44,15 @@ pub fn resolve_params(
     params
         .iter()
         .map(|param| {
-            let full_type = resolve_type(&param.neutral_type, manifest, param.nullable)
-                .map(|t| t.into_owned())
-                .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("type resolution failed for param '{}': {}", param.name, e),
-                    )
-                })?;
-            let lang_type = resolve_type(&param.neutral_type, manifest, false)
-                .map(|t| t.into_owned())
-                .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("type resolution failed for param '{}': {}", param.name, e),
-                    )
-                })?;
+            let (full_type, lang_type) =
+                resolve_type_pair(&param.neutral_type, manifest, param.nullable)
+                    .map(|(f, l)| (f.into_owned(), l.into_owned()))
+                    .map_err(|e| {
+                        ScytheError::new(
+                            ErrorCode::InternalError,
+                            format!("type resolution failed for param '{}': {}", param.name, e),
+                        )
+                    })?;
             let borrowed_type = param_type_to_borrowed(&full_type);
             Ok(ResolvedParam {
                 name: param.name.clone(),

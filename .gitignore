@@ -23,3 +23,7 @@ generated/
 .env
 .env.*
 !.env.example
+
+# AI Rules generated files
+.mcp.json
+CLAUDE.md

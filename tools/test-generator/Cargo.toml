@@ -3,6 +3,9 @@ name = "test-generator"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Test fixture code generator for scythe"
+repository = "https://github.com/Goldziher/scythe"
+authors = ["Na'aman Hirschfeld"]
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }
