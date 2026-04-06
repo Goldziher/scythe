@@ -26,9 +26,11 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
+      - uses: Swatinem/rust-cache@v2
+      - name: Generate integration tests from fixtures
+        run: cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
       - name: Check formatting
         run: cargo fmt --check
-      - uses: Swatinem/rust-cache@v2
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 
@@ -39,6 +41,8 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Generate integration tests from fixtures
+        run: cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
       - name: Run tests
         run: cargo test --workspace
 
@@ -49,5 +53,7 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      - name: Generate integration tests from fixtures
+        run: cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
       - name: Build
         run: cargo build --workspace --release
