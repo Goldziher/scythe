@@ -166,6 +166,7 @@ impl<'a> Analyzer<'a> {
                     params: Vec::new(),
                     ctes: self.ctes.clone(),
                     type_errors: Vec::new(),
+                    positional_param_counter: self.positional_param_counter,
                 };
                 let sub_cols = sub_analyzer.analyze_query(subquery)?;
 
@@ -387,6 +388,7 @@ mod tests {
             params: Vec::new(),
             ctes: AHashMap::new(),
             type_errors: Vec::new(),
+            positional_param_counter: 0,
         }
     }
 

@@ -290,15 +290,13 @@ fn walk_set_expr_from_tables(set_expr: &SetExpr, visitor: &mut dyn FnMut(&str)) 
 
 fn visit_table_factor_alias(tf: &TableFactor, visitor: &mut dyn FnMut(&str)) {
     match tf {
-        TableFactor::Table { alias, .. } => {
-            if let Some(alias) = alias {
-                visitor(&alias.name.value);
-            }
+        TableFactor::Table {
+            alias: Some(alias), ..
         }
-        TableFactor::Derived { alias, .. } => {
-            if let Some(alias) = alias {
-                visitor(&alias.name.value);
-            }
+        | TableFactor::Derived {
+            alias: Some(alias), ..
+        } => {
+            visitor(&alias.name.value);
         }
         _ => {}
     }

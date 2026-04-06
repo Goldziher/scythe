@@ -30,6 +30,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         params: Vec::new(),
         ctes: AHashMap::new(),
         type_errors: Vec::new(),
+        positional_param_counter: 0,
     };
 
     let (columns, _) = analyzer.analyze_statement(&query.stmt)?;

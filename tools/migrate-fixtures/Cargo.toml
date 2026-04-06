@@ -3,6 +3,9 @@ name = "migrate-fixtures"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "Test fixture migration tool for scythe"
+repository = "https://github.com/Goldziher/scythe"
+authors = ["Na'aman Hirschfeld"]
 
 [dependencies]
 ahash = "0.8"

@@ -128,8 +128,20 @@ pub(super) fn detect_select_star_source(stmt: &Statement) -> Option<String> {
     None
 }
 
+/// Parse a placeholder string into a position number.
+/// Handles PostgreSQL `$N` placeholders (returns the number).
+/// For MySQL `?` placeholders, returns `None` — the caller must
+/// use `Analyzer::resolve_placeholder_position` to assign a sequential position.
 pub(super) fn parse_placeholder(s: &str) -> Option<i64> {
+    if s == "?" {
+        return None;
+    }
     s.strip_prefix('$')?.parse::<i64>().ok()
+}
+
+/// Returns `true` when the placeholder string is a MySQL-style `?`.
+pub(super) fn is_positional_placeholder(s: &str) -> bool {
+    s == "?"
 }
 
 /// Derive a param name from a comparison context.
@@ -385,6 +397,17 @@ mod tests {
         assert_eq!(parse_placeholder("$abc"), None);
         assert_eq!(parse_placeholder(""), None);
         assert_eq!(parse_placeholder("$$"), None);
+        // MySQL `?` returns None (handled by resolve_placeholder_position)
+        assert_eq!(parse_placeholder("?"), None);
+    }
+
+    // ---- is_positional_placeholder ----
+    #[test]
+    fn test_is_positional_placeholder() {
+        assert!(is_positional_placeholder("?"));
+        assert!(!is_positional_placeholder("$1"));
+        assert!(!is_positional_placeholder(""));
+        assert!(!is_positional_placeholder("??"));
     }
 
     // ---- expr_to_name ----

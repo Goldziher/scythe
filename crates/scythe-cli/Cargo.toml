@@ -3,6 +3,11 @@ name = "scythe-cli"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
+description = "CLI for scythe -- SQL-to-code generator with linting and formatting"
+repository = "https://github.com/Goldziher/scythe"
+authors = ["Na'aman Hirschfeld"]
+keywords = ["sql", "codegen", "type-safe", "database"]
+categories = ["development-tools", "database"]
 
 [[bin]]
 name = "scythe"

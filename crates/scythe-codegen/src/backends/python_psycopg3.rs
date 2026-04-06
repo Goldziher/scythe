@@ -164,13 +164,8 @@ impl CodegenBackend for PythonPsycopg3Backend {
                     let _ = writeln!(out, "{}", oneliner);
                 } else {
                     let _ = writeln!(out, "    return {}(", struct_name);
-                    for (i, fa) in field_assignments.iter().enumerate() {
-                        let comma = if i + 1 < field_assignments.len() {
-                            ","
-                        } else {
-                            ","
-                        };
-                        let _ = writeln!(out, "        {}{}", fa, comma);
+                    for fa in &field_assignments {
+                        let _ = writeln!(out, "        {},", fa);
                     }
                     let _ = writeln!(out, "    )");
                 }
