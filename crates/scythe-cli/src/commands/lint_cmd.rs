@@ -109,7 +109,8 @@ fn lint_from_config(
 
     use scythe_core::analyzer::analyze;
     use scythe_core::catalog::Catalog;
-    use scythe_core::parser::parse_query;
+    use scythe_core::dialect::SqlDialect;
+    use scythe_core::parser::parse_query_with_dialect;
     use scythe_lint::{LintContext, LintEngine, default_registry};
 
     #[derive(Deserialize)]
@@ -157,7 +158,9 @@ fn lint_from_config(
             .collect::<Result<_, _>>()?;
         let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
-        let catalog = Catalog::from_ddl(&schema_refs)?;
+        let sql_dialect =
+            SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
+        let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
 
         // Resolve query files
         let query_files = resolve_globs(&sql_config.queries)?;
@@ -203,7 +206,7 @@ fn lint_from_config(
             // Run scythe rules on individual query blocks
             let blocks = split_query_file(&content);
             for block in &blocks {
-                let parsed = match parse_query(block) {
+                let parsed = match parse_query_with_dialect(block, &sql_dialect) {
                     Ok(p) => p,
                     Err(e) => {
                         eprintln!("warning: failed to parse query in '{}': {}", query_file, e);

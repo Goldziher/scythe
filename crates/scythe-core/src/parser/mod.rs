@@ -1,6 +1,6 @@
-use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
+use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -74,8 +74,16 @@ pub struct Query {
     pub annotations: Annotations,
 }
 
-/// Parse a single annotated SQL query into a `Query`.
+/// Parse a single annotated SQL query into a `Query` using the PostgreSQL dialect.
 pub fn parse_query(query_sql: &str) -> Result<Query, ScytheError> {
+    parse_query_with_dialect(query_sql, &SqlDialect::PostgreSQL)
+}
+
+/// Parse a single annotated SQL query into a `Query` using the specified dialect.
+pub fn parse_query_with_dialect(
+    query_sql: &str,
+    dialect: &SqlDialect,
+) -> Result<Query, ScytheError> {
     let mut name: Option<String> = None;
     let mut command: Option<QueryCommand> = None;
     let mut param_docs = Vec::new();
@@ -173,8 +181,8 @@ pub fn parse_query(query_sql: &str) -> Result<Query, ScytheError> {
         return Err(ScytheError::syntax("empty SQL body"));
     }
 
-    let dialect = PostgreSqlDialect {};
-    let statements = Parser::parse_sql(&dialect, &sql)
+    let parser_dialect = dialect.to_sqlparser_dialect();
+    let statements = Parser::parse_sql(parser_dialect.as_ref(), &sql)
         .map_err(|e| ScytheError::syntax(format!("syntax error: {}", e)))?;
 
     if statements.len() != 1 {
