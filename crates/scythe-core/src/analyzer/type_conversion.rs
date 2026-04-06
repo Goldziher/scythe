@@ -12,24 +12,56 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
     let normalized = strip_precision(&lower);
 
     match normalized.as_str() {
+        // -- Integer types (PostgreSQL + MySQL + SQLite) --
         "integer" | "int" | "int4" | "serial" => Cow::Borrowed("int32"),
         "smallint" | "int2" | "smallserial" => Cow::Borrowed("int16"),
         "bigint" | "int8" | "bigserial" => Cow::Borrowed("int64"),
+        "tinyint" => Cow::Borrowed("int16"),
+        "mediumint" => Cow::Borrowed("int32"),
+
+        // -- Float types --
         "real" | "float4" => Cow::Borrowed("float32"),
-        "double precision" | "float8" => Cow::Borrowed("float64"),
+        "double precision" | "float8" | "double" => Cow::Borrowed("float64"),
+        "float" => Cow::Borrowed("float32"),
         "numeric" | "decimal" => Cow::Borrowed("decimal"),
+
+        // -- String types --
         "text" | "character varying" | "character" | "varchar" | "char" => Cow::Borrowed("string"),
+        "tinytext" | "mediumtext" | "longtext" | "clob" => Cow::Borrowed("string"),
+        "set" => Cow::Borrowed("string"),
+
+        // -- Boolean --
         "boolean" | "bool" => Cow::Borrowed("bool"),
+
+        // -- Binary types --
         "bytea" => Cow::Borrowed("bytes"),
+        "blob" | "tinyblob" | "mediumblob" | "longblob" | "binary" | "varbinary" => {
+            Cow::Borrowed("bytes")
+        }
+
+        // -- UUID --
         "uuid" => Cow::Borrowed("uuid"),
+
+        // -- Date/time types --
         "date" => Cow::Borrowed("date"),
         "time" | "time without time zone" => Cow::Borrowed("time"),
         "time with time zone" | "timetz" => Cow::Borrowed("time_tz"),
         "timestamp" | "timestamp without time zone" => Cow::Borrowed("datetime"),
         "timestamp with time zone" | "timestamptz" => Cow::Borrowed("datetime_tz"),
+        "datetime" => Cow::Borrowed("datetime"),
         "interval" => Cow::Borrowed("interval"),
+        "year" => Cow::Borrowed("int16"),
+
+        // -- JSON types --
         "json" | "jsonb" => Cow::Borrowed("json"),
+
+        // -- Network types (PostgreSQL) --
         "inet" | "cidr" | "macaddr" => Cow::Borrowed("inet"),
+
+        // -- Bit types (MySQL) --
+        "bit" => Cow::Borrowed("bool"),
+
+        // -- Array types (PostgreSQL) --
         "integer[]" | "int4[]" | "int[]" => Cow::Borrowed("array<int32>"),
         "text[]" | "character varying[]" | "varchar[]" => Cow::Borrowed("array<string>"),
         "boolean[]" | "bool[]" => Cow::Borrowed("array<bool>"),
@@ -40,6 +72,8 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "uuid[]" => Cow::Borrowed("array<uuid>"),
         "numeric[]" | "decimal[]" => Cow::Borrowed("array<decimal>"),
         "jsonb[]" | "json[]" => Cow::Borrowed("array<json>"),
+
+        // -- Range types (PostgreSQL) --
         "int4range" => Cow::Borrowed("range<int32>"),
         "int8range" => Cow::Borrowed("range<int64>"),
         "tstzrange" => Cow::Borrowed("range<datetime_tz>"),
@@ -110,7 +144,23 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
         | DataType::Character(_) => "string".to_string(),
         DataType::Bool | DataType::Boolean => "bool".to_string(),
         DataType::Bytea => "bytes".to_string(),
+        DataType::Blob(_) => "bytes".to_string(),
+        DataType::TinyBlob => "bytes".to_string(),
+        DataType::MediumBlob => "bytes".to_string(),
+        DataType::LongBlob => "bytes".to_string(),
+        DataType::Binary(_) | DataType::Varbinary(_) => "bytes".to_string(),
         DataType::Uuid => "uuid".to_string(),
+        DataType::TinyInt(_) => "int16".to_string(),
+        DataType::MediumInt(_) => "int32".to_string(),
+        DataType::Datetime(_) => "datetime".to_string(),
+        // Note: MySQL YEAR is parsed as custom type by sqlparser, handled in Custom arm
+        DataType::Bit(_) => "bool".to_string(),
+        DataType::Enum(_, _) => "string".to_string(),
+        DataType::Set(_) => "string".to_string(),
+        DataType::TinyText => "string".to_string(),
+        DataType::MediumText => "string".to_string(),
+        DataType::LongText => "string".to_string(),
+        DataType::Clob(_) => "string".to_string(),
         DataType::Date => "date".to_string(),
         DataType::Time(_, tz) => match tz {
             TimezoneInfo::WithTimeZone | TimezoneInfo::Tz => "time_tz".to_string(),
@@ -363,5 +413,66 @@ mod tests {
             sql_type_to_neutral("timestamptz[]", &c),
             "array<datetime_tz>"
         );
+    }
+
+    // ---- MySQL-specific types ----
+    #[test]
+    fn test_mysql_integer_types() {
+        let c = empty_catalog();
+        assert_eq!(sql_type_to_neutral("tinyint", &c), "int16");
+        assert_eq!(sql_type_to_neutral("mediumint", &c), "int32");
+    }
+
+    #[test]
+    fn test_mysql_string_types() {
+        let c = empty_catalog();
+        assert_eq!(sql_type_to_neutral("tinytext", &c), "string");
+        assert_eq!(sql_type_to_neutral("mediumtext", &c), "string");
+        assert_eq!(sql_type_to_neutral("longtext", &c), "string");
+        assert_eq!(sql_type_to_neutral("set", &c), "string");
+    }
+
+    #[test]
+    fn test_mysql_binary_types() {
+        let c = empty_catalog();
+        assert_eq!(sql_type_to_neutral("blob", &c), "bytes");
+        assert_eq!(sql_type_to_neutral("tinyblob", &c), "bytes");
+        assert_eq!(sql_type_to_neutral("mediumblob", &c), "bytes");
+        assert_eq!(sql_type_to_neutral("longblob", &c), "bytes");
+        assert_eq!(sql_type_to_neutral("binary", &c), "bytes");
+        assert_eq!(sql_type_to_neutral("varbinary", &c), "bytes");
+    }
+
+    #[test]
+    fn test_mysql_datetime() {
+        let c = empty_catalog();
+        assert_eq!(sql_type_to_neutral("datetime", &c), "datetime");
+        assert_eq!(sql_type_to_neutral("year", &c), "int16");
+    }
+
+    #[test]
+    fn test_mysql_float_types() {
+        let c = empty_catalog();
+        assert_eq!(sql_type_to_neutral("float", &c), "float32");
+        assert_eq!(sql_type_to_neutral("double", &c), "float64");
+    }
+
+    #[test]
+    fn test_mysql_bit_type() {
+        let c = empty_catalog();
+        assert_eq!(sql_type_to_neutral("bit", &c), "bool");
+    }
+
+    // ---- SQLite-specific types ----
+    #[test]
+    fn test_sqlite_types() {
+        let c = empty_catalog();
+        // SQLite types all map through existing or new entries
+        assert_eq!(sql_type_to_neutral("integer", &c), "int32");
+        assert_eq!(sql_type_to_neutral("real", &c), "float32");
+        assert_eq!(sql_type_to_neutral("text", &c), "string");
+        assert_eq!(sql_type_to_neutral("blob", &c), "bytes");
+        assert_eq!(sql_type_to_neutral("numeric", &c), "decimal");
+        assert_eq!(sql_type_to_neutral("clob", &c), "string");
     }
 }

@@ -6,9 +6,9 @@ use sqlparser::ast::{
     AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ColumnOption, ObjectName,
     Statement, TableConstraint, UserDefinedTypeRepresentation,
 };
-use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
+use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
 use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key};
@@ -68,6 +68,13 @@ pub struct CompositeField {
 
 impl Catalog {
     pub fn from_ddl(schema_sql: &[&str]) -> Result<Catalog, ScytheError> {
+        Self::from_ddl_with_dialect(schema_sql, &SqlDialect::PostgreSQL)
+    }
+
+    pub fn from_ddl_with_dialect(
+        schema_sql: &[&str],
+        dialect: &SqlDialect,
+    ) -> Result<Catalog, ScytheError> {
         let mut catalog = Catalog {
             tables: AHashMap::new(),
             enums: AHashMap::new(),
@@ -75,23 +82,23 @@ impl Catalog {
             domains: AHashMap::new(),
         };
 
-        let dialect = PostgreSqlDialect {};
+        let parser_dialect = dialect.to_sqlparser_dialect();
 
         for sql in schema_sql {
-            // Pre-process: extract CREATE DOMAIN and CREATE SCHEMA statements
-            // that sqlparser cannot handle, then feed the remainder to sqlparser.
-            let cleaned = catalog.extract_unsupported_statements(sql);
+            // Pre-process: extract statements that sqlparser cannot handle,
+            // then feed the remainder to sqlparser.
+            let cleaned = catalog.extract_unsupported_statements(sql, dialect);
 
             let trimmed = cleaned.trim();
             if trimmed.is_empty() {
                 continue;
             }
 
-            let statements = Parser::parse_sql(&dialect, &cleaned)
+            let statements = Parser::parse_sql(parser_dialect.as_ref(), &cleaned)
                 .map_err(|e| ScytheError::syntax(e.to_string()))?;
 
             for stmt in statements {
-                catalog.process_statement(stmt)?;
+                catalog.process_statement(stmt, dialect)?;
             }
         }
 
@@ -179,7 +186,7 @@ impl Catalog {
     /// Pre-process a SQL string to extract statements that sqlparser cannot handle
     /// (CREATE DOMAIN, CREATE SCHEMA). Processes them internally and returns the
     /// remaining SQL with those statements removed.
-    fn extract_unsupported_statements(&mut self, sql: &str) -> String {
+    fn extract_unsupported_statements(&mut self, sql: &str, dialect: &SqlDialect) -> String {
         let mut result = String::with_capacity(sql.len());
         // Split on semicolons, but be careful about content within parentheses and quotes
         for raw_stmt in Self::split_top_level_statements(sql) {
@@ -192,7 +199,7 @@ impl Catalog {
             let no_comments = Self::strip_leading_comments(trimmed);
             let upper = no_comments.to_uppercase();
             if upper.starts_with("CREATE DOMAIN") {
-                self.try_parse_create_domain(no_comments);
+                self.try_parse_create_domain(no_comments, dialect);
                 // Replace with empty to remove from output
             } else if upper.starts_with("CREATE SCHEMA") {
                 // Silently ignore
@@ -317,7 +324,7 @@ impl Catalog {
     /// Try to parse `CREATE DOMAIN <name> AS <type> [NOT NULL] [CHECK ...]`.
     /// Returns true if the SQL was a CREATE DOMAIN statement (even if parsing
     /// was only partial).
-    fn try_parse_create_domain(&mut self, sql: &str) -> bool {
+    fn try_parse_create_domain(&mut self, sql: &str, dialect: &SqlDialect) -> bool {
         let trimmed = sql.trim();
         let upper = trimmed.to_uppercase();
         if !upper.starts_with("CREATE DOMAIN") {
@@ -347,9 +354,9 @@ impl Catalog {
         let not_null = rest_upper.contains("NOT NULL");
 
         // Parse the base type through sqlparser to normalize it
-        let dialect = PostgreSqlDialect {};
+        let parser_dialect = dialect.to_sqlparser_dialect();
         let normalized = match Parser::parse_sql(
-            &dialect,
+            parser_dialect.as_ref(),
             &format!("CREATE TABLE _domain_tmp_ (_col_ {})", base_type_raw),
         ) {
             Ok(stmts) => {
@@ -383,9 +390,13 @@ impl Catalog {
 // ---------------------------------------------------------------------------
 
 impl Catalog {
-    fn process_statement(&mut self, stmt: Statement) -> Result<(), ScytheError> {
+    fn process_statement(
+        &mut self,
+        stmt: Statement,
+        dialect: &SqlDialect,
+    ) -> Result<(), ScytheError> {
         match stmt {
-            Statement::CreateTable(ct) => self.process_create_table(ct),
+            Statement::CreateTable(ct) => self.process_create_table(ct, dialect),
             Statement::AlterTable(alter_table) => {
                 self.process_alter_table(alter_table.name, alter_table.operations)
             }
@@ -414,7 +425,11 @@ impl Catalog {
     // CREATE TABLE
     // -----------------------------------------------------------------------
 
-    fn process_create_table(&mut self, ct: sqlparser::ast::CreateTable) -> Result<(), ScytheError> {
+    fn process_create_table(
+        &mut self,
+        ct: sqlparser::ast::CreateTable,
+        dialect: &SqlDialect,
+    ) -> Result<(), ScytheError> {
         let table_name = object_name_to_key(&ct.name);
         let mut columns: Vec<Column> = Vec::new();
 
@@ -422,9 +437,39 @@ impl Catalog {
             let col_name = ident_to_lower(&col_def.name);
             let (sql_type, is_serial) = normalize_data_type(&col_def.data_type, &self.domains);
 
+            // Handle MySQL/SQLite inline ENUM: if the data type is an Enum variant,
+            // register it in the catalog and use the enum type name.
+            let sql_type = if let sqlparser::ast::DataType::Enum(variants, _bits) =
+                &col_def.data_type
+            {
+                if matches!(dialect, SqlDialect::MySQL | SqlDialect::SQLite) && !variants.is_empty()
+                {
+                    // Synthesize an enum name from table_name + col_name
+                    let enum_key = format!("{}_{}", table_name.replace('.', "_"), col_name);
+                    let values: Vec<String> = variants
+                        .iter()
+                        .map(|v| match v {
+                            sqlparser::ast::EnumMember::Name(name) => {
+                                name.trim_matches('\'').to_string()
+                            }
+                            sqlparser::ast::EnumMember::NamedValue(name, _) => {
+                                name.trim_matches('\'').to_string()
+                            }
+                        })
+                        .collect();
+                    self.enums.insert(enum_key.clone(), EnumType { values });
+                    enum_key
+                } else {
+                    sql_type
+                }
+            } else {
+                sql_type
+            };
+
             let mut nullable = !is_serial; // serial types are NOT NULL
             let mut default: Option<String> = None;
             let mut primary_key = false;
+            let mut is_auto_increment = false;
 
             for opt_def in &col_def.options {
                 match &opt_def.option {
@@ -448,8 +493,25 @@ impl Catalog {
                     } => {
                         default = Some(format!("GENERATED ALWAYS AS ({})", expr));
                     }
+                    ColumnOption::DialectSpecific(tokens) => {
+                        // Detect AUTO_INCREMENT (MySQL) and AUTOINCREMENT (SQLite)
+                        let joined: String = tokens
+                            .iter()
+                            .map(|t| t.to_string().to_uppercase())
+                            .collect::<Vec<_>>()
+                            .join("");
+                        if joined.contains("AUTO_INCREMENT") || joined.contains("AUTOINCREMENT") {
+                            is_auto_increment = true;
+                            nullable = false;
+                        }
+                    }
                     _ => {}
                 }
+            }
+
+            // AUTO_INCREMENT / AUTOINCREMENT implies NOT NULL
+            if is_auto_increment {
+                nullable = false;
             }
 
             columns.push(Column {
@@ -857,5 +919,154 @@ mod tests {
         assert_eq!(table.columns[0].sql_type, "timestamp");
         assert_eq!(table.columns[1].sql_type, "timestamptz");
         assert_eq!(table.columns[2].sql_type, "timestamptz");
+    }
+
+    // -----------------------------------------------------------------------
+    // MySQL dialect tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_mysql_basic_create_table() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE users (
+                id INT PRIMARY KEY,
+                name VARCHAR(255) NOT NULL,
+                email TEXT,
+                active BOOLEAN NOT NULL DEFAULT true
+            );"],
+            &crate::dialect::SqlDialect::MySQL,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("users").unwrap();
+        assert_eq!(table.columns.len(), 4);
+
+        let id = &table.columns[0];
+        assert_eq!(id.name, "id");
+        assert!(id.primary_key);
+        assert!(!id.nullable);
+
+        let name_col = &table.columns[1];
+        assert_eq!(name_col.name, "name");
+        assert!(!name_col.nullable);
+
+        let email = &table.columns[2];
+        assert_eq!(email.name, "email");
+        assert!(email.nullable);
+    }
+
+    #[test]
+    fn test_mysql_auto_increment() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE t (
+                id INT AUTO_INCREMENT PRIMARY KEY,
+                name VARCHAR(100)
+            );"],
+            &crate::dialect::SqlDialect::MySQL,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("t").unwrap();
+        assert_eq!(table.columns[0].name, "id");
+        assert!(!table.columns[0].nullable);
+        assert!(table.columns[0].primary_key);
+    }
+
+    #[test]
+    fn test_mysql_inline_enum() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE t (
+                status ENUM('active', 'inactive', 'pending') NOT NULL
+            );"],
+            &crate::dialect::SqlDialect::MySQL,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("t").unwrap();
+        assert_eq!(table.columns[0].name, "status");
+        assert!(!table.columns[0].nullable);
+        // The inline enum should have been registered in the catalog
+        let enum_type = catalog.get_enum("t_status").unwrap();
+        assert_eq!(enum_type.values, vec!["active", "inactive", "pending"]);
+    }
+
+    #[test]
+    fn test_mysql_types() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE t (
+                a TINYINT,
+                b MEDIUMINT,
+                c BIGINT,
+                d DOUBLE,
+                e DATETIME,
+                f BLOB,
+                g JSON
+            );"],
+            &crate::dialect::SqlDialect::MySQL,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("t").unwrap();
+        assert_eq!(table.columns.len(), 7);
+    }
+
+    // -----------------------------------------------------------------------
+    // SQLite dialect tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_sqlite_basic_create_table() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE users (
+                id INTEGER PRIMARY KEY,
+                name TEXT NOT NULL,
+                email TEXT,
+                score REAL
+            );"],
+            &crate::dialect::SqlDialect::SQLite,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("users").unwrap();
+        assert_eq!(table.columns.len(), 4);
+
+        let id = &table.columns[0];
+        assert_eq!(id.name, "id");
+        assert!(id.primary_key);
+        assert!(!id.nullable);
+
+        let score = &table.columns[3];
+        assert_eq!(score.name, "score");
+        assert!(score.nullable);
+    }
+
+    #[test]
+    fn test_sqlite_types() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE t (
+                a INTEGER,
+                b REAL,
+                c TEXT,
+                d BLOB,
+                e NUMERIC,
+                f BOOLEAN
+            );"],
+            &crate::dialect::SqlDialect::SQLite,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("t").unwrap();
+        assert_eq!(table.columns.len(), 6);
+    }
+
+    // -----------------------------------------------------------------------
+    // Dialect backward compat: from_ddl still works
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_from_ddl_backward_compat() {
+        // Ensure the original from_ddl signature still works
+        let catalog = Catalog::from_ddl(&["CREATE TABLE t (id INTEGER);"]).unwrap();
+        assert!(catalog.get_table("t").is_some());
     }
 }

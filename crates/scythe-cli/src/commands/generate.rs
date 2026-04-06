@@ -8,7 +8,8 @@ use ahash::AHashSet;
 use scythe_codegen::{generate, generate_single_enum_def, load_or_default_manifest};
 use scythe_core::analyzer::{EnumInfo, analyze};
 use scythe_core::catalog::Catalog;
-use scythe_core::parser::parse_query;
+use scythe_core::dialect::SqlDialect;
+use scythe_core::parser::parse_query_with_dialect;
 
 use super::shared::{resolve_globs, split_query_file};
 
@@ -97,8 +98,9 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
             .collect::<Result<_, _>>()?;
         let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
-        // 5. Build catalog
-        let catalog = Catalog::from_ddl(&schema_refs)?;
+        // 5. Build catalog with the configured dialect
+        let dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
+        let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &dialect)?;
 
         // 6. Resolve query files via glob
         let query_files = resolve_globs(&sql_config.queries)?;
@@ -127,7 +129,7 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
         let mut results: Vec<QueryResult> = Vec::new();
 
         for block in &all_query_blocks {
-            let parsed = parse_query(block)?;
+            let parsed = parse_query_with_dialect(block, &dialect)?;
             let analyzed = analyze(&catalog, &parsed)?;
             let enums = analyzed.enums.clone();
             let code = generate(&analyzed)?;
@@ -235,7 +237,8 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
             .collect::<Result<_, _>>()?;
         let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
-        let catalog = Catalog::from_ddl(&schema_refs)?;
+        let dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
+        let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &dialect)?;
 
         let query_files = resolve_globs(&sql_config.queries)?;
         let mut all_query_blocks = Vec::new();
@@ -255,7 +258,7 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let mut query_names: Vec<String> = Vec::new();
 
         for block in &all_query_blocks {
-            let parsed = parse_query(block)?;
+            let parsed = parse_query_with_dialect(block, &dialect)?;
             let analyzed = analyze(&catalog, &parsed)?;
 
             query_names.push(analyzed.name.clone());
