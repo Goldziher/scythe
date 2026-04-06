@@ -123,7 +123,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         let mut out = String::new();
         let _ = writeln!(out, "data class {}(", struct_name);
         for (i, col) in columns.iter().enumerate() {
-            let sep = if i + 1 < columns.len() { "," } else { "," };
+            let sep = if i + 1 < columns.len() { "," } else { "" };
             let _ = writeln!(out, "    val {}: {}{}", col.field_name, col.full_type, sep);
         }
         let _ = write!(out, ")");
@@ -159,13 +159,38 @@ impl CodegenBackend for KotlinJdbcBackend {
         let mut out = String::new();
 
         match &analyzed.command {
-            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+            QueryCommand::Exec => {
                 let _ = writeln!(
                     out,
                     "fun {}(conn: Connection{}{}) {{",
                     func_name, sep, param_list
                 );
                 let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
+                for (i, param) in params.iter().enumerate() {
+                    let setter = ps_setter(&param.lang_type);
+                    let _ = writeln!(
+                        out,
+                        "        ps.{}({}, {})",
+                        setter,
+                        i + 1,
+                        param.field_name
+                    );
+                }
+                let _ = writeln!(out, "        ps.executeUpdate()");
+                let _ = writeln!(out, "    }}");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "fun {}(conn: Connection{}{}): Int {{",
+                    func_name, sep, param_list
+                );
+                let _ = writeln!(
+                    out,
+                    "    return conn.prepareStatement(\"{}\").use {{ ps ->",
+                    sql
+                );
                 for (i, param) in params.iter().enumerate() {
                     let setter = ps_setter(&param.lang_type);
                     let _ = writeln!(
@@ -201,7 +226,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let _ = writeln!(out, "            return if (rs.next()) {}(", struct_name);
                 for (i, col) in columns.iter().enumerate() {
                     let getter = rs_getter(&col.lang_type);
-                    let sep = if i + 1 < columns.len() { "," } else { "," };
+                    let sep = if i + 1 < columns.len() { "," } else { "" };
                     let _ = writeln!(
                         out,
                         "                {} = rs.{}(\"{}\"){}",
@@ -240,7 +265,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let _ = writeln!(out, "                result.add({}(", struct_name);
                 for (i, col) in columns.iter().enumerate() {
                     let getter = rs_getter(&col.lang_type);
-                    let sep = if i + 1 < columns.len() { "," } else { "," };
+                    let sep = if i + 1 < columns.len() { "," } else { "" };
                     let _ = writeln!(
                         out,
                         "                    {} = rs.{}(\"{}\"){}",
@@ -288,7 +313,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let sep = if i + 1 < composite.fields.len() {
                     ","
                 } else {
-                    ","
+                    ""
                 };
                 let _ = writeln!(out, "    val {}: Any?{}", field_name, sep);
             }

@@ -62,6 +62,8 @@ impl CodegenBackend for ElixirPostgrexBackend {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", struct_name);
+        let _ = writeln!(out, "  @moduledoc \"Row type for {} queries.\"", query_name);
+        let _ = writeln!(out);
 
         // Generate typespec
         let _ = writeln!(out, "  @type t :: %__MODULE__{{");
@@ -124,6 +126,43 @@ impl CodegenBackend for ElixirPostgrexBackend {
             )
         };
 
+        // Build @spec
+        let param_specs = if params.is_empty() {
+            String::new()
+        } else {
+            let specs: Vec<String> = params.iter().map(|p| p.full_type.clone()).collect();
+            format!(", {}", specs.join(", "))
+        };
+        match &analyzed.command {
+            QueryCommand::One => {
+                let _ = writeln!(
+                    out,
+                    "@spec {}(pid(){}) :: {{:ok, %{}{{}}}} | {{:error, term()}}",
+                    func_name, param_specs, struct_name
+                );
+            }
+            QueryCommand::Many | QueryCommand::Batch => {
+                let _ = writeln!(
+                    out,
+                    "@spec {}(pid(){}) :: {{:ok, [%{}{{}}]}} | {{:error, term()}}",
+                    func_name, param_specs, struct_name
+                );
+            }
+            QueryCommand::Exec => {
+                let _ = writeln!(
+                    out,
+                    "@spec {}(pid(){}) :: :ok | {{:error, term()}}",
+                    func_name, param_specs
+                );
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "@spec {}(pid(){}) :: {{:ok, non_neg_integer()}} | {{:error, term()}}",
+                    func_name, param_specs
+                );
+            }
+        }
         let _ = writeln!(out, "def {}(conn{}{}) do", func_name, sep, param_list);
 
         match &analyzed.command {
@@ -211,6 +250,12 @@ impl CodegenBackend for ElixirPostgrexBackend {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", type_name);
+        let _ = writeln!(
+            out,
+            "  @moduledoc \"Enum type for {}.\"",
+            enum_info.sql_name
+        );
+        let _ = writeln!(out);
         let _ = writeln!(out, "  @type t :: String.t()");
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
@@ -237,7 +282,23 @@ impl CodegenBackend for ElixirPostgrexBackend {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", name);
-        let _ = writeln!(out, "  defstruct []");
+        let _ = writeln!(
+            out,
+            "  @moduledoc \"Composite type for {}.\"",
+            composite.sql_name
+        );
+        let _ = writeln!(out);
+        if composite.fields.is_empty() {
+            let _ = writeln!(out, "  defstruct []");
+        } else {
+            let fields = composite
+                .fields
+                .iter()
+                .map(|f| format!(":{}", to_snake_case(&f.name)))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let _ = writeln!(out, "  defstruct [{}]", fields);
+        }
         let _ = write!(out, "end");
         Ok(out)
     }

@@ -5,6 +5,7 @@ use scythe_backend::manifest::{BackendManifest, load_manifest};
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
+use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -242,7 +243,24 @@ impl CodegenBackend for CsharpNpgsqlBackend {
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
-        let _ = writeln!(out, "public record {}();", name);
+        if composite.fields.is_empty() {
+            let _ = writeln!(out, "public record {}();", name);
+        } else {
+            let _ = writeln!(out, "public record {}(", name);
+            for (i, field) in composite.fields.iter().enumerate() {
+                let cs_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                    .map(|t| t.into_owned())
+                    .unwrap_or_else(|_| "object".to_string());
+                let field_name = to_pascal_case(&field.name);
+                let sep = if i + 1 < composite.fields.len() {
+                    ","
+                } else {
+                    ""
+                };
+                let _ = writeln!(out, "    {} {}{}", cs_type, field_name, sep);
+            }
+            let _ = write!(out, ");");
+        }
         Ok(out)
     }
 }

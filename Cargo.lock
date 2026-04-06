@@ -939,6 +939,7 @@ dependencies = [
  "ahash",
  "clap",
  "glob",
+ "scythe-codegen",
  "serde",
  "serde_json",
 ]

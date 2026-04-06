@@ -218,7 +218,12 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("        };\n");
     out.push_str("        match scythe_codegen::generate_with_backend(&analyzed, &*backend) {\n");
     out.push_str("            Ok(generated) => {\n");
-    out.push_str("                let mut code = String::from(\"#![allow(dead_code, unused_imports)]\\n\");\n");
+    out.push_str("                let header = backend.file_header();\n");
+    out.push_str("                let mut code = if header.is_empty() {\n");
+    out.push_str("                    String::from(\"#![allow(dead_code, unused_imports)]\\n\")\n");
+    out.push_str("                } else {\n");
+    out.push_str("                    let mut h = header; h.push('\\n'); h\n");
+    out.push_str("                };\n");
     out.push_str("                if let Some(ref s) = generated.enum_def { code.push_str(s); code.push('\\n'); }\n");
     out.push_str("                if let Some(ref s) = generated.model_struct { code.push_str(s); code.push('\\n'); }\n");
     out.push_str("                if let Some(ref s) = generated.row_struct { code.push_str(s); code.push('\\n'); }\n");
@@ -235,12 +240,13 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     );
     out.push_str("                        );\n");
     out.push_str("                    } else {\n");
-    out.push_str("                        // For other languages, just check non-empty output\n");
+    out.push_str("                        // Structural validation for non-Rust backends\n");
+    out.push_str("                        let errors = scythe_codegen::validation::validate_structural(&code, backend_name);\n");
     out.push_str("                        assert!(\n");
-    out.push_str("                            !code.trim().is_empty(),\n");
+    out.push_str("                            errors.is_empty(),\n");
     let _ = writeln!(
         out,
-        "                            \"backend {{}} generated empty output for {{}}\", backend_name, {:?}",
+        "                            \"backend {{}} structural validation failed for {{}}: {{:?}}\", backend_name, {:?}, errors",
         fixture.name
     );
     out.push_str("                        );\n");

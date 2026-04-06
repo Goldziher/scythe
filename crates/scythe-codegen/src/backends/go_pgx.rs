@@ -5,6 +5,7 @@ use scythe_backend::manifest::{BackendManifest, load_manifest};
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
+use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -107,7 +108,7 @@ impl CodegenBackend for GoPgxBackend {
         let mut out = String::new();
 
         match &analyzed.command {
-            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+            QueryCommand::Exec => {
                 // :exec - returns error only
                 let _ = writeln!(
                     out,
@@ -121,6 +122,29 @@ impl CodegenBackend for GoPgxBackend {
                 };
                 let _ = writeln!(out, "\t_, err := db.Exec(ctx, \"{}\"{})", sql, args_str);
                 let _ = writeln!(out, "\treturn err");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                // :exec_rows - returns affected row count
+                let _ = writeln!(
+                    out,
+                    "func {}(ctx context.Context, db *pgxpool.Pool{}{}) (int64, error) {{",
+                    func_name, sep, param_list
+                );
+                let args_str = if args.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", args.join(", "))
+                };
+                let _ = writeln!(
+                    out,
+                    "\tresult, err := db.Exec(ctx, \"{}\"{})",
+                    sql, args_str
+                );
+                let _ = writeln!(out, "\tif err != nil {{");
+                let _ = writeln!(out, "\t\treturn 0, err");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn result.RowsAffected(), nil");
                 let _ = write!(out, "}}");
             }
             QueryCommand::One => {
@@ -208,12 +232,17 @@ impl CodegenBackend for GoPgxBackend {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
         let _ = writeln!(out, "type {} struct {{", name);
-        for field in &composite.fields {
-            let field_name = to_pascal_case(&field.name);
-            let _ = writeln!(out, "\t{} interface{{}}", field_name);
-        }
         if composite.fields.is_empty() {
-            let _ = writeln!(out, "\t// TODO: fields");
+            // empty struct
+        } else {
+            for field in &composite.fields {
+                let field_name = to_pascal_case(&field.name);
+                let go_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                    .map(|t| t.into_owned())
+                    .unwrap_or_else(|_| "interface{}".to_string());
+                let json_tag = &field.name;
+                let _ = writeln!(out, "\t{} {} `json:\"{}\"`", field_name, go_type, json_tag);
+            }
         }
         let _ = write!(out, "}}");
         Ok(out)

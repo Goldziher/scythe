@@ -57,4 +57,10 @@ pub trait CodegenBackend: Send + Sync {
 
     /// Generate a composite type definition.
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError>;
+
+    /// Generate a file-level header (imports, docstring, etc).
+    /// Returns an empty string by default; backends may override.
+    fn file_header(&self) -> String {
+        String::new()
+    }
 }

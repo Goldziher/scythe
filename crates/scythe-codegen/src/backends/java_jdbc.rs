@@ -162,7 +162,11 @@ impl CodegenBackend for JavaJdbcBackend {
             .iter()
             .map(|c| {
                 let field_type = java_field_type(c);
-                format!("    {} {}", field_type, c.field_name)
+                if c.nullable {
+                    format!("    @Nullable {} {}", field_type, c.field_name)
+                } else {
+                    format!("    {} {}", field_type, c.field_name)
+                }
             })
             .collect::<Vec<_>>()
             .join(",\n");
@@ -221,7 +225,7 @@ impl CodegenBackend for JavaJdbcBackend {
         let mut out = String::new();
 
         match &analyzed.command {
-            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+            QueryCommand::Exec => {
                 let _ = writeln!(
                     out,
                     "public static void {}(Connection conn{}{}) throws SQLException {{",
@@ -229,7 +233,7 @@ impl CodegenBackend for JavaJdbcBackend {
                 );
                 let _ = writeln!(
                     out,
-                    "    try (PreparedStatement ps = conn.prepareStatement(\"{}\")) {{",
+                    "    try (var ps = conn.prepareStatement(\"{}\")) {{",
                     sql
                 );
                 for (i, param) in params.iter().enumerate() {
@@ -246,6 +250,31 @@ impl CodegenBackend for JavaJdbcBackend {
                 let _ = writeln!(out, "    }}");
                 let _ = write!(out, "}}");
             }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "public static int {}(Connection conn{}{}) throws SQLException {{",
+                    func_name, sep, param_list
+                );
+                let _ = writeln!(
+                    out,
+                    "    try (var ps = conn.prepareStatement(\"{}\")) {{",
+                    sql
+                );
+                for (i, param) in params.iter().enumerate() {
+                    let setter = ps_setter(&param.lang_type);
+                    let _ = writeln!(
+                        out,
+                        "        ps.{}({}, {});",
+                        setter,
+                        i + 1,
+                        param.field_name
+                    );
+                }
+                let _ = writeln!(out, "        return ps.executeUpdate();");
+                let _ = writeln!(out, "    }}");
+                let _ = write!(out, "}}");
+            }
             QueryCommand::One => {
                 let _ = writeln!(
                     out,
@@ -254,7 +283,7 @@ impl CodegenBackend for JavaJdbcBackend {
                 );
                 let _ = writeln!(
                     out,
-                    "    try (PreparedStatement ps = conn.prepareStatement(\"{}\")) {{",
+                    "    try (var ps = conn.prepareStatement(\"{}\")) {{",
                     sql
                 );
                 for (i, param) in params.iter().enumerate() {
@@ -288,7 +317,7 @@ impl CodegenBackend for JavaJdbcBackend {
                 );
                 let _ = writeln!(
                     out,
-                    "    try (PreparedStatement ps = conn.prepareStatement(\"{}\")) {{",
+                    "    try (var ps = conn.prepareStatement(\"{}\")) {{",
                     sql
                 );
                 for (i, param) in params.iter().enumerate() {
