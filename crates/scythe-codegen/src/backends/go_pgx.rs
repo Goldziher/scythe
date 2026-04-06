@@ -13,7 +13,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
-const DEFAULT_MANIFEST_TOML: &str = include_str!("../../../../backends/go-pgx/manifest.toml");
+const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/go-pgx.toml");
 
 pub struct GoPgxBackend {
     manifest: BackendManifest,

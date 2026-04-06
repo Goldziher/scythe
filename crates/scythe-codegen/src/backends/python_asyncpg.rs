@@ -14,8 +14,7 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::singularize;
 
-const DEFAULT_MANIFEST_TOML: &str =
-    include_str!("../../../../backends/python-asyncpg/manifest.toml");
+const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-asyncpg.toml");
 
 pub struct PythonAsyncpgBackend {
     manifest: BackendManifest,

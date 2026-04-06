@@ -15,8 +15,7 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::singularize;
 
 /// Default embedded manifest TOML for rust-tokio-postgres, used as fallback.
-const DEFAULT_MANIFEST_TOML: &str =
-    include_str!("../../../../backends/rust-tokio-postgres/manifest.toml");
+const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-tokio-postgres.toml");
 
 /// TokioPostgresBackend generates Rust code targeting the tokio-postgres crate.
 pub struct TokioPostgresBackend {

@@ -129,7 +129,7 @@ mod tests {
     use super::*;
 
     fn test_manifest() -> BackendManifest {
-        let toml_str = include_str!("../../../backends/rust-sqlx/manifest.toml");
+        let toml_str = include_str!("../test-manifests/rust-sqlx.toml");
         toml::from_str(toml_str).unwrap()
     }
 

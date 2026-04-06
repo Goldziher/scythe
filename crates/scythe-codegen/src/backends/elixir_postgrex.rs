@@ -12,8 +12,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
-const DEFAULT_MANIFEST_TOML: &str =
-    include_str!("../../../../backends/elixir-postgrex/manifest.toml");
+const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/elixir-postgrex.toml");
 
 pub struct ElixirPostgrexBackend {
     manifest: BackendManifest,

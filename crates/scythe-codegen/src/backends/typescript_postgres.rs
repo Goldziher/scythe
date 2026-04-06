@@ -14,8 +14,7 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::singularize;
 
-const DEFAULT_MANIFEST_TOML: &str =
-    include_str!("../../../../backends/typescript-postgres/manifest.toml");
+const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-postgres.toml");
 
 pub struct TypescriptPostgresBackend {
     manifest: BackendManifest,

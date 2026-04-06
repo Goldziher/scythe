@@ -1,6 +1,6 @@
 [package]
 name = "scythe-cli"
-version = "0.1.0"
+version = "0.0.1"
 edition = "2024"
 license = "MIT"
 description = "CLI for scythe -- SQL-to-code generator with linting and formatting"
@@ -18,9 +18,9 @@ ahash = { version = "0.8", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 glob = "0.3"
 regex = "1"
-scythe-codegen = { path = "../scythe-codegen" }
-scythe-core = { path = "../scythe-core" }
-scythe-lint = { path = "../scythe-lint" }
+scythe-codegen = { path = "../scythe-codegen", version = "0.0.1" }
+scythe-core = { path = "../scythe-core", version = "0.0.1" }
+scythe-lint = { path = "../scythe-lint", version = "0.0.1" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"
