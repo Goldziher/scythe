@@ -5,7 +5,7 @@
     <img width="400" alt="Scythe" src="https://raw.githubusercontent.com/Goldziher/scythe/main/logo-dark.svg" />
   </picture>
 
-  **Polyglot SQL-to-code generator with built-in linting and formatting.**
+  **SQL Compiler and Linter.**
 
 <div style="display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin: 20px 0;">
 
@@ -37,9 +37,7 @@
 
 ## What is Scythe
 
-Scythe parses your SQL schema and annotated queries, infers types with precision (including nullability from JOINs, COALESCE, and aggregates), and generates idiomatic, type-safe code for 13 language backends. It also lints your SQL with 93 rules and formats it via [sqruff](https://github.com/quarylabs/sqruff) integration.
-
-Inspired by [sqlc](https://github.com/sqlc-dev/sqlc), Scythe improves on it with standard SQL parameters (`$1`, `$2` instead of `sqlc.arg()`), smart nullability inference, a polyglot template-based backend architecture, and a comprehensive built-in linter.
+Scythe is an SQL compiler - compiling SQL into type safe and performant code in many programming languages. It is inspired by [sqlc](https://github.com/sqlc-dev/sqlc) - and is compatible with it. It is also an SQL linter and formatter - building on [sqruff](https://github.com/quarylabs/sqruff) with additional linting capabilties. Why? ORMs add unnecessary complexity, bloat and hard to debug errors. Making SQL the source of truth generates optimal, lightweight code with lower latency and better safety. 
 
 ## Installation
 
@@ -280,73 +278,6 @@ scythe migrate sqlc.yaml
 ```
 
 This generates a `scythe.toml` and rewrites `sqlc.arg()` calls to standard `$N` parameters.
-
-## Architecture
-
-```text
-SQL Schema + Annotated Queries
-        |
-        v
-    Parse (sqlparser-rs)
-        |
-        v
-    Analyze (type inference, nullability)
-        |
-        v
-    Lint (93 rules) + Format (sqruff)
-        |
-        v
-    Backend (manifest.toml + MiniJinja templates)
-        |
-        v
-    Generated Code (Rust, Python, TypeScript, Go, ...)
-```
-
-The analyzer outputs a language-neutral type vocabulary. Each backend maps these to concrete language types via `manifest.toml`:
-
-```toml
-# backends/rust-sqlx/manifest.toml
-[types.scalars]
-int32 = "i32"
-string = "String"
-datetime_tz = "chrono::DateTime<chrono::Utc>"
-json = "serde_json::Value"
-
-[types.containers]
-array = "Vec<{T}>"
-nullable = "Option<{T}>"
-```
-
-## Project Structure
-
-```text
-crates/
-  scythe-core/        # catalog, parser, analyzer, errors
-  scythe-codegen/     # code generation via backend templates
-  scythe-lint/        # 22 custom rules + 71 sqruff rules + engine
-  scythe-backend/     # type resolution, naming, MiniJinja rendering
-  scythe-cli/         # CLI binary (generate, check, lint, fmt, migrate)
-
-backends/
-  rust-sqlx/          # Rust + sqlx
-  rust-tokio-postgres/# Rust + tokio-postgres
-  python-psycopg3/    # Python + psycopg3
-  python-asyncpg/     # Python + asyncpg
-  typescript-postgres/# TypeScript + postgres.js
-  typescript-pg/      # TypeScript + pg
-  go-pgx/             # Go + pgx v5
-  java-jdbc/          # Java + JDBC
-  kotlin-jdbc/        # Kotlin + JDBC
-  csharp-npgsql/      # C# + Npgsql
-  elixir-postgrex/    # Elixir + Postgrex
-  ruby-pg/            # Ruby + pg gem
-  php-pdo/            # PHP + PDO
-
-tools/
-  migrate-fixtures/   # fixture migration utility
-  test-generator/     # generates Rust tests from JSON fixtures
-```
-
 ## License
 
 [MIT](LICENSE)
