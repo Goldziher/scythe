@@ -114,6 +114,10 @@ impl CodegenBackend for KotlinJdbcBackend {
         "kotlin-jdbc"
     }
 
+    fn file_header(&self) -> String {
+        "import java.sql.Connection\n".to_string()
+    }
+
     fn generate_row_struct(
         &self,
         query_name: &str,
@@ -122,11 +126,10 @@ impl CodegenBackend for KotlinJdbcBackend {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "data class {}(", struct_name);
-        for (i, col) in columns.iter().enumerate() {
-            let sep = if i + 1 < columns.len() { "," } else { "" };
-            let _ = writeln!(out, "    val {}: {}{}", col.field_name, col.full_type, sep);
+        for col in columns.iter() {
+            let _ = writeln!(out, "    val {}: {},", col.field_name, col.full_type);
         }
-        let _ = write!(out, ")");
+        let _ = writeln!(out, ")");
         Ok(out)
     }
 
@@ -149,112 +152,90 @@ impl CodegenBackend for KotlinJdbcBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = pg_to_jdbc_params(&clean_sql(&analyzed.sql));
 
-        let param_list = params
-            .iter()
-            .map(|p| format!("{}: {}", p.field_name, p.full_type))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let sep = if param_list.is_empty() { "" } else { ", " };
+        // Build function params: inline for single param (conn only), multi-line for 2+
+        let use_multiline_params = !params.is_empty();
 
         let mut out = String::new();
 
+        // Helper: write param setters
+        let write_setters = |out: &mut String, params: &[ResolvedParam]| {
+            for (i, param) in params.iter().enumerate() {
+                let setter = ps_setter(&param.lang_type);
+                let _ = writeln!(
+                    out,
+                    "        ps.{}({}, {})",
+                    setter,
+                    i + 1,
+                    param.field_name
+                );
+            }
+        };
+
+        // Helper: write function signature
+        let write_fn_sig =
+            |out: &mut String, name: &str, ret: &str, multiline: bool, params: &[ResolvedParam]| {
+                if multiline {
+                    let _ = writeln!(out, "fun {}(", name);
+                    let _ = writeln!(out, "    conn: Connection,");
+                    for p in params {
+                        let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
+                    }
+                    let _ = writeln!(out, "){} {{", ret);
+                } else {
+                    let _ = writeln!(out, "fun {}(conn: Connection){} {{", name, ret);
+                }
+            };
+
         match &analyzed.command {
             QueryCommand::Exec => {
-                let _ = writeln!(
-                    out,
-                    "fun {}(conn: Connection{}{}) {{",
-                    func_name, sep, param_list
-                );
+                write_fn_sig(&mut out, &func_name, "", use_multiline_params, params);
                 let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
-                for (i, param) in params.iter().enumerate() {
-                    let setter = ps_setter(&param.lang_type);
-                    let _ = writeln!(
-                        out,
-                        "        ps.{}({}, {})",
-                        setter,
-                        i + 1,
-                        param.field_name
-                    );
-                }
+                write_setters(&mut out, params);
                 let _ = writeln!(out, "        ps.executeUpdate()");
                 let _ = writeln!(out, "    }}");
-                let _ = write!(out, "}}");
+                let _ = writeln!(out, "}}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(
-                    out,
-                    "fun {}(conn: Connection{}{}): Int {{",
-                    func_name, sep, param_list
-                );
+                write_fn_sig(&mut out, &func_name, ": Int", use_multiline_params, params);
                 let _ = writeln!(
                     out,
                     "    return conn.prepareStatement(\"{}\").use {{ ps ->",
                     sql
                 );
-                for (i, param) in params.iter().enumerate() {
-                    let setter = ps_setter(&param.lang_type);
-                    let _ = writeln!(
-                        out,
-                        "        ps.{}({}, {})",
-                        setter,
-                        i + 1,
-                        param.field_name
-                    );
-                }
+                write_setters(&mut out, params);
                 let _ = writeln!(out, "        ps.executeUpdate()");
                 let _ = writeln!(out, "    }}");
-                let _ = write!(out, "}}");
+                let _ = writeln!(out, "}}");
             }
             QueryCommand::One => {
-                let _ = writeln!(
-                    out,
-                    "fun {}(conn: Connection{}{}): {}? {{",
-                    func_name, sep, param_list, struct_name
-                );
+                let ret = format!(": {}?", struct_name);
+                write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
                 let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
-                for (i, param) in params.iter().enumerate() {
-                    let setter = ps_setter(&param.lang_type);
-                    let _ = writeln!(
-                        out,
-                        "        ps.{}({}, {})",
-                        setter,
-                        i + 1,
-                        param.field_name
-                    );
-                }
+                write_setters(&mut out, params);
                 let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
-                let _ = writeln!(out, "            return if (rs.next()) {}(", struct_name);
-                for (i, col) in columns.iter().enumerate() {
+                let _ = writeln!(out, "            return if (rs.next()) {{");
+                let _ = writeln!(out, "                {}(", struct_name);
+                for col in columns.iter() {
                     let getter = rs_getter(&col.lang_type);
-                    let sep = if i + 1 < columns.len() { "," } else { "" };
                     let _ = writeln!(
                         out,
-                        "                {} = rs.{}(\"{}\"){}",
-                        col.field_name, getter, col.name, sep
+                        "                    {} = rs.{}(\"{}\"),",
+                        col.field_name, getter, col.name
                     );
                 }
-                let _ = writeln!(out, "            ) else null");
+                let _ = writeln!(out, "                )");
+                let _ = writeln!(out, "            }} else {{");
+                let _ = writeln!(out, "                null");
+                let _ = writeln!(out, "            }}");
                 let _ = writeln!(out, "        }}");
                 let _ = writeln!(out, "    }}");
-                let _ = write!(out, "}}");
+                let _ = writeln!(out, "}}");
             }
             QueryCommand::Many | QueryCommand::Batch => {
-                let _ = writeln!(
-                    out,
-                    "fun {}(conn: Connection{}{}): List<{}> {{",
-                    func_name, sep, param_list, struct_name
-                );
+                let ret = format!(": List<{}>", struct_name);
+                write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
                 let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
-                for (i, param) in params.iter().enumerate() {
-                    let setter = ps_setter(&param.lang_type);
-                    let _ = writeln!(
-                        out,
-                        "        ps.{}({}, {})",
-                        setter,
-                        i + 1,
-                        param.field_name
-                    );
-                }
+                write_setters(&mut out, params);
                 let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                 let _ = writeln!(
                     out,
@@ -262,22 +243,23 @@ impl CodegenBackend for KotlinJdbcBackend {
                     struct_name
                 );
                 let _ = writeln!(out, "            while (rs.next()) {{");
-                let _ = writeln!(out, "                result.add({}(", struct_name);
-                for (i, col) in columns.iter().enumerate() {
+                let _ = writeln!(out, "                result.add(");
+                let _ = writeln!(out, "                    {}(", struct_name);
+                for col in columns.iter() {
                     let getter = rs_getter(&col.lang_type);
-                    let sep = if i + 1 < columns.len() { "," } else { "" };
                     let _ = writeln!(
                         out,
-                        "                    {} = rs.{}(\"{}\"){}",
-                        col.field_name, getter, col.name, sep
+                        "                        {} = rs.{}(\"{}\"),",
+                        col.field_name, getter, col.name
                     );
                 }
-                let _ = writeln!(out, "                ))");
+                let _ = writeln!(out, "                    ),");
+                let _ = writeln!(out, "                )");
                 let _ = writeln!(out, "            }}");
                 let _ = writeln!(out, "            return result");
                 let _ = writeln!(out, "        }}");
                 let _ = writeln!(out, "    }}");
-                let _ = write!(out, "}}");
+                let _ = writeln!(out, "}}");
             }
         }
 
@@ -297,7 +279,7 @@ impl CodegenBackend for KotlinJdbcBackend {
             };
             let _ = writeln!(out, "    {}(\"{}\"){}", variant, value, sep);
         }
-        let _ = write!(out, "}}");
+        let _ = writeln!(out, "}}");
         Ok(out)
     }
 
@@ -308,17 +290,12 @@ impl CodegenBackend for KotlinJdbcBackend {
         if composite.fields.is_empty() {
             let _ = writeln!(out, "    // TODO: fields");
         } else {
-            for (i, field) in composite.fields.iter().enumerate() {
+            for field in composite.fields.iter() {
                 let field_name = to_camel_case(&field.name);
-                let sep = if i + 1 < composite.fields.len() {
-                    ","
-                } else {
-                    ""
-                };
-                let _ = writeln!(out, "    val {}: Any?{}", field_name, sep);
+                let _ = writeln!(out, "    val {}: Any?,", field_name);
             }
         }
-        let _ = write!(out, ")");
+        let _ = writeln!(out, ")");
         Ok(out)
     }
 }
