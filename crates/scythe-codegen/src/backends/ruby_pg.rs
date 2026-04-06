@@ -36,18 +36,6 @@ impl RubyPgBackend {
     }
 }
 
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 /// Map a neutral type to a Ruby type coercion method.
 fn ruby_coercion(neutral_type: &str) -> &'static str {
     match neutral_type {
@@ -100,7 +88,7 @@ impl CodegenBackend for RubyPgBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = clean_sql(&analyzed.sql);
+        let sql = super::clean_sql(&analyzed.sql);
         let mut out = String::new();
 
         // Parameter list

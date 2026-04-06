@@ -38,18 +38,6 @@ impl CsharpNpgsqlBackend {
     }
 }
 
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 /// Map a neutral type to an Npgsql reader method.
 fn reader_method(neutral_type: &str) -> &'static str {
     match neutral_type {
@@ -121,7 +109,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = rewrite_params(&clean_sql(&analyzed.sql));
+        let sql = rewrite_params(&super::clean_sql(&analyzed.sql));
         let mut out = String::new();
 
         // Build C# parameter list

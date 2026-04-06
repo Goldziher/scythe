@@ -16,6 +16,31 @@ use scythe_core::errors::{ErrorCode, ScytheError};
 
 use crate::backend_trait::CodegenBackend;
 
+/// Strip SQL comments, trailing semicolons, and excess whitespace.
+/// Preserves newlines between lines.
+pub(crate) fn clean_sql(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_string()
+}
+
+/// Like clean_sql but joins lines with spaces (for languages that embed SQL inline).
+pub(crate) fn clean_sql_oneline(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_string()
+}
+
 /// Get a backend by name.
 pub fn get_backend(name: &str) -> Result<Box<dyn CodegenBackend>, ScytheError> {
     match name {

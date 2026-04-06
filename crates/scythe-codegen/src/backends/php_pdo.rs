@@ -36,18 +36,6 @@ impl PhpPdoBackend {
     }
 }
 
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 /// Rewrite $1, $2, ... to :p1, :p2, ...
 fn rewrite_params(sql: &str) -> String {
     let mut result = sql.to_string();
@@ -92,8 +80,8 @@ impl CodegenBackend for PhpPdoBackend {
         // Readonly class with constructor
         let _ = writeln!(out, "readonly class {} {{", struct_name);
         let _ = writeln!(out, "    public function __construct(");
-        for (i, c) in columns.iter().enumerate() {
-            let sep = if i + 1 < columns.len() { "," } else { "," };
+        for c in columns.iter() {
+            let sep = ",";
             let _ = writeln!(
                 out,
                 "        public {} ${}{}",
@@ -109,8 +97,8 @@ impl CodegenBackend for PhpPdoBackend {
             "    public static function fromRow(array $row): self {{"
         );
         let _ = writeln!(out, "        return new self(");
-        for (i, c) in columns.iter().enumerate() {
-            let sep = if i + 1 < columns.len() { "," } else { "," };
+        for c in columns.iter() {
+            let sep = ",";
             let cast = php_cast(&c.neutral_type);
             if c.nullable {
                 let _ = writeln!(
@@ -153,7 +141,7 @@ impl CodegenBackend for PhpPdoBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = rewrite_params(&clean_sql(&analyzed.sql));
+        let sql = rewrite_params(&super::clean_sql(&analyzed.sql));
         let mut out = String::new();
 
         // Build PHP parameter list

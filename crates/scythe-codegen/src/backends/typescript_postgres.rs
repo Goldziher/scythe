@@ -39,18 +39,6 @@ impl TypescriptPostgresBackend {
     }
 }
 
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 impl CodegenBackend for TypescriptPostgresBackend {
     fn name(&self) -> &str {
         "typescript-postgres"
@@ -106,7 +94,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
         let _sep = if param_list.is_empty() { "" } else { ", " };
 
         // Clean SQL and rewrite $1, $2 to ${paramName} for postgres.js tagged template
-        let sql_clean = clean_sql(&analyzed.sql);
+        let sql_clean = super::clean_sql(&analyzed.sql);
         let sql_template = rewrite_params_template(&sql_clean, analyzed, params);
 
         // Build function params: inline if short, multi-line if long (biome compliance)

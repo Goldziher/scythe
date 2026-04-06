@@ -39,18 +39,6 @@ impl PythonAsyncpgBackend {
     }
 }
 
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 impl CodegenBackend for PythonAsyncpgBackend {
     fn name(&self) -> &str {
         "python-asyncpg"
@@ -118,7 +106,7 @@ impl CodegenBackend for PythonAsyncpgBackend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         // Clean SQL — asyncpg uses $1, $2 positional params natively
-        let sql = clean_sql(&analyzed.sql);
+        let sql = super::clean_sql(&analyzed.sql);
 
         match &analyzed.command {
             QueryCommand::One => {
