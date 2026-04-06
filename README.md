@@ -37,7 +37,13 @@
 
 ## What is Scythe
 
-Scythe is an SQL compiler - compiling SQL into type safe and performant code in many programming languages. It is inspired by [sqlc](https://github.com/sqlc-dev/sqlc) - and is compatible with it. It is also an SQL linter and formatter - building on [sqruff](https://github.com/quarylabs/sqruff) with additional linting capabilties. Why? ORMs add unnecessary complexity, bloat and hard to debug errors. Making SQL the source of truth generates optimal, lightweight code with lower latency and better safety. 
+Scythe is an SQL compiler and linter. It is inspired by [sqlc](https://github.com/sqlc-dev/sqlc) and [sqlfluff](https://github.com/sqlfluff/sqlfluff). It builds on [sqruff](https://github.com/quarylabs/sqruff) with additional linting capabilties. Why? ORMs add unnecessary complexity, bloat and hard to debug errors. Making SQL the source of truth makes life easier and simpler. You also gain:
+
+1. zero bloat
+2. max performance
+3. safer code
+4. better control
+
 
 ## Installation
 
