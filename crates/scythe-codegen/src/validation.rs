@@ -1,3 +1,5 @@
+use std::process::Command;
+
 /// Validate generated code structurally for a given backend.
 /// Returns a list of errors (empty = passed).
 pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
@@ -20,18 +22,14 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
 fn validate_python(code: &str) -> Vec<String> {
     let mut errors = Vec::new();
 
-    // The `from __future__` import is only present when a struct/dataclass is
-    // generated (model_struct or row_struct). For exec-only queries the snippet
-    // contains only a bare function, so we gate this check.
-    let has_struct = code.contains("@dataclass") || code.contains("class ");
-    if has_struct && !code.contains("from __future__ import annotations") {
-        errors.push("missing `from __future__ import annotations`".into());
+    // Check for pre-3.10 typing imports (should NOT be used)
+    if code.contains("from __future__ import annotations") {
+        errors.push(
+            "unnecessary `from __future__ import annotations` — target is Python 3.10+".into(),
+        );
     }
 
-    // Struct check: only required when the assembled code includes more than
-    // just a function (i.e. when a row/model struct was emitted). We detect
-    // this by looking for a dataclass or class definition. If neither is
-    // present *and* there is no function definition either, that is an error.
+    let has_struct = code.contains("@dataclass") || code.contains("class ");
     if !has_struct {
         // No struct -- at least a function must be present.
         if !code.contains("async def ") && !code.contains("def ") {
@@ -291,6 +289,196 @@ fn validate_php(code: &str) -> Vec<String> {
     errors
 }
 
+/// Validate generated code using real language tools (if available).
+/// Returns None if the tool is not installed, Some(errors) otherwise.
+pub fn validate_with_tools(code: &str, backend_name: &str) -> Option<Vec<String>> {
+    match backend_name {
+        name if name.starts_with("python") => validate_python_tools(code),
+        name if name.starts_with("typescript") => validate_typescript_tools(code),
+        name if name.starts_with("go") => validate_go_tools(code),
+        name if name.starts_with("ruby") => validate_ruby_tools(code),
+        name if name.starts_with("php") => validate_php_tools(code),
+        name if name.starts_with("kotlin") => validate_kotlin_tools(code),
+        _ => None,
+    }
+}
+
+fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
+    let path = std::env::temp_dir().join(format!("scythe_validate{ext}"));
+    std::fs::write(&path, code).ok()?;
+    Some(path)
+}
+
+fn validate_python_tools(code: &str) -> Option<Vec<String>> {
+    if Command::new("python3").arg("--version").output().is_err() {
+        return None;
+    }
+    let path = write_temp(code, ".py")?;
+    let mut errors = vec![];
+
+    // ast.parse — syntax check
+    let out = Command::new("python3")
+        .args([
+            "-c",
+            &format!("import ast; ast.parse(open({:?}).read())", path),
+        ])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        errors.push(format!(
+            "python syntax: {}",
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .next()
+                .unwrap_or("")
+        ));
+    }
+
+    // ruff check
+    if Command::new("ruff").arg("--version").output().is_ok() {
+        let out = Command::new("ruff")
+            .args([
+                "check",
+                "--select",
+                "E,F,I",
+                "--target-version",
+                "py310",
+                path.to_str()?,
+            ])
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            for line in String::from_utf8_lossy(&out.stdout).lines().take(3) {
+                if !line.trim().is_empty() {
+                    errors.push(format!("ruff: {line}"));
+                }
+            }
+        }
+    }
+
+    let _ = std::fs::remove_file(&path);
+    Some(errors)
+}
+
+fn validate_typescript_tools(code: &str) -> Option<Vec<String>> {
+    if Command::new("biome").arg("--version").output().is_err() {
+        return None;
+    }
+    let path = write_temp(code, ".ts")?;
+    let mut errors = vec![];
+
+    let out = Command::new("biome")
+        .args(["check", "--no-errors-on-unmatched", path.to_str()?])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        for line in String::from_utf8_lossy(&out.stderr).lines().take(3) {
+            if !line.trim().is_empty() {
+                errors.push(format!("biome: {line}"));
+            }
+        }
+    }
+
+    let _ = std::fs::remove_file(&path);
+    Some(errors)
+}
+
+fn validate_go_tools(code: &str) -> Option<Vec<String>> {
+    if Command::new("gofmt").arg("-h").output().is_err() {
+        return None;
+    }
+    let path = write_temp(code, ".go")?;
+    let mut errors = vec![];
+
+    let out = Command::new("gofmt")
+        .args(["-e", path.to_str()?])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        for line in String::from_utf8_lossy(&out.stderr).lines().take(3) {
+            if !line.trim().is_empty() {
+                errors.push(format!("gofmt: {line}"));
+            }
+        }
+    }
+
+    let _ = std::fs::remove_file(&path);
+    Some(errors)
+}
+
+fn validate_ruby_tools(code: &str) -> Option<Vec<String>> {
+    if Command::new("ruby").arg("--version").output().is_err() {
+        return None;
+    }
+    let path = write_temp(code, ".rb")?;
+    let mut errors = vec![];
+
+    let out = Command::new("ruby")
+        .args(["-c", path.to_str()?])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        errors.push(format!(
+            "ruby syntax: {}",
+            String::from_utf8_lossy(&out.stderr)
+                .lines()
+                .next()
+                .unwrap_or("")
+        ));
+    }
+
+    let _ = std::fs::remove_file(&path);
+    Some(errors)
+}
+
+fn validate_php_tools(code: &str) -> Option<Vec<String>> {
+    if Command::new("php").arg("--version").output().is_err() {
+        return None;
+    }
+    let path = write_temp(code, ".php")?;
+    let mut errors = vec![];
+
+    let out = Command::new("php")
+        .args(["-l", path.to_str()?])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        errors.push(format!(
+            "php syntax: {}",
+            String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .next()
+                .unwrap_or("")
+        ));
+    }
+
+    let _ = std::fs::remove_file(&path);
+    Some(errors)
+}
+
+fn validate_kotlin_tools(code: &str) -> Option<Vec<String>> {
+    if Command::new("ktlint").arg("--version").output().is_err() {
+        return None;
+    }
+    let path = write_temp(code, ".kt")?;
+    let mut errors = vec![];
+
+    let out = Command::new("ktlint")
+        .args(["--log-level=error", path.to_str()?])
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        for line in String::from_utf8_lossy(&out.stdout).lines().take(3) {
+            if !line.trim().is_empty() {
+                errors.push(format!("ktlint: {line}"));
+            }
+        }
+    }
+
+    let _ = std::fs::remove_file(&path);
+    Some(errors)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,9 +498,7 @@ mod tests {
 
     #[test]
     fn test_python_valid() {
-        let code = r#"from __future__ import annotations
-
-from dataclasses import dataclass
+        let code = r#"from dataclasses import dataclass
 
 @dataclass
 class ListUsersRow:
@@ -328,8 +514,7 @@ async def list_users(conn) -> list[ListUsersRow]:
 
     #[test]
     fn test_python_invalid_typing() {
-        let code = r#"from __future__ import annotations
-from typing import Optional
+        let code = r#"from typing import Optional
 
 @dataclass
 class Row:
