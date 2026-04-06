@@ -27,3 +27,6 @@ generated/
 # AI Rules generated files
 .mcp.json
 CLAUDE.md
+
+# Docs build output
+docs/site/
