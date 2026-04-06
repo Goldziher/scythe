@@ -4,6 +4,7 @@
   **SQL-to-code generator with built-in linting and formatting. Write SQL, get type-safe code.**
 
   [![CI](https://github.com/Goldziher/scythe/actions/workflows/ci.yml/badge.svg)](https://github.com/Goldziher/scythe/actions/workflows/ci.yml)
+  [![crates.io](https://img.shields.io/crates/v/scythe-cli.svg)](https://crates.io/crates/scythe-cli)
   [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 </div>
 
@@ -153,7 +154,7 @@ SELECT id, name, status FROM users WHERE username = $1;
 | Annotation     | Purpose                                                |
 |----------------|--------------------------------------------------------|
 | `@name`        | Query function/struct name                             |
-| `@returns`     | Return type: `:one`, `:many`, `:exec`                  |
+| `@returns`     | `:one`, `:many`, `:exec`, `:exec_result`, `:exec_rows` |
 | `@param`       | Name a positional parameter                            |
 | `@nullable`    | Force a column to be nullable                          |
 | `@nonnull`     | Force a column to be non-nullable                      |
@@ -199,16 +200,32 @@ target = "asyncpg"
 
 ## Linting (93 Rules)
 
-### Scythe rules (22) -- codegen-aware, uses type inference and catalog
+### Scythe rules (22) — codegen-aware, uses type inference and catalog
 
-| Category    | Count | Examples                                              |
-|-------------|-------|-------------------------------------------------------|
-| Safety      | 6     | UPDATE without WHERE, SELECT *, ambiguous columns     |
-| Codegen     | 3     | exec with RETURNING, duplicate query names            |
-| Naming      | 4     | snake_case columns, PascalCase query names            |
-| Antipattern | 3     | `= NULL` instead of `IS NULL`, OR in JOIN             |
-| Performance | 3     | ORDER BY without LIMIT, leading wildcard LIKE         |
-| Style       | 3     | implicit joins, COUNT(1) vs COUNT(*)                  |
+| Code | Rule | Description |
+|------|------|-------------|
+| SC-S01 | update-without-where | UPDATE without WHERE affects all rows |
+| SC-S02 | delete-without-where | DELETE without WHERE affects all rows |
+| SC-S03 | no-select-star | SELECT * is fragile for codegen |
+| SC-S04 | unused-params | Declared parameters not used in query |
+| SC-S05 | missing-returning | DML with :one/:many but no RETURNING |
+| SC-S06 | ambiguous-column | Unqualified column in multi-table query |
+| SC-C01 | missing-returns | SELECT without @returns annotation |
+| SC-C02 | exec-with-returning | :exec discards RETURNING data |
+| SC-C03 | duplicate-query-names | Same query name used twice |
+| SC-N01 | snake-case-columns | Column aliases should be snake_case |
+| SC-N02 | snake-case-tables | Table names should be snake_case |
+| SC-N03 | query-name-convention | Query names should start with a verb |
+| SC-N04 | alias-casing | Table aliases should be lowercase |
+| SC-A01 | not-equal-null | `= NULL` should be `IS NULL` |
+| SC-A02 | implicit-coercion | Comparing columns of different types |
+| SC-A03 | or-in-join | OR in JOIN ON is usually a mistake |
+| SC-P01 | order-without-limit | ORDER BY without LIMIT |
+| SC-P02 | like-wildcard | LIKE with leading % can't use indexes |
+| SC-P03 | not-in-subquery | NOT IN (subquery) has NULL gotcha |
+| SC-T01 | implicit-join | Comma joins should be explicit JOINs |
+| SC-T02 | coalesce-over-case | CASE WHEN IS NULL → COALESCE |
+| SC-T03 | count-star | COUNT(1) should be COUNT(*) |
 
 ### sqruff rules (71) -- formatting, capitalization, structure
 
