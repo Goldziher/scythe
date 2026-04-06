@@ -61,7 +61,7 @@ Scythe generates `%(name)s` parameter placeholders for psycopg3.
 ### `:one`
 
 ```python
-async def get_user(conn: AsyncConnection, id: int) -> GetUserRow:
+async def get_user(conn: AsyncConnection, id: int) -> GetUserRow | None:
     row = await conn.execute(
         "SELECT id, name, email, created_at FROM users WHERE id = %(id)s",
         {"id": id},
@@ -102,7 +102,7 @@ Scythe generates `$N` positional parameter placeholders for asyncpg.
 ### `:one`
 
 ```python
-async def get_user(conn: asyncpg.Connection, id: int) -> GetUserRow:
+async def get_user(conn: asyncpg.Connection, id: int) -> GetUserRow | None:
     row = await conn.fetchrow(
         "SELECT id, name, email, created_at FROM users WHERE id = $1",
         id,

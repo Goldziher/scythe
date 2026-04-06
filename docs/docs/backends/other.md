@@ -154,9 +154,9 @@ readonly class GetUserRow
 function getUser(PDO $db, int $id): GetUserRow
 {
     $stmt = $db->prepare(
-        'SELECT id, name, email, created_at FROM users WHERE id = $1'
+        'SELECT id, name, email, created_at FROM users WHERE id = :p1'
     );
-    $stmt->execute([$id]);
+    $stmt->execute(['p1' => $id]);
     $row = $stmt->fetch(PDO::FETCH_ASSOC);
 
     return new GetUserRow(
@@ -170,9 +170,9 @@ function getUser(PDO $db, int $id): GetUserRow
 function createUser(PDO $db, string $name, ?string $email): void
 {
     $stmt = $db->prepare(
-        'INSERT INTO users (name, email) VALUES ($1, $2)'
+        'INSERT INTO users (name, email) VALUES (:p1, :p2)'
     );
-    $stmt->execute([$name, $email]);
+    $stmt->execute(['p1' => $name, 'p2' => $email]);
 }
 ```
 

@@ -1,6 +1,6 @@
 # Lint Rules
 
-Scythe includes 22 built-in rules and integrates sqruff for 71 SQL style rule categories.
+Scythe includes 22 built-in rules and integrates sqruff for additional SQL style and formatting rules.
 
 ## Scythe rules (22)
 
@@ -75,7 +75,7 @@ Severity levels: `error`, `warn`, `off`.
 
 Priority: per-rule override > per-category override > default severity.
 
-## Sqruff rules (71 categories)
+## Sqruff rules
 
 Scythe integrates [sqruff](https://github.com/quarylabs/sqruff) for SQL formatting and style linting. Sqruff violations are prefixed with `SQ-` followed by the sqruff rule code.
 

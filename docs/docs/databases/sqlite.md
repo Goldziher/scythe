@@ -1,6 +1,6 @@
 # SQLite
 
-Scythe supports SQLite with its simplified type affinity system.
+Scythe supports SQLite with its simplified type affinity system. SQLite support operates at the parser and analyzer level -- SQL parsing, type inference, and nullability analysis are fully SQLite-aware. The code generation backends work the same regardless of the source database.
 
 ## Type affinity system
 

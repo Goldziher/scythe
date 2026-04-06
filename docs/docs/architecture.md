@@ -15,7 +15,7 @@ SQL Schema + Annotated Queries
     Analyze (type inference, nullability, parameters)
         |
         v
-    Lint (93 rules) + Format (sqruff)
+    Lint (22 custom rules + sqruff) + Format (sqruff)
         |
         v
     Backend (manifest.toml + CodegenBackend trait)
@@ -30,7 +30,7 @@ SQL Schema + Annotated Queries
 |-------|---------|
 | `scythe-core` | SQL parsing, catalog building, type inference, nullability analysis |
 | `scythe-codegen` | Code generation via trait-based backends |
-| `scythe-lint` | 22 custom rules + 71 sqruff rules + engine |
+| `scythe-lint` | 22 custom rules + sqruff integration + engine |
 | `scythe-backend` | Type resolution, naming conventions, MiniJinja rendering |
 | `scythe-cli` | CLI binary with generate, check, lint, fmt, migrate commands |
 
@@ -63,6 +63,8 @@ pub trait CodegenBackend: Send + Sync {
 ```
 
 Each backend also has a `manifest.toml` that maps neutral types to language-specific types. No Rust code is needed to customize type mappings.
+
+> **Note:** SQL parsing and type inference support PostgreSQL, MySQL, and SQLite. Code generation backends produce driver-specific code for each language, loading type mappings from their respective manifests.
 
 ### Example manifest.toml (rust-sqlx)
 

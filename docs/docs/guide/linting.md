@@ -1,6 +1,6 @@
 # Linting
 
-Scythe includes 22 custom SQL rules plus 71 sqruff rules for a total of 93 lint rules.
+Scythe includes 22 built-in rules plus sqruff integration for SQL style and formatting.
 
 ## Running the Linter
 
@@ -74,7 +74,7 @@ scythe lint --dialect postgres
 
 ## sqruff Rules
 
-Scythe integrates 71 rules from [sqruff](https://github.com/quarylabs/sqruff), a Rust-based SQL linter. These rules are prefixed with `SQ-` and cover formatting, style, and correctness. They run automatically alongside scythe rules when using `scythe lint` or `scythe check`.
+Scythe integrates sqruff rules from [sqruff](https://github.com/quarylabs/sqruff), a Rust-based SQL linter. These rules are prefixed with `SQ-` and cover formatting, style, and correctness. They run automatically alongside scythe rules when using `scythe lint` or `scythe check`.
 
 ## Configuration
 

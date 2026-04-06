@@ -102,3 +102,5 @@ This is converted to the equivalent scythe.toml with glob patterns for directori
 2. Verify with `scythe check`
 3. Generate code with `scythe generate`
 4. Run `scythe lint` to catch issues sqlc might have missed
+
+> **Note:** Custom type mappings and ORM-specific extensions need manual review after migration.
