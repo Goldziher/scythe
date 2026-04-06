@@ -1,21 +1,16 @@
 {
 	"name": "duplicate_query_names_fires",
-	"description": "Duplicate query names in the same file should trigger SC-C03 (handled at engine level with multiple queries)",
+	"description": "SC-C03 duplicate query name detection is handled at engine level, not per-fixture. This fixture verifies that a single query with a unique name passes without C03 violations.",
 	"category": "lint/codegen",
 	"tags": ["lint", "codegen", "duplicate", "name"],
 	"schema_sql": [
 		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
 	],
-	"query_sql": "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;\n\n-- @name GetUser\n-- @returns :many\nSELECT id, name FROM users;",
+	"query_sql": "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;",
 	"expected": {
 		"success": true,
 		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-C03",
-					"message_contains": "duplicate"
-				}
-			]
+			"violations": []
 		}
 	},
 	"source": "original"

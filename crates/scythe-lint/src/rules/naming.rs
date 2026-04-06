@@ -115,6 +115,14 @@ const ALLOWED_PREFIXES: &[&str] = &[
     "Revoke",
     "Accept",
     "Regenerate",
+    "Search",
+    "Find",
+    "Check",
+    "Verify",
+    "Retrieve",
+    "Aggregate",
+    "Return",
+    "Partial",
 ];
 
 impl LintRule for QueryNameConvention {

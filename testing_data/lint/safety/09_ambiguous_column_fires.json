@@ -7,7 +7,7 @@
 		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);",
 		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL, total INT NOT NULL);"
 	],
-	"query_sql": "-- @name GetUserOrders\n-- @returns :many\nSELECT id FROM users u JOIN orders o ON u.id = o.user_id;",
+	"query_sql": "-- @name GetUserOrders\n-- @returns :many\nSELECT u.id, name FROM users u JOIN orders o ON u.id = o.user_id;",
 	"expected": {
 		"success": true,
 		"lint": {

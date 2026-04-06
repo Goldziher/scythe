@@ -9,6 +9,7 @@ mod test_dml;
 mod test_errors;
 mod test_expressions;
 mod test_joins;
+mod test_lint;
 mod test_nullability;
 mod test_params;
 mod test_select;
