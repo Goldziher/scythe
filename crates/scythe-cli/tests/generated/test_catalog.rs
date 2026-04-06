@@ -526,14 +526,6 @@ fn test_multiple_enums() {
         "enum values for status"
     );
 
-    // Assert enum: role
-    let enum_role = catalog.get_enum("role").expect("enum role should exist");
-    assert_eq!(
-        enum_role.values,
-        vec!["admin", "editor", "viewer"],
-        "enum values for role"
-    );
-
     // Assert enum: priority
     let enum_priority = catalog
         .get_enum("priority")
@@ -542,6 +534,14 @@ fn test_multiple_enums() {
         enum_priority.values,
         vec!["low", "medium", "high", "critical"],
         "enum values for priority"
+    );
+
+    // Assert enum: role
+    let enum_role = catalog.get_enum("role").expect("enum role should exist");
+    assert_eq!(
+        enum_role.values,
+        vec!["admin", "editor", "viewer"],
+        "enum values for role"
     );
 }
 
@@ -1391,34 +1391,6 @@ fn test_multiple_tables() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
-    // Assert table: departments
-    let table_departments = catalog
-        .get_table("departments")
-        .expect("table departments should exist");
-    assert_eq!(
-        table_departments.columns.len(),
-        2,
-        "column count for table departments"
-    );
-    assert_eq!(table_departments.columns[0].name, "id", "column name");
-    assert_eq!(
-        table_departments.columns[0].sql_type, "integer",
-        "column sql_type for id"
-    );
-    assert!(
-        !table_departments.columns[0].nullable,
-        "column nullable for id"
-    );
-    assert_eq!(table_departments.columns[1].name, "name", "column name");
-    assert_eq!(
-        table_departments.columns[1].sql_type, "text",
-        "column sql_type for name"
-    );
-    assert!(
-        !table_departments.columns[1].nullable,
-        "column nullable for name"
-    );
-
     // Assert table: employees
     let table_employees = catalog
         .get_table("employees")
@@ -1506,6 +1478,34 @@ fn test_multiple_tables() {
     assert!(
         !table_projects.columns[3].nullable,
         "column nullable for department_id"
+    );
+
+    // Assert table: departments
+    let table_departments = catalog
+        .get_table("departments")
+        .expect("table departments should exist");
+    assert_eq!(
+        table_departments.columns.len(),
+        2,
+        "column count for table departments"
+    );
+    assert_eq!(table_departments.columns[0].name, "id", "column name");
+    assert_eq!(
+        table_departments.columns[0].sql_type, "integer",
+        "column sql_type for id"
+    );
+    assert!(
+        !table_departments.columns[0].nullable,
+        "column nullable for id"
+    );
+    assert_eq!(table_departments.columns[1].name, "name", "column name");
+    assert_eq!(
+        table_departments.columns[1].sql_type, "text",
+        "column sql_type for name"
+    );
+    assert!(
+        !table_departments.columns[1].nullable,
+        "column nullable for name"
     );
 }
 

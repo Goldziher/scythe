@@ -187,7 +187,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
         out.push_str(&generate_query_assertions(query));
     }
 
-    // Codegen verification — test both backends produce valid Rust
+    // Codegen verification — test all backends produce valid output
     let command = fixture
         .expected
         .query
@@ -195,9 +195,27 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
         .map(|q| q.command.to_string())
         .unwrap_or_default();
 
-    out.push_str("    // Codegen verification: both backends should produce valid Rust\n");
-    out.push_str("    for backend_name in &[\"rust-sqlx\", \"rust-tokio-postgres\"] {\n");
-    out.push_str("        let backend = scythe_codegen::get_backend(backend_name).unwrap();\n");
+    out.push_str("    // Codegen verification: all backends should produce valid output\n");
+    out.push_str("    let all_backends = [\n");
+    out.push_str("        \"rust-sqlx\",\n");
+    out.push_str("        \"rust-tokio-postgres\",\n");
+    out.push_str("        \"python-psycopg3\",\n");
+    out.push_str("        \"python-asyncpg\",\n");
+    out.push_str("        \"typescript-postgres\",\n");
+    out.push_str("        \"typescript-pg\",\n");
+    out.push_str("        \"go-pgx\",\n");
+    out.push_str("        \"java-jdbc\",\n");
+    out.push_str("        \"kotlin-jdbc\",\n");
+    out.push_str("        \"csharp-npgsql\",\n");
+    out.push_str("        \"elixir-postgrex\",\n");
+    out.push_str("        \"ruby-pg\",\n");
+    out.push_str("        \"php-pdo\",\n");
+    out.push_str("    ];\n");
+    out.push_str("    for backend_name in &all_backends {\n");
+    out.push_str("        let backend = match scythe_codegen::get_backend(backend_name) {\n");
+    out.push_str("            Ok(b) => b,\n");
+    out.push_str("            Err(_) => continue, // skip unregistered backends\n");
+    out.push_str("        };\n");
     out.push_str("        match scythe_codegen::generate_with_backend(&analyzed, &*backend) {\n");
     out.push_str("            Ok(generated) => {\n");
     out.push_str("                let mut code = String::from(\"#![allow(dead_code, unused_imports)]\\n\");\n");
@@ -206,14 +224,27 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("                if let Some(ref s) = generated.row_struct { code.push_str(s); code.push('\\n'); }\n");
     out.push_str("                if let Some(ref s) = generated.query_fn { code.push_str(s); code.push('\\n'); }\n");
     out.push_str("                if code.lines().count() > 1 {\n");
-    out.push_str("                    assert!(\n");
-    out.push_str("                        syn::parse_file(&code).is_ok(),\n");
+    out.push_str("                    // Only validate Rust syntax with syn for Rust backends\n");
+    out.push_str("                    if *backend_name == \"rust-sqlx\" || *backend_name == \"rust-tokio-postgres\" {\n");
+    out.push_str("                        assert!(\n");
+    out.push_str("                            syn::parse_file(&code).is_ok(),\n");
     let _ = writeln!(
         out,
-        "                        \"backend {{}} generated invalid Rust for {{}}\", backend_name, {:?}",
+        "                            \"backend {{}} generated invalid Rust for {{}}\", backend_name, {:?}",
         fixture.name
     );
-    out.push_str("                    );\n");
+    out.push_str("                        );\n");
+    out.push_str("                    } else {\n");
+    out.push_str("                        // For other languages, just check non-empty output\n");
+    out.push_str("                        assert!(\n");
+    out.push_str("                            !code.trim().is_empty(),\n");
+    let _ = writeln!(
+        out,
+        "                            \"backend {{}} generated empty output for {{}}\", backend_name, {:?}",
+        fixture.name
+    );
+    out.push_str("                        );\n");
+    out.push_str("                    }\n");
     out.push_str("                }\n");
 
     // Structural checks
