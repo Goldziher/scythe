@@ -28,7 +28,9 @@ jobs:
           components: clippy
       - uses: Swatinem/rust-cache@v2
       - name: Generate integration tests from fixtures
-        run: cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
+        run: |
+          cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
+          cargo fmt --all
       - name: Check formatting
         run: cargo fmt --check
       - name: Run clippy
