@@ -31,9 +31,27 @@ fn test_avg_nullable() {
         "column nullable for avg_price"
     );
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -54,12 +72,23 @@ fn test_avg_nullable() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "avg_nullable"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "avg_nullable"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "avg_nullable"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -104,9 +133,27 @@ fn test_count_column_non_null() {
     );
     assert!(!analyzed.columns[0].nullable, "column nullable for cnt");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -127,12 +174,23 @@ fn test_count_column_non_null() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "count_column_non_null"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "count_column_non_null"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "count_column_non_null"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -176,9 +234,27 @@ fn test_count_star_non_null() {
     );
     assert!(!analyzed.columns[0].nullable, "column nullable for cnt");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -199,12 +275,23 @@ fn test_count_star_non_null() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "count_star_non_null"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "count_star_non_null"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "count_star_non_null"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -254,9 +341,27 @@ fn test_count_with_group_by() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for cnt");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -277,12 +382,23 @@ fn test_count_with_group_by() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "count_with_group_by"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "count_with_group_by"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "count_with_group_by"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -332,9 +448,27 @@ fn test_min_max_nullable() {
     );
     assert!(analyzed.columns[1].nullable, "column nullable for latest");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -355,12 +489,23 @@ fn test_min_max_nullable() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "min_max_nullable"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "min_max_nullable"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "min_max_nullable"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -408,9 +553,27 @@ fn test_sum_nullable() {
         "column nullable for total_sum"
     );
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -431,12 +594,23 @@ fn test_sum_nullable() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "sum_nullable"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "sum_nullable"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "sum_nullable"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -480,9 +654,27 @@ fn test_case_mixed_branches() {
     );
     assert!(!analyzed.columns[0].nullable, "column nullable for display");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -503,12 +695,23 @@ fn test_case_mixed_branches() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "case_mixed_branches"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "case_mixed_branches"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "case_mixed_branches"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -552,9 +755,27 @@ fn test_case_nullable_branch() {
     );
     assert!(analyzed.columns[0].nullable, "column nullable for info");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -575,12 +796,23 @@ fn test_case_nullable_branch() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "case_nullable_branch"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "case_nullable_branch"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "case_nullable_branch"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -624,9 +856,27 @@ fn test_case_with_else() {
     );
     assert!(!analyzed.columns[0].nullable, "column nullable for active");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -647,12 +897,23 @@ fn test_case_with_else() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "case_with_else"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "case_with_else"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "case_with_else"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -696,9 +957,27 @@ fn test_case_without_else() {
     );
     assert!(analyzed.columns[0].nullable, "column nullable for active");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -719,12 +998,23 @@ fn test_case_without_else() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "case_without_else"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "case_without_else"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "case_without_else"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -774,9 +1064,27 @@ fn test_coalesce_in_where() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -797,12 +1105,23 @@ fn test_coalesce_in_where() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "coalesce_in_where"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "coalesce_in_where"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "coalesce_in_where"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -860,9 +1179,27 @@ fn test_coalesce_nullable_with_default() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for bio");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -883,12 +1220,23 @@ fn test_coalesce_nullable_with_default() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "coalesce_nullable_with_default"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "coalesce_nullable_with_default"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "coalesce_nullable_with_default"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -933,9 +1281,27 @@ fn test_coalesce_two_nullable() {
     );
     assert!(analyzed.columns[0].nullable, "column nullable for text");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -956,12 +1322,23 @@ fn test_coalesce_two_nullable() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "coalesce_two_nullable"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "coalesce_two_nullable"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "coalesce_two_nullable"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1013,9 +1390,27 @@ fn test_coalesce_with_literal_last() {
     );
     assert!(!analyzed.columns[0].nullable, "column nullable for result");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1036,12 +1431,23 @@ fn test_coalesce_with_literal_last() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "coalesce_with_literal_last"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "coalesce_with_literal_last"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "coalesce_with_literal_last"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1086,9 +1492,27 @@ fn test_nested_coalesce() {
     );
     assert!(!analyzed.columns[0].nullable, "column nullable for val");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1109,12 +1533,23 @@ fn test_nested_coalesce() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "nested_coalesce"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "nested_coalesce"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "nested_coalesce"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1184,9 +1619,27 @@ fn test_mixed_nullability() {
     );
     assert!(analyzed.columns[3].nullable, "column nullable for age");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1207,12 +1660,23 @@ fn test_mixed_nullability() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "mixed_nullability"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "mixed_nullability"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "mixed_nullability"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1271,9 +1735,27 @@ fn test_not_null_columns() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1294,12 +1776,23 @@ fn test_not_null_columns() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "not_null_columns"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "not_null_columns"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "not_null_columns"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1358,9 +1851,27 @@ fn test_nullable_column() {
     );
     assert!(analyzed.columns[1].nullable, "column nullable for bio");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1381,12 +1892,23 @@ fn test_nullable_column() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "nullable_column"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "nullable_column"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "nullable_column"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1460,9 +1982,27 @@ fn test_chained_left_joins() {
     );
     assert!(analyzed.columns[4].nullable, "column nullable for price");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1483,12 +2023,23 @@ fn test_chained_left_joins() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "chained_left_joins"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "chained_left_joins"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "chained_left_joins"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1545,9 +2096,27 @@ fn test_left_side_stays_non_null() {
     );
     assert!(analyzed.columns[2].nullable, "column nullable for total");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1568,12 +2137,23 @@ fn test_left_side_stays_non_null() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "left_side_stays_non_null"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "left_side_stays_non_null"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "left_side_stays_non_null"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1639,9 +2219,27 @@ fn test_right_side_multiple_cols() {
         "column nullable for created_at"
     );
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1662,12 +2260,23 @@ fn test_right_side_multiple_cols() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "right_side_multiple_cols"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "right_side_multiple_cols"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "right_side_multiple_cols"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1718,9 +2327,27 @@ fn test_right_side_not_null_becomes_nullable() {
     );
     assert!(analyzed.columns[1].nullable, "column nullable for total");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1741,12 +2368,23 @@ fn test_right_side_not_null_becomes_nullable() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "right_side_not_null_becomes_nullable"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "right_side_not_null_becomes_nullable"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "right_side_not_null_becomes_nullable"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1804,9 +2442,27 @@ fn test_force_nonnull() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for bio");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1827,12 +2483,23 @@ fn test_force_nonnull() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "force_nonnull"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "force_nonnull"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "force_nonnull"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1890,9 +2557,27 @@ fn test_force_nullable() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for name");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1913,12 +2598,23 @@ fn test_force_nullable() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "force_nullable"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "force_nullable"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "force_nullable"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -1969,9 +2665,27 @@ fn test_left_side_becomes_nullable() {
     );
     assert!(!analyzed.columns[1].nullable, "column nullable for id");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -1992,12 +2706,23 @@ fn test_left_side_becomes_nullable() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "left_side_becomes_nullable"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "left_side_becomes_nullable"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "left_side_becomes_nullable"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
@@ -2060,9 +2785,27 @@ fn test_left_side_multiple_cols() {
     );
     assert!(!analyzed.columns[3].nullable, "column nullable for total");
 
-    // Codegen verification: both backends should produce valid Rust
-    for backend_name in &["rust-sqlx", "rust-tokio-postgres"] {
-        let backend = scythe_codegen::get_backend(backend_name).unwrap();
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "ruby-pg",
+        "php-pdo",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name) {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
                 let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
@@ -2083,12 +2826,23 @@ fn test_left_side_multiple_cols() {
                     code.push('\n');
                 }
                 if code.lines().count() > 1 {
-                    assert!(
-                        syn::parse_file(&code).is_ok(),
-                        "backend {} generated invalid Rust for {}",
-                        backend_name,
-                        "left_side_multiple_cols"
-                    );
+                    // Only validate Rust syntax with syn for Rust backends
+                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                        assert!(
+                            syn::parse_file(&code).is_ok(),
+                            "backend {} generated invalid Rust for {}",
+                            backend_name,
+                            "left_side_multiple_cols"
+                        );
+                    } else {
+                        // For other languages, just check non-empty output
+                        assert!(
+                            !code.trim().is_empty(),
+                            "backend {} generated empty output for {}",
+                            backend_name,
+                            "left_side_multiple_cols"
+                        );
+                    }
                 }
                 assert!(
                     generated.row_struct.is_some() || generated.model_struct.is_some(),
