@@ -61,7 +61,14 @@ fn test_array_param() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -88,12 +95,15 @@ fn test_array_param() {
                             "array_param"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "array_param"
+                            "array_param",
+                            errors
                         );
                     }
                 }
@@ -166,7 +176,14 @@ fn test_integer_array() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -193,12 +210,15 @@ fn test_integer_array() {
                             "integer_array"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "integer_array"
+                            "integer_array",
+                            errors
                         );
                     }
                 }
@@ -271,7 +291,14 @@ fn test_nullable_array() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -298,12 +325,15 @@ fn test_nullable_array() {
                             "nullable_array"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "nullable_array"
+                            "nullable_array",
+                            errors
                         );
                     }
                 }
@@ -377,7 +407,14 @@ fn test_text_array() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -404,12 +441,15 @@ fn test_text_array() {
                             "text_array"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "text_array"
+                            "text_array",
+                            errors
                         );
                     }
                 }
@@ -490,7 +530,14 @@ fn test_bytea_column() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -517,12 +564,15 @@ fn test_bytea_column() {
                             "bytea_column"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "bytea_column"
+                            "bytea_column",
+                            errors
                         );
                     }
                 }
@@ -602,7 +652,14 @@ fn test_composite_column() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -629,12 +686,15 @@ fn test_composite_column() {
                             "composite_column"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "composite_column"
+                            "composite_column",
+                            errors
                         );
                     }
                 }
@@ -717,7 +777,14 @@ fn test_enum_param() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -744,12 +811,15 @@ fn test_enum_param() {
                             "enum_param"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "enum_param"
+                            "enum_param",
+                            errors
                         );
                     }
                 }
@@ -826,7 +896,14 @@ fn test_insert_enum() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -853,12 +930,15 @@ fn test_insert_enum() {
                             "insert_enum"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "insert_enum"
+                            "insert_enum",
+                            errors
                         );
                     }
                 }
@@ -929,7 +1009,14 @@ fn test_nullable_enum() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -956,12 +1043,15 @@ fn test_nullable_enum() {
                             "nullable_enum"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "nullable_enum"
+                            "nullable_enum",
+                            errors
                         );
                     }
                 }
@@ -1037,7 +1127,14 @@ fn test_select_enum_column() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -1064,12 +1161,15 @@ fn test_select_enum_column() {
                             "select_enum_column"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "select_enum_column"
+                            "select_enum_column",
+                            errors
                         );
                     }
                 }
@@ -1142,7 +1242,14 @@ fn test_json_column() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -1169,12 +1276,15 @@ fn test_json_column() {
                             "json_column"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "json_column"
+                            "json_column",
+                            errors
                         );
                     }
                 }
@@ -1247,7 +1357,14 @@ fn test_json_typed_mapping() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -1274,12 +1391,15 @@ fn test_json_typed_mapping() {
                             "json_typed_mapping"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "json_typed_mapping"
+                            "json_typed_mapping",
+                            errors
                         );
                     }
                 }
@@ -1352,7 +1472,14 @@ fn test_jsonb_arrow_json_extraction() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -1379,12 +1506,15 @@ fn test_jsonb_arrow_json_extraction() {
                             "jsonb_arrow_json_extraction"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "jsonb_arrow_json_extraction"
+                            "jsonb_arrow_json_extraction",
+                            errors
                         );
                     }
                 }
@@ -1458,7 +1588,14 @@ fn test_jsonb_arrow_text_extraction() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -1485,12 +1622,15 @@ fn test_jsonb_arrow_text_extraction() {
                             "jsonb_arrow_text_extraction"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "jsonb_arrow_text_extraction"
+                            "jsonb_arrow_text_extraction",
+                            errors
                         );
                     }
                 }
@@ -1563,7 +1703,14 @@ fn test_jsonb_column() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -1590,12 +1737,15 @@ fn test_jsonb_column() {
                             "jsonb_column"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "jsonb_column"
+                            "jsonb_column",
+                            errors
                         );
                     }
                 }
@@ -1669,7 +1819,14 @@ fn test_nullable_json() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -1696,12 +1853,15 @@ fn test_nullable_json() {
                             "nullable_json"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "nullable_json"
+                            "nullable_json",
+                            errors
                         );
                     }
                 }
@@ -1775,7 +1935,14 @@ fn test_jsonb_array_elements_from() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -1802,12 +1969,15 @@ fn test_jsonb_array_elements_from() {
                             "jsonb_array_elements_from"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "jsonb_array_elements_from"
+                            "jsonb_array_elements_from",
+                            errors
                         );
                     }
                 }
@@ -1881,7 +2051,14 @@ fn test_jsonb_contains_operator() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -1908,12 +2085,15 @@ fn test_jsonb_contains_operator() {
                             "jsonb_contains_operator"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "jsonb_contains_operator"
+                            "jsonb_contains_operator",
+                            errors
                         );
                     }
                 }
@@ -1987,7 +2167,14 @@ fn test_jsonb_deep_path_extraction() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -2014,12 +2201,15 @@ fn test_jsonb_deep_path_extraction() {
                             "jsonb_deep_path_extraction"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "jsonb_deep_path_extraction"
+                            "jsonb_deep_path_extraction",
+                            errors
                         );
                     }
                 }
@@ -2096,7 +2286,14 @@ fn test_jsonb_object_keys_func() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -2123,12 +2320,15 @@ fn test_jsonb_object_keys_func() {
                             "jsonb_object_keys_func"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "jsonb_object_keys_func"
+                            "jsonb_object_keys_func",
+                            errors
                         );
                     }
                 }
@@ -2209,7 +2409,14 @@ fn test_select_network_types() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -2236,12 +2443,15 @@ fn test_select_network_types() {
                             "select_network_types"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "select_network_types"
+                            "select_network_types",
+                            errors
                         );
                     }
                 }
@@ -2346,7 +2556,14 @@ fn test_select_all_numeric_types() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -2373,12 +2590,15 @@ fn test_select_all_numeric_types() {
                             "select_all_numeric_types"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "select_all_numeric_types"
+                            "select_all_numeric_types",
+                            errors
                         );
                     }
                 }
@@ -2467,7 +2687,14 @@ fn test_range_int4range() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -2494,12 +2721,15 @@ fn test_range_int4range() {
                             "range_int4range"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "range_int4range"
+                            "range_int4range",
+                            errors
                         );
                     }
                 }
@@ -2585,7 +2815,14 @@ fn test_range_tstzrange() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -2612,12 +2849,15 @@ fn test_range_tstzrange() {
                             "range_tstzrange"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "range_tstzrange"
+                            "range_tstzrange",
+                            errors
                         );
                     }
                 }
@@ -2722,7 +2962,14 @@ fn test_all_temporal_types() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -2749,12 +2996,15 @@ fn test_all_temporal_types() {
                             "all_temporal_types"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "all_temporal_types"
+                            "all_temporal_types",
+                            errors
                         );
                     }
                 }
@@ -2848,7 +3098,14 @@ fn test_temporal_params() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -2875,12 +3132,15 @@ fn test_temporal_params() {
                             "temporal_params"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "temporal_params"
+                            "temporal_params",
+                            errors
                         );
                     }
                 }
@@ -2955,7 +3215,14 @@ fn test_uuid_column() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -2982,12 +3249,15 @@ fn test_uuid_column() {
                             "uuid_column"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "uuid_column"
+                            "uuid_column",
+                            errors
                         );
                     }
                 }
@@ -3070,7 +3340,14 @@ fn test_uuid_param() {
         };
         match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             Ok(generated) => {
-                let mut code = String::from("#![allow(dead_code, unused_imports)]\n");
+                let header = backend.file_header();
+                let mut code = if header.is_empty() {
+                    String::from("#![allow(dead_code, unused_imports)]\n")
+                } else {
+                    let mut h = header;
+                    h.push('\n');
+                    h
+                };
                 if let Some(ref s) = generated.enum_def {
                     code.push_str(s);
                     code.push('\n');
@@ -3097,12 +3374,15 @@ fn test_uuid_param() {
                             "uuid_param"
                         );
                     } else {
-                        // For other languages, just check non-empty output
+                        // Structural validation for non-Rust backends
+                        let errors =
+                            scythe_codegen::validation::validate_structural(&code, backend_name);
                         assert!(
-                            !code.trim().is_empty(),
-                            "backend {} generated empty output for {}",
+                            errors.is_empty(),
+                            "backend {} structural validation failed for {}: {:?}",
                             backend_name,
-                            "uuid_param"
+                            "uuid_param",
+                            errors
                         );
                     }
                 }

@@ -63,6 +63,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
     ) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
+        let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
         let _ = writeln!(out, "export interface {} {{", struct_name);
         for col in columns {
             let _ = writeln!(out, "  {}: {};", col.field_name, col.full_type);
@@ -105,18 +106,20 @@ impl CodegenBackend for TypescriptPostgresBackend {
 
         match &analyzed.command {
             QueryCommand::One => {
+                let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let _ = writeln!(
                     out,
-                    "export async function {}(sql: Sql{}{}): Promise<{} | undefined> {{",
+                    "export async function {}(sql: Sql{}{}): Promise<{} | null> {{",
                     func_name, sep, param_list, struct_name
                 );
                 let _ = writeln!(out, "  const rows = await sql<{}[]>`", struct_name);
                 let _ = writeln!(out, "    {}", sql_template);
                 let _ = writeln!(out, "  `;");
-                let _ = writeln!(out, "  return rows[0];");
+                let _ = writeln!(out, "  return rows[0] ?? null;");
                 let _ = write!(out, "}}");
             }
             QueryCommand::Many | QueryCommand::Batch => {
+                let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
                 let _ = writeln!(
                     out,
                     "export async function {}(sql: Sql{}{}): Promise<{}[]> {{",
@@ -128,7 +131,8 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 let _ = writeln!(out, "  return rows;");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+            QueryCommand::Exec => {
+                let _ = writeln!(out, "/** Execute a query returning no rows. */");
                 let _ = writeln!(
                     out,
                     "export async function {}(sql: Sql{}{}): Promise<void> {{",
@@ -137,6 +141,22 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 let _ = writeln!(out, "  await sql`");
                 let _ = writeln!(out, "    {}", sql_template);
                 let _ = writeln!(out, "  `;");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "/** Execute a query and return the number of affected rows. */"
+                );
+                let _ = writeln!(
+                    out,
+                    "export async function {}(sql: Sql{}{}): Promise<number> {{",
+                    func_name, sep, param_list
+                );
+                let _ = writeln!(out, "  const result = await sql`");
+                let _ = writeln!(out, "    {}", sql_template);
+                let _ = writeln!(out, "  `;");
+                let _ = writeln!(out, "  return result.count;");
                 let _ = write!(out, "}}");
             }
         }
@@ -159,6 +179,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
+        let _ = writeln!(out, "/** Composite type {}. */", composite.sql_name);
         let _ = writeln!(out, "export interface {} {{", name);
         if composite.fields.is_empty() {
             // empty interface

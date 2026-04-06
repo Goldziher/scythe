@@ -1,6 +1,7 @@
 pub mod backend_trait;
 pub mod backends;
 pub mod resolve;
+pub mod validation;
 
 pub use backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 pub use backends::get_backend;
