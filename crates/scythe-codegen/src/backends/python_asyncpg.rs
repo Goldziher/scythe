@@ -3,13 +3,16 @@ use std::path::Path;
 
 use scythe_backend::manifest::{BackendManifest, load_manifest};
 use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
+    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
 };
+use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
+use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::singularize;
 
 const DEFAULT_MANIFEST_TOML: &str =
     include_str!("../../../../backends/python-asyncpg/manifest.toml");
@@ -36,6 +39,18 @@ impl PythonAsyncpgBackend {
     }
 }
 
+/// Strip SQL comments, trailing semicolons, and excess whitespace.
+fn clean_sql(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_string()
+}
+
 impl CodegenBackend for PythonAsyncpgBackend {
     fn name(&self) -> &str {
         "python-asyncpg"
@@ -48,13 +63,18 @@ impl CodegenBackend for PythonAsyncpgBackend {
     ) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
+        let _ = writeln!(out, "from __future__ import annotations");
+        let _ = writeln!(out, "from dataclasses import dataclass");
+        let _ = writeln!(out);
+        let _ = writeln!(out);
         let _ = writeln!(out, "@dataclass");
         let _ = writeln!(out, "class {}:", struct_name);
-        for col in columns {
-            let _ = writeln!(out, "    {}: {}", col.field_name, col.full_type);
-        }
         if columns.is_empty() {
             let _ = writeln!(out, "    pass");
+        } else {
+            for col in columns {
+                let _ = writeln!(out, "    {}: {}", col.field_name, col.full_type);
+            }
         }
         Ok(out)
     }
@@ -64,7 +84,8 @@ impl CodegenBackend for PythonAsyncpgBackend {
         table_name: &str,
         columns: &[ResolvedColumn],
     ) -> Result<String, ScytheError> {
-        let name = to_pascal_case(table_name);
+        let singular = singularize(table_name);
+        let name = to_pascal_case(&singular);
         self.generate_row_struct(&name, columns)
     }
 
@@ -72,36 +93,107 @@ impl CodegenBackend for PythonAsyncpgBackend {
         &self,
         analyzed: &AnalyzedQuery,
         struct_name: &str,
-        _columns: &[ResolvedColumn],
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
+
+        // Build parameter list
         let param_list = params
             .iter()
             .map(|p| format!("{}: {}", p.field_name, p.full_type))
             .collect::<Vec<_>>()
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
-        let _ = writeln!(
-            out,
-            "async def {}(conn: Connection{}{}) -> {} | None:",
-            func_name, sep, param_list, struct_name
-        );
-        let _ = writeln!(out, "    pass  # TODO");
+
+        // Clean SQL — asyncpg uses $1, $2 positional params natively
+        let sql = clean_sql(&analyzed.sql);
+
+        match &analyzed.command {
+            QueryCommand::One => {
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: asyncpg.Connection{}{}) -> {} | None:",
+                    func_name, sep, param_list, struct_name
+                );
+                let _ = writeln!(out, "    row = await conn.fetchrow(");
+                let _ = writeln!(out, "        \"{}\",", sql);
+                if !params.is_empty() {
+                    let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    let _ = writeln!(out, "        {},", args.join(", "));
+                }
+                let _ = writeln!(out, "    )");
+                let _ = writeln!(out, "    if row is None:");
+                let _ = writeln!(out, "        return None");
+                let field_assignments: Vec<String> = columns
+                    .iter()
+                    .map(|col| format!("{}=row[\"{}\"]", col.field_name, col.name))
+                    .collect();
+                let _ = writeln!(
+                    out,
+                    "    return {}({})",
+                    struct_name,
+                    field_assignments.join(", ")
+                );
+            }
+            QueryCommand::Many | QueryCommand::Batch => {
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: asyncpg.Connection{}{}) -> list[{}]:",
+                    func_name, sep, param_list, struct_name
+                );
+                let _ = writeln!(out, "    rows = await conn.fetch(");
+                let _ = writeln!(out, "        \"{}\",", sql);
+                if !params.is_empty() {
+                    let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    let _ = writeln!(out, "        {},", args.join(", "));
+                }
+                let _ = writeln!(out, "    )");
+                let field_assignments: Vec<String> = columns
+                    .iter()
+                    .map(|col| format!("{}=r[\"{}\"]", col.field_name, col.name))
+                    .collect();
+                let _ = writeln!(
+                    out,
+                    "    return [{}({}) for r in rows]",
+                    struct_name,
+                    field_assignments.join(", ")
+                );
+            }
+            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: asyncpg.Connection{}{}) -> None:",
+                    func_name, sep, param_list
+                );
+                let _ = writeln!(out, "    await conn.execute(");
+                let _ = writeln!(out, "        \"{}\",", sql);
+                if !params.is_empty() {
+                    let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    let _ = writeln!(out, "        {},", args.join(", "));
+                }
+                let _ = writeln!(out, "    )");
+            }
+        }
+
         Ok(out)
     }
 
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::new();
+        let _ = writeln!(out, "from enum import Enum");
+        let _ = writeln!(out);
+        let _ = writeln!(out);
         let _ = writeln!(out, "class {}(str, Enum):", type_name);
-        for value in &enum_info.values {
-            let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(out, "    {} = {:?}", variant, value);
-        }
         if enum_info.values.is_empty() {
             let _ = writeln!(out, "    pass");
+        } else {
+            for value in &enum_info.values {
+                let variant = enum_variant_name(value, &self.manifest.naming);
+                let _ = writeln!(out, "    {} = \"{}\"", variant, value);
+            }
         }
         Ok(out)
     }
@@ -109,9 +201,27 @@ impl CodegenBackend for PythonAsyncpgBackend {
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
+        let _ = writeln!(out, "from __future__ import annotations");
+        let _ = writeln!(out, "from dataclasses import dataclass");
+        let _ = writeln!(out);
+        let _ = writeln!(out);
         let _ = writeln!(out, "@dataclass");
         let _ = writeln!(out, "class {}:", name);
-        let _ = writeln!(out, "    pass  # TODO: fields");
+        if composite.fields.is_empty() {
+            let _ = writeln!(out, "    pass");
+        } else {
+            for field in &composite.fields {
+                let py_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                    .map(|t| t.into_owned())
+                    .map_err(|e| {
+                        ScytheError::new(
+                            ErrorCode::InternalError,
+                            format!("composite field type error: {}", e),
+                        )
+                    })?;
+                let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
+            }
+        }
         Ok(out)
     }
 }

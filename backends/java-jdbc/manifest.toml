@@ -27,7 +27,7 @@ inet = "String"
 
 [types.containers]
 array = "java.util.List<{T}>"
-nullable = "{T}"
+nullable = "@Nullable {T}"
 range = "String"
 json_typed = "{T}"
 

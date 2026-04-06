@@ -62,6 +62,50 @@ fn get_manifest_for_backend(backend_name: &str) -> Result<BackendManifest, Scyth
             let b = backends::tokio_postgres::TokioPostgresBackend::new()?;
             Ok(b.manifest().clone())
         }
+        "go-pgx" => {
+            let b = backends::go_pgx::GoPgxBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "java-jdbc" => {
+            let b = backends::java_jdbc::JavaJdbcBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "kotlin-jdbc" => {
+            let b = backends::kotlin_jdbc::KotlinJdbcBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "python-psycopg3" => {
+            let b = backends::python_psycopg3::PythonPsycopg3Backend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "python-asyncpg" => {
+            let b = backends::python_asyncpg::PythonAsyncpgBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "typescript-postgres" => {
+            let b = backends::typescript_postgres::TypescriptPostgresBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "typescript-pg" => {
+            let b = backends::typescript_pg::TypescriptPgBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "csharp-npgsql" => {
+            let b = backends::csharp_npgsql::CsharpNpgsqlBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "elixir-postgrex" => {
+            let b = backends::elixir_postgrex::ElixirPostgrexBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "ruby-pg" => {
+            let b = backends::ruby_pg::RubyPgBackend::new()?;
+            Ok(b.manifest().clone())
+        }
+        "php-pdo" => {
+            let b = backends::php_pdo::PhpPdoBackend::new()?;
+            Ok(b.manifest().clone())
+        }
         _ => {
             use scythe_core::errors::ErrorCode;
             Err(ScytheError::new(
