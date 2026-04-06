@@ -53,7 +53,7 @@ mod tests {
 
     #[test]
     fn test_load_manifest_from_string() {
-        let toml_str = include_str!("../../../backends/rust-sqlx/manifest.toml");
+        let toml_str = include_str!("../test-manifests/rust-sqlx.toml");
         let manifest: BackendManifest = toml::from_str(toml_str).unwrap();
         assert_eq!(manifest.backend.name, "rust-sqlx");
         assert_eq!(manifest.backend.language, "rust");
@@ -66,7 +66,7 @@ mod tests {
 
     #[test]
     fn test_load_tokio_postgres_manifest() {
-        let toml_str = include_str!("../../../backends/rust-tokio-postgres/manifest.toml");
+        let toml_str = include_str!("../test-manifests/rust-tokio-postgres.toml");
         let manifest: BackendManifest = toml::from_str(toml_str).unwrap();
         assert_eq!(manifest.backend.name, "rust-tokio-postgres");
         assert_eq!(manifest.backend.language, "rust");

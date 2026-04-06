@@ -13,8 +13,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
-const DEFAULT_MANIFEST_TOML: &str =
-    include_str!("../../../../backends/csharp-npgsql/manifest.toml");
+const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/csharp-npgsql.toml");
 
 pub struct CsharpNpgsqlBackend {
     manifest: BackendManifest,

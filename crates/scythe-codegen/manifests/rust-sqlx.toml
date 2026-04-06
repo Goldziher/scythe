@@ -1,0 +1,46 @@
+[backend]
+name = "rust-sqlx"
+language = "rust"
+file_extension = "rs"
+engine = "postgresql"
+description = "Rust code generation targeting sqlx with PostgreSQL"
+
+[types.scalars]
+bool = "bool"
+int16 = "i16"
+int32 = "i32"
+int64 = "i64"
+float32 = "f32"
+float64 = "f64"
+string = "String"
+bytes = "Vec<u8>"
+uuid = "uuid::Uuid"
+decimal = "rust_decimal::Decimal"
+date = "chrono::NaiveDate"
+time = "chrono::NaiveTime"
+time_tz = "sqlx::postgres::types::PgTimeTz"
+datetime = "chrono::NaiveDateTime"
+datetime_tz = "chrono::DateTime<chrono::Utc>"
+interval = "sqlx::postgres::types::PgInterval"
+json = "serde_json::Value"
+inet = "ipnetwork::IpNetwork"
+
+[types.containers]
+array = "Vec<{T}>"
+nullable = "Option<{T}>"
+range = "sqlx::postgres::types::PgRange<{T}>"
+json_typed = "sqlx::types::Json<{T}>"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "snake_case"
+fn_case = "snake_case"
+enum_variant_case = "PascalCase"
+row_suffix = "Row"
+
+[imports.rules]
+"chrono::" = "use chrono;"
+"uuid::Uuid" = "use uuid::Uuid;"
+"rust_decimal::" = "use rust_decimal::Decimal;"
+"serde_json::" = "use serde_json;"
+"ipnetwork::" = "use ipnetwork::IpNetwork;"

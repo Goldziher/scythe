@@ -12,7 +12,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
-const DEFAULT_MANIFEST_TOML: &str = include_str!("../../../../backends/ruby-pg/manifest.toml");
+const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-pg.toml");
 
 pub struct RubyPgBackend {
     manifest: BackendManifest,

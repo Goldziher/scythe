@@ -12,7 +12,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
-const DEFAULT_MANIFEST_TOML: &str = include_str!("../../../../backends/java-jdbc/manifest.toml");
+const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/java-jdbc.toml");
 
 pub struct JavaJdbcBackend {
     manifest: BackendManifest,

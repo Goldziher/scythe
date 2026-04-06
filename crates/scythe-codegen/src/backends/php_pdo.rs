@@ -12,7 +12,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
-const DEFAULT_MANIFEST_TOML: &str = include_str!("../../../../backends/php-pdo/manifest.toml");
+const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/php-pdo.toml");
 
 pub struct PhpPdoBackend {
     manifest: BackendManifest,

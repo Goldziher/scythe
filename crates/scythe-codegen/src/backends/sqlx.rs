@@ -14,7 +14,7 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::singularize;
 
 /// Default embedded manifest TOML for rust-sqlx, used as fallback.
-const DEFAULT_MANIFEST_TOML: &str = include_str!("../../../../backends/rust-sqlx/manifest.toml");
+const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-sqlx.toml");
 
 /// SqlxBackend generates Rust code targeting the sqlx crate.
 pub struct SqlxBackend {
