@@ -4,9 +4,9 @@
 	"category": "lint/naming",
 	"tags": ["lint", "naming", "table", "snake_case"],
 	"schema_sql": [
-		"CREATE TABLE userAccounts (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
+		"CREATE TABLE \"User-Profiles\" (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT);"
 	],
-	"query_sql": "-- @name GetAccounts\n-- @returns :many\nSELECT id, name FROM userAccounts;",
+	"query_sql": "-- @name GetProfiles\n-- @returns :many\nSELECT id, name FROM \"User-Profiles\";",
 	"expected": {
 		"success": true,
 		"lint": {

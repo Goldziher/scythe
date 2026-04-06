@@ -107,6 +107,23 @@ pub struct Expected {
     pub generated_code: Option<AHashMap<String, ExpectedGeneratedCode>>,
     #[serde(default)]
     pub error: Option<ExpectedError>,
+    #[serde(default)]
+    pub lint: Option<ExpectedLint>,
+}
+
+// -- Lint -------------------------------------------------------------------
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpectedLint {
+    #[serde(default)]
+    pub violations: Vec<ExpectedLintViolation>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpectedLintViolation {
+    pub rule_code: String,
+    #[serde(default)]
+    pub message_contains: Option<String>,
 }
 
 // -- Catalog ----------------------------------------------------------------

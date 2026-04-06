@@ -141,7 +141,7 @@ impl CodegenBackend for TokioPostgresBackend {
             QueryCommand::One => {
                 let _ = writeln!(
                     out,
-                    "    let row = client.query_one(\"{}\", {}).await?;",
+                    "    let row = client.query_one(r#\"{}\"#, {}).await?;",
                     sql, param_refs
                 );
                 let _ = writeln!(out, "    Ok({}::from_row(&row))", struct_name);
@@ -149,7 +149,7 @@ impl CodegenBackend for TokioPostgresBackend {
             QueryCommand::Many | QueryCommand::Batch => {
                 let _ = writeln!(
                     out,
-                    "    let rows = client.query(\"{}\", {}).await?;",
+                    "    let rows = client.query(r#\"{}\"#, {}).await?;",
                     sql, param_refs
                 );
                 let _ = writeln!(
@@ -161,7 +161,7 @@ impl CodegenBackend for TokioPostgresBackend {
             QueryCommand::Exec => {
                 let _ = writeln!(
                     out,
-                    "    client.execute(\"{}\", {}).await?;",
+                    "    client.execute(r#\"{}\"#, {}).await?;",
                     sql, param_refs
                 );
                 let _ = writeln!(out, "    Ok(())");
@@ -169,7 +169,7 @@ impl CodegenBackend for TokioPostgresBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(
                     out,
-                    "    let rows_affected = client.execute(\"{}\", {}).await?;",
+                    "    let rows_affected = client.execute(r#\"{}\"#, {}).await?;",
                     sql, param_refs
                 );
                 let _ = writeln!(out, "    Ok(rows_affected)");
