@@ -8,6 +8,7 @@ use scythe_backend::naming::{
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
+use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
@@ -35,6 +36,28 @@ impl RubyPgBackend {
     }
 }
 
+/// Strip SQL comments, trailing semicolons, and excess whitespace.
+fn clean_sql(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_string()
+}
+
+/// Map a neutral type to a Ruby type coercion method.
+fn ruby_coercion(neutral_type: &str) -> &'static str {
+    match neutral_type {
+        "int16" | "int32" | "int64" => ".to_i",
+        "float32" | "float64" => ".to_f",
+        "bool" => " == \"t\"",
+        _ => "",
+    }
+}
+
 impl CodegenBackend for RubyPgBackend {
     fn name(&self) -> &str {
         "ruby-pg"
@@ -46,12 +69,12 @@ impl CodegenBackend for RubyPgBackend {
         columns: &[ResolvedColumn],
     ) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
-        let mut out = String::new();
         let fields = columns
             .iter()
             .map(|c| format!(":{}", c.field_name))
             .collect::<Vec<_>>()
             .join(", ");
+        let mut out = String::new();
         let _ = writeln!(out, "{} = Data.define({})", struct_name, fields);
         Ok(out)
     }
@@ -68,21 +91,105 @@ impl CodegenBackend for RubyPgBackend {
     fn generate_query_fn(
         &self,
         analyzed: &AnalyzedQuery,
-        _struct_name: &str,
-        _columns: &[ResolvedColumn],
+        struct_name: &str,
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql = clean_sql(&analyzed.sql);
         let mut out = String::new();
+
+        // Parameter list
         let param_list = params
             .iter()
             .map(|p| p.field_name.clone())
             .collect::<Vec<_>>()
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
+
         let _ = writeln!(out, "def self.{}(conn{}{})", func_name, sep, param_list);
-        let _ = writeln!(out, "  # TODO: implement");
-        let _ = writeln!(out, "  nil");
+
+        // Build exec_params call
+        let param_array = if params.is_empty() {
+            "[]".to_string()
+        } else {
+            format!(
+                "[{}]",
+                params
+                    .iter()
+                    .map(|p| p.field_name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+
+        match &analyzed.command {
+            QueryCommand::One => {
+                let _ = writeln!(
+                    out,
+                    "  result = conn.exec_params(\"{}\", {})",
+                    sql, param_array
+                );
+                let _ = writeln!(out, "  return nil if result.ntuples.zero?");
+                let _ = writeln!(out, "  row = result[0]");
+
+                // Build struct constructor
+                let fields = columns
+                    .iter()
+                    .map(|c| {
+                        let coercion = ruby_coercion(&c.neutral_type);
+                        if c.nullable {
+                            format!(
+                                "{}: row[\"{}\"]&.then {{ |v| v{} }}",
+                                c.field_name, c.name, coercion
+                            )
+                        } else {
+                            format!("{}: row[\"{}\"]{}", c.field_name, c.name, coercion)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(out, "  {}.new({})", struct_name, fields);
+            }
+            QueryCommand::Many | QueryCommand::Batch => {
+                let _ = writeln!(
+                    out,
+                    "  result = conn.exec_params(\"{}\", {})",
+                    sql, param_array
+                );
+                let _ = writeln!(out, "  result.map do |row|");
+                let fields = columns
+                    .iter()
+                    .map(|c| {
+                        let coercion = ruby_coercion(&c.neutral_type);
+                        if c.nullable {
+                            format!(
+                                "{}: row[\"{}\"]&.then {{ |v| v{} }}",
+                                c.field_name, c.name, coercion
+                            )
+                        } else {
+                            format!("{}: row[\"{}\"]{}", c.field_name, c.name, coercion)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+                let _ = writeln!(out, "  end");
+            }
+            QueryCommand::Exec => {
+                let _ = writeln!(out, "  conn.exec_params(\"{}\", {})", sql, param_array);
+                let _ = writeln!(out, "  nil");
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "  result = conn.exec_params(\"{}\", {})",
+                    sql, param_array
+                );
+                let _ = writeln!(out, "  result.cmd_tuples.to_i");
+            }
+        }
+
         let _ = write!(out, "end");
         Ok(out)
     }
@@ -93,8 +200,16 @@ impl CodegenBackend for RubyPgBackend {
         let _ = writeln!(out, "module {}", type_name);
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(out, "  {} = {:?}", variant, value);
+            let _ = writeln!(out, "  {} = \"{}\"", variant, value);
         }
+        // ALL constant
+        let all_values = enum_info
+            .values
+            .iter()
+            .map(|v| enum_variant_name(v, &self.manifest.naming))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(out, "  ALL = [{}].freeze", all_values);
         let _ = write!(out, "end");
         Ok(out)
     }

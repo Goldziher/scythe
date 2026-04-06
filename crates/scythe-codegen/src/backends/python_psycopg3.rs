@@ -3,13 +3,16 @@ use std::path::Path;
 
 use scythe_backend::manifest::{BackendManifest, load_manifest};
 use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
+    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
 };
+use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
+use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::singularize;
 
 const DEFAULT_MANIFEST_TOML: &str =
     include_str!("../../../../backends/python-psycopg3/manifest.toml");
@@ -36,6 +39,32 @@ impl PythonPsycopg3Backend {
     }
 }
 
+/// Strip SQL comments, trailing semicolons, and excess whitespace.
+fn clean_sql(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join("\n")
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_string()
+}
+
+/// Rewrite `$1`, `$2`, ... positional params to psycopg3 named params `%(name)s`.
+fn rewrite_params_named(sql: &str, analyzed: &AnalyzedQuery) -> String {
+    let mut result = sql.to_string();
+    // Replace in reverse order so positions don't shift
+    let mut params_sorted: Vec<_> = analyzed.params.iter().collect();
+    params_sorted.sort_by(|a, b| b.position.cmp(&a.position));
+    for param in params_sorted {
+        let placeholder = format!("${}", param.position);
+        let named = format!("%({})s", to_snake_case(&param.name));
+        result = result.replace(&placeholder, &named);
+    }
+    result
+}
+
 impl CodegenBackend for PythonPsycopg3Backend {
     fn name(&self) -> &str {
         "python-psycopg3"
@@ -48,13 +77,18 @@ impl CodegenBackend for PythonPsycopg3Backend {
     ) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
+        let _ = writeln!(out, "from __future__ import annotations");
+        let _ = writeln!(out, "from dataclasses import dataclass");
+        let _ = writeln!(out);
+        let _ = writeln!(out);
         let _ = writeln!(out, "@dataclass");
         let _ = writeln!(out, "class {}:", struct_name);
-        for col in columns {
-            let _ = writeln!(out, "    {}: {}", col.field_name, col.full_type);
-        }
         if columns.is_empty() {
             let _ = writeln!(out, "    pass");
+        } else {
+            for col in columns {
+                let _ = writeln!(out, "    {}: {}", col.field_name, col.full_type);
+            }
         }
         Ok(out)
     }
@@ -64,7 +98,8 @@ impl CodegenBackend for PythonPsycopg3Backend {
         table_name: &str,
         columns: &[ResolvedColumn],
     ) -> Result<String, ScytheError> {
-        let name = to_pascal_case(table_name);
+        let singular = singularize(table_name);
+        let name = to_pascal_case(&singular);
         self.generate_row_struct(&name, columns)
     }
 
@@ -72,36 +107,135 @@ impl CodegenBackend for PythonPsycopg3Backend {
         &self,
         analyzed: &AnalyzedQuery,
         struct_name: &str,
-        _columns: &[ResolvedColumn],
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
+
+        // Build parameter list
         let param_list = params
             .iter()
             .map(|p| format!("{}: {}", p.field_name, p.full_type))
             .collect::<Vec<_>>()
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
-        let _ = writeln!(
-            out,
-            "async def {}(conn: AsyncConnection{}{}) -> {} | None:",
-            func_name, sep, param_list, struct_name
-        );
-        let _ = writeln!(out, "    pass  # TODO");
+
+        // Clean and rewrite SQL
+        let sql_clean = clean_sql(&analyzed.sql);
+        let sql = rewrite_params_named(&sql_clean, analyzed);
+
+        match &analyzed.command {
+            QueryCommand::One => {
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: AsyncConnection{}{}) -> {} | None:",
+                    func_name, sep, param_list, struct_name
+                );
+                // Build params dict
+                if params.is_empty() {
+                    let _ = writeln!(out, "    cur = await conn.execute(");
+                    let _ = writeln!(out, "        \"{}\",", sql);
+                    let _ = writeln!(out, "    )");
+                } else {
+                    let dict_entries: Vec<String> = params
+                        .iter()
+                        .map(|p| format!("\"{}\": {}", p.field_name, p.field_name))
+                        .collect();
+                    let _ = writeln!(out, "    cur = await conn.execute(");
+                    let _ = writeln!(out, "        \"{}\",", sql);
+                    let _ = writeln!(out, "        {{{}}},", dict_entries.join(", "));
+                    let _ = writeln!(out, "    )");
+                }
+                let _ = writeln!(out, "    row = await cur.fetchone()");
+                let _ = writeln!(out, "    if row is None:");
+                let _ = writeln!(out, "        return None");
+                // Construct dataclass from positional row
+                let field_assignments: Vec<String> = columns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, col)| format!("{}=row[{}]", col.field_name, i))
+                    .collect();
+                let _ = writeln!(
+                    out,
+                    "    return {}({})",
+                    struct_name,
+                    field_assignments.join(", ")
+                );
+            }
+            QueryCommand::Many | QueryCommand::Batch => {
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: AsyncConnection{}{}) -> list[{}]:",
+                    func_name, sep, param_list, struct_name
+                );
+                if params.is_empty() {
+                    let _ = writeln!(out, "    cur = await conn.execute(");
+                    let _ = writeln!(out, "        \"{}\",", sql);
+                    let _ = writeln!(out, "    )");
+                } else {
+                    let dict_entries: Vec<String> = params
+                        .iter()
+                        .map(|p| format!("\"{}\": {}", p.field_name, p.field_name))
+                        .collect();
+                    let _ = writeln!(out, "    cur = await conn.execute(");
+                    let _ = writeln!(out, "        \"{}\",", sql);
+                    let _ = writeln!(out, "        {{{}}},", dict_entries.join(", "));
+                    let _ = writeln!(out, "    )");
+                }
+                let _ = writeln!(out, "    rows = await cur.fetchall()");
+                let field_assignments: Vec<String> = columns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, col)| format!("{}=r[{}]", col.field_name, i))
+                    .collect();
+                let _ = writeln!(
+                    out,
+                    "    return [{}({}) for r in rows]",
+                    struct_name,
+                    field_assignments.join(", ")
+                );
+            }
+            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: AsyncConnection{}{}) -> None:",
+                    func_name, sep, param_list
+                );
+                if params.is_empty() {
+                    let _ = writeln!(out, "    await conn.execute(");
+                    let _ = writeln!(out, "        \"{}\",", sql);
+                    let _ = writeln!(out, "    )");
+                } else {
+                    let dict_entries: Vec<String> = params
+                        .iter()
+                        .map(|p| format!("\"{}\": {}", p.field_name, p.field_name))
+                        .collect();
+                    let _ = writeln!(out, "    await conn.execute(");
+                    let _ = writeln!(out, "        \"{}\",", sql);
+                    let _ = writeln!(out, "        {{{}}},", dict_entries.join(", "));
+                    let _ = writeln!(out, "    )");
+                }
+            }
+        }
+
         Ok(out)
     }
 
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::new();
+        let _ = writeln!(out, "from enum import Enum");
+        let _ = writeln!(out);
+        let _ = writeln!(out);
         let _ = writeln!(out, "class {}(str, Enum):", type_name);
-        for value in &enum_info.values {
-            let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(out, "    {} = {:?}", variant, value);
-        }
         if enum_info.values.is_empty() {
             let _ = writeln!(out, "    pass");
+        } else {
+            for value in &enum_info.values {
+                let variant = enum_variant_name(value, &self.manifest.naming);
+                let _ = writeln!(out, "    {} = \"{}\"", variant, value);
+            }
         }
         Ok(out)
     }
@@ -109,9 +243,27 @@ impl CodegenBackend for PythonPsycopg3Backend {
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
+        let _ = writeln!(out, "from __future__ import annotations");
+        let _ = writeln!(out, "from dataclasses import dataclass");
+        let _ = writeln!(out);
+        let _ = writeln!(out);
         let _ = writeln!(out, "@dataclass");
         let _ = writeln!(out, "class {}:", name);
-        let _ = writeln!(out, "    pass  # TODO: fields");
+        if composite.fields.is_empty() {
+            let _ = writeln!(out, "    pass");
+        } else {
+            for field in &composite.fields {
+                let py_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                    .map(|t| t.into_owned())
+                    .map_err(|e| {
+                        ScytheError::new(
+                            ErrorCode::InternalError,
+                            format!("composite field type error: {}", e),
+                        )
+                    })?;
+                let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
+            }
+        }
         Ok(out)
     }
 }

@@ -8,6 +8,7 @@ use scythe_backend::naming::{
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
+use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
@@ -35,6 +36,18 @@ impl GoPgxBackend {
     }
 }
 
+/// Strip SQL comments, trailing semicolons, and excess whitespace.
+fn clean_sql(sql: &str) -> String {
+    sql.lines()
+        .filter(|line| !line.trim_start().starts_with("--"))
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_string()
+}
+
 impl CodegenBackend for GoPgxBackend {
     fn name(&self) -> &str {
         "go-pgx"
@@ -50,7 +63,8 @@ impl CodegenBackend for GoPgxBackend {
         let _ = writeln!(out, "type {} struct {{", struct_name);
         for col in columns {
             let field = to_pascal_case(&col.field_name);
-            let _ = writeln!(out, "\t{} {}", field, col.full_type);
+            let json_tag = &col.field_name;
+            let _ = writeln!(out, "\t{} {} `json:\"{}\"`", field, col.full_type, json_tag);
         }
         let _ = write!(out, "}}");
         Ok(out)
@@ -69,25 +83,106 @@ impl CodegenBackend for GoPgxBackend {
         &self,
         analyzed: &AnalyzedQuery,
         struct_name: &str,
-        _columns: &[ResolvedColumn],
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let mut out = String::new();
+        let sql = clean_sql(&analyzed.sql);
+
         let param_list = params
             .iter()
-            .map(|p| format!("{} {}", p.field_name, p.full_type))
+            .map(|p| {
+                let field = to_pascal_case(&p.field_name);
+                format!("{} {}", field, p.full_type)
+            })
             .collect::<Vec<_>>()
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
-        let _ = writeln!(
-            out,
-            "func {}(ctx context.Context, db DBTX{}{}) ({}, error) {{",
-            func_name, sep, param_list, struct_name
-        );
-        let _ = writeln!(out, "\t// TODO: implement");
-        let _ = writeln!(out, "\treturn {}{{}}, nil", struct_name);
-        let _ = write!(out, "}}");
+
+        let args = params
+            .iter()
+            .map(|p| to_pascal_case(&p.field_name).into_owned())
+            .collect::<Vec<_>>();
+
+        let mut out = String::new();
+
+        match &analyzed.command {
+            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                // :exec - returns error only
+                let _ = writeln!(
+                    out,
+                    "func {}(ctx context.Context, db *pgxpool.Pool{}{}) error {{",
+                    func_name, sep, param_list
+                );
+                let args_str = if args.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", args.join(", "))
+                };
+                let _ = writeln!(out, "\t_, err := db.Exec(ctx, \"{}\"{})", sql, args_str);
+                let _ = writeln!(out, "\treturn err");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::One => {
+                // :one - returns single struct
+                let _ = writeln!(
+                    out,
+                    "func {}(ctx context.Context, db *pgxpool.Pool{}{}) ({}, error) {{",
+                    func_name, sep, param_list, struct_name
+                );
+                let args_str = if args.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", args.join(", "))
+                };
+                let _ = writeln!(out, "\trow := db.QueryRow(ctx, \"{}\"{})", sql, args_str);
+                let _ = writeln!(out, "\tvar r {}", struct_name);
+                let scan_fields: Vec<String> = columns
+                    .iter()
+                    .map(|c| format!("&r.{}", to_pascal_case(&c.field_name)))
+                    .collect();
+                let _ = writeln!(out, "\terr := row.Scan({})", scan_fields.join(", "));
+                let _ = writeln!(out, "\treturn r, err");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Many | QueryCommand::Batch => {
+                // :many - returns slice
+                let _ = writeln!(
+                    out,
+                    "func {}(ctx context.Context, db *pgxpool.Pool{}{}) ([]{}, error) {{",
+                    func_name, sep, param_list, struct_name
+                );
+                let args_str = if args.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", args.join(", "))
+                };
+                let _ = writeln!(out, "\trows, err := db.Query(ctx, \"{}\"{})", sql, args_str);
+                let _ = writeln!(out, "\tif err != nil {{");
+                let _ = writeln!(out, "\t\treturn nil, err");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tdefer rows.Close()");
+                let _ = writeln!(out, "\tvar result []{}", struct_name);
+                let _ = writeln!(out, "\tfor rows.Next() {{");
+                let _ = writeln!(out, "\t\tvar r {}", struct_name);
+                let scan_fields: Vec<String> = columns
+                    .iter()
+                    .map(|c| format!("&r.{}", to_pascal_case(&c.field_name)))
+                    .collect();
+                let _ = writeln!(
+                    out,
+                    "\t\tif err := rows.Scan({}); err != nil {{",
+                    scan_fields.join(", ")
+                );
+                let _ = writeln!(out, "\t\t\treturn nil, err");
+                let _ = writeln!(out, "\t\t}}");
+                let _ = writeln!(out, "\t\tresult = append(result, r)");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn result, rows.Err()");
+                let _ = write!(out, "}}");
+            }
+        }
+
         Ok(out)
     }
 
@@ -101,7 +196,7 @@ impl CodegenBackend for GoPgxBackend {
             let variant = enum_variant_name(value, &self.manifest.naming);
             let _ = writeln!(
                 out,
-                "\t{}{} {} = {:?}",
+                "\t{}{} {} = \"{}\"",
                 type_name, variant, type_name, value
             );
         }
@@ -113,7 +208,13 @@ impl CodegenBackend for GoPgxBackend {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
         let _ = writeln!(out, "type {} struct {{", name);
-        let _ = writeln!(out, "\t// TODO: fields");
+        for field in &composite.fields {
+            let field_name = to_pascal_case(&field.name);
+            let _ = writeln!(out, "\t{} interface{{}}", field_name);
+        }
+        if composite.fields.is_empty() {
+            let _ = writeln!(out, "\t// TODO: fields");
+        }
         let _ = write!(out, "}}");
         Ok(out)
     }
