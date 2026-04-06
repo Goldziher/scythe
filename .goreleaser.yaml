@@ -13,8 +13,7 @@ builds:
     command: zigbuild
     flags:
       - --release
-      - -p
-      - scythe-cli
+      - --package=scythe-cli
     targets:
       - x86_64-unknown-linux-gnu
       - aarch64-unknown-linux-gnu
