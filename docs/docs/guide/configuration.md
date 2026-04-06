@@ -1,0 +1,119 @@
+# Configuration
+
+Scythe is configured via `scythe.toml` in your project root.
+
+## Full Reference
+
+```toml
+# Required: scythe metadata
+[scythe]
+version = "1"
+
+# One or more SQL blocks. Each block defines a schema + queries + output target.
+[[sql]]
+name = "main"                          # Block name (used in CLI output)
+engine = "postgresql"                  # Database engine: postgresql, mysql, sqlite
+schema = ["sql/schema/*.sql"]          # Glob patterns for DDL files
+queries = ["sql/queries/*.sql"]        # Glob patterns for annotated query files
+output = "src/generated"               # Output directory for generated code
+
+# Optional: code generation settings
+[sql.gen.rust]
+target = "sqlx"                        # Backend target (e.g. sqlx, tokio-postgres)
+derive = ["Debug", "Clone", "serde::Serialize"]  # Extra derive macros on structs
+serde = true                           # Add serde derives
+
+# Optional: type overrides
+[[sql.type_overrides]]
+column = "users.metadata"              # Specific column to override
+type = "json"                          # Neutral type to use
+
+[[sql.type_overrides]]
+db_type = "citext"                     # Override all columns of this DB type
+type = "string"                        # Neutral type to map to
+
+# Optional: lint configuration
+[lint]
+
+# Set severity by category (naming, safety, style, performance, antipattern, codegen)
+[lint.categories]
+safety = "error"
+naming = "warn"
+performance = "warn"
+
+# Override severity for individual rules
+[lint.rules]
+"SC-S03" = "off"       # Disable SELECT * warning
+"SC-N03" = "error"     # Promote query naming to error
+```
+
+## Fields
+
+### `[scythe]`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `version` | string | yes | Config version. Currently `"1"`. |
+
+### `[[sql]]`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `name` | string | yes | Name for this SQL block. |
+| `engine` | string | yes | Database dialect: `postgresql`, `mysql`, `sqlite`. |
+| `schema` | string[] | yes | Glob patterns for schema DDL files. |
+| `queries` | string[] | yes | Glob patterns for annotated query files. |
+| `output` | string | yes | Output directory for generated code. |
+| `gen` | table | no | Code generation options per language. |
+| `type_overrides` | array | no | Type mapping overrides. |
+
+### `[sql.gen.rust]`
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `target` | string | yes | Backend name (e.g. `sqlx`, `tokio-postgres`). |
+| `derive` | string[] | no | Additional derive macros for generated structs. |
+| `serde` | bool | no | Add serde Serialize/Deserialize derives. |
+
+### `[[sql.type_overrides]]`
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `column` | string | Target a specific column (`table.column`). |
+| `db_type` | string | Target all columns with this database type. |
+| `type` | string | Neutral type to use (e.g. `string`, `json`, `int64`). |
+
+### `[lint]`
+
+See [Linting](linting.md) for the full list of rules and categories.
+
+## Multiple SQL Blocks
+
+You can define multiple `[[sql]]` blocks for different databases or schemas:
+
+```toml
+[scythe]
+version = "1"
+
+[[sql]]
+name = "users"
+engine = "postgresql"
+schema = ["sql/users/schema.sql"]
+queries = ["sql/users/queries/*.sql"]
+output = "src/generated/users"
+
+[[sql]]
+name = "analytics"
+engine = "postgresql"
+schema = ["sql/analytics/schema.sql"]
+queries = ["sql/analytics/queries/*.sql"]
+output = "src/generated/analytics"
+```
+
+## Engine Aliases
+
+| Alias | Engine |
+|-------|--------|
+| `postgresql`, `postgres`, `pg` | PostgreSQL |
+| `mysql`, `mariadb` | MySQL |
+| `sqlite`, `sqlite3` | SQLite |

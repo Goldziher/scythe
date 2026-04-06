@@ -1,0 +1,60 @@
+[project]
+site_name = "Scythe"
+site_description = "Polyglot SQL-to-code generator with built-in linting and formatting"
+site_author = "Na'aman Hirschfeld"
+site_url = "https://goldziher.github.io/scythe/"
+copyright = "Copyright &copy; 2026 Na'aman Hirschfeld"
+
+nav = [
+  { "Home" = "index.md" },
+  { "Philosophy" = "philosophy.md" },
+  { "Architecture" = "architecture.md" },
+  { "Getting Started" = [
+    { "Installation" = "getting-started/installation.md" },
+    { "Quickstart" = "getting-started/quickstart.md" },
+    { "Migration from sqlc" = "getting-started/migration-from-sqlc.md" },
+  ] },
+  { "Guide" = [
+    { "Configuration" = "guide/configuration.md" },
+    { "Annotations" = "guide/annotations.md" },
+    { "Type Inference" = "guide/type-inference.md" },
+    { "Linting" = "guide/linting.md" },
+    { "Formatting" = "guide/formatting.md" },
+    { "CLI Reference" = "guide/cli-reference.md" },
+  ] },
+]
+
+[project.theme]
+language = "en"
+features = [
+  "announce.dismiss",
+  "content.code.annotate",
+  "content.code.copy",
+  "content.code.select",
+  "content.footnote.tooltips",
+  "content.tabs.link",
+  "content.tooltips",
+  "navigation.footer",
+  "navigation.indexes",
+  "navigation.instant",
+  "navigation.instant.prefetch",
+  "navigation.path",
+  "navigation.sections",
+  "navigation.top",
+  "navigation.tracking",
+  "search.highlight",
+]
+
+[[project.theme.palette]]
+scheme = "default"
+toggle.icon = "lucide/sun"
+toggle.name = "Switch to dark mode"
+
+[[project.theme.palette]]
+scheme = "slate"
+toggle.icon = "lucide/moon"
+toggle.name = "Switch to light mode"
+
+[[project.extra.social]]
+icon = "fontawesome/brands/github"
+link = "https://github.com/Goldziher/scythe"
