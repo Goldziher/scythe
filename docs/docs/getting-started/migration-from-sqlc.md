@@ -104,3 +104,39 @@ This is converted to the equivalent scythe.toml with glob patterns for directori
 4. Run `scythe lint` to catch issues sqlc might have missed
 
 > **Note:** Custom type mappings and ORM-specific extensions need manual review after migration.
+
+## Special sqlc Functions
+
+### sqlc.narg()
+
+sqlc's nullable named arguments convert to standard parameters with the `@nullable` annotation:
+
+**sqlc:**
+
+```sql
+-- name: SearchUsers :many
+SELECT * FROM users WHERE name = sqlc.narg('name');
+```
+
+**scythe:**
+
+```sql
+-- @name SearchUsers
+-- @returns :many
+-- @nullable name
+SELECT * FROM users WHERE name = $1;
+```
+
+### sqlc.embed() and sqlc.slice()
+
+These sqlc functions do not have direct equivalents in scythe. After migration:
+
+- `sqlc.embed()` — replace with explicit column selection
+- `sqlc.slice()` — replace with `= ANY($1)` array parameter
+
+## Migration Limitations
+
+- Custom type overrides need manual review
+- `sqlc.embed()` and `sqlc.slice()` require manual rewriting
+- Plugin-specific code generation options are not preserved
+- Query names are preserved but may need adjustment for scythe naming conventions

@@ -21,6 +21,7 @@ nav = [
     { "Linting" = "guide/linting.md" },
     { "Formatting" = "guide/formatting.md" },
     { "CLI Reference" = "guide/cli-reference.md" },
+    { "Migration from sqlfluff" = "guide/migration-from-sqlfluff.md" },
   ] },
 ]
 

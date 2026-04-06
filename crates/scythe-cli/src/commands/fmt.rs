@@ -33,7 +33,7 @@ pub fn run_fmt(
         let original = std::fs::read_to_string(path)
             .map_err(|e| format!("failed to read '{}': {}", path, e))?;
 
-        let formatted = sqruff_adapter::format_sql(&original, dialect)
+        let formatted = sqruff_adapter::format_sql(&original, dialect, None)
             .map_err(|e| format!("sqruff error on '{}': {}", path, e))?;
 
         if original == formatted {

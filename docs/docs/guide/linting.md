@@ -116,3 +116,51 @@ performance = "off"     # Disable all performance rules
 | `codegen` | `SC-C` | Validates code generation annotations |
 
 Category-level settings are overridden by rule-level settings.
+
+## sqruff Configuration
+
+Configure sqruff rules in `[lint.sqruff]`:
+
+```toml
+[lint.sqruff]
+# Exclude specific rules
+exclude_rules = ["LT01", "LT02", "CP01"]
+```
+
+### sqruff Rule Categories
+
+| Prefix | Category | Description |
+|--------|----------|-------------|
+| AL | Aliasing | Table and column aliasing |
+| AM | Ambiguous | Ambiguous SQL constructs |
+| CP | Capitalisation | Keyword and identifier casing |
+| CV | Convention | SQL conventions |
+| LT | Layout | Formatting, spacing, indentation |
+| RF | References | Column and table references |
+| ST | Structure | SQL structure |
+
+### Common sqruff Rules
+
+| Code | Description |
+|------|-------------|
+| LT01 | Trailing whitespace |
+| LT02 | Inconsistent indentation |
+| LT05 | Line too long |
+| LT12 | File must end with newline |
+| CP01 | Keywords should be consistent case |
+| AM01 | DISTINCT with GROUP BY |
+| AM02 | UNION without DISTINCT/ALL |
+| ST01 | Unnecessary ELSE NULL |
+
+## Category-level Configuration
+
+Override severity for all rules in a category:
+
+```toml
+[lint.categories]
+safety = "error"
+naming = "warn"
+style = "off"
+```
+
+Per-rule overrides take precedence over category settings.

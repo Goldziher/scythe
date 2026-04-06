@@ -72,6 +72,22 @@ pub struct LintContext<'a> {
 }
 
 // ---------------------------------------------------------------------------
+// SqruffConfig
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct SqruffConfig {
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+    #[serde(default)]
+    pub rules: ahash::AHashMap<String, String>,
+}
+
+fn default_true() -> bool {
+    true
+}
+
+// ---------------------------------------------------------------------------
 // LintConfig
 // ---------------------------------------------------------------------------
 
@@ -81,6 +97,8 @@ pub struct LintConfig {
     pub categories: ahash::AHashMap<RuleCategory, Severity>,
     #[serde(default)]
     pub rules: ahash::AHashMap<String, Severity>,
+    #[serde(default)]
+    pub sqruff: Option<SqruffConfig>,
 }
 
 #[cfg(test)]

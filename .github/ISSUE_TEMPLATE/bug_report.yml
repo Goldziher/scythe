@@ -1,0 +1,76 @@
+name: Bug Report
+description: Report a bug in scythe
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a bug. Please fill out the information below.
+  - type: textarea
+    id: description
+    attributes:
+      label: Description
+      description: What happened? What did you expect?
+    validations:
+      required: true
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Minimal SQL + config to reproduce the issue
+      value: |
+        **Schema:**
+        ```sql
+        -- paste schema
+        ```
+
+        **Query:**
+        ```sql
+        -- paste query
+        ```
+
+        **scythe.toml:**
+        ```toml
+        -- paste config
+        ```
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Scythe version
+      description: Output of `scythe --version`
+    validations:
+      required: true
+  - type: dropdown
+    id: backend
+    attributes:
+      label: Backend
+      options:
+        - rust-sqlx
+        - rust-tokio-postgres
+        - python-psycopg3
+        - python-asyncpg
+        - typescript-postgres
+        - typescript-pg
+        - go-pgx
+        - java-jdbc
+        - kotlin-jdbc
+        - csharp-npgsql
+        - elixir-postgrex
+        - ruby-pg
+        - php-pdo
+        - N/A
+    validations:
+      required: true
+  - type: dropdown
+    id: database
+    attributes:
+      label: Database
+      options:
+        - PostgreSQL
+        - MySQL
+        - SQLite
+    validations:
+      required: true

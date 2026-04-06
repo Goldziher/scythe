@@ -63,7 +63,7 @@ fn lint_files(
             .map_err(|e| format!("failed to read '{}': {}", path, e))?;
 
         if fix {
-            let (violations, fixed) = sqruff_adapter::lint_and_fix_sql(&sql, dialect);
+            let (violations, fixed) = sqruff_adapter::lint_and_fix_sql(&sql, dialect, None);
             for sv in &violations {
                 all_violations.push(FileViolation {
                     file: path.clone(),
@@ -81,7 +81,7 @@ fn lint_files(
                 eprintln!("fixed {}", path);
             }
         } else {
-            let violations = sqruff_adapter::lint_sql(&sql, dialect);
+            let violations = sqruff_adapter::lint_sql(&sql, dialect, None);
             for sv in &violations {
                 all_violations.push(FileViolation {
                     file: path.clone(),
@@ -142,6 +142,9 @@ fn lint_from_config(
     }
     let engine = LintEngine::new(registry);
 
+    // Extract sqruff config from lint config
+    let sqruff_config = config.lint.as_ref().and_then(|lc| lc.sqruff.as_ref());
+
     let mut all_violations: Vec<FileViolation> = Vec::new();
 
     for sql_config in &config.sql {
@@ -171,7 +174,8 @@ fn lint_from_config(
 
             // Run sqruff on the entire file
             if fix {
-                let (sq_violations, fixed) = sqruff_adapter::lint_and_fix_sql(&content, dialect);
+                let (sq_violations, fixed) =
+                    sqruff_adapter::lint_and_fix_sql(&content, dialect, sqruff_config);
                 for sv in &sq_violations {
                     all_violations.push(FileViolation {
                         file: query_file.clone(),
@@ -189,7 +193,7 @@ fn lint_from_config(
                     eprintln!("fixed {}", query_file);
                 }
             } else {
-                let sq_violations = sqruff_adapter::lint_sql(&content, dialect);
+                let sq_violations = sqruff_adapter::lint_sql(&content, dialect, sqruff_config);
                 for sv in &sq_violations {
                     all_violations.push(FileViolation {
                         file: query_file.clone(),
