@@ -54,6 +54,11 @@ impl CodegenBackend for GoPgxBackend {
         "go-pgx"
     }
 
+    fn file_header(&self) -> String {
+        "package queries\n\nimport (\n\t\"context\"\n\n\t\"github.com/jackc/pgx/v5/pgxpool\"\n)\n"
+            .to_string()
+    }
+
     fn generate_row_struct(
         &self,
         query_name: &str,

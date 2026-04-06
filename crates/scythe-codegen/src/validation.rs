@@ -304,8 +304,18 @@ pub fn validate_with_tools(code: &str, backend_name: &str) -> Option<Vec<String>
 }
 
 fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
-    let path = std::env::temp_dir().join(format!("scythe_validate{ext}"));
-    std::fs::write(&path, code).ok()?;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static COUNTER: AtomicU64 = AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+    let basename = if ext == ".kt" {
+        format!("ScytheValidate{n}")
+    } else {
+        format!("scythe_validate_{n}")
+    };
+    let path = std::env::temp_dir().join(format!("{basename}{ext}"));
+    // Trim trailing whitespace/newlines to avoid tool complaints about blank lines at EOF
+    let trimmed = format!("{}\n", code.trim_end());
+    std::fs::write(&path, trimmed).ok()?;
     Some(path)
 }
 
