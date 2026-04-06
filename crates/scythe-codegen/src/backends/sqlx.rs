@@ -137,7 +137,7 @@ impl CodegenBackend for SqlxBackend {
         );
 
         // Clean SQL
-        let sql_raw = clean_sql(&analyzed.sql);
+        let sql_raw = super::clean_sql(&analyzed.sql);
         let sql = rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest);
 
         // Query body
@@ -276,18 +276,6 @@ impl CodegenBackend for SqlxBackend {
 // ---------------------------------------------------------------------------
 // Internal helpers (moved from old modules)
 // ---------------------------------------------------------------------------
-
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
 
 /// Rewrite SQL to add enum type annotations for sqlx.
 fn rewrite_sql_for_enums(

@@ -118,7 +118,7 @@ impl CodegenBackend for TokioPostgresBackend {
         );
 
         // Clean SQL
-        let sql = clean_sql(&analyzed.sql);
+        let sql = super::clean_sql(&analyzed.sql);
 
         // Build param references for the query call
         let param_refs: String = if params.is_empty() {
@@ -321,16 +321,4 @@ fn generate_struct_with_from_row(
     let _ = write!(out, "}}");
 
     Ok(out)
-}
-
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
 }

@@ -5,6 +5,7 @@ use scythe_backend::manifest::{BackendManifest, load_manifest};
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
 };
+use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -34,18 +35,6 @@ impl KotlinJdbcBackend {
     pub fn manifest(&self) -> &BackendManifest {
         &self.manifest
     }
-}
-
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
 }
 
 /// Convert PostgreSQL $1, $2, ... placeholders to JDBC ? placeholders.
@@ -150,7 +139,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = pg_to_jdbc_params(&clean_sql(&analyzed.sql));
+        let sql = pg_to_jdbc_params(&super::clean_sql_oneline(&analyzed.sql));
 
         // Build function params: inline for single param (conn only), multi-line for 2+
         let use_multiline_params = !params.is_empty();
@@ -287,13 +276,12 @@ impl CodegenBackend for KotlinJdbcBackend {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
         let _ = writeln!(out, "data class {}(", name);
-        if composite.fields.is_empty() {
-            let _ = writeln!(out, "    // TODO: fields");
-        } else {
-            for field in composite.fields.iter() {
-                let field_name = to_camel_case(&field.name);
-                let _ = writeln!(out, "    val {}: Any?,", field_name);
-            }
+        for field in composite.fields.iter() {
+            let field_name = to_camel_case(&field.name);
+            let field_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|t| t.into_owned())
+                .unwrap_or_else(|_| "Any".to_string());
+            let _ = writeln!(out, "    val {}: {},", field_name, field_type);
         }
         let _ = writeln!(out, ")");
         Ok(out)

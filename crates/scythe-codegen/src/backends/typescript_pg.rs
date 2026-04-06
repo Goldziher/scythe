@@ -39,18 +39,6 @@ impl TypescriptPgBackend {
     }
 }
 
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 impl CodegenBackend for TypescriptPgBackend {
     fn name(&self) -> &str {
         "typescript-pg"
@@ -106,7 +94,7 @@ impl CodegenBackend for TypescriptPgBackend {
         let _sep = if param_list.is_empty() { "" } else { ", " };
 
         // Clean SQL — pg uses $1, $2 positional params natively
-        let sql = clean_sql(&analyzed.sql);
+        let sql = super::clean_sql(&analyzed.sql);
 
         // Build array of param values
         let _param_array: String = if params.is_empty() {

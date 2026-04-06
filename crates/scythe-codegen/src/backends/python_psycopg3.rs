@@ -39,18 +39,6 @@ impl PythonPsycopg3Backend {
     }
 }
 
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 /// Rewrite `$1`, `$2`, ... positional params to psycopg3 named params `%(name)s`.
 fn rewrite_params_named(sql: &str, analyzed: &AnalyzedQuery) -> String {
     let mut result = sql.to_string();
@@ -132,7 +120,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         // Clean and rewrite SQL
-        let sql_clean = clean_sql(&analyzed.sql);
+        let sql_clean = super::clean_sql(&analyzed.sql);
         let sql = rewrite_params_named(&sql_clean, analyzed);
 
         match &analyzed.command {

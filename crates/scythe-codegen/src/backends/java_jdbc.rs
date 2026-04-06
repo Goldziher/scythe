@@ -36,18 +36,6 @@ impl JavaJdbcBackend {
     }
 }
 
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 /// Convert PostgreSQL $1, $2, ... placeholders to JDBC ? placeholders.
 fn pg_to_jdbc_params(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len());
@@ -210,7 +198,7 @@ impl CodegenBackend for JavaJdbcBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = pg_to_jdbc_params(&clean_sql(&analyzed.sql));
+        let sql = pg_to_jdbc_params(&super::clean_sql_oneline(&analyzed.sql));
 
         let param_list = params
             .iter()

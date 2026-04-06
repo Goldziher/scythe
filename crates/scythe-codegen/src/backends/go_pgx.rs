@@ -37,18 +37,6 @@ impl GoPgxBackend {
     }
 }
 
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join(" ")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 impl CodegenBackend for GoPgxBackend {
     fn name(&self) -> &str {
         "go-pgx"
@@ -93,7 +81,7 @@ impl CodegenBackend for GoPgxBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = clean_sql(&analyzed.sql);
+        let sql = super::clean_sql_oneline(&analyzed.sql);
 
         let param_list = params
             .iter()

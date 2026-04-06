@@ -393,16 +393,13 @@ mod tests {
     fn parse_from(sql: &str) -> Vec<ast::TableWithJoins> {
         let dialect = PostgreSqlDialect {};
         let stmts = Parser::parse_sql(&dialect, sql).unwrap();
-        match &stmts[0] {
-            Statement::Query(q) => {
-                if let ast::SetExpr::Select(sel) = q.body.as_ref() {
-                    sel.from.clone()
-                } else {
-                    panic!("expected SELECT");
-                }
-            }
-            _ => panic!("expected Query statement"),
-        }
+        let Statement::Query(q) = &stmts[0] else {
+            unreachable!("test SQL must be a SELECT query");
+        };
+        let ast::SetExpr::Select(sel) = q.body.as_ref() else {
+            unreachable!("test SQL must be a simple SELECT");
+        };
+        sel.from.clone()
     }
 
     // -----------------------------------------------------------------------

@@ -37,18 +37,6 @@ impl ElixirPostgrexBackend {
     }
 }
 
-/// Strip SQL comments, trailing semicolons, and excess whitespace.
-fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
-        .join("\n")
-        .trim()
-        .trim_end_matches(';')
-        .trim()
-        .to_string()
-}
-
 impl CodegenBackend for ElixirPostgrexBackend {
     fn name(&self) -> &str {
         "elixir-postgrex"
@@ -101,7 +89,7 @@ impl CodegenBackend for ElixirPostgrexBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = clean_sql(&analyzed.sql);
+        let sql = super::clean_sql(&analyzed.sql);
         let mut out = String::new();
 
         // Parameter list
