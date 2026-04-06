@@ -6,9 +6,9 @@ Write SQL. Get type-safe code. In any language.
 
 ## Why Scythe
 
-- **13 language backends** -- Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP
+- **10 languages, 13 backend drivers** -- Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP
 - **3 databases** -- PostgreSQL, MySQL, SQLite
-- **93 lint rules** -- catch bugs before they ship
+- **22 custom lint rules plus sqruff integration** -- catch bugs before they ship
 - **SQL formatting** -- via sqruff integration
 - **Smart type inference** -- nullability from JOINs, COALESCE, aggregates
 

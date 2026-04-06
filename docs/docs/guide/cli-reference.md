@@ -18,7 +18,7 @@ scythe generate [--config <path>]
 |------|---------|-------------|
 | `-c, --config` | `scythe.toml` | Path to config file |
 
-Reads the config, parses schema and queries, runs type inference, and writes generated code to the configured output directory.
+Reads the config, parses schema and queries, runs type inference, and writes generated code to the configured output directory. If `scythe.toml` is not found, the command exits with an error.
 
 ### check
 

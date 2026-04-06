@@ -79,8 +79,8 @@ performance = "warn"
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `column` | string | Target a specific column (`table.column`). |
-| `db_type` | string | Target all columns with this database type. |
+| `column` | string | Target a specific column (`table.column`). Mutually exclusive with `db_type`. |
+| `db_type` | string | Target all columns with this database type. Mutually exclusive with `column`. |
 | `type` | string | Neutral type to use (e.g. `string`, `json`, `int64`). |
 
 ### `[lint]`

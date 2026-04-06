@@ -1,6 +1,6 @@
 # MySQL
 
-Scythe supports MySQL/MariaDB with dialect-specific type handling.
+Scythe supports MySQL/MariaDB with dialect-specific type handling. MySQL support operates at the parser and analyzer level -- SQL parsing, type inference, and nullability analysis are fully MySQL-aware. The code generation backends work the same regardless of the source database.
 
 ## Differences from PostgreSQL
 
