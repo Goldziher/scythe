@@ -29,5 +29,8 @@ generated/
 .mcp.json
 CLAUDE.md
 
+# Playwright MCP
+.playwright-mcp/
+
 # Docs build output
 docs/site/
