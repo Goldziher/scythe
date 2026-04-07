@@ -266,15 +266,36 @@ fn generate_for_backend(
     }
 
     // Per-query code (structs + functions, skip enum_def since we already deduplicated above)
-    for result in &results {
-        if let Some(ref s) = result.code.model_struct {
-            output_parts.push(s.clone());
+    let class_header = backend.query_class_header();
+    if class_header.is_empty() {
+        // No class wrapper: interleave structs and functions as before
+        for result in &results {
+            if let Some(ref s) = result.code.model_struct {
+                output_parts.push(s.clone());
+            }
+            if let Some(ref s) = result.code.row_struct {
+                output_parts.push(s.clone());
+            }
+            if let Some(ref s) = result.code.query_fn {
+                output_parts.push(s.clone());
+            }
         }
-        if let Some(ref s) = result.code.row_struct {
-            output_parts.push(s.clone());
+    } else {
+        // Class wrapper mode: emit all type definitions first, then class
+        // header, then all query functions (so types stay outside the class).
+        for result in &results {
+            if let Some(ref s) = result.code.model_struct {
+                output_parts.push(s.clone());
+            }
+            if let Some(ref s) = result.code.row_struct {
+                output_parts.push(s.clone());
+            }
         }
-        if let Some(ref s) = result.code.query_fn {
-            output_parts.push(s.clone());
+        output_parts.push(class_header);
+        for result in &results {
+            if let Some(ref s) = result.code.query_fn {
+                output_parts.push(s.clone());
+            }
         }
     }
 

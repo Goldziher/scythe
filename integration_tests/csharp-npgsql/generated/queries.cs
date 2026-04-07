@@ -93,7 +93,7 @@ public static async Task<GetUserByIdRow?> GetUserById(NpgsqlConnection conn, int
         reader.GetInt32(0),
         reader.GetString(1),
         reader.IsDBNull(2) ? null : reader.GetString(2),
-        Enum.Parse<UserStatus>(reader.GetString(3), true),
+        (Enum.TryParse<UserStatus>(reader.GetString(3), true, out var enumVal3) ? enumVal3 : throw new InvalidOperationException($"Invalid enum value '{reader.GetString(3)}' for UserStatus")),
         reader.GetFieldValue<DateTimeOffset>(4)
     );
 }
@@ -138,7 +138,7 @@ public static async Task<CreateUserRow?> CreateUser(NpgsqlConnection conn, strin
         reader.GetInt32(0),
         reader.GetString(1),
         reader.IsDBNull(2) ? null : reader.GetString(2),
-        Enum.Parse<UserStatus>(reader.GetString(3), true),
+        (Enum.TryParse<UserStatus>(reader.GetString(3), true, out var enumVal3) ? enumVal3 : throw new InvalidOperationException($"Invalid enum value '{reader.GetString(3)}' for UserStatus")),
         reader.GetFieldValue<DateTimeOffset>(4)
     );
 }
@@ -190,7 +190,7 @@ public static async Task<CountUsersByStatusRow?> CountUsersByStatus(NpgsqlConnec
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
     return new CountUsersByStatusRow(
-        Enum.Parse<UserStatus>(reader.GetString(0), true),
+        (Enum.TryParse<UserStatus>(reader.GetString(0), true, out var enumVal0) ? enumVal0 : throw new InvalidOperationException($"Invalid enum value '{reader.GetString(0)}' for UserStatus")),
         reader.GetInt64(1)
     );
 }

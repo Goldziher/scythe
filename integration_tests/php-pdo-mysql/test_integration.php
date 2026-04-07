@@ -4,6 +4,9 @@ declare(strict_types=1);
 
 require_once __DIR__ . '/generated/queries.php';
 
+use App\Generated\Queries;
+use App\Generated\UsersStatus;
+
 function get_mysql_url(): string
 {
     $url = getenv('MYSQL_URL');
@@ -92,8 +95,8 @@ function assert_true(bool $value, string $message): void
 
 function test_create_user(PDO $pdo): int
 {
-    createUser($pdo, "Alice", "alice@example.com", UsersStatus::active);
-    $user = getLastInsertUser($pdo);
+    Queries::createUser($pdo, "Alice", "alice@example.com", UsersStatus::active);
+    $user = Queries::getLastInsertUser($pdo);
     assert_not_null($user, "CreateUser: getLastInsertUser returned null");
     assert_equal("Alice", $user->name, "CreateUser name");
     assert_equal("alice@example.com", $user->email, "CreateUser email");
@@ -103,7 +106,7 @@ function test_create_user(PDO $pdo): int
 
 function test_get_user_by_id(PDO $pdo, int $user_id): void
 {
-    $user = getUserById($pdo, $user_id);
+    $user = Queries::getUserById($pdo, $user_id);
     assert_not_null($user, "GetUserById returned null for id={$user_id}");
     assert_equal("Alice", $user->name, "GetUserById name");
     assert_equal($user_id, $user->id, "GetUserById id");
@@ -112,7 +115,7 @@ function test_get_user_by_id(PDO $pdo, int $user_id): void
 
 function test_list_active_users(PDO $pdo): void
 {
-    $users = listActiveUsers($pdo, UsersStatus::active);
+    $users = iterator_to_array(Queries::listActiveUsers($pdo, UsersStatus::active));
     assert_true(count($users) >= 1, "Expected at least 1 active user, got " . count($users));
     $names = array_map(fn($u) => $u->name, $users);
     assert_true(in_array("Alice", $names, true), "Expected 'Alice' in active users");
@@ -121,8 +124,8 @@ function test_list_active_users(PDO $pdo): void
 
 function test_create_order(PDO $pdo, int $user_id): int
 {
-    createOrder($pdo, $user_id, "49.99", "Test order");
-    $order = getLastInsertOrder($pdo);
+    Queries::createOrder($pdo, $user_id, "49.99", "Test order");
+    $order = Queries::getLastInsertOrder($pdo);
     assert_not_null($order, "CreateOrder: getLastInsertOrder returned null");
     assert_equal($user_id, $order->user_id, "CreateOrder user_id");
     assert_equal("Test order", $order->notes, "CreateOrder notes");
@@ -132,7 +135,7 @@ function test_create_order(PDO $pdo, int $user_id): int
 
 function test_get_orders_by_user(PDO $pdo, int $user_id): void
 {
-    $orders = getOrdersByUser($pdo, $user_id);
+    $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
     assert_true(count($orders) >= 1, "Expected at least 1 order, got " . count($orders));
     assert_equal("Test order", $orders[0]->notes, "GetOrdersByUser notes");
     echo "PASS: GetOrdersByUser\n";
@@ -141,9 +144,9 @@ function test_get_orders_by_user(PDO $pdo, int $user_id): void
 function test_delete_user(PDO $pdo, int $user_id): void
 {
     // Delete orders first due to FK constraint
-    deleteOrdersByUser($pdo, $user_id);
-    deleteUser($pdo, $user_id);
-    $user = getUserById($pdo, $user_id);
+    Queries::deleteOrdersByUser($pdo, $user_id);
+    Queries::deleteUser($pdo, $user_id);
+    $user = Queries::getUserById($pdo, $user_id);
     assert_true($user === null || $user === false, "Expected user to be deleted, but it still exists");
     echo "PASS: DeleteUser\n";
 }

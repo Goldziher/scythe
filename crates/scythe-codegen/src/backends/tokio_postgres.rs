@@ -314,14 +314,16 @@ fn generate_struct_with_from_row(
             if col.nullable {
                 let _ = writeln!(
                     out,
-                    "            {}: row.get::<_, Option<String>>(\"{}\").map(|s| s.parse().unwrap()),",
-                    col.field_name, col.name
+                    "            {field}: row.get::<_, Option<String>>(\"{col}\").map(|s| s.parse().unwrap_or_else(|_| panic!(\"unexpected enum value for column '{{}}': {{}}\", \"{col}\", s))),",
+                    field = col.field_name,
+                    col = col.name
                 );
             } else {
                 let _ = writeln!(
                     out,
-                    "            {}: row.get::<_, String>(\"{}\").parse().unwrap(),",
-                    col.field_name, col.name
+                    "            {field}: {{ let val = row.get::<_, String>(\"{col}\"); val.parse().unwrap_or_else(|_| panic!(\"unexpected enum value for column '{{}}': {{}}\", \"{col}\", val)) }},",
+                    field = col.field_name,
+                    col = col.name
                 );
             }
         } else {

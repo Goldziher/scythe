@@ -44,7 +44,7 @@ using (var cmd = new SqliteCommand(@"
 }
 
 // Test: CreateUser
-Queries.CreateUser(conn, "Alice", "alice@example.com", "active");
+await Queries.CreateUser(conn, "Alice", "alice@example.com", "active");
 
 // Get the last inserted user via raw SQL (SQLite has no LAST_INSERT_ID)
 long userId;
@@ -53,7 +53,7 @@ using (var cmd = new SqliteCommand("SELECT last_insert_rowid()", conn))
     userId = (long)cmd.ExecuteScalar()!;
 }
 
-var user = Queries.GetUserById(conn, userId);
+var user = await Queries.GetUserById(conn, userId);
 Assert(user != null, "CreateUser", "returned null");
 Assert(user!.Name == "Alice", "CreateUser", $"expected name Alice, got {user.Name}");
 Assert(user.Email == "alice@example.com", "CreateUser", $"expected email, got {user.Email}");
@@ -61,48 +61,48 @@ Assert(user.Id > 0, "CreateUser", $"expected positive id, got {user.Id}");
 Console.WriteLine("PASS: CreateUser");
 
 // Test: GetUserById
-var fetched = Queries.GetUserById(conn, userId);
+var fetched = await Queries.GetUserById(conn, userId);
 Assert(fetched != null, "GetUserById", "returned null");
 Assert(fetched!.Id == userId, "GetUserById", $"expected id {userId}, got {fetched.Id}");
 Assert(fetched.Name == "Alice", "GetUserById", $"expected name Alice, got {fetched.Name}");
 Console.WriteLine("PASS: GetUserById");
 
 // Test: ListActiveUsers
-var activeUsers = Queries.ListActiveUsers(conn, "active");
+var activeUsers = await Queries.ListActiveUsers(conn, "active");
 Assert(activeUsers.Count >= 1, "ListActiveUsers", $"expected at least 1, got {activeUsers.Count}");
 Assert(activeUsers.Any(u => u.Name == "Alice"), "ListActiveUsers", "expected Alice");
 Console.WriteLine("PASS: ListActiveUsers");
 
 // Test: UpdateUserEmail
-Queries.UpdateUserEmail(conn, "alice-new@example.com", userId);
-var updated = Queries.GetUserById(conn, userId);
+await Queries.UpdateUserEmail(conn, "alice-new@example.com", userId);
+var updated = await Queries.GetUserById(conn, userId);
 Assert(updated != null, "UpdateUserEmail", "user not found after update");
 Assert(updated!.Email == "alice-new@example.com", "UpdateUserEmail", $"expected updated email, got {updated.Email}");
 Console.WriteLine("PASS: UpdateUserEmail");
 
 // Test: CreateOrder
-Queries.CreateOrder(conn, userId, 99.95, "first order");
+await Queries.CreateOrder(conn, userId, 99.95, "first order");
 
 // Test: GetOrdersByUser
-var orders = Queries.GetOrdersByUser(conn, userId);
+var orders = await Queries.GetOrdersByUser(conn, userId);
 Assert(orders.Count == 1, "GetOrdersByUser", $"expected 1 order, got {orders.Count}");
 Console.WriteLine("PASS: GetOrdersByUser");
 
 // Test: GetOrderTotal
-var orderTotal = Queries.GetOrderTotal(conn, userId);
+var orderTotal = await Queries.GetOrderTotal(conn, userId);
 Assert(orderTotal != null, "GetOrderTotal", "returned null");
 Console.WriteLine("PASS: GetOrderTotal");
 
 // Test: SearchUsers
-var searchResults = Queries.SearchUsers(conn, "%Ali%");
+var searchResults = await Queries.SearchUsers(conn, "%Ali%");
 Assert(searchResults.Count >= 1, "SearchUsers", $"expected at least 1, got {searchResults.Count}");
 Console.WriteLine("PASS: SearchUsers");
 
 // Test: DeleteOrdersByUser
-var deletedOrders = Queries.DeleteOrdersByUser(conn, userId);
+var deletedOrders = await Queries.DeleteOrdersByUser(conn, userId);
 Assert(deletedOrders == 1, "DeleteOrdersByUser", $"expected 1 deleted, got {deletedOrders}");
-Queries.DeleteUser(conn, userId);
-var deleted = Queries.GetUserById(conn, userId);
+await Queries.DeleteUser(conn, userId);
+var deleted = await Queries.GetUserById(conn, userId);
 Assert(deleted == null, "DeleteUser", "user should not exist after deletion");
 Console.WriteLine("PASS: DeleteUser");
 
