@@ -1,0 +1,7 @@
+[project]
+name = "scythe-integration-aiosqlite"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+    "aiosqlite>=0.19",
+]

@@ -21,7 +21,19 @@ pub struct TypescriptPostgresBackend {
 }
 
 impl TypescriptPostgresBackend {
-    pub fn new() -> Result<Self, ScytheError> {
+    pub fn new(engine: &str) -> Result<Self, ScytheError> {
+        match engine {
+            "postgresql" | "postgres" | "pg" => {}
+            _ => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    format!(
+                        "typescript-postgres only supports PostgreSQL, got engine '{}'",
+                        engine
+                    ),
+                ));
+            }
+        }
         let manifest_path = Path::new("backends/typescript-postgres/manifest.toml");
         let manifest = if manifest_path.exists() {
             load_manifest(manifest_path)
@@ -32,15 +44,15 @@ impl TypescriptPostgresBackend {
         };
         Ok(Self { manifest })
     }
-
-    pub fn manifest(&self) -> &BackendManifest {
-        &self.manifest
-    }
 }
 
 impl CodegenBackend for TypescriptPostgresBackend {
     fn name(&self) -> &str {
         "typescript-postgres"
+    }
+
+    fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
+        &self.manifest
     }
 
     fn file_header(&self) -> String {

@@ -1,0 +1,41 @@
+[backend]
+name = "csharp-mysqlconnector"
+language = "csharp"
+file_extension = "cs"
+engine = "mysql"
+description = "C# code generation targeting MySqlConnector with MySQL"
+
+[types.scalars]
+bool = "bool"
+int16 = "short"
+int32 = "int"
+int64 = "long"
+float32 = "float"
+float64 = "double"
+string = "string"
+bytes = "byte[]"
+uuid = "string"
+decimal = "decimal"
+date = "DateOnly"
+time = "TimeOnly"
+time_tz = "TimeOnly"
+datetime = "DateTime"
+datetime_tz = "DateTimeOffset"
+interval = "string"
+json = "string"
+inet = "string"
+
+[types.containers]
+array = "List<{T}>"
+nullable = "{T}?"
+range = "string"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "PascalCase"
+fn_case = "PascalCase"
+enum_variant_case = "PascalCase"
+row_suffix = "Row"
+
+[imports.rules]

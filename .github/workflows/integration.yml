@@ -1,0 +1,194 @@
+name: Integration Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/scythe-codegen/**"
+      - "crates/scythe-core/**"
+      - "backends/**"
+      - "integration_tests/**"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/scythe-codegen/**"
+      - "crates/scythe-core/**"
+      - "backends/**"
+      - "integration_tests/**"
+  workflow_dispatch:
+
+concurrency:
+  group: integration-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  integration:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scythe
+          POSTGRES_PASSWORD: scythe
+          POSTGRES_DB: scythe_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: scythe
+          MYSQL_DATABASE: scythe_test
+          MYSQL_USER: scythe
+          MYSQL_PASSWORD: scythe
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgres://scythe:scythe@localhost:5432/scythe_test
+      MYSQL_URL: mysql://scythe:scythe@127.0.0.1:3306/scythe_test
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # Schema migrations
+      - name: Run PG schema migration
+        run: PGPASSWORD=scythe psql -h localhost -U scythe -d scythe_test -f integration_tests/sql/pg/schema.sql
+
+      # Language toolchains
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            integration_tests/rust-sqlx -> target
+            integration_tests/rust-tokio-postgres -> target
+            integration_tests/rust-sqlx-mysql -> target
+            integration_tests/rust-sqlx-sqlite -> target
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0"
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26"
+          elixir-version: "1.16"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_pgsql,pdo_mysql
+
+      - run: pip install uv
+      - run: npm install -g pnpm
+
+      # --- PostgreSQL backends (13) ---
+      - name: Test go-pgx
+        working-directory: integration_tests/go-pgx
+        run: go run .
+
+      - name: Test rust-sqlx
+        working-directory: integration_tests/rust-sqlx
+        run: cargo run --quiet
+
+      - name: Test rust-tokio-postgres
+        working-directory: integration_tests/rust-tokio-postgres
+        run: cargo run --quiet
+
+      - name: Test python-psycopg3
+        working-directory: integration_tests/python-psycopg3
+        run: uv run python test_integration.py
+
+      - name: Test python-asyncpg
+        working-directory: integration_tests/python-asyncpg
+        run: uv run python test_integration.py
+
+      - name: Test typescript-postgres
+        working-directory: integration_tests/typescript-postgres
+        run: |
+          pnpm install
+          pnpm exec tsx test.ts
+
+      - name: Test typescript-pg
+        working-directory: integration_tests/typescript-pg
+        run: |
+          pnpm install
+          pnpm exec tsx test.ts
+
+      - name: Test java-jdbc
+        working-directory: integration_tests/java-jdbc
+        run: mvn -q compile exec:java
+
+      - name: Test kotlin-jdbc
+        working-directory: integration_tests/kotlin-jdbc
+        run: gradle run --quiet
+
+      - name: Test csharp-npgsql
+        working-directory: integration_tests/csharp-npgsql
+        run: dotnet run
+
+      - name: Test elixir-postgrex
+        working-directory: integration_tests/elixir-postgrex
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix run test/integration_test.exs
+
+      - name: Test ruby-pg
+        working-directory: integration_tests/ruby-pg
+        run: |
+          bundle install
+          bundle exec ruby test_integration.rb
+
+      - name: Test php-pdo
+        working-directory: integration_tests/php-pdo
+        run: php test_integration.php
+
+      # --- MySQL backends (3) ---
+      - name: Test rust-sqlx-mysql
+        working-directory: integration_tests/rust-sqlx-mysql
+        run: cargo run --quiet
+        env:
+          DATABASE_URL: ${{ env.MYSQL_URL }}
+
+      - name: Test java-jdbc-mysql
+        working-directory: integration_tests/java-jdbc-mysql
+        run: mvn -q compile exec:java
+
+      - name: Test php-pdo-mysql
+        working-directory: integration_tests/php-pdo-mysql
+        run: php test_integration.php
+
+      # --- SQLite backend (1) ---
+      - name: Test rust-sqlx-sqlite
+        working-directory: integration_tests/rust-sqlx-sqlite
+        run: cargo run --quiet

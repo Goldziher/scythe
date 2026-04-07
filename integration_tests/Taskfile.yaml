@@ -1,0 +1,150 @@
+version: "3"
+
+vars:
+  DATABASE_URL: "postgres://scythe:scythe@localhost:5432/scythe_test"
+
+env:
+  DATABASE_URL: "{{.DATABASE_URL}}"
+
+tasks:
+  db:up:
+    desc: Start database containers
+    dir: "{{.ROOT_DIR}}"
+    cmds:
+      - docker compose up -d --wait
+
+  db:down:
+    desc: Stop database containers
+    dir: "{{.ROOT_DIR}}"
+    cmds:
+      - docker compose down -v
+
+  db:migrate:
+    desc: Run schema migration
+    cmds:
+      - PGPASSWORD=scythe psql -h localhost -U scythe -d scythe_test -f sql/pg/schema.sql
+
+  db:reset:
+    desc: Drop and recreate all tables
+    cmds:
+      - PGPASSWORD=scythe psql -h localhost -U scythe -d scythe_test -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+      - task: db:migrate
+
+  generate:
+    desc: Regenerate code for all backends
+    cmds:
+      - for:
+          - rust-sqlx
+          - rust-tokio-postgres
+          - python-psycopg3
+          - python-asyncpg
+          - typescript-postgres
+          - typescript-pg
+          - go-pgx
+          - java-jdbc
+          - kotlin-jdbc
+          - csharp-npgsql
+          - elixir-postgrex
+          - ruby-pg
+          - php-pdo
+        cmd: cd {{.ITEM}} && scythe generate
+
+  test:rust-sqlx:
+    desc: Run rust-sqlx integration test
+    dir: rust-sqlx
+    cmds:
+      - cargo run --quiet
+
+  test:rust-tokio-postgres:
+    desc: Run rust-tokio-postgres integration test
+    dir: rust-tokio-postgres
+    cmds:
+      - cargo run --quiet
+
+  test:python-psycopg3:
+    desc: Run python-psycopg3 integration test
+    dir: python-psycopg3
+    cmds:
+      - uv run python test_integration.py
+
+  test:python-asyncpg:
+    desc: Run python-asyncpg integration test
+    dir: python-asyncpg
+    cmds:
+      - uv run python test_integration.py
+
+  test:typescript-postgres:
+    desc: Run typescript-postgres integration test
+    dir: typescript-postgres
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsx test.ts
+
+  test:typescript-pg:
+    desc: Run typescript-pg integration test
+    dir: typescript-pg
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsx test.ts
+
+  test:go-pgx:
+    desc: Run go-pgx integration test
+    dir: go-pgx
+    cmds:
+      - go run .
+
+  test:java-jdbc:
+    desc: Run java-jdbc integration test
+    dir: java-jdbc
+    cmds:
+      - mvn -q compile exec:java
+
+  test:kotlin-jdbc:
+    desc: Run kotlin-jdbc integration test
+    dir: kotlin-jdbc
+    cmds:
+      - gradle run --quiet
+
+  test:csharp-npgsql:
+    desc: Run csharp-npgsql integration test
+    dir: csharp-npgsql
+    cmds:
+      - dotnet run
+
+  test:elixir-postgrex:
+    desc: Run elixir-postgrex integration test
+    dir: elixir-postgrex
+    cmds:
+      - mix deps.get --quiet
+      - mix run test/integration_test.exs
+
+  test:ruby-pg:
+    desc: Run ruby-pg integration test
+    dir: ruby-pg
+    cmds:
+      - bundle install --quiet
+      - bundle exec ruby test_integration.rb
+
+  test:php-pdo:
+    desc: Run php-pdo integration test
+    dir: php-pdo
+    cmds:
+      - php test_integration.php
+
+  all:
+    desc: Run all integration tests
+    cmds:
+      - task: db:reset
+      - task: test:rust-sqlx
+      - task: test:rust-tokio-postgres
+      - task: test:python-psycopg3
+      - task: test:python-asyncpg
+      - task: test:typescript-postgres
+      - task: test:typescript-pg
+      - task: test:go-pgx
+      - task: test:java-jdbc
+      - task: test:kotlin-jdbc
+      - task: test:csharp-npgsql
+      - task: test:elixir-postgrex
+      - task: test:ruby-pg
+      - task: test:php-pdo

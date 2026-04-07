@@ -1,0 +1,40 @@
+[backend]
+name = "kotlin-jdbc"
+language = "kotlin"
+file_extension = "kt"
+engine = "sqlite"
+description = "Kotlin code generation targeting JDBC with SQLite"
+
+[types.scalars]
+bool = "Boolean"
+int16 = "Short"
+int32 = "Int"
+int64 = "Long"
+float32 = "Float"
+float64 = "Double"
+string = "String"
+bytes = "ByteArray"
+uuid = "String"
+decimal = "Double"
+date = "String"
+time = "String"
+time_tz = "String"
+datetime = "String"
+datetime_tz = "String"
+interval = "String"
+json = "String"
+inet = "String"
+
+[types.containers]
+array = "List<{T}>"
+nullable = "{T}?"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "camelCase"
+fn_case = "camelCase"
+enum_variant_case = "SCREAMING_SNAKE_CASE"
+row_suffix = "Row"
+
+[imports.rules]

@@ -1,6 +1,23 @@
 # SQLite
 
-Scythe supports SQLite with its simplified type affinity system. SQLite support operates at the parser and analyzer level -- SQL parsing, type inference, and nullability analysis are fully SQLite-aware. The code generation backends work the same regardless of the source database.
+Scythe supports SQLite with its simplified type affinity system across all 10 languages. SQLite support operates at the parser and analyzer level -- SQL parsing, type inference, and nullability analysis are fully SQLite-aware. The code generation backends work the same regardless of the source database.
+
+## Backend support
+
+Every language has at least one SQLite backend. Multi-engine backends (like `java-jdbc`, `php-pdo`, `rust-sqlx`) load engine-specific manifests automatically.
+
+| Language | Backend | Library |
+|----------|---------|---------|
+| Rust | `rust-sqlx` | sqlx |
+| Python | `python-aiosqlite` | aiosqlite |
+| TypeScript | `typescript-better-sqlite3` | better-sqlite3 |
+| Go | `go-database-sql` | database/sql |
+| Java | `java-jdbc` | JDBC |
+| Kotlin | `kotlin-jdbc` | JDBC |
+| C# | `csharp-microsoft-sqlite` | Microsoft.Data.Sqlite |
+| Elixir | `elixir-exqlite` | Exqlite |
+| Ruby | `ruby-sqlite3` | sqlite3 gem |
+| PHP | `php-pdo` | PDO |
 
 ## Type affinity system
 

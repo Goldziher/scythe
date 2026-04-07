@@ -18,7 +18,7 @@ SQL Schema + Annotated Queries
     Lint (22 custom rules + sqruff) + Format (sqruff)
         |
         v
-    Backend (manifest.toml + CodegenBackend trait)
+    Backend (manifest.toml per (backend, engine) + CodegenBackend trait)
         |
         v
     Generated Code (Rust, Python, TypeScript, Go, ...)
@@ -53,18 +53,33 @@ Adding a new language requires implementing the `CodegenBackend` trait:
 ```rust
 pub trait CodegenBackend: Send + Sync {
     fn name(&self) -> &str;
+    fn manifest(&self) -> &BackendManifest;
     fn generate_row_struct(&self, ...) -> Result<String, ScytheError>;
     fn generate_model_struct(&self, ...) -> Result<String, ScytheError>;
     fn generate_query_fn(&self, ...) -> Result<String, ScytheError>;
     fn generate_enum_def(&self, ...) -> Result<String, ScytheError>;
     fn generate_composite_def(&self, ...) -> Result<String, ScytheError>;
     fn file_header(&self) -> String;
+    fn file_footer(&self) -> String;
+    fn supported_engines(&self) -> &[&str];
 }
 ```
 
 Each backend also has a `manifest.toml` that maps neutral types to language-specific types. No Rust code is needed to customize type mappings.
 
-> **Note:** SQL parsing and type inference support PostgreSQL, MySQL, and SQLite. Code generation backends produce driver-specific code for each language, loading type mappings from their respective manifests.
+### Engine-aware manifests
+
+Backends that support multiple database engines use a manifest-per-(backend, engine) strategy. For example, `java-jdbc` has three manifests:
+
+- `java-jdbc.toml` (PostgreSQL, the default)
+- `java-jdbc.mysql.toml` (MySQL-specific type mappings)
+- `java-jdbc.sqlite.toml` (SQLite-specific type mappings)
+
+When `get_backend("java-jdbc", "mysql")` is called, the engine-specific manifest is loaded automatically. This allows a single backend implementation to generate correct type mappings for each database engine without code duplication.
+
+Backends that only support one engine (e.g. `rust-tokio-postgres` for PostgreSQL, `elixir-myxql` for MySQL) reject mismatched engines with a clear error via the `supported_engines()` method on the trait.
+
+> **Note:** SQL parsing and type inference support PostgreSQL, MySQL, and SQLite. All 10 languages have backend coverage for every engine. Code generation backends produce driver-specific code for each language, loading type mappings from their respective engine-aware manifests.
 
 ### Example manifest.toml (rust-sqlx)
 
@@ -97,18 +112,17 @@ row_suffix = "Row"
 
 ## Available Backends
 
-| Backend | Language | Database Driver |
-|---------|----------|-----------------|
-| `rust-sqlx` | Rust | sqlx |
-| `rust-tokio-postgres` | Rust | tokio-postgres |
-| `python-asyncpg` | Python | asyncpg |
-| `python-psycopg3` | Python | psycopg3 |
-| `typescript-pg` | TypeScript | pg |
-| `typescript-postgres` | TypeScript | postgres |
-| `go-pgx` | Go | pgx |
-| `java-jdbc` | Java | JDBC |
-| `kotlin-jdbc` | Kotlin | JDBC |
-| `csharp-npgsql` | C# | Npgsql |
-| `elixir-postgrex` | Elixir | Postgrex |
-| `ruby-pg` | Ruby | pg |
-| `php-pdo` | PHP | PDO |
+25 backends across 10 languages and 3 database engines. See [Backend Overview](backends/overview.md) for the full list organized by engine.
+
+| Language | PostgreSQL | MySQL | SQLite |
+|----------|-----------|-------|--------|
+| Rust | sqlx, tokio-postgres | sqlx | sqlx |
+| Python | psycopg3, asyncpg | aiomysql | aiosqlite |
+| TypeScript | postgres.js, pg | mysql2 | better-sqlite3 |
+| Go | pgx | database/sql | database/sql |
+| Java | JDBC | JDBC | JDBC |
+| Kotlin | JDBC | JDBC | JDBC |
+| C# | Npgsql | MySqlConnector | Microsoft.Data.Sqlite |
+| Elixir | Postgrex | MyXQL | Exqlite |
+| Ruby | pg | mysql2 | sqlite3 |
+| PHP | PDO | PDO | PDO |

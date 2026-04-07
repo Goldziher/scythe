@@ -1,0 +1,8 @@
+{
+	"name": "scythe/integration-php-pdo-sqlite",
+	"description": "Scythe integration tests for PHP PDO backend with SQLite",
+	"type": "project",
+	"require": {
+		"php": ">=8.2"
+	}
+}

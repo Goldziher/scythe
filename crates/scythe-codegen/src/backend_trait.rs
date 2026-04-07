@@ -29,6 +29,9 @@ pub trait CodegenBackend: Send + Sync {
     /// The backend's name (e.g. "rust-sqlx", "rust-tokio-postgres").
     fn name(&self) -> &str;
 
+    /// The backend's manifest (type mappings, naming conventions, etc).
+    fn manifest(&self) -> &scythe_backend::manifest::BackendManifest;
+
     /// Generate a row struct for a query result.
     fn generate_row_struct(
         &self,
@@ -62,5 +65,17 @@ pub trait CodegenBackend: Send + Sync {
     /// Returns an empty string by default; backends may override.
     fn file_header(&self) -> String {
         String::new()
+    }
+
+    /// Generate a file-level footer (closing braces, etc).
+    /// Returns an empty string by default; backends may override.
+    fn file_footer(&self) -> String {
+        String::new()
+    }
+
+    /// Database engines this backend supports.
+    /// Defaults to PostgreSQL only. Multi-DB backends override this.
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql"]
     }
 }

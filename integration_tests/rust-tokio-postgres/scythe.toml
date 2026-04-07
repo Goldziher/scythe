@@ -1,0 +1,12 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "postgresql"
+schema = ["../sql/pg/schema.sql"]
+queries = ["../sql/pg/queries/*.sql"]
+
+[[sql.gen]]
+backend = "rust-tokio-postgres"
+output = "generated"

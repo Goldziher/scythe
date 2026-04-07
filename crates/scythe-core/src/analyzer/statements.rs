@@ -89,8 +89,8 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        // First pass to collect params from entire query
-        let _ = self.analyze_set_expr(&query.body);
+        // Analyze the query body (collects params from WHERE/HAVING/projections)
+        let result = self.analyze_set_expr(&query.body)?;
 
         // Handle LIMIT/OFFSET params
         if let Some(ref limit_clause) = query.limit_clause {
@@ -110,7 +110,7 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        self.analyze_set_expr(&query.body)
+        Ok(result)
     }
 
     pub(super) fn analyze_set_expr(

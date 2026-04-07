@@ -1,0 +1,155 @@
+# frozen_string_literal: true
+
+require "pg"
+require_relative "generated/queries"
+
+SCHEMA_PATH = File.join(__dir__, "..", "sql", "pg", "schema.sql")
+
+def get_database_url
+  url = ENV["DATABASE_URL"]
+  if url.nil? || url.empty?
+    warn "ERROR: DATABASE_URL environment variable is not set"
+    exit 1
+  end
+  url
+end
+
+def setup_schema(conn)
+  conn.exec("DROP TABLE IF EXISTS user_tags CASCADE")
+  conn.exec("DROP TABLE IF EXISTS tags CASCADE")
+  conn.exec("DROP TABLE IF EXISTS orders CASCADE")
+  conn.exec("DROP TABLE IF EXISTS users CASCADE")
+  conn.exec("DROP TYPE IF EXISTS user_status CASCADE")
+  schema_sql = File.read(SCHEMA_PATH)
+  conn.exec(schema_sql)
+end
+
+def assert_equal(expected, actual, message)
+  return if expected == actual
+
+  raise "Assertion failed: #{message} (expected #{expected.inspect}, got #{actual.inspect})"
+end
+
+def assert_not_nil(value, message)
+  return unless value.nil?
+
+  raise "Assertion failed: #{message} (got nil)"
+end
+
+def assert_true(value, message)
+  return if value
+
+  raise "Assertion failed: #{message}"
+end
+
+def test_create_user(conn)
+  user = create_user(conn, "Alice", "alice@example.com", "active")
+  assert_not_nil(user, "create_user returned nil")
+  assert_equal("Alice", user.name, "create_user name")
+  assert_equal("alice@example.com", user.email, "create_user email")
+  assert_equal("active", user.status, "create_user status")
+  assert_true(user.id.positive?, "create_user id should be positive")
+  puts "PASS: CreateUser"
+  user.id
+end
+
+def test_get_user_by_id(conn, user_id)
+  user = get_user_by_id(conn, user_id)
+  assert_not_nil(user, "get_user_by_id returned nil for id=#{user_id}")
+  assert_equal("Alice", user.name, "get_user_by_id name")
+  assert_equal(user_id, user.id, "get_user_by_id id")
+  assert_equal("alice@example.com", user.email, "get_user_by_id email")
+  assert_equal("active", user.status, "get_user_by_id status")
+  puts "PASS: GetUserById"
+end
+
+def test_list_active_users(conn)
+  users = list_active_users(conn, "active")
+  assert_true(users.length >= 1, "Expected at least 1 active user, got #{users.length}")
+  names = users.map(&:name)
+  assert_true(names.include?("Alice"), "Expected 'Alice' in active users, got #{names}")
+  puts "PASS: ListActiveUsers"
+end
+
+def test_update_user_email(conn, user_id)
+  update_user_email(conn, "alice-new@example.com", user_id)
+  user = get_user_by_id(conn, user_id)
+  assert_not_nil(user, "user not found after update")
+  assert_equal("alice-new@example.com", user.email, "update_user_email email")
+  puts "PASS: UpdateUserEmail"
+end
+
+def test_create_order(conn, user_id)
+  order = create_order(conn, user_id, "49.99", "Test order")
+  assert_not_nil(order, "create_order returned nil")
+  assert_equal(user_id, order.user_id, "create_order user_id")
+  assert_equal("Test order", order.notes, "create_order notes")
+  puts "PASS: CreateOrder"
+  order.id
+end
+
+def test_get_orders_by_user(conn, user_id)
+  orders = get_orders_by_user(conn, user_id)
+  assert_true(orders.length >= 1, "Expected at least 1 order, got #{orders.length}")
+  assert_equal("Test order", orders[0].notes, "get_orders_by_user notes")
+  puts "PASS: GetOrdersByUser"
+end
+
+def test_get_order_total(conn, user_id)
+  result = get_order_total(conn, user_id)
+  assert_not_nil(result, "get_order_total returned nil")
+  assert_equal("49.99", result.total_sum, "get_order_total total_sum")
+  puts "PASS: GetOrderTotal"
+end
+
+def test_search_users(conn)
+  results = search_users(conn, "%Ali%")
+  assert_true(results.length >= 1, "Expected at least 1 search result, got #{results.length}")
+  names = results.map(&:name)
+  assert_true(names.include?("Alice"), "Expected 'Alice' in search results, got #{names}")
+  puts "PASS: SearchUsers"
+end
+
+def test_count_users_by_status(conn)
+  result = count_users_by_status(conn, "active")
+  assert_not_nil(result, "count_users_by_status returned nil")
+  assert_true(result.user_count >= 1, "Expected count >= 1, got #{result.user_count}")
+  assert_equal("active", result.status, "count_users_by_status status")
+  puts "PASS: CountUsersByStatus"
+end
+
+def test_delete_user(conn, user_id)
+  # Delete orders first due to FK constraint
+  deleted_count = delete_orders_by_user(conn, user_id)
+  assert_equal(1, deleted_count, "delete_orders_by_user count")
+  delete_user(conn, user_id)
+  user = get_user_by_id(conn, user_id)
+  assert_true(user.nil?, "Expected user to be deleted, but it still exists")
+  puts "PASS: DeleteUser"
+end
+
+begin
+  database_url = get_database_url
+  conn = PG.connect(database_url)
+
+  setup_schema(conn)
+
+  user_id = test_create_user(conn)
+  test_get_user_by_id(conn, user_id)
+  test_list_active_users(conn)
+  test_update_user_email(conn, user_id)
+  order_id = test_create_order(conn, user_id)
+  test_get_orders_by_user(conn, user_id)
+  test_get_order_total(conn, user_id)
+  test_search_users(conn)
+  test_count_users_by_status(conn)
+  test_delete_user(conn, user_id)
+
+  puts "\nALL TESTS PASSED"
+rescue StandardError => e
+  warn "FAIL: #{e.message}"
+  warn e.backtrace.first(5).join("\n")
+  exit 1
+ensure
+  conn&.close
+end

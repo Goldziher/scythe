@@ -1,0 +1,16 @@
+{
+	"name": "scythe-integration-test-mysql2",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "tsx test.ts"
+	},
+	"dependencies": {
+		"mysql2": "^3.11.0"
+	},
+	"devDependencies": {
+		"tsx": "^4.19.0",
+		"typescript": "^5.6.0"
+	}
+}

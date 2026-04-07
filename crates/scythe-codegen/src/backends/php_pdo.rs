@@ -12,27 +12,36 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
-const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/php-pdo.toml");
+const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-pdo.toml");
+const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/php-pdo.mysql.toml");
+const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/php-pdo.sqlite.toml");
 
 pub struct PhpPdoBackend {
     manifest: BackendManifest,
 }
 
 impl PhpPdoBackend {
-    pub fn new() -> Result<Self, ScytheError> {
+    pub fn new(engine: &str) -> Result<Self, ScytheError> {
+        let default_toml = match engine {
+            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
+            "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
+            "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
+            _ => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    format!("unsupported engine '{}' for php-pdo backend", engine),
+                ));
+            }
+        };
         let manifest_path = Path::new("backends/php-pdo/manifest.toml");
         let manifest = if manifest_path.exists() {
             load_manifest(manifest_path)
                 .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
+            toml::from_str(default_toml)
                 .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
         Ok(Self { manifest })
-    }
-
-    pub fn manifest(&self) -> &BackendManifest {
-        &self.manifest
     }
 }
 
@@ -62,6 +71,14 @@ fn php_cast(neutral_type: &str) -> &'static str {
 impl CodegenBackend for PhpPdoBackend {
     fn name(&self) -> &str {
         "php-pdo"
+    }
+
+    fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
+        &self.manifest
+    }
+
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql", "mysql", "sqlite"]
     }
 
     fn file_header(&self) -> String {
@@ -99,23 +116,61 @@ impl CodegenBackend for PhpPdoBackend {
         let _ = writeln!(out, "        return new self(");
         for c in columns.iter() {
             let sep = ",";
-            let cast = php_cast(&c.neutral_type);
-            if c.nullable {
-                let _ = writeln!(
-                    out,
-                    "            {}: $row['{}'] !== null ? {}{} : null{}",
-                    c.field_name,
-                    c.name,
-                    cast,
-                    format_args!("$row['{}']", c.name),
-                    sep
-                );
+            let is_enum = c.neutral_type.starts_with("enum::");
+            let is_datetime = matches!(
+                c.neutral_type.as_str(),
+                "date" | "time" | "time_tz" | "datetime" | "datetime_tz"
+            );
+            if is_enum {
+                // Enum columns: convert DB string to PHP backed enum via ::from()
+                let enum_type = &c.lang_type;
+                if c.nullable {
+                    let _ = writeln!(
+                        out,
+                        "            {}: $row['{}'] !== null ? {}::from($row['{}']) : null{}",
+                        c.field_name, c.name, enum_type, c.name, sep
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "            {}: {}::from($row['{}']){}",
+                        c.field_name, enum_type, c.name, sep
+                    );
+                }
+            } else if is_datetime {
+                // DateTime columns: PDO returns strings, wrap in DateTimeImmutable
+                if c.nullable {
+                    let _ = writeln!(
+                        out,
+                        "            {}: $row['{}'] !== null ? new \\DateTimeImmutable($row['{}']) : null{}",
+                        c.field_name, c.name, c.name, sep
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "            {}: new \\DateTimeImmutable($row['{}']){}",
+                        c.field_name, c.name, sep
+                    );
+                }
             } else {
-                let _ = writeln!(
-                    out,
-                    "            {}: {}$row['{}']{}",
-                    c.field_name, cast, c.name, sep
-                );
+                let cast = php_cast(&c.neutral_type);
+                if c.nullable {
+                    let _ = writeln!(
+                        out,
+                        "            {}: $row['{}'] !== null ? {}{} : null{}",
+                        c.field_name,
+                        c.name,
+                        cast,
+                        format_args!("$row['{}']", c.name),
+                        sep
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "            {}: {}$row['{}']{}",
+                        c.field_name, cast, c.name, sep
+                    );
+                }
             }
         }
         let _ = writeln!(out, "        );");
@@ -141,7 +196,7 @@ impl CodegenBackend for PhpPdoBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = rewrite_params(&super::clean_sql(&analyzed.sql));
+        let sql = rewrite_params(&super::clean_sql_oneline(&analyzed.sql));
         let mut out = String::new();
 
         // Build PHP parameter list
@@ -170,13 +225,27 @@ impl CodegenBackend for PhpPdoBackend {
         let _ = writeln!(out, "    $stmt = $pdo->prepare(\"{}\");", sql);
 
         // Build execute params
+        // If the SQL contains `?` placeholders (MySQL/SQLite), use positional array.
+        // If it contains `:pN` placeholders (PostgreSQL), use named array.
         if params.is_empty() {
             let _ = writeln!(out, "    $stmt->execute();");
         } else {
+            let use_positional = sql.contains('?');
             let bindings = params
                 .iter()
                 .enumerate()
-                .map(|(i, p)| format!("\"p{}\" => ${}", i + 1, p.field_name))
+                .map(|(i, p)| {
+                    let value = if p.neutral_type.starts_with("enum::") {
+                        format!("${}->value", p.field_name)
+                    } else {
+                        format!("${}", p.field_name)
+                    };
+                    if use_positional {
+                        value
+                    } else {
+                        format!("\"p{}\" => {}", i + 1, value)
+                    }
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             let _ = writeln!(out, "    $stmt->execute([{}]);", bindings);

@@ -1,13 +1,15 @@
 [package]
 name = "scythe-core"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "Core SQL parsing, catalog building, and type inference for scythe"
 repository = "https://github.com/Goldziher/scythe"
+homepage = "https://goldziher.github.io/scythe"
+documentation = "https://goldziher.github.io/scythe"
 authors = ["Na'aman Hirschfeld"]
-keywords = ["sql", "codegen", "type-safe", "database"]
-categories = ["development-tools", "database"]
+keywords = ["sql", "parser", "type-inference", "catalog", "analyzer"]
+categories = ["database", "parser-implementations"]
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }

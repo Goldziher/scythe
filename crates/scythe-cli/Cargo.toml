@@ -1,13 +1,15 @@
 [package]
 name = "scythe-cli"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "CLI for scythe -- SQL-to-code generator with linting and formatting"
 repository = "https://github.com/Goldziher/scythe"
+homepage = "https://goldziher.github.io/scythe"
+documentation = "https://goldziher.github.io/scythe"
 authors = ["Na'aman Hirschfeld"]
-keywords = ["sql", "codegen", "type-safe", "database"]
-categories = ["development-tools", "database"]
+keywords = ["sql", "codegen", "cli", "database", "sqlc"]
+categories = ["command-line-utilities", "database"]
 
 [[bin]]
 name = "scythe"
@@ -18,9 +20,9 @@ ahash = { version = "0.8", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
 glob = "0.3"
 regex = "1"
-scythe-codegen = { path = "../scythe-codegen", version = "0.1.0" }
-scythe-core = { path = "../scythe-core", version = "0.1.0" }
-scythe-lint = { path = "../scythe-lint", version = "0.1.0" }
+scythe-codegen = { path = "../scythe-codegen", version = "0.2.0" }
+scythe-core = { path = "../scythe-core", version = "0.2.0" }
+scythe-lint = { path = "../scythe-lint", version = "0.2.0" }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 serde_yaml = "0.9"

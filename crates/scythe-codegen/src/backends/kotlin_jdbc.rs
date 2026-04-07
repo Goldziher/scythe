@@ -13,27 +13,36 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
-const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/kotlin-jdbc.toml");
+const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/kotlin-jdbc.toml");
+const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/kotlin-jdbc.mysql.toml");
+const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/kotlin-jdbc.sqlite.toml");
 
 pub struct KotlinJdbcBackend {
     manifest: BackendManifest,
 }
 
 impl KotlinJdbcBackend {
-    pub fn new() -> Result<Self, ScytheError> {
+    pub fn new(engine: &str) -> Result<Self, ScytheError> {
+        let default_toml = match engine {
+            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
+            "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
+            "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
+            _ => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    format!("unsupported engine '{}' for kotlin-jdbc backend", engine),
+                ));
+            }
+        };
         let manifest_path = Path::new("backends/kotlin-jdbc/manifest.toml");
         let manifest = if manifest_path.exists() {
             load_manifest(manifest_path)
                 .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
+            toml::from_str(default_toml)
                 .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
         Ok(Self { manifest })
-    }
-
-    pub fn manifest(&self) -> &BackendManifest {
-        &self.manifest
     }
 }
 
@@ -101,6 +110,14 @@ fn ps_setter(kotlin_type: &str) -> &str {
 impl CodegenBackend for KotlinJdbcBackend {
     fn name(&self) -> &str {
         "kotlin-jdbc"
+    }
+
+    fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
+        &self.manifest
+    }
+
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql", "mysql", "sqlite"]
     }
 
     fn file_header(&self) -> String {

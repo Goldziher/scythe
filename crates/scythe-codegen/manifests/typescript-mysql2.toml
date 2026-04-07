@@ -1,0 +1,41 @@
+[backend]
+name = "typescript-mysql2"
+language = "typescript"
+file_extension = "ts"
+engine = "mysql"
+description = "TypeScript code generation targeting mysql2/promise"
+
+[types.scalars]
+bool = "number"
+int16 = "number"
+int32 = "number"
+int64 = "number"
+float32 = "number"
+float64 = "number"
+string = "string"
+bytes = "Buffer"
+uuid = "string"
+decimal = "string"
+date = "string"
+time = "string"
+time_tz = "string"
+datetime = "Date"
+datetime_tz = "Date"
+interval = "string"
+json = "Record<string, unknown>"
+inet = "string"
+
+[types.containers]
+array = "{T}[]"
+nullable = "{T} | null"
+range = "string"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "camelCase"
+fn_case = "camelCase"
+enum_variant_case = "PascalCase"
+row_suffix = "Row"
+
+[imports.rules]

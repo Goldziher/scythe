@@ -1,0 +1,40 @@
+[backend]
+name = "java-jdbc"
+language = "java"
+file_extension = "java"
+engine = "sqlite"
+description = "Java code generation targeting JDBC with SQLite"
+
+[types.scalars]
+bool = "boolean"
+int16 = "short"
+int32 = "int"
+int64 = "long"
+float32 = "float"
+float64 = "double"
+string = "String"
+bytes = "byte[]"
+uuid = "String"
+decimal = "double"
+date = "String"
+time = "String"
+time_tz = "String"
+datetime = "String"
+datetime_tz = "String"
+interval = "String"
+json = "String"
+inet = "String"
+
+[types.containers]
+array = "java.util.List<{T}>"
+nullable = "@Nullable {T}"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "camelCase"
+fn_case = "camelCase"
+enum_variant_case = "SCREAMING_SNAKE_CASE"
+row_suffix = "Row"
+
+[imports.rules]
