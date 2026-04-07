@@ -9,8 +9,5 @@
 **/.gradle/
 **/.venv/
 **/vendor/
-**/Gemfile.lock
-**/pnpm-lock.yaml
-**/go.sum
-**/mix.lock
-**/uv.lock
+**/.bundle/
+**/Cargo.lock
