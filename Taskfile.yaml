@@ -45,6 +45,37 @@ tasks:
       - task: lint
       - task: test
 
+  snippets:build:
+    desc: Build the snippet-runner tool
+    cmds:
+      - cargo build -p snippet-runner --release
+
+  snippets:list:
+    desc: List all documentation snippets
+    deps: [snippets:build]
+    cmds:
+      - ./target/release/snippet-runner list -s docs/snippets -r docs/docs
+
+  snippets:validate:
+    desc: Validate documentation snippets (syntax level)
+    deps: [snippets:build]
+    cmds:
+      - ./target/release/snippet-runner validate -s docs/snippets -r docs/docs -L syntax
+
+  snippets:validate:compile:
+    desc: Validate documentation snippets (compile level)
+    deps: [snippets:build]
+    cmds:
+      - ./target/release/snippet-runner validate -s docs/snippets -r docs/docs -L compile
+
+  snippets:validate:lang:
+    desc: Validate specific language snippets
+    deps: [snippets:build]
+    cmds:
+      - ./target/release/snippet-runner validate -s docs/snippets -r docs/docs -L {{.LEVEL | default "syntax"}} -l {{.LANGUAGES}}
+    requires:
+      vars: [LANGUAGES]
+
   clean:
     desc: Clean build artifacts
     cmds:

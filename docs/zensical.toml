@@ -14,6 +14,10 @@ nav = [
     { "Quickstart" = "getting-started/quickstart.md" },
     { "Migration from sqlc" = "getting-started/migration-from-sqlc.md" },
   ] },
+  { "Comparisons" = [
+    { "vs ORMs" = "comparisons/orms.md" },
+    { "vs jOOQ" = "comparisons/jooq.md" },
+  ] },
   { "Guide" = [
     { "Configuration" = "guide/configuration.md" },
     { "Annotations" = "guide/annotations.md" },
