@@ -44,6 +44,7 @@ repos:
     rev: "v0.1.67"
     hooks:
       - id: rumdl-fmt
+        exclude: "docs/snippets/"
 
   # Rust: formatting, linting, and license checking
   - repo: https://github.com/DevinR528/cargo-sort

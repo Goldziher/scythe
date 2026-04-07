@@ -42,16 +42,24 @@ pub fn extract_fenced_blocks(content: &str) -> Vec<CodeBlock> {
                 continue;
             }
 
-            // Capture preceding HTML comment for annotation
-            let preceding_comment = if i > 0 {
-                let prev = lines[i - 1].trim();
-                if prev.starts_with("<!--") && prev.ends_with("-->") {
-                    Some(prev.to_string())
-                } else {
-                    None
+            // Capture preceding HTML comment for annotation.
+            // Look back past blank lines (markdown linters insert blank lines
+            // between HTML comments and fenced code blocks).
+            let preceding_comment = {
+                let mut found = None;
+                let mut j = i;
+                while j > 0 {
+                    j -= 1;
+                    let prev = lines[j].trim();
+                    if prev.is_empty() {
+                        continue;
+                    }
+                    if prev.starts_with("<!--") && prev.ends_with("-->") {
+                        found = Some(prev.to_string());
+                    }
+                    break;
                 }
-            } else {
-                None
+                found
             };
 
             let start_line = i + 1; // 1-indexed
