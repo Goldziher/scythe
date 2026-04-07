@@ -35,6 +35,8 @@ CREATE TABLE users (
 
 ### Record with `fromResultSet`
 
+<!-- snippet:skip -->
+
 ```java
 public record GetUserRow(
     int id,
@@ -69,6 +71,8 @@ public static GetUserRow getUser(Connection conn, int id) throws SQLException {
 ```
 
 ### `:many`
+
+<!-- snippet:skip -->
 
 ```java
 public record ListUsersRow(int id, String name) {

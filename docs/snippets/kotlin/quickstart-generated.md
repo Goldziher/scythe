@@ -1,3 +1,5 @@
+<!-- snippet:skip -->
+
 ```kotlin title="Kotlin (JDBC)"
 import java.sql.Connection
 
