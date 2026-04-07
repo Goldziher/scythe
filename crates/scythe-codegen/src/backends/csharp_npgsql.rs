@@ -81,8 +81,9 @@ fn rewrite_params(sql: &str) -> String {
 fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
     if col.neutral_type.starts_with("enum::") {
         format!(
-            "Enum.Parse<{}>(reader.GetString({}), true)",
-            col.lang_type, ordinal
+            "(Enum.TryParse<{typ}>(reader.GetString({ord}), true, out var enumVal{ord}) ? enumVal{ord} : throw new InvalidOperationException($\"Invalid enum value '{{reader.GetString({ord})}}' for {typ}\"))",
+            typ = col.lang_type,
+            ord = ordinal
         )
     } else {
         let method = reader_method(&col.neutral_type);

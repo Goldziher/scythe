@@ -11,7 +11,7 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
         "kotlin-jdbc" => validate_kotlin(code),
         "csharp-npgsql" => validate_csharp(code),
         "elixir-postgrex" => validate_elixir(code),
-        "ruby-pg" => validate_ruby(code),
+        "ruby-pg" | "ruby-mysql2" | "ruby-sqlite3" => validate_ruby(code),
         "php-pdo" => validate_php(code),
         // Rust backends are validated by syn, not here.
         "rust-sqlx" | "rust-tokio-postgres" => vec![],
@@ -259,6 +259,10 @@ fn validate_ruby(code: &str) -> Vec<String> {
 
     if !code.contains("# frozen_string_literal: true") {
         errors.push("missing `# frozen_string_literal: true`".into());
+    }
+
+    if !code.contains("module Queries") {
+        errors.push("missing `module Queries` wrapper".into());
     }
 
     errors

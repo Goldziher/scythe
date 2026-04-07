@@ -73,6 +73,15 @@ pub trait CodegenBackend: Send + Sync {
         String::new()
     }
 
+    /// Generate a class header that wraps query functions only.
+    /// When non-empty, the assembly will emit all type definitions (enums,
+    /// row structs, model structs) first, then this class header, then all
+    /// query functions, then the file footer.
+    /// Returns an empty string by default (no class wrapper).
+    fn query_class_header(&self) -> String {
+        String::new()
+    }
+
     /// Database engines this backend supports.
     /// Defaults to PostgreSQL only. Multi-DB backends override this.
     fn supported_engines(&self) -> &[&str] {

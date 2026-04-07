@@ -113,12 +113,22 @@ pub fn to_camel_case(s: &str) -> Cow<'_, str> {
     }
 }
 
+/// Convert a string to SCREAMING_SNAKE_CASE.
+///
+/// Handles any input by converting to snake_case first, then uppercasing.
+/// "active" -> "ACTIVE", "user_status" -> "USER_STATUS", "PascalCase" -> "PASCAL_CASE"
+pub fn to_screaming_snake_case(s: &str) -> Cow<'_, str> {
+    let snake = to_snake_case(s);
+    Cow::Owned(snake.to_uppercase())
+}
+
 /// Apply a named case convention to a string.
 pub fn apply_case<'a>(s: &'a str, case: &str) -> Cow<'a, str> {
     match case {
         "PascalCase" => to_pascal_case(s),
         "snake_case" => to_snake_case(s),
         "camelCase" => to_camel_case(s),
+        "SCREAMING_SNAKE_CASE" => to_screaming_snake_case(s),
         _ => Cow::Borrowed(s),
     }
 }
@@ -281,6 +291,33 @@ mod tests {
         assert_eq!(&*to_snake_case("UserID"), "user_id");
         assert_eq!(&*to_snake_case("getHTTPSUrl"), "get_https_url");
         assert_eq!(&*to_snake_case("ABCDef"), "abc_def");
+    }
+
+    #[test]
+    fn test_to_screaming_snake_case() {
+        assert_eq!(&*to_screaming_snake_case("active"), "ACTIVE");
+        assert_eq!(&*to_screaming_snake_case("user_status"), "USER_STATUS");
+        assert_eq!(&*to_screaming_snake_case("PascalCase"), "PASCAL_CASE");
+        assert_eq!(
+            &*to_screaming_snake_case("pending_review"),
+            "PENDING_REVIEW"
+        );
+    }
+
+    #[test]
+    fn test_enum_variant_name_screaming_snake() {
+        let config = NamingConfig {
+            struct_case: "PascalCase".to_string(),
+            field_case: "snake_case".to_string(),
+            fn_case: "snake_case".to_string(),
+            enum_variant_case: "SCREAMING_SNAKE_CASE".to_string(),
+            row_suffix: "Row".to_string(),
+        };
+        assert_eq!(enum_variant_name("active", &config), "ACTIVE");
+        assert_eq!(
+            enum_variant_name("pending_review", &config),
+            "PENDING_REVIEW"
+        );
     }
 
     #[test]

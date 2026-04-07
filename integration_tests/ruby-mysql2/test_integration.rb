@@ -56,8 +56,8 @@ def assert_true(value, message)
 end
 
 def test_create_user(client)
-  create_user(client, "Alice", "alice@example.com", "active")
-  user = get_last_insert_user(client)
+  Queries.create_user(client, "Alice", "alice@example.com", "active")
+  user = Queries.get_last_insert_user(client)
   assert_not_nil(user, "get_last_insert_user returned nil")
   assert_equal("Alice", user.name, "create_user name")
   assert_equal("alice@example.com", user.email, "create_user email")
@@ -68,7 +68,7 @@ def test_create_user(client)
 end
 
 def test_get_user_by_id(client, user_id)
-  user = get_user_by_id(client, user_id)
+  user = Queries.get_user_by_id(client, user_id)
   assert_not_nil(user, "get_user_by_id returned nil for id=#{user_id}")
   assert_equal("Alice", user.name, "get_user_by_id name")
   assert_equal(user_id, user.id, "get_user_by_id id")
@@ -78,7 +78,7 @@ def test_get_user_by_id(client, user_id)
 end
 
 def test_list_active_users(client)
-  users = list_active_users(client, "active")
+  users = Queries.list_active_users(client, "active")
   assert_true(users.length >= 1, "Expected at least 1 active user, got #{users.length}")
   names = users.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in active users, got #{names}")
@@ -86,16 +86,16 @@ def test_list_active_users(client)
 end
 
 def test_update_user_email(client, user_id)
-  update_user_email(client, "alice-new@example.com", user_id)
-  user = get_user_by_id(client, user_id)
+  Queries.update_user_email(client, "alice-new@example.com", user_id)
+  user = Queries.get_user_by_id(client, user_id)
   assert_not_nil(user, "user not found after update")
   assert_equal("alice-new@example.com", user.email, "update_user_email email")
   puts "PASS: UpdateUserEmail"
 end
 
 def test_create_order(client, user_id)
-  create_order(client, user_id, "49.99", "Test order")
-  order = get_last_insert_order(client)
+  Queries.create_order(client, user_id, "49.99", "Test order")
+  order = Queries.get_last_insert_order(client)
   assert_not_nil(order, "get_last_insert_order returned nil")
   assert_equal(user_id, order.user_id, "create_order user_id")
   assert_equal("Test order", order.notes, "create_order notes")
@@ -104,20 +104,20 @@ def test_create_order(client, user_id)
 end
 
 def test_get_orders_by_user(client, user_id)
-  orders = get_orders_by_user(client, user_id)
+  orders = Queries.get_orders_by_user(client, user_id)
   assert_true(orders.length >= 1, "Expected at least 1 order, got #{orders.length}")
   assert_equal("Test order", orders[0].notes, "get_orders_by_user notes")
   puts "PASS: GetOrdersByUser"
 end
 
 def test_get_order_total(client, user_id)
-  result = get_order_total(client, user_id)
+  result = Queries.get_order_total(client, user_id)
   assert_not_nil(result, "get_order_total returned nil")
   puts "PASS: GetOrderTotal"
 end
 
 def test_search_users(client)
-  results = search_users(client, "%Ali%")
+  results = Queries.search_users(client, "%Ali%")
   assert_true(results.length >= 1, "Expected at least 1 search result, got #{results.length}")
   names = results.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in search results, got #{names}")
@@ -125,10 +125,10 @@ def test_search_users(client)
 end
 
 def test_delete_user(client, user_id)
-  deleted_count = delete_orders_by_user(client, user_id)
+  deleted_count = Queries.delete_orders_by_user(client, user_id)
   assert_equal(1, deleted_count, "delete_orders_by_user count")
-  delete_user(client, user_id)
-  user = get_user_by_id(client, user_id)
+  Queries.delete_user(client, user_id)
+  user = Queries.get_user_by_id(client, user_id)
   assert_true(user.nil?, "Expected user to be deleted, but it still exists")
   puts "PASS: DeleteUser"
 end

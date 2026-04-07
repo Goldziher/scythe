@@ -98,7 +98,7 @@ public static async Task<GetUserByIdRow?> GetUserById(MySqlConnection conn, int 
         reader.GetInt32(0),
         reader.GetString(1),
         reader.IsDBNull(2) ? null : reader.GetString(2),
-        Enum.Parse<UsersStatus>(reader.GetString(3), true),
+        (Enum.TryParse<UsersStatus>(reader.GetString(3), true, out var enumVal3) ? enumVal3 : throw new InvalidOperationException($"Invalid enum value '{reader.GetString(3)}' for UsersStatus")),
         reader.GetDateTime(4)
     );
 }
@@ -148,7 +148,7 @@ public static async Task<GetLastInsertUserRow?> GetLastInsertUser(MySqlConnectio
         reader.GetInt32(0),
         reader.GetString(1),
         reader.IsDBNull(2) ? null : reader.GetString(2),
-        Enum.Parse<UsersStatus>(reader.GetString(3), true),
+        (Enum.TryParse<UsersStatus>(reader.GetString(3), true, out var enumVal3) ? enumVal3 : throw new InvalidOperationException($"Invalid enum value '{reader.GetString(3)}' for UsersStatus")),
         reader.GetDateTime(4)
     );
 }

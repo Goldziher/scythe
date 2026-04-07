@@ -118,7 +118,7 @@ impl GetUserByIdRow {
             id: row.get("id"),
             name: row.get("name"),
             email: row.get("email"),
-            status: row.get::<_, String>("status").parse().unwrap(),
+            status: { let val = row.get::<_, String>("status"); val.parse().unwrap_or_else(|_| panic!("unexpected enum value for column '{}': {}", "status", val)) },
             created_at: row.get("created_at"),
         }
     }
@@ -166,7 +166,7 @@ impl CreateUserRow {
             id: row.get("id"),
             name: row.get("name"),
             email: row.get("email"),
-            status: row.get::<_, String>("status").parse().unwrap(),
+            status: { let val = row.get::<_, String>("status"); val.parse().unwrap_or_else(|_| panic!("unexpected enum value for column '{}': {}", "status", val)) },
             created_at: row.get("created_at"),
         }
     }
@@ -223,7 +223,7 @@ pub struct CountUsersByStatusRow {
 impl CountUsersByStatusRow {
     pub fn from_row(row: &tokio_postgres::Row) -> Self {
         Self {
-            status: row.get::<_, String>("status").parse().unwrap(),
+            status: { let val = row.get::<_, String>("status"); val.parse().unwrap_or_else(|_| panic!("unexpected enum value for column '{}': {}", "status", val)) },
             user_count: row.get("user_count"),
         }
     }

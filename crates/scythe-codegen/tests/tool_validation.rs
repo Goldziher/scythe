@@ -31,31 +31,77 @@ fn generate_full_file(backend_name: &str) -> String {
     let mut full = backend.file_header();
     full.push('\n');
 
+    let class_header = backend.query_class_header();
+    let use_class_wrapper = !class_header.is_empty();
+
+    // Collect all generated code first
+    let mut all_codes = Vec::new();
     for query_sql in [QUERY_ONE, QUERY_MANY, QUERY_EXEC] {
         let parsed = parse_query(query_sql).unwrap();
         let analyzed = analyze(&catalog, &parsed).unwrap();
         match generate_with_backend(&analyzed, &*backend) {
-            Ok(code) => {
-                if let Some(ref s) = code.enum_def {
-                    full.push_str(s);
-                    full.push('\n');
-                }
-                if let Some(ref s) = code.model_struct {
-                    full.push_str(s);
-                    full.push('\n');
-                }
-                if let Some(ref s) = code.row_struct {
-                    full.push_str(s);
-                    full.push('\n');
-                }
-                if let Some(ref s) = code.query_fn {
-                    full.push_str(s);
-                    full.push('\n');
-                }
-            }
+            Ok(code) => all_codes.push(code),
             Err(e) => {
                 eprintln!("  codegen error for {backend_name}: {e}");
             }
+        }
+    }
+
+    if use_class_wrapper {
+        // Emit type definitions (enums, structs) first, outside the class
+        for code in &all_codes {
+            if let Some(ref s) = code.enum_def {
+                full.push_str(s);
+                full.push('\n');
+            }
+            if let Some(ref s) = code.model_struct {
+                full.push_str(s);
+                full.push('\n');
+            }
+            if let Some(ref s) = code.row_struct {
+                full.push_str(s);
+                full.push('\n');
+            }
+        }
+        // Open the class
+        full.push_str(&class_header);
+        full.push('\n');
+        // Emit query functions inside the class
+        for code in &all_codes {
+            if let Some(ref s) = code.query_fn {
+                full.push_str(s);
+                full.push('\n');
+            }
+        }
+        // Close the class via file footer
+        let footer = backend.file_footer();
+        if !footer.is_empty() {
+            full.push_str(&footer);
+            full.push('\n');
+        }
+    } else {
+        for code in &all_codes {
+            if let Some(ref s) = code.enum_def {
+                full.push_str(s);
+                full.push('\n');
+            }
+            if let Some(ref s) = code.model_struct {
+                full.push_str(s);
+                full.push('\n');
+            }
+            if let Some(ref s) = code.row_struct {
+                full.push_str(s);
+                full.push('\n');
+            }
+            if let Some(ref s) = code.query_fn {
+                full.push_str(s);
+                full.push('\n');
+            }
+        }
+        let footer = backend.file_footer();
+        if !footer.is_empty() {
+            full.push_str(&footer);
+            full.push('\n');
         }
     }
 
