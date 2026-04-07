@@ -1,0 +1,31 @@
+[project]
+name = "scythe-dev"
+version = "0.3.0"
+description = "Development dependencies for scythe"
+requires-python = ">=3.12"
+
+[dependency-groups]
+dev = [
+  "prek>=0.2.21",
+  "pyproject-fmt>=2.11.1",
+  "ruff>=0.14.8",
+]
+doc = [
+  "zensical",
+]
+
+[tool.uv]
+cache-keys = [
+  { file = "pyproject.toml" },
+  { file = "Cargo.toml" },
+  { file = "Cargo.lock" },
+]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 120
+extend-exclude = ["integration_tests", "docs/snippets"]
+
+[tool.pyproject-fmt]
+keep_full_version = true
+max_supported_python = "3.14"

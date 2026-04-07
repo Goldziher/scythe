@@ -59,5 +59,46 @@ jobs:
         run: cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
       - name: Build
         run: cargo build --workspace --release
+
+  validate-snippets:
+    name: "Validate: Documentation Snippets"
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: "temurin"
+          java-version: "21"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17"
+          otp-version: "27"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+      - name: Install Kotlin
+        run: |
+          curl -sL https://github.com/JetBrains/kotlin/releases/download/v2.1.20/kotlin-compiler-2.1.20.zip -o kotlin.zip
+          unzip -q kotlin.zip -d /opt/kotlin
+          echo "/opt/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
+      - name: Install TypeScript
+        run: npm install -g typescript
+      - name: Build snippet-runner
+        run: cargo build -p snippet-runner --release
       - name: Validate documentation snippets
-        run: ./target/release/snippet-runner validate -s docs/snippets -r docs/docs -L syntax
+        run: ./target/release/snippet-runner validate -s docs/snippets -r docs/docs -L syntax --timeout 120
