@@ -1,0 +1,313 @@
+
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UserStatus {
+    Active,
+    Inactive,
+    Banned,
+}
+
+impl std::fmt::Display for UserStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UserStatus::Active => write!(f, "active"),
+            UserStatus::Inactive => write!(f, "inactive"),
+            UserStatus::Banned => write!(f, "banned"),
+        }
+    }
+}
+
+impl std::str::FromStr for UserStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(UserStatus::Active),
+            "inactive" => Ok(UserStatus::Inactive),
+            "banned" => Ok(UserStatus::Banned),
+            _ => Err(format!("unknown variant: {}", s)),
+        }
+    }
+}
+
+impl tokio_postgres::types::ToSql for UserStatus {
+    fn to_sql(
+        &self,
+        ty: &tokio_postgres::types::Type,
+        out: &mut tokio_postgres::types::private::BytesMut,
+    ) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {
+        self.to_string().to_sql(ty, out)
+    }
+
+    fn accepts(ty: &tokio_postgres::types::Type) -> bool {
+        ty.name() == "user_status" || <String as tokio_postgres::types::ToSql>::accepts(ty)
+    }
+
+    tokio_postgres::types::to_sql_checked!();
+}
+
+impl<'a> tokio_postgres::types::FromSql<'a> for UserStatus {
+    fn from_sql(
+        _ty: &tokio_postgres::types::Type,
+        raw: &'a [u8],
+    ) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {
+        let s = std::str::from_utf8(raw)?;
+        s.parse::<UserStatus>()
+            .map_err(|e| Box::new(std::io::Error::new(std::io::ErrorKind::InvalidData, e)) as _)
+    }
+
+    fn accepts(ty: &tokio_postgres::types::Type) -> bool {
+        ty.name() == "user_status" || <String as tokio_postgres::types::FromSql>::accepts(ty)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateOrderRow {
+    pub id: i32,
+    pub user_id: i32,
+    pub total: rust_decimal::Decimal,
+    pub notes: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl CreateOrderRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            id: row.get("id"),
+            user_id: row.get("user_id"),
+            total: row.get("total"),
+            notes: row.get("notes"),
+            created_at: row.get("created_at"),
+        }
+    }
+}
+
+pub async fn create_order(client: &tokio_postgres::Client, user_id: i32, total: &rust_decimal::Decimal, notes: &str) -> Result<CreateOrderRow, tokio_postgres::Error> {
+    let row = client.query_one(r#"INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at"#, &[&user_id, &total, &notes]).await?;
+    Ok(CreateOrderRow::from_row(&row))
+}
+
+#[derive(Debug, Clone)]
+pub struct GetOrdersByUserRow {
+    pub id: i32,
+    pub total: rust_decimal::Decimal,
+    pub notes: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl GetOrdersByUserRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            id: row.get("id"),
+            total: row.get("total"),
+            notes: row.get("notes"),
+            created_at: row.get("created_at"),
+        }
+    }
+}
+
+pub async fn get_orders_by_user(client: &tokio_postgres::Client, user_id: i32) -> Result<Vec<GetOrdersByUserRow>, tokio_postgres::Error> {
+    let rows = client.query(r#"SELECT id, total, notes, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC"#, &[&user_id]).await?;
+    Ok(rows.iter().map(GetOrdersByUserRow::from_row).collect())
+}
+
+#[derive(Debug, Clone)]
+pub struct GetOrderTotalRow {
+    pub total_sum: Option<rust_decimal::Decimal>,
+}
+
+impl GetOrderTotalRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            total_sum: row.get("total_sum"),
+        }
+    }
+}
+
+pub async fn get_order_total(client: &tokio_postgres::Client, user_id: i32) -> Result<GetOrderTotalRow, tokio_postgres::Error> {
+    let row = client.query_one(r#"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1"#, &[&user_id]).await?;
+    Ok(GetOrderTotalRow::from_row(&row))
+}
+
+pub async fn delete_orders_by_user(client: &tokio_postgres::Client, user_id: i32) -> Result<u64, tokio_postgres::Error> {
+    let rows_affected = client.execute(r#"DELETE FROM orders WHERE user_id = $1"#, &[&user_id]).await?;
+    Ok(rows_affected)
+}
+
+#[derive(Debug, Clone)]
+pub struct GetUserByIdRow {
+    pub id: i32,
+    pub name: String,
+    pub email: Option<String>,
+    pub status: UserStatus,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl GetUserByIdRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            id: row.get("id"),
+            name: row.get("name"),
+            email: row.get("email"),
+            status: row.get::<_, UserStatus>("status"),
+            created_at: row.get("created_at"),
+        }
+    }
+}
+
+pub async fn get_user_by_id(client: &tokio_postgres::Client, id: i32) -> Result<GetUserByIdRow, tokio_postgres::Error> {
+    let row = client.query_one(r#"SELECT id, name, email, status, created_at FROM users WHERE id = $1"#, &[&id]).await?;
+    Ok(GetUserByIdRow::from_row(&row))
+}
+
+#[derive(Debug, Clone)]
+pub struct ListActiveUsersRow {
+    pub id: i32,
+    pub name: String,
+    pub email: Option<String>,
+}
+
+impl ListActiveUsersRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            id: row.get("id"),
+            name: row.get("name"),
+            email: row.get("email"),
+        }
+    }
+}
+
+pub async fn list_active_users(client: &tokio_postgres::Client, status: &UserStatus) -> Result<Vec<ListActiveUsersRow>, tokio_postgres::Error> {
+    let rows = client.query(r#"SELECT id, name, email FROM users WHERE status = $1"#, &[&status]).await?;
+    Ok(rows.iter().map(ListActiveUsersRow::from_row).collect())
+}
+
+#[derive(Debug, Clone)]
+pub struct CreateUserRow {
+    pub id: i32,
+    pub name: String,
+    pub email: Option<String>,
+    pub status: UserStatus,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+impl CreateUserRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            id: row.get("id"),
+            name: row.get("name"),
+            email: row.get("email"),
+            status: row.get::<_, UserStatus>("status"),
+            created_at: row.get("created_at"),
+        }
+    }
+}
+
+pub async fn create_user(client: &tokio_postgres::Client, name: &str, email: &str, status: &UserStatus) -> Result<CreateUserRow, tokio_postgres::Error> {
+    let row = client.query_one(r#"INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at"#, &[&name, &email, &status]).await?;
+    Ok(CreateUserRow::from_row(&row))
+}
+
+pub async fn update_user_email(client: &tokio_postgres::Client, email: &str, id: i32) -> Result<(), tokio_postgres::Error> {
+    client.execute(r#"UPDATE users SET email = $1 WHERE id = $2"#, &[&email, &id]).await?;
+    Ok(())
+}
+
+pub async fn delete_user(client: &tokio_postgres::Client, id: i32) -> Result<(), tokio_postgres::Error> {
+    client.execute(r#"DELETE FROM users WHERE id = $1"#, &[&id]).await?;
+    Ok(())
+}
+
+#[derive(Debug, Clone)]
+pub struct GetUserOrdersRow {
+    pub id: i32,
+    pub name: String,
+    pub total: Option<rust_decimal::Decimal>,
+    pub notes: Option<String>,
+}
+
+impl GetUserOrdersRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            id: row.get("id"),
+            name: row.get("name"),
+            total: row.get("total"),
+            notes: row.get("notes"),
+        }
+    }
+}
+
+pub async fn get_user_orders(client: &tokio_postgres::Client, status: &UserStatus) -> Result<Vec<GetUserOrdersRow>, tokio_postgres::Error> {
+    let rows = client.query(r#"SELECT u.id, u.name, o.total, o.notes
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+WHERE u.status = $1"#, &[&status]).await?;
+    Ok(rows.iter().map(GetUserOrdersRow::from_row).collect())
+}
+
+#[derive(Debug, Clone)]
+pub struct CountUsersByStatusRow {
+    pub status: UserStatus,
+    pub user_count: i64,
+}
+
+impl CountUsersByStatusRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            status: row.get::<_, UserStatus>("status"),
+            user_count: row.get("user_count"),
+        }
+    }
+}
+
+pub async fn count_users_by_status(client: &tokio_postgres::Client, status: &UserStatus) -> Result<CountUsersByStatusRow, tokio_postgres::Error> {
+    let row = client.query_one(r#"SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = $1"#, &[&status]).await?;
+    Ok(CountUsersByStatusRow::from_row(&row))
+}
+
+#[derive(Debug, Clone)]
+pub struct GetUserWithTagsRow {
+    pub id: i32,
+    pub name: String,
+    pub tag_name: String,
+}
+
+impl GetUserWithTagsRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            id: row.get("id"),
+            name: row.get("name"),
+            tag_name: row.get("tag_name"),
+        }
+    }
+}
+
+pub async fn get_user_with_tags(client: &tokio_postgres::Client, id: i32) -> Result<Vec<GetUserWithTagsRow>, tokio_postgres::Error> {
+    let rows = client.query(r#"SELECT u.id, u.name, t.name AS tag_name
+FROM users u
+INNER JOIN user_tags ut ON u.id = ut.user_id
+INNER JOIN tags t ON ut.tag_id = t.id
+WHERE u.id = $1"#, &[&id]).await?;
+    Ok(rows.iter().map(GetUserWithTagsRow::from_row).collect())
+}
+
+#[derive(Debug, Clone)]
+pub struct SearchUsersRow {
+    pub id: i32,
+    pub name: String,
+    pub email: Option<String>,
+}
+
+impl SearchUsersRow {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
+        Self {
+            id: row.get("id"),
+            name: row.get("name"),
+            email: row.get("email"),
+        }
+    }
+}
+
+pub async fn search_users(client: &tokio_postgres::Client, name: &str) -> Result<Vec<SearchUsersRow>, tokio_postgres::Error> {
+    let rows = client.query(r#"SELECT id, name, email FROM users WHERE name LIKE $1"#, &[&name]).await?;
+    Ok(rows.iter().map(SearchUsersRow::from_row).collect())
+}

@@ -1,0 +1,12 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "sqlite"
+schema = ["../sql/sqlite/schema.sql"]
+queries = ["../sql/sqlite/queries/*.sql"]
+
+[[sql.gen]]
+backend = "python-aiosqlite"
+output = "generated"

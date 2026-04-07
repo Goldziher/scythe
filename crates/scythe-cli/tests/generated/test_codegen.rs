@@ -2,7 +2,10 @@
 // Category: codegen
 
 #[allow(unused_imports)]
+use scythe_codegen as _codegen;
 #[allow(unused_imports)]
+use syn as _syn;
+
 #[test]
 fn test_select_all_reuses_model() {
     // From: testing_data/codegen/model_sharing/01_select_all_reuses_model.json
@@ -65,72 +68,69 @@ fn test_select_all_reuses_model() {
         "php-pdo",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name) {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
             Ok(b) => b,
             Err(_) => continue, // skip unregistered backends
         };
-        match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
-            Ok(generated) => {
-                let header = backend.file_header();
-                let mut code = if header.is_empty() {
-                    String::from("#![allow(dead_code, unused_imports)]\n")
-                } else {
-                    let mut h = header;
-                    h.push('\n');
-                    h
-                };
-                if let Some(ref s) = generated.enum_def {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.model_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.row_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.query_fn {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if code.lines().count() > 1 {
-                    // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
-                        assert!(
-                            syn::parse_file(&code).is_ok(),
-                            "backend {} generated invalid Rust for {}",
-                            backend_name,
-                            "select_all_reuses_model"
-                        );
-                    } else {
-                        // Structural validation for non-Rust backends
-                        let errors =
-                            scythe_codegen::validation::validate_structural(&code, backend_name);
-                        assert!(
-                            errors.is_empty(),
-                            "backend {} structural validation failed for {}: {:?}",
-                            backend_name,
-                            "select_all_reuses_model",
-                            errors
-                        );
-                    }
-                }
-                assert!(
-                    generated.row_struct.is_some() || generated.model_struct.is_some(),
-                    "backend {} should produce a struct for {}",
-                    backend_name,
-                    "select_all_reuses_model"
-                );
-                assert!(
-                    generated.query_fn.is_some(),
-                    "backend {} should produce query_fn for {}",
-                    backend_name,
-                    "select_all_reuses_model"
-                );
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
             }
-            Err(_) => {} // graceful skip — backend may not support all patterns
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "select_all_reuses_model"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors =
+                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "select_all_reuses_model",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "select_all_reuses_model"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "select_all_reuses_model"
+            );
         }
     }
 }
@@ -188,72 +188,69 @@ fn test_pascal_case_structs() {
         "php-pdo",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name) {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
             Ok(b) => b,
             Err(_) => continue, // skip unregistered backends
         };
-        match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
-            Ok(generated) => {
-                let header = backend.file_header();
-                let mut code = if header.is_empty() {
-                    String::from("#![allow(dead_code, unused_imports)]\n")
-                } else {
-                    let mut h = header;
-                    h.push('\n');
-                    h
-                };
-                if let Some(ref s) = generated.enum_def {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.model_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.row_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.query_fn {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if code.lines().count() > 1 {
-                    // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
-                        assert!(
-                            syn::parse_file(&code).is_ok(),
-                            "backend {} generated invalid Rust for {}",
-                            backend_name,
-                            "pascal_case_structs"
-                        );
-                    } else {
-                        // Structural validation for non-Rust backends
-                        let errors =
-                            scythe_codegen::validation::validate_structural(&code, backend_name);
-                        assert!(
-                            errors.is_empty(),
-                            "backend {} structural validation failed for {}: {:?}",
-                            backend_name,
-                            "pascal_case_structs",
-                            errors
-                        );
-                    }
-                }
-                assert!(
-                    generated.row_struct.is_some() || generated.model_struct.is_some(),
-                    "backend {} should produce a struct for {}",
-                    backend_name,
-                    "pascal_case_structs"
-                );
-                assert!(
-                    generated.query_fn.is_some(),
-                    "backend {} should produce query_fn for {}",
-                    backend_name,
-                    "pascal_case_structs"
-                );
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
             }
-            Err(_) => {} // graceful skip — backend may not support all patterns
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "pascal_case_structs"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors =
+                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "pascal_case_structs",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "pascal_case_structs"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "pascal_case_structs"
+            );
         }
     }
 }
@@ -323,72 +320,69 @@ fn test_snake_case_fields() {
         "php-pdo",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name) {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
             Ok(b) => b,
             Err(_) => continue, // skip unregistered backends
         };
-        match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
-            Ok(generated) => {
-                let header = backend.file_header();
-                let mut code = if header.is_empty() {
-                    String::from("#![allow(dead_code, unused_imports)]\n")
-                } else {
-                    let mut h = header;
-                    h.push('\n');
-                    h
-                };
-                if let Some(ref s) = generated.enum_def {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.model_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.row_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.query_fn {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if code.lines().count() > 1 {
-                    // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
-                        assert!(
-                            syn::parse_file(&code).is_ok(),
-                            "backend {} generated invalid Rust for {}",
-                            backend_name,
-                            "snake_case_fields"
-                        );
-                    } else {
-                        // Structural validation for non-Rust backends
-                        let errors =
-                            scythe_codegen::validation::validate_structural(&code, backend_name);
-                        assert!(
-                            errors.is_empty(),
-                            "backend {} structural validation failed for {}: {:?}",
-                            backend_name,
-                            "snake_case_fields",
-                            errors
-                        );
-                    }
-                }
-                assert!(
-                    generated.row_struct.is_some() || generated.model_struct.is_some(),
-                    "backend {} should produce a struct for {}",
-                    backend_name,
-                    "snake_case_fields"
-                );
-                assert!(
-                    generated.query_fn.is_some(),
-                    "backend {} should produce query_fn for {}",
-                    backend_name,
-                    "snake_case_fields"
-                );
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
             }
-            Err(_) => {} // graceful skip — backend may not support all patterns
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "snake_case_fields"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors =
+                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "snake_case_fields",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "snake_case_fields"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "snake_case_fields"
+            );
         }
     }
 }
@@ -433,66 +427,63 @@ fn test_exec_query_fn() {
         "php-pdo",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name) {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
             Ok(b) => b,
             Err(_) => continue, // skip unregistered backends
         };
-        match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
-            Ok(generated) => {
-                let header = backend.file_header();
-                let mut code = if header.is_empty() {
-                    String::from("#![allow(dead_code, unused_imports)]\n")
-                } else {
-                    let mut h = header;
-                    h.push('\n');
-                    h
-                };
-                if let Some(ref s) = generated.enum_def {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.model_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.row_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.query_fn {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if code.lines().count() > 1 {
-                    // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
-                        assert!(
-                            syn::parse_file(&code).is_ok(),
-                            "backend {} generated invalid Rust for {}",
-                            backend_name,
-                            "exec_query_fn"
-                        );
-                    } else {
-                        // Structural validation for non-Rust backends
-                        let errors =
-                            scythe_codegen::validation::validate_structural(&code, backend_name);
-                        assert!(
-                            errors.is_empty(),
-                            "backend {} structural validation failed for {}: {:?}",
-                            backend_name,
-                            "exec_query_fn",
-                            errors
-                        );
-                    }
-                }
-                assert!(
-                    generated.query_fn.is_some(),
-                    "backend {} should produce query_fn for {}",
-                    backend_name,
-                    "exec_query_fn"
-                );
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
             }
-            Err(_) => {} // graceful skip — backend may not support all patterns
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "exec_query_fn"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors =
+                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "exec_query_fn",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "exec_query_fn"
+            );
         }
     }
 }
@@ -557,72 +548,69 @@ fn test_one_query_fn() {
         "php-pdo",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name) {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
             Ok(b) => b,
             Err(_) => continue, // skip unregistered backends
         };
-        match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
-            Ok(generated) => {
-                let header = backend.file_header();
-                let mut code = if header.is_empty() {
-                    String::from("#![allow(dead_code, unused_imports)]\n")
-                } else {
-                    let mut h = header;
-                    h.push('\n');
-                    h
-                };
-                if let Some(ref s) = generated.enum_def {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.model_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.row_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.query_fn {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if code.lines().count() > 1 {
-                    // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
-                        assert!(
-                            syn::parse_file(&code).is_ok(),
-                            "backend {} generated invalid Rust for {}",
-                            backend_name,
-                            "one_query_fn"
-                        );
-                    } else {
-                        // Structural validation for non-Rust backends
-                        let errors =
-                            scythe_codegen::validation::validate_structural(&code, backend_name);
-                        assert!(
-                            errors.is_empty(),
-                            "backend {} structural validation failed for {}: {:?}",
-                            backend_name,
-                            "one_query_fn",
-                            errors
-                        );
-                    }
-                }
-                assert!(
-                    generated.row_struct.is_some() || generated.model_struct.is_some(),
-                    "backend {} should produce a struct for {}",
-                    backend_name,
-                    "one_query_fn"
-                );
-                assert!(
-                    generated.query_fn.is_some(),
-                    "backend {} should produce query_fn for {}",
-                    backend_name,
-                    "one_query_fn"
-                );
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
             }
-            Err(_) => {} // graceful skip — backend may not support all patterns
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "one_query_fn"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors =
+                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "one_query_fn",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "one_query_fn"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "one_query_fn"
+            );
         }
     }
 }
@@ -689,72 +677,69 @@ fn test_simple_query_fn() {
         "php-pdo",
     ];
     for backend_name in &all_backends {
-        let backend = match scythe_codegen::get_backend(backend_name) {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
             Ok(b) => b,
             Err(_) => continue, // skip unregistered backends
         };
-        match scythe_codegen::generate_with_backend(&analyzed, &*backend) {
-            Ok(generated) => {
-                let header = backend.file_header();
-                let mut code = if header.is_empty() {
-                    String::from("#![allow(dead_code, unused_imports)]\n")
-                } else {
-                    let mut h = header;
-                    h.push('\n');
-                    h
-                };
-                if let Some(ref s) = generated.enum_def {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.model_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.row_struct {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if let Some(ref s) = generated.query_fn {
-                    code.push_str(s);
-                    code.push('\n');
-                }
-                if code.lines().count() > 1 {
-                    // Only validate Rust syntax with syn for Rust backends
-                    if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
-                        assert!(
-                            syn::parse_file(&code).is_ok(),
-                            "backend {} generated invalid Rust for {}",
-                            backend_name,
-                            "simple_query_fn"
-                        );
-                    } else {
-                        // Structural validation for non-Rust backends
-                        let errors =
-                            scythe_codegen::validation::validate_structural(&code, backend_name);
-                        assert!(
-                            errors.is_empty(),
-                            "backend {} structural validation failed for {}: {:?}",
-                            backend_name,
-                            "simple_query_fn",
-                            errors
-                        );
-                    }
-                }
-                assert!(
-                    generated.row_struct.is_some() || generated.model_struct.is_some(),
-                    "backend {} should produce a struct for {}",
-                    backend_name,
-                    "simple_query_fn"
-                );
-                assert!(
-                    generated.query_fn.is_some(),
-                    "backend {} should produce query_fn for {}",
-                    backend_name,
-                    "simple_query_fn"
-                );
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
             }
-            Err(_) => {} // graceful skip — backend may not support all patterns
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "simple_query_fn"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors =
+                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "simple_query_fn",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "simple_query_fn"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "simple_query_fn"
+            );
         }
     }
 }

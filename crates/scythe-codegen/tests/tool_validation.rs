@@ -26,7 +26,7 @@ const QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
 
 fn generate_full_file(backend_name: &str) -> String {
     let catalog = Catalog::from_ddl(&[SCHEMA]).unwrap();
-    let backend = get_backend(backend_name).unwrap();
+    let backend = get_backend(backend_name, "postgresql").unwrap();
 
     let mut full = backend.file_header();
     full.push('\n');

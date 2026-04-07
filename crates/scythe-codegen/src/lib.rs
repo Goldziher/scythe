@@ -53,68 +53,10 @@ pub(crate) fn singularize(name: &str) -> String {
 // Manifest helpers
 // ---------------------------------------------------------------------------
 
-fn get_manifest_for_backend(backend_name: &str) -> Result<BackendManifest, ScytheError> {
-    match backend_name {
-        "rust-sqlx" | "sqlx" => {
-            let b = backends::sqlx::SqlxBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "rust-tokio-postgres" | "tokio-postgres" => {
-            let b = backends::tokio_postgres::TokioPostgresBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "go-pgx" => {
-            let b = backends::go_pgx::GoPgxBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "java-jdbc" => {
-            let b = backends::java_jdbc::JavaJdbcBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "kotlin-jdbc" => {
-            let b = backends::kotlin_jdbc::KotlinJdbcBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "python-psycopg3" => {
-            let b = backends::python_psycopg3::PythonPsycopg3Backend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "python-asyncpg" => {
-            let b = backends::python_asyncpg::PythonAsyncpgBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "typescript-postgres" => {
-            let b = backends::typescript_postgres::TypescriptPostgresBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "typescript-pg" => {
-            let b = backends::typescript_pg::TypescriptPgBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "csharp-npgsql" => {
-            let b = backends::csharp_npgsql::CsharpNpgsqlBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "elixir-postgrex" => {
-            let b = backends::elixir_postgrex::ElixirPostgrexBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "ruby-pg" => {
-            let b = backends::ruby_pg::RubyPgBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        "php-pdo" => {
-            let b = backends::php_pdo::PhpPdoBackend::new()?;
-            Ok(b.manifest().clone())
-        }
-        _ => {
-            use scythe_core::errors::ErrorCode;
-            Err(ScytheError::new(
-                ErrorCode::InternalError,
-                format!("unknown backend: {}", backend_name),
-            ))
-        }
-    }
+/// Get the manifest for a backend. Defaults to PostgreSQL engine.
+pub fn get_manifest_for_backend(backend_name: &str) -> Result<BackendManifest, ScytheError> {
+    let backend = get_backend(backend_name, "postgresql")?;
+    Ok(backend.manifest().clone())
 }
 
 /// Determine the struct name for a query (model struct or row struct).
@@ -136,9 +78,9 @@ pub fn generate_with_backend(
     analyzed: &AnalyzedQuery,
     backend: &dyn CodegenBackend,
 ) -> Result<GeneratedCode, ScytheError> {
-    let manifest = get_manifest_for_backend(backend.name())?;
-    let columns = resolve::resolve_columns(&analyzed.columns, &manifest)?;
-    let params = resolve::resolve_params(&analyzed.params, &manifest)?;
+    let manifest = backend.manifest();
+    let columns = resolve::resolve_columns(&analyzed.columns, manifest)?;
+    let params = resolve::resolve_params(&analyzed.params, manifest)?;
 
     let mut result = GeneratedCode::default();
 
@@ -179,7 +121,7 @@ pub fn generate_with_backend(
     }
 
     // Generate query function
-    let struct_name = determine_struct_name(analyzed, &manifest);
+    let struct_name = determine_struct_name(analyzed, manifest);
     result.query_fn = Some(backend.generate_query_fn(analyzed, &struct_name, &columns, &params)?);
 
     Ok(result)
@@ -235,7 +177,7 @@ fn generate_enum_defs_via_backend(
 
 /// Backward-compatible: generate code using the default sqlx backend.
 pub fn generate(analyzed: &AnalyzedQuery) -> Result<GeneratedCode, ScytheError> {
-    let backend = get_backend("rust-sqlx")?;
+    let backend = get_backend("rust-sqlx", "postgresql")?;
     generate_with_backend(analyzed, &*backend)
 }
 
@@ -281,7 +223,7 @@ pub fn generate_single_enum_def(enum_info: &EnumInfo, manifest: &BackendManifest
 
 /// Backward-compatible: load the default sqlx manifest.
 pub fn load_or_default_manifest() -> Result<BackendManifest, ScytheError> {
-    let b = backends::sqlx::SqlxBackend::new()?;
+    let b = backends::sqlx::SqlxBackend::new("postgresql")?;
     Ok(b.manifest().clone())
 }
 
@@ -495,7 +437,7 @@ mod tests {
 
     #[test]
     fn test_tokio_postgres_backend_basic() {
-        let backend = get_backend("tokio-postgres").unwrap();
+        let backend = get_backend("tokio-postgres", "postgresql").unwrap();
 
         let query = make_query(
             "ListUsers",
@@ -536,7 +478,7 @@ mod tests {
 
     #[test]
     fn test_tokio_postgres_enum() {
-        let backend = get_backend("tokio-postgres").unwrap();
+        let backend = get_backend("tokio-postgres", "postgresql").unwrap();
 
         let enum_info = scythe_core::analyzer::EnumInfo {
             sql_name: "user_status".to_string(),

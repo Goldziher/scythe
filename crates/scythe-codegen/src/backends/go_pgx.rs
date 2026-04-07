@@ -20,7 +20,16 @@ pub struct GoPgxBackend {
 }
 
 impl GoPgxBackend {
-    pub fn new() -> Result<Self, ScytheError> {
+    pub fn new(engine: &str) -> Result<Self, ScytheError> {
+        match engine {
+            "postgresql" | "postgres" | "pg" => {}
+            _ => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    format!("go-pgx only supports PostgreSQL, got engine '{}'", engine),
+                ));
+            }
+        }
         let manifest_path = Path::new("backends/go-pgx/manifest.toml");
         let manifest = if manifest_path.exists() {
             load_manifest(manifest_path)
@@ -31,10 +40,6 @@ impl GoPgxBackend {
         };
         Ok(Self { manifest })
     }
-
-    pub fn manifest(&self) -> &BackendManifest {
-        &self.manifest
-    }
 }
 
 impl CodegenBackend for GoPgxBackend {
@@ -42,8 +47,12 @@ impl CodegenBackend for GoPgxBackend {
         "go-pgx"
     }
 
+    fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
+        &self.manifest
+    }
+
     fn file_header(&self) -> String {
-        "package queries\n\nimport (\n\t\"context\"\n\n\t\"github.com/jackc/pgx/v5/pgxpool\"\n)\n"
+        "package queries\n\nimport (\n\t\"context\"\n\t\"time\"\n\n\t\"github.com/jackc/pgx/v5/pgxpool\"\n\t\"github.com/shopspring/decimal\"\n)\n"
             .to_string()
     }
 

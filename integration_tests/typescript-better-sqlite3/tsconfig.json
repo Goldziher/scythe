@@ -1,0 +1,12 @@
+{
+	"compilerOptions": {
+		"strict": true,
+		"target": "ESNext",
+		"module": "NodeNext",
+		"moduleResolution": "NodeNext",
+		"esModuleInterop": true,
+		"skipLibCheck": true,
+		"noUncheckedIndexedAccess": true,
+		"exactOptionalPropertyTypes": true
+	}
+}

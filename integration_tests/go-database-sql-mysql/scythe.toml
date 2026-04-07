@@ -1,0 +1,12 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "mysql"
+schema = ["../sql/mysql/schema.sql"]
+queries = ["../sql/mysql/queries/*.sql"]
+
+[[sql.gen]]
+backend = "go-database-sql"
+output = "generated"

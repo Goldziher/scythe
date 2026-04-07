@@ -19,7 +19,16 @@ pub struct RubyPgBackend {
 }
 
 impl RubyPgBackend {
-    pub fn new() -> Result<Self, ScytheError> {
+    pub fn new(engine: &str) -> Result<Self, ScytheError> {
+        match engine {
+            "postgresql" | "postgres" | "pg" => {}
+            _ => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    format!("ruby-pg only supports PostgreSQL, got engine '{}'", engine),
+                ));
+            }
+        }
         let manifest_path = Path::new("backends/ruby-pg/manifest.toml");
         let manifest = if manifest_path.exists() {
             load_manifest(manifest_path)
@@ -29,10 +38,6 @@ impl RubyPgBackend {
                 .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
         Ok(Self { manifest })
-    }
-
-    pub fn manifest(&self) -> &BackendManifest {
-        &self.manifest
     }
 }
 
@@ -49,6 +54,10 @@ fn ruby_coercion(neutral_type: &str) -> &'static str {
 impl CodegenBackend for RubyPgBackend {
     fn name(&self) -> &str {
         "ruby-pg"
+    }
+
+    fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
+        &self.manifest
     }
 
     fn file_header(&self) -> String {

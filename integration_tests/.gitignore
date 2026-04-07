@@ -1,0 +1,16 @@
+# Build artifacts
+**/node_modules/
+**/target/
+**/_build/
+**/deps/
+**/obj/
+**/bin/
+**/build/
+**/.gradle/
+**/.venv/
+**/vendor/
+**/Gemfile.lock
+**/pnpm-lock.yaml
+**/go.sum
+**/mix.lock
+**/uv.lock

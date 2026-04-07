@@ -1,13 +1,15 @@
 [package]
 name = "scythe-backend"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 license = "MIT"
 description = "Backend manifest, type resolution, and template rendering for scythe"
 repository = "https://github.com/Goldziher/scythe"
+homepage = "https://goldziher.github.io/scythe"
+documentation = "https://goldziher.github.io/scythe"
 authors = ["Na'aman Hirschfeld"]
-keywords = ["sql", "codegen", "type-safe", "database"]
-categories = ["development-tools", "database"]
+keywords = ["sql", "codegen", "backend", "type-mapping", "manifest"]
+categories = ["development-tools"]
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }

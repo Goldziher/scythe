@@ -67,7 +67,34 @@ performance = "warn"
 | `gen` | table | no | Code generation options per language. |
 | `type_overrides` | array | no | Type mapping overrides. |
 
-### `[sql.gen.rust]`
+### `[[sql.gen]]` (recommended for v0.2.0+)
+
+The new array syntax allows generating code for multiple backends from a single SQL block:
+
+```toml
+[[sql]]
+name = "main"
+engine = "postgresql"
+schema = ["sql/schema/*.sql"]
+queries = ["sql/queries/*.sql"]
+
+[[sql.gen]]
+backend = "rust-sqlx"
+output = "src/generated/rust"
+
+[[sql.gen]]
+backend = "typescript-pg"
+output = "src/generated/ts"
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `backend` | string | yes | Full backend name (e.g. `rust-sqlx`, `typescript-pg`, `python-aiomysql`). |
+| `output` | string | yes | Output directory for this backend's generated code. |
+
+### `[sql.gen.rust]` (legacy)
+
+The legacy syntax is still supported but limited to a single backend per language:
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

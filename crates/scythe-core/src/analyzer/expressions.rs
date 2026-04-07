@@ -40,7 +40,11 @@ impl<'a> Analyzer<'a> {
                 } else if value_is_null(vws) {
                     TypeInfo::new("unknown", true)
                 } else if let Some(p) = value_is_placeholder(vws) {
-                    if let Some(pos) = self.resolve_placeholder_position(p) {
+                    // Only pre-register $N placeholders (idempotent position).
+                    // For ? placeholders, skip — they are registered in
+                    // collect_params_from_where / collect_insert_params to avoid
+                    // double-incrementing the positional counter.
+                    if let Some(pos) = parse_placeholder(p) {
                         self.register_param(pos, None, None, false);
                     }
                     TypeInfo::unknown()

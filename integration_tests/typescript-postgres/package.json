@@ -1,0 +1,16 @@
+{
+	"name": "scythe-integration-test-postgres",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "tsx test.ts"
+	},
+	"dependencies": {
+		"postgres": "^3.4.5"
+	},
+	"devDependencies": {
+		"tsx": "^4.19.0",
+		"typescript": "^5.6.0"
+	}
+}

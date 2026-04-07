@@ -19,7 +19,19 @@ pub struct ElixirPostgrexBackend {
 }
 
 impl ElixirPostgrexBackend {
-    pub fn new() -> Result<Self, ScytheError> {
+    pub fn new(engine: &str) -> Result<Self, ScytheError> {
+        match engine {
+            "postgresql" | "postgres" | "pg" => {}
+            _ => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    format!(
+                        "elixir-postgrex only supports PostgreSQL, got engine '{}'",
+                        engine
+                    ),
+                ));
+            }
+        }
         let manifest_path = Path::new("backends/elixir-postgrex/manifest.toml");
         let manifest = if manifest_path.exists() {
             load_manifest(manifest_path)
@@ -30,15 +42,15 @@ impl ElixirPostgrexBackend {
         };
         Ok(Self { manifest })
     }
-
-    pub fn manifest(&self) -> &BackendManifest {
-        &self.manifest
-    }
 }
 
 impl CodegenBackend for ElixirPostgrexBackend {
     fn name(&self) -> &str {
         "elixir-postgrex"
+    }
+
+    fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
+        &self.manifest
     }
 
     fn generate_row_struct(

@@ -1,0 +1,41 @@
+[backend]
+name = "elixir-exqlite"
+language = "elixir"
+file_extension = "ex"
+engine = "sqlite"
+description = "Elixir code generation targeting Exqlite"
+
+[types.scalars]
+bool = "boolean()"
+int16 = "integer()"
+int32 = "integer()"
+int64 = "integer()"
+float32 = "float()"
+float64 = "float()"
+string = "String.t()"
+bytes = "binary()"
+uuid = "String.t()"
+decimal = "float()"
+date = "String.t()"
+time = "String.t()"
+time_tz = "String.t()"
+datetime = "String.t()"
+datetime_tz = "String.t()"
+interval = "String.t()"
+json = "String.t()"
+inet = "String.t()"
+
+[types.containers]
+array = "list({T})"
+nullable = "{T} | nil"
+range = "string()"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "snake_case"
+fn_case = "snake_case"
+enum_variant_case = "snake_case"
+row_suffix = "Row"
+
+[imports.rules]

@@ -21,7 +21,19 @@ pub struct TypescriptPgBackend {
 }
 
 impl TypescriptPgBackend {
-    pub fn new() -> Result<Self, ScytheError> {
+    pub fn new(engine: &str) -> Result<Self, ScytheError> {
+        match engine {
+            "postgresql" | "postgres" | "pg" => {}
+            _ => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    format!(
+                        "typescript-pg only supports PostgreSQL, got engine '{}'",
+                        engine
+                    ),
+                ));
+            }
+        }
         let manifest_path = Path::new("backends/typescript-pg/manifest.toml");
         let manifest = if manifest_path.exists() {
             load_manifest(manifest_path)
@@ -32,15 +44,15 @@ impl TypescriptPgBackend {
         };
         Ok(Self { manifest })
     }
-
-    pub fn manifest(&self) -> &BackendManifest {
-        &self.manifest
-    }
 }
 
 impl CodegenBackend for TypescriptPgBackend {
     fn name(&self) -> &str {
         "typescript-pg"
+    }
+
+    fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
+        &self.manifest
     }
 
     fn file_header(&self) -> String {
@@ -118,7 +130,7 @@ impl CodegenBackend for TypescriptPgBackend {
                                  sql: &str,
                                  params: &[ResolvedParam]| {
             let _ = writeln!(out, "{}client.query<{}>(", prefix, type_name);
-            let _ = writeln!(out, "\t\t\"{}\",", sql);
+            let _ = writeln!(out, "\t\t`{}`,", sql);
             if !params.is_empty() {
                 let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
                 let _ = writeln!(out, "\t\t[{}],", args.join(", "));
@@ -135,14 +147,14 @@ impl CodegenBackend for TypescriptPgBackend {
                     let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
                     format!(", [{}]", args.join(", "))
                 };
-                let oneliner = format!("{}client.query(\"{}\"{});", prefix, sql, param_str);
+                let oneliner = format!("{}client.query(`{}`{});", prefix, sql, param_str);
                 // Use tab width of 4 for line length estimation
                 let estimated_len = oneliner.replace('\t', "    ").len();
                 if estimated_len <= 80 {
                     let _ = writeln!(out, "{}", oneliner);
                 } else {
                     let _ = writeln!(out, "{}client.query(", prefix);
-                    let _ = writeln!(out, "\t\t\"{}\",", sql);
+                    let _ = writeln!(out, "\t\t`{}`,", sql);
                     if !params.is_empty() {
                         let args: Vec<String> =
                             params.iter().map(|p| p.field_name.clone()).collect();

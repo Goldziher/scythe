@@ -5,6 +5,9 @@ on:
     branches: [main]
     paths:
       - "docs/**"
+      - "zensical.toml"
+      - ".github/workflows/docs.yml"
+      - "CHANGELOG.md"
   workflow_dispatch:
 
 permissions:

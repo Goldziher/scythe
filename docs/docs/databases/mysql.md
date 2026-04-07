@@ -1,6 +1,23 @@
 # MySQL
 
-Scythe supports MySQL/MariaDB with dialect-specific type handling. MySQL support operates at the parser and analyzer level -- SQL parsing, type inference, and nullability analysis are fully MySQL-aware. The code generation backends work the same regardless of the source database.
+Scythe supports MySQL/MariaDB with dialect-specific type handling across all 10 languages. MySQL support operates at the parser and analyzer level -- SQL parsing, type inference, and nullability analysis are fully MySQL-aware. The code generation backends work the same regardless of the source database.
+
+## Backend support
+
+Every language has at least one MySQL backend. Multi-engine backends (like `java-jdbc`, `php-pdo`, `rust-sqlx`) load engine-specific manifests automatically.
+
+| Language | Backend | Library |
+|----------|---------|---------|
+| Rust | `rust-sqlx` | sqlx |
+| Python | `python-aiomysql` | aiomysql |
+| TypeScript | `typescript-mysql2` | mysql2 |
+| Go | `go-database-sql` | database/sql |
+| Java | `java-jdbc` | JDBC |
+| Kotlin | `kotlin-jdbc` | JDBC |
+| C# | `csharp-mysqlconnector` | MySqlConnector |
+| Elixir | `elixir-myxql` | MyXQL |
+| Ruby | `ruby-mysql2` | mysql2 gem |
+| PHP | `php-pdo` | PDO |
 
 ## Differences from PostgreSQL
 

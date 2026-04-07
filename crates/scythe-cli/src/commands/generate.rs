@@ -5,8 +5,10 @@ use serde::Deserialize;
 
 use ahash::AHashSet;
 
-use scythe_codegen::{generate, generate_single_enum_def, load_or_default_manifest};
-use scythe_core::analyzer::{EnumInfo, analyze};
+use scythe_codegen::{
+    CodegenBackend, generate_single_enum_def_with_backend, generate_with_backend, get_backend,
+};
+use scythe_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
 use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::parse_query_with_dialect;
@@ -35,30 +37,57 @@ struct ScytheMeta {
 #[derive(Debug, Deserialize)]
 struct SqlConfig {
     name: String,
-    #[allow(dead_code)]
     engine: String,
     schema: Vec<String>,
     queries: Vec<String>,
-    output: String,
-    #[allow(dead_code)]
-    #[serde(rename = "gen")]
-    gen_config: Option<GenConfig>,
+    /// Legacy: output directory (used as default when no gen targets specified)
+    #[serde(default)]
+    output: Option<String>,
+    /// Generation targets via [[sql.gen]] or [sql.gen.rust]
+    #[serde(default, rename = "gen")]
+    gen_config: Option<GenTargets>,
     #[allow(dead_code)]
     type_overrides: Option<Vec<TypeOverrideConfig>>,
 }
 
+/// Supports both legacy `[sql.gen.rust]` and new `[[sql.gen]]` array formats.
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct GenConfig {
-    rust: Option<RustGenConfig>,
+#[serde(untagged)]
+enum GenTargets {
+    /// New format: `[[sql.gen]]` array of targets
+    Array(Vec<GenTarget>),
+    /// Legacy format: `[sql.gen.rust]` with a nested language key
+    Legacy(LegacyGenConfig),
+}
+
+/// New format: each target specifies a backend and output directory.
+#[derive(Debug, Deserialize)]
+struct GenTarget {
+    backend: String,
+    output: String,
+}
+
+/// Legacy format: `[sql.gen.rust]` with target field.
+#[derive(Debug, Deserialize)]
+struct LegacyGenConfig {
+    rust: Option<LegacyRustGenConfig>,
+    python: Option<LegacyLangGenConfig>,
+    typescript: Option<LegacyLangGenConfig>,
+    go: Option<LegacyLangGenConfig>,
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
-struct RustGenConfig {
+struct LegacyRustGenConfig {
     target: String,
+    #[allow(dead_code)]
     derive: Option<Vec<String>>,
+    #[allow(dead_code)]
     serde: Option<bool>,
+}
+
+#[derive(Debug, Deserialize)]
+struct LegacyLangGenConfig {
+    target: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -68,6 +97,49 @@ struct TypeOverrideConfig {
     db_type: Option<String>,
     #[serde(rename = "type")]
     neutral_type: Option<String>,
+}
+
+/// Convert config into a list of (backend_name, output_dir) pairs.
+fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<(String, String)> {
+    let default_output = sql_config
+        .output
+        .clone()
+        .unwrap_or_else(|| "generated".to_string());
+
+    match &sql_config.gen_config {
+        Some(GenTargets::Array(targets)) => targets
+            .iter()
+            .map(|t| (t.backend.clone(), t.output.clone()))
+            .collect(),
+        Some(GenTargets::Legacy(legacy)) => {
+            let mut targets = Vec::new();
+            if let Some(ref rust) = legacy.rust {
+                let backend = match rust.target.as_str() {
+                    "tokio-postgres" => "rust-tokio-postgres",
+                    _ => "rust-sqlx",
+                };
+                targets.push((backend.to_string(), default_output.clone()));
+            }
+            if let Some(ref py) = legacy.python {
+                targets.push((format!("python-{}", py.target), default_output.clone()));
+            }
+            if let Some(ref ts) = legacy.typescript {
+                targets.push((format!("typescript-{}", ts.target), default_output.clone()));
+            }
+            if let Some(ref go) = legacy.go {
+                targets.push((format!("go-{}", go.target), default_output.clone()));
+            }
+            if targets.is_empty() {
+                // Default to rust-sqlx if gen section exists but no specific language
+                targets.push(("rust-sqlx".to_string(), default_output));
+            }
+            targets
+        }
+        None => {
+            // No gen section at all — default to rust-sqlx
+            vec![("rust-sqlx".to_string(), default_output)]
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -120,86 +192,129 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
             all_query_blocks.len()
         );
 
-        // 8. Parse and analyze each query, collect results
-        struct QueryResult {
-            code: scythe_codegen::GeneratedCode,
-            enums: Vec<EnumInfo>,
-        }
-
-        let mut results: Vec<QueryResult> = Vec::new();
-
+        // 8. Parse and analyze all queries once
+        let mut analyzed_queries: Vec<AnalyzedQuery> = Vec::new();
         for block in &all_query_blocks {
             let parsed = parse_query_with_dialect(block, &dialect)?;
             let analyzed = analyze(&catalog, &parsed)?;
-            let enums = analyzed.enums.clone();
-            let code = generate(&analyzed)?;
-            results.push(QueryResult { code, enums });
+            analyzed_queries.push(analyzed);
         }
 
-        // 9. Deduplicate enums across all queries and generate individual defs
-        let manifest = load_or_default_manifest()?;
-        let mut seen_enums = AHashSet::new();
-        let mut unique_enum_defs: Vec<String> = Vec::new();
-        for result in &results {
-            for info in &result.enums {
-                if seen_enums.insert(info.sql_name.clone()) {
-                    unique_enum_defs.push(generate_single_enum_def(info, &manifest));
-                }
-            }
+        // 9. Generate code for each backend target
+        let gen_targets = resolve_gen_targets(sql_config);
+
+        for (backend_name, output_dir) in &gen_targets {
+            let backend = get_backend(backend_name, &sql_config.engine).map_err(|e| {
+                format!(
+                    "backend '{}' with engine '{}': {}",
+                    backend_name, sql_config.engine, e
+                )
+            })?;
+
+            generate_for_backend(&sql_config.name, &*backend, &analyzed_queries, output_dir)?;
         }
-
-        // 10. Build output: header → enums → per-query structs/functions
-        let mut output_parts: Vec<String> = Vec::new();
-
-        // File header
-        output_parts.push("// Auto-generated by scythe. Do not edit.\n#![allow(dead_code, unused_imports, clippy::all)]".to_string());
-
-        // Deduplicated enums
-        for def in &unique_enum_defs {
-            output_parts.push(def.clone());
-        }
-
-        // Per-query code (structs + functions, skip enum_def)
-        for result in &results {
-            if let Some(ref s) = result.code.model_struct {
-                output_parts.push(s.clone());
-            }
-            if let Some(ref s) = result.code.row_struct {
-                output_parts.push(s.clone());
-            }
-            if let Some(ref s) = result.code.query_fn {
-                output_parts.push(s.clone());
-            }
-        }
-
-        // 11. Write output
-        let output_dir = Path::new(&sql_config.output);
-        std::fs::create_dir_all(output_dir)
-            .map_err(|e| format!("failed to create output dir '{}': {}", sql_config.output, e))?;
-
-        let output_file = output_dir.join("queries.rs");
-        let output_content = if output_parts.len() <= 1 {
-            String::from("// No queries generated.\n")
-        } else {
-            output_parts.join("\n\n") + "\n"
-        };
-
-        std::fs::write(&output_file, &output_content).map_err(|e| {
-            format!(
-                "failed to write output file '{}': {}",
-                output_file.display(),
-                e
-            )
-        })?;
-
-        eprintln!(
-            "[{}] Writing output to {}",
-            sql_config.name,
-            output_file.display()
-        );
     }
 
     eprintln!("Done.");
+    Ok(())
+}
+
+/// Generate output for a single backend target.
+fn generate_for_backend(
+    config_name: &str,
+    backend: &dyn CodegenBackend,
+    analyzed_queries: &[AnalyzedQuery],
+    output_dir: &str,
+) -> Result<(), Box<dyn std::error::Error>> {
+    struct QueryResult {
+        code: scythe_codegen::GeneratedCode,
+        enums: Vec<EnumInfo>,
+    }
+
+    let mut results: Vec<QueryResult> = Vec::new();
+    for analyzed in analyzed_queries {
+        let enums = analyzed.enums.clone();
+        let code = generate_with_backend(analyzed, backend)?;
+        results.push(QueryResult { code, enums });
+    }
+
+    // Deduplicate enums across all queries
+    let mut seen_enums = AHashSet::new();
+    let mut unique_enum_defs: Vec<String> = Vec::new();
+    for result in &results {
+        for info in &result.enums {
+            if seen_enums.insert(info.sql_name.clone())
+                && let Ok(def) = generate_single_enum_def_with_backend(info, backend)
+            {
+                unique_enum_defs.push(def);
+            }
+        }
+    }
+
+    // Build output: header → enums → per-query structs/functions
+    let mut output_parts: Vec<String> = Vec::new();
+
+    // File header from backend
+    let header = backend.file_header();
+    if !header.is_empty() {
+        output_parts.push(header);
+    }
+
+    // Deduplicated enums
+    for def in &unique_enum_defs {
+        output_parts.push(def.clone());
+    }
+
+    // Per-query code (structs + functions, skip enum_def since we already deduplicated above)
+    for result in &results {
+        if let Some(ref s) = result.code.model_struct {
+            output_parts.push(s.clone());
+        }
+        if let Some(ref s) = result.code.row_struct {
+            output_parts.push(s.clone());
+        }
+        if let Some(ref s) = result.code.query_fn {
+            output_parts.push(s.clone());
+        }
+    }
+
+    // File footer (e.g., closing brace for C# class wrapper)
+    let footer = backend.file_footer();
+    if !footer.is_empty() {
+        output_parts.push(footer);
+    }
+
+    // Determine output filename from backend manifest
+    let ext = &backend.manifest().backend.file_extension;
+    let filename = format!("queries.{}", ext);
+
+    // Write output
+    let out_path = Path::new(output_dir);
+    std::fs::create_dir_all(out_path)
+        .map_err(|e| format!("failed to create output dir '{}': {}", output_dir, e))?;
+
+    let output_file = out_path.join(&filename);
+    let output_content = if output_parts.is_empty() {
+        "// No queries generated.\n".to_string()
+    } else {
+        output_parts.join("\n\n") + "\n"
+    };
+
+    std::fs::write(&output_file, &output_content).map_err(|e| {
+        format!(
+            "failed to write output file '{}': {}",
+            output_file.display(),
+            e
+        )
+    })?;
+
+    eprintln!(
+        "[{}] Writing {} output to {}",
+        config_name,
+        backend.name(),
+        output_file.display()
+    );
+
     Ok(())
 }
 
