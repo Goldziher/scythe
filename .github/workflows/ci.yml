@@ -59,3 +59,5 @@ jobs:
         run: cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
       - name: Build
         run: cargo build --workspace --release
+      - name: Validate documentation snippets
+        run: ./target/release/snippet-runner validate -s docs/snippets -r docs/docs -L syntax
