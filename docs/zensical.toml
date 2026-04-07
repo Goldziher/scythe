@@ -22,10 +22,37 @@ nav = [
     { "Configuration" = "guide/configuration.md" },
     { "Annotations" = "guide/annotations.md" },
     { "Type Inference" = "guide/type-inference.md" },
+    { "Custom Types" = "guide/custom-types.md" },
     { "Linting" = "guide/linting.md" },
     { "Formatting" = "guide/formatting.md" },
     { "CLI Reference" = "guide/cli-reference.md" },
     { "Migration from sqlfluff" = "guide/migration-from-sqlfluff.md" },
+  ] },
+  { "Backends" = [
+    { "Overview" = "backends/overview.md" },
+    { "Rust (sqlx)" = "backends/rust-sqlx.md" },
+    { "Rust (tokio-postgres)" = "backends/rust-tokio-postgres.md" },
+    { "Python" = "backends/python.md" },
+    { "TypeScript" = "backends/typescript.md" },
+    { "Go" = "backends/go.md" },
+    { "Java / Kotlin" = "backends/java-kotlin.md" },
+    { "C#" = "backends/csharp.md" },
+    { "Other" = "backends/other.md" },
+  ] },
+  { "Databases" = [
+    { "PostgreSQL" = "databases/postgresql.md" },
+    { "MySQL" = "databases/mysql.md" },
+    { "SQLite" = "databases/sqlite.md" },
+  ] },
+  { "Examples" = [
+    { "Simple CRUD" = "examples/simple-crud.md" },
+    { "Pagila" = "examples/pagila.md" },
+    { "BaseMind" = "examples/basemind.md" },
+  ] },
+  { "Reference" = [
+    { "Neutral Types" = "reference/neutral-types.md" },
+    { "Lint Rules" = "reference/lint-rules.md" },
+    { "Changelog" = "reference/changelog.md" },
   ] },
 ]
 
