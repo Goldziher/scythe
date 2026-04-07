@@ -15,9 +15,10 @@
 .DS_Store
 Thumbs.db
 
-# Generated output
+# Generated output (except integration test fixtures)
 **/generated/
 generated/
+!integration_tests/**/generated/
 
 # Environment
 .env
