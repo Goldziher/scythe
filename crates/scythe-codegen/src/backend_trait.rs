@@ -82,6 +82,15 @@ pub trait CodegenBackend: Send + Sync {
         String::new()
     }
 
+    /// Apply per-backend configuration options from [[sql.gen]].
+    /// Backends override this to handle options like `row_type = "pydantic"`.
+    fn apply_options(
+        &mut self,
+        _options: &std::collections::HashMap<String, String>,
+    ) -> Result<(), ScytheError> {
+        Ok(())
+    }
+
     /// Database engines this backend supports.
     /// Defaults to PostgreSQL only. Multi-DB backends override this.
     fn supported_engines(&self) -> &[&str] {
