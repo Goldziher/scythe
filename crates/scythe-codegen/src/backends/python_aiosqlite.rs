@@ -302,7 +302,7 @@ impl CodegenBackend for PythonAiosqliteBackend {
                     let _ = writeln!(out, "    ]");
                 }
             }
-            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+            QueryCommand::Exec => {
                 let _ = writeln!(
                     out,
                     "async def {}(conn: aiosqlite.Connection{}{}) -> None:",
@@ -318,6 +318,24 @@ impl CodegenBackend for PythonAiosqliteBackend {
                         sql, args_list
                     );
                 }
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: aiosqlite.Connection{}{}) -> int:",
+                    func_name, kw_sep, param_list
+                );
+                let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
+                if params.is_empty() {
+                    let _ = writeln!(out, "    cursor = await conn.execute(\"\"\"{}\"\"\") ", sql);
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "    cursor = await conn.execute(\"\"\"{}\"\"\", {})",
+                        sql, args_list
+                    );
+                }
+                let _ = writeln!(out, "    return cursor.rowcount");
             }
         }
 

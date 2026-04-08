@@ -301,7 +301,7 @@ impl CodegenBackend for PythonAiomysqlBackend {
                     let _ = writeln!(out, "    ]");
                 }
             }
-            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+            QueryCommand::Exec => {
                 let _ = writeln!(
                     out,
                     "async def {}(conn: aiomysql.Connection{}{}) -> None:",
@@ -318,6 +318,25 @@ impl CodegenBackend for PythonAiomysqlBackend {
                         sql, args_tuple
                     );
                 }
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: aiomysql.Connection{}{}) -> int:",
+                    func_name, kw_sep, param_list
+                );
+                let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
+                let _ = writeln!(out, "    async with conn.cursor() as cur:");
+                if params.is_empty() {
+                    let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\")", sql);
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "        await cur.execute(\"\"\"{}\"\"\", {})",
+                        sql, args_tuple
+                    );
+                }
+                let _ = writeln!(out, "        return cur.rowcount");
             }
         }
 

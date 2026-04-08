@@ -92,6 +92,25 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         })
         .collect();
 
+    // Apply @optional before disambiguation so we match original param names
+    for opt_name in &query.annotations.optional_params {
+        for p in &mut params {
+            if p.name == *opt_name {
+                p.nullable = true;
+            }
+        }
+    }
+
+    // Validate that all @optional param names reference actual params
+    for opt_name in &query.annotations.optional_params {
+        if !params.iter().any(|p| p.name == *opt_name) {
+            return Err(ScytheError::invalid_annotation(format!(
+                "@optional references unknown parameter '{}'",
+                opt_name
+            )));
+        }
+    }
+
     // Disambiguate duplicate param names by appending _N suffix
     {
         let mut name_counts: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
@@ -150,15 +169,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
                 sql_name: enum_name.to_string(),
                 values: enum_type.values.clone(),
             });
-        }
-    }
-
-    // Apply @optional: mark matching params as nullable
-    for opt_name in &query.annotations.optional_params {
-        for p in &mut params {
-            if p.name == *opt_name {
-                p.nullable = true;
-            }
         }
     }
 

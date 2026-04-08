@@ -267,7 +267,7 @@ impl CodegenBackend for PythonAsyncpgBackend {
                     let _ = writeln!(out, "    )");
                 }
             }
-            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+            QueryCommand::Exec => {
                 let _ = writeln!(
                     out,
                     "async def {}(conn: Connection{}{}) -> None:",
@@ -281,6 +281,22 @@ impl CodegenBackend for PythonAsyncpgBackend {
                     let _ = writeln!(out, "        {},", args.join(", "));
                 }
                 let _ = writeln!(out, "    )");
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: Connection{}{}) -> int:",
+                    func_name, kw_sep, param_list
+                );
+                let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
+                let _ = writeln!(out, "    result = await conn.execute(");
+                let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
+                if !params.is_empty() {
+                    let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    let _ = writeln!(out, "        {},", args.join(", "));
+                }
+                let _ = writeln!(out, "    )");
+                let _ = writeln!(out, "    return int(result.split()[-1])");
             }
         }
 

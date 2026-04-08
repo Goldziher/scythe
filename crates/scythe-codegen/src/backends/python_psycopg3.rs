@@ -319,7 +319,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                     let _ = writeln!(out, "    )");
                 }
             }
-            QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {
+            QueryCommand::Exec => {
                 let _ = writeln!(
                     out,
                     "async def {}(conn: AsyncConnection{}{}) -> None:",
@@ -340,6 +340,29 @@ impl CodegenBackend for PythonPsycopg3Backend {
                     let _ = writeln!(out, "        {{{}}},", dict_entries.join(", "));
                     let _ = writeln!(out, "    )");
                 }
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: AsyncConnection{}{}) -> int:",
+                    func_name, kw_sep, param_list
+                );
+                let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
+                if params.is_empty() {
+                    let _ = writeln!(out, "    cur = await conn.execute(");
+                    let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
+                    let _ = writeln!(out, "    )");
+                } else {
+                    let dict_entries: Vec<String> = params
+                        .iter()
+                        .map(|p| format!("\"{}\": {}", p.field_name, p.field_name))
+                        .collect();
+                    let _ = writeln!(out, "    cur = await conn.execute(");
+                    let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
+                    let _ = writeln!(out, "        {{{}}},", dict_entries.join(", "));
+                    let _ = writeln!(out, "    )");
+                }
+                let _ = writeln!(out, "    return cur.rowcount");
             }
         }
 

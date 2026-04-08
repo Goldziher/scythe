@@ -284,6 +284,7 @@ backend_test!(test_elixir_postgrex, "elixir-postgrex");
 backend_test!(test_elixir_ecto, "elixir-ecto");
 backend_test!(test_ruby_pg, "ruby-pg");
 backend_test!(test_php_pdo, "php-pdo");
+backend_test!(test_php_amphp, "php-amphp");
 
 // --- MySQL backend tests ---
 mysql_backend_test!(test_ruby_trilogy, "ruby-trilogy");
