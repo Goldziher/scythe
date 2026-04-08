@@ -33,4 +33,4 @@ CLAUDE.md
 .playwright-mcp/
 
 # Docs build output
-docs/site/
+/site/

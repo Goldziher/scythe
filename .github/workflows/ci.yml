@@ -101,4 +101,4 @@ jobs:
       - name: Build snippet-runner
         run: cargo build -p snippet-runner --release
       - name: Validate documentation snippets
-        run: ./target/release/snippet-runner validate -s docs/snippets -r docs/docs -L syntax --timeout 120
+        run: ./target/release/snippet-runner validate -s docs/snippets -r docs -L syntax --timeout 120
