@@ -1,0 +1,13 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "postgresql"
+schema = ["../sql/pg/schema.sql"]
+queries = ["../sql/pg/queries/*.sql"]
+
+[[sql.gen]]
+backend = "python-psycopg3"
+output = "generated"
+row_type = "msgspec"

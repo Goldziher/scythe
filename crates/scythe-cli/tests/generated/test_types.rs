@@ -54,7 +54,9 @@ fn test_array_param() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -166,7 +168,9 @@ fn test_integer_array() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -278,7 +282,9 @@ fn test_nullable_array() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -391,7 +397,9 @@ fn test_text_array() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -511,7 +519,9 @@ fn test_bytea_column() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -630,7 +640,9 @@ fn test_composite_column() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -752,7 +764,9 @@ fn test_enum_param() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -868,7 +882,9 @@ fn test_insert_enum() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -978,7 +994,9 @@ fn test_nullable_enum() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -1093,7 +1111,9 @@ fn test_select_enum_column() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -1205,7 +1225,9 @@ fn test_json_column() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -1317,7 +1339,9 @@ fn test_json_typed_mapping() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -1429,7 +1453,9 @@ fn test_jsonb_arrow_json_extraction() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -1542,7 +1568,9 @@ fn test_jsonb_arrow_text_extraction() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -1654,7 +1682,9 @@ fn test_jsonb_column() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -1767,7 +1797,9 @@ fn test_nullable_json() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -1880,7 +1912,9 @@ fn test_jsonb_array_elements_from() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -1993,7 +2027,9 @@ fn test_jsonb_contains_operator() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -2106,7 +2142,9 @@ fn test_jsonb_deep_path_extraction() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -2222,7 +2260,9 @@ fn test_jsonb_object_keys_func() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -2342,7 +2382,9 @@ fn test_select_network_types() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -2486,7 +2528,9 @@ fn test_select_all_numeric_types() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -2614,7 +2658,9 @@ fn test_range_int4range() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -2739,7 +2785,9 @@ fn test_range_tstzrange() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -2883,7 +2931,9 @@ fn test_all_temporal_types() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -3016,7 +3066,9 @@ fn test_temporal_params() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -3130,7 +3182,9 @@ fn test_uuid_column() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -3252,7 +3306,9 @@ fn test_uuid_param() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {

@@ -1,0 +1,49 @@
+{
+	"category": "annotations/optional",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Verify multiple @optional annotations make all specified parameters nullable",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "total",
+					"nullable": true,
+					"type": "decimal"
+				}
+			],
+			"command": "many",
+			"name": "SearchOrders",
+			"params": [
+				{
+					"name": "status",
+					"nullable": true,
+					"type": "string"
+				},
+				{
+					"name": "user_id",
+					"nullable": true,
+					"type": "int32"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "optional_multiple",
+	"query_sql": "-- @name SearchOrders\n-- @returns :many\n-- @optional status\n-- @optional user_id\nSELECT id, total FROM orders WHERE status = $1 AND user_id = $2;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER, total NUMERIC(10,2), status TEXT);"
+	],
+	"source": "original",
+	"tags": ["annotation", "optional", "multiple", "nullable"]
+}

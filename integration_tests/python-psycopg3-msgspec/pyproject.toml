@@ -1,0 +1,8 @@
+[project]
+name = "scythe-test-python-psycopg3-msgspec"
+version = "0.1.0"
+requires-python = ">=3.12"
+dependencies = [
+    "psycopg[binary]>=3.1",
+    "msgspec>=0.18",
+]

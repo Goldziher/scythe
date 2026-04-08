@@ -64,7 +64,9 @@ fn test_select_all_reuses_model() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -184,7 +186,9 @@ fn test_pascal_case_structs() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -316,7 +320,9 @@ fn test_snake_case_fields() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -423,7 +429,9 @@ fn test_exec_query_fn() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -544,7 +552,9 @@ fn test_one_query_fn() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {
@@ -673,7 +683,9 @@ fn test_simple_query_fn() {
         "kotlin-jdbc",
         "csharp-npgsql",
         "elixir-postgrex",
+        "elixir-ecto",
         "ruby-pg",
+        "ruby-trilogy",
         "php-pdo",
     ];
     for backend_name in &all_backends {

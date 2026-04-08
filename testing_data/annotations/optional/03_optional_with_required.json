@@ -1,0 +1,48 @@
+{
+	"category": "annotations/optional",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Verify @optional only affects specified parameter while others remain required",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "FilterUsers",
+			"params": [
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "status",
+					"nullable": true,
+					"type": "string"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "optional_with_required",
+	"query_sql": "-- @name FilterUsers\n-- @returns :many\n-- @optional status\nSELECT id, name FROM users WHERE name = $1 AND status = $2;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');"
+	],
+	"source": "original",
+	"tags": ["annotation", "optional", "mixed", "nullable"]
+}
