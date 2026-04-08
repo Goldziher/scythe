@@ -1,0 +1,31 @@
+{
+	"name": "scythe-integration-test-{{ driver }}{% if options.row_type %}-{{ options.row_type }}{% endif %}",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "tsx test.ts"
+	},
+	"dependencies": {
+{%- if driver == "pg" %}
+		"pg": "^8.13.0"{% if options.row_type == "zod" %},
+		"zod": "^3.23.0"{% endif %}
+
+{%- elif driver == "postgres" %}
+		"postgres": "^3.4.5"
+{%- elif driver == "mysql2" %}
+		"mysql2": "^3.11.0"
+{%- elif driver == "better-sqlite3" %}
+		"better-sqlite3": "^11.0.0"
+{%- endif %}
+	},
+	"devDependencies": {
+{%- if driver == "pg" %}
+		"@types/pg": "^8.11.0",
+{%- elif driver == "better-sqlite3" %}
+		"@types/better-sqlite3": "^7.6.0",
+{%- endif %}
+		"tsx": "^4.19.0",
+		"typescript": "^5.6.0"
+	}
+}

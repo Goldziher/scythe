@@ -1,0 +1,15 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "{{ engine }}"
+schema = ["{{ schema_dir }}/schema.sql"]
+queries = ["{{ queries_dir }}/*.sql"]
+
+[[sql.gen]]
+backend = "{{ backend }}"
+output = "generated"
+{%- if options.row_type %}
+row_type = "{{ options.row_type }}"
+{%- endif %}

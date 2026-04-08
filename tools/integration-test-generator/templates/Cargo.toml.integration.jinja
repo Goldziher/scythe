@@ -1,0 +1,20 @@
+[package]
+name = "scythe-integration-test-{{ backend_name }}"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+{% if driver == "sqlx" -%}
+sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal"] }
+{%- elif driver == "sqlx-mysql" -%}
+sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "chrono", "rust_decimal"] }
+{%- elif driver == "sqlx-sqlite" -%}
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
+{%- elif driver == "tokio-postgres" -%}
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-rust_decimal-0_1"] }
+{%- endif %}
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = "1"

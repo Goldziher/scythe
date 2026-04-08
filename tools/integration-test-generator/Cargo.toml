@@ -1,0 +1,13 @@
+[package]
+name = "integration-test-generator"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+description = "Integration test generator for scythe — renders language-specific tests from templates"
+repository = "https://github.com/Goldziher/scythe"
+authors = ["Na'aman Hirschfeld"]
+
+[dependencies]
+clap = { version = "4", features = ["derive"] }
+minijinja = { version = "2", features = ["loader"] }
+serde = { version = "1", features = ["derive"] }

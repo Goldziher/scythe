@@ -1,0 +1,13 @@
+{
+	"name": "scythe/integration-{{ backend_name }}",
+	"description": "Scythe integration tests for {{ backend }} backend",
+	"type": "project",
+	"require": {
+		"php": ">=8.2"
+{%- if driver == "amphp" and engine == "postgresql" %},
+		"amphp/postgres": "^2.0"
+{%- elif driver == "amphp" and engine == "mysql" %},
+		"amphp/mysql": "^3.0"
+{%- endif %}
+	}
+}

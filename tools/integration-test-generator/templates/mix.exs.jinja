@@ -1,0 +1,41 @@
+defmodule ScytheIntegrationTest.MixProject do
+  use Mix.Project
+
+  def project do
+    [
+      app: :scythe_integration_test,
+      version: "0.1.0",
+      elixir: "~> 1.14",
+      start_permanent: false,
+      deps: deps()
+    ]
+  end
+
+  def application do
+    [
+      extra_applications: [:logger]
+    ]
+  end
+
+  defp deps do
+    [
+{%- if driver == "postgrex" %}
+      {:postgrex, "~> 0.19"},
+{%- elif driver == "myxql" %}
+      {:myxql, "~> 0.7"},
+{%- elif driver == "exqlite" %}
+      {:exqlite, "~> 0.23"},
+{%- elif driver == "ecto" %}
+      {:ecto_sql, "~> 3.11"},
+{%- if engine == "postgresql" %}
+      {:postgrex, "~> 0.19"},
+{%- elif engine == "mysql" %}
+      {:myxql, "~> 0.7"},
+{%- elif engine == "sqlite" %}
+      {:ecto_sqlite3, "~> 0.16"},
+{%- endif %}
+{%- endif %}
+      {:decimal, "~> 2.0"}
+    ]
+  end
+end

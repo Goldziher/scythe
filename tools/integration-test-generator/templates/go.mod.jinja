@@ -1,0 +1,15 @@
+module scythe-integration/{{ backend_name }}
+
+go 1.22
+
+require (
+{%- if driver == "pgx" %}
+	github.com/jackc/pgx/v5 v5.7.4
+	github.com/shopspring/decimal v1.4.0
+{%- elif driver == "database-sql" and engine == "mysql" %}
+	github.com/go-sql-driver/mysql v1.8.1
+	github.com/shopspring/decimal v1.4.0
+{%- elif driver == "database-sql" and engine == "sqlite" %}
+	github.com/mattn/go-sqlite3 v1.14.24
+{%- endif %}
+)
