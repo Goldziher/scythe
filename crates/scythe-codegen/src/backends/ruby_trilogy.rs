@@ -161,7 +161,23 @@ impl CodegenBackend for RubyTrilogyBackend {
                     .join(", ");
                 let _ = writeln!(out, "    {}.new({})", struct_name, fields);
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}_batch", func_name);
+                let _ = writeln!(out, "  def self.{}(client, items)", batch_fn_name);
+                let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
+                let _ = writeln!(out, "    items.each do |item|");
+                if params.len() > 1 {
+                    let _ = writeln!(out, "      stmt.execute(*item)");
+                } else if params.len() == 1 {
+                    let _ = writeln!(out, "      stmt.execute(item)");
+                } else {
+                    let _ = writeln!(out, "      stmt.execute");
+                }
+                let _ = writeln!(out, "    end");
+                let _ = write!(out, "  end");
+                return Ok(out);
+            }
+            QueryCommand::Many => {
                 let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
                 let _ = writeln!(
                     out,

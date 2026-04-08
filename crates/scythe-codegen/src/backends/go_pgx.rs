@@ -175,7 +175,7 @@ impl CodegenBackend for GoPgxBackend {
                 let _ = writeln!(out, "\treturn r, err");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 // :many - returns slice
                 let _ = writeln!(
                     out,
@@ -209,6 +209,68 @@ impl CodegenBackend for GoPgxBackend {
                 let _ = writeln!(out, "\t\tresult = append(result, r)");
                 let _ = writeln!(out, "\t}}");
                 let _ = writeln!(out, "\treturn result, rows.Err()");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}Batch", func_name);
+                if params.len() > 1 {
+                    // Generate params struct
+                    let params_struct_name = format!("{}BatchParams", func_name);
+                    let _ = writeln!(out, "type {} struct {{", params_struct_name);
+                    for p in params {
+                        let field = to_pascal_case(&p.field_name);
+                        let _ = writeln!(out, "\t{} {}", field, p.full_type);
+                    }
+                    let _ = writeln!(out, "}}");
+                    let _ = writeln!(out);
+                    let _ = writeln!(
+                        out,
+                        "func {}(ctx context.Context, db *pgxpool.Pool, items []{}) error {{",
+                        batch_fn_name, params_struct_name
+                    );
+                } else if params.len() == 1 {
+                    let _ = writeln!(
+                        out,
+                        "func {}(ctx context.Context, db *pgxpool.Pool, items []{}) error {{",
+                        batch_fn_name, params[0].full_type
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "func {}(ctx context.Context, db *pgxpool.Pool, count int) error {{",
+                        batch_fn_name
+                    );
+                }
+                let _ = writeln!(out, "\ttx, err := db.Begin(ctx)");
+                let _ = writeln!(out, "\tif err != nil {{");
+                let _ = writeln!(out, "\t\treturn err");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tdefer tx.Rollback(ctx)");
+                if params.is_empty() {
+                    let _ = writeln!(out, "\tfor i := 0; i < count; i++ {{");
+                    let _ = writeln!(out, "\t\t_, err := tx.Exec(ctx, \"{}\")", sql);
+                } else {
+                    let _ = writeln!(out, "\tfor _, item := range items {{");
+                    if params.len() > 1 {
+                        let item_args: Vec<String> = params
+                            .iter()
+                            .map(|p| format!("item.{}", to_pascal_case(&p.field_name)))
+                            .collect();
+                        let _ = writeln!(
+                            out,
+                            "\t\t_, err := tx.Exec(ctx, \"{}\", {})",
+                            sql,
+                            item_args.join(", ")
+                        );
+                    } else {
+                        let _ = writeln!(out, "\t\t_, err := tx.Exec(ctx, \"{}\", item)", sql);
+                    }
+                }
+                let _ = writeln!(out, "\t\tif err != nil {{");
+                let _ = writeln!(out, "\t\t\treturn err");
+                let _ = writeln!(out, "\t\t}}");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn tx.Commit(ctx)");
                 let _ = write!(out, "}}");
             }
         }

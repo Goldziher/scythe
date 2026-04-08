@@ -51,6 +51,7 @@ fn test_avg_nullable() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -162,6 +163,7 @@ fn test_count_column_non_null() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -272,6 +274,7 @@ fn test_count_star_non_null() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -388,6 +391,7 @@ fn test_count_with_group_by() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -504,6 +508,7 @@ fn test_min_max_nullable() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -618,6 +623,7 @@ fn test_sum_nullable() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -728,6 +734,7 @@ fn test_case_mixed_branches() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -838,6 +845,7 @@ fn test_case_nullable_branch() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -948,6 +956,7 @@ fn test_case_with_else() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -1058,6 +1067,7 @@ fn test_case_without_else() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -1174,6 +1184,7 @@ fn test_coalesce_in_where() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -1298,6 +1309,7 @@ fn test_coalesce_nullable_with_default() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -1409,6 +1421,7 @@ fn test_coalesce_two_nullable() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -1527,6 +1540,7 @@ fn test_coalesce_with_literal_last() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -1638,6 +1652,7 @@ fn test_nested_coalesce() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -1774,6 +1789,7 @@ fn test_mixed_nullability() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -1899,6 +1915,7 @@ fn test_not_null_columns() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -2024,6 +2041,7 @@ fn test_nullable_column() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -2164,6 +2182,7 @@ fn test_chained_left_joins() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -2287,6 +2306,7 @@ fn test_left_side_stays_non_null() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -2419,6 +2439,7 @@ fn test_right_side_multiple_cols() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -2536,6 +2557,7 @@ fn test_right_side_not_null_becomes_nullable() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -2660,6 +2682,7 @@ fn test_force_nonnull() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -2784,6 +2807,7 @@ fn test_force_nullable() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -2901,6 +2925,7 @@ fn test_left_side_becomes_nullable() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
@@ -3030,6 +3055,7 @@ fn test_left_side_multiple_cols() {
         "ruby-pg",
         "ruby-trilogy",
         "php-pdo",
+        "php-amphp",
     ];
     for backend_name in &all_backends {
         let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {

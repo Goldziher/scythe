@@ -241,7 +241,68 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "}}");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}Batch", func_name);
+                if params.len() > 1 {
+                    let params_class_name =
+                        format!("{}BatchParams", to_pascal_case(&analyzed.name));
+                    let _ = writeln!(out, "data class {}(", params_class_name);
+                    for p in params {
+                        let _ = writeln!(out, "    val {}: {},", p.field_name, p.full_type);
+                    }
+                    let _ = writeln!(out, ")");
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "fun {}(", batch_fn_name);
+                    let _ = writeln!(out, "    conn: Connection,");
+                    let _ = writeln!(out, "    items: List<{}>,", params_class_name);
+                    let _ = writeln!(out, ") {{");
+                    let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
+                    let _ = writeln!(out, "        for (item in items) {{");
+                    for (i, param) in params.iter().enumerate() {
+                        let setter = ps_setter(&param.lang_type);
+                        let _ = writeln!(
+                            out,
+                            "            ps.{}({}, item.{})",
+                            setter,
+                            i + 1,
+                            param.field_name
+                        );
+                    }
+                    let _ = writeln!(out, "            ps.addBatch()");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        ps.executeBatch()");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                } else if params.len() == 1 {
+                    let _ = writeln!(out, "fun {}(", batch_fn_name);
+                    let _ = writeln!(out, "    conn: Connection,");
+                    let _ = writeln!(out, "    items: List<{}>,", params[0].full_type);
+                    let _ = writeln!(out, ") {{");
+                    let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
+                    let _ = writeln!(out, "        for (item in items) {{");
+                    let setter = ps_setter(&params[0].lang_type);
+                    let _ = writeln!(out, "            ps.{}(1, item)", setter);
+                    let _ = writeln!(out, "            ps.addBatch()");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        ps.executeBatch()");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "fun {}(conn: Connection, count: Int) {{",
+                        batch_fn_name
+                    );
+                    let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
+                    let _ = writeln!(out, "        repeat(count) {{");
+                    let _ = writeln!(out, "            ps.addBatch()");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        ps.executeBatch()");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                }
+            }
+            QueryCommand::Many => {
                 let ret = format!(": List<{}>", struct_name);
                 write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
                 let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);

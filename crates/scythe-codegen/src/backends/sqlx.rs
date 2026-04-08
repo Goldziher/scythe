@@ -136,25 +136,6 @@ impl CodegenBackend for SqlxBackend {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
 
-        // Return type
-        let return_type = match &analyzed.command {
-            QueryCommand::One => struct_name.to_string(),
-            QueryCommand::Many => format!("Vec<{}>", struct_name),
-            QueryCommand::Exec => "()".to_string(),
-            QueryCommand::ExecResult => "sqlx::postgres::PgQueryResult".to_string(),
-            QueryCommand::ExecRows => "u64".to_string(),
-            QueryCommand::Batch => format!("Vec<{}>", struct_name),
-        };
-
-        // Function signature
-        let _ = writeln!(
-            out,
-            "pub async fn {}({}) -> Result<{}, sqlx::Error> {{",
-            func_name,
-            param_parts.join(", "),
-            return_type
-        );
-
         // Clean SQL
         let sql_raw = super::clean_sql_with_optional(
             &analyzed.sql,
@@ -162,12 +143,6 @@ impl CodegenBackend for SqlxBackend {
             &analyzed.params,
         );
         let sql = rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest);
-
-        // Query body
-        let has_row_struct = matches!(
-            analyzed.command,
-            QueryCommand::One | QueryCommand::Many | QueryCommand::Batch
-        );
 
         // Build bind params string
         let bind_params: String = analyzed
@@ -184,6 +159,113 @@ impl CodegenBackend for SqlxBackend {
                 }
             })
             .collect();
+
+        // Handle :batch separately — generates a different function signature
+        if matches!(analyzed.command, QueryCommand::Batch) {
+            let batch_fn_name = format!("{}_batch", func_name);
+
+            // Generate params struct if >1 param
+            if params.len() > 1 {
+                let params_struct_name = format!("{}BatchParams", struct_name);
+                let _ = writeln!(out, "#[derive(Debug, Clone)]");
+                let _ = writeln!(out, "pub struct {} {{", params_struct_name);
+                for param in params {
+                    let _ = writeln!(out, "    pub {}: {},", param.field_name, param.full_type);
+                }
+                let _ = writeln!(out, "}}");
+                let _ = writeln!(out);
+
+                // Batch function takes &[ParamsStruct]
+                let _ = writeln!(
+                    out,
+                    "pub async fn {}(pool: &sqlx::PgPool, items: &[{}]) -> Result<(), sqlx::Error> {{",
+                    batch_fn_name, params_struct_name
+                );
+                let _ = writeln!(out, "    let mut tx = pool.begin().await?;");
+                let _ = writeln!(out, "    for item in items {{");
+
+                // Build bind params from struct fields
+                let struct_bind_params: String = params
+                    .iter()
+                    .map(|p| {
+                        if p.neutral_type.starts_with("enum::") {
+                            let enum_name = p.neutral_type.strip_prefix("enum::").unwrap();
+                            let rust_type = enum_type_name(enum_name, &self.manifest.naming);
+                            format!(", item.{} as &{}", p.field_name, rust_type)
+                        } else {
+                            format!(", item.{}", p.field_name)
+                        }
+                    })
+                    .collect();
+
+                let _ = writeln!(
+                    out,
+                    "        sqlx::query!(\"{}\"{})",
+                    sql, struct_bind_params
+                );
+                let _ = writeln!(out, "            .execute(&mut *tx)");
+                let _ = writeln!(out, "            .await?;");
+                let _ = writeln!(out, "    }}");
+                let _ = writeln!(out, "    tx.commit().await?;");
+                let _ = writeln!(out, "    Ok(())");
+            } else if params.len() == 1 {
+                // Single param — takes a slice of that type
+                let param = &params[0];
+                let _ = writeln!(
+                    out,
+                    "pub async fn {}(pool: &sqlx::PgPool, items: &[{}]) -> Result<(), sqlx::Error> {{",
+                    batch_fn_name, param.full_type
+                );
+                let _ = writeln!(out, "    let mut tx = pool.begin().await?;");
+                let _ = writeln!(out, "    for item in items {{");
+                let _ = writeln!(out, "        sqlx::query!(\"{}\", item)", sql);
+                let _ = writeln!(out, "            .execute(&mut *tx)");
+                let _ = writeln!(out, "            .await?;");
+                let _ = writeln!(out, "    }}");
+                let _ = writeln!(out, "    tx.commit().await?;");
+                let _ = writeln!(out, "    Ok(())");
+            } else {
+                // No params — just execute N times (unusual but valid)
+                let _ = writeln!(
+                    out,
+                    "pub async fn {}(pool: &sqlx::PgPool, count: usize) -> Result<(), sqlx::Error> {{",
+                    batch_fn_name
+                );
+                let _ = writeln!(out, "    let mut tx = pool.begin().await?;");
+                let _ = writeln!(out, "    for _ in 0..count {{");
+                let _ = writeln!(out, "        sqlx::query!(\"{}\")", sql);
+                let _ = writeln!(out, "            .execute(&mut *tx)");
+                let _ = writeln!(out, "            .await?;");
+                let _ = writeln!(out, "    }}");
+                let _ = writeln!(out, "    tx.commit().await?;");
+                let _ = writeln!(out, "    Ok(())");
+            }
+
+            let _ = write!(out, "}}");
+            return Ok(out);
+        }
+
+        // Return type for non-batch commands
+        let return_type = match &analyzed.command {
+            QueryCommand::One => struct_name.to_string(),
+            QueryCommand::Many => format!("Vec<{}>", struct_name),
+            QueryCommand::Exec => "()".to_string(),
+            QueryCommand::ExecResult => "sqlx::postgres::PgQueryResult".to_string(),
+            QueryCommand::ExecRows => "u64".to_string(),
+            QueryCommand::Batch => unreachable!(),
+        };
+
+        // Function signature
+        let _ = writeln!(
+            out,
+            "pub async fn {}({}) -> Result<{}, sqlx::Error> {{",
+            func_name,
+            param_parts.join(", "),
+            return_type
+        );
+
+        // Query body
+        let has_row_struct = matches!(analyzed.command, QueryCommand::One | QueryCommand::Many);
 
         let is_exec_rows = matches!(analyzed.command, QueryCommand::ExecRows);
 
@@ -220,7 +302,7 @@ impl CodegenBackend for SqlxBackend {
             QueryCommand::Exec => ".execute(pool)",
             QueryCommand::ExecResult => ".execute(pool)",
             QueryCommand::ExecRows => ".execute(pool)",
-            QueryCommand::Batch => ".fetch_all(pool)",
+            QueryCommand::Batch => unreachable!(),
         };
 
         let _ = write!(out, "        {}", fetch_method);

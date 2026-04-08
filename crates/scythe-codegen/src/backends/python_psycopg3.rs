@@ -222,7 +222,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                     let _ = writeln!(out, "    )");
                 }
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "async def {}(conn: AsyncConnection{}{}) -> list[{}]:",
@@ -265,6 +265,58 @@ impl CodegenBackend for PythonPsycopg3Backend {
                     let _ = writeln!(out, "        )");
                     let _ = writeln!(out, "        for r in rows");
                     let _ = writeln!(out, "    ]");
+                }
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}_batch", func_name);
+                // Build the items type annotation
+                let items_type = if params.len() > 1 {
+                    let tuple_types: Vec<String> =
+                        params.iter().map(|p| p.full_type.clone()).collect();
+                    format!("list[tuple[{}]]", tuple_types.join(", "))
+                } else if params.len() == 1 {
+                    format!("list[{}]", params[0].full_type)
+                } else {
+                    "int".to_string()
+                };
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: AsyncConnection, *, items: {}) -> None:",
+                    batch_fn_name, items_type
+                );
+                let _ = writeln!(
+                    out,
+                    "    \"\"\"Execute {} query for each item in the batch.\"\"\"",
+                    analyzed.name
+                );
+                if params.is_empty() {
+                    let _ = writeln!(out, "    for _ in range(items):");
+                    let _ = writeln!(out, "        await conn.execute(");
+                    let _ = writeln!(out, "            \"\"\"{}\"\"\",", sql);
+                    let _ = writeln!(out, "        )");
+                } else {
+                    // Use executemany with named params dict list
+                    let dict_entries: Vec<String> = params
+                        .iter()
+                        .enumerate()
+                        .map(|(i, p)| {
+                            if params.len() == 1 {
+                                format!("\"{}\": item", p.field_name)
+                            } else {
+                                format!("\"{}\": item[{}]", p.field_name, i)
+                            }
+                        })
+                        .collect();
+                    let _ = writeln!(
+                        out,
+                        "    params_list = [{{{dict}}} for item in items]",
+                        dict = dict_entries.join(", ")
+                    );
+                    let _ = writeln!(out, "    cur = conn.cursor()");
+                    let _ = writeln!(out, "    await cur.executemany(");
+                    let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
+                    let _ = writeln!(out, "        params_list,");
+                    let _ = writeln!(out, "    )");
                 }
             }
             QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {

@@ -1,0 +1,40 @@
+[backend]
+name = "php-amphp"
+language = "php"
+file_extension = "php"
+engine = "mysql"
+description = "PHP code generation targeting AMPHP async MySQL"
+
+[types.scalars]
+bool = "bool"
+int16 = "int"
+int32 = "int"
+int64 = "int"
+float32 = "float"
+float64 = "float"
+string = "string"
+bytes = "string"
+uuid = "string"
+decimal = "string"
+date = "\\DateTimeImmutable"
+time = "\\DateTimeImmutable"
+time_tz = "\\DateTimeImmutable"
+datetime = "\\DateTimeImmutable"
+datetime_tz = "\\DateTimeImmutable"
+interval = "string"
+json = "string"
+inet = "string"
+
+[types.containers]
+array = "array<{T}>"
+nullable = "?{T}"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "camelCase"
+fn_case = "camelCase"
+enum_variant_case = "SCREAMING_SNAKE_CASE"
+row_suffix = "Row"
+
+[imports.rules]

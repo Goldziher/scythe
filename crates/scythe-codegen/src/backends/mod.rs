@@ -9,6 +9,7 @@ pub mod go_database_sql;
 pub mod go_pgx;
 pub mod java_jdbc;
 pub mod kotlin_jdbc;
+pub mod php_amphp;
 pub mod php_pdo;
 pub mod python_aiomysql;
 pub mod python_aiosqlite;
@@ -338,6 +339,7 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "ruby-sqlite3" => Box::new(ruby_sqlite3::RubySqlite3Backend::new(engine)?),
         "ruby-trilogy" | "trilogy" => Box::new(ruby_trilogy::RubyTrilogyBackend::new(engine)?),
         "php-pdo" | "php" => Box::new(php_pdo::PhpPdoBackend::new(engine)?),
+        "php-amphp" | "amphp" => Box::new(php_amphp::PhpAmphpBackend::new(engine)?),
         _ => {
             return Err(ScytheError::new(
                 ErrorCode::InternalError,

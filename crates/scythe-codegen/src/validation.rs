@@ -17,7 +17,7 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
         "csharp-npgsql" => validate_csharp(code),
         "elixir-postgrex" | "elixir-ecto" => validate_elixir(code),
         "ruby-pg" | "ruby-mysql2" | "ruby-sqlite3" | "ruby-trilogy" => validate_ruby(code),
-        "php-pdo" => validate_php(code),
+        "php-pdo" | "php-amphp" => validate_php(code),
         // Rust backends are validated by syn, not here.
         "rust-sqlx" | "rust-tokio-postgres" => vec![],
         _ => vec![format!("unknown backend: {}", backend_name)],

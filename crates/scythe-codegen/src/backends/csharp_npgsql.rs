@@ -166,14 +166,90 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
+        // Handle :batch separately
+        if matches!(analyzed.command, QueryCommand::Batch) {
+            let batch_fn_name = format!("{}Batch", func_name);
+            if params.len() > 1 {
+                let params_record_name = format!("{}BatchParams", to_pascal_case(&analyzed.name));
+                let _ = writeln!(out, "public record {}(", params_record_name);
+                for (i, p) in params.iter().enumerate() {
+                    let field = to_pascal_case(&p.field_name);
+                    let sep = if i + 1 < params.len() { "," } else { "" };
+                    let _ = writeln!(out, "    {} {}{}", p.full_type, field, sep);
+                }
+                let _ = writeln!(out, ");");
+                let _ = writeln!(out);
+                let _ = writeln!(
+                    out,
+                    "public static async Task {}(NpgsqlConnection conn, List<{}> items) {{",
+                    batch_fn_name, params_record_name
+                );
+            } else if params.len() == 1 {
+                let _ = writeln!(
+                    out,
+                    "public static async Task {}(NpgsqlConnection conn, List<{}> items) {{",
+                    batch_fn_name, params[0].full_type
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "public static async Task {}(NpgsqlConnection conn, int count) {{",
+                    batch_fn_name
+                );
+            }
+            let _ = writeln!(
+                out,
+                "    await using var tx = await conn.BeginTransactionAsync();"
+            );
+            let _ = writeln!(out, "    try {{");
+            if params.is_empty() {
+                let _ = writeln!(out, "        for (int i = 0; i < count; i++) {{");
+            } else {
+                let _ = writeln!(out, "        foreach (var item in items) {{");
+            }
+            let _ = writeln!(
+                out,
+                "            await using var cmd = new NpgsqlCommand(\"{}\", conn, tx);",
+                sql
+            );
+            for (i, p) in params.iter().enumerate() {
+                let value_expr = if params.len() > 1 {
+                    let field = to_pascal_case(&p.field_name);
+                    if p.neutral_type.starts_with("enum::") {
+                        format!("item.{}.ToString().ToLower()", field)
+                    } else {
+                        format!("item.{}", field)
+                    }
+                } else if p.neutral_type.starts_with("enum::") {
+                    "item.ToString().ToLower()".to_string()
+                } else {
+                    "item".to_string()
+                };
+                let _ = writeln!(
+                    out,
+                    "            cmd.Parameters.AddWithValue(\"p{}\", {});",
+                    i + 1,
+                    value_expr
+                );
+            }
+            let _ = writeln!(out, "            await cmd.ExecuteNonQueryAsync();");
+            let _ = writeln!(out, "        }}");
+            let _ = writeln!(out, "        await tx.CommitAsync();");
+            let _ = writeln!(out, "    }} catch {{");
+            let _ = writeln!(out, "        await tx.RollbackAsync();");
+            let _ = writeln!(out, "        throw;");
+            let _ = writeln!(out, "    }}");
+            let _ = write!(out, "}}");
+            return Ok(out);
+        }
+
         // Return type depends on command
         let return_type = match &analyzed.command {
             QueryCommand::One => format!("{}?", struct_name),
-            QueryCommand::Many | QueryCommand::Batch => {
-                format!("List<{}>", struct_name)
-            }
+            QueryCommand::Many => format!("List<{}>", struct_name),
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
+            QueryCommand::Batch => unreachable!(),
         };
 
         let is_async_void = return_type == "void";
@@ -228,7 +304,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                 }
                 let _ = writeln!(out, "    );");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "    await using var reader = await cmd.ExecuteReaderAsync();"
@@ -256,6 +332,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "    return await cmd.ExecuteNonQueryAsync();");
             }
+            QueryCommand::Batch => unreachable!(),
         }
 
         let _ = write!(out, "}}");

@@ -329,7 +329,7 @@ impl CodegenBackend for JavaJdbcBackend {
                 let _ = writeln!(out, "    }}");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "public static java.util.List<{}> {}(Connection conn{}{}) throws SQLException {{",
@@ -367,6 +367,110 @@ impl CodegenBackend for JavaJdbcBackend {
                 let _ = writeln!(out, "        }}");
                 let _ = writeln!(out, "    }}");
                 let _ = write!(out, "}}");
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}Batch", func_name);
+                if params.len() > 1 {
+                    // Generate params record
+                    let params_record_name =
+                        format!("{}BatchParams", to_pascal_case(&analyzed.name));
+                    let record_fields = params
+                        .iter()
+                        .map(|p| format!("{} {}", java_param_type(p), p.field_name))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(
+                        out,
+                        "public record {}({}) {{}}",
+                        params_record_name, record_fields
+                    );
+                    let _ = writeln!(out);
+                    let _ = writeln!(
+                        out,
+                        "public static void {}(Connection conn, java.util.List<{}> items) throws SQLException {{",
+                        batch_fn_name, params_record_name
+                    );
+                    let _ = writeln!(out, "    conn.setAutoCommit(false);");
+                    let _ = writeln!(
+                        out,
+                        "    try (var ps = conn.prepareStatement(\"{}\")) {{",
+                        sql
+                    );
+                    let _ = writeln!(out, "        for (var item : items) {{");
+                    for (i, param) in params.iter().enumerate() {
+                        let setter = ps_setter(&param.lang_type);
+                        let _ = writeln!(
+                            out,
+                            "            ps.{}({}, item.{}());",
+                            setter,
+                            i + 1,
+                            param.field_name
+                        );
+                    }
+                    let _ = writeln!(out, "            ps.addBatch();");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        ps.executeBatch();");
+                    let _ = writeln!(out, "        conn.commit();");
+                    let _ = writeln!(out, "    }} catch (SQLException e) {{");
+                    let _ = writeln!(out, "        conn.rollback();");
+                    let _ = writeln!(out, "        throw e;");
+                    let _ = writeln!(out, "    }} finally {{");
+                    let _ = writeln!(out, "        conn.setAutoCommit(true);");
+                    let _ = writeln!(out, "    }}");
+                    let _ = write!(out, "}}");
+                } else if params.len() == 1 {
+                    let param = &params[0];
+                    let _ = writeln!(
+                        out,
+                        "public static void {}(Connection conn, java.util.List<{}> items) throws SQLException {{",
+                        batch_fn_name,
+                        java_param_type(param)
+                    );
+                    let _ = writeln!(out, "    conn.setAutoCommit(false);");
+                    let _ = writeln!(
+                        out,
+                        "    try (var ps = conn.prepareStatement(\"{}\")) {{",
+                        sql
+                    );
+                    let _ = writeln!(out, "        for (var item : items) {{");
+                    let setter = ps_setter(&param.lang_type);
+                    let _ = writeln!(out, "            ps.{}(1, item);", setter);
+                    let _ = writeln!(out, "            ps.addBatch();");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        ps.executeBatch();");
+                    let _ = writeln!(out, "        conn.commit();");
+                    let _ = writeln!(out, "    }} catch (SQLException e) {{");
+                    let _ = writeln!(out, "        conn.rollback();");
+                    let _ = writeln!(out, "        throw e;");
+                    let _ = writeln!(out, "    }} finally {{");
+                    let _ = writeln!(out, "        conn.setAutoCommit(true);");
+                    let _ = writeln!(out, "    }}");
+                    let _ = write!(out, "}}");
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "public static void {}(Connection conn, int count) throws SQLException {{",
+                        batch_fn_name
+                    );
+                    let _ = writeln!(out, "    conn.setAutoCommit(false);");
+                    let _ = writeln!(
+                        out,
+                        "    try (var ps = conn.prepareStatement(\"{}\")) {{",
+                        sql
+                    );
+                    let _ = writeln!(out, "        for (int i = 0; i < count; i++) {{");
+                    let _ = writeln!(out, "            ps.addBatch();");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        ps.executeBatch();");
+                    let _ = writeln!(out, "        conn.commit();");
+                    let _ = writeln!(out, "    }} catch (SQLException e) {{");
+                    let _ = writeln!(out, "        conn.rollback();");
+                    let _ = writeln!(out, "        throw e;");
+                    let _ = writeln!(out, "    }} finally {{");
+                    let _ = writeln!(out, "        conn.setAutoCommit(true);");
+                    let _ = writeln!(out, "    }}");
+                    let _ = write!(out, "}}");
+                }
             }
         }
 
