@@ -217,6 +217,12 @@ impl CodegenBackend for PhpAmphpBackend {
         // Handle :batch separately
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}Batch", func_name);
+            // PHPDoc for batch function
+            let _ = writeln!(out, "    /**");
+            let _ = writeln!(out, "     * @param \\Amp\\Sql\\SqlConnectionPool $pool");
+            let _ = writeln!(out, "     * @param array<int, array<int, mixed>> $items");
+            let _ = writeln!(out, "     * @return void");
+            let _ = writeln!(out, "     */");
             let _ = writeln!(
                 out,
                 "    public static function {}(\\Amp\\Sql\\SqlConnectionPool $pool, array $items): void {{",
@@ -253,6 +259,33 @@ impl CodegenBackend for PhpAmphpBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
             QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         };
+
+        // PHPDoc block
+        let _ = writeln!(out, "    /**");
+        let _ = writeln!(out, "     * @param \\Amp\\Sql\\SqlConnectionPool $pool");
+        for p in params {
+            let _ = writeln!(out, "     * @param {} ${}", p.full_type, p.field_name);
+        }
+        match &analyzed.command {
+            QueryCommand::One => {
+                let _ = writeln!(out, "     * @return {}|null", struct_name);
+            }
+            QueryCommand::Many => {
+                let _ = writeln!(
+                    out,
+                    "     * @return \\Generator<int, {}, mixed, void>",
+                    struct_name
+                );
+            }
+            QueryCommand::Exec => {
+                let _ = writeln!(out, "     * @return void");
+            }
+            QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(out, "     * @return int");
+            }
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
+        }
+        let _ = writeln!(out, "     */");
 
         let _ = writeln!(
             out,

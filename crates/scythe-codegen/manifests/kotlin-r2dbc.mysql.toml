@@ -29,6 +29,7 @@ inet = "String"
 array = "List<{T}>"
 nullable = "{T}?"
 json_typed = "{T}"
+range = "String"
 
 [naming]
 struct_case = "PascalCase"

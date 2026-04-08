@@ -10,7 +10,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backend_trait::{CodegenBackend, RbsGenerationContext, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-mysql2.toml");
 
@@ -62,6 +62,13 @@ impl CodegenBackend for RubyMysql2Backend {
 
     fn supported_engines(&self) -> &[&str] {
         &["mysql"]
+    }
+
+    fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
+        Some(super::ruby_rbs::generate_rbs_content(
+            context,
+            "Mysql2::Client",
+        ))
     }
 
     fn file_header(&self) -> String {

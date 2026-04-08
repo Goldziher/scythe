@@ -10,7 +10,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backend_trait::{CodegenBackend, RbsGenerationContext, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-sqlite3.toml");
 
@@ -62,6 +62,13 @@ impl CodegenBackend for RubySqlite3Backend {
 
     fn supported_engines(&self) -> &[&str] {
         &["sqlite"]
+    }
+
+    fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
+        Some(super::ruby_rbs::generate_rbs_content(
+            context,
+            "SQLite3::Database",
+        ))
     }
 
     fn file_header(&self) -> String {

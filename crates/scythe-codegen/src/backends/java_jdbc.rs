@@ -143,6 +143,26 @@ fn java_param_type(param: &ResolvedParam) -> String {
     }
 }
 
+/// Check whether a Java type is a primitive (not a reference type).
+fn is_java_primitive(java_type: &str) -> bool {
+    matches!(
+        java_type,
+        "boolean" | "byte" | "short" | "int" | "long" | "float" | "double" | "char"
+    )
+}
+
+/// Format a Java parameter with nullability annotation.
+fn java_annotated_param(param: &ResolvedParam) -> String {
+    let param_type = java_param_type(param);
+    if param.nullable {
+        format!("@Nullable {} {}", param_type, param.field_name)
+    } else if !is_java_primitive(&param.lang_type) {
+        format!("@Nonnull {} {}", param_type, param.field_name)
+    } else {
+        format!("{} {}", param_type, param.field_name)
+    }
+}
+
 impl CodegenBackend for JavaJdbcBackend {
     fn name(&self) -> &str {
         "java-jdbc"
@@ -163,6 +183,7 @@ impl CodegenBackend for JavaJdbcBackend {
          import java.time.OffsetDateTime;\n\
          import java.util.ArrayList;\n\
          import java.util.List;\n\
+         import javax.annotation.Nonnull;\n\
          import javax.annotation.Nullable;"
             .to_string()
     }
@@ -236,10 +257,7 @@ impl CodegenBackend for JavaJdbcBackend {
 
         let param_list = params
             .iter()
-            .map(|p| {
-                let param_type = java_param_type(p);
-                format!("{} {}", param_type, p.field_name)
-            })
+            .map(java_annotated_param)
             .collect::<Vec<_>>()
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
@@ -300,7 +318,7 @@ impl CodegenBackend for JavaJdbcBackend {
             QueryCommand::One => {
                 let _ = writeln!(
                     out,
-                    "public static {} {}(Connection conn{}{}) throws SQLException {{",
+                    "public static @Nullable {} {}(Connection conn{}{}) throws SQLException {{",
                     struct_name, func_name, sep, param_list
                 );
                 let _ = writeln!(

@@ -53,7 +53,7 @@ Neutral types are the bridge. The analyzer converts SQL types to neutral types; 
 
 ## Supported backends
 
-Scythe provides 25 backends across 10 languages and 3 database engines. Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
+Scythe provides 31 backends across 10 languages and 5 database engines. Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
 
 ### PostgreSQL
 
@@ -72,6 +72,9 @@ Scythe provides 25 backends across 10 languages and 3 database engines. Some bac
 | `elixir-postgrex` | Elixir | Postgrex |
 | `ruby-pg` | Ruby | pg gem |
 | `php-pdo` | PHP | PDO |
+| `java-r2dbc` | Java | R2DBC (Project Reactor) |
+| `kotlin-r2dbc` | Kotlin | R2DBC (coroutines) |
+| `kotlin-exposed` | Kotlin | Exposed |
 
 ### MySQL
 
@@ -103,20 +106,40 @@ Scythe provides 25 backends across 10 languages and 3 database engines. Some bac
 | `ruby-sqlite3` | Ruby | sqlite3 gem |
 | `php-pdo` | PHP | PDO |
 
+### DuckDB
+
+| Backend | Language | Library |
+|---------|----------|---------|
+| `python-duckdb` | Python | duckdb |
+| `rust-duckdb` | Rust | duckdb-rs |
+| `typescript-duckdb` | TypeScript | duckdb-node |
+
+### CockroachDB
+
+CockroachDB is wire-compatible with PostgreSQL. The following PostgreSQL backends support CockroachDB when the engine is set to `cockroachdb`:
+
+| Backend | Language | Library |
+|---------|----------|---------|
+| `rust-sqlx` | Rust | sqlx |
+| `python-psycopg3` | Python | psycopg3 |
+| `go-pgx` | Go | pgx v5 |
+| `java-jdbc` | Java | JDBC |
+| `kotlin-jdbc` | Kotlin | JDBC |
+
 ### Language coverage summary
 
-| Language | PostgreSQL | MySQL | SQLite |
-|----------|-----------|-------|--------|
-| Rust | sqlx, tokio-postgres | sqlx | sqlx |
-| Python | psycopg3, asyncpg | aiomysql | aiosqlite |
-| TypeScript | postgres.js, pg | mysql2 | better-sqlite3 |
-| Go | pgx | database/sql | database/sql |
-| Java | JDBC | JDBC | JDBC |
-| Kotlin | JDBC | JDBC | JDBC |
-| C# | Npgsql | MySqlConnector | Microsoft.Data.Sqlite |
-| Elixir | Postgrex | MyXQL | Exqlite |
-| Ruby | pg | mysql2 | sqlite3 |
-| PHP | PDO | PDO | PDO |
+| Language | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB |
+|----------|-----------|-------|--------|--------|-------------|
+| Rust | sqlx, tokio-postgres | sqlx | sqlx | duckdb-rs | sqlx |
+| Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3 |
+| TypeScript | postgres.js, pg | mysql2 | better-sqlite3 | duckdb-node | -- |
+| Go | pgx | database/sql | database/sql | -- | pgx |
+| Java | JDBC, R2DBC | JDBC | JDBC | -- | JDBC |
+| Kotlin | JDBC, R2DBC, Exposed | JDBC | JDBC | -- | JDBC |
+| C# | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | -- |
+| Elixir | Postgrex | MyXQL | Exqlite | -- | -- |
+| Ruby | pg | mysql2 | sqlite3 | -- | -- |
+| PHP | PDO | PDO | PDO | -- | -- |
 
 ## Adding a new backend
 

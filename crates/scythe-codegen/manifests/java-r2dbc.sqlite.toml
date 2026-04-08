@@ -29,6 +29,7 @@ inet = "String"
 array = "java.util.List<{T}>"
 nullable = "@Nullable {T}"
 json_typed = "{T}"
+range = "String"
 
 [naming]
 struct_case = "PascalCase"

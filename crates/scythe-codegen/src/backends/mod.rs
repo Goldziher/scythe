@@ -22,6 +22,7 @@ pub mod python_duckdb;
 pub mod python_psycopg3;
 pub mod ruby_mysql2;
 pub mod ruby_pg;
+pub(crate) mod ruby_rbs;
 pub mod ruby_sqlite3;
 pub mod ruby_trilogy;
 pub mod sqlx;

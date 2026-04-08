@@ -129,6 +129,26 @@ fn java_param_type(param: &ResolvedParam) -> String {
     }
 }
 
+/// Check whether a Java type is a primitive (not a reference type).
+fn is_java_primitive(java_type: &str) -> bool {
+    matches!(
+        java_type,
+        "boolean" | "byte" | "short" | "int" | "long" | "float" | "double" | "char"
+    )
+}
+
+/// Format a Java parameter with nullability annotation.
+fn java_annotated_param(param: &ResolvedParam) -> String {
+    let param_type = java_param_type(param);
+    if param.nullable {
+        format!("@Nullable {} {}", param_type, param.field_name)
+    } else if !is_java_primitive(&param.lang_type) {
+        format!("@Nonnull {} {}", param_type, param.field_name)
+    } else {
+        format!("{} {}", param_type, param.field_name)
+    }
+}
+
 impl CodegenBackend for JavaR2dbcBackend {
     fn name(&self) -> &str {
         "java-r2dbc"
@@ -152,6 +172,7 @@ impl CodegenBackend for JavaR2dbcBackend {
          import java.time.LocalTime;\n\
          import java.time.OffsetDateTime;\n\
          import java.util.UUID;\n\
+         import javax.annotation.Nonnull;\n\
          import javax.annotation.Nullable;\n\
          import reactor.core.publisher.Flux;\n\
          import reactor.core.publisher.Mono;"
@@ -213,10 +234,7 @@ impl CodegenBackend for JavaR2dbcBackend {
 
         let param_list = params
             .iter()
-            .map(|p| {
-                let param_type = java_param_type(p);
-                format!("{} {}", param_type, p.field_name)
-            })
+            .map(java_annotated_param)
             .collect::<Vec<_>>()
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };

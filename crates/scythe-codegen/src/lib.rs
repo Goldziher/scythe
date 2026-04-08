@@ -4,7 +4,9 @@ pub mod overrides;
 pub mod resolve;
 pub mod validation;
 
-pub use backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+pub use backend_trait::{
+    CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, ResolvedColumn, ResolvedParam,
+};
 pub use backends::get_backend;
 pub use overrides::TypeOverride;
 
@@ -33,7 +35,7 @@ pub struct GeneratedCode {
 // ---------------------------------------------------------------------------
 
 /// Simple singularization: remove trailing 's'.
-pub(crate) fn singularize(name: &str) -> String {
+pub fn singularize(name: &str) -> String {
     if let Some(stem) = name.strip_suffix("ies") {
         format!("{stem}y")
     } else if name.ends_with("sses")

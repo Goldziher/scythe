@@ -736,6 +736,7 @@ dependencies = [
  "clap",
  "glob",
  "regex",
+ "scythe-backend",
  "scythe-codegen",
  "scythe-core",
  "scythe-lint",

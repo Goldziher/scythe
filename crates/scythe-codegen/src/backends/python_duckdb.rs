@@ -357,7 +357,7 @@ impl CodegenBackend for PythonDuckdbBackend {
                 }
                 let _ = writeln!(
                     out,
-                    "    return result.fetchone()[0] if result.description else 0"
+                    "    row = result.fetchone()\n    return row[0] if row else 0"
                 );
             }
         }
