@@ -264,7 +264,7 @@ impl CodegenBackend for PhpPdoBackend {
             QueryCommand::Many => "\\Generator".to_string(),
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         };
 
         let _ = writeln!(
@@ -326,7 +326,7 @@ impl CodegenBackend for PhpPdoBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "        return $stmt->rowCount();");
             }
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         }
 
         let _ = write!(out, "    }}");

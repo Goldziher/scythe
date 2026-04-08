@@ -16,6 +16,7 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/kotlin-jdbc.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/kotlin-jdbc.mysql.toml");
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/kotlin-jdbc.sqlite.toml");
+const DEFAULT_MANIFEST_DUCKDB: &str = include_str!("../../manifests/kotlin-jdbc.duckdb.toml");
 
 pub struct KotlinJdbcBackend {
     manifest: BackendManifest,
@@ -27,6 +28,7 @@ impl KotlinJdbcBackend {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
             "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
+            "duckdb" => DEFAULT_MANIFEST_DUCKDB,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
@@ -117,7 +119,7 @@ impl CodegenBackend for KotlinJdbcBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql", "sqlite"]
+        &["postgresql", "mysql", "sqlite", "duckdb"]
     }
 
     fn file_header(&self) -> String {
@@ -331,6 +333,12 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let _ = writeln!(out, "        }}");
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "}}");
+            }
+            QueryCommand::Grouped => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "grouped queries are not yet supported for kotlin-jdbc".to_string(),
+                ));
             }
         }
 

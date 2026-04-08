@@ -193,6 +193,9 @@ impl CodegenBackend for ElixirMyxqlBackend {
                     func_name, param_specs
                 );
             }
+            QueryCommand::Grouped => {
+                unreachable!("Grouped is rewritten to Many before codegen")
+            }
         }
         let _ = writeln!(out, "def {}(conn{}{}) do", func_name, sep, param_list);
 
@@ -275,7 +278,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         }
 
         let _ = write!(out, "end");

@@ -57,34 +57,6 @@ fn test_alter_add_constraint() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
-    // Assert table: departments
-    let table_departments = catalog
-        .get_table("departments")
-        .expect("table departments should exist");
-    assert_eq!(
-        table_departments.columns.len(),
-        2,
-        "column count for table departments"
-    );
-    assert_eq!(table_departments.columns[0].name, "id", "column name");
-    assert_eq!(
-        table_departments.columns[0].sql_type, "integer",
-        "column sql_type for id"
-    );
-    assert!(
-        !table_departments.columns[0].nullable,
-        "column nullable for id"
-    );
-    assert_eq!(table_departments.columns[1].name, "name", "column name");
-    assert_eq!(
-        table_departments.columns[1].sql_type, "text",
-        "column sql_type for name"
-    );
-    assert!(
-        !table_departments.columns[1].nullable,
-        "column nullable for name"
-    );
-
     // Assert table: employees
     let table_employees = catalog
         .get_table("employees")
@@ -123,6 +95,34 @@ fn test_alter_add_constraint() {
     assert!(
         !table_employees.columns[2].nullable,
         "column nullable for department_id"
+    );
+
+    // Assert table: departments
+    let table_departments = catalog
+        .get_table("departments")
+        .expect("table departments should exist");
+    assert_eq!(
+        table_departments.columns.len(),
+        2,
+        "column count for table departments"
+    );
+    assert_eq!(table_departments.columns[0].name, "id", "column name");
+    assert_eq!(
+        table_departments.columns[0].sql_type, "integer",
+        "column sql_type for id"
+    );
+    assert!(
+        !table_departments.columns[0].nullable,
+        "column nullable for id"
+    );
+    assert_eq!(table_departments.columns[1].name, "name", "column name");
+    assert_eq!(
+        table_departments.columns[1].sql_type, "text",
+        "column sql_type for name"
+    );
+    assert!(
+        !table_departments.columns[1].nullable,
+        "column nullable for name"
     );
 }
 
@@ -519,16 +519,6 @@ fn test_multiple_enums() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
-    // Assert enum: status
-    let enum_status = catalog
-        .get_enum("status")
-        .expect("enum status should exist");
-    assert_eq!(
-        enum_status.values,
-        vec!["active", "inactive"],
-        "enum values for status"
-    );
-
     // Assert enum: priority
     let enum_priority = catalog
         .get_enum("priority")
@@ -545,6 +535,16 @@ fn test_multiple_enums() {
         enum_role.values,
         vec!["admin", "editor", "viewer"],
         "enum values for role"
+    );
+
+    // Assert enum: status
+    let enum_status = catalog
+        .get_enum("status")
+        .expect("enum status should exist");
+    assert_eq!(
+        enum_status.values,
+        vec!["active", "inactive"],
+        "enum values for status"
     );
 }
 
@@ -1153,34 +1153,6 @@ fn test_constraints_primary_key() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
-    // Assert table: single_pk
-    let table_single_pk = catalog
-        .get_table("single_pk")
-        .expect("table single_pk should exist");
-    assert_eq!(
-        table_single_pk.columns.len(),
-        2,
-        "column count for table single_pk"
-    );
-    assert_eq!(table_single_pk.columns[0].name, "id", "column name");
-    assert_eq!(
-        table_single_pk.columns[0].sql_type, "integer",
-        "column sql_type for id"
-    );
-    assert!(
-        !table_single_pk.columns[0].nullable,
-        "column nullable for id"
-    );
-    assert_eq!(table_single_pk.columns[1].name, "name", "column name");
-    assert_eq!(
-        table_single_pk.columns[1].sql_type, "text",
-        "column sql_type for name"
-    );
-    assert!(
-        table_single_pk.columns[1].nullable,
-        "column nullable for name"
-    );
-
     // Assert table: composite_pk
     let table_composite_pk = catalog
         .get_table("composite_pk")
@@ -1219,6 +1191,34 @@ fn test_constraints_primary_key() {
     assert!(
         table_composite_pk.columns[2].nullable,
         "column nullable for data"
+    );
+
+    // Assert table: single_pk
+    let table_single_pk = catalog
+        .get_table("single_pk")
+        .expect("table single_pk should exist");
+    assert_eq!(
+        table_single_pk.columns.len(),
+        2,
+        "column count for table single_pk"
+    );
+    assert_eq!(table_single_pk.columns[0].name, "id", "column name");
+    assert_eq!(
+        table_single_pk.columns[0].sql_type, "integer",
+        "column sql_type for id"
+    );
+    assert!(
+        !table_single_pk.columns[0].nullable,
+        "column nullable for id"
+    );
+    assert_eq!(table_single_pk.columns[1].name, "name", "column name");
+    assert_eq!(
+        table_single_pk.columns[1].sql_type, "text",
+        "column sql_type for name"
+    );
+    assert!(
+        table_single_pk.columns[1].nullable,
+        "column nullable for name"
     );
 }
 
@@ -1422,6 +1422,46 @@ fn test_multiple_tables() {
         "column nullable for name"
     );
 
+    // Assert table: employees
+    let table_employees = catalog
+        .get_table("employees")
+        .expect("table employees should exist");
+    assert_eq!(
+        table_employees.columns.len(),
+        3,
+        "column count for table employees"
+    );
+    assert_eq!(table_employees.columns[0].name, "id", "column name");
+    assert_eq!(
+        table_employees.columns[0].sql_type, "integer",
+        "column sql_type for id"
+    );
+    assert!(
+        !table_employees.columns[0].nullable,
+        "column nullable for id"
+    );
+    assert_eq!(table_employees.columns[1].name, "name", "column name");
+    assert_eq!(
+        table_employees.columns[1].sql_type, "text",
+        "column sql_type for name"
+    );
+    assert!(
+        !table_employees.columns[1].nullable,
+        "column nullable for name"
+    );
+    assert_eq!(
+        table_employees.columns[2].name, "department_id",
+        "column name"
+    );
+    assert_eq!(
+        table_employees.columns[2].sql_type, "integer",
+        "column sql_type for department_id"
+    );
+    assert!(
+        !table_employees.columns[2].nullable,
+        "column nullable for department_id"
+    );
+
     // Assert table: projects
     let table_projects = catalog
         .get_table("projects")
@@ -1468,46 +1508,6 @@ fn test_multiple_tables() {
     );
     assert!(
         !table_projects.columns[3].nullable,
-        "column nullable for department_id"
-    );
-
-    // Assert table: employees
-    let table_employees = catalog
-        .get_table("employees")
-        .expect("table employees should exist");
-    assert_eq!(
-        table_employees.columns.len(),
-        3,
-        "column count for table employees"
-    );
-    assert_eq!(table_employees.columns[0].name, "id", "column name");
-    assert_eq!(
-        table_employees.columns[0].sql_type, "integer",
-        "column sql_type for id"
-    );
-    assert!(
-        !table_employees.columns[0].nullable,
-        "column nullable for id"
-    );
-    assert_eq!(table_employees.columns[1].name, "name", "column name");
-    assert_eq!(
-        table_employees.columns[1].sql_type, "text",
-        "column sql_type for name"
-    );
-    assert!(
-        !table_employees.columns[1].nullable,
-        "column nullable for name"
-    );
-    assert_eq!(
-        table_employees.columns[2].name, "department_id",
-        "column name"
-    );
-    assert_eq!(
-        table_employees.columns[2].sql_type, "integer",
-        "column sql_type for department_id"
-    );
-    assert!(
-        !table_employees.columns[2].nullable,
         "column nullable for department_id"
     );
 }
@@ -1787,34 +1787,6 @@ fn test_cross_schema_reference() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
-    // Assert table: core.users
-    let table_core_users = catalog
-        .get_table("core.users")
-        .expect("table core.users should exist");
-    assert_eq!(
-        table_core_users.columns.len(),
-        2,
-        "column count for table core.users"
-    );
-    assert_eq!(table_core_users.columns[0].name, "id", "column name");
-    assert_eq!(
-        table_core_users.columns[0].sql_type, "integer",
-        "column sql_type for id"
-    );
-    assert!(
-        !table_core_users.columns[0].nullable,
-        "column nullable for id"
-    );
-    assert_eq!(table_core_users.columns[1].name, "name", "column name");
-    assert_eq!(
-        table_core_users.columns[1].sql_type, "text",
-        "column sql_type for name"
-    );
-    assert!(
-        !table_core_users.columns[1].nullable,
-        "column nullable for name"
-    );
-
     // Assert table: billing.invoices
     let table_billing_invoices = catalog
         .get_table("billing.invoices")
@@ -1856,6 +1828,34 @@ fn test_cross_schema_reference() {
     assert!(
         !table_billing_invoices.columns[2].nullable,
         "column nullable for amount"
+    );
+
+    // Assert table: core.users
+    let table_core_users = catalog
+        .get_table("core.users")
+        .expect("table core.users should exist");
+    assert_eq!(
+        table_core_users.columns.len(),
+        2,
+        "column count for table core.users"
+    );
+    assert_eq!(table_core_users.columns[0].name, "id", "column name");
+    assert_eq!(
+        table_core_users.columns[0].sql_type, "integer",
+        "column sql_type for id"
+    );
+    assert!(
+        !table_core_users.columns[0].nullable,
+        "column nullable for id"
+    );
+    assert_eq!(table_core_users.columns[1].name, "name", "column name");
+    assert_eq!(
+        table_core_users.columns[1].sql_type, "text",
+        "column sql_type for name"
+    );
+    assert!(
+        !table_core_users.columns[1].nullable,
+        "column nullable for name"
     );
 }
 

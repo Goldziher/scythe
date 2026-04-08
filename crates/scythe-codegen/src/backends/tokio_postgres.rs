@@ -200,7 +200,7 @@ impl CodegenBackend for TokioPostgresBackend {
             QueryCommand::Exec => "()".to_string(),
             QueryCommand::ExecResult => "u64".to_string(),
             QueryCommand::ExecRows => "u64".to_string(),
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         };
 
         // Function signature
@@ -266,7 +266,7 @@ impl CodegenBackend for TokioPostgresBackend {
                 );
                 let _ = writeln!(out, "    Ok(rows_affected)");
             }
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         }
 
         let _ = write!(out, "}}");

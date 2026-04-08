@@ -235,7 +235,7 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
             }
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         };
 
         let is_async_void = return_type == "void";
@@ -317,7 +317,7 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "    return await cmd.ExecuteNonQueryAsync();");
             }
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         }
 
         let _ = write!(out, "}}");

@@ -203,6 +203,7 @@ impl CodegenBackend for RubySqlite3Backend {
                 let _ = writeln!(out, "    db.execute(\"{}\", {})", sql, param_array);
                 let _ = writeln!(out, "    db.changes");
             }
+            QueryCommand::Grouped => unreachable!("handled as Many in codegen"),
         }
 
         let _ = write!(out, "  end");

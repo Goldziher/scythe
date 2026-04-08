@@ -11,6 +11,7 @@ pub enum QueryCommand {
     ExecResult,
     ExecRows,
     Batch,
+    Grouped,
 }
 
 impl std::fmt::Display for QueryCommand {
@@ -22,6 +23,7 @@ impl std::fmt::Display for QueryCommand {
             QueryCommand::ExecResult => write!(f, "exec_result"),
             QueryCommand::ExecRows => write!(f, "exec_rows"),
             QueryCommand::Batch => write!(f, "batch"),
+            QueryCommand::Grouped => write!(f, "grouped"),
         }
     }
 }
@@ -35,6 +37,7 @@ impl QueryCommand {
             "exec_result" => Ok(QueryCommand::ExecResult),
             "exec_rows" => Ok(QueryCommand::ExecRows),
             "batch" => Ok(QueryCommand::Batch),
+            "grouped" => Ok(QueryCommand::Grouped),
             other => Err(ScytheError::invalid_annotation(format!(
                 "invalid @returns value: {other}"
             ))),
@@ -64,6 +67,7 @@ pub struct Annotations {
     pub json_mappings: Vec<JsonMapping>,
     pub deprecated: Option<String>,
     pub optional_params: Vec<String>,
+    pub group_by: Option<String>,
 }
 
 #[derive(Debug)]
@@ -93,6 +97,7 @@ pub fn parse_query_with_dialect(
     let mut json_mappings = Vec::new();
     let mut deprecated: Option<String> = None;
     let mut optional_params = Vec::new();
+    let mut group_by: Option<String> = None;
 
     let mut sql_lines = Vec::new();
 
@@ -165,6 +170,9 @@ pub fn parse_query_with_dialect(
                 "deprecated" => {
                     deprecated = Some(value.to_string());
                 }
+                "group_by" => {
+                    group_by = Some(value.to_string());
+                }
                 "optional" => {
                     for param in value.split(',') {
                         let param = param.trim();
@@ -184,6 +192,12 @@ pub fn parse_query_with_dialect(
 
     let name = name.ok_or_else(|| ScytheError::missing_annotation("name"))?;
     let command = command.ok_or_else(|| ScytheError::missing_annotation("returns"))?;
+
+    if command == QueryCommand::Grouped && group_by.is_none() {
+        return Err(ScytheError::invalid_annotation(
+            "@returns :grouped requires a @group_by annotation (e.g. @group_by users.id)",
+        ));
+    }
 
     let sql = sql_lines.join("\n").trim().to_string();
 
@@ -220,6 +234,7 @@ pub fn parse_query_with_dialect(
             json_mappings,
             deprecated,
             optional_params,
+            group_by: group_by.clone(),
         };
         return Ok(Query {
             name,
@@ -244,6 +259,7 @@ pub fn parse_query_with_dialect(
         json_mappings,
         deprecated,
         optional_params,
+        group_by,
     };
 
     Ok(Query {
@@ -416,5 +432,29 @@ mod tests {
         let input = "-- @name Foo\n-- @returns :batch\nSELECT 1";
         let q = parse(input).unwrap();
         assert_eq!(q.command, QueryCommand::Batch);
+    }
+
+    #[test]
+    fn test_grouped_command_with_group_by() {
+        let input = "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\nSELECT u.id, u.name FROM users u JOIN orders o ON o.user_id = u.id";
+        let q = parse(input).unwrap();
+        assert_eq!(q.command, QueryCommand::Grouped);
+        assert_eq!(q.annotations.group_by, Some("users.id".to_string()));
+    }
+
+    #[test]
+    fn test_grouped_command_without_group_by_errors() {
+        let input = "-- @name Foo\n-- @returns :grouped\nSELECT 1";
+        let err = parse(input).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidAnnotation);
+        assert!(err.message.contains("@group_by"));
+    }
+
+    #[test]
+    fn test_group_by_without_grouped_is_ignored() {
+        let input = "-- @name Foo\n-- @returns :many\n-- @group_by users.id\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.command, QueryCommand::Many);
+        assert_eq!(q.annotations.group_by, Some("users.id".to_string()));
     }
 }

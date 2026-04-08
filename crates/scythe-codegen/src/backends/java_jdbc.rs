@@ -15,6 +15,7 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/java-jdbc.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/java-jdbc.mysql.toml");
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/java-jdbc.sqlite.toml");
+const DEFAULT_MANIFEST_DUCKDB: &str = include_str!("../../manifests/java-jdbc.duckdb.toml");
 
 pub struct JavaJdbcBackend {
     manifest: BackendManifest,
@@ -26,6 +27,7 @@ impl JavaJdbcBackend {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
             "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
+            "duckdb" => DEFAULT_MANIFEST_DUCKDB,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
@@ -151,7 +153,7 @@ impl CodegenBackend for JavaJdbcBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql", "sqlite"]
+        &["postgresql", "mysql", "sqlite", "duckdb"]
     }
 
     fn file_header(&self) -> String {
@@ -471,6 +473,12 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "    }}");
                     let _ = write!(out, "}}");
                 }
+            }
+            QueryCommand::Grouped => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "grouped queries are not yet supported for java-jdbc".to_string(),
+                ));
             }
         }
 

@@ -329,6 +329,9 @@ impl CodegenBackend for TypescriptPgBackend {
                 let _ = writeln!(out, "\treturn result.rowCount ?? 0;");
                 let _ = write!(out, "}}");
             }
+            QueryCommand::Grouped => {
+                unreachable!("Grouped is rewritten to Many before codegen")
+            }
         }
 
         Ok(out)

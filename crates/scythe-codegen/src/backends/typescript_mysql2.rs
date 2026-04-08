@@ -320,6 +320,9 @@ impl CodegenBackend for TypescriptMysql2Backend {
                 );
                 let _ = write!(out, "}}");
             }
+            QueryCommand::Grouped => {
+                unreachable!("Grouped is rewritten to Many before codegen")
+            }
         }
 
         Ok(out)

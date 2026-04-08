@@ -256,6 +256,7 @@ mod tests {
             composites: vec![],
             enums: vec![],
             optional_params: vec![],
+            group_by: None,
         }
     }
 
@@ -269,6 +270,7 @@ mod tests {
             json_mappings: vec![],
             deprecated: None,
             optional_params: vec![],
+            group_by: None,
         }
     }
 

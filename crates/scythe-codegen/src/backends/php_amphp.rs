@@ -251,7 +251,7 @@ impl CodegenBackend for PhpAmphpBackend {
             QueryCommand::Many => "\\Generator".to_string(),
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         };
 
         let _ = writeln!(
@@ -304,7 +304,7 @@ impl CodegenBackend for PhpAmphpBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "        return $result->getRowCount();");
             }
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         }
 
         let _ = write!(out, "    }}");

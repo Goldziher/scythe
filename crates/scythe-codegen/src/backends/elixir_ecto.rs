@@ -215,6 +215,12 @@ impl CodegenBackend for ElixirEctoBackend {
                     func_name, param_specs
                 );
             }
+            QueryCommand::Grouped => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "grouped queries are not yet supported for elixir-ecto".to_string(),
+                ));
+            }
         }
         let _ = writeln!(out, "def {}(repo{}{}) do", func_name, sep, param_list);
 
@@ -293,7 +299,7 @@ impl CodegenBackend for ElixirEctoBackend {
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         }
 
         let _ = write!(out, "end");

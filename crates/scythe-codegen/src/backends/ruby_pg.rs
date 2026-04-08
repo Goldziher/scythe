@@ -215,6 +215,7 @@ impl CodegenBackend for RubyPgBackend {
                 );
                 let _ = writeln!(out, "    result.cmd_tuples.to_i");
             }
+            QueryCommand::Grouped => unreachable!("handled as Many in codegen"),
         }
 
         let _ = write!(out, "  end");
