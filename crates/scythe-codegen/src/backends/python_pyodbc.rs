@@ -216,10 +216,11 @@ impl CodegenBackend for PythonPyodbcBackend {
                 } else {
                     "int".to_string()
                 };
+                let items_or_count = if params.is_empty() { "count" } else { "items" };
                 let _ = writeln!(
                     out,
-                    "def {}(conn: pyodbc.Connection, *, items: {}) -> None:",
-                    batch_fn_name, items_type
+                    "def {}(conn: pyodbc.Connection, *, {}: {}) -> None:",
+                    batch_fn_name, items_or_count, items_type
                 );
                 let _ = writeln!(
                     out,
@@ -228,7 +229,7 @@ impl CodegenBackend for PythonPyodbcBackend {
                 );
                 let _ = writeln!(out, "    cursor = conn.cursor()");
                 if params.is_empty() {
-                    let _ = writeln!(out, "    for _ in range(items):");
+                    let _ = writeln!(out, "    for _ in range(count):");
                     let _ = writeln!(out, "        cursor.execute(\"\"\"{}\"\"\")", sql);
                 } else if params.len() == 1 {
                     let _ = writeln!(out, "    for item in items:");
@@ -297,6 +298,7 @@ impl CodegenBackend for PythonPyodbcBackend {
                         sql, args_tuple
                     );
                 }
+                let _ = writeln!(out, "    conn.commit()");
             }
             QueryCommand::Grouped => unreachable!("Grouped is rewritten to Many before codegen"),
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
@@ -316,6 +318,7 @@ impl CodegenBackend for PythonPyodbcBackend {
                         sql, args_tuple
                     );
                 }
+                let _ = writeln!(out, "    conn.commit()");
                 let _ = writeln!(out, "    return cursor.rowcount");
             }
         }

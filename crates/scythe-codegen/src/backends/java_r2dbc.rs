@@ -5,6 +5,8 @@ use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
 };
 
+use scythe_backend::types::resolve_type;
+
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
@@ -239,7 +241,7 @@ impl CodegenBackend for JavaR2dbcBackend {
         // Helper: write .bind() calls for R2DBC (0-based indexing)
         let write_binds = |out: &mut String, indent: &str| {
             for (i, param) in params.iter().enumerate() {
-                let _ = writeln!(out, "{}.bind({}, {})", indent, i, param.field_name);
+                let _ = writeln!(out, "{}.bind({}, {});", indent, i, param.field_name);
             }
         };
 
@@ -555,7 +557,12 @@ impl CodegenBackend for JavaR2dbcBackend {
             let fields = composite
                 .fields
                 .iter()
-                .map(|f| format!("Object {}", to_camel_case(&f.name)))
+                .map(|f| {
+                    let field_type = resolve_type(&f.neutral_type, &self.manifest, false)
+                        .map(|t| t.into_owned())
+                        .unwrap_or_else(|_| "Object".to_string());
+                    format!("{} {}", field_type, to_camel_case(&f.name))
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             let _ = writeln!(out, "public record {}({}) {{}}", name, fields);

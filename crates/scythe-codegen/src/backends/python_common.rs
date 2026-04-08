@@ -69,7 +69,7 @@ impl PythonRowType {
     /// Returns the decorator line (for dataclass) or empty string (for others).
     pub fn decorator(self) -> &'static str {
         match self {
-            Self::Dataclass => "@dataclass\n",
+            Self::Dataclass => "@dataclass(frozen=True, slots=True)\n",
             Self::Pydantic | Self::Msgspec => "",
         }
     }

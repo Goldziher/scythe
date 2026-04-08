@@ -179,9 +179,10 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                 let ret = format!("{} | null", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
                 emit_execute(&mut out, &sql, &binds, "rows");
+                // Snowflake SDK rows are typed as any[], so a single assertion suffices.
                 let _ = writeln!(
                     out,
-                    "\treturn rows.length > 0 ? rows[0] as unknown as {} : null;",
+                    "\treturn rows.length > 0 ? (rows[0] as {}) : null;",
                     struct_name
                 );
                 let _ = write!(out, "}}");
@@ -267,7 +268,8 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                 let ret = format!("{}[]", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
                 emit_execute(&mut out, &sql, &binds, "rows");
-                let _ = writeln!(out, "\treturn rows as unknown as {}[];", struct_name);
+                // Snowflake SDK rows are typed as any[], so a single assertion suffices.
+                let _ = writeln!(out, "\treturn rows as {}[];", struct_name);
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {

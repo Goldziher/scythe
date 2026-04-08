@@ -134,7 +134,7 @@ impl CodegenBackend for ElixirJamdbBackend {
             QueryCommand::One => {
                 let _ = writeln!(
                     out,
-                    "@spec {}(DBConnection.conn(){}) :: {{:ok, %{}{{}}}} | {{:error, term()}}",
+                    "@spec {}(DBConnection.conn(){}) :: {{:ok, %{}{{}}}} | {{:error, :not_found}} | {{:error, term()}}",
                     func_name, param_specs, struct_name
                 );
             }
@@ -202,7 +202,7 @@ impl CodegenBackend for ElixirJamdbBackend {
                     "  case Jamdb.Oracle.query(conn, \"{}\", {}) do",
                     sql, param_args
                 );
-                let _ = writeln!(out, "    {{:ok, %{{rows: [row]}}}} ->");
+                let _ = writeln!(out, "    {{:ok, %{{rows: [row | _]}}}} ->");
 
                 let field_vars = columns
                     .iter()

@@ -278,6 +278,8 @@ impl CodegenBackend for PhpAmphpBackend {
         );
 
         // Build execute params
+        // NOTE: This prepares the statement on every call for simplicity.
+        // For hot paths, consider caching the prepared statement outside this method.
         if params.is_empty() {
             let _ = writeln!(
                 out,

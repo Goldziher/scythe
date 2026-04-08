@@ -109,7 +109,15 @@ impl CodegenBackend for KotlinJdbcBackend {
     }
 
     fn file_header(&self) -> String {
-        "import java.sql.Connection\n".to_string()
+        "import java.math.BigDecimal\n\
+         import java.sql.Connection\n\
+         import java.time.LocalDate\n\
+         import java.time.LocalDateTime\n\
+         import java.time.LocalTime\n\
+         import java.time.OffsetDateTime\n\
+         import java.time.OffsetTime\n\
+         import java.util.UUID\n"
+            .to_string()
     }
 
     fn generate_row_struct(
@@ -272,21 +280,34 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "    conn: Connection,");
                     let _ = writeln!(out, "    items: List<{}>,", params_class_name);
                     let _ = writeln!(out, ") {{");
-                    let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
-                    let _ = writeln!(out, "        for (item in items) {{");
+                    let _ = writeln!(out, "    conn.autoCommit = false");
+                    let _ = writeln!(out, "    try {{");
+                    let _ = writeln!(
+                        out,
+                        "        conn.prepareStatement(\"{}\").use {{ ps ->",
+                        sql
+                    );
+                    let _ = writeln!(out, "            for (item in items) {{");
                     for (i, param) in params.iter().enumerate() {
                         let setter = ps_setter(&param.lang_type);
                         let _ = writeln!(
                             out,
-                            "            ps.{}({}, item.{})",
+                            "                ps.{}({}, item.{})",
                             setter,
                             i + 1,
                             param.field_name
                         );
                     }
-                    let _ = writeln!(out, "            ps.addBatch()");
+                    let _ = writeln!(out, "                ps.addBatch()");
+                    let _ = writeln!(out, "            }}");
+                    let _ = writeln!(out, "            ps.executeBatch()");
                     let _ = writeln!(out, "        }}");
-                    let _ = writeln!(out, "        ps.executeBatch()");
+                    let _ = writeln!(out, "        conn.commit()");
+                    let _ = writeln!(out, "    }} catch (e: Exception) {{");
+                    let _ = writeln!(out, "        conn.rollback()");
+                    let _ = writeln!(out, "        throw e");
+                    let _ = writeln!(out, "    }} finally {{");
+                    let _ = writeln!(out, "        conn.autoCommit = true");
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                 } else if params.len() == 1 {
@@ -294,13 +315,26 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "    conn: Connection,");
                     let _ = writeln!(out, "    items: List<{}>,", params[0].full_type);
                     let _ = writeln!(out, ") {{");
-                    let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
-                    let _ = writeln!(out, "        for (item in items) {{");
+                    let _ = writeln!(out, "    conn.autoCommit = false");
+                    let _ = writeln!(out, "    try {{");
+                    let _ = writeln!(
+                        out,
+                        "        conn.prepareStatement(\"{}\").use {{ ps ->",
+                        sql
+                    );
+                    let _ = writeln!(out, "            for (item in items) {{");
                     let setter = ps_setter(&params[0].lang_type);
-                    let _ = writeln!(out, "            ps.{}(1, item)", setter);
-                    let _ = writeln!(out, "            ps.addBatch()");
+                    let _ = writeln!(out, "                ps.{}(1, item)", setter);
+                    let _ = writeln!(out, "                ps.addBatch()");
+                    let _ = writeln!(out, "            }}");
+                    let _ = writeln!(out, "            ps.executeBatch()");
                     let _ = writeln!(out, "        }}");
-                    let _ = writeln!(out, "        ps.executeBatch()");
+                    let _ = writeln!(out, "        conn.commit()");
+                    let _ = writeln!(out, "    }} catch (e: Exception) {{");
+                    let _ = writeln!(out, "        conn.rollback()");
+                    let _ = writeln!(out, "        throw e");
+                    let _ = writeln!(out, "    }} finally {{");
+                    let _ = writeln!(out, "        conn.autoCommit = true");
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                 } else {
@@ -309,11 +343,24 @@ impl CodegenBackend for KotlinJdbcBackend {
                         "fun {}(conn: Connection, count: Int) {{",
                         batch_fn_name
                     );
-                    let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
-                    let _ = writeln!(out, "        repeat(count) {{");
-                    let _ = writeln!(out, "            ps.addBatch()");
+                    let _ = writeln!(out, "    conn.autoCommit = false");
+                    let _ = writeln!(out, "    try {{");
+                    let _ = writeln!(
+                        out,
+                        "        conn.prepareStatement(\"{}\").use {{ ps ->",
+                        sql
+                    );
+                    let _ = writeln!(out, "            repeat(count) {{");
+                    let _ = writeln!(out, "                ps.addBatch()");
+                    let _ = writeln!(out, "            }}");
+                    let _ = writeln!(out, "            ps.executeBatch()");
                     let _ = writeln!(out, "        }}");
-                    let _ = writeln!(out, "        ps.executeBatch()");
+                    let _ = writeln!(out, "        conn.commit()");
+                    let _ = writeln!(out, "    }} catch (e: Exception) {{");
+                    let _ = writeln!(out, "        conn.rollback()");
+                    let _ = writeln!(out, "        throw e");
+                    let _ = writeln!(out, "    }} finally {{");
+                    let _ = writeln!(out, "        conn.autoCommit = true");
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                 }

@@ -62,8 +62,16 @@ fn reader_method(neutral_type: &str) -> &'static str {
 /// Rewrite $1, $2, ... to @p1, @p2, ... for MSSQL.
 /// Build the expression to read a column from SqlDataReader.
 fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
-    let method = reader_method(&col.neutral_type);
-    format!("reader.{}({})", method, ordinal)
+    if col.neutral_type.starts_with("enum::") {
+        format!(
+            "(Enum.TryParse<{typ}>(reader.GetString({ord}), true, out var enumVal{ord}) ? enumVal{ord} : throw new InvalidOperationException($\"Invalid enum value '{{reader.GetString({ord})}}' for {typ}\"))",
+            typ = col.lang_type,
+            ord = ordinal
+        )
+    } else {
+        let method = reader_method(&col.neutral_type);
+        format!("reader.{}({})", method, ordinal)
+    }
 }
 
 impl CodegenBackend for CsharpSqlClientBackend {

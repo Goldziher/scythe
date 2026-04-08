@@ -5,6 +5,8 @@ use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
 };
 
+use scythe_backend::types::resolve_type;
+
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
@@ -74,11 +76,11 @@ fn rs_getter(java_type: &str) -> &str {
         "String" => "getString",
         "byte[]" => "getBytes",
         _ if java_type.contains("BigDecimal") => "getBigDecimal",
-        _ if java_type.contains("LocalDate") => "getObject",
-        _ if java_type.contains("LocalTime") => "getObject",
-        _ if java_type.contains("OffsetTime") => "getObject",
-        _ if java_type.contains("LocalDateTime") => "getObject",
-        _ if java_type.contains("OffsetDateTime") => "getObject",
+        _ if java_type.contains("LocalDate") => "getDate",
+        _ if java_type.contains("LocalTime") => "getTime",
+        _ if java_type.contains("OffsetTime") => "getTime",
+        _ if java_type.contains("LocalDateTime") => "getTimestamp",
+        _ if java_type.contains("OffsetDateTime") => "getTimestamp",
         _ if java_type.contains("UUID") => "getObject",
         _ => "getObject",
     }
@@ -339,7 +341,7 @@ impl CodegenBackend for JavaJdbcBackend {
             QueryCommand::Many => {
                 let _ = writeln!(
                     out,
-                    "public static java.util.List<{}> {}(Connection conn{}{}) throws SQLException {{",
+                    "public static List<{}> {}(Connection conn{}{}) throws SQLException {{",
                     struct_name, func_name, sep, param_list
                 );
                 let _ = writeln!(
@@ -360,7 +362,7 @@ impl CodegenBackend for JavaJdbcBackend {
                 let _ = writeln!(out, "        try (ResultSet rs = ps.executeQuery()) {{");
                 let _ = writeln!(
                     out,
-                    "            java.util.List<{}> result = new java.util.ArrayList<>();",
+                    "            List<{}> result = new ArrayList<>();",
                     struct_name
                 );
                 let _ = writeln!(out, "            while (rs.next()) {{");
@@ -394,7 +396,7 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out);
                     let _ = writeln!(
                         out,
-                        "public static void {}(Connection conn, java.util.List<{}> items) throws SQLException {{",
+                        "public static void {}(Connection conn, List<{}> items) throws SQLException {{",
                         batch_fn_name, params_record_name
                     );
                     let _ = writeln!(out, "    conn.setAutoCommit(false);");
@@ -429,7 +431,7 @@ impl CodegenBackend for JavaJdbcBackend {
                     let param = &params[0];
                     let _ = writeln!(
                         out,
-                        "public static void {}(Connection conn, java.util.List<{}> items) throws SQLException {{",
+                        "public static void {}(Connection conn, List<{}> items) throws SQLException {{",
                         batch_fn_name,
                         java_param_type(param)
                     );
@@ -524,7 +526,12 @@ impl CodegenBackend for JavaJdbcBackend {
             let fields = composite
                 .fields
                 .iter()
-                .map(|f| format!("Object {}", to_camel_case(&f.name)))
+                .map(|f| {
+                    let field_type = resolve_type(&f.neutral_type, &self.manifest, false)
+                        .map(|t| t.into_owned())
+                        .unwrap_or_else(|_| "Object".to_string());
+                    format!("{} {}", field_type, to_camel_case(&f.name))
+                })
                 .collect::<Vec<_>>()
                 .join(", ");
             let _ = writeln!(out, "public record {}({}) {{}}", name, fields);

@@ -111,7 +111,9 @@ impl CodegenBackend for RubyOci8Backend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        let _ = writeln!(out, "  def self.{}(conn{}{})", func_name, sep, param_list);
+        if !matches!(analyzed.command, QueryCommand::Batch) {
+            let _ = writeln!(out, "  def self.{}(conn{}{})", func_name, sep, param_list);
+        }
 
         let bind_vars = if params.is_empty() {
             String::new()
@@ -158,8 +160,8 @@ impl CodegenBackend for RubyOci8Backend {
                 let _ = writeln!(out, "    nil");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(out, "    conn.exec(\"{}\"{})", sql, bind_vars);
-                let _ = writeln!(out, "    conn.row_count");
+                let _ = writeln!(out, "    cursor = conn.exec(\"{}\"{})", sql, bind_vars);
+                let _ = writeln!(out, "    cursor.row_count");
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}_batch", func_name);

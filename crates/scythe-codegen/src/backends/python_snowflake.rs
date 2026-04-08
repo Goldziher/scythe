@@ -171,10 +171,11 @@ impl CodegenBackend for PythonSnowflakeBackend {
             QueryCommand::One => {
                 let _ = writeln!(
                     out,
-                    "def {}(cur: snowflake.connector.cursor.SnowflakeCursor{}{}) -> {} | None:",
+                    "def {}(conn: snowflake.connector.SnowflakeConnection{}{}) -> {} | None:",
                     func_name, kw_sep, param_list, struct_name
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
+                let _ = writeln!(out, "    cur = conn.cursor()");
                 if params.is_empty() {
                     let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\")", sql);
                 } else {
@@ -214,18 +215,20 @@ impl CodegenBackend for PythonSnowflakeBackend {
                 } else {
                     "int".to_string()
                 };
+                let items_or_count = if params.is_empty() { "count" } else { "items" };
                 let _ = writeln!(
                     out,
-                    "def {}(cur: snowflake.connector.cursor.SnowflakeCursor, *, items: {}) -> None:",
-                    batch_fn_name, items_type
+                    "def {}(conn: snowflake.connector.SnowflakeConnection, *, {}: {}) -> None:",
+                    batch_fn_name, items_or_count, items_type
                 );
                 let _ = writeln!(
                     out,
                     "    \"\"\"Execute {} query for each item in the batch.\"\"\"",
                     analyzed.name
                 );
+                let _ = writeln!(out, "    cur = conn.cursor()");
                 if params.is_empty() {
-                    let _ = writeln!(out, "    for _ in range(items):");
+                    let _ = writeln!(out, "    for _ in range(count):");
                     let _ = writeln!(out, "        cur.execute(\"\"\"{}\"\"\")", sql);
                 } else if params.len() == 1 {
                     let _ = writeln!(out, "    for item in items:");
@@ -238,10 +241,11 @@ impl CodegenBackend for PythonSnowflakeBackend {
             QueryCommand::Many => {
                 let _ = writeln!(
                     out,
-                    "def {}(cur: snowflake.connector.cursor.SnowflakeCursor{}{}) -> list[{}]:",
+                    "def {}(conn: snowflake.connector.SnowflakeConnection{}{}) -> list[{}]:",
                     func_name, kw_sep, param_list, struct_name
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
+                let _ = writeln!(out, "    cur = conn.cursor()");
                 if params.is_empty() {
                     let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\")", sql);
                 } else {
@@ -274,10 +278,11 @@ impl CodegenBackend for PythonSnowflakeBackend {
             QueryCommand::Exec => {
                 let _ = writeln!(
                     out,
-                    "def {}(cur: snowflake.connector.cursor.SnowflakeCursor{}{}) -> None:",
+                    "def {}(conn: snowflake.connector.SnowflakeConnection{}{}) -> None:",
                     func_name, kw_sep, param_list
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
+                let _ = writeln!(out, "    cur = conn.cursor()");
                 if params.is_empty() {
                     let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\")", sql);
                 } else {
@@ -288,10 +293,11 @@ impl CodegenBackend for PythonSnowflakeBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(
                     out,
-                    "def {}(cur: snowflake.connector.cursor.SnowflakeCursor{}{}) -> int:",
+                    "def {}(conn: snowflake.connector.SnowflakeConnection{}{}) -> int:",
                     func_name, kw_sep, param_list
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
+                let _ = writeln!(out, "    cur = conn.cursor()");
                 if params.is_empty() {
                     let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\")", sql);
                 } else {
