@@ -1,0 +1,319 @@
+"""Integration tests for scythe-generated {{ driver }} queries{% if options.row_type %} with {{ options.row_type | capitalize }} row types{% endif %}."""
+
+import asyncio
+import os
+import sys
+from decimal import Decimal
+from pathlib import Path
+{%- if driver == "psycopg3" %}
+
+import psycopg
+{%- elif driver == "asyncpg" %}
+
+import asyncpg
+{%- elif driver == "aiomysql" %}
+
+import aiomysql
+{%- elif driver == "aiosqlite" %}
+
+import aiosqlite
+{%- endif %}
+{%- if options.row_type == "pydantic" %}
+from pydantic import BaseModel
+{%- elif options.row_type == "msgspec" %}
+import msgspec
+{%- endif %}
+
+from generated.queries import (
+{%- if options.row_type == "pydantic" %}
+    CreateOrderRow,
+    CreateUserRow,
+    GetOrdersByUserRow,
+    GetUserByIdRow,
+    ListActiveUsersRow,
+{%- endif %}
+{%- if engine == "postgresql" %}
+    UserStatus,
+{%- endif %}
+    create_order,
+    create_user,
+    delete_orders_by_user,
+    delete_user,
+    get_orders_by_user,
+    get_user_by_id,
+    list_active_users,
+)
+
+
+{% if engine == "postgresql" -%}
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "pg" / "schema.sql"
+{%- elif engine == "mysql" -%}
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mysql" / "schema.sql"
+{%- elif engine == "sqlite" -%}
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "sqlite" / "schema.sql"
+{%- endif %}
+
+
+def get_database_url() -> str:
+    """Read {{ connection_env }} from environment."""
+    url = os.environ.get("{{ connection_env }}")
+    if not url:
+        print("ERROR: {{ connection_env }} environment variable is not set", file=sys.stderr)
+        sys.exit(1)
+    return url
+
+
+{% if driver == "psycopg3" -%}
+async def setup_schema(conn: psycopg.AsyncConnection) -> None:
+    """Drop all tables and recreate schema from SQL file."""
+{%- if engine == "postgresql" %}
+    await conn.execute("DROP TABLE IF EXISTS user_tags CASCADE")
+    await conn.execute("DROP TABLE IF EXISTS tags CASCADE")
+    await conn.execute("DROP TABLE IF EXISTS orders CASCADE")
+    await conn.execute("DROP TABLE IF EXISTS users CASCADE")
+    await conn.execute("DROP TYPE IF EXISTS user_status CASCADE")
+{%- endif %}
+    schema_sql = SCHEMA_PATH.read_text()
+    await conn.execute(schema_sql)
+    await conn.commit()
+{%- elif driver == "asyncpg" -%}
+async def setup_schema(conn: asyncpg.Connection) -> None:
+    """Drop all tables and recreate schema from SQL file."""
+{%- if engine == "postgresql" %}
+    await conn.execute("DROP TABLE IF EXISTS user_tags CASCADE")
+    await conn.execute("DROP TABLE IF EXISTS tags CASCADE")
+    await conn.execute("DROP TABLE IF EXISTS orders CASCADE")
+    await conn.execute("DROP TABLE IF EXISTS users CASCADE")
+    await conn.execute("DROP TYPE IF EXISTS user_status CASCADE")
+{%- endif %}
+    schema_sql = SCHEMA_PATH.read_text()
+    await conn.execute(schema_sql)
+{%- elif driver == "aiomysql" -%}
+async def setup_schema(conn) -> None:
+    """Drop all tables and recreate schema from SQL file."""
+    async with conn.cursor() as cur:
+        await cur.execute("DROP TABLE IF EXISTS user_tags")
+        await cur.execute("DROP TABLE IF EXISTS tags")
+        await cur.execute("DROP TABLE IF EXISTS orders")
+        await cur.execute("DROP TABLE IF EXISTS users")
+    schema_sql = SCHEMA_PATH.read_text()
+    async with conn.cursor() as cur:
+        for stmt in schema_sql.split(";"):
+            stmt = stmt.strip()
+            if stmt:
+                await cur.execute(stmt)
+    await conn.commit()
+{%- elif driver == "aiosqlite" -%}
+async def setup_schema(conn: aiosqlite.Connection) -> None:
+    """Drop all tables and recreate schema from SQL file."""
+    await conn.execute("DROP TABLE IF EXISTS user_tags")
+    await conn.execute("DROP TABLE IF EXISTS tags")
+    await conn.execute("DROP TABLE IF EXISTS orders")
+    await conn.execute("DROP TABLE IF EXISTS users")
+    schema_sql = SCHEMA_PATH.read_text()
+    await conn.executescript(schema_sql)
+    await conn.commit()
+{%- endif %}
+
+{% if options.row_type == "pydantic" %}
+async def test_row_types_are_pydantic_models() -> None:
+    """Verify generated row types are Pydantic BaseModel subclasses."""
+    for row_cls in (CreateUserRow, GetUserByIdRow, ListActiveUsersRow, CreateOrderRow, GetOrdersByUserRow):
+        assert issubclass(row_cls, BaseModel), (
+            f"Expected {row_cls.__name__} to be a BaseModel subclass, got {row_cls.__bases__}"
+        )
+    print("PASS: Row types are Pydantic BaseModel subclasses")
+
+
+{% endif -%}
+{%- if driver == "psycopg3" %}
+async def test_create_user(conn: psycopg.AsyncConnection) -> int:
+{%- elif driver == "asyncpg" %}
+async def test_create_user(conn: asyncpg.Connection) -> int:
+{%- else %}
+async def test_create_user(conn) -> int:
+{%- endif %}
+    """Test CreateUser query. Returns created user ID."""
+    user = await create_user(
+        conn, name="Alice", email="alice@example.com"
+        {%- if engine == "postgresql" %}, status=UserStatus.active{%- endif %}
+    )
+    assert user is not None, "CreateUser returned None"
+{%- if options.row_type == "pydantic" %}
+    assert isinstance(user, BaseModel), f"Expected BaseModel instance, got {type(user)}"
+{%- endif %}
+    assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
+    assert user.email == "alice@example.com", f"Expected email 'alice@example.com', got '{user.email}'"
+{%- if engine == "postgresql" %}
+    assert user.status == UserStatus.active or user.status == "active", (
+        f"Expected status 'active', got '{user.status}'"
+    )
+{%- endif %}
+{%- if driver == "psycopg3" %}
+    await conn.commit()
+{%- endif %}
+    print("PASS: CreateUser")
+    return user.id
+
+
+{% if driver == "psycopg3" -%}
+async def test_get_user_by_id(conn: psycopg.AsyncConnection, user_id: int) -> None:
+{%- elif driver == "asyncpg" -%}
+async def test_get_user_by_id(conn: asyncpg.Connection, user_id: int) -> None:
+{%- else -%}
+async def test_get_user_by_id(conn, user_id: int) -> None:
+{%- endif %}
+    """Test GetUserById query."""
+    user = await get_user_by_id(conn, id=user_id)
+    assert user is not None, f"GetUserById returned None for id={user_id}"
+{%- if options.row_type == "pydantic" %}
+    assert isinstance(user, BaseModel), f"Expected BaseModel instance, got {type(user)}"
+{%- endif %}
+    assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
+    assert user.id == user_id, f"Expected id {user_id}, got {user.id}"
+    print("PASS: GetUserById")
+
+
+{% if driver == "psycopg3" -%}
+async def test_list_active_users(conn: psycopg.AsyncConnection) -> None:
+{%- elif driver == "asyncpg" -%}
+async def test_list_active_users(conn: asyncpg.Connection) -> None:
+{%- else -%}
+async def test_list_active_users(conn) -> None:
+{%- endif %}
+    """Test ListActiveUsers query."""
+    users = await list_active_users(conn{% if engine == "postgresql" %}, status=UserStatus.active{% endif %})
+    assert len(users) >= 1, f"Expected at least 1 active user, got {len(users)}"
+{%- if options.row_type == "pydantic" %}
+    assert isinstance(users[0], BaseModel), f"Expected BaseModel instance, got {type(users[0])}"
+{%- endif %}
+    names = [u.name for u in users]
+    assert "Alice" in names, f"Expected 'Alice' in active users, got {names}"
+    print("PASS: ListActiveUsers")
+
+
+{% if driver == "psycopg3" -%}
+async def test_create_order(conn: psycopg.AsyncConnection, user_id: int) -> int:
+{%- elif driver == "asyncpg" -%}
+async def test_create_order(conn: asyncpg.Connection, user_id: int) -> int:
+{%- else -%}
+async def test_create_order(conn, user_id: int) -> int:
+{%- endif %}
+    """Test CreateOrder query. Returns created order ID."""
+    order = await create_order(
+        conn, user_id=user_id, total=Decimal("49.99"), notes="Test order"
+    )
+    assert order is not None, "CreateOrder returned None"
+{%- if options.row_type == "pydantic" %}
+    assert isinstance(order, BaseModel), f"Expected BaseModel instance, got {type(order)}"
+{%- endif %}
+    assert order.user_id == user_id, f"Expected user_id {user_id}, got {order.user_id}"
+    assert order.notes == "Test order", f"Expected notes 'Test order', got '{order.notes}'"
+{%- if driver == "psycopg3" %}
+    await conn.commit()
+{%- endif %}
+    print("PASS: CreateOrder")
+    return order.id
+
+
+{% if driver == "psycopg3" -%}
+async def test_get_orders_by_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
+{%- elif driver == "asyncpg" -%}
+async def test_get_orders_by_user(conn: asyncpg.Connection, user_id: int) -> None:
+{%- else -%}
+async def test_get_orders_by_user(conn, user_id: int) -> None:
+{%- endif %}
+    """Test GetOrdersByUser query."""
+    orders = await get_orders_by_user(conn, user_id=user_id)
+    assert len(orders) >= 1, f"Expected at least 1 order, got {len(orders)}"
+{%- if options.row_type == "pydantic" %}
+    assert isinstance(orders[0], BaseModel), f"Expected BaseModel instance, got {type(orders[0])}"
+{%- endif %}
+    assert orders[0].notes == "Test order", f"Expected notes 'Test order', got '{orders[0].notes}'"
+    print("PASS: GetOrdersByUser")
+
+
+{% if driver == "psycopg3" -%}
+async def test_delete_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
+{%- elif driver == "asyncpg" -%}
+async def test_delete_user(conn: asyncpg.Connection, user_id: int) -> None:
+{%- else -%}
+async def test_delete_user(conn, user_id: int) -> None:
+{%- endif %}
+    """Test DeleteUser query."""
+    # Delete orders first due to FK constraint
+    await delete_orders_by_user(conn, user_id=user_id)
+    await delete_user(conn, id=user_id)
+{%- if driver == "psycopg3" %}
+    await conn.commit()
+{%- endif %}
+    user = await get_user_by_id(conn, id=user_id)
+    assert user is None, f"Expected user to be deleted, but got {user}"
+    print("PASS: DeleteUser")
+
+
+async def run_tests() -> None:
+    """Run all integration tests."""
+    database_url = get_database_url()
+{%- if driver == "psycopg3" %}
+    async with await psycopg.AsyncConnection.connect(database_url) as conn:
+        await setup_schema(conn)
+{% if options.row_type == "pydantic" %}
+        await test_row_types_are_pydantic_models()
+{%- endif %}
+        user_id = await test_create_user(conn)
+        await test_get_user_by_id(conn, user_id)
+        await test_list_active_users(conn)
+        order_id = await test_create_order(conn, user_id)
+        await test_get_orders_by_user(conn, user_id)
+        await test_delete_user(conn, user_id)
+{%- elif driver == "asyncpg" %}
+    conn = await asyncpg.connect(database_url)
+    try:
+        await setup_schema(conn)
+
+        user_id = await test_create_user(conn)
+        await test_get_user_by_id(conn, user_id)
+        await test_list_active_users(conn)
+        order_id = await test_create_order(conn, user_id)
+        await test_get_orders_by_user(conn, user_id)
+        await test_delete_user(conn, user_id)
+    finally:
+        await conn.close()
+{%- elif driver == "aiomysql" %}
+    conn = await aiomysql.connect(host="localhost", user="root", password="", db="scythe_test")
+    try:
+        await setup_schema(conn)
+
+        user_id = await test_create_user(conn)
+        await test_get_user_by_id(conn, user_id)
+        await test_list_active_users(conn)
+        order_id = await test_create_order(conn, user_id)
+        await test_get_orders_by_user(conn, user_id)
+        await test_delete_user(conn, user_id)
+    finally:
+        conn.close()
+{%- elif driver == "aiosqlite" %}
+    conn = await aiosqlite.connect(database_url)
+    try:
+        await setup_schema(conn)
+
+        user_id = await test_create_user(conn)
+        await test_get_user_by_id(conn, user_id)
+        await test_list_active_users(conn)
+        order_id = await test_create_order(conn, user_id)
+        await test_get_orders_by_user(conn, user_id)
+        await test_delete_user(conn, user_id)
+    finally:
+        await conn.close()
+{%- endif %}
+
+    print("\nALL TESTS PASSED")
+
+
+if __name__ == "__main__":
+    try:
+        asyncio.run(run_tests())
+    except Exception as exc:
+        print(f"FAIL: {exc}", file=sys.stderr)
+        sys.exit(1)

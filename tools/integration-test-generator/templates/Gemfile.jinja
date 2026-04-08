@@ -1,0 +1,13 @@
+# frozen_string_literal: true
+
+source "https://rubygems.org"
+
+{% if driver == "pg" -%}
+gem "pg"
+{%- elif driver == "mysql2" -%}
+gem "mysql2"
+{%- elif driver == "sqlite3" -%}
+gem "sqlite3"
+{%- elif driver == "trilogy" -%}
+gem "trilogy"
+{%- endif %}

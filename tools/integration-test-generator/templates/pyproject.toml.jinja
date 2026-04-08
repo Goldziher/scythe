@@ -1,0 +1,20 @@
+[project]
+name = "scythe-integration-{{ driver }}"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+{%- if driver == "psycopg3" %}
+    "psycopg[binary]>=3.1",
+{%- elif driver == "asyncpg" %}
+    "asyncpg>=0.29",
+{%- elif driver == "aiomysql" %}
+    "aiomysql>=0.2",
+{%- elif driver == "aiosqlite" %}
+    "aiosqlite>=0.20",
+{%- endif %}
+{%- if options.row_type == "pydantic" %}
+    "pydantic>=2.0",
+{%- elif options.row_type == "msgspec" %}
+    "msgspec>=0.18",
+{%- endif %}
+]

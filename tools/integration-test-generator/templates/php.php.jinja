@@ -1,0 +1,281 @@
+<?php
+
+declare(strict_types=1);
+
+require_once __DIR__ . '/generated/queries.php';
+
+use App\Generated\Queries;
+{%- if engine == "postgresql" %}
+use App\Generated\UserStatus;
+{%- endif %}
+use App\Generated\CreateUserRow;
+use App\Generated\GetUserByIdRow;
+use App\Generated\ListActiveUsersRow;
+use App\Generated\CreateOrderRow;
+use App\Generated\GetOrdersByUserRow;
+
+function get_database_url(): string
+{
+    $url = getenv('{{ connection_env }}');
+    if ($url === false || $url === '') {
+        fwrite(STDERR, "ERROR: {{ connection_env }} environment variable is not set\n");
+        exit(1);
+    }
+    return $url;
+}
+
+{% if engine == "postgresql" -%}
+function parse_database_url(string $url): array
+{
+    $parts = parse_url($url);
+    if ($parts === false) {
+        fwrite(STDERR, "ERROR: Invalid {{ connection_env }} format\n");
+        exit(1);
+    }
+    return [
+        'host' => $parts['host'] ?? 'localhost',
+        'port' => $parts['port'] ?? 5432,
+        'dbname' => ltrim($parts['path'] ?? '/scythe_test', '/'),
+        'user' => $parts['user'] ?? 'scythe',
+        'password' => $parts['pass'] ?? 'scythe',
+    ];
+}
+
+{%- if driver == "pdo" %}
+
+function create_pdo(string $url): PDO
+{
+    $params = parse_database_url($url);
+    $dsn = sprintf(
+        'pgsql:host=%s;port=%d;dbname=%s',
+        $params['host'],
+        $params['port'],
+        $params['dbname']
+    );
+    $pdo = new PDO($dsn, $params['user'], $params['password'], [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+    return $pdo;
+}
+{%- elif driver == "amphp" %}
+
+function create_connection(string $url): \Amp\Postgres\PostgresConnection
+{
+    $params = parse_database_url($url);
+    $config = \Amp\Postgres\PostgresConfig::fromArray($params);
+    return \Amp\Postgres\connect($config);
+}
+{%- endif %}
+{%- elif engine == "mysql" -%}
+function parse_database_url(string $url): array
+{
+    $parts = parse_url($url);
+    if ($parts === false) {
+        fwrite(STDERR, "ERROR: Invalid {{ connection_env }} format\n");
+        exit(1);
+    }
+    return [
+        'host' => $parts['host'] ?? 'localhost',
+        'port' => $parts['port'] ?? 3306,
+        'dbname' => ltrim($parts['path'] ?? '/scythe_test', '/'),
+        'user' => $parts['user'] ?? 'root',
+        'password' => $parts['pass'] ?? '',
+    ];
+}
+
+{%- if driver == "pdo-mysql" %}
+
+function create_pdo(string $url): PDO
+{
+    $params = parse_database_url($url);
+    $dsn = sprintf(
+        'mysql:host=%s;port=%d;dbname=%s',
+        $params['host'],
+        $params['port'],
+        $params['dbname']
+    );
+    $pdo = new PDO($dsn, $params['user'], $params['password'], [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+    return $pdo;
+}
+{%- elif driver == "amphp" %}
+
+function create_connection(string $url): \Amp\Mysql\MysqlConnection
+{
+    $params = parse_database_url($url);
+    $config = \Amp\Mysql\MysqlConfig::fromArray($params);
+    return \Amp\Mysql\connect($config);
+}
+{%- endif %}
+{%- elif engine == "sqlite" -%}
+{%- if driver == "pdo-sqlite" %}
+
+function create_pdo(string $path): PDO
+{
+    $dsn = sprintf('sqlite:%s', $path);
+    $pdo = new PDO($dsn, null, null, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+    return $pdo;
+}
+{%- endif %}
+{%- endif %}
+
+{% if engine == "postgresql" -%}
+function setup_schema({% if driver == "pdo" %}PDO{% else %}$conn{% endif %} $pdo): void
+{
+    $pdo->exec("DROP TABLE IF EXISTS user_tags CASCADE");
+    $pdo->exec("DROP TABLE IF EXISTS tags CASCADE");
+    $pdo->exec("DROP TABLE IF EXISTS orders CASCADE");
+    $pdo->exec("DROP TABLE IF EXISTS users CASCADE");
+    $pdo->exec("DROP TYPE IF EXISTS user_status CASCADE");
+    $schema_path = __DIR__ . '/../sql/pg/schema.sql';
+    $schema_sql = file_get_contents($schema_path);
+    if ($schema_sql === false) {
+        throw new RuntimeException("Failed to read schema file: {$schema_path}");
+    }
+    $pdo->exec($schema_sql);
+}
+{%- elif engine == "mysql" -%}
+function setup_schema({% if driver == "pdo-mysql" %}PDO{% else %}$conn{% endif %} $pdo): void
+{
+    $pdo->exec("DROP TABLE IF EXISTS user_tags");
+    $pdo->exec("DROP TABLE IF EXISTS tags");
+    $pdo->exec("DROP TABLE IF EXISTS orders");
+    $pdo->exec("DROP TABLE IF EXISTS users");
+    $schema_path = __DIR__ . '/../sql/mysql/schema.sql';
+    $schema_sql = file_get_contents($schema_path);
+    if ($schema_sql === false) {
+        throw new RuntimeException("Failed to read schema file: {$schema_path}");
+    }
+    foreach (explode(';', $schema_sql) as $stmt) {
+        $stmt = trim($stmt);
+        if ($stmt !== '') {
+            $pdo->exec($stmt);
+        }
+    }
+}
+{%- elif engine == "sqlite" -%}
+function setup_schema(PDO $pdo): void
+{
+    $pdo->exec("DROP TABLE IF EXISTS user_tags");
+    $pdo->exec("DROP TABLE IF EXISTS tags");
+    $pdo->exec("DROP TABLE IF EXISTS orders");
+    $pdo->exec("DROP TABLE IF EXISTS users");
+    $schema_path = __DIR__ . '/../sql/sqlite/schema.sql';
+    $schema_sql = file_get_contents($schema_path);
+    if ($schema_sql === false) {
+        throw new RuntimeException("Failed to read schema file: {$schema_path}");
+    }
+    $pdo->exec($schema_sql);
+}
+{%- endif %}
+
+function assert_equal(mixed $expected, mixed $actual, string $message): void
+{
+    if ($expected !== $actual) {
+        throw new RuntimeException(
+            "Assertion failed: {$message} (expected " . var_export($expected, true)
+            . ", got " . var_export($actual, true) . ")"
+        );
+    }
+}
+
+function assert_not_null(mixed $value, string $message): void
+{
+    if ($value === null) {
+        throw new RuntimeException("Assertion failed: {$message} (got null)");
+    }
+}
+
+function assert_true(bool $value, string $message): void
+{
+    if (!$value) {
+        throw new RuntimeException("Assertion failed: {$message}");
+    }
+}
+
+function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo): int
+{
+    $user = Queries::createUser($pdo, "Alice", "alice@example.com"{% if engine == "postgresql" %}, UserStatus::active{% endif %});
+    assert_not_null($user, "CreateUser returned null");
+    assert_equal("Alice", $user->name, "CreateUser name");
+    assert_equal("alice@example.com", $user->email, "CreateUser email");
+    echo "PASS: CreateUser\n";
+    return $user->id;
+}
+
+function test_get_user_by_id({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo, int $user_id): void
+{
+    $user = Queries::getUserById($pdo, $user_id);
+    assert_not_null($user, "GetUserById returned null for id={$user_id}");
+    assert_equal("Alice", $user->name, "GetUserById name");
+    assert_equal($user_id, $user->id, "GetUserById id");
+    echo "PASS: GetUserById\n";
+}
+
+function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo): void
+{
+    $users = iterator_to_array(Queries::listActiveUsers($pdo{% if engine == "postgresql" %}, UserStatus::active{% endif %}));
+    assert_true(count($users) >= 1, "Expected at least 1 active user, got " . count($users));
+    $names = array_map(fn($u) => $u->name, $users);
+    assert_true(in_array("Alice", $names, true), "Expected 'Alice' in active users");
+    echo "PASS: ListActiveUsers\n";
+}
+
+function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo, int $user_id): int
+{
+    $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
+    assert_not_null($order, "CreateOrder returned null");
+    assert_equal($user_id, $order->user_id, "CreateOrder user_id");
+    assert_equal("Test order", $order->notes, "CreateOrder notes");
+    echo "PASS: CreateOrder\n";
+    return $order->id;
+}
+
+function test_get_orders_by_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo, int $user_id): void
+{
+    $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
+    assert_true(count($orders) >= 1, "Expected at least 1 order, got " . count($orders));
+    assert_equal("Test order", $orders[0]->notes, "GetOrdersByUser notes");
+    echo "PASS: GetOrdersByUser\n";
+}
+
+function test_delete_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo, int $user_id): void
+{
+    // Delete orders first due to FK constraint
+    Queries::deleteOrdersByUser($pdo, $user_id);
+    Queries::deleteUser($pdo, $user_id);
+    $user = Queries::getUserById($pdo, $user_id);
+    assert_true($user === null || $user === false, "Expected user to be deleted, but it still exists");
+    echo "PASS: DeleteUser\n";
+}
+
+try {
+    $database_url = get_database_url();
+    {% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" -%}
+    $pdo = create_pdo($database_url);
+    {%- elif driver == "amphp" -%}
+    $pdo = create_connection($database_url);
+    {%- endif %}
+
+    setup_schema($pdo);
+
+    $user_id = test_create_user($pdo);
+    test_get_user_by_id($pdo, $user_id);
+    test_list_active_users($pdo);
+    $order_id = test_create_order($pdo, $user_id);
+    test_get_orders_by_user($pdo, $user_id);
+    test_delete_user($pdo, $user_id);
+
+    echo "\nALL TESTS PASSED\n";
+    exit(0);
+} catch (Throwable $e) {
+    fwrite(STDERR, "FAIL: " . $e->getMessage() . "\n");
+    fwrite(STDERR, $e->getTraceAsString() . "\n");
+    exit(1);
+}

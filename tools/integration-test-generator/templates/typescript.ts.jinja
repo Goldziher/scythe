@@ -1,0 +1,418 @@
+{%- if driver == "pg" -%}
+import pg from "pg";
+{%- elif driver == "postgres" -%}
+import postgres from "postgres";
+{%- elif driver == "mysql2" -%}
+import mysql from "mysql2/promise";
+{%- elif driver == "better-sqlite3" -%}
+import Database from "better-sqlite3";
+{%- endif %}
+{%- if options.row_type == "zod" %}
+import { z } from "zod";
+{%- endif %}
+import {
+	createUser,
+	getUserById,
+	listActiveUsers,
+	createOrder,
+	getOrdersByUser,
+	deleteOrdersByUser,
+	deleteUser,
+{%- if engine == "postgresql" %}
+	UserStatus,
+{%- endif %}
+{%- if options.row_type == "zod" %}
+	CreateUserRowSchema,
+	GetUserByIdRowSchema,
+	ListActiveUsersRowSchema,
+	CreateOrderRowSchema,
+	GetOrdersByUserRowSchema,
+{%- endif %}
+} from "./generated/queries.js";
+
+const DATABASE_URL =
+	process.env["{{ connection_env }}"] ??
+	"{% if engine == "postgresql" %}postgres://scythe:scythe@localhost:5432/scythe_test{% elif engine == "mysql" %}mysql://root@localhost:3306/scythe_test{% elif engine == "sqlite" %}test.db{% endif %}";
+{% if driver == "pg" %}
+const pool = new pg.Pool({ connectionString: DATABASE_URL });
+{%- elif driver == "postgres" %}
+const sql = postgres(DATABASE_URL);
+{%- endif %}
+
+let exitCode = 0;
+
+function assert(condition: boolean, testName: string, detail: string): void {
+	if (!condition) {
+		console.error(`FAIL: ${testName}: ${detail}`);
+		exitCode = 1;
+	}
+}
+
+async function main(): Promise<void> {
+{%- if driver == "pg" %}
+	const client = await pool.connect();
+	try {
+		// Clean slate
+{%- if engine == "postgresql" %}
+		await client.query("DROP TABLE IF EXISTS user_tags CASCADE");
+		await client.query("DROP TABLE IF EXISTS tags CASCADE");
+		await client.query("DROP TABLE IF EXISTS orders CASCADE");
+		await client.query("DROP TABLE IF EXISTS users CASCADE");
+		await client.query("DROP TYPE IF EXISTS user_status CASCADE");
+
+		await client.query(
+			"CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')",
+		);
+		await client.query(`CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT,
+      status user_status NOT NULL DEFAULT 'active',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+		await client.query(`CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users (id),
+      total NUMERIC(10, 2) NOT NULL,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`);
+		await client.query(`CREATE TABLE tags (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE
+    )`);
+		await client.query(`CREATE TABLE user_tags (
+      user_id INT NOT NULL REFERENCES users (id),
+      tag_id INT NOT NULL REFERENCES tags (id),
+      PRIMARY KEY (user_id, tag_id)
+    )`);
+{%- endif %}
+{% if options.row_type == "zod" %}
+		// Test: Zod schemas exist and are ZodType instances
+		assert(
+			CreateUserRowSchema instanceof z.ZodType,
+			"ZodSchemas",
+			"CreateUserRowSchema should be a ZodType",
+		);
+		assert(
+			GetUserByIdRowSchema instanceof z.ZodType,
+			"ZodSchemas",
+			"GetUserByIdRowSchema should be a ZodType",
+		);
+		assert(
+			ListActiveUsersRowSchema instanceof z.ZodType,
+			"ZodSchemas",
+			"ListActiveUsersRowSchema should be a ZodType",
+		);
+		assert(
+			CreateOrderRowSchema instanceof z.ZodType,
+			"ZodSchemas",
+			"CreateOrderRowSchema should be a ZodType",
+		);
+		assert(
+			GetOrdersByUserRowSchema instanceof z.ZodType,
+			"ZodSchemas",
+			"GetOrdersByUserRowSchema should be a ZodType",
+		);
+		console.log("PASS: Zod schemas are ZodType instances");
+{% endif %}
+		// Test: CreateUser
+		const user = await createUser(
+			client,
+			"Alice",
+			"alice@example.com",
+{%- if engine == "postgresql" %}
+			UserStatus.Active,
+{%- endif %}
+		);
+		assert(user !== null, "CreateUser", "user should not be null");
+{%- if options.row_type == "zod" %}
+		// Validate through Zod schema
+		const parsedUser = CreateUserRowSchema.parse(user);
+		assert(
+			parsedUser.name === "Alice",
+			"CreateUser",
+			`expected name Alice, got ${parsedUser.name}`,
+		);
+		assert(
+			parsedUser.email === "alice@example.com",
+			"CreateUser",
+			`expected email alice@example.com`,
+		);
+{%- else %}
+		assert(
+			user!.name === "Alice",
+			"CreateUser",
+			`expected name Alice, got ${user!.name}`,
+		);
+		assert(
+			user!.email === "alice@example.com",
+			"CreateUser",
+			`expected email alice@example.com`,
+		);
+{%- endif %}
+		const userId = user!.id;
+		console.log("PASS: CreateUser");
+
+		// Test: GetUserById
+		const fetched = await getUserById(client, userId);
+		assert(fetched !== null, "GetUserById", "user should not be null");
+{%- if options.row_type == "zod" %}
+		const parsedFetched = GetUserByIdRowSchema.parse(fetched);
+		assert(parsedFetched.id === userId, "GetUserById", `expected id ${userId}`);
+		assert(
+			parsedFetched.name === "Alice",
+			"GetUserById",
+			`expected name Alice`,
+		);
+{%- else %}
+		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
+		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
+{%- endif %}
+		console.log("PASS: GetUserById");
+
+		// Test: ListActiveUsers
+		const activeUsers = await listActiveUsers(client{% if engine == "postgresql" %}, UserStatus.Active{% endif %});
+		assert(
+			activeUsers.length > 0,
+			"ListActiveUsers",
+			"should have at least one user",
+		);
+{%- if options.row_type == "zod" %}
+		const parsedActive = ListActiveUsersRowSchema.parse(activeUsers[0]);
+		assert(
+			parsedActive.name === "Alice",
+			"ListActiveUsers",
+			"first user should be Alice",
+		);
+{%- else %}
+		assert(
+			activeUsers[0]!.name === "Alice",
+			"ListActiveUsers",
+			"first user should be Alice",
+		);
+{%- endif %}
+		console.log("PASS: ListActiveUsers");
+
+		// Test: CreateOrder
+		const order = await createOrder(client, userId, "99.95", "first order");
+		assert(order !== null, "CreateOrder", "order should not be null");
+{%- if options.row_type == "zod" %}
+		const parsedOrder = CreateOrderRowSchema.parse(order);
+		assert(
+			parsedOrder.user_id === userId,
+			"CreateOrder",
+			`expected user_id ${userId}`,
+		);
+		assert(
+			parsedOrder.total === "99.95",
+			"CreateOrder",
+			`expected total 99.95, got ${parsedOrder.total}`,
+		);
+		assert(
+			parsedOrder.notes === "first order",
+			"CreateOrder",
+			`expected notes 'first order'`,
+		);
+{%- else %}
+		assert(
+			order!.user_id === userId,
+			"CreateOrder",
+			`expected user_id ${userId}`,
+		);
+		assert(
+			order!.total === "99.95",
+			"CreateOrder",
+			`expected total 99.95, got ${order!.total}`,
+		);
+		assert(
+			order!.notes === "first order",
+			"CreateOrder",
+			`expected notes 'first order'`,
+		);
+{%- endif %}
+		console.log("PASS: CreateOrder");
+
+		// Test: GetOrdersByUser
+		const orders = await getOrdersByUser(client, userId);
+		assert(
+			orders.length === 1,
+			"GetOrdersByUser",
+			`expected 1 order, got ${orders.length}`,
+		);
+{%- if options.row_type == "zod" %}
+		const parsedOrders = GetOrdersByUserRowSchema.parse(orders[0]);
+		assert(
+			parsedOrders.total === "99.95",
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
+{%- else %}
+		assert(
+			orders[0]!.total === "99.95",
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
+{%- endif %}
+		console.log("PASS: GetOrdersByUser");
+
+		// Test: DeleteUser
+		const deletedOrders = await deleteOrdersByUser(client, userId);
+		assert(
+			deletedOrders === 1,
+			"DeleteUser",
+			`expected 1 deleted order, got ${deletedOrders}`,
+		);
+		await deleteUser(client, userId);
+		const gone = await getUserById(client, userId);
+		assert(gone === null, "DeleteUser", "user should be null after deletion");
+		console.log("PASS: DeleteUser");
+
+		if (exitCode === 0) {
+			console.log("ALL TESTS PASSED");
+		}
+	} finally {
+		client.release();
+		await pool.end();
+	}
+{%- elif driver == "postgres" %}
+	try {
+		// Clean slate
+{%- if engine == "postgresql" %}
+		await sql`DROP TABLE IF EXISTS user_tags CASCADE`;
+		await sql`DROP TABLE IF EXISTS tags CASCADE`;
+		await sql`DROP TABLE IF EXISTS orders CASCADE`;
+		await sql`DROP TABLE IF EXISTS users CASCADE`;
+		await sql`DROP TYPE IF EXISTS user_status CASCADE`;
+
+		await sql`CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')`;
+		await sql`CREATE TABLE users (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL,
+      email TEXT,
+      status user_status NOT NULL DEFAULT 'active',
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+		await sql`CREATE TABLE orders (
+      id SERIAL PRIMARY KEY,
+      user_id INT NOT NULL REFERENCES users (id),
+      total NUMERIC(10, 2) NOT NULL,
+      notes TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    )`;
+		await sql`CREATE TABLE tags (
+      id SERIAL PRIMARY KEY,
+      name TEXT NOT NULL UNIQUE
+    )`;
+		await sql`CREATE TABLE user_tags (
+      user_id INT NOT NULL REFERENCES users (id),
+      tag_id INT NOT NULL REFERENCES tags (id),
+      PRIMARY KEY (user_id, tag_id)
+    )`;
+{%- endif %}
+
+		// Test: CreateUser
+		const user = await createUser(
+			sql,
+			"Alice",
+			"alice@example.com",
+{%- if engine == "postgresql" %}
+			UserStatus.Active,
+{%- endif %}
+		);
+		assert(user !== null, "CreateUser", "user should not be null");
+		assert(
+			user!.name === "Alice",
+			"CreateUser",
+			`expected name Alice, got ${user!.name}`,
+		);
+		assert(
+			user!.email === "alice@example.com",
+			"CreateUser",
+			`expected email alice@example.com`,
+		);
+		const userId = user!.id;
+		console.log("PASS: CreateUser");
+
+		// Test: GetUserById
+		const fetched = await getUserById(sql, userId);
+		assert(fetched !== null, "GetUserById", "user should not be null");
+		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
+		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
+		console.log("PASS: GetUserById");
+
+		// Test: ListActiveUsers
+		const activeUsers = await listActiveUsers(sql{% if engine == "postgresql" %}, UserStatus.Active{% endif %});
+		assert(
+			activeUsers.length > 0,
+			"ListActiveUsers",
+			"should have at least one user",
+		);
+		assert(
+			activeUsers[0]!.name === "Alice",
+			"ListActiveUsers",
+			"first user should be Alice",
+		);
+		console.log("PASS: ListActiveUsers");
+
+		// Test: CreateOrder
+		const order = await createOrder(sql, userId, "99.95", "first order");
+		assert(order !== null, "CreateOrder", "order should not be null");
+		assert(
+			order!.user_id === userId,
+			"CreateOrder",
+			`expected user_id ${userId}`,
+		);
+		assert(
+			order!.total === "99.95",
+			"CreateOrder",
+			`expected total 99.95, got ${order!.total}`,
+		);
+		assert(
+			order!.notes === "first order",
+			"CreateOrder",
+			`expected notes 'first order'`,
+		);
+		console.log("PASS: CreateOrder");
+
+		// Test: GetOrdersByUser
+		const orders = await getOrdersByUser(sql, userId);
+		assert(
+			orders.length === 1,
+			"GetOrdersByUser",
+			`expected 1 order, got ${orders.length}`,
+		);
+		assert(
+			orders[0]!.total === "99.95",
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
+		console.log("PASS: GetOrdersByUser");
+
+		// Test: DeleteUser
+		const deletedOrders = await deleteOrdersByUser(sql, userId);
+		assert(
+			deletedOrders === 1,
+			"DeleteUser",
+			`expected 1 deleted order, got ${deletedOrders}`,
+		);
+		await deleteUser(sql, userId);
+		const gone = await getUserById(sql, userId);
+		assert(gone === null, "DeleteUser", "user should be null after deletion");
+		console.log("PASS: DeleteUser");
+
+		if (exitCode === 0) {
+			console.log("ALL TESTS PASSED");
+		}
+	} finally {
+		await sql.end();
+	}
+{%- endif %}
+
+	process.exit(exitCode);
+}
+
+main().catch((error) => {
+	console.error("Fatal error:", error);
+	process.exit(1);
+});

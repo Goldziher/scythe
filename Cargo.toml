@@ -6,6 +6,7 @@ members = [
     "crates/scythe-codegen",
     "crates/scythe-core",
     "crates/scythe-lint",
+    "tools/integration-test-generator",
     "tools/migrate-fixtures",
     "tools/snippet-runner",
     "tools/test-generator",
