@@ -79,11 +79,19 @@ impl CodegenBackend for RustTiberiusBackend {
         );
         let _ = writeln!(out, "        Ok(Self {{");
         for col in columns {
-            let _ = writeln!(
-                out,
-                "            {}: row.try_get(\"{}\")?,",
-                col.field_name, col.name
-            );
+            if col.nullable {
+                let _ = writeln!(
+                    out,
+                    "            {}: row.try_get(\"{}\")?,",
+                    col.field_name, col.name
+                );
+            } else {
+                let _ = writeln!(
+                    out,
+                    "            {}: row.try_get(\"{}\")?.ok_or_else(|| tiberius::error::Error::Protocol(\"unexpected NULL for non-nullable column '{}'\".into()))?,",
+                    col.field_name, col.name, col.name
+                );
+            }
         }
         let _ = writeln!(out, "        }})");
         let _ = writeln!(out, "    }}");
@@ -194,7 +202,13 @@ impl CodegenBackend for RustTiberiusBackend {
             QueryCommand::Many => format!("Vec<{}>", struct_name),
             QueryCommand::Exec => "()".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "u64".to_string(),
-            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
+            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Grouped => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "grouped queries are not yet supported for rust-tiberius".to_string(),
+                ));
+            }
         };
 
         let _ = writeln!(
@@ -257,7 +271,13 @@ impl CodegenBackend for RustTiberiusBackend {
                 );
                 let _ = writeln!(out, "    Ok(result.total())");
             }
-            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
+            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Grouped => {
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "grouped queries are not yet supported for rust-tiberius".to_string(),
+                ));
+            }
         }
 
         let _ = write!(out, "}}");

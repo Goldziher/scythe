@@ -216,10 +216,11 @@ impl CodegenBackend for PythonDuckdbBackend {
                 } else {
                     "int".to_string()
                 };
+                let param_name = if params.is_empty() { "count" } else { "items" };
                 let _ = writeln!(
                     out,
-                    "def {}(conn: duckdb.DuckDBPyConnection, *, items: {}) -> None:",
-                    batch_fn_name, items_type
+                    "def {}(conn: duckdb.DuckDBPyConnection, *, {}: {}) -> None:",
+                    batch_fn_name, param_name, items_type
                 );
                 let _ = writeln!(
                     out,
@@ -227,7 +228,7 @@ impl CodegenBackend for PythonDuckdbBackend {
                     analyzed.name
                 );
                 if params.is_empty() {
-                    let _ = writeln!(out, "    for _ in range(items):");
+                    let _ = writeln!(out, "    for _ in range(count):");
                     let _ = writeln!(out, "        conn.execute(\"\"\"{}\"\"\")", sql);
                 } else if params.len() == 1 {
                     let _ = writeln!(

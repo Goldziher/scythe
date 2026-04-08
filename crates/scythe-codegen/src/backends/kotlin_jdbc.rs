@@ -70,6 +70,24 @@ fn rs_getter(kotlin_type: &str) -> &str {
     }
 }
 
+/// Return the Kotlin class literal for temporal types that need
+/// `rs.getObject("col", Type::class.java)`. Returns None for non-temporal types.
+fn temporal_class_literal(kotlin_type: &str) -> Option<&str> {
+    if kotlin_type.contains("LocalDate") && !kotlin_type.contains("LocalDateTime") {
+        Some("LocalDate::class.java")
+    } else if kotlin_type.contains("LocalTime") && !kotlin_type.contains("LocalDateTime") {
+        Some("LocalTime::class.java")
+    } else if kotlin_type.contains("OffsetTime") {
+        Some("OffsetTime::class.java")
+    } else if kotlin_type.contains("LocalDateTime") {
+        Some("LocalDateTime::class.java")
+    } else if kotlin_type.contains("OffsetDateTime") {
+        Some("OffsetDateTime::class.java")
+    } else {
+        None
+    }
+}
+
 /// Get the PreparedStatement setter method name for a given Kotlin type.
 fn ps_setter(kotlin_type: &str) -> &str {
     match kotlin_type {
@@ -225,14 +243,24 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let _ = writeln!(out, "            return if (rs.next()) {{");
                 for col in columns.iter() {
                     if col.nullable {
-                        let getter = rs_getter(&col.lang_type);
-                        let _ = writeln!(
-                            out,
-                            "                val {field}Value = rs.{getter}(\"{name}\")",
-                            field = col.field_name,
-                            getter = getter,
-                            name = col.name,
-                        );
+                        if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                            let _ = writeln!(
+                                out,
+                                "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
+                                field = col.field_name,
+                                name = col.name,
+                                class_lit = class_lit,
+                            );
+                        } else {
+                            let getter = rs_getter(&col.lang_type);
+                            let _ = writeln!(
+                                out,
+                                "                val {field}Value = rs.{getter}(\"{name}\")",
+                                field = col.field_name,
+                                getter = getter,
+                                name = col.name,
+                            );
+                        }
                         let _ = writeln!(
                             out,
                             "                val {field} = if (rs.wasNull()) null else {field}Value",
@@ -247,6 +275,12 @@ impl CodegenBackend for KotlinJdbcBackend {
                             out,
                             "                    {} = {},",
                             col.field_name, col.field_name
+                        );
+                    } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                        let _ = writeln!(
+                            out,
+                            "                    {} = rs.getObject(\"{}\", {}),",
+                            col.field_name, col.name, class_lit
                         );
                     } else {
                         let getter = rs_getter(&col.lang_type);
@@ -379,14 +413,24 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let _ = writeln!(out, "            while (rs.next()) {{");
                 for col in columns.iter() {
                     if col.nullable {
-                        let getter = rs_getter(&col.lang_type);
-                        let _ = writeln!(
-                            out,
-                            "                val {field}Value = rs.{getter}(\"{name}\")",
-                            field = col.field_name,
-                            getter = getter,
-                            name = col.name,
-                        );
+                        if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                            let _ = writeln!(
+                                out,
+                                "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
+                                field = col.field_name,
+                                name = col.name,
+                                class_lit = class_lit,
+                            );
+                        } else {
+                            let getter = rs_getter(&col.lang_type);
+                            let _ = writeln!(
+                                out,
+                                "                val {field}Value = rs.{getter}(\"{name}\")",
+                                field = col.field_name,
+                                getter = getter,
+                                name = col.name,
+                            );
+                        }
                         let _ = writeln!(
                             out,
                             "                val {field} = if (rs.wasNull()) null else {field}Value",
@@ -402,6 +446,12 @@ impl CodegenBackend for KotlinJdbcBackend {
                             out,
                             "                        {} = {},",
                             col.field_name, col.field_name
+                        );
+                    } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                        let _ = writeln!(
+                            out,
+                            "                        {} = rs.getObject(\"{}\", {}),",
+                            col.field_name, col.name, class_lit
                         );
                     } else {
                         let getter = rs_getter(&col.lang_type);
