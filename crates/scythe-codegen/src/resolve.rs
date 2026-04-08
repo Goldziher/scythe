@@ -6,17 +6,32 @@ use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam};
 use scythe_core::errors::{ErrorCode, ScytheError};
 
 use crate::backend_trait::{ResolvedColumn, ResolvedParam};
+use crate::overrides::{TypeOverride, find_override};
 
 /// Resolve analyzed columns into resolved columns using a backend manifest.
+///
+/// When `overrides` is non-empty, each column is checked against the override
+/// list before the normal type-resolution path. The first matching override
+/// replaces the column's neutral type.
 pub fn resolve_columns(
     columns: &[AnalyzedColumn],
     manifest: &BackendManifest,
+    overrides: &[TypeOverride],
+    source_table: &str,
 ) -> Result<Vec<ResolvedColumn>, ScytheError> {
     columns
         .iter()
         .map(|col| {
+            let column_match = if source_table.is_empty() {
+                String::new()
+            } else {
+                format!("{}.{}", source_table, col.name)
+            };
+            let effective_neutral_type = find_override(overrides, &column_match, &col.neutral_type)
+                .unwrap_or(&col.neutral_type);
+
             let (full_type, lang_type) =
-                resolve_type_pair(&col.neutral_type, manifest, col.nullable)
+                resolve_type_pair(effective_neutral_type, manifest, col.nullable)
                     .map(|(f, l)| (f.into_owned(), l.into_owned()))
                     .map_err(|e| {
                         ScytheError::new(
@@ -29,7 +44,7 @@ pub fn resolve_columns(
                 field_name: to_snake_case(&col.name).into_owned(),
                 lang_type,
                 full_type,
-                neutral_type: col.neutral_type.clone(),
+                neutral_type: effective_neutral_type.to_string(),
                 nullable: col.nullable,
             })
         })
@@ -37,15 +52,29 @@ pub fn resolve_columns(
 }
 
 /// Resolve analyzed params into resolved params using a backend manifest.
+///
+/// When `overrides` is non-empty, each param is checked against the override
+/// list before the normal type-resolution path.
 pub fn resolve_params(
     params: &[AnalyzedParam],
     manifest: &BackendManifest,
+    overrides: &[TypeOverride],
+    source_table: &str,
 ) -> Result<Vec<ResolvedParam>, ScytheError> {
     params
         .iter()
         .map(|param| {
+            let column_match = if source_table.is_empty() {
+                String::new()
+            } else {
+                format!("{}.{}", source_table, param.name)
+            };
+            let effective_neutral_type =
+                find_override(overrides, &column_match, &param.neutral_type)
+                    .unwrap_or(&param.neutral_type);
+
             let (full_type, lang_type) =
-                resolve_type_pair(&param.neutral_type, manifest, param.nullable)
+                resolve_type_pair(effective_neutral_type, manifest, param.nullable)
                     .map(|(f, l)| (f.into_owned(), l.into_owned()))
                     .map_err(|e| {
                         ScytheError::new(
@@ -60,7 +89,7 @@ pub fn resolve_params(
                 lang_type,
                 full_type,
                 borrowed_type,
-                neutral_type: param.neutral_type.clone(),
+                neutral_type: effective_neutral_type.to_string(),
                 nullable: param.nullable,
             })
         })

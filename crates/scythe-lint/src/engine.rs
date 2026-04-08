@@ -255,6 +255,7 @@ mod tests {
             source_table: None,
             composites: vec![],
             enums: vec![],
+            optional_params: vec![],
         }
     }
 
@@ -267,6 +268,7 @@ mod tests {
             nonnull_overrides: vec![],
             json_mappings: vec![],
             deprecated: None,
+            optional_params: vec![],
         }
     }
 

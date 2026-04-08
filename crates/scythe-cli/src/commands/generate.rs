@@ -6,7 +6,8 @@ use serde::Deserialize;
 use ahash::AHashSet;
 
 use scythe_codegen::{
-    CodegenBackend, generate_single_enum_def_with_backend, generate_with_backend, get_backend,
+    CodegenBackend, TypeOverride, generate_single_enum_def_with_backend,
+    generate_with_backend_and_overrides, get_backend,
 };
 use scythe_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
 use scythe_core::catalog::Catalog;
@@ -46,7 +47,7 @@ struct SqlConfig {
     /// Generation targets via [[sql.gen]] or [sql.gen.rust]
     #[serde(default, rename = "gen")]
     gen_config: Option<GenTargets>,
-    #[allow(dead_code)]
+    #[serde(default)]
     type_overrides: Option<Vec<TypeOverrideConfig>>,
 }
 
@@ -94,7 +95,6 @@ struct LegacyLangGenConfig {
 }
 
 #[derive(Debug, Deserialize)]
-#[allow(dead_code)]
 struct TypeOverrideConfig {
     column: Option<String>,
     db_type: Option<String>,
@@ -254,7 +254,20 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
             analyzed_queries.push(analyzed);
         }
 
-        // 9. Generate code for each backend target
+        // 9. Convert type overrides
+        let overrides: Vec<TypeOverride> = sql_config
+            .type_overrides
+            .as_deref()
+            .unwrap_or_default()
+            .iter()
+            .map(|o| TypeOverride {
+                column: o.column.clone(),
+                db_type: o.db_type.clone(),
+                neutral_type: o.neutral_type.clone(),
+            })
+            .collect();
+
+        // 10. Generate code for each backend target
         let gen_targets = resolve_gen_targets(sql_config);
 
         for target in &gen_targets {
@@ -276,6 +289,7 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
                 &*backend,
                 &analyzed_queries,
                 &target.output,
+                &overrides,
             )?;
         }
     }
@@ -290,6 +304,7 @@ fn generate_for_backend(
     backend: &dyn CodegenBackend,
     analyzed_queries: &[AnalyzedQuery],
     output_dir: &str,
+    overrides: &[TypeOverride],
 ) -> Result<(), Box<dyn std::error::Error>> {
     struct QueryResult {
         code: scythe_codegen::GeneratedCode,
@@ -299,7 +314,7 @@ fn generate_for_backend(
     let mut results: Vec<QueryResult> = Vec::new();
     for analyzed in analyzed_queries {
         let enums = analyzed.enums.clone();
-        let code = generate_with_backend(analyzed, backend)?;
+        let code = generate_with_backend_and_overrides(analyzed, backend, overrides)?;
         results.push(QueryResult { code, enums });
     }
 

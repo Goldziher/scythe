@@ -143,7 +143,11 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = rewrite_params(&super::clean_sql_oneline(&analyzed.sql));
+        let sql = rewrite_params(&super::clean_sql_oneline_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
         let mut out = String::new();
 
         let param_list = params

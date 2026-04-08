@@ -18,6 +18,8 @@ pub struct AnalyzedQuery {
     pub composites: Vec<CompositeInfo>,
     /// Enum type definitions needed by this query
     pub enums: Vec<EnumInfo>,
+    /// Parameter names marked @optional — triggers SQL rewriting in codegen
+    pub optional_params: Vec<String>,
 }
 
 #[derive(Debug, Clone)]

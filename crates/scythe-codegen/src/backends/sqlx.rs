@@ -156,7 +156,11 @@ impl CodegenBackend for SqlxBackend {
         );
 
         // Clean SQL
-        let sql_raw = super::clean_sql(&analyzed.sql);
+        let sql_raw = super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
         let sql = rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest);
 
         // Query body

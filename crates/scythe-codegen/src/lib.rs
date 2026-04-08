@@ -1,10 +1,12 @@
 pub mod backend_trait;
 pub mod backends;
+pub mod overrides;
 pub mod resolve;
 pub mod validation;
 
 pub use backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 pub use backends::get_backend;
+pub use overrides::TypeOverride;
 
 use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{row_struct_name, to_pascal_case};
@@ -78,9 +80,19 @@ pub fn generate_with_backend(
     analyzed: &AnalyzedQuery,
     backend: &dyn CodegenBackend,
 ) -> Result<GeneratedCode, ScytheError> {
+    generate_with_backend_and_overrides(analyzed, backend, &[])
+}
+
+/// Generate code using a specific backend with type overrides.
+pub fn generate_with_backend_and_overrides(
+    analyzed: &AnalyzedQuery,
+    backend: &dyn CodegenBackend,
+    overrides: &[TypeOverride],
+) -> Result<GeneratedCode, ScytheError> {
     let manifest = backend.manifest();
-    let columns = resolve::resolve_columns(&analyzed.columns, manifest)?;
-    let params = resolve::resolve_params(&analyzed.params, manifest)?;
+    let source_table = analyzed.source_table.as_deref().unwrap_or("");
+    let columns = resolve::resolve_columns(&analyzed.columns, manifest, overrides, source_table)?;
+    let params = resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
 
     let mut result = GeneratedCode::default();
 
@@ -254,6 +266,7 @@ mod tests {
             source_table: None,
             composites: Vec::new(),
             enums: Vec::new(),
+            optional_params: Vec::new(),
         }
     }
 

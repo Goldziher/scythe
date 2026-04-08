@@ -118,7 +118,11 @@ impl CodegenBackend for TypescriptPostgresBackend {
         let _sep = if param_list.is_empty() { "" } else { ", " };
 
         // Clean SQL and rewrite $1, $2 to ${paramName} for postgres.js tagged template
-        let sql_clean = super::clean_sql(&analyzed.sql);
+        let sql_clean = super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
         let sql_template = rewrite_params_template(&sql_clean, analyzed, params);
 
         // Build function params: inline if short, multi-line if long (biome compliance)

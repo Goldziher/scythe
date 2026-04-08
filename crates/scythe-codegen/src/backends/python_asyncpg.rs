@@ -134,7 +134,11 @@ impl CodegenBackend for PythonAsyncpgBackend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         // Clean SQL — asyncpg uses $1, $2 positional params natively
-        let sql = super::clean_sql(&analyzed.sql);
+        let sql = super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
 
         match &analyzed.command {
             QueryCommand::One => {
