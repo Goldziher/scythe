@@ -1,0 +1,43 @@
+{
+	"category": "annotations/optional",
+	"config": {
+		"engine": "postgresql",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "Verify @optional annotation makes a single parameter nullable",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				}
+			],
+			"command": "many",
+			"name": "SearchUsers",
+			"params": [
+				{
+					"name": "status",
+					"nullable": true,
+					"type": "string"
+				}
+			]
+		},
+		"success": true
+	},
+	"name": "optional_simple",
+	"query_sql": "-- @name SearchUsers\n-- @returns :many\n-- @optional status\nSELECT id, name FROM users WHERE status = $1;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active');"
+	],
+	"source": "original",
+	"tags": ["annotation", "optional", "nullable"]
+}

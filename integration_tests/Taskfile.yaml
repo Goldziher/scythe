@@ -40,6 +40,9 @@ tasks:
           - python-asyncpg
           - typescript-postgres
           - typescript-pg
+          - python-psycopg3-pydantic
+          - python-psycopg3-msgspec
+          - typescript-pg-zod
           - go-pgx
           - java-jdbc
           - kotlin-jdbc
@@ -83,6 +86,25 @@ tasks:
   test:typescript-pg:
     desc: Run typescript-pg integration test
     dir: typescript-pg
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsx test.ts
+
+  test:python-psycopg3-pydantic:
+    desc: Run python-psycopg3-pydantic integration test
+    dir: python-psycopg3-pydantic
+    cmds:
+      - uv run python test_integration.py
+
+  test:python-psycopg3-msgspec:
+    desc: Run python-psycopg3-msgspec integration test
+    dir: python-psycopg3-msgspec
+    cmds:
+      - uv run python test_integration.py
+
+  test:typescript-pg-zod:
+    desc: Run typescript-pg-zod integration test
+    dir: typescript-pg-zod
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
       - pnpm exec tsx test.ts
@@ -141,6 +163,9 @@ tasks:
       - task: test:python-asyncpg
       - task: test:typescript-postgres
       - task: test:typescript-pg
+      - task: test:python-psycopg3-pydantic
+      - task: test:python-psycopg3-msgspec
+      - task: test:typescript-pg-zod
       - task: test:go-pgx
       - task: test:java-jdbc
       - task: test:kotlin-jdbc
