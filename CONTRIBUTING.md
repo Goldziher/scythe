@@ -93,7 +93,7 @@ All 275+ existing fixtures will automatically test the new backend through snaps
 
 4. Add tests in the rule file itself.
 
-5. Document the rule in `docs/docs/reference/lint-rules.md`.
+5. Document the rule in `docs/reference/lint-rules.md`.
 
 ## Testing
 

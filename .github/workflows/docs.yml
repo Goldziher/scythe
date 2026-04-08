@@ -34,12 +34,12 @@ jobs:
         run: pip install zensical
 
       - name: Build documentation
-        run: cd docs && zensical build
+        run: zensical build
 
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v4
         with:
-          path: docs/site
+          path: site
 
   deploy:
     environment:

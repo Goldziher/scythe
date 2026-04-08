@@ -1,0 +1,57 @@
+# Scythe
+
+> SQL-to-code generator that compiles annotated SQL into type-safe database access code in 10 languages across 5 databases with 34 backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
+
+## Getting Started
+
+- [Installation](https://goldziher.github.io/scythe/getting-started/installation/): Install via cargo or Homebrew
+- [Quickstart](https://goldziher.github.io/scythe/getting-started/quickstart/): Zero to generated code in 5 minutes
+- [Migration from sqlc](https://goldziher.github.io/scythe/getting-started/migration-from-sqlc/): Convert sqlc projects to scythe
+
+## Guide
+
+- [Configuration](https://goldziher.github.io/scythe/guide/configuration/): Full scythe.toml reference
+- [Annotations](https://goldziher.github.io/scythe/guide/annotations/): @name, @returns, @optional, @nullable, @json, and more
+- [Type Inference](https://goldziher.github.io/scythe/guide/type-inference/): How scythe infers types and nullability from SQL
+- [Custom Types](https://goldziher.github.io/scythe/guide/custom-types/): Type overrides for PostgreSQL extensions
+- [Linting](https://goldziher.github.io/scythe/guide/linting/): 22 built-in rules plus sqruff integration
+- [Formatting](https://goldziher.github.io/scythe/guide/formatting/): SQL formatting via sqruff
+- [Pre-commit Hooks](https://goldziher.github.io/scythe/guide/pre-commit-hooks/): prek/pre-commit hooks for SQL quality
+- [CLI Reference](https://goldziher.github.io/scythe/guide/cli-reference/): All commands, flags, exit codes
+- [Migration from sqlfluff](https://goldziher.github.io/scythe/guide/migration-from-sqlfluff/): Switch from sqlfluff to scythe
+
+## Backends
+
+- [Overview](https://goldziher.github.io/scythe/backends/overview/): Architecture, type resolution, all 34 backends
+- [Rust (sqlx)](https://goldziher.github.io/scythe/backends/rust-sqlx/): sqlx backend for Rust
+- [Rust (tokio-postgres)](https://goldziher.github.io/scythe/backends/rust-tokio-postgres/): tokio-postgres backend for Rust
+- [Python](https://goldziher.github.io/scythe/backends/python/): psycopg3, asyncpg, aiomysql, aiosqlite, duckdb backends
+- [TypeScript](https://goldziher.github.io/scythe/backends/typescript/): pg, postgres.js, mysql2, better-sqlite3, duckdb backends
+- [Go](https://goldziher.github.io/scythe/backends/go/): pgx and database/sql backends
+- [Java / Kotlin](https://goldziher.github.io/scythe/backends/java-kotlin/): JDBC, R2DBC, and Exposed backends
+- [C#](https://goldziher.github.io/scythe/backends/csharp/): Npgsql, MySqlConnector, Microsoft.Data.Sqlite backends
+- [Other](https://goldziher.github.io/scythe/backends/other/): Elixir, Ruby, PHP backends
+
+## Databases
+
+- [PostgreSQL](https://goldziher.github.io/scythe/databases/postgresql/): PostgreSQL-specific types and features
+- [MySQL](https://goldziher.github.io/scythe/databases/mysql/): MySQL-specific types and features
+- [SQLite](https://goldziher.github.io/scythe/databases/sqlite/): SQLite-specific types and features
+- [DuckDB](https://goldziher.github.io/scythe/databases/duckdb/): DuckDB-specific types and features
+- [CockroachDB](https://goldziher.github.io/scythe/databases/cockroachdb/): CockroachDB-specific types and features
+
+## Reference
+
+- [Neutral Types](https://goldziher.github.io/scythe/reference/neutral-types/): Complete type mapping table across all languages
+- [Lint Rules](https://goldziher.github.io/scythe/reference/lint-rules/): All 93 rules with codes and examples
+- [Changelog](https://goldziher.github.io/scythe/reference/changelog/): Release history
+
+## Comparisons
+
+- [Alternatives](https://goldziher.github.io/scythe/comparisons/alternatives/): How scythe compares to sqlc, SQLDelight, jOOQ, and ORMs
+
+## Optional
+
+- [Philosophy](https://goldziher.github.io/scythe/philosophy/): Why compile SQL instead of using an ORM
+- [Architecture](https://goldziher.github.io/scythe/architecture/): Internal architecture and crate structure
+- [Examples](https://goldziher.github.io/scythe/examples/simple-crud/): Example projects
