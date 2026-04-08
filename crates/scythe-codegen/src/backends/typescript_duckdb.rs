@@ -168,6 +168,9 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                     let _ = writeln!(out, "\tconst result = await stmt.run({});", param_args);
                 }
                 let _ = writeln!(out, "\tconst rows = await result.getRows();");
+                // TODO: `as unknown as T` is the standard DuckDB Node.js pattern but lacks
+                // per-column mapping/validation. A future improvement could map columns by
+                // name to struct fields for type safety.
                 let _ = writeln!(
                     out,
                     "\tconst row = rows.length > 0 ? rows[0] as unknown as {} : null;",

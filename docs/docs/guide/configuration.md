@@ -60,7 +60,7 @@ performance = "warn"
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Name for this SQL block. |
-| `engine` | string | yes | Database dialect: `postgresql`, `mysql`, `sqlite`. |
+| `engine` | string | yes | Database dialect: `postgresql`, `mysql`, `sqlite`, `duckdb`, `cockroachdb`. |
 | `schema` | string[] | yes | Glob patterns for schema DDL files. |
 | `queries` | string[] | yes | Glob patterns for annotated query files. |
 | `output` | string | yes | Output directory for generated code. |
@@ -85,6 +85,18 @@ output = "src/generated/rust"
 [[sql.gen]]
 backend = "typescript-pg"
 output = "src/generated/ts"
+
+[[sql.gen]]
+backend = "python-duckdb"
+output = "src/generated/duckdb"
+
+[[sql.gen]]
+backend = "java-r2dbc"
+output = "src/generated/java-r2dbc"
+
+[[sql.gen]]
+backend = "kotlin-exposed"
+output = "src/generated/kotlin-exposed"
 ```
 
 | Field | Type | Required | Description |
@@ -180,3 +192,5 @@ output = "src/generated/analytics"
 | `postgresql`, `postgres`, `pg` | PostgreSQL |
 | `mysql`, `mariadb` | MySQL |
 | `sqlite`, `sqlite3` | SQLite |
+| `duckdb` | DuckDB |
+| `cockroachdb`, `crdb` | CockroachDB |

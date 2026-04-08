@@ -18,6 +18,7 @@ const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/java-r2dbc.s
 
 pub struct JavaR2dbcBackend {
     manifest: BackendManifest,
+    is_pg: bool,
 }
 
 impl JavaR2dbcBackend {
@@ -41,17 +42,35 @@ impl JavaR2dbcBackend {
             toml::from_str(default_toml)
                 .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
-        Ok(Self { manifest })
+        let is_pg = matches!(engine, "postgresql" | "postgres" | "pg");
+        Ok(Self { manifest, is_pg })
     }
 }
 
-/// Convert PostgreSQL $1, $2, ... placeholders to R2DBC positional $1, $2, ... (no change for PG).
-/// For non-PG dialects that use ?, convert to $1, $2, ... positional notation.
-fn pg_to_r2dbc_params(sql: &str) -> String {
-    // R2DBC uses $1, $2, ... for PostgreSQL — same as the source SQL.
-    // For MySQL/SQLite R2DBC drivers that use ?, we keep ? as-is since
-    // the R2DBC SPI uses bind(index, value) with 0-based indexing.
-    sql.to_string()
+/// Convert PostgreSQL `$1, $2, ...` placeholders for R2DBC drivers.
+/// PostgreSQL R2DBC uses `$1, $2, ...` natively (no conversion needed).
+/// MySQL/SQLite R2DBC drivers use `?` placeholders.
+fn pg_to_r2dbc_params(sql: &str, is_pg: bool) -> String {
+    if is_pg {
+        return sql.to_string();
+    }
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '$' {
+            if chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+                while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+                    chars.next();
+                }
+                result.push('?');
+            } else {
+                result.push(ch);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 /// Convert a Java primitive type to its boxed equivalent for nullable usage.
@@ -129,7 +148,10 @@ impl CodegenBackend for JavaR2dbcBackend {
          import io.r2dbc.spi.Row;\n\
          import io.r2dbc.spi.RowMetadata;\n\
          import java.math.BigDecimal;\n\
+         import java.time.LocalDate;\n\
+         import java.time.LocalTime;\n\
          import java.time.OffsetDateTime;\n\
+         import java.util.UUID;\n\
          import javax.annotation.Nullable;\n\
          import reactor.core.publisher.Flux;\n\
          import reactor.core.publisher.Mono;"
@@ -180,11 +202,14 @@ impl CodegenBackend for JavaR2dbcBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = pg_to_r2dbc_params(&super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let sql = pg_to_r2dbc_params(
+            &super::clean_sql_oneline_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            self.is_pg,
+        );
 
         let param_list = params
             .iter()
@@ -227,8 +252,9 @@ impl CodegenBackend for JavaR2dbcBackend {
                     "public static Mono<Void> {}(ConnectionFactory cf{}{}) {{",
                     func_name, sep, param_list
                 );
-                let _ = writeln!(out, "    return Mono.from(cf.create())");
-                let _ = writeln!(out, "        .flatMap(conn -> {{");
+                let _ = writeln!(out, "    return Mono.usingWhen(");
+                let _ = writeln!(out, "        Mono.from(cf.create()),");
+                let _ = writeln!(out, "        conn -> {{");
                 let _ = writeln!(
                     out,
                     "            var stmt = conn.createStatement(\"{}\");",
@@ -240,12 +266,10 @@ impl CodegenBackend for JavaR2dbcBackend {
                     out,
                     "                .flatMap(result -> Mono.from(result.getRowsUpdated()))"
                 );
-                let _ = writeln!(out, "                .then()");
-                let _ = writeln!(
-                    out,
-                    "                .doFinally(s -> Mono.from(conn.close()).subscribe());"
-                );
-                let _ = writeln!(out, "        }});");
+                let _ = writeln!(out, "                .then();");
+                let _ = writeln!(out, "        }},");
+                let _ = writeln!(out, "        conn -> Mono.from(conn.close())");
+                let _ = writeln!(out, "    );");
                 let _ = write!(out, "}}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
@@ -254,8 +278,9 @@ impl CodegenBackend for JavaR2dbcBackend {
                     "public static Mono<Long> {}(ConnectionFactory cf{}{}) {{",
                     func_name, sep, param_list
                 );
-                let _ = writeln!(out, "    return Mono.from(cf.create())");
-                let _ = writeln!(out, "        .flatMap(conn -> {{");
+                let _ = writeln!(out, "    return Mono.usingWhen(");
+                let _ = writeln!(out, "        Mono.from(cf.create()),");
+                let _ = writeln!(out, "        conn -> {{");
                 let _ = writeln!(
                     out,
                     "            var stmt = conn.createStatement(\"{}\");",
@@ -265,13 +290,11 @@ impl CodegenBackend for JavaR2dbcBackend {
                 let _ = writeln!(out, "            return Mono.from(stmt.execute())");
                 let _ = writeln!(
                     out,
-                    "                .flatMap(result -> Mono.from(result.getRowsUpdated()))"
+                    "                .flatMap(result -> Mono.from(result.getRowsUpdated()));"
                 );
-                let _ = writeln!(
-                    out,
-                    "                .doFinally(s -> Mono.from(conn.close()).subscribe());"
-                );
-                let _ = writeln!(out, "        }});");
+                let _ = writeln!(out, "        }},");
+                let _ = writeln!(out, "        conn -> Mono.from(conn.close())");
+                let _ = writeln!(out, "    );");
                 let _ = write!(out, "}}");
             }
             QueryCommand::One => {
@@ -280,8 +303,9 @@ impl CodegenBackend for JavaR2dbcBackend {
                     "public static Mono<{}> {}(ConnectionFactory cf{}{}) {{",
                     struct_name, func_name, sep, param_list
                 );
-                let _ = writeln!(out, "    return Mono.from(cf.create())");
-                let _ = writeln!(out, "        .flatMap(conn -> {{");
+                let _ = writeln!(out, "    return Mono.usingWhen(");
+                let _ = writeln!(out, "        Mono.from(cf.create()),");
+                let _ = writeln!(out, "        conn -> {{");
                 let _ = writeln!(
                     out,
                     "            var stmt = conn.createStatement(\"{}\");",
@@ -294,12 +318,10 @@ impl CodegenBackend for JavaR2dbcBackend {
                     "                .flatMap(result -> Mono.from(result.map((row, meta) ->"
                 );
                 write_row_map(&mut out, "                    ");
-                let _ = writeln!(out, ")))");
-                let _ = writeln!(
-                    out,
-                    "                .doFinally(s -> Mono.from(conn.close()).subscribe());"
-                );
-                let _ = writeln!(out, "        }});");
+                let _ = writeln!(out, ")));");
+                let _ = writeln!(out, "        }},");
+                let _ = writeln!(out, "        conn -> Mono.from(conn.close())");
+                let _ = writeln!(out, "    );");
                 let _ = write!(out, "}}");
             }
             QueryCommand::Many => {
@@ -359,7 +381,9 @@ impl CodegenBackend for JavaR2dbcBackend {
                         "                    var stmt = conn.createStatement(\"{}\");",
                         sql
                     );
+                    let _ = writeln!(out, "                    boolean first = true;");
                     let _ = writeln!(out, "                    for (var item : items) {{");
+                    let _ = writeln!(out, "                        if (!first) stmt.add();");
                     for (i, param) in params.iter().enumerate() {
                         let _ = writeln!(
                             out,
@@ -367,7 +391,7 @@ impl CodegenBackend for JavaR2dbcBackend {
                             i, param.field_name
                         );
                     }
-                    let _ = writeln!(out, "                        stmt.add();");
+                    let _ = writeln!(out, "                        first = false;");
                     let _ = writeln!(out, "                    }}");
                     let _ = writeln!(
                         out,
@@ -405,9 +429,11 @@ impl CodegenBackend for JavaR2dbcBackend {
                         "                    var stmt = conn.createStatement(\"{}\");",
                         sql
                     );
+                    let _ = writeln!(out, "                    boolean first = true;");
                     let _ = writeln!(out, "                    for (var item : items) {{");
+                    let _ = writeln!(out, "                        if (!first) stmt.add();");
                     let _ = writeln!(out, "                        stmt.bind(0, item);");
-                    let _ = writeln!(out, "                        stmt.add();");
+                    let _ = writeln!(out, "                        first = false;");
                     let _ = writeln!(out, "                    }}");
                     let _ = writeln!(
                         out,
@@ -445,7 +471,7 @@ impl CodegenBackend for JavaR2dbcBackend {
                     );
                     let _ = writeln!(
                         out,
-                        "                    for (int i = 0; i < count; i++) {{"
+                        "                    for (int i = 1; i < count; i++) {{"
                     );
                     let _ = writeln!(out, "                        stmt.add();");
                     let _ = writeln!(out, "                    }}");

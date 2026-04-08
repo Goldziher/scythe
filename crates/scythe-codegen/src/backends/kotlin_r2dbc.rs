@@ -84,6 +84,9 @@ impl CodegenBackend for KotlinR2dbcBackend {
 
     fn file_header(&self) -> String {
         "import io.r2dbc.spi.ConnectionFactory\n\
+         import java.math.BigDecimal\n\
+         import java.time.*\n\
+         import java.util.UUID\n\
          import kotlinx.coroutines.flow.Flow\n\
          import kotlinx.coroutines.reactive.asFlow\n\
          import kotlinx.coroutines.reactive.awaitFirst\n\
@@ -284,7 +287,9 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
                     );
                     let _ = writeln!(out, "        val stmt = conn.createStatement(\"{}\")", sql);
+                    let _ = writeln!(out, "        var first = true");
                     let _ = writeln!(out, "        for (item in items) {{");
+                    let _ = writeln!(out, "            if (!first) stmt.add()");
                     for (i, param) in params.iter().enumerate() {
                         let _ = writeln!(
                             out,
@@ -292,7 +297,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
                             i, param.field_name
                         );
                     }
-                    let _ = writeln!(out, "            stmt.add()");
+                    let _ = writeln!(out, "            first = false");
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(
                         out,
@@ -324,9 +329,11 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
                     );
                     let _ = writeln!(out, "        val stmt = conn.createStatement(\"{}\")", sql);
+                    let _ = writeln!(out, "        var first = true");
                     let _ = writeln!(out, "        for (item in items) {{");
+                    let _ = writeln!(out, "            if (!first) stmt.add()");
                     let _ = writeln!(out, "            stmt.bind(0, item)");
-                    let _ = writeln!(out, "            stmt.add()");
+                    let _ = writeln!(out, "            first = false");
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(
                         out,
@@ -359,7 +366,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
                     );
                     let _ = writeln!(out, "        val stmt = conn.createStatement(\"{}\")", sql);
-                    let _ = writeln!(out, "        repeat(count) {{");
+                    let _ = writeln!(out, "        repeat(count - 1) {{");
                     let _ = writeln!(out, "            stmt.add()");
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(

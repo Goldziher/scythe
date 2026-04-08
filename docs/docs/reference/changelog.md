@@ -4,6 +4,19 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/basemind-ai/scythe/blob/main/CHANGELOG.md) in the repository root.
 
+## [0.5.0] - 2026-04-08
+
+### Added
+
+- **DuckDB engine support** -- 5 backends (python-duckdb, typescript-duckdb, go-database-sql, java-jdbc, kotlin-jdbc) for embedded analytical database
+- **CockroachDB engine support** -- PostgreSQL-compatible alias, all PostgreSQL backends automatically work
+- **Java R2DBC backend** -- reactive database access with Project Reactor (Mono/Flux)
+- **Kotlin R2DBC backend** -- reactive database access with coroutines (suspend/Flow)
+- **Kotlin Exposed backend** -- generates Exposed Table objects with transaction{}/exec() query pattern
+- **@returns :grouped** -- new return type for nested result structs with `@group_by` annotation
+- **Homebrew bottles** -- pre-built binaries via goreleaser brews section (faster brew install)
+- **Integration test generator** -- generates all 39+ backend test suites from minijinja templates
+
 ## [0.4.0] - 2026-04-08
 
 ### Added
