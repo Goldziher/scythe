@@ -12,13 +12,13 @@ Scythe eliminates that glue code. You write `.sql` files — schema definitions 
 
 The result: you get the full power of SQL with the type safety of generated code, without maintaining the mapping layer by hand.
 
-## How Scythe Compares
+## Where ORMs Still Win
 
-Scythe is not the only SQL-first tool. sqlc (Go), SQLDelight (Kotlin), and jOOQ (Java DSL) take similar approaches. ORMs like Hibernate, SQLAlchemy, and ActiveRecord take the opposite approach -- generating SQL from application code.
+ORMs provide database portability. If your application supports bring-your-own-database (BYOD) — letting users choose between PostgreSQL, MySQL, SQLite, or others — an ORM abstracts the dialect differences at runtime. The same application code works across databases without maintaining separate SQL files per engine.
 
-Scythe's differentiators: 10 languages from the same SQL, 93 lint rules, integrated formatting, and precise nullability inference from JOINs, COALESCE, CASE, and window functions.
+Scythe takes the opposite approach: you write SQL for a specific database engine. This gives you full access to engine-specific features (PostgreSQL arrays, MySQL JSON functions, SQLite pragmas) and lets the database optimizer do its job. But it means targeting multiple engines requires separate SQL files and configuration blocks per engine.
 
-See [Alternatives](comparisons/alternatives.md) for detailed comparisons.
+If your application must run on whichever database the end user provides, an ORM is the right tool. If you control the database and want type-safe, optimized SQL, scythe is the right tool.
 
 ## Custom Types
 

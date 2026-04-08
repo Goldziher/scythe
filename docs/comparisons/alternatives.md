@@ -1,6 +1,6 @@
 # Alternatives
 
-Scythe is a SQL-first code generator. This page compares it to other tools in the space -- from direct competitors (sqlc, SQLDelight) to query builders (jOOQ) to ORMs (Hibernate, SQLAlchemy, ActiveRecord, and others).
+Scythe is a SQL-first code generator. This page compares it to the tool it is most similar to (sqlc), other SQL-first tools (SQLDelight, jOOQ), and ORMs (Hibernate, SQLAlchemy, ActiveRecord, and others).
 
 ## Overview
 
@@ -112,9 +112,9 @@ ORMs (Hibernate, SQLAlchemy, ActiveRecord, Entity Framework, GORM, Diesel, Ecto)
 | Limited SQL | Window functions, CTEs, lateral joins require raw SQL escape hatches | Write any SQL your database supports |
 | Type safety | Struggles with aggregations, conditional expressions, nullable joins | Static analysis with precise nullability inference |
 
-**When to choose an ORM:** Simple CRUD, rapid prototyping, team prefers not to write SQL.
+**When to choose an ORM:** Database portability matters (BYOD — your users pick the database), simple CRUD, rapid prototyping, team prefers not to write SQL.
 
-**When to choose scythe:** Complex queries, performance-sensitive, want full SQL control with type safety.
+**When to choose scythe:** You control the database, complex queries, performance-sensitive, want full SQL control with type safety.
 
 ### Per-framework notes
 
