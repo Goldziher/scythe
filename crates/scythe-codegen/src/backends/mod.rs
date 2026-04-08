@@ -12,13 +12,16 @@ pub mod php_pdo;
 pub mod python_aiomysql;
 pub mod python_aiosqlite;
 pub mod python_asyncpg;
+pub mod python_common;
 pub mod python_psycopg3;
 pub mod ruby_mysql2;
 pub mod ruby_pg;
 pub mod ruby_sqlite3;
+pub mod ruby_trilogy;
 pub mod sqlx;
 pub mod tokio_postgres;
 pub mod typescript_better_sqlite3;
+pub mod typescript_common;
 pub mod typescript_mysql2;
 pub mod typescript_pg;
 pub mod typescript_postgres;
@@ -97,6 +100,7 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "ruby-pg" | "ruby" | "rb" => Box::new(ruby_pg::RubyPgBackend::new(engine)?),
         "ruby-mysql2" => Box::new(ruby_mysql2::RubyMysql2Backend::new(engine)?),
         "ruby-sqlite3" => Box::new(ruby_sqlite3::RubySqlite3Backend::new(engine)?),
+        "ruby-trilogy" | "trilogy" => Box::new(ruby_trilogy::RubyTrilogyBackend::new(engine)?),
         "php-pdo" | "php" => Box::new(php_pdo::PhpPdoBackend::new(engine)?),
         _ => {
             return Err(ScytheError::new(

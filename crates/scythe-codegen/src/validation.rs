@@ -4,14 +4,19 @@ use std::process::Command;
 /// Returns a list of errors (empty = passed).
 pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
     match backend_name {
-        "python-psycopg3" | "python-asyncpg" => validate_python(code),
-        "typescript-postgres" | "typescript-pg" => validate_typescript(code),
+        "python-psycopg3" | "python-asyncpg" | "python-aiomysql" | "python-aiosqlite" => {
+            validate_python(code)
+        }
+        "typescript-postgres"
+        | "typescript-pg"
+        | "typescript-mysql2"
+        | "typescript-better-sqlite3" => validate_typescript(code),
         "go-pgx" => validate_go(code),
         "java-jdbc" => validate_java(code),
         "kotlin-jdbc" => validate_kotlin(code),
         "csharp-npgsql" => validate_csharp(code),
         "elixir-postgrex" => validate_elixir(code),
-        "ruby-pg" | "ruby-mysql2" | "ruby-sqlite3" => validate_ruby(code),
+        "ruby-pg" | "ruby-mysql2" | "ruby-sqlite3" | "ruby-trilogy" => validate_ruby(code),
         "php-pdo" => validate_php(code),
         // Rust backends are validated by syn, not here.
         "rust-sqlx" | "rust-tokio-postgres" => vec![],
@@ -29,7 +34,10 @@ fn validate_python(code: &str) -> Vec<String> {
         );
     }
 
-    let has_struct = code.contains("@dataclass") || code.contains("class ");
+    let has_struct = code.contains("@dataclass")
+        || code.contains("(BaseModel)")
+        || code.contains("(msgspec.Struct)")
+        || code.contains("class ");
     if !has_struct {
         // No struct -- at least a function must be present.
         if !code.contains("async def ") && !code.contains("def ") {
@@ -78,7 +86,12 @@ fn validate_typescript(code: &str) -> Vec<String> {
 
     // Structs are only required when the code is NOT exec-only (i.e. when
     // there is something beyond a bare function).
-    if !code.contains("export interface") && !code.contains("export type") && !has_function {
+    let has_zod = code.contains("z.object(") || code.contains("z.infer<");
+    if !code.contains("export interface")
+        && !code.contains("export type")
+        && !has_zod
+        && !has_function
+    {
         errors.push("missing `export interface` or `export type` (for DTOs)".into());
     }
 

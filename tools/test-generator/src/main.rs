@@ -209,6 +209,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("        \"csharp-npgsql\",\n");
     out.push_str("        \"elixir-postgrex\",\n");
     out.push_str("        \"ruby-pg\",\n");
+    out.push_str("        \"ruby-trilogy\",\n");
     out.push_str("        \"php-pdo\",\n");
     out.push_str("    ];\n");
     out.push_str("    for backend_name in &all_backends {\n");
