@@ -11,11 +11,9 @@ CockroachDB is a distributed SQL database that implements the PostgreSQL wire pr
 CockroachDB can be specified with either its full name or its abbreviation:
 
 ```toml
-# scythe.toml -- either form is accepted
+# scythe.toml
 [sql]
-engine = "cockroachdb"
-# or
-engine = "crdb"
+engine = "cockroachdb"  # or "crdb"
 ```
 
 ## Supported backends
