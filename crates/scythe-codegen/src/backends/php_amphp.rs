@@ -214,12 +214,44 @@ impl CodegenBackend for PhpAmphpBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
+        // Handle :batch separately
+        if matches!(analyzed.command, QueryCommand::Batch) {
+            let batch_fn_name = format!("{}Batch", func_name);
+            let _ = writeln!(
+                out,
+                "    public static function {}(\\Amp\\Sql\\SqlConnectionPool $pool, array $items): void {{",
+                batch_fn_name
+            );
+            let _ = writeln!(out, "        $transaction = $pool->beginTransaction();");
+            let _ = writeln!(out, "        try {{");
+            let _ = writeln!(
+                out,
+                "            $stmt = $transaction->prepare(\"{}\");",
+                sql
+            );
+            let _ = writeln!(out, "            foreach ($items as $item) {{");
+            if params.is_empty() {
+                let _ = writeln!(out, "                $stmt->execute([]);");
+            } else {
+                let _ = writeln!(out, "                $stmt->execute($item);");
+            }
+            let _ = writeln!(out, "            }}");
+            let _ = writeln!(out, "            $transaction->commit();");
+            let _ = writeln!(out, "        }} catch (\\Throwable $e) {{");
+            let _ = writeln!(out, "            $transaction->rollback();");
+            let _ = writeln!(out, "            throw $e;");
+            let _ = writeln!(out, "        }}");
+            let _ = write!(out, "    }}");
+            return Ok(out);
+        }
+
         // Return type depends on command
         let return_type = match &analyzed.command {
             QueryCommand::One => format!("?{}", struct_name),
-            QueryCommand::Many | QueryCommand::Batch => "\\Generator".to_string(),
+            QueryCommand::Many => "\\Generator".to_string(),
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
+            QueryCommand::Batch => unreachable!(),
         };
 
         let _ = writeln!(
@@ -261,7 +293,7 @@ impl CodegenBackend for PhpAmphpBackend {
                 let _ = writeln!(out, "        }}");
                 let _ = writeln!(out, "        return null;");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(out, "        foreach ($result as $row) {{");
                 let _ = writeln!(out, "            yield {}::fromRow($row);", struct_name);
                 let _ = writeln!(out, "        }}");
@@ -272,6 +304,7 @@ impl CodegenBackend for PhpAmphpBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "        return $result->getRowCount();");
             }
+            QueryCommand::Batch => unreachable!(),
         }
 
         let _ = write!(out, "    }}");

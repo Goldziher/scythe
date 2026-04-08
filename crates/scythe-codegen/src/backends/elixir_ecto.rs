@@ -108,7 +108,11 @@ impl CodegenBackend for ElixirEctoBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql(&analyzed.sql);
+        let sql = super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
         let mut out = String::new();
 
         // Parameter list
@@ -171,19 +175,19 @@ impl CodegenBackend for ElixirEctoBackend {
                 if params.len() > 1 {
                     let _ = writeln!(
                         out,
-                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn _repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", Tuple.to_list(item)) end)",
+                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", Tuple.to_list(item)) end)",
                         sql
                     );
                 } else if params.len() == 1 {
                     let _ = writeln!(
                         out,
-                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn _repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", [item]) end)",
+                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", [item]) end)",
                         sql
                     );
                 } else {
                     let _ = writeln!(
                         out,
-                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn _repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", []) end)",
+                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", []) end)",
                         sql
                     );
                 }

@@ -39,3 +39,8 @@ enum_variant_case = "PascalCase"
 row_suffix = "Row"
 
 [imports.rules]
+"time." = "\"time\""
+"decimal." = "\"github.com/shopspring/decimal\""
+"uuid." = "\"github.com/google/uuid\""
+"json." = "\"encoding/json\""
+"netip." = "\"net/netip\""

@@ -120,8 +120,6 @@ impl CodegenBackend for RubyTrilogyBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
-
         let param_array = if params.is_empty() {
             "[]".to_string()
         } else {
@@ -137,6 +135,7 @@ impl CodegenBackend for RubyTrilogyBackend {
 
         match &analyzed.command {
             QueryCommand::One => {
+                let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
                 let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
                 let _ = writeln!(
                     out,
@@ -163,6 +162,7 @@ impl CodegenBackend for RubyTrilogyBackend {
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}_batch", func_name);
+                // Batch writes its own function signature (not the outer one)
                 let _ = writeln!(out, "  def self.{}(client, items)", batch_fn_name);
                 let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
                 let _ = writeln!(out, "    items.each do |item|");
@@ -178,6 +178,7 @@ impl CodegenBackend for RubyTrilogyBackend {
                 return Ok(out);
             }
             QueryCommand::Many => {
+                let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
                 let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
                 let _ = writeln!(
                     out,
@@ -202,6 +203,7 @@ impl CodegenBackend for RubyTrilogyBackend {
                 let _ = writeln!(out, "    end");
             }
             QueryCommand::Exec => {
+                let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
                 let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
                 let _ = writeln!(
                     out,
@@ -211,6 +213,7 @@ impl CodegenBackend for RubyTrilogyBackend {
                 let _ = writeln!(out, "    nil");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
                 let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
                 let _ = writeln!(
                     out,

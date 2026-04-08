@@ -52,6 +52,11 @@ impl CodegenBackend for GoPgxBackend {
     }
 
     fn file_header(&self) -> String {
+        // TODO: imports for "time" and "github.com/shopspring/decimal" are included
+        // unconditionally. Go rejects unused imports, so queries that don't reference
+        // time.Time or decimal.Decimal will fail to compile. Once the manifest
+        // [imports.rules] system is wired into the codegen pipeline, these should be
+        // emitted conditionally based on which types appear in the generated code.
         "package queries\n\nimport (\n\t\"context\"\n\t\"time\"\n\n\t\"github.com/jackc/pgx/v5/pgxpool\"\n\t\"github.com/shopspring/decimal\"\n)\n"
             .to_string()
     }

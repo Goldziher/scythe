@@ -83,7 +83,9 @@ pub(crate) fn rewrite_optional_params(
         let placeholder = format!("${}", param.position);
 
         // Try each comparison operator
-        for op in &["=", "<>", "!="] {
+        for op in &[
+            ">=", "<=", "<>", "!=", ">", "<", "=", "ILIKE", "ilike", "LIKE", "like",
+        ] {
             result = rewrite_comparison(&result, &placeholder, op);
         }
     }
@@ -288,7 +290,7 @@ pub(crate) fn clean_sql_oneline_with_optional(
 }
 
 fn is_ident_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_'
+    c.is_alphanumeric() || c == '_' || c == '.'
 }
 
 /// Get a backend by name and database engine.
@@ -376,5 +378,134 @@ fn normalize_engine(engine: &str) -> &str {
         "mysql" | "mariadb" => "mysql",
         "sqlite" | "sqlite3" => "sqlite",
         other => other,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn param(name: &str, position: i64) -> AnalyzedParam {
+        AnalyzedParam {
+            name: name.to_string(),
+            neutral_type: "string".to_string(),
+            nullable: true,
+            position,
+        }
+    }
+
+    #[test]
+    fn test_rewrite_simple_equality() {
+        let sql = "SELECT * FROM users WHERE status = $1";
+        let params = vec![param("status", 1)];
+        let result = rewrite_optional_params(sql, &["status".to_string()], &params);
+        assert_eq!(
+            result,
+            "SELECT * FROM users WHERE ($1 IS NULL OR status = $1)"
+        );
+    }
+
+    #[test]
+    fn test_rewrite_qualified_column() {
+        let sql = "SELECT * FROM users u WHERE u.status = $1";
+        let params = vec![param("status", 1)];
+        let result = rewrite_optional_params(sql, &["status".to_string()], &params);
+        assert_eq!(
+            result,
+            "SELECT * FROM users u WHERE ($1 IS NULL OR u.status = $1)"
+        );
+    }
+
+    #[test]
+    fn test_rewrite_multiple_optional() {
+        let sql = "SELECT * FROM users WHERE status = $1 AND name = $2";
+        let params = vec![param("status", 1), param("name", 2)];
+        let result =
+            rewrite_optional_params(sql, &["status".to_string(), "name".to_string()], &params);
+        assert_eq!(
+            result,
+            "SELECT * FROM users WHERE ($1 IS NULL OR status = $1) AND ($2 IS NULL OR name = $2)"
+        );
+    }
+
+    #[test]
+    fn test_rewrite_mixed_optional_required() {
+        let sql = "SELECT * FROM users WHERE id = $1 AND status = $2";
+        let params = vec![param("id", 1), param("status", 2)];
+        let result = rewrite_optional_params(sql, &["status".to_string()], &params);
+        assert_eq!(
+            result,
+            "SELECT * FROM users WHERE id = $1 AND ($2 IS NULL OR status = $2)"
+        );
+    }
+
+    #[test]
+    fn test_rewrite_like_operator() {
+        let sql = "SELECT * FROM users WHERE name LIKE $1";
+        let params = vec![param("name", 1)];
+        let result = rewrite_optional_params(sql, &["name".to_string()], &params);
+        assert_eq!(
+            result,
+            "SELECT * FROM users WHERE ($1 IS NULL OR name LIKE $1)"
+        );
+    }
+
+    #[test]
+    fn test_rewrite_ilike_operator() {
+        let sql = "SELECT * FROM users WHERE name ILIKE $1";
+        let params = vec![param("name", 1)];
+        let result = rewrite_optional_params(sql, &["name".to_string()], &params);
+        assert_eq!(
+            result,
+            "SELECT * FROM users WHERE ($1 IS NULL OR name ILIKE $1)"
+        );
+    }
+
+    #[test]
+    fn test_rewrite_comparison_operators() {
+        let sql = "SELECT * FROM users WHERE age >= $1";
+        let params = vec![param("age", 1)];
+        let result = rewrite_optional_params(sql, &["age".to_string()], &params);
+        assert_eq!(
+            result,
+            "SELECT * FROM users WHERE ($1 IS NULL OR age >= $1)"
+        );
+    }
+
+    #[test]
+    fn test_rewrite_less_than() {
+        let sql = "SELECT * FROM users WHERE age < $1";
+        let params = vec![param("age", 1)];
+        let result = rewrite_optional_params(sql, &["age".to_string()], &params);
+        assert_eq!(result, "SELECT * FROM users WHERE ($1 IS NULL OR age < $1)");
+    }
+
+    #[test]
+    fn test_no_rewrite_without_optional() {
+        let sql = "SELECT * FROM users WHERE status = $1";
+        let params = vec![param("status", 1)];
+        let result = rewrite_optional_params(sql, &[], &params);
+        assert_eq!(result, sql);
+    }
+
+    #[test]
+    fn test_rewrite_not_equal() {
+        let sql = "SELECT * FROM users WHERE status <> $1";
+        let params = vec![param("status", 1)];
+        let result = rewrite_optional_params(sql, &["status".to_string()], &params);
+        assert_eq!(
+            result,
+            "SELECT * FROM users WHERE ($1 IS NULL OR status <> $1)"
+        );
+    }
+
+    #[test]
+    fn test_rewrite_does_not_match_similar_placeholder() {
+        // $1 should not match $10
+        let sql = "SELECT * FROM users WHERE status = $10";
+        let params = vec![param("status", 1)];
+        let result = rewrite_optional_params(sql, &["status".to_string()], &params);
+        // $1 placeholder doesn't appear, so no rewrite
+        assert_eq!(result, sql);
     }
 }

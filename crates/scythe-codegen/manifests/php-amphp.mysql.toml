@@ -28,6 +28,7 @@ inet = "string"
 [types.containers]
 array = "array<{T}>"
 nullable = "?{T}"
+range = "string"
 json_typed = "{T}"
 
 [naming]
