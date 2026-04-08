@@ -238,10 +238,11 @@ impl CodegenBackend for PythonAsyncpgBackend {
                 } else {
                     "int".to_string()
                 };
+                let param_name = if params.is_empty() { "count" } else { "items" };
                 let _ = writeln!(
                     out,
-                    "async def {}(conn: Connection, *, items: {}) -> None:",
-                    batch_fn_name, items_type
+                    "async def {}(conn: Connection, *, {}: {}) -> None:",
+                    batch_fn_name, param_name, items_type
                 );
                 let _ = writeln!(
                     out,
@@ -249,7 +250,7 @@ impl CodegenBackend for PythonAsyncpgBackend {
                     analyzed.name
                 );
                 if params.is_empty() {
-                    let _ = writeln!(out, "    for _ in range(items):");
+                    let _ = writeln!(out, "    for _ in range(count):");
                     let _ = writeln!(out, "        await conn.execute(");
                     let _ = writeln!(out, "            \"\"\"{}\"\"\",", sql);
                     let _ = writeln!(out, "        )");

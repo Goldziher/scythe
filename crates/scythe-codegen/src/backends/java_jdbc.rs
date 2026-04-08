@@ -76,13 +76,31 @@ fn rs_getter(java_type: &str) -> &str {
         "String" => "getString",
         "byte[]" => "getBytes",
         _ if java_type.contains("BigDecimal") => "getBigDecimal",
-        _ if java_type.contains("LocalDate") => "getDate",
-        _ if java_type.contains("LocalTime") => "getTime",
-        _ if java_type.contains("OffsetTime") => "getTime",
-        _ if java_type.contains("LocalDateTime") => "getTimestamp",
-        _ if java_type.contains("OffsetDateTime") => "getTimestamp",
+        _ if java_type.contains("LocalDate") => "getObject",
+        _ if java_type.contains("LocalTime") => "getObject",
+        _ if java_type.contains("OffsetTime") => "getObject",
+        _ if java_type.contains("LocalDateTime") => "getObject",
+        _ if java_type.contains("OffsetDateTime") => "getObject",
         _ if java_type.contains("UUID") => "getObject",
         _ => "getObject",
+    }
+}
+
+/// Return the class literal for temporal types that need `rs.getObject("col", Type.class)`.
+/// Returns None for non-temporal types.
+fn temporal_class_literal(java_type: &str) -> Option<&str> {
+    if java_type.contains("LocalDate") && !java_type.contains("LocalDateTime") {
+        Some("LocalDate.class")
+    } else if java_type.contains("LocalTime") && !java_type.contains("LocalDateTime") {
+        Some("LocalTime.class")
+    } else if java_type.contains("OffsetTime") {
+        Some("OffsetTime.class")
+    } else if java_type.contains("LocalDateTime") {
+        Some("LocalDateTime.class")
+    } else if java_type.contains("OffsetDateTime") {
+        Some("OffsetDateTime.class")
+    } else {
+        None
     }
 }
 
@@ -206,11 +224,45 @@ impl CodegenBackend for JavaJdbcBackend {
             "    public static {} fromResultSet(ResultSet rs) throws SQLException {{",
             struct_name
         );
+        // Check if any nullable primitives need wasNull() handling
+        let needs_preamble = columns
+            .iter()
+            .any(|c| c.nullable && is_java_primitive(&c.lang_type));
+        if needs_preamble {
+            for col in columns.iter() {
+                if col.nullable && is_java_primitive(&col.lang_type) {
+                    let getter = rs_getter(&col.lang_type);
+                    let _ = writeln!(
+                        out,
+                        "        var {}Raw = rs.{}(\"{}\");",
+                        col.field_name, getter, col.name
+                    );
+                    let _ = writeln!(
+                        out,
+                        "        {} {} = rs.wasNull() ? null : {}Raw;",
+                        box_primitive(&col.lang_type),
+                        col.field_name,
+                        col.field_name
+                    );
+                }
+            }
+        }
         let _ = writeln!(out, "        return new {}(", struct_name);
         for (i, col) in columns.iter().enumerate() {
-            let getter = rs_getter(&col.lang_type);
             let sep = if i + 1 < columns.len() { "," } else { "" };
-            let _ = writeln!(out, "            rs.{}(\"{}\"){}", getter, col.name, sep);
+            if col.nullable && is_java_primitive(&col.lang_type) {
+                // Already extracted above with wasNull() check
+                let _ = writeln!(out, "            {}{}", col.field_name, sep);
+            } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                let _ = writeln!(
+                    out,
+                    "            rs.getObject(\"{}\", {}){}",
+                    col.name, class_lit, sep
+                );
+            } else {
+                let getter = rs_getter(&col.lang_type);
+                let _ = writeln!(out, "            rs.{}(\"{}\"){}", getter, col.name, sep);
+            }
         }
         let _ = writeln!(out, "        );");
         let _ = writeln!(out, "    }}");

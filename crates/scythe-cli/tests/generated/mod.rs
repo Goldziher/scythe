@@ -6,6 +6,7 @@ mod test_catalog;
 mod test_codegen;
 mod test_cte;
 mod test_dml;
+mod test_engines;
 mod test_errors;
 mod test_expressions;
 mod test_joins;

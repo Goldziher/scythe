@@ -55,6 +55,12 @@ pub enum Engine {
     Postgresql,
     Mysql,
     Sqlite,
+    Mssql,
+    Oracle,
+    Mariadb,
+    Redshift,
+    Snowflake,
+    Duckdb,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

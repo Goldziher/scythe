@@ -218,10 +218,11 @@ impl CodegenBackend for PythonAiomysqlBackend {
                 } else {
                     "int".to_string()
                 };
+                let param_name = if params.is_empty() { "count" } else { "items" };
                 let _ = writeln!(
                     out,
-                    "async def {}(conn: aiomysql.Connection, *, items: {}) -> None:",
-                    batch_fn_name, items_type
+                    "async def {}(conn: aiomysql.Connection, *, {}: {}) -> None:",
+                    batch_fn_name, param_name, items_type
                 );
                 let _ = writeln!(
                     out,
@@ -230,7 +231,7 @@ impl CodegenBackend for PythonAiomysqlBackend {
                 );
                 let _ = writeln!(out, "    async with conn.cursor() as cur:");
                 if params.is_empty() {
-                    let _ = writeln!(out, "        for _ in range(items):");
+                    let _ = writeln!(out, "        for _ in range(count):");
                     let _ = writeln!(out, "            await cur.execute(\"\"\"{}\"\"\")", sql);
                 } else if params.len() == 1 {
                     let _ = writeln!(

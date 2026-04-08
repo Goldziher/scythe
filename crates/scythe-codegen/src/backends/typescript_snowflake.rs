@@ -1,5 +1,7 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{fn_name, row_struct_name, to_camel_case, to_pascal_case};
+use scythe_backend::naming::{
+    enum_type_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
+};
 use scythe_backend::types::resolve_type;
 use std::fmt::Write;
 
@@ -315,7 +317,7 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
     }
 
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
-        let type_name = to_pascal_case(&enum_info.sql_name);
+        let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
             return Ok(super::typescript_common::generate_zod_enum(
                 &type_name,
