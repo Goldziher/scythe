@@ -91,6 +91,42 @@ output = "src/generated/ts"
 |-------|------|----------|-------------|
 | `backend` | string | yes | Full backend name (e.g. `rust-sqlx`, `typescript-pg`, `python-aiomysql`). |
 | `output` | string | yes | Output directory for this backend's generated code. |
+| `row_type` | string | no | Row type style for generated code. See below. |
+
+### `row_type`
+
+Controls what data structure is used for generated row types. Available options depend on the backend language:
+
+**Python backends:**
+
+| Value | Description |
+|-------|-------------|
+| `"dataclass"` | (default) Standard library `@dataclass` |
+| `"pydantic"` | Pydantic `BaseModel` with validation |
+| `"msgspec"` | msgspec `Struct` for high-performance serialization |
+
+```toml
+[[sql.gen]]
+backend = "python-psycopg3"
+output = "src/generated"
+row_type = "pydantic"
+```
+
+**TypeScript backends:**
+
+| Value | Description |
+|-------|-------------|
+| `"interface"` | (default) TypeScript `interface` |
+| `"zod"` | Zod schema with inferred types |
+
+```toml
+[[sql.gen]]
+backend = "typescript-pg"
+output = "src/generated"
+row_type = "zod"
+```
+
+Other languages use their standard row type and do not currently support `row_type` configuration.
 
 ### `[sql.gen.rust]` (legacy)
 

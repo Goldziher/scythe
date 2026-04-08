@@ -220,6 +220,17 @@ Configure your target language and database driver:
     backend = "php-pdo"
     ```
 
+**Optional:** Add `row_type` to customize the generated row type style. For Python backends, use `"pydantic"` or `"msgspec"` instead of the default `"dataclass"`. For TypeScript, use `"zod"` instead of the default `"interface"`. For example:
+
+```toml
+[[sql.gen]]
+backend = "python-psycopg3"
+output = "src/generated"
+row_type = "pydantic"
+```
+
+See the [Configuration guide](../guide/configuration.md) for all `row_type` options.
+
 ## 4. Generate Code
 
 ```bash

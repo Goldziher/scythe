@@ -33,7 +33,7 @@
 
 ---
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 3 databases. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 3 databases with 27 backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
 
 ## Installation
 
@@ -179,16 +179,150 @@ func GetUserOrders(ctx context.Context, pool *pgxpool.Pool, status string) ([]Ge
 
 </details>
 
-See the [full quickstart](https://goldziher.github.io/scythe/getting-started/quickstart/) for all 10 languages.
+<details>
+<summary><strong>Java (JDBC)</strong></summary>
+
+```java
+public record GetUserOrdersRow(
+    int id,
+    String name,
+    @Nullable java.math.BigDecimal total,
+    @Nullable String notes
+) {}
+
+public static List<GetUserOrdersRow> getUserOrders(
+    Connection conn, String status
+) throws SQLException {
+    // PreparedStatement + ResultSet scanning
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Kotlin (JDBC)</strong></summary>
+
+```kotlin
+data class GetUserOrdersRow(
+    val id: Int,
+    val name: String,
+    val total: java.math.BigDecimal?,
+    val notes: String?,
+)
+
+fun getUserOrders(conn: Connection, status: String): List<GetUserOrdersRow> {
+    conn.prepareStatement("...").use { ps ->
+        ps.setObject(1, status)
+        ps.executeQuery().use { rs -> /* scan rows */ }
+    }
+}
+```
+
+</details>
+
+<details>
+<summary><strong>C# (Npgsql)</strong></summary>
+
+```csharp
+public record GetUserOrdersRow(
+    int Id, string Name, decimal? Total, string? Notes
+);
+
+public static async Task<List<GetUserOrdersRow>> GetUserOrders(
+    NpgsqlConnection conn, string status
+) {
+    await using var cmd = new NpgsqlCommand("...", conn);
+    cmd.Parameters.AddWithValue("p1", status);
+    await using var reader = await cmd.ExecuteReaderAsync();
+    // read rows
+}
+```
+
+</details>
+
+<details>
+<summary><strong>Elixir (Postgrex)</strong></summary>
+
+```elixir
+defmodule GetUserOrdersRow do
+  @type t :: %__MODULE__{
+    id: integer(), name: String.t(),
+    total: Decimal.t() | nil, notes: String.t() | nil
+  }
+  defstruct [:id, :name, :total, :notes]
+end
+
+@spec get_user_orders(pid(), String.t()) :: {:ok, [%GetUserOrdersRow{}]} | {:error, term()}
+def get_user_orders(conn, status) do
+  case Postgrex.query(conn, "...", [status]) do
+    {:ok, %{rows: rows}} -> {:ok, Enum.map(rows, &to_struct/1)}
+    {:error, err} -> {:error, err}
+  end
+end
+```
+
+</details>
+
+<details>
+<summary><strong>Ruby (pg)</strong></summary>
+
+```ruby
+module Queries
+  GetUserOrdersRow = Data.define(:id, :name, :total, :notes)
+
+  def self.get_user_orders(conn, status)
+    result = conn.exec_params(
+      "SELECT u.id, u.name, o.total, o.notes ...", [status])
+    result.map do |row|
+      GetUserOrdersRow.new(
+        id: row["id"].to_i, name: row["name"],
+        total: row["total"], notes: row["notes"])
+    end
+  end
+end
+```
+
+</details>
+
+<details>
+<summary><strong>PHP (PDO)</strong></summary>
+
+```php
+readonly class GetUserOrdersRow {
+    public function __construct(
+        public int $id, public string $name,
+        public ?string $total, public ?string $notes,
+    ) {}
+}
+
+final class Queries {
+    public static function getUserOrders(
+        \PDO $pdo, string $status
+    ): \Generator {
+        $stmt = $pdo->prepare("SELECT ...");
+        $stmt->execute(["p1" => $status]);
+        while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
+            yield GetUserOrdersRow::fromRow($row);
+        }
+    }
+}
+```
+
+</details>
+
+See the [full quickstart](https://goldziher.github.io/scythe/getting-started/quickstart/) for complete examples with imports and full function bodies.
 
 ## Features
 
 - **10 languages** -- Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP
 - **3 databases** -- PostgreSQL, MySQL, SQLite
-- **25 backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, pgx, JDBC, Npgsql, PDO, and more
+- **27 backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, pgx, JDBC, Npgsql, PDO, Trilogy, Ecto, AMPHP, and more
 - **93 lint rules** -- UPDATE without WHERE, SELECT *, NULL comparisons, leading wildcard LIKE, plus 71 sqruff rules
 - **SQL formatting** -- consistent style via sqruff integration
 - **Smart type inference** -- nullability from JOINs, COALESCE, window functions, CASE WHEN, aggregates
+- **`@optional` parameters** -- SQL rewriting for conditional filters (`WHERE ($1 IS NULL OR col = $1)`)
+- **`:batch` execution** -- bulk inserts and batch operations
+- **Configurable row types** -- Pydantic, msgspec, Zod, dataclass, interface per backend
 - **CTEs and window functions** -- ROW_NUMBER, RANK, LAG, LEAD, recursive CTEs with correct type inference
 - **Enums, composites, arrays** -- PostgreSQL types mapped to language-native equivalents
 - **Custom type overrides** -- map ltree, citext, PostGIS geometry to any target type
@@ -204,9 +338,9 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 | Java       | JDBC | JDBC | JDBC |
 | Kotlin     | JDBC | JDBC | JDBC |
 | C#         | Npgsql | MySqlConnector | Microsoft.Data.Sqlite |
-| Elixir     | Postgrex | MyXQL | Exqlite |
-| Ruby       | pg | mysql2 | sqlite3 |
-| PHP        | PDO | PDO | PDO |
+| Ruby       | pg, Trilogy | mysql2, Trilogy | sqlite3 |
+| PHP        | PDO, AMPHP | PDO | PDO |
+| Elixir     | Postgrex, Ecto | MyXQL | Exqlite |
 
 ## Documentation
 
@@ -217,7 +351,7 @@ Full documentation at [goldziher.github.io/scythe](https://goldziher.github.io/s
 - [Alternatives](https://goldziher.github.io/scythe/comparisons/alternatives/) -- how scythe compares to sqlc, SQLDelight, jOOQ, and ORMs
 - [Custom Types](https://goldziher.github.io/scythe/guide/custom-types/) -- type overrides for PostgreSQL extensions
 - [Configuration](https://goldziher.github.io/scythe/guide/configuration/) -- full scythe.toml reference
-- [Annotations](https://goldziher.github.io/scythe/guide/annotations/) -- @name, @returns, @nullable, @json, and more
+- [Annotations](https://goldziher.github.io/scythe/guide/annotations/) -- @name, @returns, @optional, @nullable, @json, and more
 - [Lint Rules](https://goldziher.github.io/scythe/reference/lint-rules/) -- all 93 rules with codes and examples
 
 ## Contributing
