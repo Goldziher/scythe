@@ -177,7 +177,79 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
                 let _ = writeln!(out, "\treturn row ?? null;");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}Batch", func_name);
+                if params.len() > 1 {
+                    let params_type_name = format!("{}BatchParams", struct_name);
+                    let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
+                    let _ = writeln!(out, "export interface {} {{", params_type_name);
+                    for p in params {
+                        let _ = writeln!(out, "\t{}: {};", p.field_name, p.full_type);
+                    }
+                    let _ = writeln!(out, "}}");
+                    let _ = writeln!(out);
+                    let _ = writeln!(
+                        out,
+                        "/** Execute {} for each item in the batch within a transaction. */",
+                        analyzed.name
+                    );
+                    let batch_params = format!("db: Database, items: {}[]", params_type_name);
+                    write_fn_sig(&mut out, &batch_fn_name, &batch_params, "void");
+                    let _ = writeln!(out, "\tconst stmt = db.prepare(`{}`);", sql);
+                    let _ = writeln!(
+                        out,
+                        "\tconst runBatch = db.transaction((items: {}[]) => {{",
+                        params_type_name
+                    );
+                    let _ = writeln!(out, "\t\tfor (const item of items) {{");
+                    let args: Vec<String> = params
+                        .iter()
+                        .map(|p| format!("item.{}", p.field_name))
+                        .collect();
+                    let _ = writeln!(out, "\t\t\tstmt.run({});", args.join(", "));
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t}});");
+                    let _ = writeln!(out, "\trunBatch(items);");
+                    let _ = write!(out, "}}");
+                } else if params.len() == 1 {
+                    let _ = writeln!(
+                        out,
+                        "/** Execute {} for each item in the batch within a transaction. */",
+                        analyzed.name
+                    );
+                    let batch_params = format!("db: Database, items: {}[]", params[0].full_type);
+                    write_fn_sig(&mut out, &batch_fn_name, &batch_params, "void");
+                    let _ = writeln!(out, "\tconst stmt = db.prepare(`{}`);", sql);
+                    let _ = writeln!(
+                        out,
+                        "\tconst runBatch = db.transaction((items: {}[]) => {{",
+                        params[0].full_type
+                    );
+                    let _ = writeln!(out, "\t\tfor (const item of items) stmt.run(item);");
+                    let _ = writeln!(out, "\t}});");
+                    let _ = writeln!(out, "\trunBatch(items);");
+                    let _ = write!(out, "}}");
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "/** Execute {} for each item in the batch within a transaction. */",
+                        analyzed.name
+                    );
+                    write_fn_sig(
+                        &mut out,
+                        &batch_fn_name,
+                        "db: Database, count: number",
+                        "void",
+                    );
+                    let _ = writeln!(out, "\tconst stmt = db.prepare(`{}`);", sql);
+                    let _ = writeln!(out, "\tconst runBatch = db.transaction((n: number) => {{");
+                    let _ = writeln!(out, "\t\tfor (let i = 0; i < n; i++) stmt.run();");
+                    let _ = writeln!(out, "\t}});");
+                    let _ = writeln!(out, "\trunBatch(count);");
+                    let _ = write!(out, "}}");
+                }
+            }
+            QueryCommand::Many => {
                 let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
                 let ret = format!("{}[]", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);

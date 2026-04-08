@@ -12,28 +12,26 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
-const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-pdo.toml");
-const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/php-pdo.mysql.toml");
-const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/php-pdo.sqlite.toml");
+const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-amphp.toml");
+const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/php-amphp.mysql.toml");
 
-pub struct PhpPdoBackend {
+pub struct PhpAmphpBackend {
     manifest: BackendManifest,
 }
 
-impl PhpPdoBackend {
+impl PhpAmphpBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         let default_toml = match engine {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
             "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
-            "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
-                    format!("unsupported engine '{}' for php-pdo backend", engine),
+                    format!("unsupported engine '{}' for php-amphp backend", engine),
                 ));
             }
         };
-        let manifest_path = Path::new("backends/php-pdo/manifest.toml");
+        let manifest_path = Path::new("backends/php-amphp/manifest.toml");
         let manifest = if manifest_path.exists() {
             load_manifest(manifest_path)
                 .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
@@ -45,14 +43,13 @@ impl PhpPdoBackend {
     }
 }
 
-/// Rewrite $1, $2, ... to :p1, :p2, ...
-fn rewrite_params(sql: &str) -> String {
+/// Rewrite $1, $2, ... to positional ? placeholders.
+fn rewrite_params_positional(sql: &str) -> String {
     let mut result = sql.to_string();
     // Replace from highest number down to avoid $1 matching inside $10
     for i in (1..=99).rev() {
         let from = format!("${}", i);
-        let to = format!(":p{}", i);
-        result = result.replace(&from, &to);
+        result = result.replace(&from, "?");
     }
     result
 }
@@ -68,9 +65,9 @@ fn php_cast(neutral_type: &str) -> &'static str {
     }
 }
 
-impl CodegenBackend for PhpPdoBackend {
+impl CodegenBackend for PhpAmphpBackend {
     fn name(&self) -> &str {
-        "php-pdo"
+        "php-amphp"
     }
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
@@ -78,7 +75,7 @@ impl CodegenBackend for PhpPdoBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql", "sqlite"]
+        &["postgresql", "mysql"]
     }
 
     fn file_header(&self) -> String {
@@ -130,7 +127,6 @@ impl CodegenBackend for PhpPdoBackend {
                 "date" | "time" | "time_tz" | "datetime" | "datetime_tz"
             );
             if is_enum {
-                // Enum columns: convert DB string to PHP backed enum via ::from()
                 let enum_type = &c.lang_type;
                 if c.nullable {
                     let _ = writeln!(
@@ -146,7 +142,6 @@ impl CodegenBackend for PhpPdoBackend {
                     );
                 }
             } else if is_datetime {
-                // DateTime columns: PDO returns strings, wrap in DateTimeImmutable
                 if c.nullable {
                     let _ = writeln!(
                         out,
@@ -204,51 +199,12 @@ impl CodegenBackend for PhpPdoBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = rewrite_params(&super::clean_sql_oneline_with_optional(
+        let sql = rewrite_params_positional(&super::clean_sql_oneline_with_optional(
             &analyzed.sql,
             &analyzed.optional_params,
             &analyzed.params,
         ));
         let mut out = String::new();
-
-        // Handle :batch separately
-        if matches!(analyzed.command, QueryCommand::Batch) {
-            let batch_fn_name = format!("{}Batch", func_name);
-            let _ = writeln!(
-                out,
-                "    public static function {}(\\PDO $pdo, array $items): void {{",
-                batch_fn_name
-            );
-            let _ = writeln!(out, "        $stmt = $pdo->prepare(\"{}\");", sql);
-            let _ = writeln!(out, "        $pdo->beginTransaction();");
-            let _ = writeln!(out, "        try {{");
-            let _ = writeln!(out, "            foreach ($items as $item) {{");
-            if params.is_empty() {
-                let _ = writeln!(out, "                $stmt->execute();");
-            } else {
-                let use_positional = sql.contains('?');
-                if use_positional {
-                    let _ = writeln!(out, "                $stmt->execute($item);");
-                } else {
-                    // Named params — build mapping from item array
-                    let bindings = params
-                        .iter()
-                        .enumerate()
-                        .map(|(i, _p)| format!("\"p{}\" => $item[{}]", i + 1, i))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let _ = writeln!(out, "                $stmt->execute([{}]);", bindings);
-                }
-            }
-            let _ = writeln!(out, "            }}");
-            let _ = writeln!(out, "            $pdo->commit();");
-            let _ = writeln!(out, "        }} catch (\\Throwable $e) {{");
-            let _ = writeln!(out, "            $pdo->rollBack();");
-            let _ = writeln!(out, "            throw $e;");
-            let _ = writeln!(out, "        }}");
-            let _ = write!(out, "    }}");
-            return Ok(out);
-        }
 
         // Build PHP parameter list
         let param_list = params
@@ -261,62 +217,52 @@ impl CodegenBackend for PhpPdoBackend {
         // Return type depends on command
         let return_type = match &analyzed.command {
             QueryCommand::One => format!("?{}", struct_name),
-            QueryCommand::Many => "\\Generator".to_string(),
+            QueryCommand::Many | QueryCommand::Batch => "\\Generator".to_string(),
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
-            QueryCommand::Batch => unreachable!(),
         };
 
         let _ = writeln!(
             out,
-            "    public static function {}(\\PDO $pdo{}{}): {} {{",
+            "    public static function {}(\\Amp\\Sql\\SqlConnectionPool $pool{}{}): {} {{",
             func_name, sep, param_list, return_type
         );
 
-        // Prepare statement
-        let _ = writeln!(out, "        $stmt = $pdo->prepare(\"{}\");", sql);
-
         // Build execute params
-        // If the SQL contains `?` placeholders (MySQL/SQLite), use positional array.
-        // If it contains `:pN` placeholders (PostgreSQL), use named array.
         if params.is_empty() {
-            let _ = writeln!(out, "        $stmt->execute();");
+            let _ = writeln!(
+                out,
+                "        $result = $pool->prepare(\"{}\")->execute([]);",
+                sql
+            );
         } else {
-            let use_positional = sql.contains('?');
             let bindings = params
                 .iter()
-                .enumerate()
-                .map(|(i, p)| {
-                    let value = if p.neutral_type.starts_with("enum::") {
+                .map(|p| {
+                    if p.neutral_type.starts_with("enum::") {
                         format!("${}->value", p.field_name)
                     } else {
                         format!("${}", p.field_name)
-                    };
-                    if use_positional {
-                        value
-                    } else {
-                        format!("\"p{}\" => {}", i + 1, value)
                     }
                 })
                 .collect::<Vec<_>>()
                 .join(", ");
-            let _ = writeln!(out, "        $stmt->execute([{}]);", bindings);
+            let _ = writeln!(
+                out,
+                "        $result = $pool->prepare(\"{}\")->execute([{}]);",
+                sql, bindings
+            );
         }
 
         match &analyzed.command {
             QueryCommand::One => {
-                let _ = writeln!(out, "        $row = $stmt->fetch(\\PDO::FETCH_ASSOC);");
-                let _ = writeln!(
-                    out,
-                    "        return $row ? {}::fromRow($row) : null;",
-                    struct_name
-                );
+                let _ = writeln!(out, "        foreach ($result as $row) {{");
+                let _ = writeln!(out, "            return {}::fromRow($row);", struct_name);
+                let _ = writeln!(out, "        }}");
+                let _ = writeln!(out, "        return null;");
             }
-            QueryCommand::Many => {
-                let _ = writeln!(
-                    out,
-                    "        while ($row = $stmt->fetch(\\PDO::FETCH_ASSOC)) {{"
-                );
+            QueryCommand::Many | QueryCommand::Batch => {
+                let _ = writeln!(out, "        foreach ($result as $row) {{");
                 let _ = writeln!(out, "            yield {}::fromRow($row);", struct_name);
                 let _ = writeln!(out, "        }}");
             }
@@ -324,9 +270,8 @@ impl CodegenBackend for PhpPdoBackend {
                 // nothing else needed
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(out, "        return $stmt->rowCount();");
+                let _ = writeln!(out, "        return $result->getRowCount();");
             }
-            QueryCommand::Batch => unreachable!(),
         }
 
         let _ = write!(out, "    }}");

@@ -114,14 +114,93 @@ impl CodegenBackend for TokioPostgresBackend {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
 
-        // Return type
+        // Clean SQL
+        let sql = super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
+
+        // Handle :batch separately
+        if matches!(analyzed.command, QueryCommand::Batch) {
+            let batch_fn_name = format!("{}_batch", func_name);
+
+            if params.len() > 1 {
+                let params_struct_name = format!("{}BatchParams", struct_name);
+                let _ = writeln!(out, "#[derive(Debug, Clone)]");
+                let _ = writeln!(out, "pub struct {} {{", params_struct_name);
+                for param in params {
+                    let _ = writeln!(out, "    pub {}: {},", param.field_name, param.full_type);
+                }
+                let _ = writeln!(out, "}}");
+                let _ = writeln!(out);
+                let _ = writeln!(
+                    out,
+                    "pub async fn {}(client: &tokio_postgres::Client, items: &[{}]) -> Result<(), tokio_postgres::Error> {{",
+                    batch_fn_name, params_struct_name
+                );
+                let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
+                let _ = writeln!(out, "    let tx = client.transaction().await?;");
+                let _ = writeln!(out, "    for item in items {{");
+                let refs: Vec<String> = params
+                    .iter()
+                    .map(|p| {
+                        if p.neutral_type.starts_with("enum::") {
+                            format!("&item.{}.to_string()", p.field_name)
+                        } else {
+                            format!("&item.{}", p.field_name)
+                        }
+                    })
+                    .collect();
+                let _ = writeln!(
+                    out,
+                    "        tx.execute(&stmt, &[{}]).await?;",
+                    refs.join(", ")
+                );
+                let _ = writeln!(out, "    }}");
+                let _ = writeln!(out, "    tx.commit().await?;");
+                let _ = writeln!(out, "    Ok(())");
+            } else if params.len() == 1 {
+                let param = &params[0];
+                let _ = writeln!(
+                    out,
+                    "pub async fn {}(client: &tokio_postgres::Client, items: &[{}]) -> Result<(), tokio_postgres::Error> {{",
+                    batch_fn_name, param.full_type
+                );
+                let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
+                let _ = writeln!(out, "    let tx = client.transaction().await?;");
+                let _ = writeln!(out, "    for item in items {{");
+                let _ = writeln!(out, "        tx.execute(&stmt, &[item]).await?;");
+                let _ = writeln!(out, "    }}");
+                let _ = writeln!(out, "    tx.commit().await?;");
+                let _ = writeln!(out, "    Ok(())");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "pub async fn {}(client: &tokio_postgres::Client, count: usize) -> Result<(), tokio_postgres::Error> {{",
+                    batch_fn_name
+                );
+                let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
+                let _ = writeln!(out, "    let tx = client.transaction().await?;");
+                let _ = writeln!(out, "    for _ in 0..count {{");
+                let _ = writeln!(out, "        tx.execute(&stmt, &[]).await?;");
+                let _ = writeln!(out, "    }}");
+                let _ = writeln!(out, "    tx.commit().await?;");
+                let _ = writeln!(out, "    Ok(())");
+            }
+
+            let _ = write!(out, "}}");
+            return Ok(out);
+        }
+
+        // Return type for non-batch commands
         let return_type = match &analyzed.command {
             QueryCommand::One => struct_name.to_string(),
             QueryCommand::Many => format!("Vec<{}>", struct_name),
             QueryCommand::Exec => "()".to_string(),
             QueryCommand::ExecResult => "u64".to_string(),
             QueryCommand::ExecRows => "u64".to_string(),
-            QueryCommand::Batch => format!("Vec<{}>", struct_name),
+            QueryCommand::Batch => unreachable!(),
         };
 
         // Function signature
@@ -131,13 +210,6 @@ impl CodegenBackend for TokioPostgresBackend {
             func_name,
             param_parts.join(", "),
             return_type
-        );
-
-        // Clean SQL
-        let sql = super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
         );
 
         // Build param references for the query call
@@ -166,7 +238,7 @@ impl CodegenBackend for TokioPostgresBackend {
                 );
                 let _ = writeln!(out, "    Ok({}::from_row(&row))", struct_name);
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "    let rows = client.query(r#\"{}\"#, {}).await?;",
@@ -194,6 +266,7 @@ impl CodegenBackend for TokioPostgresBackend {
                 );
                 let _ = writeln!(out, "    Ok(rows_affected)");
             }
+            QueryCommand::Batch => unreachable!(),
         }
 
         let _ = write!(out, "}}");

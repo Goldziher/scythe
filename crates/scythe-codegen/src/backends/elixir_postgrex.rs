@@ -144,12 +144,38 @@ impl CodegenBackend for ElixirPostgrexBackend {
                     func_name, param_specs, struct_name
                 );
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "@spec {}(pid(){}) :: {{:ok, [%{}{{}}]}} | {{:error, term()}}",
                     func_name, param_specs, struct_name
                 );
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}_batch", func_name);
+                let _ = writeln!(
+                    out,
+                    "@spec {}(pid(), list()) :: :ok | {{:error, term()}}",
+                    batch_fn_name
+                );
+                let _ = writeln!(out, "def {}(conn, items) do", batch_fn_name);
+                let _ = writeln!(out, "  Postgrex.transaction(conn, fn tx_conn ->");
+                let _ = writeln!(out, "    Enum.each(items, fn item ->");
+                if params.len() > 1 {
+                    let _ = writeln!(
+                        out,
+                        "      Postgrex.query!(tx_conn, \"{}\", Tuple.to_list(item))",
+                        sql
+                    );
+                } else if params.len() == 1 {
+                    let _ = writeln!(out, "      Postgrex.query!(tx_conn, \"{}\", [item])", sql);
+                } else {
+                    let _ = writeln!(out, "      Postgrex.query!(tx_conn, \"{}\", [])", sql);
+                }
+                let _ = writeln!(out, "    end)");
+                let _ = writeln!(out, "  end)");
+                let _ = write!(out, "end");
+                return Ok(out);
             }
             QueryCommand::Exec => {
                 let _ = writeln!(
@@ -196,7 +222,7 @@ impl CodegenBackend for ElixirPostgrexBackend {
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "  case Postgrex.query(conn, \"{}\", {}) do",
@@ -243,6 +269,7 @@ impl CodegenBackend for ElixirPostgrexBackend {
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
+            QueryCommand::Batch => unreachable!(),
         }
 
         let _ = write!(out, "end");

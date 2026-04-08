@@ -103,7 +103,7 @@ pub fn generate_with_backend_and_overrides(
         result.enum_def = Some(enum_def);
     }
 
-    // Generate row/model struct for :one and :many commands
+    // Generate row/model struct for :one and :many commands (not :batch)
     let needs_row_struct = matches!(analyzed.command, QueryCommand::One | QueryCommand::Many);
     if needs_row_struct && !analyzed.columns.is_empty() {
         if let Some(ref table_name) = analyzed.source_table {

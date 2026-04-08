@@ -217,7 +217,7 @@ impl CodegenBackend for TypescriptPgBackend {
                 let _ = writeln!(out, "\treturn rows[0] ?? null;");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
                 let ret = format!("Promise<{}[]>", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
@@ -230,6 +230,88 @@ impl CodegenBackend for TypescriptPgBackend {
                 );
                 let _ = writeln!(out, "\treturn rows;");
                 let _ = write!(out, "}}");
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}Batch", func_name);
+                // Build params interface
+                if params.len() > 1 {
+                    let params_type_name = format!("{}BatchParams", struct_name);
+                    let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
+                    let _ = writeln!(out, "export interface {} {{", params_type_name);
+                    for p in params {
+                        let _ = writeln!(out, "\t{}: {};", p.field_name, p.full_type);
+                    }
+                    let _ = writeln!(out, "}}");
+                    let _ = writeln!(out);
+                    let _ = writeln!(
+                        out,
+                        "/** Execute {} for each item in the batch within a transaction. */",
+                        analyzed.name
+                    );
+                    let batch_params = format!("client: PoolClient, items: {}[]", params_type_name);
+                    write_fn_sig(&mut out, &batch_fn_name, &batch_params, "Promise<void>");
+                    let _ = writeln!(out, "\ttry {{");
+                    let _ = writeln!(out, "\t\tawait client.query(\"BEGIN\");");
+                    let _ = writeln!(out, "\t\tfor (const item of items) {{");
+                    let _ = writeln!(out, "\t\t\tawait client.query(");
+                    let _ = writeln!(out, "\t\t\t\t`{}`,", sql);
+                    let args: Vec<String> = params
+                        .iter()
+                        .map(|p| format!("item.{}", p.field_name))
+                        .collect();
+                    let _ = writeln!(out, "\t\t\t\t[{}],", args.join(", "));
+                    let _ = writeln!(out, "\t\t\t);");
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t\tawait client.query(\"COMMIT\");");
+                    let _ = writeln!(out, "\t}} catch (error) {{");
+                    let _ = writeln!(out, "\t\tawait client.query(\"ROLLBACK\");");
+                    let _ = writeln!(out, "\t\tthrow error;");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = write!(out, "}}");
+                } else if params.len() == 1 {
+                    let _ = writeln!(
+                        out,
+                        "/** Execute {} for each item in the batch within a transaction. */",
+                        analyzed.name
+                    );
+                    let batch_params =
+                        format!("client: PoolClient, items: {}[]", params[0].full_type);
+                    write_fn_sig(&mut out, &batch_fn_name, &batch_params, "Promise<void>");
+                    let _ = writeln!(out, "\ttry {{");
+                    let _ = writeln!(out, "\t\tawait client.query(\"BEGIN\");");
+                    let _ = writeln!(out, "\t\tfor (const item of items) {{");
+                    let _ = writeln!(out, "\t\t\tawait client.query(`{}`, [item]);", sql);
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t\tawait client.query(\"COMMIT\");");
+                    let _ = writeln!(out, "\t}} catch (error) {{");
+                    let _ = writeln!(out, "\t\tawait client.query(\"ROLLBACK\");");
+                    let _ = writeln!(out, "\t\tthrow error;");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = write!(out, "}}");
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "/** Execute {} for each item in the batch within a transaction. */",
+                        analyzed.name
+                    );
+                    write_fn_sig(
+                        &mut out,
+                        &batch_fn_name,
+                        "client: PoolClient, count: number",
+                        "Promise<void>",
+                    );
+                    let _ = writeln!(out, "\ttry {{");
+                    let _ = writeln!(out, "\t\tawait client.query(\"BEGIN\");");
+                    let _ = writeln!(out, "\t\tfor (let i = 0; i < count; i++) {{");
+                    let _ = writeln!(out, "\t\t\tawait client.query(`{}`);", sql);
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t\tawait client.query(\"COMMIT\");");
+                    let _ = writeln!(out, "\t}} catch (error) {{");
+                    let _ = writeln!(out, "\t\tawait client.query(\"ROLLBACK\");");
+                    let _ = writeln!(out, "\t\tthrow error;");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = write!(out, "}}");
+                }
             }
             QueryCommand::Exec => {
                 let _ = writeln!(out, "/** Execute a query returning no rows. */");

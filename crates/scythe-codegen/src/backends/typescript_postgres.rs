@@ -167,7 +167,90 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 let _ = writeln!(out, "\treturn rows[0] ?? null;");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}Batch", func_name);
+                if params.len() > 1 {
+                    let params_type_name = format!("{}BatchParams", struct_name);
+                    let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
+                    let _ = writeln!(out, "export interface {} {{", params_type_name);
+                    for p in params {
+                        let _ = writeln!(out, "\t{}: {};", p.field_name, p.full_type);
+                    }
+                    let _ = writeln!(out, "}}");
+                    let _ = writeln!(out);
+                    let _ = writeln!(
+                        out,
+                        "/** Execute {} for each item in the batch within a transaction. */",
+                        analyzed.name
+                    );
+                    let batch_params = format!("sql: Sql, items: {}[]", params_type_name);
+                    write_fn_sig(&mut out, &batch_fn_name, &batch_params, "Promise<void>");
+                    let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
+                    let _ = writeln!(out, "\t\tfor (const item of items) {{");
+                    // Build template with item.fieldName
+                    let batch_sql = {
+                        let mut s = sql_clean.clone();
+                        let mut indexed: Vec<(i64, &str)> = analyzed
+                            .params
+                            .iter()
+                            .zip(params.iter())
+                            .map(|(ap, rp)| (ap.position, rp.field_name.as_str()))
+                            .collect();
+                        indexed.sort_by(|a, b| b.0.cmp(&a.0));
+                        for (pos, field_name) in indexed {
+                            let placeholder = format!("${}", pos);
+                            let replacement = format!("${{item.{}}}", field_name);
+                            s = s.replace(&placeholder, &replacement);
+                        }
+                        s
+                    };
+                    let _ = writeln!(out, "\t\t\tawait tx`");
+                    let _ = writeln!(out, "    {}", batch_sql);
+                    let _ = writeln!(out, "  `;");
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t}});");
+                    let _ = write!(out, "}}");
+                } else if params.len() == 1 {
+                    let _ = writeln!(
+                        out,
+                        "/** Execute {} for each item in the batch within a transaction. */",
+                        analyzed.name
+                    );
+                    let batch_params = format!("sql: Sql, items: {}[]", params[0].full_type);
+                    write_fn_sig(&mut out, &batch_fn_name, &batch_params, "Promise<void>");
+                    let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
+                    let _ = writeln!(out, "\t\tfor (const item of items) {{");
+                    let batch_sql =
+                        sql_template.replace(&format!("${{{}}}", params[0].field_name), "${item}");
+                    let _ = writeln!(out, "\t\t\tawait tx`");
+                    let _ = writeln!(out, "    {}", batch_sql);
+                    let _ = writeln!(out, "  `;");
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t}});");
+                    let _ = write!(out, "}}");
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "/** Execute {} for each item in the batch within a transaction. */",
+                        analyzed.name
+                    );
+                    write_fn_sig(
+                        &mut out,
+                        &batch_fn_name,
+                        "sql: Sql, count: number",
+                        "Promise<void>",
+                    );
+                    let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
+                    let _ = writeln!(out, "\t\tfor (let i = 0; i < count; i++) {{");
+                    let _ = writeln!(out, "\t\t\tawait tx`");
+                    let _ = writeln!(out, "    {}", sql_template);
+                    let _ = writeln!(out, "  `;");
+                    let _ = writeln!(out, "\t\t}}");
+                    let _ = writeln!(out, "\t}});");
+                    let _ = write!(out, "}}");
+                }
+            }
+            QueryCommand::Many => {
                 let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
                 let ret = format!("Promise<{}[]>", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);

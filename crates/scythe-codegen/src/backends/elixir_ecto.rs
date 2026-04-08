@@ -148,12 +148,54 @@ impl CodegenBackend for ElixirEctoBackend {
                     func_name, param_specs, struct_name
                 );
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "@spec {}(Ecto.Repo.t(){}) :: {{:ok, [%{}{{}}]}} | {{:error, term()}}",
                     func_name, param_specs, struct_name
                 );
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}_batch", func_name);
+                let _ = writeln!(
+                    out,
+                    "@spec {}(Ecto.Repo.t(), list()) :: :ok | {{:error, term()}}",
+                    batch_fn_name
+                );
+                let _ = writeln!(out, "def {}(repo, items) do", batch_fn_name);
+                let _ = writeln!(out, "  Ecto.Multi.new()");
+                let _ = writeln!(out, "  |> then(fn multi ->");
+                let _ = writeln!(out, "    items");
+                let _ = writeln!(out, "    |> Enum.with_index()");
+                let _ = writeln!(out, "    |> Enum.reduce(multi, fn {{item, idx}}, acc ->");
+                if params.len() > 1 {
+                    let _ = writeln!(
+                        out,
+                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn _repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", Tuple.to_list(item)) end)",
+                        sql
+                    );
+                } else if params.len() == 1 {
+                    let _ = writeln!(
+                        out,
+                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn _repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", [item]) end)",
+                        sql
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn _repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", []) end)",
+                        sql
+                    );
+                }
+                let _ = writeln!(out, "    end)");
+                let _ = writeln!(out, "  end)");
+                let _ = writeln!(out, "  |> repo.transaction()");
+                let _ = writeln!(out, "  |> case do");
+                let _ = writeln!(out, "    {{:ok, _}} -> :ok");
+                let _ = writeln!(out, "    {{:error, _, reason, _}} -> {{:error, reason}}");
+                let _ = writeln!(out, "  end");
+                let _ = write!(out, "end");
+                return Ok(out);
             }
             QueryCommand::Exec => {
                 let _ = writeln!(
@@ -200,7 +242,7 @@ impl CodegenBackend for ElixirEctoBackend {
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "  case Ecto.Adapters.SQL.query(repo, \"{}\", {}) do",
@@ -247,6 +289,7 @@ impl CodegenBackend for ElixirEctoBackend {
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
+            QueryCommand::Batch => unreachable!(),
         }
 
         let _ = write!(out, "end");

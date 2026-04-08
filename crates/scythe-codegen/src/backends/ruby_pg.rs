@@ -161,7 +161,24 @@ impl CodegenBackend for RubyPgBackend {
                     .join(", ");
                 let _ = writeln!(out, "    {}.new({})", struct_name, fields);
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}_batch", func_name);
+                let _ = writeln!(out, "  def self.{}(conn, items)", batch_fn_name);
+                let _ = writeln!(out, "    conn.transaction do");
+                let _ = writeln!(out, "      items.each do |item|");
+                if params.len() > 1 {
+                    let _ = writeln!(out, "        conn.exec_params(\"{}\", item)", sql);
+                } else if params.len() == 1 {
+                    let _ = writeln!(out, "        conn.exec_params(\"{}\", [item])", sql);
+                } else {
+                    let _ = writeln!(out, "        conn.exec_params(\"{}\", [])", sql);
+                }
+                let _ = writeln!(out, "      end");
+                let _ = writeln!(out, "    end");
+                let _ = write!(out, "  end");
+                return Ok(out);
+            }
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "    result = conn.exec_params(\"{}\", {})",

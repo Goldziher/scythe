@@ -192,7 +192,7 @@ impl CodegenBackend for PythonAsyncpgBackend {
                     let _ = writeln!(out, "    )");
                 }
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "async def {}(conn: Connection{}{}) -> list[{}]:",
@@ -226,6 +226,45 @@ impl CodegenBackend for PythonAsyncpgBackend {
                     let _ = writeln!(out, "        )");
                     let _ = writeln!(out, "        for r in rows");
                     let _ = writeln!(out, "    ]");
+                }
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}_batch", func_name);
+                let items_type = if params.len() > 1 {
+                    let tuple_types: Vec<String> =
+                        params.iter().map(|p| p.full_type.clone()).collect();
+                    format!("list[tuple[{}]]", tuple_types.join(", "))
+                } else if params.len() == 1 {
+                    format!("list[{}]", params[0].full_type)
+                } else {
+                    "int".to_string()
+                };
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: Connection, *, items: {}) -> None:",
+                    batch_fn_name, items_type
+                );
+                let _ = writeln!(
+                    out,
+                    "    \"\"\"Execute {} query for each item in the batch.\"\"\"",
+                    analyzed.name
+                );
+                if params.is_empty() {
+                    let _ = writeln!(out, "    for _ in range(items):");
+                    let _ = writeln!(out, "        await conn.execute(");
+                    let _ = writeln!(out, "            \"\"\"{}\"\"\",", sql);
+                    let _ = writeln!(out, "        )");
+                } else {
+                    // asyncpg executemany takes list of tuples
+                    if params.len() == 1 {
+                        let _ = writeln!(out, "    args = [(item,) for item in items]");
+                    } else {
+                        let _ = writeln!(out, "    args = items");
+                    }
+                    let _ = writeln!(out, "    await conn.executemany(");
+                    let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
+                    let _ = writeln!(out, "        args,");
+                    let _ = writeln!(out, "    )");
                 }
             }
             QueryCommand::Exec | QueryCommand::ExecResult | QueryCommand::ExecRows => {

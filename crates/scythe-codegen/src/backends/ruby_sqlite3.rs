@@ -159,7 +159,24 @@ impl CodegenBackend for RubySqlite3Backend {
                     .join(", ");
                 let _ = writeln!(out, "    {}.new({})", struct_name, fields);
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}_batch", func_name);
+                let _ = writeln!(out, "  def self.{}(db, items)", batch_fn_name);
+                let _ = writeln!(out, "    db.transaction do");
+                let _ = writeln!(out, "      items.each do |item|");
+                if params.len() > 1 {
+                    let _ = writeln!(out, "        db.execute(\"{}\", item)", sql);
+                } else if params.len() == 1 {
+                    let _ = writeln!(out, "        db.execute(\"{}\", [item])", sql);
+                } else {
+                    let _ = writeln!(out, "        db.execute(\"{}\", [])", sql);
+                }
+                let _ = writeln!(out, "      end");
+                let _ = writeln!(out, "    end");
+                let _ = write!(out, "  end");
+                return Ok(out);
+            }
+            QueryCommand::Many => {
                 let _ = writeln!(out, "    rows = db.execute(\"{}\", {})", sql, param_array);
                 let _ = writeln!(out, "    rows.map do |row|");
                 let fields = columns

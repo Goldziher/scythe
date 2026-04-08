@@ -148,12 +148,42 @@ impl CodegenBackend for ElixirExqliteBackend {
                     func_name, param_specs, struct_name
                 );
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "@spec {}(Exqlite.Sqlite3.db(){}) :: {{:ok, [%{}{{}}]}} | {{:error, term()}}",
                     func_name, param_specs, struct_name
                 );
+            }
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}_batch", func_name);
+                let _ = writeln!(
+                    out,
+                    "@spec {}(Exqlite.Sqlite3.db(), list()) :: :ok | {{:error, term()}}",
+                    batch_fn_name
+                );
+                let _ = writeln!(out, "def {}(conn, items) do", batch_fn_name);
+                let _ = writeln!(out, "  sql = \"{}\"", sql);
+                let _ = writeln!(out, "  Enum.reduce_while(items, :ok, fn item, :ok ->");
+                if params.len() > 1 {
+                    let _ = writeln!(
+                        out,
+                        "    case Exqlite.Sqlite3.execute(conn, sql, Tuple.to_list(item)) do"
+                    );
+                } else if params.len() == 1 {
+                    let _ = writeln!(
+                        out,
+                        "    case Exqlite.Sqlite3.execute(conn, sql, [item]) do"
+                    );
+                } else {
+                    let _ = writeln!(out, "    case Exqlite.Sqlite3.execute(conn, sql, []) do");
+                }
+                let _ = writeln!(out, "      {{:ok, _}} -> {{:cont, :ok}}");
+                let _ = writeln!(out, "      {{:error, err}} -> {{:halt, {{:error, err}}}}");
+                let _ = writeln!(out, "    end");
+                let _ = writeln!(out, "  end)");
+                let _ = write!(out, "end");
+                return Ok(out);
             }
             QueryCommand::Exec => {
                 let _ = writeln!(
@@ -199,7 +229,7 @@ impl CodegenBackend for ElixirExqliteBackend {
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Many => {
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
                 let _ = writeln!(
                     out,
@@ -250,6 +280,7 @@ impl CodegenBackend for ElixirExqliteBackend {
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
+            QueryCommand::Batch => unreachable!(),
         }
 
         let _ = write!(out, "end");

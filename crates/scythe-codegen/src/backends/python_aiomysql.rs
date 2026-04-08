@@ -220,7 +220,47 @@ impl CodegenBackend for PythonAiomysqlBackend {
                     let _ = writeln!(out, "    )");
                 }
             }
-            QueryCommand::Many | QueryCommand::Batch => {
+            QueryCommand::Batch => {
+                let batch_fn_name = format!("{}_batch", func_name);
+                let items_type = if params.len() > 1 {
+                    let tuple_types: Vec<String> =
+                        params.iter().map(|p| p.full_type.clone()).collect();
+                    format!("list[tuple[{}]]", tuple_types.join(", "))
+                } else if params.len() == 1 {
+                    format!("list[{}]", params[0].full_type)
+                } else {
+                    "int".to_string()
+                };
+                let _ = writeln!(
+                    out,
+                    "async def {}(conn: aiomysql.Connection, *, items: {}) -> None:",
+                    batch_fn_name, items_type
+                );
+                let _ = writeln!(
+                    out,
+                    "    \"\"\"Execute {} query for each item in the batch.\"\"\"",
+                    analyzed.name
+                );
+                let _ = writeln!(out, "    async with conn.cursor() as cur:");
+                if params.is_empty() {
+                    let _ = writeln!(out, "        for _ in range(items):");
+                    let _ = writeln!(out, "            await cur.execute(\"\"\"{}\"\"\")", sql);
+                } else if params.len() == 1 {
+                    let _ = writeln!(
+                        out,
+                        "        await cur.executemany(\"\"\"{}\"\"\", [(item,) for item in items])",
+                        sql
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "        await cur.executemany(\"\"\"{}\"\"\", items)",
+                        sql
+                    );
+                }
+                let _ = writeln!(out, "        await conn.commit()");
+            }
+            QueryCommand::Many => {
                 let _ = writeln!(
                     out,
                     "async def {}(conn: aiomysql.Connection{}{}) -> list[{}]:",
