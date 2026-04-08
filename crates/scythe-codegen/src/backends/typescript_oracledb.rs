@@ -1,5 +1,7 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{fn_name, row_struct_name, to_camel_case, to_pascal_case};
+use scythe_backend::naming::{
+    enum_type_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
+};
 use scythe_backend::types::resolve_type;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -78,7 +80,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
         let mut out = String::new();
         let _ = writeln!(out, "export interface {} {{", struct_name);
         for col in columns {
-            let _ = writeln!(out, "  {}: {};", col.field_name, col.full_type);
+            let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
         }
         let _ = write!(out, "}}");
         Ok(out)
@@ -142,27 +144,28 @@ impl CodegenBackend for TypescriptOracledbBackend {
                 );
                 let _ = writeln!(
                     out,
-                    "  const result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
+                    "\tconst result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
                     sql, bind_array
                 );
-                let _ = writeln!(out, "  if (!result.rows || result.rows.length === 0) {{");
-                let _ = writeln!(out, "    return null;");
-                let _ = writeln!(out, "  }}");
+                let _ = writeln!(out, "\tif (!result.rows || result.rows.length === 0) {{");
+                let _ = writeln!(out, "\t\treturn null;");
+                let _ = writeln!(out, "\t}}");
                 let _ = writeln!(
                     out,
-                    "  const row = result.rows[0] as Record<string, unknown>;"
+                    "\tconst row = result.rows[0] as Record<string, unknown>;"
                 );
-                let _ = writeln!(out, "  return {{");
+                let _ = writeln!(out, "\treturn {{");
                 for col in columns {
+                    // Oracle returns column names as uppercase by default for unquoted identifiers.
                     let _ = writeln!(
                         out,
-                        "    {}: row[\"{}\"] as {},",
+                        "\t\t{}: row[\"{}\"] as {},",
                         col.field_name,
                         col.name.to_uppercase(),
                         col.lang_type
                     );
                 }
-                let _ = writeln!(out, "  }};");
+                let _ = writeln!(out, "\t}};");
                 let _ = write!(out, "}}");
             }
             QueryCommand::Many => {
@@ -173,26 +176,27 @@ impl CodegenBackend for TypescriptOracledbBackend {
                 );
                 let _ = writeln!(
                     out,
-                    "  const result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
+                    "\tconst result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
                     sql, bind_array
                 );
-                let _ = writeln!(out, "  if (!result.rows) {{");
-                let _ = writeln!(out, "    return [];");
-                let _ = writeln!(out, "  }}");
+                let _ = writeln!(out, "\tif (!result.rows) {{");
+                let _ = writeln!(out, "\t\treturn [];");
+                let _ = writeln!(out, "\t}}");
                 let _ = writeln!(
                     out,
-                    "  return result.rows.map((row: Record<string, unknown>) => ({{",
+                    "\treturn result.rows.map((row: Record<string, unknown>) => ({{",
                 );
                 for col in columns {
+                    // Oracle returns column names as uppercase by default for unquoted identifiers.
                     let _ = writeln!(
                         out,
-                        "    {}: row[\"{}\"] as {},",
+                        "\t\t{}: row[\"{}\"] as {},",
                         col.field_name,
                         col.name.to_uppercase(),
                         col.lang_type
                     );
                 }
-                let _ = writeln!(out, "  }}));");
+                let _ = writeln!(out, "\t}}));");
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {
@@ -201,7 +205,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
                     "export async function {}(conn: oracledb.Connection{}{}): Promise<void> {{",
                     func_name, sep, param_list
                 );
-                let _ = writeln!(out, "  await conn.execute(\"{}\", {});", sql, bind_array);
+                let _ = writeln!(out, "\tawait conn.execute(\"{}\", {});", sql, bind_array);
                 let _ = write!(out, "}}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
@@ -212,10 +216,10 @@ impl CodegenBackend for TypescriptOracledbBackend {
                 );
                 let _ = writeln!(
                     out,
-                    "  const result = await conn.execute(\"{}\", {});",
+                    "\tconst result = await conn.execute(\"{}\", {});",
                     sql, bind_array
                 );
-                let _ = writeln!(out, "  return result.rowsAffected ?? 0;");
+                let _ = writeln!(out, "\treturn result.rowsAffected ?? 0;");
                 let _ = write!(out, "}}");
             }
             QueryCommand::Batch => {
@@ -235,13 +239,13 @@ impl CodegenBackend for TypescriptOracledbBackend {
                     batch_fn_name, items_type
                 );
                 if params.is_empty() {
-                    let _ = writeln!(out, "  for (let i = 0; i < items.length; i++) {{");
-                    let _ = writeln!(out, "    await conn.execute(\"{}\");", sql);
-                    let _ = writeln!(out, "  }}");
+                    let _ = writeln!(out, "\tfor (let i = 0; i < items.length; i++) {{");
+                    let _ = writeln!(out, "\t\tawait conn.execute(\"{}\");", sql);
+                    let _ = writeln!(out, "\t}}");
                 } else {
                     let _ = writeln!(
                         out,
-                        "  await conn.executeMany(\"{}\", items.map(item => Array.isArray(item) ? item : [item]));",
+                        "\tawait conn.executeMany(\"{}\", items.map(item => Array.isArray(item) ? item : [item]));",
                         sql
                     );
                 }
@@ -254,7 +258,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
     }
 
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
-        let type_name = to_pascal_case(&enum_info.sql_name);
+        let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let values: Vec<String> = enum_info
             .values
@@ -272,8 +276,13 @@ impl CodegenBackend for TypescriptOracledbBackend {
         for field in &composite.fields {
             let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
                 .map(|t| t.into_owned())
-                .unwrap_or_else(|_| "unknown".to_string());
-            let _ = writeln!(out, "  {}: {};", to_camel_case(&field.name), ts_type);
+                .map_err(|e| {
+                    ScytheError::new(
+                        ErrorCode::InternalError,
+                        format!("composite field type error: {}", e),
+                    )
+                })?;
+            let _ = writeln!(out, "\t{}: {};", to_camel_case(&field.name), ts_type);
         }
         let _ = write!(out, "}}");
         Ok(out)

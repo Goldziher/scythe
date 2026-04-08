@@ -135,7 +135,7 @@ impl CodegenBackend for ElixirTdsBackend {
             QueryCommand::One => {
                 let _ = writeln!(
                     out,
-                    "@spec {}(pid(){}) :: {{:ok, %{}{{}}}} | {{:error, term()}}",
+                    "@spec {}(pid(){}) :: {{:ok, %{}{{}}}} | {{:error, :not_found}} | {{:error, term()}}",
                     func_name, param_specs, struct_name
                 );
             }
@@ -154,16 +154,21 @@ impl CodegenBackend for ElixirTdsBackend {
                     batch_fn_name
                 );
                 let _ = writeln!(out, "def {}(conn, items) do", batch_fn_name);
-                let _ = writeln!(out, "  Enum.each(items, fn item ->");
+                let _ = writeln!(out, "  Tds.transaction(conn, fn tx_conn ->");
+                let _ = writeln!(out, "    Enum.each(items, fn item ->");
                 if params.len() > 1 {
-                    let _ = writeln!(out, "    Tds.query(conn, \"{}\", Tuple.to_list(item))", sql);
+                    let _ = writeln!(
+                        out,
+                        "      Tds.query(tx_conn, \"{}\", Tuple.to_list(item))",
+                        sql
+                    );
                 } else if params.len() == 1 {
-                    let _ = writeln!(out, "    Tds.query(conn, \"{}\", [item])", sql);
+                    let _ = writeln!(out, "      Tds.query(tx_conn, \"{}\", [item])", sql);
                 } else {
-                    let _ = writeln!(out, "    Tds.query(conn, \"{}\", [])", sql);
+                    let _ = writeln!(out, "      Tds.query(tx_conn, \"{}\", [])", sql);
                 }
+                let _ = writeln!(out, "    end)");
                 let _ = writeln!(out, "  end)");
-                let _ = writeln!(out, "  :ok");
                 let _ = write!(out, "end");
                 return Ok(out);
             }
@@ -194,7 +199,7 @@ impl CodegenBackend for ElixirTdsBackend {
                     "  case Tds.query(conn, \"{}\", {}) do",
                     sql, param_args
                 );
-                let _ = writeln!(out, "    {{:ok, %{{rows: [row]}}}} ->");
+                let _ = writeln!(out, "    {{:ok, %{{rows: [row | _]}}}} ->");
 
                 let field_vars = columns
                     .iter()

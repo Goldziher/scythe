@@ -2,6 +2,7 @@ use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
+use scythe_backend::types::resolve_type;
 use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -381,7 +382,10 @@ impl CodegenBackend for PhpPdoBackend {
             // empty constructor
         } else {
             for field in &composite.fields {
-                let _ = writeln!(out, "        public mixed ${},", field.name);
+                let field_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                    .map(|t| t.into_owned())
+                    .unwrap_or_else(|_| "mixed".to_string());
+                let _ = writeln!(out, "        public {} ${},", field_type, field.name);
             }
         }
         let _ = writeln!(out, "    ) {{}}");

@@ -116,9 +116,11 @@ impl CodegenBackend for RubyTinyTdsBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // TinyTDS uses string interpolation for parameters in the SQL query
-        // The SQL already has @p1, @p2, etc. placeholders
-        // We build the full SQL by declaring variables with sp_executesql pattern
+        // WARNING: TinyTDS does not support parameterized queries natively.
+        // We use DECLARE with client.escape() for SQL injection prevention.
+        // client.escape() handles quoting/escaping of string values, but callers
+        // must ensure non-string types (integers, floats) are validated before passing.
+        // Consider using sp_executesql for stronger parameterization if your use case requires it.
         if !matches!(analyzed.command, QueryCommand::Batch) {
             let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
         }

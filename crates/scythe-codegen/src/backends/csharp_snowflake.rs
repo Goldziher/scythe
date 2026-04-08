@@ -152,23 +152,26 @@ impl CodegenBackend for CsharpSnowflakeBackend {
                 let _ = writeln!(out);
                 let _ = writeln!(
                     out,
-                    "public static void {}(SnowflakeDbConnection conn, List<{}> items) {{",
+                    "public static async Task {}(SnowflakeDbConnection conn, List<{}> items) {{",
                     batch_fn_name, params_record_name
                 );
             } else if params.len() == 1 {
                 let _ = writeln!(
                     out,
-                    "public static void {}(SnowflakeDbConnection conn, List<{}> items) {{",
+                    "public static async Task {}(SnowflakeDbConnection conn, List<{}> items) {{",
                     batch_fn_name, params[0].full_type
                 );
             } else {
                 let _ = writeln!(
                     out,
-                    "public static void {}(SnowflakeDbConnection conn, int count) {{",
+                    "public static async Task {}(SnowflakeDbConnection conn, int count) {{",
                     batch_fn_name
                 );
             }
-            let _ = writeln!(out, "    using var tx = conn.BeginTransaction();");
+            let _ = writeln!(
+                out,
+                "    await using var tx = (System.Data.Common.DbTransaction)await conn.BeginTransactionAsync();"
+            );
             let _ = writeln!(out, "    try {{");
             if params.is_empty() {
                 let _ = writeln!(out, "        for (int i = 0; i < count; i++) {{");
@@ -177,7 +180,7 @@ impl CodegenBackend for CsharpSnowflakeBackend {
             }
             let _ = writeln!(
                 out,
-                "            using var cmd = new SnowflakeDbCommand(conn);"
+                "            await using var cmd = new SnowflakeDbCommand(conn);"
             );
             let _ = writeln!(out, "            cmd.CommandText = \"{}\";", sql);
             for (i, p) in params.iter().enumerate() {
@@ -194,11 +197,11 @@ impl CodegenBackend for CsharpSnowflakeBackend {
                     value_expr
                 );
             }
-            let _ = writeln!(out, "            cmd.ExecuteNonQuery();");
+            let _ = writeln!(out, "            await cmd.ExecuteNonQueryAsync();");
             let _ = writeln!(out, "        }}");
-            let _ = writeln!(out, "        tx.Commit();");
+            let _ = writeln!(out, "        await tx.CommitAsync();");
             let _ = writeln!(out, "    }} catch {{");
-            let _ = writeln!(out, "        tx.Rollback();");
+            let _ = writeln!(out, "        await tx.RollbackAsync();");
             let _ = writeln!(out, "        throw;");
             let _ = writeln!(out, "    }}");
             let _ = write!(out, "}}");
@@ -213,13 +216,23 @@ impl CodegenBackend for CsharpSnowflakeBackend {
             QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         };
 
+        let is_async_void = return_type == "void";
+        let task_type = if is_async_void {
+            "Task".to_string()
+        } else {
+            format!("Task<{}>", return_type)
+        };
+
         let _ = writeln!(
             out,
-            "public static {} {}(SnowflakeDbConnection conn{}{}) {{",
-            return_type, func_name, sep, param_list
+            "public static async {} {}(SnowflakeDbConnection conn{}{}) {{",
+            task_type, func_name, sep, param_list
         );
 
-        let _ = writeln!(out, "    using var cmd = new SnowflakeDbCommand(conn);");
+        let _ = writeln!(
+            out,
+            "    await using var cmd = new SnowflakeDbCommand(conn);"
+        );
         let _ = writeln!(out, "    cmd.CommandText = \"{}\";", sql);
         for (i, p) in params.iter().enumerate() {
             let _ = writeln!(
@@ -232,8 +245,11 @@ impl CodegenBackend for CsharpSnowflakeBackend {
 
         match &analyzed.command {
             QueryCommand::One => {
-                let _ = writeln!(out, "    using var reader = cmd.ExecuteReader();");
-                let _ = writeln!(out, "    if (!reader.Read()) return null;");
+                let _ = writeln!(
+                    out,
+                    "    await using var reader = await cmd.ExecuteReaderAsync();"
+                );
+                let _ = writeln!(out, "    if (!await reader.ReadAsync()) return null;");
                 let _ = writeln!(out, "    return new {}(", struct_name);
                 for (i, col) in columns.iter().enumerate() {
                     let expr = column_read_expr(col, i);
@@ -247,9 +263,12 @@ impl CodegenBackend for CsharpSnowflakeBackend {
                 let _ = writeln!(out, "    );");
             }
             QueryCommand::Many => {
-                let _ = writeln!(out, "    using var reader = cmd.ExecuteReader();");
+                let _ = writeln!(
+                    out,
+                    "    await using var reader = await cmd.ExecuteReaderAsync();"
+                );
                 let _ = writeln!(out, "    var results = new List<{}>();", struct_name);
-                let _ = writeln!(out, "    while (reader.Read()) {{");
+                let _ = writeln!(out, "    while (await reader.ReadAsync()) {{");
                 let _ = writeln!(out, "        results.Add(new {}(", struct_name);
                 for (i, col) in columns.iter().enumerate() {
                     let expr = column_read_expr(col, i);
@@ -266,10 +285,10 @@ impl CodegenBackend for CsharpSnowflakeBackend {
                 let _ = writeln!(out, "    return results;");
             }
             QueryCommand::Exec => {
-                let _ = writeln!(out, "    cmd.ExecuteNonQuery();");
+                let _ = writeln!(out, "    await cmd.ExecuteNonQueryAsync();");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(out, "    return cmd.ExecuteNonQuery();");
+                let _ = writeln!(out, "    return await cmd.ExecuteNonQueryAsync();");
             }
             QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         }

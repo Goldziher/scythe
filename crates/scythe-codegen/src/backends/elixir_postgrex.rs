@@ -146,7 +146,7 @@ impl CodegenBackend for ElixirPostgrexBackend {
             QueryCommand::One => {
                 let _ = writeln!(
                     out,
-                    "@spec {}(Postgrex.conn(){}) :: {{:ok, %{}{{}}}} | {{:error, term()}}",
+                    "@spec {}(Postgrex.conn(){}) :: {{:ok, %{}{{}}}} | {{:error, :not_found}} | {{:error, term()}}",
                     func_name, param_specs, struct_name
                 );
             }
@@ -170,14 +170,28 @@ impl CodegenBackend for ElixirPostgrexBackend {
                 if params.len() > 1 {
                     let _ = writeln!(
                         out,
-                        "      Postgrex.query!(tx_conn, \"{}\", Tuple.to_list(item))",
+                        "      case Postgrex.query(tx_conn, \"{}\", Tuple.to_list(item)) do",
                         sql
                     );
                 } else if params.len() == 1 {
-                    let _ = writeln!(out, "      Postgrex.query!(tx_conn, \"{}\", [item])", sql);
+                    let _ = writeln!(
+                        out,
+                        "      case Postgrex.query(tx_conn, \"{}\", [item]) do",
+                        sql
+                    );
                 } else {
-                    let _ = writeln!(out, "      Postgrex.query!(tx_conn, \"{}\", [])", sql);
+                    let _ = writeln!(
+                        out,
+                        "      case Postgrex.query(tx_conn, \"{}\", []) do",
+                        sql
+                    );
                 }
+                let _ = writeln!(out, "        {{:ok, _}} -> :ok");
+                let _ = writeln!(
+                    out,
+                    "        {{:error, err}} -> DBConnection.rollback(tx_conn, err)"
+                );
+                let _ = writeln!(out, "      end");
                 let _ = writeln!(out, "    end)");
                 let _ = writeln!(out, "  end)");
                 let _ = write!(out, "end");
@@ -210,9 +224,9 @@ impl CodegenBackend for ElixirPostgrexBackend {
                     "  case Postgrex.query(conn, \"{}\", {}) do",
                     sql, param_args
                 );
-                let _ = writeln!(out, "    {{:ok, %{{rows: [row]}}}} ->");
+                let _ = writeln!(out, "    {{:ok, %{{rows: [row | _]}}}} ->");
 
-                // Destructure row
+                // Destructure row — columns are in SELECT order
                 let field_vars = columns
                     .iter()
                     .map(|c| c.field_name.clone())

@@ -206,12 +206,12 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                 let value_expr = if params.len() > 1 {
                     let field = to_pascal_case(&p.field_name);
                     if p.neutral_type.starts_with("enum::") {
-                        format!("item.{}.ToString().ToLower()", field)
+                        format!("item.{}.ToDbValue()", field)
                     } else {
                         format!("item.{}", field)
                     }
                 } else if p.neutral_type.starts_with("enum::") {
-                    "item.ToString().ToLower()".to_string()
+                    "item.ToDbValue()".to_string()
                 } else {
                     "item".to_string()
                 };
@@ -263,7 +263,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         );
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
-                format!("{}.ToString().ToLower()", p.field_name)
+                format!("{}.ToDbValue()", p.field_name)
             } else {
                 p.field_name.clone()
             };
@@ -337,6 +337,23 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             let variant = enum_variant_name(value, &self.manifest.naming);
             let _ = writeln!(out, "    {},", variant);
         }
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "public static class {}Extensions {{", type_name);
+        let _ = writeln!(
+            out,
+            "    public static string ToDbValue(this {} value) => value switch {{",
+            type_name
+        );
+        for value in &enum_info.values {
+            let variant = enum_variant_name(value, &self.manifest.naming);
+            let _ = writeln!(out, "        {}.{} => \"{}\",", type_name, variant, value);
+        }
+        let _ = writeln!(
+            out,
+            "        _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),"
+        );
+        let _ = writeln!(out, "    }};");
         let _ = write!(out, "}}");
         Ok(out)
     }

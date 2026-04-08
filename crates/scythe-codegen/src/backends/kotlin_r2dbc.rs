@@ -19,6 +19,7 @@ const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/kotlin-r2db
 
 pub struct KotlinR2dbcBackend {
     manifest: BackendManifest,
+    is_pg: bool,
 }
 
 impl KotlinR2dbcBackend {
@@ -37,7 +38,8 @@ impl KotlinR2dbcBackend {
         };
         let manifest =
             super::load_or_default_manifest("backends/kotlin-r2dbc/manifest.toml", default_toml)?;
-        Ok(Self { manifest })
+        let is_pg = matches!(engine, "postgresql" | "postgres" | "pg");
+        Ok(Self { manifest, is_pg })
     }
 }
 
@@ -128,11 +130,16 @@ impl CodegenBackend for KotlinR2dbcBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_oneline_with_optional(
+        let cleaned = super::clean_sql_oneline_with_optional(
             &analyzed.sql,
             &analyzed.optional_params,
             &analyzed.params,
         );
+        let sql = if self.is_pg {
+            cleaned
+        } else {
+            super::rewrite_pg_placeholders(&cleaned, |_| "?".to_string())
+        };
 
         let use_multiline_params = !params.is_empty();
 

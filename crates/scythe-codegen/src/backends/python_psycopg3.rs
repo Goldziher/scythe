@@ -273,10 +273,11 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 } else {
                     "int".to_string()
                 };
+                let items_or_count = if params.is_empty() { "count" } else { "items" };
                 let _ = writeln!(
                     out,
-                    "async def {}(conn: AsyncConnection, *, items: {}) -> None:",
-                    batch_fn_name, items_type
+                    "async def {}(conn: AsyncConnection, *, {}: {}) -> None:",
+                    batch_fn_name, items_or_count, items_type
                 );
                 let _ = writeln!(
                     out,
@@ -284,7 +285,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                     analyzed.name
                 );
                 if params.is_empty() {
-                    let _ = writeln!(out, "    for _ in range(items):");
+                    let _ = writeln!(out, "    for _ in range(count):");
                     let _ = writeln!(out, "        await conn.execute(");
                     let _ = writeln!(out, "            \"\"\"{}\"\"\",", sql);
                     let _ = writeln!(out, "        )");

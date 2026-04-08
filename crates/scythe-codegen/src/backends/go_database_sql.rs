@@ -59,6 +59,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
     }
 
     fn file_header(&self) -> String {
+        // TODO: determine uses_time from actual column types instead of engine
         let uses_time = matches!(self.engine.as_str(), "mysql" | "mariadb" | "duckdb");
         let mut header =
             String::from("package queries\n\nimport (\n\t\"context\"\n\t\"database/sql\"");
@@ -295,7 +296,10 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::Grouped => {
-                unreachable!("Grouped is rewritten to Many before codegen")
+                return Err(ScytheError::new(
+                    ErrorCode::InternalError,
+                    "Grouped queries should be rewritten before codegen".to_string(),
+                ));
             }
         }
 
