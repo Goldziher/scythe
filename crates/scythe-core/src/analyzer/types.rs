@@ -20,6 +20,20 @@ pub struct AnalyzedQuery {
     pub enums: Vec<EnumInfo>,
     /// Parameter names marked @optional — triggers SQL rewriting in codegen
     pub optional_params: Vec<String>,
+    /// Grouping configuration for :grouped queries
+    pub group_by: Option<GroupByConfig>,
+}
+
+#[derive(Debug, Clone)]
+pub struct GroupByConfig {
+    /// The table (or alias) used as the grouping parent, e.g. "users"
+    pub table: String,
+    /// The key column within the parent table, e.g. "id"
+    pub key_column: String,
+    /// Columns belonging to the parent table
+    pub parent_columns: Vec<AnalyzedColumn>,
+    /// Columns belonging to child table(s)
+    pub child_columns: Vec<AnalyzedColumn>,
 }
 
 #[derive(Debug, Clone)]

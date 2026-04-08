@@ -1,0 +1,45 @@
+{
+	"category": "annotations/grouped",
+	"config": {
+		"engine": "postgresql"
+	},
+	"description": "Verify :grouped return annotation parses and populates group_by config",
+	"expected": {
+		"query": {
+			"columns": [
+				{
+					"name": "id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "name",
+					"nullable": false,
+					"type": "string"
+				},
+				{
+					"name": "order_id",
+					"nullable": false,
+					"type": "int32"
+				},
+				{
+					"name": "total",
+					"nullable": true,
+					"type": "decimal"
+				}
+			],
+			"command": "grouped",
+			"name": "GetUsersWithOrders",
+			"params": []
+		},
+		"success": true
+	},
+	"name": "simple_grouped",
+	"query_sql": "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\nSELECT u.id, u.name, o.id as order_id, o.total\nFROM users u\nJOIN orders o ON o.user_id = u.id;",
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);"
+	],
+	"source": "original",
+	"tags": ["annotation", "returns", "grouped"]
+}

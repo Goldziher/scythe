@@ -4,16 +4,19 @@ use std::process::Command;
 /// Returns a list of errors (empty = passed).
 pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
     match backend_name {
-        "python-psycopg3" | "python-asyncpg" | "python-aiomysql" | "python-aiosqlite" => {
-            validate_python(code)
-        }
+        "python-psycopg3" | "python-asyncpg" | "python-aiomysql" | "python-aiosqlite"
+        | "python-duckdb" => validate_python(code),
         "typescript-postgres"
         | "typescript-pg"
         | "typescript-mysql2"
-        | "typescript-better-sqlite3" => validate_typescript(code),
-        "go-pgx" => validate_go(code),
+        | "typescript-better-sqlite3"
+        | "typescript-duckdb" => validate_typescript(code),
+        "go-pgx" | "go-database-sql" => validate_go(code),
         "java-jdbc" => validate_java(code),
+        "java-r2dbc" => validate_java_r2dbc(code),
+        "kotlin-exposed" => validate_kotlin_exposed(code),
         "kotlin-jdbc" => validate_kotlin(code),
+        "kotlin-r2dbc" => validate_kotlin_r2dbc(code),
         "csharp-npgsql" => validate_csharp(code),
         "elixir-postgrex" | "elixir-ecto" => validate_elixir(code),
         "ruby-pg" | "ruby-mysql2" | "ruby-sqlite3" | "ruby-trilogy" => validate_ruby(code),
@@ -203,6 +206,76 @@ fn validate_kotlin(code: &str) -> Vec<String> {
 
     if !code.contains(".use {") {
         errors.push("missing `.use {` (resource management)".into());
+    }
+
+    errors
+}
+
+fn validate_kotlin_exposed(code: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    let has_fun = code.contains("fun ");
+
+    // data class or object Table only required when a struct was generated
+    if !code.contains("data class ") && !code.contains("object ") && !has_fun {
+        errors.push("missing `data class ` or `object ` (for DTOs/Tables)".into());
+    }
+
+    if !has_fun {
+        errors.push("missing `fun ` (for functions)".into());
+    }
+
+    if !code.contains("transaction {") {
+        errors.push("missing `transaction {` (Exposed transaction block)".into());
+    }
+
+    errors
+}
+
+fn validate_java_r2dbc(code: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    let has_static = code.contains("public static ");
+
+    if !code.contains("public record ") && !has_static {
+        errors.push("missing `public record ` (for DTOs)".into());
+    }
+
+    if !has_static {
+        errors.push("missing `public static ` (for query methods)".into());
+    }
+
+    if !code.contains("Mono<") && !code.contains("Flux<") {
+        errors.push("missing `Mono<` or `Flux<` (reactive types)".into());
+    }
+
+    if !code.contains("ConnectionFactory") {
+        errors.push("missing `ConnectionFactory` parameter".into());
+    }
+
+    errors
+}
+
+fn validate_kotlin_r2dbc(code: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    let has_fun = code.contains("fun ");
+
+    if !code.contains("data class ") && !has_fun {
+        errors.push("missing `data class ` (for DTOs)".into());
+    }
+
+    if !has_fun {
+        errors.push("missing `fun ` (for functions)".into());
+    }
+
+    if !code.contains("ConnectionFactory") {
+        errors.push("missing `ConnectionFactory` parameter".into());
+    }
+
+    // Should use either suspend fun or Flow
+    if !code.contains("suspend fun") && !code.contains("Flow<") {
+        errors.push("missing `suspend fun` or `Flow<` (coroutine/reactive types)".into());
     }
 
     errors

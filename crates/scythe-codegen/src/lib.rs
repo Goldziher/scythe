@@ -104,7 +104,10 @@ pub fn generate_with_backend_and_overrides(
     }
 
     // Generate row/model struct for :one and :many commands (not :batch)
-    let needs_row_struct = matches!(analyzed.command, QueryCommand::One | QueryCommand::Many);
+    let needs_row_struct = matches!(
+        analyzed.command,
+        QueryCommand::One | QueryCommand::Many | QueryCommand::Grouped
+    );
     if needs_row_struct && !analyzed.columns.is_empty() {
         if let Some(ref table_name) = analyzed.source_table {
             result.model_struct = Some(backend.generate_model_struct(table_name, &columns)?);
@@ -134,7 +137,29 @@ pub fn generate_with_backend_and_overrides(
 
     // Generate query function
     let struct_name = determine_struct_name(analyzed, manifest);
-    result.query_fn = Some(backend.generate_query_fn(analyzed, &struct_name, &columns, &params)?);
+
+    // For :grouped, delegate to the backend as :many for now.
+    // Full grouped codegen (parent + child structs, grouping logic) will come in a later phase.
+    if analyzed.command == QueryCommand::Grouped {
+        let many_proxy = AnalyzedQuery {
+            name: analyzed.name.clone(),
+            command: QueryCommand::Many,
+            sql: analyzed.sql.clone(),
+            columns: analyzed.columns.clone(),
+            params: analyzed.params.clone(),
+            deprecated: analyzed.deprecated.clone(),
+            source_table: analyzed.source_table.clone(),
+            composites: analyzed.composites.clone(),
+            enums: analyzed.enums.clone(),
+            optional_params: analyzed.optional_params.clone(),
+            group_by: analyzed.group_by.clone(),
+        };
+        result.query_fn =
+            Some(backend.generate_query_fn(&many_proxy, &struct_name, &columns, &params)?);
+    } else {
+        result.query_fn =
+            Some(backend.generate_query_fn(analyzed, &struct_name, &columns, &params)?);
+    }
 
     Ok(result)
 }
@@ -267,6 +292,7 @@ mod tests {
             composites: Vec::new(),
             enums: Vec::new(),
             optional_params: Vec::new(),
+            group_by: None,
         }
     }
 

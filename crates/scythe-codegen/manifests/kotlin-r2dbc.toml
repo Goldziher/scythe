@@ -1,0 +1,41 @@
+[backend]
+name = "kotlin-r2dbc"
+language = "kotlin"
+file_extension = "kt"
+engine = "postgresql"
+description = "Kotlin code generation targeting R2DBC with PostgreSQL (coroutines)"
+
+[types.scalars]
+bool = "Boolean"
+int16 = "Short"
+int32 = "Int"
+int64 = "Long"
+float32 = "Float"
+float64 = "Double"
+string = "String"
+bytes = "ByteArray"
+uuid = "java.util.UUID"
+decimal = "java.math.BigDecimal"
+date = "java.time.LocalDate"
+time = "java.time.LocalTime"
+time_tz = "java.time.OffsetTime"
+datetime = "java.time.LocalDateTime"
+datetime_tz = "java.time.OffsetDateTime"
+interval = "String"
+json = "String"
+inet = "String"
+
+[types.containers]
+array = "List<{T}>"
+nullable = "{T}?"
+range = "String"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "camelCase"
+fn_case = "camelCase"
+enum_variant_case = "SCREAMING_SNAKE_CASE"
+row_suffix = "Row"
+
+[imports.rules]

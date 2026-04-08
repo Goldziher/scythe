@@ -278,6 +278,9 @@ impl CodegenBackend for GoPgxBackend {
                 let _ = writeln!(out, "\treturn tx.Commit(ctx)");
                 let _ = write!(out, "}}");
             }
+            QueryCommand::Grouped => {
+                unreachable!("Grouped is rewritten to Many before codegen")
+            }
         }
 
         Ok(out)

@@ -191,6 +191,7 @@ pub enum Command {
     ExecResult,
     ExecRows,
     Batch,
+    Grouped,
 }
 
 impl std::fmt::Display for Command {
@@ -202,6 +203,7 @@ impl std::fmt::Display for Command {
             Command::ExecResult => "exec_result",
             Command::ExecRows => "exec_rows",
             Command::Batch => "batch",
+            Command::Grouped => "grouped",
         };
         write!(f, "{}", s)
     }

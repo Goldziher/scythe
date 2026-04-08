@@ -22,9 +22,10 @@ impl SqlDialect {
     #[allow(clippy::should_implement_trait)]
     pub fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
-            "postgresql" | "postgres" | "pg" => Some(Self::PostgreSQL),
+            "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb" => Some(Self::PostgreSQL),
             "mysql" | "mariadb" => Some(Self::MySQL),
             "sqlite" | "sqlite3" => Some(Self::SQLite),
+            "duckdb" => Some(Self::PostgreSQL),
             _ => None,
         }
     }
@@ -62,6 +63,25 @@ mod tests {
     fn test_from_str_sqlite() {
         assert_eq!(SqlDialect::from_str("sqlite"), Some(SqlDialect::SQLite));
         assert_eq!(SqlDialect::from_str("sqlite3"), Some(SqlDialect::SQLite));
+    }
+
+    #[test]
+    fn test_from_str_cockroachdb() {
+        assert_eq!(
+            SqlDialect::from_str("cockroachdb"),
+            Some(SqlDialect::PostgreSQL)
+        );
+        assert_eq!(SqlDialect::from_str("crdb"), Some(SqlDialect::PostgreSQL));
+        assert_eq!(
+            SqlDialect::from_str("CockroachDB"),
+            Some(SqlDialect::PostgreSQL)
+        );
+    }
+
+    #[test]
+    fn test_from_str_duckdb() {
+        assert_eq!(SqlDialect::from_str("duckdb"), Some(SqlDialect::PostgreSQL));
+        assert_eq!(SqlDialect::from_str("DuckDB"), Some(SqlDialect::PostgreSQL));
     }
 
     #[test]

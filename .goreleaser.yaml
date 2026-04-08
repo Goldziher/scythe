@@ -36,6 +36,21 @@ changelog:
       - "^docs:"
       - "^test:"
 
+brews:
+  - name: scythe
+    repository:
+      owner: Goldziher
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TOKEN }}"
+    directory: Formula
+    homepage: https://github.com/Goldziher/scythe
+    description: "Polyglot SQL-to-code generator with built-in linting and formatting"
+    license: MIT
+    install: |
+      bin.install "scythe"
+    test: |
+      system "#{bin}/scythe", "--version"
+
 release:
   footer: >-
 

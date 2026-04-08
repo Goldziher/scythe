@@ -252,7 +252,7 @@ impl CodegenBackend for SqlxBackend {
             QueryCommand::Exec => "()".to_string(),
             QueryCommand::ExecResult => "sqlx::postgres::PgQueryResult".to_string(),
             QueryCommand::ExecRows => "u64".to_string(),
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         };
 
         // Function signature
@@ -302,7 +302,7 @@ impl CodegenBackend for SqlxBackend {
             QueryCommand::Exec => ".execute(pool)",
             QueryCommand::ExecResult => ".execute(pool)",
             QueryCommand::ExecRows => ".execute(pool)",
-            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         };
 
         let _ = write!(out, "        {}", fetch_method);

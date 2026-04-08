@@ -223,6 +223,7 @@ impl CodegenBackend for RubyMysql2Backend {
                 );
                 let _ = writeln!(out, "    client.affected_rows");
             }
+            QueryCommand::Grouped => unreachable!("handled as Many in codegen"),
         }
 
         let _ = write!(out, "  end");

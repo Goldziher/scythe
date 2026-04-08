@@ -58,7 +58,10 @@ fn test_deprecated_annotation() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",
@@ -136,6 +139,275 @@ fn test_deprecated_annotation() {
 }
 
 #[test]
+fn test_left_join_grouped() {
+    // From: testing_data/annotations/grouped/02_left_join_grouped.json
+    // "Verify :grouped with LEFT JOIN makes child columns nullable"
+    let schema_sql = &[
+        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+        "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);",
+    ];
+
+    let query_sql = "-- @name GetUsersWithOptionalOrders\n-- @returns :grouped\n-- @group_by users.id\nSELECT u.id, u.name, o.id as order_id, o.total\nFROM users u\nLEFT JOIN orders o ON o.user_id = u.id;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetUsersWithOptionalOrders", "query name");
+    assert_eq!(analyzed.command.to_string(), "grouped", "query command");
+    assert_eq!(analyzed.columns.len(), 4, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "name", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
+    assert_eq!(analyzed.columns[2].name, "order_id", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for order_id"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for order_id");
+    assert_eq!(analyzed.columns[3].name, "total", "column name");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "decimal",
+        "column neutral_type for total"
+    );
+    assert!(analyzed.columns[3].nullable, "column nullable for total");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "left_join_grouped"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors =
+                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "left_join_grouped",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "left_join_grouped"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "left_join_grouped"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_simple_grouped() {
+    // From: testing_data/annotations/grouped/01_simple_grouped.json
+    // "Verify :grouped return annotation parses and populates group_by config"
+    let schema_sql = &[
+        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+        "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);",
+    ];
+
+    let query_sql = "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\nSELECT u.id, u.name, o.id as order_id, o.total\nFROM users u\nJOIN orders o ON o.user_id = u.id;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetUsersWithOrders", "query name");
+    assert_eq!(analyzed.command.to_string(), "grouped", "query command");
+    assert_eq!(analyzed.columns.len(), 4, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "name", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
+    assert_eq!(analyzed.columns[2].name, "order_id", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for order_id"
+    );
+    assert!(
+        !analyzed.columns[2].nullable,
+        "column nullable for order_id"
+    );
+    assert_eq!(analyzed.columns[3].name, "total", "column name");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "decimal",
+        "column neutral_type for total"
+    );
+    assert!(analyzed.columns[3].nullable, "column nullable for total");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "simple_grouped"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors =
+                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "simple_grouped",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "simple_grouped"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "simple_grouped"
+            );
+        }
+    }
+}
+
+#[test]
 fn test_valid_name_pascal() {
     // From: testing_data/annotations/name/01_valid_name.json
     // "Verify @name annotation with PascalCase is parsed correctly"
@@ -188,7 +460,10 @@ fn test_valid_name_pascal() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",
@@ -318,7 +593,10 @@ fn test_valid_name_snake() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",
@@ -449,7 +727,10 @@ fn test_optional_multiple() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",
@@ -573,7 +854,10 @@ fn test_optional_simple() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",
@@ -703,7 +987,10 @@ fn test_optional_with_required() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",
@@ -805,7 +1092,10 @@ fn test_returns_exec() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",
@@ -909,7 +1199,10 @@ fn test_returns_exec_result() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",
@@ -1007,7 +1300,10 @@ fn test_returns_exec_rows() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",
@@ -1116,7 +1412,10 @@ fn test_returns_many() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",
@@ -1239,7 +1538,10 @@ fn test_returns_one() {
         "typescript-pg",
         "go-pgx",
         "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
         "kotlin-jdbc",
+        "kotlin-r2dbc",
         "csharp-npgsql",
         "elixir-postgrex",
         "elixir-ecto",

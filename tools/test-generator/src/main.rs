@@ -205,7 +205,10 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("        \"typescript-pg\",\n");
     out.push_str("        \"go-pgx\",\n");
     out.push_str("        \"java-jdbc\",\n");
+    out.push_str("        \"java-r2dbc\",\n");
+    out.push_str("        \"kotlin-exposed\",\n");
     out.push_str("        \"kotlin-jdbc\",\n");
+    out.push_str("        \"kotlin-r2dbc\",\n");
     out.push_str("        \"csharp-npgsql\",\n");
     out.push_str("        \"elixir-postgrex\",\n");
     out.push_str("        \"elixir-ecto\",\n");
@@ -258,7 +261,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("                }\n");
 
     // Structural checks
-    if command == "one" || command == "many" {
+    if command == "one" || command == "many" || command == "grouped" {
         out.push_str("                assert!(\n");
         out.push_str("                    generated.row_struct.is_some() || generated.model_struct.is_some(),\n");
         let _ = writeln!(

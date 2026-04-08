@@ -8,13 +8,14 @@ mod types;
 
 pub use types::{
     AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, EnumInfo,
+    GroupByConfig,
 };
 
 use ahash::{AHashMap, AHashSet};
 
 use crate::catalog::Catalog;
 use crate::errors::ScytheError;
-use crate::parser::Query;
+use crate::parser::{Query, QueryCommand};
 
 use helpers::detect_select_star_source;
 use type_conversion::sql_type_to_neutral;
@@ -172,6 +173,55 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
+    // Build GroupByConfig for :grouped queries
+    let group_by = if query.command == QueryCommand::Grouped {
+        if let Some(ref group_by_value) = query.annotations.group_by {
+            let (table, key_column) = if let Some(dot_pos) = group_by_value.find('.') {
+                (
+                    group_by_value[..dot_pos].to_string(),
+                    group_by_value[dot_pos + 1..].to_string(),
+                )
+            } else {
+                return Err(ScytheError::invalid_annotation(format!(
+                    "@group_by must be in 'table.column' format, got: {}",
+                    group_by_value
+                )));
+            };
+
+            // Split columns into parent (matching group_by table) and child (all others).
+            // We inspect the source_table metadata from the scope to determine which columns
+            // belong to which table. For now, use a heuristic: columns whose names match
+            // the parent table's catalog columns belong to the parent; the rest are children.
+            let parent_table_columns: Vec<String> = catalog
+                .get_table(&table)
+                .map(|t| t.columns.iter().map(|c| c.name.clone()).collect())
+                .unwrap_or_default();
+
+            let mut parent_columns = Vec::new();
+            let mut child_columns = Vec::new();
+
+            for col in &columns {
+                if parent_table_columns.contains(&col.name) {
+                    parent_columns.push(col.clone());
+                } else {
+                    child_columns.push(col.clone());
+                }
+            }
+
+            Some(types::GroupByConfig {
+                table,
+                key_column,
+                parent_columns,
+                child_columns,
+            })
+        } else {
+            // Validation in parser should catch this, but be defensive
+            None
+        }
+    } else {
+        None
+    };
+
     Ok(AnalyzedQuery {
         name: query.name.clone(),
         command: query.command.clone(),
@@ -183,6 +233,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         composites,
         enums,
         optional_params: query.annotations.optional_params.clone(),
+        group_by,
     })
 }
 

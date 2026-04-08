@@ -291,6 +291,9 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
                 let _ = writeln!(out, "\treturn result.changes;");
                 let _ = write!(out, "}}");
             }
+            QueryCommand::Grouped => {
+                unreachable!("Grouped is rewritten to Many before codegen")
+            }
         }
 
         Ok(out)

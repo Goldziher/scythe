@@ -8,13 +8,17 @@ pub mod elixir_postgrex;
 pub mod go_database_sql;
 pub mod go_pgx;
 pub mod java_jdbc;
+pub mod java_r2dbc;
+pub mod kotlin_exposed;
 pub mod kotlin_jdbc;
+pub mod kotlin_r2dbc;
 pub mod php_amphp;
 pub mod php_pdo;
 pub mod python_aiomysql;
 pub mod python_aiosqlite;
 pub mod python_asyncpg;
 pub mod python_common;
+pub mod python_duckdb;
 pub mod python_psycopg3;
 pub mod ruby_mysql2;
 pub mod ruby_pg;
@@ -24,6 +28,7 @@ pub mod sqlx;
 pub mod tokio_postgres;
 pub mod typescript_better_sqlite3;
 pub mod typescript_common;
+pub mod typescript_duckdb;
 pub mod typescript_mysql2;
 pub mod typescript_pg;
 pub mod typescript_postgres;
@@ -298,50 +303,79 @@ fn is_ident_char(c: char) -> bool {
 /// The `engine` parameter (e.g., "postgresql", "mysql", "sqlite") determines
 /// which manifest is loaded for type mappings. PG-only backends reject non-PG engines.
 pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, ScytheError> {
+    // Normalize engine aliases (e.g., "cockroachdb" -> "postgresql") before
+    // passing to backend constructors so each backend only needs to match
+    // canonical engine names.
+    let canonical_engine = normalize_engine(engine);
     let backend: Box<dyn CodegenBackend> = match name {
-        "rust-sqlx" | "sqlx" | "rust" => Box::new(sqlx::SqlxBackend::new(engine)?),
+        "rust-sqlx" | "sqlx" | "rust" => Box::new(sqlx::SqlxBackend::new(canonical_engine)?),
         "rust-tokio-postgres" | "tokio-postgres" => {
-            Box::new(tokio_postgres::TokioPostgresBackend::new(engine)?)
+            Box::new(tokio_postgres::TokioPostgresBackend::new(canonical_engine)?)
         }
-        "python-psycopg3" | "python" => {
-            Box::new(python_psycopg3::PythonPsycopg3Backend::new(engine)?)
+        "python-psycopg3" | "python" => Box::new(python_psycopg3::PythonPsycopg3Backend::new(
+            canonical_engine,
+        )?),
+        "python-asyncpg" => Box::new(python_asyncpg::PythonAsyncpgBackend::new(canonical_engine)?),
+        "python-aiomysql" => Box::new(python_aiomysql::PythonAiomysqlBackend::new(
+            canonical_engine,
+        )?),
+        "python-aiosqlite" => Box::new(python_aiosqlite::PythonAiosqliteBackend::new(
+            canonical_engine,
+        )?),
+        "python-duckdb" => Box::new(python_duckdb::PythonDuckdbBackend::new(canonical_engine)?),
+        "typescript-postgres" | "ts" | "typescript" => Box::new(
+            typescript_postgres::TypescriptPostgresBackend::new(canonical_engine)?,
+        ),
+        "typescript-pg" => Box::new(typescript_pg::TypescriptPgBackend::new(canonical_engine)?),
+        "typescript-mysql2" => Box::new(typescript_mysql2::TypescriptMysql2Backend::new(
+            canonical_engine,
+        )?),
+        "typescript-better-sqlite3" => Box::new(
+            typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new(canonical_engine)?,
+        ),
+        "typescript-duckdb" => Box::new(typescript_duckdb::TypescriptDuckdbBackend::new(
+            canonical_engine,
+        )?),
+        "go-database-sql" => Box::new(go_database_sql::GoDatabaseSqlBackend::new(
+            canonical_engine,
+        )?),
+        "go-pgx" | "go" => Box::new(go_pgx::GoPgxBackend::new(canonical_engine)?),
+        "java-jdbc" | "java" => Box::new(java_jdbc::JavaJdbcBackend::new(canonical_engine)?),
+        "java-r2dbc" | "r2dbc-java" => {
+            Box::new(java_r2dbc::JavaR2dbcBackend::new(canonical_engine)?)
         }
-        "python-asyncpg" => Box::new(python_asyncpg::PythonAsyncpgBackend::new(engine)?),
-        "python-aiomysql" => Box::new(python_aiomysql::PythonAiomysqlBackend::new(engine)?),
-        "python-aiosqlite" => Box::new(python_aiosqlite::PythonAiosqliteBackend::new(engine)?),
-        "typescript-postgres" | "ts" | "typescript" => {
-            Box::new(typescript_postgres::TypescriptPostgresBackend::new(engine)?)
+        "kotlin-exposed" | "exposed" => {
+            Box::new(kotlin_exposed::KotlinExposedBackend::new(canonical_engine)?)
         }
-        "typescript-pg" => Box::new(typescript_pg::TypescriptPgBackend::new(engine)?),
-        "typescript-mysql2" => Box::new(typescript_mysql2::TypescriptMysql2Backend::new(engine)?),
-        "typescript-better-sqlite3" => {
-            Box::new(typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new(engine)?)
+        "kotlin-jdbc" | "kotlin" | "kt" => {
+            Box::new(kotlin_jdbc::KotlinJdbcBackend::new(canonical_engine)?)
         }
-        "go-database-sql" => Box::new(go_database_sql::GoDatabaseSqlBackend::new(engine)?),
-        "go-pgx" | "go" => Box::new(go_pgx::GoPgxBackend::new(engine)?),
-        "java-jdbc" | "java" => Box::new(java_jdbc::JavaJdbcBackend::new(engine)?),
-        "kotlin-jdbc" | "kotlin" | "kt" => Box::new(kotlin_jdbc::KotlinJdbcBackend::new(engine)?),
+        "kotlin-r2dbc" | "r2dbc-kotlin" => {
+            Box::new(kotlin_r2dbc::KotlinR2dbcBackend::new(canonical_engine)?)
+        }
         "csharp-npgsql" | "csharp" | "c#" | "dotnet" => {
-            Box::new(csharp_npgsql::CsharpNpgsqlBackend::new(engine)?)
+            Box::new(csharp_npgsql::CsharpNpgsqlBackend::new(canonical_engine)?)
         }
         "csharp-mysqlconnector" => Box::new(
-            csharp_mysqlconnector::CsharpMysqlConnectorBackend::new(engine)?,
+            csharp_mysqlconnector::CsharpMysqlConnectorBackend::new(canonical_engine)?,
         ),
         "csharp-microsoft-sqlite" => Box::new(
-            csharp_microsoft_sqlite::CsharpMicrosoftSqliteBackend::new(engine)?,
+            csharp_microsoft_sqlite::CsharpMicrosoftSqliteBackend::new(canonical_engine)?,
         ),
-        "elixir-postgrex" | "elixir" | "ex" => {
-            Box::new(elixir_postgrex::ElixirPostgrexBackend::new(engine)?)
+        "elixir-postgrex" | "elixir" | "ex" => Box::new(
+            elixir_postgrex::ElixirPostgrexBackend::new(canonical_engine)?,
+        ),
+        "elixir-ecto" | "ecto" => Box::new(elixir_ecto::ElixirEctoBackend::new(canonical_engine)?),
+        "elixir-myxql" => Box::new(elixir_myxql::ElixirMyxqlBackend::new(canonical_engine)?),
+        "elixir-exqlite" => Box::new(elixir_exqlite::ElixirExqliteBackend::new(canonical_engine)?),
+        "ruby-pg" | "ruby" | "rb" => Box::new(ruby_pg::RubyPgBackend::new(canonical_engine)?),
+        "ruby-mysql2" => Box::new(ruby_mysql2::RubyMysql2Backend::new(canonical_engine)?),
+        "ruby-sqlite3" => Box::new(ruby_sqlite3::RubySqlite3Backend::new(canonical_engine)?),
+        "ruby-trilogy" | "trilogy" => {
+            Box::new(ruby_trilogy::RubyTrilogyBackend::new(canonical_engine)?)
         }
-        "elixir-ecto" | "ecto" => Box::new(elixir_ecto::ElixirEctoBackend::new(engine)?),
-        "elixir-myxql" => Box::new(elixir_myxql::ElixirMyxqlBackend::new(engine)?),
-        "elixir-exqlite" => Box::new(elixir_exqlite::ElixirExqliteBackend::new(engine)?),
-        "ruby-pg" | "ruby" | "rb" => Box::new(ruby_pg::RubyPgBackend::new(engine)?),
-        "ruby-mysql2" => Box::new(ruby_mysql2::RubyMysql2Backend::new(engine)?),
-        "ruby-sqlite3" => Box::new(ruby_sqlite3::RubySqlite3Backend::new(engine)?),
-        "ruby-trilogy" | "trilogy" => Box::new(ruby_trilogy::RubyTrilogyBackend::new(engine)?),
-        "php-pdo" | "php" => Box::new(php_pdo::PhpPdoBackend::new(engine)?),
-        "php-amphp" | "amphp" => Box::new(php_amphp::PhpAmphpBackend::new(engine)?),
+        "php-pdo" | "php" => Box::new(php_pdo::PhpPdoBackend::new(canonical_engine)?),
+        "php-amphp" | "amphp" => Box::new(php_amphp::PhpAmphpBackend::new(canonical_engine)?),
         _ => {
             return Err(ScytheError::new(
                 ErrorCode::InternalError,
@@ -351,11 +385,10 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
     };
 
     // Validate engine is supported by this backend
-    let normalized_engine = normalize_engine(engine);
     if !backend
         .supported_engines()
         .iter()
-        .any(|e| normalize_engine(e) == normalized_engine)
+        .any(|e| normalize_engine(e) == canonical_engine)
     {
         return Err(ScytheError::new(
             ErrorCode::InternalError,
@@ -374,9 +407,10 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
 /// Normalize engine name to canonical form.
 fn normalize_engine(engine: &str) -> &str {
     match engine {
-        "postgresql" | "postgres" | "pg" => "postgresql",
+        "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb" => "postgresql",
         "mysql" | "mariadb" => "mysql",
         "sqlite" | "sqlite3" => "sqlite",
+        "duckdb" => "duckdb",
         other => other,
     }
 }
@@ -392,6 +426,80 @@ mod tests {
             nullable: true,
             position,
         }
+    }
+
+    #[test]
+    fn test_normalize_engine_cockroachdb() {
+        assert_eq!(normalize_engine("cockroachdb"), "postgresql");
+        assert_eq!(normalize_engine("crdb"), "postgresql");
+    }
+
+    #[test]
+    fn test_get_backend_cockroachdb_with_pg_backends() {
+        // CockroachDB should work with all PostgreSQL-compatible backends
+        let pg_backends = [
+            "rust-sqlx",
+            "rust-tokio-postgres",
+            "python-psycopg3",
+            "python-asyncpg",
+            "typescript-postgres",
+            "typescript-pg",
+            "go-pgx",
+            "ruby-pg",
+            "elixir-postgrex",
+            "csharp-npgsql",
+            "php-pdo",
+            "php-amphp",
+        ];
+        for backend_name in &pg_backends {
+            let result = get_backend(backend_name, "cockroachdb");
+            assert!(
+                result.is_ok(),
+                "backend '{}' should accept cockroachdb engine, got: {:?}",
+                backend_name,
+                result.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_backend_crdb_alias() {
+        let result = get_backend("rust-sqlx", "crdb");
+        assert!(
+            result.is_ok(),
+            "rust-sqlx should accept 'crdb' engine alias"
+        );
+    }
+
+    #[test]
+    fn test_normalize_engine_duckdb() {
+        assert_eq!(normalize_engine("duckdb"), "duckdb");
+    }
+
+    #[test]
+    fn test_get_backend_duckdb_with_compatible_backends() {
+        let duckdb_backends = [
+            "python-duckdb",
+            "typescript-duckdb",
+            "go-database-sql",
+            "java-jdbc",
+            "kotlin-jdbc",
+        ];
+        for backend_name in &duckdb_backends {
+            let result = get_backend(backend_name, "duckdb");
+            assert!(
+                result.is_ok(),
+                "backend '{}' should accept duckdb engine, got: {:?}",
+                backend_name,
+                result.err()
+            );
+        }
+    }
+
+    #[test]
+    fn test_get_backend_duckdb_rejected_by_pg_only() {
+        let result = get_backend("rust-sqlx", "duckdb");
+        assert!(result.is_err(), "rust-sqlx should reject duckdb engine");
     }
 
     #[test]

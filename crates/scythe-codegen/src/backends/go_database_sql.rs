@@ -23,11 +23,12 @@ impl GoDatabaseSqlBackend {
         let manifest_toml = match engine {
             "mysql" | "mariadb" => include_str!("../../manifests/go-database-sql.mysql.toml"),
             "sqlite" | "sqlite3" => include_str!("../../manifests/go-database-sql.sqlite.toml"),
+            "duckdb" => include_str!("../../manifests/go-database-sql.duckdb.toml"),
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
                     format!(
-                        "go-database-sql supports MySQL and SQLite, got engine '{}'",
+                        "go-database-sql supports MySQL, SQLite, and DuckDB, got engine '{}'",
                         engine
                     ),
                 ));
@@ -58,11 +59,11 @@ impl CodegenBackend for GoDatabaseSqlBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["mysql", "sqlite"]
+        &["mysql", "sqlite", "duckdb"]
     }
 
     fn file_header(&self) -> String {
-        let uses_time = matches!(self.engine.as_str(), "mysql" | "mariadb");
+        let uses_time = matches!(self.engine.as_str(), "mysql" | "mariadb" | "duckdb");
         let mut header =
             String::from("package queries\n\nimport (\n\t\"context\"\n\t\"database/sql\"");
         if uses_time {
@@ -296,6 +297,9 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                 let _ = writeln!(out, "\t}}");
                 let _ = writeln!(out, "\treturn result, rows.Err()");
                 let _ = write!(out, "}}");
+            }
+            QueryCommand::Grouped => {
+                unreachable!("Grouped is rewritten to Many before codegen")
             }
         }
 

@@ -298,6 +298,9 @@ impl CodegenBackend for PythonAsyncpgBackend {
                 let _ = writeln!(out, "    )");
                 let _ = writeln!(out, "    return int(result.split()[-1])");
             }
+            QueryCommand::Grouped => {
+                unreachable!("Grouped is rewritten to Many before codegen")
+            }
         }
 
         Ok(out)
