@@ -61,10 +61,13 @@ enum GenTargets {
 }
 
 /// New format: each target specifies a backend and output directory.
+/// Extra keys (e.g. `row_type = "pydantic"`) are captured in `options`.
 #[derive(Debug, Deserialize)]
 struct GenTarget {
     backend: String,
     output: String,
+    #[serde(flatten)]
+    options: std::collections::HashMap<String, toml::Value>,
 }
 
 /// Legacy format: `[sql.gen.rust]` with target field.
@@ -99,8 +102,26 @@ struct TypeOverrideConfig {
     neutral_type: Option<String>,
 }
 
-/// Convert config into a list of (backend_name, output_dir) pairs.
-fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<(String, String)> {
+/// A resolved generation target with backend name, output directory, and options.
+struct ResolvedGenTarget {
+    backend: String,
+    output: String,
+    options: std::collections::HashMap<String, String>,
+}
+
+/// Stringify a toml::Value for passing to backends as flat string options.
+fn toml_value_to_string(value: &toml::Value) -> String {
+    match value {
+        toml::Value::String(s) => s.clone(),
+        toml::Value::Integer(i) => i.to_string(),
+        toml::Value::Float(f) => f.to_string(),
+        toml::Value::Boolean(b) => b.to_string(),
+        other => other.to_string(),
+    }
+}
+
+/// Convert config into a list of resolved generation targets.
+fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
     let default_output = sql_config
         .output
         .clone()
@@ -109,7 +130,18 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<(String, String)> {
     match &sql_config.gen_config {
         Some(GenTargets::Array(targets)) => targets
             .iter()
-            .map(|t| (t.backend.clone(), t.output.clone()))
+            .map(|t| {
+                let options = t
+                    .options
+                    .iter()
+                    .map(|(k, v)| (k.clone(), toml_value_to_string(v)))
+                    .collect();
+                ResolvedGenTarget {
+                    backend: t.backend.clone(),
+                    output: t.output.clone(),
+                    options,
+                }
+            })
             .collect(),
         Some(GenTargets::Legacy(legacy)) => {
             let mut targets = Vec::new();
@@ -118,26 +150,48 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<(String, String)> {
                     "tokio-postgres" => "rust-tokio-postgres",
                     _ => "rust-sqlx",
                 };
-                targets.push((backend.to_string(), default_output.clone()));
+                targets.push(ResolvedGenTarget {
+                    backend: backend.to_string(),
+                    output: default_output.clone(),
+                    options: std::collections::HashMap::new(),
+                });
             }
             if let Some(ref py) = legacy.python {
-                targets.push((format!("python-{}", py.target), default_output.clone()));
+                targets.push(ResolvedGenTarget {
+                    backend: format!("python-{}", py.target),
+                    output: default_output.clone(),
+                    options: std::collections::HashMap::new(),
+                });
             }
             if let Some(ref ts) = legacy.typescript {
-                targets.push((format!("typescript-{}", ts.target), default_output.clone()));
+                targets.push(ResolvedGenTarget {
+                    backend: format!("typescript-{}", ts.target),
+                    output: default_output.clone(),
+                    options: std::collections::HashMap::new(),
+                });
             }
             if let Some(ref go) = legacy.go {
-                targets.push((format!("go-{}", go.target), default_output.clone()));
+                targets.push(ResolvedGenTarget {
+                    backend: format!("go-{}", go.target),
+                    output: default_output.clone(),
+                    options: std::collections::HashMap::new(),
+                });
             }
             if targets.is_empty() {
-                // Default to rust-sqlx if gen section exists but no specific language
-                targets.push(("rust-sqlx".to_string(), default_output));
+                targets.push(ResolvedGenTarget {
+                    backend: "rust-sqlx".to_string(),
+                    output: default_output,
+                    options: std::collections::HashMap::new(),
+                });
             }
             targets
         }
         None => {
-            // No gen section at all — default to rust-sqlx
-            vec![("rust-sqlx".to_string(), default_output)]
+            vec![ResolvedGenTarget {
+                backend: "rust-sqlx".to_string(),
+                output: default_output,
+                options: std::collections::HashMap::new(),
+            }]
         }
     }
 }
@@ -203,15 +257,26 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
         // 9. Generate code for each backend target
         let gen_targets = resolve_gen_targets(sql_config);
 
-        for (backend_name, output_dir) in &gen_targets {
-            let backend = get_backend(backend_name, &sql_config.engine).map_err(|e| {
+        for target in &gen_targets {
+            let mut backend = get_backend(&target.backend, &sql_config.engine).map_err(|e| {
                 format!(
                     "backend '{}' with engine '{}': {}",
-                    backend_name, sql_config.engine, e
+                    target.backend, sql_config.engine, e
                 )
             })?;
 
-            generate_for_backend(&sql_config.name, &*backend, &analyzed_queries, output_dir)?;
+            if !target.options.is_empty() {
+                backend.apply_options(&target.options).map_err(|e| {
+                    format!("backend '{}' apply_options failed: {}", target.backend, e)
+                })?;
+            }
+
+            generate_for_backend(
+                &sql_config.name,
+                &*backend,
+                &analyzed_queries,
+                &target.output,
+            )?;
         }
     }
 
