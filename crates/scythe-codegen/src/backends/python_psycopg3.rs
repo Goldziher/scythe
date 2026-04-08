@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
 };
 use scythe_backend::types::resolve_type;
+use std::collections::HashMap;
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -18,6 +16,8 @@ use crate::singularize;
 use super::python_common::PythonRowType;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-psycopg3.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str =
+    include_str!("../../manifests/python-psycopg3.redshift.toml");
 
 pub struct PythonPsycopg3Backend {
     manifest: BackendManifest,
@@ -26,45 +26,28 @@ pub struct PythonPsycopg3Backend {
 
 impl PythonPsycopg3Backend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
-        match engine {
-            "postgresql" | "postgres" | "pg" => {}
+        let default_toml = match engine {
+            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
                     format!(
-                        "python-psycopg3 only supports PostgreSQL, got engine '{}'",
+                        "python-psycopg3 only supports PostgreSQL/Redshift, got engine '{}'",
                         engine
                     ),
                 ));
             }
-        }
-        let manifest_path = Path::new("backends/python-psycopg3/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
+        let manifest = super::load_or_default_manifest(
+            "backends/python-psycopg3/manifest.toml",
+            default_toml,
+        )?;
         Ok(Self {
             manifest,
             row_type: PythonRowType::default(),
         })
     }
-}
-
-/// Rewrite `$1`, `$2`, ... positional params to psycopg3 named params `%(name)s`.
-fn rewrite_params_named(sql: &str, analyzed: &AnalyzedQuery) -> String {
-    let mut result = sql.to_string();
-    // Replace in reverse order so positions don't shift
-    let mut params_sorted: Vec<_> = analyzed.params.iter().collect();
-    params_sorted.sort_by(|a, b| b.position.cmp(&a.position));
-    for param in params_sorted {
-        let placeholder = format!("${}", param.position);
-        let named = format!("%({})s", to_snake_case(&param.name));
-        result = result.replace(&placeholder, &named);
-    }
-    result
 }
 
 impl CodegenBackend for PythonPsycopg3Backend {
@@ -74,6 +57,10 @@ impl CodegenBackend for PythonPsycopg3Backend {
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
         &self.manifest
+    }
+
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql", "redshift"]
     }
 
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
@@ -173,7 +160,14 @@ impl CodegenBackend for PythonPsycopg3Backend {
             &analyzed.optional_params,
             &analyzed.params,
         );
-        let sql = rewrite_params_named(&sql_clean, analyzed);
+        let name_map: std::collections::HashMap<u32, String> = analyzed
+            .params
+            .iter()
+            .map(|p| (p.position as u32, to_snake_case(&p.name).into_owned()))
+            .collect();
+        let sql = super::rewrite_pg_placeholders(&sql_clean, |n| {
+            format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))
+        });
 
         match &analyzed.command {
             QueryCommand::One => {

@@ -1,0 +1,26 @@
+{
+	"category": "engines/mssql/types",
+	"config": { "engine": "mssql" },
+	"description": "MSSQL basic type mapping (INT, NVARCHAR, BIT, UNIQUEIDENTIFIER)",
+	"expected": {
+		"query": {
+			"name": "GetUsers",
+			"command": "many",
+			"columns": [
+				{ "name": "id", "nullable": false, "type": "int32" },
+				{ "name": "name", "nullable": false, "type": "string" },
+				{ "name": "active", "nullable": false, "type": "bool" },
+				{ "name": "external_id", "nullable": true, "type": "uuid" }
+			],
+			"params": []
+		},
+		"success": true
+	},
+	"name": "mssql_basic_types",
+	"query_sql": "-- @name GetUsers\n-- @returns :many\nSELECT id, name, active, external_id FROM users;",
+	"schema_sql": [
+		"CREATE TABLE users (id INT NOT NULL IDENTITY(1,1), name NVARCHAR(255) NOT NULL, active BIT NOT NULL, external_id UNIQUEIDENTIFIER);"
+	],
+	"source": "original",
+	"tags": ["mssql"]
+}

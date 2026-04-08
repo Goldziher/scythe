@@ -9,7 +9,7 @@ Add scythe to your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.5.0  # use the latest release tag
+    rev: v0.6.0  # use the latest release tag
     hooks:
       - id: scythe-fmt
       - id: scythe-lint
@@ -57,7 +57,7 @@ Override default arguments in your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.5.0
+    rev: v0.6.0
     hooks:
       # Format with a specific SQL dialect
       - id: scythe-fmt

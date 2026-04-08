@@ -53,7 +53,7 @@ Neutral types are the bridge. The analyzer converts SQL types to neutral types; 
 
 ## Supported backends
 
-Scythe provides 31 backends across 10 languages and 5 database engines. Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
+Scythe provides 70+ backends across 10 languages and 10 database engines. Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
 
 ### PostgreSQL
 
@@ -126,20 +126,103 @@ CockroachDB is wire-compatible with PostgreSQL. The following PostgreSQL backend
 | `java-jdbc` | Java | JDBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
 
+### MSSQL
+
+| Backend | Language | Library |
+|---------|----------|---------|
+| `rust-tiberius` | Rust | tiberius |
+| `python-pyodbc` | Python | pyodbc |
+| `typescript-mssql` | TypeScript | mssql (tedious) |
+| `go-mssqldb` | Go | go-mssqldb |
+| `java-jdbc` | Java | JDBC (Microsoft JDBC Driver) |
+| `java-r2dbc` | Java | R2DBC (r2dbc-mssql) |
+| `kotlin-jdbc` | Kotlin | JDBC (Microsoft JDBC Driver) |
+| `kotlin-r2dbc` | Kotlin | R2DBC (r2dbc-mssql) |
+| `csharp-sqlclient` | C# | Microsoft.Data.SqlClient |
+| `ruby-tiny-tds` | Ruby | tiny_tds |
+| `php-pdo` | PHP | PDO (sqlsrv driver) |
+| `elixir-tds` | Elixir | tds |
+
+### Oracle
+
+| Backend | Language | Library |
+|---------|----------|---------|
+| `rust-sibyl` | Rust | sibyl |
+| `python-oracledb` | Python | oracledb |
+| `typescript-oracledb` | TypeScript | oracledb (node-oracledb) |
+| `go-godror` | Go | godror |
+| `java-jdbc` | Java | JDBC (Oracle JDBC / ojdbc) |
+| `java-r2dbc` | Java | R2DBC (oracle-r2dbc) |
+| `kotlin-jdbc` | Kotlin | JDBC (Oracle JDBC / ojdbc) |
+| `kotlin-r2dbc` | Kotlin | R2DBC (oracle-r2dbc) |
+| `csharp-odpnet` | C# | ODP.NET |
+| `ruby-oci8` | Ruby | ruby-oci8 |
+| `php-pdo` | PHP | PDO (oci driver) |
+| `elixir-jamdb-oracle` | Elixir | jamdb_oracle |
+
+### MariaDB
+
+MariaDB uses MySQL drivers with MariaDB-specific type resolution:
+
+| Backend | Language | Library |
+|---------|----------|---------|
+| `rust-sqlx` | Rust | sqlx (MySQL driver) |
+| `python-aiomysql` | Python | aiomysql |
+| `typescript-mysql2` | TypeScript | mysql2 |
+| `go-database-sql` | Go | database/sql |
+| `java-jdbc` | Java | JDBC (MariaDB Connector/J) |
+| `kotlin-jdbc` | Kotlin | JDBC (MariaDB Connector/J) |
+| `csharp-mysqlconnector` | C# | MySqlConnector |
+| `elixir-myxql` | Elixir | MyXQL |
+| `ruby-mysql2` | Ruby | mysql2 |
+| `php-pdo` | PHP | PDO |
+
+### Redshift
+
+Redshift uses PostgreSQL backends with Redshift-specific type resolution:
+
+| Backend | Language | Library |
+|---------|----------|---------|
+| `rust-sqlx` | Rust | sqlx (PostgreSQL driver) |
+| `rust-tokio-postgres` | Rust | tokio-postgres |
+| `python-psycopg3` | Python | psycopg3 |
+| `python-asyncpg` | Python | asyncpg |
+| `typescript-pg` | TypeScript | pg |
+| `typescript-postgres` | TypeScript | postgres.js |
+| `go-pgx` | Go | pgx v5 |
+| `java-jdbc` | Java | JDBC (Redshift JDBC driver) |
+| `kotlin-jdbc` | Kotlin | JDBC (Redshift JDBC driver) |
+| `csharp-npgsql` | C# | Npgsql |
+| `elixir-postgrex` | Elixir | Postgrex |
+| `ruby-pg` | Ruby | pg |
+| `php-pdo` | PHP | PDO |
+
+### Snowflake
+
+| Backend | Language | Library |
+|---------|----------|---------|
+| `python-snowflake` | Python | snowflake-connector-python |
+| `typescript-snowflake` | TypeScript | snowflake-sdk |
+| `go-gosnowflake` | Go | gosnowflake |
+| `java-jdbc` | Java | JDBC (Snowflake JDBC driver) |
+| `kotlin-jdbc` | Kotlin | JDBC (Snowflake JDBC driver) |
+| `csharp-snowflake` | C# | Snowflake.Data |
+| `php-pdo` | PHP | PDO (Snowflake PDO driver) |
+
 ### Language coverage summary
 
-| Language | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB |
-|----------|-----------|-------|--------|--------|-------------|
-| Rust | sqlx, tokio-postgres | sqlx | sqlx | duckdb-rs | sqlx |
-| Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3 |
-| TypeScript | postgres.js, pg | mysql2 | better-sqlite3 | duckdb-node | -- |
-| Go | pgx | database/sql | database/sql | -- | pgx |
-| Java | JDBC, R2DBC | JDBC | JDBC | -- | JDBC |
-| Kotlin | JDBC, R2DBC, Exposed | JDBC | JDBC | -- | JDBC |
-| C# | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | -- |
-| Elixir | Postgrex | MyXQL | Exqlite | -- | -- |
-| Ruby | pg | mysql2 | sqlite3 | -- | -- |
-| PHP | PDO | PDO | PDO | -- | -- |
+| Language | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB | MSSQL | Oracle | MariaDB | Redshift | Snowflake |
+|----------|-----------|-------|--------|--------|-------------|-------|--------|---------|----------|-----------|
+| Rust | sqlx, tokio-postgres | sqlx | sqlx | duckdb-rs | sqlx | tiberius | sibyl | sqlx | sqlx | -- |
+| Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3 | pyodbc | oracledb | aiomysql | psycopg3 | snowflake-connector |
+| TypeScript | postgres.js, pg | mysql2 | better-sqlite3 | duckdb-node | -- | mssql | oracledb | mysql2 | pg | snowflake-sdk |
+| Go | pgx | database/sql | database/sql | -- | pgx | go-mssqldb | godror | database/sql | pgx | gosnowflake |
+| Java | JDBC, R2DBC | JDBC | JDBC | -- | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
+| Kotlin | JDBC, R2DBC, Exposed | JDBC | JDBC | -- | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
+| C# | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | -- | Microsoft.Data.SqlClient | ODP.NET | MySqlConnector | Npgsql | Snowflake.Data |
+| Elixir | Postgrex | MyXQL | Exqlite | -- | -- | tds | jamdb_oracle | MyXQL | Postgrex | -- |
+| Ruby | pg | mysql2 | sqlite3 | -- | -- | tiny_tds | ruby-oci8 | mysql2 | pg | -- |
+| PHP | PDO | PDO | PDO | -- | -- | PDO | PDO | PDO | PDO | PDO |
 
 ## Adding a new backend
 

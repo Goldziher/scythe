@@ -1,0 +1,41 @@
+[backend]
+name = "ruby-oci8"
+language = "ruby"
+file_extension = "rb"
+engine = "oracle"
+description = "Ruby code generation targeting ruby-oci8 gem"
+
+[types.scalars]
+bool = "Boolean"
+int16 = "Integer"
+int32 = "Integer"
+int64 = "Integer"
+float32 = "Float"
+float64 = "Float"
+string = "String"
+bytes = "String"
+uuid = "String"
+decimal = "BigDecimal"
+date = "Time"
+time = "Time"
+time_tz = "Time"
+datetime = "Time"
+datetime_tz = "Time"
+interval = "String"
+json = "Hash"
+inet = "String"
+
+[types.containers]
+array = "Array<{T}>"
+nullable = "{T}"
+range = "String"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "snake_case"
+fn_case = "snake_case"
+enum_variant_case = "SCREAMING_SNAKE_CASE"
+row_suffix = "Row"
+
+[imports.rules]

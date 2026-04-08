@@ -1,10 +1,8 @@
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
 };
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -15,10 +13,13 @@ use crate::singularize;
 
 /// Default embedded manifest TOML for rust-sqlx, used as fallback.
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-sqlx.toml");
+const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/rust-sqlx.mariadb.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/rust-sqlx.redshift.toml");
 
 /// SqlxBackend generates Rust code targeting the sqlx crate.
 pub struct SqlxBackend {
     manifest: BackendManifest,
+    engine: String,
 }
 
 impl SqlxBackend {
@@ -26,7 +27,8 @@ impl SqlxBackend {
         // Multi-DB backend — accept all engines, load PG manifest as default
         // TODO: Load engine-specific manifests once they exist
         match engine {
-            "postgresql" | "postgres" | "pg" | "mysql" | "mariadb" | "sqlite" | "sqlite3" => {}
+            "postgresql" | "postgres" | "pg" | "mysql" | "mariadb" | "sqlite" | "sqlite3"
+            | "redshift" => {}
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
@@ -34,27 +36,44 @@ impl SqlxBackend {
                 ));
             }
         }
-        let manifest = load_sqlx_manifest()?;
-        Ok(Self { manifest })
+        let manifest = match engine {
+            "mariadb" => super::load_or_default_manifest(
+                "backends/rust-sqlx/manifest.toml",
+                DEFAULT_MANIFEST_MARIADB,
+            )?,
+            "redshift" => super::load_or_default_manifest(
+                "backends/rust-sqlx/manifest.toml",
+                DEFAULT_MANIFEST_REDSHIFT,
+            )?,
+            _ => super::load_or_default_manifest(
+                "backends/rust-sqlx/manifest.toml",
+                DEFAULT_MANIFEST_TOML,
+            )?,
+        };
+        Ok(Self {
+            manifest,
+            engine: engine.to_string(),
+        })
     }
 }
 
-fn load_sqlx_manifest() -> Result<BackendManifest, ScytheError> {
-    let manifest_path = Path::new("backends/rust-sqlx/manifest.toml");
-    if manifest_path.exists() {
-        load_manifest(manifest_path).map_err(|e| {
-            ScytheError::new(
-                ErrorCode::InternalError,
-                format!("failed to load manifest: {e}"),
-            )
-        })
-    } else {
-        toml::from_str(DEFAULT_MANIFEST_TOML).map_err(|e| {
-            ScytheError::new(
-                ErrorCode::InternalError,
-                format!("failed to parse embedded manifest: {e}"),
-            )
-        })
+impl SqlxBackend {
+    /// Return the sqlx pool type for the configured engine.
+    fn pool_type(&self) -> &str {
+        match self.engine.as_str() {
+            "mysql" | "mariadb" => "sqlx::MySqlPool",
+            "sqlite" | "sqlite3" => "sqlx::SqlitePool",
+            _ => "sqlx::PgPool",
+        }
+    }
+
+    /// Return the sqlx query-result type for the configured engine.
+    fn query_result_type(&self) -> &str {
+        match self.engine.as_str() {
+            "mysql" | "mariadb" => "sqlx::mysql::MySqlQueryResult",
+            "sqlite" | "sqlite3" => "sqlx::sqlite::SqliteQueryResult",
+            _ => "sqlx::postgres::PgQueryResult",
+        }
     }
 }
 
@@ -68,7 +87,7 @@ impl CodegenBackend for SqlxBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql", "sqlite"]
+        &["postgresql", "mysql", "mariadb", "sqlite", "redshift"]
     }
 
     fn file_header(&self) -> String {
@@ -131,7 +150,8 @@ impl CodegenBackend for SqlxBackend {
         }
 
         // Build parameter list
-        let mut param_parts: Vec<String> = vec!["pool: &sqlx::PgPool".to_string()];
+        let pool_type = self.pool_type();
+        let mut param_parts: Vec<String> = vec![format!("pool: &{}", pool_type)];
         for param in params {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
@@ -178,8 +198,8 @@ impl CodegenBackend for SqlxBackend {
                 // Batch function takes &[ParamsStruct]
                 let _ = writeln!(
                     out,
-                    "pub async fn {}(pool: &sqlx::PgPool, items: &[{}]) -> Result<(), sqlx::Error> {{",
-                    batch_fn_name, params_struct_name
+                    "pub async fn {}(pool: &{}, items: &[{}]) -> Result<(), sqlx::Error> {{",
+                    batch_fn_name, pool_type, params_struct_name
                 );
                 let _ = writeln!(out, "    let mut tx = pool.begin().await?;");
                 let _ = writeln!(out, "    for item in items {{");
@@ -213,8 +233,8 @@ impl CodegenBackend for SqlxBackend {
                 let param = &params[0];
                 let _ = writeln!(
                     out,
-                    "pub async fn {}(pool: &sqlx::PgPool, items: &[{}]) -> Result<(), sqlx::Error> {{",
-                    batch_fn_name, param.full_type
+                    "pub async fn {}(pool: &{}, items: &[{}]) -> Result<(), sqlx::Error> {{",
+                    batch_fn_name, pool_type, param.full_type
                 );
                 let _ = writeln!(out, "    let mut tx = pool.begin().await?;");
                 let _ = writeln!(out, "    for item in items {{");
@@ -228,8 +248,8 @@ impl CodegenBackend for SqlxBackend {
                 // No params — just execute N times (unusual but valid)
                 let _ = writeln!(
                     out,
-                    "pub async fn {}(pool: &sqlx::PgPool, count: usize) -> Result<(), sqlx::Error> {{",
-                    batch_fn_name
+                    "pub async fn {}(pool: &{}, count: usize) -> Result<(), sqlx::Error> {{",
+                    batch_fn_name, pool_type
                 );
                 let _ = writeln!(out, "    let mut tx = pool.begin().await?;");
                 let _ = writeln!(out, "    for _ in 0..count {{");
@@ -250,7 +270,7 @@ impl CodegenBackend for SqlxBackend {
             QueryCommand::One => struct_name.to_string(),
             QueryCommand::Many => format!("Vec<{}>", struct_name),
             QueryCommand::Exec => "()".to_string(),
-            QueryCommand::ExecResult => "sqlx::postgres::PgQueryResult".to_string(),
+            QueryCommand::ExecResult => self.query_result_type().to_string(),
             QueryCommand::ExecRows => "u64".to_string(),
             QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
         };

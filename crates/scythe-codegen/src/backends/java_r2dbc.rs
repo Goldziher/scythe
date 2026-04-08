@@ -1,7 +1,6 @@
 use std::fmt::Write;
-use std::path::Path;
 
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
 };
@@ -15,6 +14,7 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/java-r2dbc.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/java-r2dbc.mysql.toml");
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/java-r2dbc.sqlite.toml");
+const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/java-r2dbc.mariadb.toml");
 
 pub struct JavaR2dbcBackend {
     manifest: BackendManifest,
@@ -25,7 +25,8 @@ impl JavaR2dbcBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         let default_toml = match engine {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
-            "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
+            "mysql" => DEFAULT_MANIFEST_MYSQL,
+            "mariadb" => DEFAULT_MANIFEST_MARIADB,
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
             _ => {
                 return Err(ScytheError::new(
@@ -34,14 +35,8 @@ impl JavaR2dbcBackend {
                 ));
             }
         };
-        let manifest_path = Path::new("backends/java-r2dbc/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(default_toml)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest =
+            super::load_or_default_manifest("backends/java-r2dbc/manifest.toml", default_toml)?;
         let is_pg = matches!(engine, "postgresql" | "postgres" | "pg");
         Ok(Self { manifest, is_pg })
     }
@@ -159,7 +154,7 @@ impl CodegenBackend for JavaR2dbcBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql", "sqlite"]
+        &["postgresql", "mysql", "mariadb", "sqlite"]
     }
 
     fn file_header(&self) -> String {

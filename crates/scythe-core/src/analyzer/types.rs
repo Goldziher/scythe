@@ -4,7 +4,7 @@ use crate::parser::QueryCommand;
 // Public output types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AnalyzedQuery {
     pub name: String,
     pub command: QueryCommand,

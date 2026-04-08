@@ -1,0 +1,44 @@
+[backend]
+name = "rust-tiberius"
+language = "rust"
+file_extension = "rs"
+engine = "mssql"
+description = "Rust code generation targeting tiberius (MSSQL)"
+
+[types.scalars]
+bool = "bool"
+int16 = "i16"
+int32 = "i32"
+int64 = "i64"
+float32 = "f32"
+float64 = "f64"
+string = "String"
+bytes = "Vec<u8>"
+uuid = "uuid::Uuid"
+decimal = "rust_decimal::Decimal"
+date = "chrono::NaiveDate"
+time = "chrono::NaiveTime"
+time_tz = "chrono::NaiveTime"
+datetime = "chrono::NaiveDateTime"
+datetime_tz = "chrono::DateTime<chrono::Utc>"
+interval = "String"
+json = "String"
+inet = "String"
+
+[types.containers]
+array = "Vec<{T}>"
+nullable = "Option<{T}>"
+range = "String"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "snake_case"
+fn_case = "snake_case"
+enum_variant_case = "PascalCase"
+row_suffix = "Row"
+
+[imports.rules]
+"chrono::" = "use chrono;"
+"uuid::Uuid" = "use uuid::Uuid;"
+"rust_decimal::" = "use rust_decimal::Decimal;"

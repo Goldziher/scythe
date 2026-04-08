@@ -1,0 +1,43 @@
+[backend]
+name = "elixir-postgrex"
+language = "elixir"
+file_extension = "ex"
+engine = "redshift"
+description = "Elixir code generation targeting Postgrex with Redshift"
+
+[types.scalars]
+bool = "boolean()"
+int16 = "integer()"
+int32 = "integer()"
+int64 = "integer()"
+float32 = "float()"
+float64 = "float()"
+string = "String.t()"
+bytes = "binary()"
+uuid = "String.t()"
+decimal = "Decimal.t()"
+date = "Date.t()"
+time = "Time.t()"
+time_tz = "Time.t()"
+datetime = "NaiveDateTime.t()"
+datetime_tz = "DateTime.t()"
+interval = "String.t()"
+json = "map()"
+inet = "String.t()"
+super = "map()"
+geometry = "String.t()"
+
+[types.containers]
+array = "list({T})"
+nullable = "{T} | nil"
+range = "String.t()"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "snake_case"
+fn_case = "snake_case"
+enum_variant_case = "snake_case"
+row_suffix = "Row"
+
+[imports.rules]

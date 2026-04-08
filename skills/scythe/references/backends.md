@@ -1,21 +1,21 @@
 # Backends Reference
 
-Scythe provides 34 backends across 10 languages and 5 database engines.
+Scythe provides 70+ backends across 10 languages and 10 database engines.
 
 ## Language Coverage
 
-| Language | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB |
-|----------|-----------|-------|--------|--------|-------------|
-| Rust | sqlx, tokio-postgres | sqlx | sqlx | duckdb-rs | sqlx |
-| Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3 |
-| TypeScript | postgres.js, pg | mysql2 | better-sqlite3 | duckdb-node | -- |
-| Go | pgx | database/sql | database/sql | -- | pgx |
-| Java | JDBC, R2DBC | JDBC | JDBC | -- | JDBC |
-| Kotlin | JDBC, R2DBC, Exposed | JDBC | JDBC | -- | JDBC |
-| C# | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | -- |
-| Elixir | Postgrex | MyXQL | Exqlite | -- | -- |
-| Ruby | pg | mysql2 | sqlite3 | -- | -- |
-| PHP | PDO | PDO | PDO | -- | -- |
+| Language | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB | MSSQL | Oracle | MariaDB | Redshift | Snowflake |
+|----------|-----------|-------|--------|--------|-------------|-------|--------|---------|----------|-----------|
+| Rust | sqlx, tokio-postgres | sqlx | sqlx | duckdb-rs | sqlx | tiberius | sibyl | sqlx | sqlx | -- |
+| Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3 | pyodbc | oracledb | aiomysql | psycopg3 | snowflake-connector |
+| TypeScript | postgres.js, pg | mysql2 | better-sqlite3 | duckdb-node | -- | mssql | oracledb | mysql2 | pg | snowflake-sdk |
+| Go | pgx | database/sql | database/sql | -- | pgx | go-mssqldb | godror | database/sql | pgx | gosnowflake |
+| Java | JDBC, R2DBC | JDBC | JDBC | -- | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
+| Kotlin | JDBC, R2DBC, Exposed | JDBC | JDBC | -- | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
+| C# | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | -- | Microsoft.Data.SqlClient | ODP.NET | MySqlConnector | Npgsql | Snowflake.Data |
+| Elixir | Postgrex | MyXQL | Exqlite | -- | -- | tds | jamdb_oracle | MyXQL | Postgrex | -- |
+| Ruby | pg | mysql2 | sqlite3 | -- | -- | tiny_tds | ruby-oci8 | mysql2 | pg | -- |
+| PHP | PDO | PDO | PDO | -- | -- | PDO | PDO | PDO | PDO | PDO |
 
 ## Backend Names
 
@@ -40,6 +40,26 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 ### CockroachDB
 
 `rust-sqlx`, `python-psycopg3`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`
+
+### MSSQL
+
+`rust-tiberius`, `python-pyodbc`, `typescript-mssql`, `go-mssqldb`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-sqlclient`, `ruby-tiny-tds`, `php-pdo`, `elixir-tds`
+
+### Oracle
+
+`rust-sibyl`, `python-oracledb`, `typescript-oracledb`, `go-godror`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `csharp-odpnet`, `ruby-oci8`, `php-pdo`, `elixir-jamdb-oracle`
+
+### MariaDB
+
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`
+
+### Redshift
+
+`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-pg`, `typescript-postgres`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `elixir-postgrex`, `ruby-pg`, `php-pdo`
+
+### Snowflake
+
+`python-snowflake`, `typescript-snowflake`, `go-gosnowflake`, `java-jdbc`, `kotlin-jdbc`, `csharp-snowflake`, `php-pdo`
 
 ## Row Type Options
 

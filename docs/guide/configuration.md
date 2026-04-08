@@ -60,7 +60,7 @@ performance = "warn"
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `name` | string | yes | Name for this SQL block. |
-| `engine` | string | yes | Database dialect: `postgresql`, `mysql`, `sqlite`, `duckdb`, `cockroachdb`. |
+| `engine` | string | yes | Database dialect: `postgresql`, `mysql`, `sqlite`, `duckdb`, `cockroachdb`, `mssql`, `oracle`, `mariadb`, `redshift`, `snowflake`. |
 | `schema` | string[] | yes | Glob patterns for schema DDL files. |
 | `queries` | string[] | yes | Glob patterns for annotated query files. |
 | `output` | string | yes | Output directory for generated code. |
@@ -190,7 +190,12 @@ output = "src/generated/analytics"
 | Alias | Engine |
 |-------|--------|
 | `postgresql`, `postgres`, `pg` | PostgreSQL |
-| `mysql`, `mariadb` | MySQL |
+| `mysql` | MySQL |
 | `sqlite`, `sqlite3` | SQLite |
 | `duckdb` | DuckDB |
 | `cockroachdb`, `crdb` | CockroachDB |
+| `mssql`, `sqlserver` | MSSQL |
+| `oracle` | Oracle |
+| `mariadb` | MariaDB |
+| `redshift` | Redshift |
+| `snowflake` | Snowflake |

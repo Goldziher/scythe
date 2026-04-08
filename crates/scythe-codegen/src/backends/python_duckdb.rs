@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
 };
 use scythe_backend::types::resolve_type;
+use std::collections::HashMap;
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -38,59 +36,15 @@ impl PythonDuckdbBackend {
                 ));
             }
         }
-        let manifest_path = Path::new("backends/python-duckdb/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest = super::load_or_default_manifest(
+            "backends/python-duckdb/manifest.toml",
+            DEFAULT_MANIFEST_TOML,
+        )?;
         Ok(Self {
             manifest,
             row_type: PythonRowType::default(),
         })
     }
-}
-
-/// Rewrite $1, $2, ... positional params to ? for DuckDB.
-///
-/// Uses a char-by-char scan (like `pg_to_jdbc_params` in kotlin_exposed) to
-/// correctly handle any number of parameters and avoid replacing `$N` tokens
-/// that appear inside string literals.
-fn rewrite_params_to_qmark(sql: &str) -> String {
-    let mut result = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '\'' {
-            // Pass through single-quoted string literals without rewriting.
-            result.push(ch);
-            while let Some(inner) = chars.next() {
-                result.push(inner);
-                if inner == '\'' {
-                    // Handle escaped quotes ('')
-                    if chars.peek() == Some(&'\'') {
-                        result.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
-                }
-            }
-        } else if ch == '$' {
-            if chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                // Consume all digits after $
-                while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    chars.next();
-                }
-                result.push('?');
-            } else {
-                result.push(ch);
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }
 
 impl CodegenBackend for PythonDuckdbBackend {
@@ -192,11 +146,14 @@ impl CodegenBackend for PythonDuckdbBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        let sql = rewrite_params_to_qmark(&super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            |_| "?".to_string(),
+        );
 
         let args_list = if params.is_empty() {
             String::new()

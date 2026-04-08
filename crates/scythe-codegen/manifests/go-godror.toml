@@ -1,0 +1,42 @@
+[backend]
+name = "go-godror"
+language = "go"
+file_extension = "go"
+engine = "oracle"
+description = "Go code generation targeting godror (Oracle database/sql driver)"
+
+[types.scalars]
+bool = "bool"
+int16 = "int16"
+int32 = "int32"
+int64 = "int64"
+float32 = "float32"
+float64 = "float64"
+string = "string"
+bytes = "[]byte"
+uuid = "string"
+decimal = "float64"
+date = "time.Time"
+time = "time.Time"
+time_tz = "time.Time"
+datetime = "time.Time"
+datetime_tz = "time.Time"
+interval = "string"
+json = "string"
+inet = "string"
+
+[types.containers]
+array = "[]{T}"
+nullable = "*{T}"
+range = "string"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "PascalCase"
+fn_case = "PascalCase"
+enum_variant_case = "PascalCase"
+row_suffix = "Row"
+
+[imports.rules]
+"time." = "\"time\""

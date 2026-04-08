@@ -1,10 +1,8 @@
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -13,6 +11,7 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::{CodegenBackend, RbsGenerationContext, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-pg.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/ruby-pg.redshift.toml");
 
 pub struct RubyPgBackend {
     manifest: BackendManifest,
@@ -20,23 +19,21 @@ pub struct RubyPgBackend {
 
 impl RubyPgBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
-        match engine {
-            "postgresql" | "postgres" | "pg" => {}
+        let default_toml = match engine {
+            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
-                    format!("ruby-pg only supports PostgreSQL, got engine '{}'", engine),
+                    format!(
+                        "ruby-pg only supports PostgreSQL/Redshift, got engine '{}'",
+                        engine
+                    ),
                 ));
             }
-        }
-        let manifest_path = Path::new("backends/ruby-pg/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
+        let manifest =
+            super::load_or_default_manifest("backends/ruby-pg/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
 }
@@ -58,6 +55,10 @@ impl CodegenBackend for RubyPgBackend {
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
         &self.manifest
+    }
+
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql", "redshift"]
     }
 
     fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
@@ -124,7 +125,10 @@ impl CodegenBackend for RubyPgBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        let _ = writeln!(out, "  def self.{}(conn{}{})", func_name, sep, param_list);
+        // Batch generates its own function signature, so skip the generic one
+        if !matches!(analyzed.command, QueryCommand::Batch) {
+            let _ = writeln!(out, "  def self.{}(conn{}{})", func_name, sep, param_list);
+        }
 
         // Build exec_params call
         let param_array = if params.is_empty() {

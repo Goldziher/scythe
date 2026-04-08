@@ -1,7 +1,6 @@
 use std::fmt::Write;
-use std::path::Path;
 
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
@@ -14,6 +13,7 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/go-pgx.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/go-pgx.redshift.toml");
 
 pub struct GoPgxBackend {
     manifest: BackendManifest,
@@ -21,23 +21,21 @@ pub struct GoPgxBackend {
 
 impl GoPgxBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
-        match engine {
-            "postgresql" | "postgres" | "pg" => {}
+        let default_toml = match engine {
+            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
-                    format!("go-pgx only supports PostgreSQL, got engine '{}'", engine),
+                    format!(
+                        "go-pgx only supports PostgreSQL/Redshift, got engine '{}'",
+                        engine
+                    ),
                 ));
             }
-        }
-        let manifest_path = Path::new("backends/go-pgx/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
+        let manifest =
+            super::load_or_default_manifest("backends/go-pgx/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
 }
@@ -51,13 +49,16 @@ impl CodegenBackend for GoPgxBackend {
         &self.manifest
     }
 
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql", "redshift"]
+    }
+
     fn file_header(&self) -> String {
-        // TODO: imports for "time" and "github.com/shopspring/decimal" are included
-        // unconditionally. Go rejects unused imports, so queries that don't reference
-        // time.Time or decimal.Decimal will fail to compile. Once the manifest
-        // [imports.rules] system is wired into the codegen pipeline, these should be
-        // emitted conditionally based on which types appear in the generated code.
-        "package queries\n\nimport (\n\t\"context\"\n\t\"time\"\n\n\t\"github.com/jackc/pgx/v5/pgxpool\"\n\t\"github.com/shopspring/decimal\"\n)\n"
+        // Only import packages that are always needed. Additional imports like
+        // "time" and "github.com/shopspring/decimal" should be emitted
+        // conditionally once the manifest [imports.rules] system is wired in.
+        // Go rejects unused imports, so we cannot include them unconditionally.
+        "package queries\n\nimport (\n\t\"context\"\n\n\t\"github.com/jackc/pgx/v5/pgxpool\"\n)\n"
             .to_string()
     }
 
@@ -315,7 +316,7 @@ impl CodegenBackend for GoPgxBackend {
                 let field_name = to_pascal_case(&field.name);
                 let go_type = resolve_type(&field.neutral_type, &self.manifest, false)
                     .map(|t| t.into_owned())
-                    .unwrap_or_else(|_| "interface{}".to_string());
+                    .unwrap_or_else(|_| "any".to_string());
                 let json_tag = &field.name;
                 let _ = writeln!(out, "\t{} {} `json:\"{}\"`", field_name, go_type, json_tag);
             }

@@ -1,7 +1,6 @@
 use std::fmt::Write;
-use std::path::Path;
 
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
 };
@@ -17,6 +16,9 @@ const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/kotlin-jdbc.toml
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/kotlin-jdbc.mysql.toml");
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/kotlin-jdbc.sqlite.toml");
 const DEFAULT_MANIFEST_DUCKDB: &str = include_str!("../../manifests/kotlin-jdbc.duckdb.toml");
+const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/kotlin-jdbc.mariadb.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/kotlin-jdbc.redshift.toml");
+const DEFAULT_MANIFEST_SNOWFLAKE: &str = include_str!("../../manifests/kotlin-jdbc.snowflake.toml");
 
 pub struct KotlinJdbcBackend {
     manifest: BackendManifest,
@@ -26,9 +28,12 @@ impl KotlinJdbcBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         let default_toml = match engine {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
-            "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
+            "mysql" => DEFAULT_MANIFEST_MYSQL,
+            "mariadb" => DEFAULT_MANIFEST_MARIADB,
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
             "duckdb" => DEFAULT_MANIFEST_DUCKDB,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
+            "snowflake" => DEFAULT_MANIFEST_SNOWFLAKE,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
@@ -36,37 +41,10 @@ impl KotlinJdbcBackend {
                 ));
             }
         };
-        let manifest_path = Path::new("backends/kotlin-jdbc/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(default_toml)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest =
+            super::load_or_default_manifest("backends/kotlin-jdbc/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
-}
-
-/// Convert PostgreSQL $1, $2, ... placeholders to JDBC ? placeholders.
-fn pg_to_jdbc_params(sql: &str) -> String {
-    let mut result = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '$' {
-            if chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    chars.next();
-                }
-                result.push('?');
-            } else {
-                result.push(ch);
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }
 
 /// Get the ResultSet getter method name for a given Kotlin type.
@@ -119,7 +97,15 @@ impl CodegenBackend for KotlinJdbcBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql", "sqlite", "duckdb"]
+        &[
+            "postgresql",
+            "mysql",
+            "mariadb",
+            "sqlite",
+            "duckdb",
+            "redshift",
+            "snowflake",
+        ]
     }
 
     fn file_header(&self) -> String {
@@ -158,11 +144,14 @@ impl CodegenBackend for KotlinJdbcBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = pg_to_jdbc_params(&super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            |_| "?".to_string(),
+        );
 
         // Build function params: inline for single param (conn only), multi-line for 2+
         let use_multiline_params = !params.is_empty();
@@ -226,14 +215,39 @@ impl CodegenBackend for KotlinJdbcBackend {
                 write_setters(&mut out, params);
                 let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                 let _ = writeln!(out, "            return if (rs.next()) {{");
+                for col in columns.iter() {
+                    if col.nullable {
+                        let getter = rs_getter(&col.lang_type);
+                        let _ = writeln!(
+                            out,
+                            "                val {field}Value = rs.{getter}(\"{name}\")",
+                            field = col.field_name,
+                            getter = getter,
+                            name = col.name,
+                        );
+                        let _ = writeln!(
+                            out,
+                            "                val {field} = if (rs.wasNull()) null else {field}Value",
+                            field = col.field_name,
+                        );
+                    }
+                }
                 let _ = writeln!(out, "                {}(", struct_name);
                 for col in columns.iter() {
-                    let getter = rs_getter(&col.lang_type);
-                    let _ = writeln!(
-                        out,
-                        "                    {} = rs.{}(\"{}\"),",
-                        col.field_name, getter, col.name
-                    );
+                    if col.nullable {
+                        let _ = writeln!(
+                            out,
+                            "                    {} = {},",
+                            col.field_name, col.field_name
+                        );
+                    } else {
+                        let getter = rs_getter(&col.lang_type);
+                        let _ = writeln!(
+                            out,
+                            "                    {} = rs.{}(\"{}\"),",
+                            col.field_name, getter, col.name
+                        );
+                    }
                 }
                 let _ = writeln!(out, "                )");
                 let _ = writeln!(out, "            }} else {{");
@@ -316,15 +330,40 @@ impl CodegenBackend for KotlinJdbcBackend {
                     struct_name
                 );
                 let _ = writeln!(out, "            while (rs.next()) {{");
+                for col in columns.iter() {
+                    if col.nullable {
+                        let getter = rs_getter(&col.lang_type);
+                        let _ = writeln!(
+                            out,
+                            "                val {field}Value = rs.{getter}(\"{name}\")",
+                            field = col.field_name,
+                            getter = getter,
+                            name = col.name,
+                        );
+                        let _ = writeln!(
+                            out,
+                            "                val {field} = if (rs.wasNull()) null else {field}Value",
+                            field = col.field_name,
+                        );
+                    }
+                }
                 let _ = writeln!(out, "                result.add(");
                 let _ = writeln!(out, "                    {}(", struct_name);
                 for col in columns.iter() {
-                    let getter = rs_getter(&col.lang_type);
-                    let _ = writeln!(
-                        out,
-                        "                        {} = rs.{}(\"{}\"),",
-                        col.field_name, getter, col.name
-                    );
+                    if col.nullable {
+                        let _ = writeln!(
+                            out,
+                            "                        {} = {},",
+                            col.field_name, col.field_name
+                        );
+                    } else {
+                        let getter = rs_getter(&col.lang_type);
+                        let _ = writeln!(
+                            out,
+                            "                        {} = rs.{}(\"{}\"),",
+                            col.field_name, getter, col.name
+                        );
+                    }
                 }
                 let _ = writeln!(out, "                    ),");
                 let _ = writeln!(out, "                )");

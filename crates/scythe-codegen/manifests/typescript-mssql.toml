@@ -1,0 +1,41 @@
+[backend]
+name = "typescript-mssql"
+language = "typescript"
+file_extension = "ts"
+engine = "mssql"
+description = "TypeScript code generation targeting mssql (tedious) with MSSQL"
+
+[types.scalars]
+bool = "boolean"
+int16 = "number"
+int32 = "number"
+int64 = "number"
+float32 = "number"
+float64 = "number"
+string = "string"
+bytes = "Buffer"
+uuid = "string"
+decimal = "string"
+date = "string"
+time = "string"
+time_tz = "string"
+datetime = "Date"
+datetime_tz = "Date"
+interval = "string"
+json = "string"
+inet = "string"
+
+[types.containers]
+array = "{T}[]"
+nullable = "{T} | null"
+range = "string"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "camelCase"
+fn_case = "camelCase"
+enum_variant_case = "PascalCase"
+row_suffix = "Row"
+
+[imports.rules]

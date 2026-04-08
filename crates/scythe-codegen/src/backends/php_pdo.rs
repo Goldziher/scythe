@@ -1,10 +1,8 @@
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -15,6 +13,8 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-pdo.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/php-pdo.mysql.toml");
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/php-pdo.sqlite.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/php-pdo.redshift.toml");
+const DEFAULT_MANIFEST_SNOWFLAKE: &str = include_str!("../../manifests/php-pdo.snowflake.toml");
 
 pub struct PhpPdoBackend {
     manifest: BackendManifest,
@@ -26,6 +26,8 @@ impl PhpPdoBackend {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
             "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
+            "snowflake" => DEFAULT_MANIFEST_SNOWFLAKE,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
@@ -33,28 +35,10 @@ impl PhpPdoBackend {
                 ));
             }
         };
-        let manifest_path = Path::new("backends/php-pdo/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(default_toml)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest =
+            super::load_or_default_manifest("backends/php-pdo/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
-}
-
-/// Rewrite $1, $2, ... to :p1, :p2, ...
-fn rewrite_params(sql: &str) -> String {
-    let mut result = sql.to_string();
-    // Replace from highest number down to avoid $1 matching inside $10
-    for i in (1..=99).rev() {
-        let from = format!("${}", i);
-        let to = format!(":p{}", i);
-        result = result.replace(&from, &to);
-    }
-    result
 }
 
 /// Map a neutral type to a PHP cast expression.
@@ -78,7 +62,14 @@ impl CodegenBackend for PhpPdoBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql", "sqlite"]
+        &[
+            "postgresql",
+            "mysql",
+            "mariadb",
+            "sqlite",
+            "redshift",
+            "snowflake",
+        ]
     }
 
     fn file_header(&self) -> String {
@@ -204,11 +195,14 @@ impl CodegenBackend for PhpPdoBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = rewrite_params(&super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            |n| format!(":p{n}"),
+        );
         let mut out = String::new();
 
         // Handle :batch separately

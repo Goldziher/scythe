@@ -1,7 +1,6 @@
 use std::fmt::Write;
-use std::path::Path;
 
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
@@ -33,14 +32,10 @@ impl CsharpMicrosoftSqliteBackend {
                 ));
             }
         }
-        let manifest_path = Path::new("backends/csharp-microsoft-sqlite/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest = super::load_or_default_manifest(
+            "backends/csharp-microsoft-sqlite/manifest.toml",
+            DEFAULT_MANIFEST_TOML,
+        )?;
         Ok(Self { manifest })
     }
 }
@@ -60,17 +55,6 @@ fn reader_method(neutral_type: &str) -> &'static str {
         "datetime" => "GetDateTime",
         _ => "GetValue",
     }
-}
-
-/// Rewrite $1, $2, ... to $p1, $p2, ...
-fn rewrite_params(sql: &str) -> String {
-    let mut result = sql.to_string();
-    for i in (1..=99).rev() {
-        let from = format!("${}", i);
-        let to = format!("$p{}", i);
-        result = result.replace(&from, &to);
-    }
-    result
 }
 
 /// Build the expression to read a column from SqliteDataReader.
@@ -143,11 +127,14 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = rewrite_params(&super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            |n| format!("$p{n}"),
+        );
         let mut out = String::new();
 
         let param_list = params

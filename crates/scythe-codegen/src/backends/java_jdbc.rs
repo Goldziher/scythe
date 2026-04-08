@@ -1,7 +1,6 @@
 use std::fmt::Write;
-use std::path::Path;
 
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
 };
@@ -16,6 +15,9 @@ const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/java-jdbc.toml")
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/java-jdbc.mysql.toml");
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/java-jdbc.sqlite.toml");
 const DEFAULT_MANIFEST_DUCKDB: &str = include_str!("../../manifests/java-jdbc.duckdb.toml");
+const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/java-jdbc.mariadb.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/java-jdbc.redshift.toml");
+const DEFAULT_MANIFEST_SNOWFLAKE: &str = include_str!("../../manifests/java-jdbc.snowflake.toml");
 
 pub struct JavaJdbcBackend {
     manifest: BackendManifest,
@@ -25,9 +27,12 @@ impl JavaJdbcBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         let default_toml = match engine {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
-            "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
+            "mysql" => DEFAULT_MANIFEST_MYSQL,
+            "mariadb" => DEFAULT_MANIFEST_MARIADB,
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
             "duckdb" => DEFAULT_MANIFEST_DUCKDB,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
+            "snowflake" => DEFAULT_MANIFEST_SNOWFLAKE,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
@@ -35,39 +40,10 @@ impl JavaJdbcBackend {
                 ));
             }
         };
-        let manifest_path = Path::new("backends/java-jdbc/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(default_toml)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest =
+            super::load_or_default_manifest("backends/java-jdbc/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
-}
-
-/// Convert PostgreSQL $1, $2, ... placeholders to JDBC ? placeholders.
-fn pg_to_jdbc_params(sql: &str) -> String {
-    let mut result = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '$' {
-            // Check if followed by digits
-            if chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                // Consume all digits
-                while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    chars.next();
-                }
-                result.push('?');
-            } else {
-                result.push(ch);
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }
 
 /// Convert a Java primitive type to its boxed equivalent for nullable usage.
@@ -173,7 +149,15 @@ impl CodegenBackend for JavaJdbcBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql", "sqlite", "duckdb"]
+        &[
+            "postgresql",
+            "mysql",
+            "mariadb",
+            "sqlite",
+            "duckdb",
+            "redshift",
+            "snowflake",
+        ]
     }
 
     fn file_header(&self) -> String {
@@ -249,11 +233,14 @@ impl CodegenBackend for JavaJdbcBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = pg_to_jdbc_params(&super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            |_| "?".to_string(),
+        );
 
         let param_list = params
             .iter()

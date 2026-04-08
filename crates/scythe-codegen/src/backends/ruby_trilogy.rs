@@ -1,10 +1,8 @@
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -29,14 +27,10 @@ impl RubyTrilogyBackend {
                 ));
             }
         }
-        let manifest_path = Path::new("backends/ruby-trilogy/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest = super::load_or_default_manifest(
+            "backends/ruby-trilogy/manifest.toml",
+            DEFAULT_MANIFEST_TOML,
+        )?;
         Ok(Self { manifest })
     }
 }
@@ -61,7 +55,7 @@ impl CodegenBackend for RubyTrilogyBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["mysql"]
+        &["mysql", "mariadb"]
     }
 
     fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
