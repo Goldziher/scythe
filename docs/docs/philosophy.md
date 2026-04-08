@@ -12,40 +12,13 @@ Scythe eliminates that glue code. You write `.sql` files — schema definitions 
 
 The result: you get the full power of SQL with the type safety of generated code, without maintaining the mapping layer by hand.
 
-## vs ORMs
+## How Scythe Compares
 
-ORMs map database tables to objects in your application language. They promise productivity by hiding SQL behind a language-native API. In practice, they introduce a set of recurring problems:
+Scythe is not the only SQL-first tool. sqlc (Go), SQLDelight (Kotlin), and jOOQ (Java DSL) take similar approaches. ORMs like Hibernate, SQLAlchemy, and ActiveRecord take the opposite approach -- generating SQL from application code.
 
-| Problem | What happens | Scythe's approach |
-|---------|-------------|-------------------|
-| **N+1 queries** | Lazy-loading traverses relationships one row at a time. A page listing 50 orders with their items fires 51 queries. | You write the JOIN yourself. One query, one round trip. |
-| **Opaque query generation** | The ORM translates method chains into SQL. The generated SQL is often surprising, sometimes incorrect, and hard to predict from reading the application code. | The SQL you write is the SQL that runs. Nothing is generated at runtime. |
-| **Migration hell** | Schema changes require updating model classes, writing migration scripts, and hoping the ORM's diff algorithm produces correct DDL. Divergence between the model and the actual schema is common. | Schema is defined in SQL. Scythe reads it directly. Your migration tool manages DDL; scythe generates code from the result. |
-| **Debugging complexity** | When a query is slow, you must reverse-engineer the ORM's output, check the query plan, then figure out which API call to change. The abstraction that was supposed to help is now in the way. | You own the SQL. Run `EXPLAIN` on it directly. Optimize it directly. |
-| **Limited SQL support** | Window functions, CTEs, lateral joins, recursive queries — ORMs either do not support them or require dropping into raw SQL, defeating the purpose of the abstraction. | Scythe handles these natively. Write any SQL your database supports. |
-| **Type safety gaps** | ORM type systems struggle with aggregations, conditional expressions, and nullable joins. Types are often inferred incorrectly or left as `Any`. | Scythe analyzes your SQL statically and infers precise types, including nullability from JOINs, CASE expressions, and aggregations. |
+Scythe's differentiators: 10 languages from the same SQL, 93 lint rules, integrated formatting, and precise nullability inference from JOINs, COALESCE, CASE, and window functions.
 
-ORMs remain a reasonable choice for simple CRUD applications where SQL complexity is low, rapid prototyping is the priority, and the team prefers not to write SQL. For everything else, compiling SQL gives you more control with less friction.
-
-See the [detailed ORM comparison](comparisons/orms.md) for per-framework analysis.
-
-## vs jOOQ
-
-jOOQ is the closest tool to scythe in philosophy — both are SQL-first and reject the ORM abstraction. The differences are in scope, approach, and licensing.
-
-| Aspect | jOOQ | Scythe |
-|--------|------|--------|
-| **SQL authoring** | Java/Kotlin DSL that mirrors SQL syntax | Plain `.sql` files — no new API to learn |
-| **When SQL runs** | DSL builds SQL strings at runtime | SQL is compiled at build time; generated code calls the driver directly |
-| **Language support** | Java, Kotlin | Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP |
-| **Schema input** | Requires a live database connection for code generation | Reads `.sql` schema files — no running database needed |
-| **SQL quality tools** | None | 93 lint rules and integrated formatting |
-| **Licensing** | Open source for PostgreSQL, MySQL, SQLite, H2. **Commercial license required** for Oracle, SQL Server, DB2, and others. | MIT license. All databases, all features, no commercial tiers. |
-| **Runtime overhead** | DSL evaluation and SQL string construction at runtime | Zero — generated code is static function calls |
-
-Both tools respect SQL as the primary interface to the database. jOOQ is a strong choice if your stack is Java/Kotlin and you prefer composing queries programmatically. Scythe is the better fit if you want plain SQL files, need polyglot support, or want to avoid commercial licensing constraints.
-
-See the [detailed jOOQ comparison](comparisons/jooq.md) for code examples and feature breakdown.
+See [Alternatives](comparisons/alternatives.md) for detailed comparisons.
 
 ## Custom Types
 
