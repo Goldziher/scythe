@@ -214,8 +214,7 @@ Full documentation at [goldziher.github.io/scythe](https://goldziher.github.io/s
 
 - [Quickstart](https://goldziher.github.io/scythe/getting-started/quickstart/) -- zero to generated code in 5 minutes
 - [Philosophy](https://goldziher.github.io/scythe/philosophy/) -- why compile SQL instead of using an ORM
-- [vs jOOQ](https://goldziher.github.io/scythe/comparisons/jooq/) -- plain SQL vs Java DSL, licensing, polyglot support
-- [vs ORMs](https://goldziher.github.io/scythe/comparisons/orms/) -- Hibernate, SQLAlchemy, ActiveRecord, Entity Framework, GORM, Diesel, Ecto
+- [Alternatives](https://goldziher.github.io/scythe/comparisons/alternatives/) -- how scythe compares to sqlc, SQLDelight, jOOQ, and ORMs
 - [Custom Types](https://goldziher.github.io/scythe/guide/custom-types/) -- type overrides for PostgreSQL extensions
 - [Configuration](https://goldziher.github.io/scythe/guide/configuration/) -- full scythe.toml reference
 - [Annotations](https://goldziher.github.io/scythe/guide/annotations/) -- @name, @returns, @nullable, @json, and more

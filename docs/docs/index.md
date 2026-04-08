@@ -151,5 +151,4 @@ Scythe knows `o.total` and `o.notes` are nullable (right side of LEFT JOIN) and 
 
 - [Quickstart](getting-started/quickstart.md) -- from zero to generated code in 5 minutes
 - [Philosophy](philosophy.md) -- why compile SQL instead of using an ORM
-- [vs jOOQ](comparisons/jooq.md) -- how scythe compares to jOOQ
-- [vs ORMs](comparisons/orms.md) -- how scythe compares to Hibernate, SQLAlchemy, ActiveRecord, and more
+- [Alternatives](comparisons/alternatives.md) -- how scythe compares to sqlc, SQLDelight, jOOQ, and ORMs

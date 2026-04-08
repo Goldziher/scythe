@@ -15,8 +15,7 @@ nav = [
     { "Migration from sqlc" = "getting-started/migration-from-sqlc.md" },
   ] },
   { "Comparisons" = [
-    { "vs ORMs" = "comparisons/orms.md" },
-    { "vs jOOQ" = "comparisons/jooq.md" },
+    { "Alternatives" = "comparisons/alternatives.md" },
   ] },
   { "Guide" = [
     { "Configuration" = "guide/configuration.md" },
