@@ -33,14 +33,14 @@
 
 ---
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 3 databases with 27 backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 5 databases with 34 backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
 
 ## Installation
 
 ```bash
 cargo install scythe-cli
 # or
-brew install Goldziher/tap/scythe
+brew install Goldziher/tap/scythe  # uses pre-built binaries for faster install
 ```
 
 ## Quick Start
@@ -315,13 +315,16 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 ## Features
 
 - **10 languages** -- Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP
-- **3 databases** -- PostgreSQL, MySQL, SQLite
-- **27 backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, pgx, JDBC, Npgsql, PDO, Trilogy, Ecto, AMPHP, and more
+- **5 databases** -- PostgreSQL, MySQL, SQLite, DuckDB, CockroachDB
+- **34 backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, pgx, JDBC, R2DBC, Exposed, Npgsql, PDO, Trilogy, Ecto, AMPHP, python-duckdb, and more
 - **93 lint rules** -- UPDATE without WHERE, SELECT *, NULL comparisons, leading wildcard LIKE, plus 71 sqruff rules
 - **SQL formatting** -- consistent style via sqruff integration
 - **Smart type inference** -- nullability from JOINs, COALESCE, window functions, CASE WHEN, aggregates
 - **`@optional` parameters** -- SQL rewriting for conditional filters (`WHERE ($1 IS NULL OR col = $1)`)
 - **`:batch` execution** -- bulk inserts and batch operations
+- **`@returns :grouped`** -- result grouping with `@group_by` for grouped query results
+- **R2DBC reactive backends** -- non-blocking database access for Java and Kotlin
+- **Kotlin Exposed** -- first-class Exposed ORM backend for Kotlin
 - **Configurable row types** -- Pydantic, msgspec, Zod, dataclass, interface per backend
 - **CTEs and window functions** -- ROW_NUMBER, RANK, LAG, LEAD, recursive CTEs with correct type inference
 - **Enums, composites, arrays** -- PostgreSQL types mapped to language-native equivalents
@@ -329,18 +332,18 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 
 ## Supported Languages
 
-| Language   | PostgreSQL | MySQL | SQLite |
-|------------|:----------:|:-----:|:------:|
-| Rust       | sqlx, tokio-postgres | sqlx | sqlx |
-| Python     | psycopg3, asyncpg | aiomysql | aiosqlite |
-| TypeScript | pg, postgres.js | mysql2 | better-sqlite3 |
-| Go         | pgx | database/sql | database/sql |
-| Java       | JDBC | JDBC | JDBC |
-| Kotlin     | JDBC | JDBC | JDBC |
-| C#         | Npgsql | MySqlConnector | Microsoft.Data.Sqlite |
-| Ruby       | pg, Trilogy | mysql2, Trilogy | sqlite3 |
-| PHP        | PDO, AMPHP | PDO | PDO |
-| Elixir     | Postgrex, Ecto | MyXQL | Exqlite |
+| Language   | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB |
+|------------|:----------:|:-----:|:------:|:------:|:-----------:|
+| Rust       | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx |
+| Python     | psycopg3, asyncpg | aiomysql | aiosqlite | python-duckdb | psycopg3 |
+| TypeScript | pg, postgres.js | mysql2 | better-sqlite3 | typescript-duckdb | pg |
+| Go         | pgx | database/sql | database/sql | database/sql | pgx |
+| Java       | JDBC, R2DBC | JDBC | JDBC | JDBC | JDBC |
+| Kotlin     | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC | JDBC |
+| C#         | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | Npgsql |
+| Ruby       | pg, Trilogy | mysql2, Trilogy | sqlite3 | -- | pg |
+| PHP        | PDO, AMPHP | PDO | PDO | -- | PDO |
+| Elixir     | Postgrex, Ecto | MyXQL | Exqlite | -- | Postgrex |
 
 ## Documentation
 

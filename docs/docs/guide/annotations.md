@@ -26,6 +26,7 @@ Specifies the query return type. Must include a colon prefix.
 | `:exec_result` | Returns affected row count | UPDATE/DELETE when you need the count |
 | `:exec_rows` | Returns affected rows | Similar to exec_result |
 | `:batch` | Batch execution | Bulk inserts |
+| `:grouped` | Returns rows grouped by a key | JOIN queries with parent-child nesting |
 
 ```sql
 -- @name ListActiveUsers
@@ -36,6 +37,32 @@ SELECT id, name, email FROM users WHERE status = 'active';
 -- @returns :exec
 DELETE FROM users WHERE id = $1;
 ```
+
+## @group_by
+
+Specifies which table's columns become the parent struct when using `@returns :grouped`. All other selected columns become children collected into a nested list.
+
+Format: `-- @group_by table.column`
+
+This annotation is required when `@returns :grouped` is used and produces an error if omitted.
+
+```sql
+-- @name GetUsersWithOrders
+-- @returns :grouped
+-- @group_by users.id
+SELECT
+    u.id,
+    u.name,
+    u.email,
+    o.id AS order_id,
+    o.total,
+    o.created_at AS order_date
+FROM users u
+JOIN orders o ON o.user_id = u.id
+WHERE u.status = 'active';
+```
+
+This generates a parent struct containing the `users` columns (`id`, `name`, `email`) with a nested collection of child structs containing the `orders` columns (`order_id`, `total`, `order_date`). The exact shape depends on the backend language -- for example, Rust generates a `Vec<ChildRow>` field, Python generates a `list[ChildRow]` field, and so on.
 
 ## @optional
 

@@ -12,6 +12,8 @@ cargo install scythe-cli
 brew install Goldziher/tap/scythe
 ```
 
+Pre-built binaries are available for macOS (arm64, x86_64) and Linux (x86_64). No Rust toolchain needed.
+
 ## From Source
 
 ```bash

@@ -1,6 +1,6 @@
 [package]
 name = "scythe-lint"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 description = "SQL linting engine with 93 rules for scythe"
@@ -13,7 +13,7 @@ categories = ["development-tools"]
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }
-scythe-core = { path = "../scythe-core", version = "0.4.0" }
+scythe-core = { path = "../scythe-core", version = "0.5.0" }
 serde = { version = "1", features = ["derive"] }
 sqlparser = { version = "0.61", features = ["visitor"] }
 sqruff-lib = "0.37"

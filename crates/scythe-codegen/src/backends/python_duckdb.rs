@@ -54,11 +54,41 @@ impl PythonDuckdbBackend {
 }
 
 /// Rewrite $1, $2, ... positional params to ? for DuckDB.
+///
+/// Uses a char-by-char scan (like `pg_to_jdbc_params` in kotlin_exposed) to
+/// correctly handle any number of parameters and avoid replacing `$N` tokens
+/// that appear inside string literals.
 fn rewrite_params_to_qmark(sql: &str) -> String {
-    let mut result = sql.to_string();
-    for i in (1..=99).rev() {
-        let from = format!("${}", i);
-        result = result.replace(&from, "?");
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\'' {
+            // Pass through single-quoted string literals without rewriting.
+            result.push(ch);
+            while let Some(inner) = chars.next() {
+                result.push(inner);
+                if inner == '\'' {
+                    // Handle escaped quotes ('')
+                    if chars.peek() == Some(&'\'') {
+                        result.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+            }
+        } else if ch == '$' {
+            if chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+                // Consume all digits after $
+                while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+                    chars.next();
+                }
+                result.push('?');
+            } else {
+                result.push(ch);
+            }
+        } else {
+            result.push(ch);
+        }
     }
     result
 }

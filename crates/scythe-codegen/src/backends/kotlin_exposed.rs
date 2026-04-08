@@ -119,6 +119,7 @@ fn exposed_column_type_class(kotlin_type: &str) -> &str {
         "Long" => "LongColumnType()",
         "Float" => "FloatColumnType()",
         "Double" => "DoubleColumnType()",
+        // TODO: varchar length 255 is hardcoded; see generate_model_struct TODO.
         "String" => "VarCharColumnType(255)",
         "ByteArray" => "BinaryColumnType()",
         _ if kotlin_type.contains("BigDecimal") => "DecimalColumnType(10, 2)",
@@ -177,6 +178,9 @@ impl CodegenBackend for KotlinExposedBackend {
         let name = to_pascal_case(table_name);
         let table_obj_name = format!("{}Table", name);
         let mut out = String::new();
+        // TODO: IntIdTable is hardcoded — detecting the actual PK type (LongIdTable,
+        // UUIDTable, etc.) from schema DDL requires propagating PK column info through
+        // the analyzer. Follow-up: https://github.com/scythe-sql/scythe/issues/XXX
         let _ = writeln!(
             out,
             "object {} : IntIdTable(\"{}\") {{",
@@ -185,7 +189,9 @@ impl CodegenBackend for KotlinExposedBackend {
         for col in columns.iter() {
             let col_fn = exposed_column_fn(&col.lang_type);
             let nullable_suffix = if col.nullable { ".nullable()" } else { "" };
-            // varchar needs a length argument
+            // TODO: varchar length is hardcoded to 255 — column lengths from schema DDL
+            // are not propagated through the analyzer yet. Follow-up needed to thread
+            // length/precision metadata from DDL columns to codegen.
             if col_fn == "varchar" {
                 let _ = writeln!(
                     out,

@@ -42,6 +42,8 @@ nav = [
     { "PostgreSQL" = "databases/postgresql.md" },
     { "MySQL" = "databases/mysql.md" },
     { "SQLite" = "databases/sqlite.md" },
+    { "DuckDB" = "databases/duckdb.md" },
+    { "CockroachDB" = "databases/cockroachdb.md" },
   ] },
   { "Examples" = [
     { "Simple CRUD" = "examples/simple-crud.md" },

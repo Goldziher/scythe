@@ -1,6 +1,6 @@
 [package]
 name = "scythe-codegen"
-version = "0.4.0"
+version = "0.5.0"
 edition = "2024"
 license = "MIT"
 description = "Polyglot code generation backends for scythe"
@@ -13,6 +13,6 @@ categories = ["development-tools", "database"]
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }
-scythe-backend = { path = "../scythe-backend", version = "0.4.0" }
-scythe-core = { path = "../scythe-core", version = "0.4.0" }
+scythe-backend = { path = "../scythe-backend", version = "0.5.0" }
+scythe-core = { path = "../scythe-core", version = "0.5.0" }
 toml = "1.1"

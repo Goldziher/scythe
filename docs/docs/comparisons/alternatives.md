@@ -8,8 +8,8 @@ Scythe is a SQL-first code generator. This page compares it to other tools in th
 |---|---|---|---|---|---|
 | Approach | SQL files to code | SQL files to code | .sq files to code | Java DSL to SQL | Code to SQL |
 | Languages | 10 (Rust, Python, TS, Go, Java, Kotlin, C#, Elixir, Ruby, PHP) | Go (primary), Python, Kotlin, TypeScript (plugin) | Kotlin (JVM, Native, JS via KMP) | Java, Kotlin | Language-specific |
-| Databases | PostgreSQL, MySQL, SQLite | PostgreSQL, MySQL, SQLite | SQLite, PostgreSQL, MySQL, H2 | 25+ databases | Varies |
-| Backend drivers | 27 | ~5 | 4 | N/A (JDBC) | Varies |
+| Databases | PostgreSQL, MySQL, SQLite, DuckDB, CockroachDB | PostgreSQL, MySQL, SQLite | SQLite, PostgreSQL, MySQL, H2 | 25+ databases | Varies |
+| Backend drivers | 34 | ~5 | 4 | N/A (JDBC) | Varies |
 | SQL linting | 93 rules | None | None | None | None |
 | SQL formatting | sqruff integration | None | None | None | None |
 | Nullability inference | JOINs, COALESCE, CASE, window functions, aggregates | Basic (column constraints) | Column constraints | From DB metadata | Varies |
@@ -17,7 +17,7 @@ Scythe is a SQL-first code generator. This page compares it to other tools in th
 | Batch execution | `:batch` return type | `sqlc.slice()` | None | Batch API | Varies |
 | Row type options | Pydantic, msgspec, Zod, dataclass, interface | None | None | N/A | Language-native |
 | IDE plugin | None (planned) | None | IntelliJ | IntelliJ | Varies |
-| Reactive queries | Not supported | Not supported | Kotlin Flow, RxJava | Not supported | Varies |
+| Reactive queries | R2DBC (Java, Kotlin) | Not supported | Kotlin Flow, RxJava | Not supported | Varies |
 | Migration support | External | External | Built-in (.sqm validation) | External | Usually built-in |
 | Custom types | type_overrides config | Override config | ColumnAdapter interface | Binding/Converter | Language-native |
 | Build integration | CLI (any build system) | CLI | Gradle plugin | Maven/Gradle | Language-specific |
@@ -37,7 +37,7 @@ sqlc is the tool scythe is most directly inspired by. Both compile SQL files int
 - **Type inference.** Scythe infers nullability from JOINs, COALESCE, CASE, window functions. sqlc infers from column constraints and has `sqlc.narg()` for nullable params.
 - **Optional parameters.** Scythe's `@optional` annotation rewrites SQL conditions to skip filters when NULL is passed. sqlc uses `sqlc.narg()` for a similar effect.
 - **Row types.** Scythe supports configurable row types -- Pydantic/msgspec for Python, Zod for TypeScript. sqlc generates fixed types per language.
-- **Multi-database.** Both support PostgreSQL, MySQL, SQLite. Scythe's engine-aware backends generate optimized code per database.
+- **Multi-database.** Both support PostgreSQL, MySQL, SQLite. Scythe also supports DuckDB and CockroachDB. Scythe's engine-aware backends generate optimized code per database.
 - **Configuration.** sqlc uses `sqlc.yaml`, scythe uses `scythe.toml`. Both are CLI tools.
 
 **When to choose sqlc:** Go-only teams, existing sqlc investment, need `sqlc.narg()` for dynamic queries.

@@ -269,6 +269,49 @@ macro_rules! mysql_backend_test {
     };
 }
 
+fn generate_full_file_duckdb(backend_name: &str) -> String {
+    let backend = get_backend(backend_name, "duckdb").unwrap();
+    // DuckDB uses PostgreSQL-compatible SQL dialect for parsing.
+    generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::PostgreSQL)
+}
+
+macro_rules! duckdb_backend_test {
+    ($name:ident, $backend:expr) => {
+        #[test]
+        fn $name() {
+            let code = generate_full_file_duckdb($backend);
+            assert!(
+                !code.trim().is_empty(),
+                "generated code is empty for {}",
+                $backend
+            );
+
+            // Print generated code for inspection
+            eprintln!("\n=== {} ===\n{}\n=== END ===\n", $backend, code);
+
+            // Structural validation
+            let structural_errors = validate_structural(&code, $backend);
+            assert!(
+                structural_errors.is_empty(),
+                "{} structural: {:?}",
+                $backend,
+                structural_errors
+            );
+
+            // Real tool validation
+            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
+                assert!(
+                    tool_errors.is_empty(),
+                    "{} tool validation: {:?}\n\nGenerated code:\n{}",
+                    $backend,
+                    tool_errors,
+                    code
+                );
+            }
+        }
+    };
+}
+
 // --- Default backend tests (PostgreSQL) ---
 backend_test!(test_rust_sqlx, "rust-sqlx");
 backend_test!(test_rust_tokio_postgres, "rust-tokio-postgres");
@@ -287,6 +330,11 @@ backend_test!(test_elixir_ecto, "elixir-ecto");
 backend_test!(test_ruby_pg, "ruby-pg");
 backend_test!(test_php_pdo, "php-pdo");
 backend_test!(test_php_amphp, "php-amphp");
+backend_test!(test_kotlin_exposed, "kotlin-exposed");
+
+// --- DuckDB backend tests ---
+duckdb_backend_test!(test_python_duckdb, "python-duckdb");
+duckdb_backend_test!(test_typescript_duckdb, "typescript-duckdb");
 
 // --- MySQL backend tests ---
 mysql_backend_test!(test_ruby_trilogy, "ruby-trilogy");

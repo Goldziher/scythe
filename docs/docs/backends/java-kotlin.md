@@ -1,6 +1,6 @@
-# Java + Kotlin (JDBC)
+# Java + Kotlin (JDBC, R2DBC, Exposed)
 
-Backends: `java-jdbc`, `kotlin-jdbc` | Library: JDBC | Engine: PostgreSQL
+Backends: `java-jdbc`, `kotlin-jdbc`, `java-r2dbc`, `kotlin-r2dbc`, `kotlin-exposed` | Engine: PostgreSQL
 
 ## SQL input
 
