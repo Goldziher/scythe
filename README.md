@@ -43,6 +43,21 @@ cargo install scythe-cli
 brew install Goldziher/tap/scythe  # uses pre-built binaries for faster install
 ```
 
+## Pre-commit / prek
+
+Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.com/Goldziher/prek) hooks for SQL formatting and linting:
+
+```yaml
+repos:
+  - repo: https://github.com/Goldziher/scythe
+    rev: v0.5.0
+    hooks:
+      - id: scythe-fmt
+      - id: scythe-lint
+```
+
+See [Pre-commit Hooks](https://goldziher.github.io/scythe/guide/pre-commit-hooks/) for all available hooks and configuration options.
+
 ## Quick Start
 
 **1. Write annotated SQL queries:**

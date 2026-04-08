@@ -1,0 +1,33 @@
+- id: scythe-fmt
+  name: Format SQL files (scythe fmt)
+  description: Format SQL files in-place using scythe's sqruff integration.
+  entry: scythe fmt
+  language: rust
+  types: [sql]
+  pass_filenames: true
+
+- id: scythe-lint
+  name: Lint SQL files (scythe lint)
+  description: Lint SQL files and auto-fix violations where possible.
+  entry: scythe lint --fix
+  language: rust
+  types: [sql]
+  pass_filenames: true
+
+- id: scythe-generate
+  name: Generate code from SQL (scythe generate)
+  description: Regenerate code when SQL files or scythe.toml change.
+  entry: scythe generate
+  language: rust
+  files: '(\.sql$|scythe\.toml$)'
+  pass_filenames: false
+  require_serial: true
+
+- id: scythe-check
+  name: Validate SQL (scythe check)
+  description: Validate SQL schema and queries without generating code.
+  entry: scythe check
+  language: rust
+  files: '(\.sql$|scythe\.toml$)'
+  pass_filenames: false
+  require_serial: true

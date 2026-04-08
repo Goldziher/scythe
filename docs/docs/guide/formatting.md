@@ -75,3 +75,7 @@ Or combine formatting with lint auto-fix:
 scythe fmt
 scythe lint --fix
 ```
+
+## Pre-commit Hook
+
+Scythe provides a pre-commit hook for automatic formatting on commit. See [Pre-commit Hooks](pre-commit-hooks.md) for setup instructions.

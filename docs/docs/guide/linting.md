@@ -164,3 +164,7 @@ style = "off"
 ```
 
 Per-rule overrides take precedence over category settings.
+
+## Pre-commit Hook
+
+Scythe provides a pre-commit hook for linting with auto-fix on commit. See [Pre-commit Hooks](pre-commit-hooks.md) for setup instructions.
