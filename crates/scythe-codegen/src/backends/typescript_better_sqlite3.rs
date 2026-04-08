@@ -117,7 +117,11 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let sql = super::clean_sql(&analyzed.sql);
+        let sql = super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
 
         let inline_params = if params.is_empty() {
             "db: Database".to_string()

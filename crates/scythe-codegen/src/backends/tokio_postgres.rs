@@ -134,7 +134,11 @@ impl CodegenBackend for TokioPostgresBackend {
         );
 
         // Clean SQL
-        let sql = super::clean_sql(&analyzed.sql);
+        let sql = super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
 
         // Build param references for the query call
         let param_refs: String = if params.is_empty() {

@@ -118,7 +118,11 @@ impl CodegenBackend for TypescriptPgBackend {
         let _sep = if param_list.is_empty() { "" } else { ", " };
 
         // Clean SQL — pg uses $1, $2 positional params natively
-        let sql = super::clean_sql(&analyzed.sql);
+        let sql = super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
 
         // Build array of param values
         let _param_array: String = if params.is_empty() {

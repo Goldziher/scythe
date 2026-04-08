@@ -208,6 +208,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("        \"kotlin-jdbc\",\n");
     out.push_str("        \"csharp-npgsql\",\n");
     out.push_str("        \"elixir-postgrex\",\n");
+    out.push_str("        \"elixir-ecto\",\n");
     out.push_str("        \"ruby-pg\",\n");
     out.push_str("        \"ruby-trilogy\",\n");
     out.push_str("        \"php-pdo\",\n");

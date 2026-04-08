@@ -63,6 +63,7 @@ pub struct Annotations {
     pub nonnull_overrides: Vec<String>,
     pub json_mappings: Vec<JsonMapping>,
     pub deprecated: Option<String>,
+    pub optional_params: Vec<String>,
 }
 
 #[derive(Debug)]
@@ -91,6 +92,7 @@ pub fn parse_query_with_dialect(
     let mut nonnull_overrides = Vec::new();
     let mut json_mappings = Vec::new();
     let mut deprecated: Option<String> = None;
+    let mut optional_params = Vec::new();
 
     let mut sql_lines = Vec::new();
 
@@ -163,6 +165,14 @@ pub fn parse_query_with_dialect(
                 "deprecated" => {
                     deprecated = Some(value.to_string());
                 }
+                "optional" => {
+                    for param in value.split(',') {
+                        let param = param.trim();
+                        if !param.is_empty() {
+                            optional_params.push(param.to_string());
+                        }
+                    }
+                }
                 _ => {
                     // Unknown annotation — ignore or could error
                 }
@@ -209,6 +219,7 @@ pub fn parse_query_with_dialect(
             nonnull_overrides,
             json_mappings,
             deprecated,
+            optional_params,
         };
         return Ok(Query {
             name,
@@ -232,6 +243,7 @@ pub fn parse_query_with_dialect(
         nonnull_overrides,
         json_mappings,
         deprecated,
+        optional_params,
     };
 
     Ok(Query {

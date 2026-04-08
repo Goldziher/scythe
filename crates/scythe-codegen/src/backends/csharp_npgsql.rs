@@ -143,7 +143,11 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let mut sql = rewrite_params(&super::clean_sql_oneline(&analyzed.sql));
+        let mut sql = rewrite_params(&super::clean_sql_oneline_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
         // Cast enum parameters to their PG type so Npgsql sends them correctly
         for (i, p) in params.iter().enumerate() {
             if let Some(enum_name) = p.neutral_type.strip_prefix("enum::") {

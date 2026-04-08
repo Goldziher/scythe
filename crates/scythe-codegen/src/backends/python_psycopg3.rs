@@ -148,7 +148,11 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         // Clean and rewrite SQL
-        let sql_clean = super::clean_sql(&analyzed.sql);
+        let sql_clean = super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
         let sql = rewrite_params_named(&sql_clean, analyzed);
 
         match &analyzed.command {

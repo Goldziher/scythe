@@ -153,6 +153,15 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
+    // Apply @optional: mark matching params as nullable
+    for opt_name in &query.annotations.optional_params {
+        for p in &mut params {
+            if p.name == *opt_name {
+                p.nullable = true;
+            }
+        }
+    }
+
     Ok(AnalyzedQuery {
         name: query.name.clone(),
         command: query.command.clone(),
@@ -163,6 +172,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         source_table,
         composites,
         enums,
+        optional_params: query.annotations.optional_params.clone(),
     })
 }
 

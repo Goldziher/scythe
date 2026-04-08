@@ -144,7 +144,11 @@ impl CodegenBackend for PythonAiosqliteBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        let sql = rewrite_params_to_qmark(&super::clean_sql(&analyzed.sql));
+        let sql = rewrite_params_to_qmark(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         let args_list = if params.is_empty() {
             String::new()
