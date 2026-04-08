@@ -4,6 +4,35 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/basemind-ai/scythe/blob/main/CHANGELOG.md) in the repository root.
 
+## [0.4.0] - 2026-04-08
+
+### Added
+
+- **Pydantic v2 row types** -- `row_type = "pydantic"` in `[[sql.gen]]` generates `BaseModel` classes instead of `@dataclass` for all 4 Python backends
+- **msgspec row types** -- `row_type = "msgspec"` generates `msgspec.Struct` classes for all 4 Python backends
+- **Zod v4 schemas** -- `row_type = "zod"` in `[[sql.gen]]` generates `z.object()` schemas with `z.infer<>` types for all 4 TypeScript backends
+- **`@optional` annotation** -- dynamic WHERE clauses via `@optional param_name`, rewrites `col = $1` to `($1 IS NULL OR col = $1)`. Supports =, <>, !=, >, <, >=, <=, LIKE, ILIKE operators. Validates param names at analysis time.
+- **Real `:batch` operations** -- `:batch` now generates dedicated batch functions with transaction wrapping and driver-specific batch APIs (executemany, addBatch, etc.) across all backends
+- **Custom type overrides** -- `type_overrides` in scythe.toml now functional (previously parsed but unused). Column-level and db_type-level overrides intercept type resolution.
+- **Ruby Trilogy backend** -- new `ruby-trilogy` backend for GitHub's Trilogy MySQL client
+- **Elixir Ecto backend** -- new `elixir-ecto` backend generating Ecto-compatible query modules with `Ecto.Adapters.SQL.query`
+- **PHP AMPHP backend** -- new `php-amphp` backend for async PHP with `Amp\Sql\SqlConnectionPool`
+- **GenOptions infrastructure** -- per-backend configuration via `[[sql.gen]]` extra keys (enables row_type, future options)
+- **11 unit tests** for `rewrite_optional_params` SQL rewriting
+- **7 snapshot tests** for new backends and row type variants
+
+### Fixed
+
+- **Ruby Trilogy batch** -- no longer generates double function signature
+- **Elixir Ecto @optional** -- properly uses SQL rewriting for optional params
+- **PHP AMPHP batch** -- generates transaction-wrapped batch function instead of generator
+- **Python ExecResult/ExecRows** -- now returns `int` (row count) instead of `None` for all 4 Python backends
+- **@optional qualified columns** -- handles `t.col = $1` patterns (table-qualified names)
+- **@optional param validation** -- errors on unknown param names instead of silent ignore
+- **Elixir Ecto Multi.run** -- callback uses transaction's repo parameter
+- **PHP AMPHP MySQL manifest** -- added missing `range` container
+- **Python import ordering** -- pydantic/msgspec imports correctly separated from stdlib
+
 ## [0.3.0] - 2026-04-07
 
 ### Added

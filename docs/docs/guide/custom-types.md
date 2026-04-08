@@ -72,6 +72,8 @@ Neutral type (engine manifest default or override)
 Language type (backend manifest)
 ```
 
+**Note:** As of v0.4.0, type overrides are fully wired into the code generation pipeline. In earlier versions, `type_overrides` were parsed from the configuration but not applied during generation. They are now functional across all backends.
+
 ## Per-Language Type Overrides (Planned)
 
 Per-language type overrides -- allowing you to specify custom imports, wrapper types, and conversion expressions for individual backends -- are planned for a future release. Track progress in [GitHub issue #6](https://github.com/Goldziher/scythe/issues/6).

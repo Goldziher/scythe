@@ -187,3 +187,225 @@ function createUser(PDO $db, string $name, ?string $email): void
 | `decimal` | `string` |
 | `json` | `array` |
 | `nullable` | `?T` |
+
+---
+
+## Ruby + Trilogy
+
+Backend: `ruby-trilogy` | Library: [Trilogy](https://github.com/trilogy-libraries/trilogy) (MySQL driver)
+
+Trilogy is GitHub's MySQL client library for Ruby. It uses array-based row access for performance.
+
+### Generated code
+
+```ruby
+# frozen_string_literal: true
+
+GetUserRow = Data.define(:id, :name, :email, :created_at)
+
+def self.get_user(client, id:)
+  result = client.query_with_flags(
+    "SELECT id, name, email, created_at FROM users WHERE id = ?",
+    [id],
+    Trilogy::QUERY_FLAGS_CAST
+  )
+  row = result.rows.first
+  return nil if row.nil?
+  GetUserRow.new(
+    id: row[0],
+    name: row[1],
+    email: row[2],
+    created_at: row[3]
+  )
+end
+
+ListUsersRow = Data.define(:id, :name)
+
+def self.list_users(client, limit:)
+  result = client.query_with_flags(
+    "SELECT id, name FROM users ORDER BY name LIMIT ?",
+    [limit],
+    Trilogy::QUERY_FLAGS_CAST
+  )
+  result.rows.map { |row| ListUsersRow.new(id: row[0], name: row[1]) }
+end
+
+def self.create_user(client, name:, email:)
+  client.query(
+    "INSERT INTO users (name, email) VALUES (?, ?)",
+    [name, email]
+  )
+end
+```
+
+### Key types
+
+| Neutral | Ruby (Trilogy) |
+|---------|----------------|
+| `int32` | `Integer` |
+| `string` | `String` |
+| `datetime_tz` | `Time` |
+| `uuid` | `String` |
+| `decimal` | `BigDecimal` |
+| `json` | `Hash` |
+| `nullable` | `T` (no wrapper; Ruby is dynamically typed) |
+
+---
+
+## Elixir + Ecto
+
+Backend: `elixir-ecto` | Library: [Ecto](https://hexdocs.pm/ecto) (Repo-based)
+
+Uses `Ecto.Adapters.SQL.query` for raw SQL execution through an Ecto Repo.
+
+### Generated code
+
+```elixir
+defmodule Queries.GetUserRow do
+  defstruct [:id, :name, :email, :created_at]
+
+  @type t :: %__MODULE__{
+    id: integer(),
+    name: String.t(),
+    email: String.t() | nil,
+    created_at: DateTime.t()
+  }
+end
+
+@spec get_user(Ecto.Repo.t(), integer()) ::
+  {:ok, %Queries.GetUserRow{}} | {:error, term()}
+def get_user(repo, id) do
+  case Ecto.Adapters.SQL.query(repo,
+    "SELECT id, name, email, created_at FROM users WHERE id = $1",
+    [id]) do
+    {:ok, %{rows: [row], columns: _columns}} ->
+      [id, name, email, created_at] = row
+      {:ok, %Queries.GetUserRow{
+        id: id, name: name, email: email,
+        created_at: created_at}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec list_users(Ecto.Repo.t(), integer()) ::
+  {:ok, [%Queries.ListUsersRow{}]} | {:error, term()}
+def list_users(repo, limit) do
+  case Ecto.Adapters.SQL.query(repo,
+    "SELECT id, name FROM users ORDER BY name LIMIT $1",
+    [limit]) do
+    {:ok, %{rows: rows}} ->
+      results = Enum.map(rows, fn [id, name] ->
+        %Queries.ListUsersRow{id: id, name: name}
+      end)
+      {:ok, results}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec create_user(Ecto.Repo.t(), String.t(), String.t() | nil) ::
+  :ok | {:error, term()}
+def create_user(repo, name, email) do
+  case Ecto.Adapters.SQL.query(repo,
+    "INSERT INTO users (name, email) VALUES ($1, $2)",
+    [name, email]) do
+    {:ok, _} -> :ok
+    {:error, err} -> {:error, err}
+  end
+end
+```
+
+### Key types
+
+| Neutral | Elixir (Ecto) |
+|---------|---------------|
+| `int32` | `integer()` |
+| `string` | `String.t()` |
+| `datetime_tz` | `DateTime.t()` |
+| `uuid` | `String.t()` |
+| `json` | `map()` |
+| `nullable` | `T \| nil` |
+
+---
+
+## PHP + AMPHP
+
+Backend: `php-amphp` | Library: [AMPHP SQL](https://github.com/amphp/sql) (async)
+
+Uses `Amp\Sql\SqlConnectionPool` for async database access with AMPHP's event loop.
+
+### Generated code
+
+```php
+<?php
+
+declare(strict_types=1);
+
+use Amp\Sql\SqlConnectionPool;
+
+readonly class GetUserRow
+{
+    public function __construct(
+        public int $id,
+        public string $name,
+        public ?string $email,
+        public \DateTimeImmutable $createdAt,
+    ) {}
+}
+
+function getUser(SqlConnectionPool $pool, int $id): ?GetUserRow
+{
+    $result = $pool->prepare(
+        'SELECT id, name, email, created_at FROM users WHERE id = ?'
+    )->execute([$id]);
+
+    foreach ($result as $row) {
+        return new GetUserRow(
+            id: (int) $row['id'],
+            name: $row['name'],
+            email: $row['email'],
+            createdAt: new \DateTimeImmutable($row['created_at']),
+        );
+    }
+
+    return null;
+}
+
+/** @return list<ListUsersRow> */
+function listUsers(SqlConnectionPool $pool, int $limit): array
+{
+    $result = $pool->prepare(
+        'SELECT id, name FROM users ORDER BY name LIMIT ?'
+    )->execute([$limit]);
+
+    $rows = [];
+    foreach ($result as $row) {
+        $rows[] = new ListUsersRow(
+            id: (int) $row['id'],
+            name: $row['name'],
+        );
+    }
+
+    return $rows;
+}
+
+function createUser(
+    SqlConnectionPool $pool, string $name, ?string $email
+): void {
+    $pool->prepare(
+        'INSERT INTO users (name, email) VALUES (?, ?)'
+    )->execute([$name, $email]);
+}
+```
+
+### Key types
+
+| Neutral | PHP (AMPHP) |
+|---------|-------------|
+| `int32` | `int` |
+| `string` | `string` |
+| `datetime_tz` | `\DateTimeImmutable` |
+| `uuid` | `string` |
+| `decimal` | `string` |
+| `json` | `array` |
+| `nullable` | `?T` |

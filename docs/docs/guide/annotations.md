@@ -37,6 +37,50 @@ SELECT id, name, email FROM users WHERE status = 'active';
 DELETE FROM users WHERE id = $1;
 ```
 
+## @optional
+
+Marks a query parameter as optional. Scythe rewrites the SQL at generation time so that passing NULL for the parameter skips the filter condition entirely.
+
+```sql
+-- @name ListUsers
+-- @returns :many
+-- @optional status
+SELECT id, name, email FROM users WHERE status = $1;
+```
+
+Scythe rewrites `WHERE status = $1` into `WHERE ($1 IS NULL OR status = $1)`. At runtime, passing NULL returns all rows; passing a value filters normally.
+
+### Supported operators
+
+`@optional` works with the following comparison operators:
+
+| Operator | Rewritten form |
+|----------|----------------|
+| `=` | `($1 IS NULL OR col = $1)` |
+| `<>` | `($1 IS NULL OR col <> $1)` |
+| `!=` | `($1 IS NULL OR col != $1)` |
+| `>` | `($1 IS NULL OR col > $1)` |
+| `<` | `($1 IS NULL OR col < $1)` |
+| `>=` | `($1 IS NULL OR col >= $1)` |
+| `<=` | `($1 IS NULL OR col <= $1)` |
+| `LIKE` | `($1 IS NULL OR col LIKE $1)` |
+| `ILIKE` | `($1 IS NULL OR col ILIKE $1)` |
+
+### Multiple optional parameters
+
+```sql
+-- @name SearchUsers
+-- @returns :many
+-- @optional status
+-- @optional name_pattern
+SELECT id, name, email FROM users
+WHERE status = $1 AND name ILIKE $2;
+```
+
+### Parameter name validation
+
+Parameter names in `@optional` are validated against the query. If the name does not match any parameter, scythe produces an error -- catching typos at generation time rather than at runtime.
+
 ## @param
 
 Documents a query parameter. Does not affect code generation, but adds documentation to generated code.
@@ -109,6 +153,7 @@ In Rust, this generates `#[deprecated(note = "Use GetUserV2 instead")]` on the f
 -- @name GetOrderDetails
 -- @returns :one
 -- @param order_id: the order to look up
+-- @optional status
 -- @nullable discount_code
 -- @nonnull total
 -- @json metadata = OrderMetadata
