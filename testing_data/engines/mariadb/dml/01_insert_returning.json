@@ -1,0 +1,29 @@
+{
+	"category": "engines/mariadb/dml",
+	"config": {
+		"engine": "mariadb",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "MariaDB INSERT ... RETURNING support",
+	"expected": {
+		"query": {
+			"name": "InsertUser",
+			"command": "one",
+			"columns": [
+				{ "name": "id", "nullable": false, "type": "uuid" },
+				{ "name": "name", "nullable": false, "type": "string" }
+			],
+			"params": [{ "name": "name", "nullable": false, "type": "string" }]
+		},
+		"success": true
+	},
+	"name": "mariadb_insert_returning",
+	"query_sql": "-- @name InsertUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING id, name;",
+	"schema_sql": [
+		"CREATE TABLE users (id UUID DEFAULT UUID() PRIMARY KEY, name VARCHAR(255) NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["mariadb", "insert", "returning"]
+}

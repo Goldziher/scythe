@@ -12,7 +12,7 @@ version = "1"
 # One or more SQL blocks
 [[sql]]
 name = "main"                          # Block name
-engine = "postgresql"                  # postgresql, mysql, sqlite, duckdb, cockroachdb
+engine = "postgresql"                  # postgresql, mysql, sqlite, duckdb, cockroachdb, mssql, oracle, mariadb, redshift, snowflake
 schema = ["sql/schema/*.sql"]          # Glob patterns for DDL files
 queries = ["sql/queries/*.sql"]        # Glob patterns for query files
 output = "src/generated"               # Output directory
@@ -85,10 +85,15 @@ style = "off"
 | Alias | Engine |
 |-------|--------|
 | `postgresql`, `postgres`, `pg` | PostgreSQL |
-| `mysql`, `mariadb` | MySQL |
+| `mysql` | MySQL |
 | `sqlite`, `sqlite3` | SQLite |
 | `duckdb` | DuckDB |
 | `cockroachdb`, `crdb` | CockroachDB |
+| `mssql`, `sqlserver` | MSSQL |
+| `oracle` | Oracle |
+| `mariadb` | MariaDB |
+| `redshift` | Redshift |
+| `snowflake` | Snowflake |
 
 ## Multiple SQL Blocks
 

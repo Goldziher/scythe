@@ -1,11 +1,9 @@
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
 };
 use scythe_backend::types::resolve_type;
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -16,6 +14,8 @@ use crate::singularize;
 
 /// Default embedded manifest TOML for rust-tokio-postgres, used as fallback.
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-tokio-postgres.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str =
+    include_str!("../../manifests/rust-tokio-postgres.redshift.toml");
 
 /// TokioPostgresBackend generates Rust code targeting the tokio-postgres crate.
 pub struct TokioPostgresBackend {
@@ -24,39 +24,24 @@ pub struct TokioPostgresBackend {
 
 impl TokioPostgresBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
-        match engine {
-            "postgresql" | "postgres" | "pg" => {}
+        let default_toml = match engine {
+            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
                     format!(
-                        "rust-tokio-postgres only supports PostgreSQL, got engine '{}'",
+                        "rust-tokio-postgres only supports PostgreSQL/Redshift, got engine '{}'",
                         engine
                     ),
                 ));
             }
-        }
-        let manifest = load_tokio_postgres_manifest()?;
+        };
+        let manifest = super::load_or_default_manifest(
+            "backends/rust-tokio-postgres/manifest.toml",
+            default_toml,
+        )?;
         Ok(Self { manifest })
-    }
-}
-
-fn load_tokio_postgres_manifest() -> Result<BackendManifest, ScytheError> {
-    let manifest_path = Path::new("backends/rust-tokio-postgres/manifest.toml");
-    if manifest_path.exists() {
-        load_manifest(manifest_path).map_err(|e| {
-            ScytheError::new(
-                ErrorCode::InternalError,
-                format!("failed to load manifest: {e}"),
-            )
-        })
-    } else {
-        toml::from_str(DEFAULT_MANIFEST_TOML).map_err(|e| {
-            ScytheError::new(
-                ErrorCode::InternalError,
-                format!("failed to parse embedded manifest: {e}"),
-            )
-        })
     }
 }
 
@@ -67,6 +52,10 @@ impl CodegenBackend for TokioPostgresBackend {
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
         &self.manifest
+    }
+
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql", "redshift"]
     }
 
     fn file_header(&self) -> String {

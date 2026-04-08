@@ -1,10 +1,8 @@
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
 };
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -32,14 +30,10 @@ impl ElixirExqliteBackend {
                 ));
             }
         }
-        let manifest_path = Path::new("backends/elixir-exqlite/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest = super::load_or_default_manifest(
+            "backends/elixir-exqlite/manifest.toml",
+            DEFAULT_MANIFEST_TOML,
+        )?;
         Ok(Self { manifest })
     }
 }

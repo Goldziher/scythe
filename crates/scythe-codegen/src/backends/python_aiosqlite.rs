@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
 };
 use scythe_backend::types::resolve_type;
+use std::collections::HashMap;
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -38,14 +36,10 @@ impl PythonAiosqliteBackend {
                 ));
             }
         }
-        let manifest_path = Path::new("backends/python-aiosqlite/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest = super::load_or_default_manifest(
+            "backends/python-aiosqlite/manifest.toml",
+            DEFAULT_MANIFEST_TOML,
+        )?;
         Ok(Self {
             manifest,
             row_type: PythonRowType::default(),
@@ -54,15 +48,6 @@ impl PythonAiosqliteBackend {
 }
 
 /// Rewrite $1, $2, ... positional params to ? for SQLite.
-fn rewrite_params_to_qmark(sql: &str) -> String {
-    let mut result = sql.to_string();
-    for i in (1..=99).rev() {
-        let from = format!("${}", i);
-        result = result.replace(&from, "?");
-    }
-    result
-}
-
 impl CodegenBackend for PythonAiosqliteBackend {
     fn name(&self) -> &str {
         "python-aiosqlite"
@@ -158,11 +143,14 @@ impl CodegenBackend for PythonAiosqliteBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        let sql = rewrite_params_to_qmark(&super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            |_| "?".to_string(),
+        );
 
         let args_list = if params.is_empty() {
             String::new()

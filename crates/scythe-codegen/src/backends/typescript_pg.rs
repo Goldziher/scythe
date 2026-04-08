@@ -1,11 +1,9 @@
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
 };
 use scythe_backend::types::resolve_type;
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -16,6 +14,7 @@ use crate::backends::typescript_common::{TsRowType, generate_zod_enum, generate_
 use crate::singularize;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-pg.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/typescript-pg.redshift.toml");
 
 pub struct TypescriptPgBackend {
     manifest: BackendManifest,
@@ -24,26 +23,21 @@ pub struct TypescriptPgBackend {
 
 impl TypescriptPgBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
-        match engine {
-            "postgresql" | "postgres" | "pg" => {}
+        let default_toml = match engine {
+            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
                     format!(
-                        "typescript-pg only supports PostgreSQL, got engine '{}'",
+                        "typescript-pg only supports PostgreSQL/Redshift, got engine '{}'",
                         engine
                     ),
                 ));
             }
-        }
-        let manifest_path = Path::new("backends/typescript-pg/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
+        let manifest =
+            super::load_or_default_manifest("backends/typescript-pg/manifest.toml", default_toml)?;
         Ok(Self {
             manifest,
             row_type: TsRowType::default(),
@@ -58,6 +52,10 @@ impl CodegenBackend for TypescriptPgBackend {
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
         &self.manifest
+    }
+
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql", "redshift"]
     }
 
     fn file_header(&self) -> String {
@@ -343,12 +341,19 @@ impl CodegenBackend for TypescriptPgBackend {
             return Ok(generate_zod_enum(&type_name, &enum_info.values));
         }
         let mut out = String::new();
-        let _ = writeln!(out, "export enum {} {{", type_name);
+        let values_name = format!("{}Values", type_name);
+        let _ = writeln!(out, "export const {} = {{", values_name);
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(out, "\t{} = \"{}\",", variant, value);
+            let _ = writeln!(out, "\t{}: \"{}\",", variant, value);
         }
-        let _ = write!(out, "}}");
+        let _ = writeln!(out, "}} as const;");
+        let _ = writeln!(out);
+        let _ = write!(
+            out,
+            "export type {} = typeof {}[keyof typeof {}];",
+            type_name, values_name, values_name
+        );
         Ok(out)
     }
 

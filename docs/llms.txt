@@ -1,6 +1,6 @@
 # Scythe
 
-> SQL-to-code generator that compiles annotated SQL into type-safe database access code in 10 languages across 5 databases with 34 backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
+> SQL-to-code generator that compiles annotated SQL into type-safe database access code in 10 languages across 10 databases with 70+ backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
 
 ## Getting Started
 
@@ -22,7 +22,7 @@
 
 ## Backends
 
-- [Overview](https://goldziher.github.io/scythe/backends/overview/): Architecture, type resolution, all 34 backends
+- [Overview](https://goldziher.github.io/scythe/backends/overview/): Architecture, type resolution, all 70+ backends
 - [Rust (sqlx)](https://goldziher.github.io/scythe/backends/rust-sqlx/): sqlx backend for Rust
 - [Rust (tokio-postgres)](https://goldziher.github.io/scythe/backends/rust-tokio-postgres/): tokio-postgres backend for Rust
 - [Python](https://goldziher.github.io/scythe/backends/python/): psycopg3, asyncpg, aiomysql, aiosqlite, duckdb backends
@@ -39,6 +39,11 @@
 - [SQLite](https://goldziher.github.io/scythe/databases/sqlite/): SQLite-specific types and features
 - [DuckDB](https://goldziher.github.io/scythe/databases/duckdb/): DuckDB-specific types and features
 - [CockroachDB](https://goldziher.github.io/scythe/databases/cockroachdb/): CockroachDB-specific types and features
+- [MSSQL](https://goldziher.github.io/scythe/databases/mssql/): MSSQL-specific types, T-SQL dialect, and parameter syntax
+- [Oracle](https://goldziher.github.io/scythe/databases/oracle/): Oracle-specific types, PL/SQL dialect, and bind variables
+- [MariaDB](https://goldziher.github.io/scythe/databases/mariadb/): MariaDB-specific features (UUID, RETURNING, INET types)
+- [Redshift](https://goldziher.github.io/scythe/databases/redshift/): Redshift-specific types (SUPER, IDENTITY) and limitations
+- [Snowflake](https://goldziher.github.io/scythe/databases/snowflake/): Snowflake-specific types (VARIANT, TIMESTAMP variants, QUALIFY)
 
 ## Reference
 

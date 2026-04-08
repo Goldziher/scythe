@@ -1,0 +1,24 @@
+{
+	"category": "engines/redshift/types",
+	"config": { "engine": "redshift", "gen": { "target": "sqlx" } },
+	"description": "Redshift does not support ENUM types; columns should use VARCHAR instead",
+	"expected": {
+		"query": {
+			"name": "GetUsersByStatus",
+			"command": "many",
+			"columns": [
+				{ "name": "id", "nullable": false, "type": "int32" },
+				{ "name": "status", "nullable": false, "type": "string" }
+			],
+			"params": [{ "name": "status", "type": "string", "nullable": false }]
+		},
+		"success": true
+	},
+	"name": "redshift_no_enum",
+	"query_sql": "-- @name GetUsersByStatus\n-- @returns :many\nSELECT id, status FROM users WHERE status = $1;",
+	"schema_sql": [
+		"CREATE TABLE users (id INTEGER IDENTITY(1,1) NOT NULL, status VARCHAR(50) NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["redshift", "no-enum"]
+}

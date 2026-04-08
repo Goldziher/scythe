@@ -1,0 +1,47 @@
+[backend]
+name = "python-psycopg3"
+language = "python"
+file_extension = "py"
+engine = "redshift"
+description = "Python code generation targeting psycopg3 with Redshift"
+
+[types.scalars]
+bool = "bool"
+int16 = "int"
+int32 = "int"
+int64 = "int"
+float32 = "float"
+float64 = "float"
+string = "str"
+bytes = "bytes"
+uuid = "uuid.UUID"
+decimal = "decimal.Decimal"
+date = "datetime.date"
+time = "datetime.time"
+time_tz = "datetime.time"
+datetime = "datetime.datetime"
+datetime_tz = "datetime.datetime"
+interval = "datetime.timedelta"
+json = "dict[str, Any]"
+inet = "str"
+super = "dict[str, Any]"
+geometry = "str"
+
+[types.containers]
+array = "list[{T}]"
+nullable = "{T} | None"
+range = "str"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "snake_case"
+fn_case = "snake_case"
+enum_variant_case = "SCREAMING_SNAKE_CASE"
+row_suffix = "Row"
+
+[imports.rules]
+"uuid." = "import uuid"
+"datetime." = "import datetime"
+"decimal." = "import decimal"
+"dict[" = "from typing import Any"

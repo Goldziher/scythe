@@ -1,0 +1,31 @@
+CREATE TABLE users (
+    id INTEGER NOT NULL AUTOINCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL,
+    email VARCHAR(255),
+    active BOOLEAN NOT NULL DEFAULT TRUE,
+    metadata VARIANT,
+    created_at TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    updated_at TIMESTAMP_TZ
+);
+
+CREATE TABLE orders (
+    id INTEGER NOT NULL AUTOINCREMENT PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    total NUMBER(10, 2) NOT NULL,
+    notes VARCHAR(16777216),
+    created_at TIMESTAMP_NTZ NOT NULL DEFAULT CURRENT_TIMESTAMP(),
+    CONSTRAINT fk_orders_users FOREIGN KEY (user_id) REFERENCES users (id)
+);
+
+CREATE TABLE tags (
+    id INTEGER NOT NULL AUTOINCREMENT PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE
+);
+
+CREATE TABLE user_tags (
+    user_id INTEGER NOT NULL,
+    tag_id INTEGER NOT NULL,
+    PRIMARY KEY (user_id, tag_id),
+    CONSTRAINT fk_user_tags_users FOREIGN KEY (user_id) REFERENCES users (id),
+    CONSTRAINT fk_user_tags_tags FOREIGN KEY (tag_id) REFERENCES tags (id)
+);

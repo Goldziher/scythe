@@ -45,6 +45,11 @@ nav = [
     { "SQLite" = "databases/sqlite.md" },
     { "DuckDB" = "databases/duckdb.md" },
     { "CockroachDB" = "databases/cockroachdb.md" },
+    { "MSSQL" = "databases/mssql.md" },
+    { "Oracle" = "databases/oracle.md" },
+    { "MariaDB" = "databases/mariadb.md" },
+    { "Redshift" = "databases/redshift.md" },
+    { "Snowflake" = "databases/snowflake.md" },
   ] },
   { "Examples" = [
     { "Simple CRUD" = "examples/simple-crud.md" },

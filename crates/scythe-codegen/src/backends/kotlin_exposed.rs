@@ -1,7 +1,6 @@
 use std::fmt::Write;
-use std::path::Path;
 
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
 };
@@ -30,37 +29,10 @@ impl KotlinExposedBackend {
                 ));
             }
         };
-        let manifest_path = Path::new("backends/kotlin-exposed/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(default_toml)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest =
+            super::load_or_default_manifest("backends/kotlin-exposed/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
-}
-
-/// Convert PostgreSQL $1, $2, ... placeholders to JDBC ? placeholders.
-fn pg_to_jdbc_params(sql: &str) -> String {
-    let mut result = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
-    while let Some(ch) = chars.next() {
-        if ch == '$' {
-            if chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    chars.next();
-                }
-                result.push('?');
-            } else {
-                result.push(ch);
-            }
-        } else {
-            result.push(ch);
-        }
-    }
-    result
 }
 
 /// Get the Exposed column type function for a given Kotlin type.
@@ -147,12 +119,25 @@ impl CodegenBackend for KotlinExposedBackend {
     }
 
     fn file_header(&self) -> String {
-        let mut out = String::new();
-        out.push_str("import org.jetbrains.exposed.sql.*\n");
-        out.push_str("import org.jetbrains.exposed.sql.transactions.transaction\n");
-        out.push_str("import org.jetbrains.exposed.dao.*\n");
-        out.push_str("import org.jetbrains.exposed.dao.id.IntIdTable\n");
-        out
+        // ktlint requires lexicographic order and no wildcard imports.
+        "import org.jetbrains.exposed.dao.id.IntIdTable\n\
+         import org.jetbrains.exposed.sql.BinaryColumnType\n\
+         import org.jetbrains.exposed.sql.BooleanColumnType\n\
+         import org.jetbrains.exposed.sql.ByteColumnType\n\
+         import org.jetbrains.exposed.sql.DecimalColumnType\n\
+         import org.jetbrains.exposed.sql.DoubleColumnType\n\
+         import org.jetbrains.exposed.sql.FloatColumnType\n\
+         import org.jetbrains.exposed.sql.IntegerColumnType\n\
+         import org.jetbrains.exposed.sql.LongColumnType\n\
+         import org.jetbrains.exposed.sql.ShortColumnType\n\
+         import org.jetbrains.exposed.sql.TextColumnType\n\
+         import org.jetbrains.exposed.sql.VarCharColumnType\n\
+         import org.jetbrains.exposed.sql.javatime.JavaLocalDateColumnType\n\
+         import org.jetbrains.exposed.sql.javatime.JavaLocalDateTimeColumnType\n\
+         import org.jetbrains.exposed.sql.javatime.JavaLocalTimeColumnType\n\
+         import org.jetbrains.exposed.sql.javatime.JavaOffsetDateTimeColumnType\n\
+         import org.jetbrains.exposed.sql.transactions.transaction\n"
+            .to_string()
     }
 
     fn generate_row_struct(
@@ -218,28 +203,38 @@ impl CodegenBackend for KotlinExposedBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = pg_to_jdbc_params(&super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            |_| "?".to_string(),
+        );
 
-        let use_multiline_params = !params.is_empty();
         let mut out = String::new();
 
-        // Helper: write function signature
-        let write_fn_sig =
-            |out: &mut String, name: &str, ret: &str, multiline: bool, params: &[ResolvedParam]| {
-                if multiline {
-                    let _ = writeln!(out, "fun {}(", name);
-                    for p in params {
-                        let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
-                    }
-                    let _ = writeln!(out, "){} = transaction {{", ret);
-                } else {
-                    let _ = writeln!(out, "fun {}(){} = transaction {{", name, ret);
+        // Helper: write function signature with expression body.
+        // ktlint requires: expression body (`= expr`), and when the body is multiline
+        // the expression must start on a new line after `=`.
+        let write_fn_sig = |out: &mut String, name: &str, ret: &str, params: &[ResolvedParam]| {
+            let inline_params: String = params
+                .iter()
+                .map(|p| format!("{}: {}", p.field_name, p.full_type))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let sig = format!("fun {}({}){} =", name, inline_params, ret);
+            if sig.len() <= 100 {
+                let _ = writeln!(out, "{}", sig);
+            } else {
+                let _ = writeln!(out, "fun {}(", name);
+                for p in params {
+                    let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
                 }
-            };
+                let _ = writeln!(out, "){} =", ret);
+            }
+            let _ = writeln!(out, "    transaction {{");
+        };
 
         // Helper: build args list for exec()
         let build_args = |params: &[ResolvedParam]| -> String {
@@ -261,35 +256,38 @@ impl CodegenBackend for KotlinExposedBackend {
 
         match &analyzed.command {
             QueryCommand::Exec => {
-                write_fn_sig(&mut out, &func_name, "", use_multiline_params, params);
+                write_fn_sig(&mut out, &func_name, "", params);
                 let args = build_args(params);
-                let _ = writeln!(out, "    exec(\"{}\"{})", sql, args);
-                let _ = writeln!(out, "}}");
+                let _ = writeln!(out, "        exec(\"{}\"{})", sql, args);
+                let _ = writeln!(out, "    }}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                write_fn_sig(&mut out, &func_name, ": Int", use_multiline_params, params);
+                write_fn_sig(&mut out, &func_name, ": Int", params);
                 let args = build_args(params);
-                let _ = writeln!(out, "    exec(\"{}\"{}) ?: 0", sql, args);
-                let _ = writeln!(out, "}}");
+                let _ = writeln!(out, "        exec(\"{}\"{}) ?: 0", sql, args);
+                let _ = writeln!(out, "    }}");
             }
             QueryCommand::One => {
                 let ret = format!(": {}?", struct_name);
-                write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
+                write_fn_sig(&mut out, &func_name, &ret, params);
                 let args = build_args(params);
-                let _ = writeln!(out, "    exec(\"{}\"{}) {{ rs ->", sql, args);
-                let _ = writeln!(out, "        if (rs.next()) {}(", struct_name);
+                let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
+                let _ = writeln!(out, "            if (rs.next()) {{");
+                let _ = writeln!(out, "                {}(", struct_name);
                 for col in columns.iter() {
                     let getter = rs_getter(&col.lang_type);
                     let _ = writeln!(
                         out,
-                        "            {} = rs.{}(\"{}\"),",
+                        "                    {} = rs.{}(\"{}\"),",
                         col.field_name, getter, col.name
                     );
                 }
-                let _ = writeln!(out, "        )");
-                let _ = writeln!(out, "        else null");
+                let _ = writeln!(out, "                )");
+                let _ = writeln!(out, "            }} else {{");
+                let _ = writeln!(out, "                null");
+                let _ = writeln!(out, "            }}");
+                let _ = writeln!(out, "        }}");
                 let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "}}");
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
@@ -302,10 +300,13 @@ impl CodegenBackend for KotlinExposedBackend {
                     }
                     let _ = writeln!(out, ")");
                     let _ = writeln!(out);
-                    let _ = writeln!(out, "fun {}(", batch_fn_name);
-                    let _ = writeln!(out, "    items: List<{}>,", params_class_name);
-                    let _ = writeln!(out, ") = transaction {{");
-                    let _ = writeln!(out, "    for (item in items) {{");
+                    let _ = writeln!(
+                        out,
+                        "fun {}(items: List<{}>) =",
+                        batch_fn_name, params_class_name
+                    );
+                    let _ = writeln!(out, "    transaction {{");
+                    let _ = writeln!(out, "        for (item in items) {{");
                     let args: Vec<String> = params
                         .iter()
                         .map(|p| {
@@ -318,31 +319,35 @@ impl CodegenBackend for KotlinExposedBackend {
                         .collect();
                     let _ = writeln!(
                         out,
-                        "        exec(\"{}\", listOf({}))",
+                        "            exec(\"{}\", listOf({}))",
                         sql,
                         args.join(", ")
                     );
+                    let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "    }}");
-                    let _ = writeln!(out, "}}");
                 } else if params.len() == 1 {
-                    let _ = writeln!(out, "fun {}(", batch_fn_name);
-                    let _ = writeln!(out, "    items: List<{}>,", params[0].full_type);
-                    let _ = writeln!(out, ") = transaction {{");
-                    let _ = writeln!(out, "    for (item in items) {{");
                     let _ = writeln!(
                         out,
-                        "        exec(\"{}\", listOf({} to item))",
+                        "fun {}(items: List<{}>) =",
+                        batch_fn_name, params[0].full_type
+                    );
+                    let _ = writeln!(out, "    transaction {{");
+                    let _ = writeln!(out, "        for (item in items) {{");
+                    let _ = writeln!(
+                        out,
+                        "            exec(\"{}\", listOf({} to item))",
                         sql,
                         exposed_column_type_class(&params[0].lang_type)
                     );
+                    let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "    }}");
-                    let _ = writeln!(out, "}}");
                 } else {
-                    let _ = writeln!(out, "fun {}(count: Int) = transaction {{", batch_fn_name);
-                    let _ = writeln!(out, "    repeat(count) {{");
-                    let _ = writeln!(out, "        exec(\"{}\")", sql);
+                    let _ = writeln!(out, "fun {}(count: Int) =", batch_fn_name);
+                    let _ = writeln!(out, "    transaction {{");
+                    let _ = writeln!(out, "        repeat(count) {{");
+                    let _ = writeln!(out, "            exec(\"{}\")", sql);
+                    let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "    }}");
-                    let _ = writeln!(out, "}}");
                 }
             }
             QueryCommand::Grouped => {
@@ -354,27 +359,27 @@ impl CodegenBackend for KotlinExposedBackend {
             }
             QueryCommand::Many => {
                 let ret = format!(": List<{}>", struct_name);
-                write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
+                write_fn_sig(&mut out, &func_name, &ret, params);
                 let args = build_args(params);
-                let _ = writeln!(out, "    val result = mutableListOf<{}>()", struct_name);
-                let _ = writeln!(out, "    exec(\"{}\"{}) {{ rs ->", sql, args);
-                let _ = writeln!(out, "        while (rs.next()) {{");
-                let _ = writeln!(out, "            result.add(");
-                let _ = writeln!(out, "                {}(", struct_name);
+                let _ = writeln!(out, "        val result = mutableListOf<{}>()", struct_name);
+                let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
+                let _ = writeln!(out, "            while (rs.next()) {{");
+                let _ = writeln!(out, "                result.add(");
+                let _ = writeln!(out, "                    {}(", struct_name);
                 for col in columns.iter() {
                     let getter = rs_getter(&col.lang_type);
                     let _ = writeln!(
                         out,
-                        "                    {} = rs.{}(\"{}\"),",
+                        "                        {} = rs.{}(\"{}\"),",
                         col.field_name, getter, col.name
                     );
                 }
-                let _ = writeln!(out, "                ),");
-                let _ = writeln!(out, "            )");
+                let _ = writeln!(out, "                    ),");
+                let _ = writeln!(out, "                )");
+                let _ = writeln!(out, "            }}");
                 let _ = writeln!(out, "        }}");
+                let _ = writeln!(out, "        result");
                 let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "    result");
-                let _ = writeln!(out, "}}");
             }
         }
 

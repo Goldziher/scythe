@@ -1,43 +1,77 @@
-pub mod csharp_microsoft_sqlite;
-pub mod csharp_mysqlconnector;
-pub mod csharp_npgsql;
-pub mod elixir_ecto;
-pub mod elixir_exqlite;
-pub mod elixir_myxql;
-pub mod elixir_postgrex;
-pub mod go_database_sql;
-pub mod go_pgx;
-pub mod java_jdbc;
-pub mod java_r2dbc;
-pub mod kotlin_exposed;
-pub mod kotlin_jdbc;
-pub mod kotlin_r2dbc;
-pub mod php_amphp;
-pub mod php_pdo;
-pub mod python_aiomysql;
-pub mod python_aiosqlite;
-pub mod python_asyncpg;
-pub mod python_common;
-pub mod python_duckdb;
-pub mod python_psycopg3;
-pub mod ruby_mysql2;
-pub mod ruby_pg;
+pub(crate) mod csharp_microsoft_sqlite;
+pub(crate) mod csharp_mysqlconnector;
+pub(crate) mod csharp_npgsql;
+pub(crate) mod csharp_oracle;
+pub(crate) mod csharp_snowflake;
+pub(crate) mod csharp_sqlclient;
+pub(crate) mod elixir_ecto;
+pub(crate) mod elixir_exqlite;
+pub(crate) mod elixir_jamdb;
+pub(crate) mod elixir_myxql;
+pub(crate) mod elixir_postgrex;
+pub(crate) mod elixir_tds;
+pub(crate) mod go_database_sql;
+pub(crate) mod go_godror;
+pub(crate) mod go_gosnowflake;
+pub(crate) mod go_pgx;
+pub(crate) mod java_jdbc;
+pub(crate) mod java_r2dbc;
+pub(crate) mod kotlin_exposed;
+pub(crate) mod kotlin_jdbc;
+pub(crate) mod kotlin_r2dbc;
+pub(crate) mod php_amphp;
+pub(crate) mod php_pdo;
+pub(crate) mod python_aiomysql;
+pub(crate) mod python_aiosqlite;
+pub(crate) mod python_asyncpg;
+pub(crate) mod python_common;
+pub(crate) mod python_duckdb;
+pub(crate) mod python_oracledb;
+pub(crate) mod python_psycopg3;
+pub(crate) mod python_pyodbc;
+pub(crate) mod python_snowflake;
+pub(crate) mod ruby_mysql2;
+pub(crate) mod ruby_oci8;
+pub(crate) mod ruby_pg;
 pub(crate) mod ruby_rbs;
-pub mod ruby_sqlite3;
-pub mod ruby_trilogy;
-pub mod sqlx;
-pub mod tokio_postgres;
-pub mod typescript_better_sqlite3;
-pub mod typescript_common;
-pub mod typescript_duckdb;
-pub mod typescript_mysql2;
-pub mod typescript_pg;
-pub mod typescript_postgres;
+pub(crate) mod ruby_sqlite3;
+pub(crate) mod ruby_tiny_tds;
+pub(crate) mod ruby_trilogy;
+pub(crate) mod rust_sibyl;
+pub(crate) mod rust_tiberius;
+pub(crate) mod sqlx;
+pub(crate) mod tokio_postgres;
+pub(crate) mod typescript_better_sqlite3;
+pub(crate) mod typescript_common;
+pub(crate) mod typescript_duckdb;
+pub(crate) mod typescript_mssql;
+pub(crate) mod typescript_mysql2;
+pub(crate) mod typescript_oracledb;
+pub(crate) mod typescript_pg;
+pub(crate) mod typescript_postgres;
+pub(crate) mod typescript_snowflake;
 
+use scythe_backend::manifest::BackendManifest;
 use scythe_core::analyzer::AnalyzedParam;
 use scythe_core::errors::{ErrorCode, ScytheError};
 
 use crate::backend_trait::CodegenBackend;
+
+/// Load a backend manifest, preferring a user-provided file at `override_path`
+/// and falling back to the embedded `default_toml` string.
+pub(crate) fn load_or_default_manifest(
+    override_path: &str,
+    default_toml: &str,
+) -> Result<BackendManifest, ScytheError> {
+    let path = std::path::Path::new(override_path);
+    if path.exists() {
+        scythe_backend::manifest::load_manifest(path)
+            .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
+    } else {
+        toml::from_str(default_toml)
+            .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
+    }
+}
 
 /// Strip SQL comments, trailing semicolons, and excess whitespace.
 /// Preserves newlines between lines.
@@ -109,11 +143,7 @@ fn rewrite_comparison(sql: &str, placeholder: &str, op: &str) -> String {
 
     while i < len {
         // Try to match `identifier <op> $N` at this position
-        if let Some((start, col, end)) = try_match_col_op_ph(&chars, i, op, placeholder) {
-            // Write everything before the match start
-            if start > i {
-                // This shouldn't happen since we iterate char by char
-            }
+        if let Some((_start, col, end)) = try_match_col_op_ph(&chars, i, op, placeholder) {
             result.push_str(&format!(
                 "({placeholder} IS NULL OR {col} {op} {placeholder})"
             ));
@@ -299,6 +329,43 @@ fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '.'
 }
 
+/// Rewrite PostgreSQL `$1, $2, ...` positional placeholders to a target format.
+/// Skips placeholders inside single-quoted SQL string literals.
+/// The `formatter` closure receives the parameter number and returns the replacement string.
+pub(crate) fn rewrite_pg_placeholders(sql: &str, formatter: impl Fn(u32) -> String) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\'' {
+            result.push(ch);
+            while let Some(inner) = chars.next() {
+                result.push(inner);
+                if inner == '\'' {
+                    if chars.peek() == Some(&'\'') {
+                        result.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+            }
+        } else if ch == '$' {
+            if chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+                let mut num_str = String::new();
+                while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+                    num_str.push(chars.next().unwrap());
+                }
+                let num: u32 = num_str.parse().unwrap_or(0);
+                result.push_str(&formatter(num));
+            } else {
+                result.push(ch);
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
 /// Get a backend by name and database engine.
 ///
 /// The `engine` parameter (e.g., "postgresql", "mysql", "sqlite") determines
@@ -377,6 +444,50 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         }
         "php-pdo" | "php" => Box::new(php_pdo::PhpPdoBackend::new(canonical_engine)?),
         "php-amphp" | "amphp" => Box::new(php_amphp::PhpAmphpBackend::new(canonical_engine)?),
+        // MSSQL backends
+        "rust-tiberius" | "tiberius" => {
+            Box::new(rust_tiberius::RustTiberiusBackend::new(canonical_engine)?)
+        }
+        "python-pyodbc" | "pyodbc" => {
+            Box::new(python_pyodbc::PythonPyodbcBackend::new(canonical_engine)?)
+        }
+        "typescript-mssql" | "tedious" => Box::new(typescript_mssql::TypescriptMssqlBackend::new(
+            canonical_engine,
+        )?),
+        "csharp-sqlclient" => Box::new(csharp_sqlclient::CsharpSqlClientBackend::new(
+            canonical_engine,
+        )?),
+        "ruby-tiny-tds" | "tiny-tds" | "tiny_tds" => {
+            Box::new(ruby_tiny_tds::RubyTinyTdsBackend::new(canonical_engine)?)
+        }
+        "elixir-tds" | "tds" => Box::new(elixir_tds::ElixirTdsBackend::new(canonical_engine)?),
+        // Oracle backends
+        "rust-sibyl" | "sibyl" => Box::new(rust_sibyl::RustSibylBackend::new(canonical_engine)?),
+        "python-oracledb" | "oracledb" => Box::new(python_oracledb::PythonOracledbBackend::new(
+            canonical_engine,
+        )?),
+        "typescript-oracledb" => Box::new(typescript_oracledb::TypescriptOracledbBackend::new(
+            canonical_engine,
+        )?),
+        "go-godror" | "godror" => Box::new(go_godror::GoGodrorBackend::new(canonical_engine)?),
+        "csharp-oracle" => Box::new(csharp_oracle::CsharpOracleBackend::new(canonical_engine)?),
+        "ruby-oci8" | "oci8" => Box::new(ruby_oci8::RubyOci8Backend::new(canonical_engine)?),
+        "elixir-jamdb" | "jamdb" => {
+            Box::new(elixir_jamdb::ElixirJamdbBackend::new(canonical_engine)?)
+        }
+        // Snowflake backends
+        "python-snowflake" => Box::new(python_snowflake::PythonSnowflakeBackend::new(
+            canonical_engine,
+        )?),
+        "typescript-snowflake" => Box::new(typescript_snowflake::TypescriptSnowflakeBackend::new(
+            canonical_engine,
+        )?),
+        "go-gosnowflake" | "gosnowflake" => {
+            Box::new(go_gosnowflake::GoGosnowflakeBackend::new(canonical_engine)?)
+        }
+        "csharp-snowflake" => Box::new(csharp_snowflake::CsharpSnowflakeBackend::new(
+            canonical_engine,
+        )?),
         _ => {
             return Err(ScytheError::new(
                 ErrorCode::InternalError,
@@ -409,9 +520,14 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
 fn normalize_engine(engine: &str) -> &str {
     match engine {
         "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb" => "postgresql",
-        "mysql" | "mariadb" => "mysql",
+        "mysql" => "mysql",
+        "mariadb" => "mariadb",
         "sqlite" | "sqlite3" => "sqlite",
         "duckdb" => "duckdb",
+        "mssql" | "sqlserver" | "tsql" => "mssql",
+        "oracle" => "oracle",
+        "snowflake" => "snowflake",
+        "redshift" => "redshift",
         other => other,
     }
 }
@@ -616,5 +732,39 @@ mod tests {
         let result = rewrite_optional_params(sql, &["status".to_string()], &params);
         // $1 placeholder doesn't appear, so no rewrite
         assert_eq!(result, sql);
+    }
+
+    #[test]
+    fn test_normalize_engine_mariadb() {
+        assert_eq!(normalize_engine("mariadb"), "mariadb");
+    }
+
+    #[test]
+    fn test_get_backend_mariadb_with_mysql_backends() {
+        let mariadb_backends = [
+            "rust-sqlx",
+            "python-aiomysql",
+            "typescript-mysql2",
+            "go-database-sql",
+            "java-jdbc",
+            "java-r2dbc",
+            "kotlin-jdbc",
+            "kotlin-r2dbc",
+            "csharp-mysqlconnector",
+            "elixir-myxql",
+            "ruby-mysql2",
+            "ruby-trilogy",
+            "php-pdo",
+            "php-amphp",
+        ];
+        for backend_name in &mariadb_backends {
+            let result = get_backend(backend_name, "mariadb");
+            assert!(
+                result.is_ok(),
+                "backend '{}' should accept mariadb engine, got: {:?}",
+                backend_name,
+                result.err()
+            );
+        }
     }
 }

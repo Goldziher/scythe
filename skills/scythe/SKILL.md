@@ -2,19 +2,19 @@
 name: scythe
 description: >-
   Generate type-safe database access code from annotated SQL queries in 10
-  languages across 5 databases. Use when writing SQL with scythe annotations,
+  languages across 10 databases. Use when writing SQL with scythe annotations,
   configuring scythe.toml, choosing backends, linting/formatting SQL, or
   integrating scythe into a project.
 license: MIT
 metadata:
   author: Goldziher
-  version: "0.5.0"
+  version: "0.6.0"
   repository: https://github.com/Goldziher/scythe
 ---
 
 # Scythe SQL-to-Code Generator
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries with annotations, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 5 databases with 34 backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries with annotations, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 70+ backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
 
 Use this skill when:
 
@@ -158,7 +158,7 @@ version = "1"
 
 [[sql]]
 name = "main"
-engine = "postgresql"           # postgresql, mysql, sqlite, duckdb, cockroachdb
+engine = "postgresql"           # postgresql, mysql, sqlite, duckdb, cockroachdb, mssql, oracle, mariadb, redshift, snowflake
 schema = ["sql/schema/*.sql"]
 queries = ["sql/queries/*.sql"]
 
@@ -200,10 +200,15 @@ naming = "warn"
 | Alias | Engine |
 |-------|--------|
 | `postgresql`, `postgres`, `pg` | PostgreSQL |
-| `mysql`, `mariadb` | MySQL |
+| `mysql` | MySQL |
 | `sqlite`, `sqlite3` | SQLite |
 | `duckdb` | DuckDB |
 | `cockroachdb`, `crdb` | CockroachDB |
+| `mssql`, `sqlserver` | MSSQL |
+| `oracle` | Oracle |
+| `mariadb` | MariaDB |
+| `redshift` | Redshift |
+| `snowflake` | Snowflake |
 
 ### row_type options
 
@@ -277,6 +282,62 @@ naming = "warn"
 
 CockroachDB uses PostgreSQL backends with `engine = "cockroachdb"`:
 `rust-sqlx`, `python-psycopg3`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`.
+
+### MSSQL
+
+| Backend | Language | Library |
+|---------|----------|---------|
+| `rust-tiberius` | Rust | tiberius |
+| `python-pyodbc` | Python | pyodbc |
+| `typescript-mssql` | TypeScript | mssql (tedious) |
+| `go-mssqldb` | Go | go-mssqldb |
+| `java-jdbc` | Java | JDBC |
+| `java-r2dbc` | Java | R2DBC |
+| `kotlin-jdbc` | Kotlin | JDBC |
+| `kotlin-r2dbc` | Kotlin | R2DBC |
+| `csharp-sqlclient` | C# | Microsoft.Data.SqlClient |
+| `ruby-tiny-tds` | Ruby | tiny_tds |
+| `php-pdo` | PHP | PDO |
+| `elixir-tds` | Elixir | tds |
+
+### Oracle
+
+| Backend | Language | Library |
+|---------|----------|---------|
+| `rust-sibyl` | Rust | sibyl |
+| `python-oracledb` | Python | oracledb |
+| `typescript-oracledb` | TypeScript | oracledb |
+| `go-godror` | Go | godror |
+| `java-jdbc` | Java | JDBC |
+| `java-r2dbc` | Java | R2DBC |
+| `kotlin-jdbc` | Kotlin | JDBC |
+| `kotlin-r2dbc` | Kotlin | R2DBC |
+| `csharp-odpnet` | C# | ODP.NET |
+| `ruby-oci8` | Ruby | ruby-oci8 |
+| `php-pdo` | PHP | PDO |
+| `elixir-jamdb-oracle` | Elixir | jamdb_oracle |
+
+### MariaDB
+
+MariaDB uses MySQL drivers with MariaDB-specific type resolution:
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`.
+
+### Redshift
+
+Redshift uses PostgreSQL backends with `engine = "redshift"`:
+`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-pg`, `typescript-postgres`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `elixir-postgrex`, `ruby-pg`, `php-pdo`.
+
+### Snowflake
+
+| Backend | Language | Library |
+|---------|----------|---------|
+| `python-snowflake` | Python | snowflake-connector-python |
+| `typescript-snowflake` | TypeScript | snowflake-sdk |
+| `go-gosnowflake` | Go | gosnowflake |
+| `java-jdbc` | Java | JDBC |
+| `kotlin-jdbc` | Kotlin | JDBC |
+| `csharp-snowflake` | C# | Snowflake.Data |
+| `php-pdo` | PHP | PDO |
 
 ## Type System
 
@@ -358,7 +419,7 @@ style = "off"
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.5.0
+    rev: v0.6.0
     hooks:
       - id: scythe-fmt       # Format SQL files
       - id: scythe-lint      # Lint SQL with auto-fix
@@ -382,7 +443,7 @@ Detailed reference files for specific topics:
 
 - **[Configuration Reference](references/configuration.md)** -- Full scythe.toml reference
 - **[Annotations Reference](references/annotations.md)** -- All annotations with examples
-- **[Backends Reference](references/backends.md)** -- All 34 backends with engine support
+- **[Backends Reference](references/backends.md)** -- All 70+ backends with engine support
 - **[Lint Rules Reference](references/lint-rules.md)** -- All 93 rules with codes and examples
 - **[CLI Reference](references/cli-reference.md)** -- All commands, flags, exit codes
 

@@ -1,7 +1,6 @@
 use std::fmt::Write;
-use std::path::Path;
 
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
 };
@@ -16,6 +15,7 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/kotlin-r2dbc.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/kotlin-r2dbc.mysql.toml");
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/kotlin-r2dbc.sqlite.toml");
+const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/kotlin-r2dbc.mariadb.toml");
 
 pub struct KotlinR2dbcBackend {
     manifest: BackendManifest,
@@ -25,7 +25,8 @@ impl KotlinR2dbcBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         let default_toml = match engine {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
-            "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
+            "mysql" => DEFAULT_MANIFEST_MYSQL,
+            "mariadb" => DEFAULT_MANIFEST_MARIADB,
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
             _ => {
                 return Err(ScytheError::new(
@@ -34,14 +35,8 @@ impl KotlinR2dbcBackend {
                 ));
             }
         };
-        let manifest_path = Path::new("backends/kotlin-r2dbc/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(default_toml)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest =
+            super::load_or_default_manifest("backends/kotlin-r2dbc/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
 }
@@ -79,20 +74,25 @@ impl CodegenBackend for KotlinR2dbcBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql", "sqlite"]
+        &["postgresql", "mysql", "mariadb", "sqlite"]
     }
 
     fn file_header(&self) -> String {
+        // ktlint requires lexicographic order with java.* imports at the end.
         "import io.r2dbc.spi.ConnectionFactory\n\
-         import java.math.BigDecimal\n\
-         import java.time.*\n\
-         import java.util.UUID\n\
          import kotlinx.coroutines.flow.Flow\n\
          import kotlinx.coroutines.reactive.asFlow\n\
          import kotlinx.coroutines.reactive.awaitFirst\n\
          import kotlinx.coroutines.reactive.awaitFirstOrNull\n\
          import reactor.core.publisher.Flux\n\
-         import reactor.core.publisher.Mono\n"
+         import reactor.core.publisher.Mono\n\
+         import java.math.BigDecimal\n\
+         import java.time.LocalDate\n\
+         import java.time.LocalDateTime\n\
+         import java.time.LocalTime\n\
+         import java.time.OffsetDateTime\n\
+         import java.time.OffsetTime\n\
+         import java.util.UUID\n"
             .to_string()
     }
 

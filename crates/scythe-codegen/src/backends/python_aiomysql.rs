@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
 };
 use scythe_backend::types::resolve_type;
+use std::collections::HashMap;
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -38,29 +36,15 @@ impl PythonAiomysqlBackend {
                 ));
             }
         }
-        let manifest_path = Path::new("backends/python-aiomysql/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest = super::load_or_default_manifest(
+            "backends/python-aiomysql/manifest.toml",
+            DEFAULT_MANIFEST_TOML,
+        )?;
         Ok(Self {
             manifest,
             row_type: PythonRowType::default(),
         })
     }
-}
-
-/// Rewrite $1, $2, ... positional params to %s for aiomysql.
-fn rewrite_params_to_percent_s(sql: &str) -> String {
-    let mut result = sql.to_string();
-    for i in (1..=99).rev() {
-        let from = format!("${}", i);
-        result = result.replace(&from, "%s");
-    }
-    result
 }
 
 impl CodegenBackend for PythonAiomysqlBackend {
@@ -73,7 +57,7 @@ impl CodegenBackend for PythonAiomysqlBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["mysql"]
+        &["mysql", "mariadb"]
     }
 
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
@@ -162,11 +146,14 @@ impl CodegenBackend for PythonAiomysqlBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        let sql = rewrite_params_to_percent_s(&super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            |_| "%s".to_string(),
+        );
 
         let args_tuple = if params.is_empty() {
             String::new()

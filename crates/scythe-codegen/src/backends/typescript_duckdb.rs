@@ -1,9 +1,7 @@
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{fn_name, row_struct_name, to_camel_case, to_pascal_case};
 use scythe_backend::types::resolve_type;
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -34,14 +32,10 @@ impl TypescriptDuckdbBackend {
                 ));
             }
         }
-        let manifest_path = Path::new("backends/typescript-duckdb/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest = super::load_or_default_manifest(
+            "backends/typescript-duckdb/manifest.toml",
+            DEFAULT_MANIFEST_TOML,
+        )?;
         Ok(Self {
             manifest,
             row_type: TsRowType::default(),
@@ -149,6 +143,21 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             }
         };
 
+        // Helper: emit `const stmt = await conn.prepare(...)`, using multiline
+        // when the SQL would exceed biome's 80-char line width.
+        let write_prepare = |out: &mut String, sql: &str| {
+            let oneliner = format!("\tconst stmt = await conn.prepare(`{}`);", sql);
+            if oneliner.len() <= 80 {
+                let _ = writeln!(out, "{}", oneliner);
+            } else {
+                let _ = writeln!(
+                    out,
+                    "\tconst stmt = await conn.prepare(\n\t\t`{}`,\n\t);",
+                    sql
+                );
+            }
+        };
+
         let param_args = if params.is_empty() {
             String::new()
         } else {
@@ -161,7 +170,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let ret = format!("{} | null", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
-                let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{}`);", sql);
+                write_prepare(&mut out, &sql);
                 if params.is_empty() {
                     let _ = writeln!(out, "\tconst result = await stmt.run();");
                 } else {
@@ -173,7 +182,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 // name to struct fields for type safety.
                 let _ = writeln!(
                     out,
-                    "\tconst row = rows.length > 0 ? rows[0] as unknown as {} : null;",
+                    "\tconst row = rows.length > 0 ? (rows[0] as unknown as {}) : null;",
                     struct_name
                 );
                 let _ = writeln!(out, "\treturn row;");
@@ -197,7 +206,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                     );
                     let batch_params = format!("conn: Connection, items: {}[]", params_type_name);
                     write_fn_sig(&mut out, &batch_fn_name, &batch_params, "void");
-                    let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{}`);", sql);
+                    write_prepare(&mut out, &sql);
                     let _ = writeln!(out, "\tfor (const item of items) {{");
                     let args: Vec<String> = params
                         .iter()
@@ -215,7 +224,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                     let batch_params =
                         format!("conn: Connection, items: {}[]", params[0].full_type);
                     write_fn_sig(&mut out, &batch_fn_name, &batch_params, "void");
-                    let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{}`);", sql);
+                    write_prepare(&mut out, &sql);
                     let _ = writeln!(out, "\tfor (const item of items) {{");
                     let _ = writeln!(out, "\t\tawait stmt.run(item);");
                     let _ = writeln!(out, "\t}}");
@@ -232,7 +241,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                         "conn: Connection, count: number",
                         "void",
                     );
-                    let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{}`);", sql);
+                    write_prepare(&mut out, &sql);
                     let _ = writeln!(out, "\tfor (let i = 0; i < count; i++) {{");
                     let _ = writeln!(out, "\t\tawait stmt.run();");
                     let _ = writeln!(out, "\t}}");
@@ -243,7 +252,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
                 let ret = format!("{}[]", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
-                let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{}`);", sql);
+                write_prepare(&mut out, &sql);
                 if params.is_empty() {
                     let _ = writeln!(out, "\tconst result = await stmt.run();");
                 } else {
@@ -251,7 +260,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 }
                 let _ = writeln!(
                     out,
-                    "\treturn await result.getRows() as unknown as {}[];",
+                    "\treturn (await result.getRows()) as unknown as {}[];",
                     struct_name
                 );
                 let _ = write!(out, "}}");
@@ -259,7 +268,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             QueryCommand::Exec => {
                 let _ = writeln!(out, "/** Execute a query returning no rows. */");
                 write_fn_sig(&mut out, &func_name, &inline_params, "void");
-                let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{}`);", sql);
+                write_prepare(&mut out, &sql);
                 if params.is_empty() {
                     let _ = writeln!(out, "\tawait stmt.run();");
                 } else {
@@ -274,7 +283,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                     "/** Execute a query and return the number of affected rows. */"
                 );
                 write_fn_sig(&mut out, &func_name, &inline_params, "number");
-                let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{}`);", sql);
+                write_prepare(&mut out, &sql);
                 if params.is_empty() {
                     let _ = writeln!(out, "\tconst result = await stmt.run();");
                 } else {

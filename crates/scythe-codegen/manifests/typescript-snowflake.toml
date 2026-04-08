@@ -1,0 +1,40 @@
+[backend]
+name = "typescript-snowflake"
+language = "typescript"
+file_extension = "ts"
+engine = "snowflake"
+description = "TypeScript code generation targeting snowflake-sdk"
+
+[types.scalars]
+bool = "boolean"
+int16 = "number"
+int32 = "number"
+int64 = "number"
+float32 = "number"
+float64 = "number"
+string = "string"
+bytes = "Buffer"
+uuid = "string"
+decimal = "number"
+date = "string"
+time = "string"
+time_tz = "string"
+datetime = "string"
+datetime_tz = "string"
+interval = "string"
+json = "Record<string, unknown>"
+inet = "string"
+
+[types.containers]
+array = "{T}[]"
+nullable = "{T} | null"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "camelCase"
+fn_case = "camelCase"
+enum_variant_case = "PascalCase"
+row_suffix = "Row"
+
+[imports.rules]

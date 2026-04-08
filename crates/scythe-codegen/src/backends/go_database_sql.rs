@@ -1,7 +1,6 @@
 use std::fmt::Write;
-use std::path::Path;
 
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
@@ -21,7 +20,8 @@ pub struct GoDatabaseSqlBackend {
 impl GoDatabaseSqlBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         let manifest_toml = match engine {
-            "mysql" | "mariadb" => include_str!("../../manifests/go-database-sql.mysql.toml"),
+            "mysql" => include_str!("../../manifests/go-database-sql.mysql.toml"),
+            "mariadb" => include_str!("../../manifests/go-database-sql.mariadb.toml"),
             "sqlite" | "sqlite3" => include_str!("../../manifests/go-database-sql.sqlite.toml"),
             "duckdb" => include_str!("../../manifests/go-database-sql.duckdb.toml"),
             _ => {
@@ -34,14 +34,10 @@ impl GoDatabaseSqlBackend {
                 ));
             }
         };
-        let manifest_path = Path::new("backends/go-database-sql/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(manifest_toml)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest = super::load_or_default_manifest(
+            "backends/go-database-sql/manifest.toml",
+            manifest_toml,
+        )?;
         Ok(Self {
             manifest,
             engine: engine.to_string(),
@@ -59,7 +55,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["mysql", "sqlite", "duckdb"]
+        &["mysql", "mariadb", "sqlite", "duckdb"]
     }
 
     fn file_header(&self) -> String {
@@ -333,7 +329,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                 let field_name = to_pascal_case(&field.name);
                 let go_type = resolve_type(&field.neutral_type, &self.manifest, false)
                     .map(|t| t.into_owned())
-                    .unwrap_or_else(|_| "interface{}".to_string());
+                    .unwrap_or_else(|_| "any".to_string());
                 let json_tag = &field.name;
                 let _ = writeln!(out, "\t{} {} `json:\"{}\"`", field_name, go_type, json_tag);
             }

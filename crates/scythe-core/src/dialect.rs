@@ -5,6 +5,9 @@ pub enum SqlDialect {
     PostgreSQL,
     MySQL,
     SQLite,
+    MsSql,
+    Oracle,
+    Snowflake,
 }
 
 impl SqlDialect {
@@ -14,6 +17,9 @@ impl SqlDialect {
             SqlDialect::PostgreSQL => Box::new(sqlparser::dialect::PostgreSqlDialect {}),
             SqlDialect::MySQL => Box::new(sqlparser::dialect::MySqlDialect {}),
             SqlDialect::SQLite => Box::new(sqlparser::dialect::SQLiteDialect {}),
+            SqlDialect::MsSql => Box::new(sqlparser::dialect::MsSqlDialect {}),
+            SqlDialect::Oracle => Box::new(sqlparser::dialect::GenericDialect {}),
+            SqlDialect::Snowflake => Box::new(sqlparser::dialect::SnowflakeDialect {}),
         }
     }
 
@@ -25,7 +31,10 @@ impl SqlDialect {
             "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb" => Some(Self::PostgreSQL),
             "mysql" | "mariadb" => Some(Self::MySQL),
             "sqlite" | "sqlite3" => Some(Self::SQLite),
-            "duckdb" => Some(Self::PostgreSQL),
+            "duckdb" | "redshift" => Some(Self::PostgreSQL),
+            "mssql" | "sqlserver" | "tsql" => Some(Self::MsSql),
+            "oracle" => Some(Self::Oracle),
+            "snowflake" => Some(Self::Snowflake),
             _ => None,
         }
     }
@@ -85,8 +94,52 @@ mod tests {
     }
 
     #[test]
+    fn test_from_str_mssql() {
+        assert_eq!(SqlDialect::from_str("mssql"), Some(SqlDialect::MsSql));
+        assert_eq!(SqlDialect::from_str("sqlserver"), Some(SqlDialect::MsSql));
+        assert_eq!(SqlDialect::from_str("tsql"), Some(SqlDialect::MsSql));
+        assert_eq!(SqlDialect::from_str("MSSQL"), Some(SqlDialect::MsSql));
+    }
+
+    #[test]
+    fn test_from_str_oracle() {
+        assert_eq!(SqlDialect::from_str("oracle"), Some(SqlDialect::Oracle));
+        assert_eq!(SqlDialect::from_str("Oracle"), Some(SqlDialect::Oracle));
+    }
+
+    #[test]
+    fn test_from_str_snowflake() {
+        assert_eq!(
+            SqlDialect::from_str("snowflake"),
+            Some(SqlDialect::Snowflake)
+        );
+        assert_eq!(
+            SqlDialect::from_str("Snowflake"),
+            Some(SqlDialect::Snowflake)
+        );
+    }
+
+    #[test]
+    fn test_from_str_redshift() {
+        assert_eq!(
+            SqlDialect::from_str("redshift"),
+            Some(SqlDialect::PostgreSQL)
+        );
+        assert_eq!(
+            SqlDialect::from_str("Redshift"),
+            Some(SqlDialect::PostgreSQL)
+        );
+    }
+
+    #[test]
+    fn test_from_str_mariadb() {
+        assert_eq!(SqlDialect::from_str("mariadb"), Some(SqlDialect::MySQL));
+        assert_eq!(SqlDialect::from_str("MariaDB"), Some(SqlDialect::MySQL));
+    }
+
+    #[test]
     fn test_from_str_unknown() {
-        assert_eq!(SqlDialect::from_str("oracle"), None);
+        assert_eq!(SqlDialect::from_str("nosuchdb"), None);
         assert_eq!(SqlDialect::from_str(""), None);
     }
 
@@ -101,5 +154,8 @@ mod tests {
         let _ = SqlDialect::PostgreSQL.to_sqlparser_dialect();
         let _ = SqlDialect::MySQL.to_sqlparser_dialect();
         let _ = SqlDialect::SQLite.to_sqlparser_dialect();
+        let _ = SqlDialect::MsSql.to_sqlparser_dialect();
+        let _ = SqlDialect::Oracle.to_sqlparser_dialect();
+        let _ = SqlDialect::Snowflake.to_sqlparser_dialect();
     }
 }

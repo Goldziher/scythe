@@ -1,10 +1,8 @@
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -31,27 +29,10 @@ impl PhpAmphpBackend {
                 ));
             }
         };
-        let manifest_path = Path::new("backends/php-amphp/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(default_toml)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        };
+        let manifest =
+            super::load_or_default_manifest("backends/php-amphp/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
-}
-
-/// Rewrite $1, $2, ... to positional ? placeholders.
-fn rewrite_params_positional(sql: &str) -> String {
-    let mut result = sql.to_string();
-    // Replace from highest number down to avoid $1 matching inside $10
-    for i in (1..=99).rev() {
-        let from = format!("${}", i);
-        result = result.replace(&from, "?");
-    }
-    result
 }
 
 /// Map a neutral type to a PHP cast expression.
@@ -75,7 +56,7 @@ impl CodegenBackend for PhpAmphpBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["postgresql", "mysql"]
+        &["postgresql", "mysql", "mariadb"]
     }
 
     fn file_header(&self) -> String {
@@ -199,11 +180,14 @@ impl CodegenBackend for PhpAmphpBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = rewrite_params_positional(&super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            |_| "?".to_string(),
+        );
         let mut out = String::new();
 
         // Build PHP parameter list

@@ -1,11 +1,9 @@
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
 };
 use scythe_backend::types::resolve_type;
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -16,6 +14,8 @@ use crate::backends::typescript_common::{TsRowType, generate_zod_enum, generate_
 use crate::singularize;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-postgres.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str =
+    include_str!("../../manifests/typescript-postgres.redshift.toml");
 
 pub struct TypescriptPostgresBackend {
     manifest: BackendManifest,
@@ -24,26 +24,23 @@ pub struct TypescriptPostgresBackend {
 
 impl TypescriptPostgresBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
-        match engine {
-            "postgresql" | "postgres" | "pg" => {}
+        let default_toml = match engine {
+            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
                     format!(
-                        "typescript-postgres only supports PostgreSQL, got engine '{}'",
+                        "typescript-postgres only supports PostgreSQL/Redshift, got engine '{}'",
                         engine
                     ),
                 ));
             }
-        }
-        let manifest_path = Path::new("backends/typescript-postgres/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
+        let manifest = super::load_or_default_manifest(
+            "backends/typescript-postgres/manifest.toml",
+            default_toml,
+        )?;
         Ok(Self {
             manifest,
             row_type: TsRowType::default(),
@@ -58,6 +55,10 @@ impl CodegenBackend for TypescriptPostgresBackend {
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
         &self.manifest
+    }
+
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql", "redshift"]
     }
 
     fn file_header(&self) -> String {
@@ -123,7 +124,15 @@ impl CodegenBackend for TypescriptPostgresBackend {
             &analyzed.optional_params,
             &analyzed.params,
         );
-        let sql_template = rewrite_params_template(&sql_clean, analyzed, params);
+        let name_map: std::collections::HashMap<u32, String> = analyzed
+            .params
+            .iter()
+            .zip(params.iter())
+            .map(|(ap, rp)| (ap.position as u32, rp.field_name.clone()))
+            .collect();
+        let sql_template = super::rewrite_pg_placeholders(&sql_clean, |n| {
+            format!("${{{}}}", name_map.get(&n).map_or("?", |s| s.as_str()))
+        });
 
         // Build function params: inline if short, multi-line if long (biome compliance)
         let inline_params = if params.is_empty() {
@@ -336,27 +345,4 @@ impl CodegenBackend for TypescriptPostgresBackend {
         }
         Ok(())
     }
-}
-
-/// Rewrite `$1`, `$2`, ... positional params to `${paramName}` for postgres.js tagged templates.
-fn rewrite_params_template(
-    sql: &str,
-    analyzed: &AnalyzedQuery,
-    params: &[ResolvedParam],
-) -> String {
-    let mut result = sql.to_string();
-    // Replace in reverse order so positions don't shift
-    let mut indexed: Vec<(i64, &str)> = analyzed
-        .params
-        .iter()
-        .zip(params.iter())
-        .map(|(ap, rp)| (ap.position, rp.field_name.as_str()))
-        .collect();
-    indexed.sort_by(|a, b| b.0.cmp(&a.0));
-    for (pos, field_name) in indexed {
-        let placeholder = format!("${}", pos);
-        let replacement = format!("${{{}}}", field_name);
-        result = result.replace(&placeholder, &replacement);
-    }
-    result
 }

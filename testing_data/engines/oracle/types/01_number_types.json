@@ -1,0 +1,26 @@
+{
+	"category": "engines/oracle/types",
+	"config": { "engine": "oracle" },
+	"description": "Oracle NUMBER type mapping",
+	"expected": {
+		"query": {
+			"name": "GetProducts",
+			"command": "many",
+			"columns": [
+				{ "name": "id", "nullable": false, "type": "int64" },
+				{ "name": "name", "nullable": false, "type": "string" },
+				{ "name": "quantity", "nullable": false, "type": "int32" },
+				{ "name": "price", "nullable": false, "type": "decimal" }
+			],
+			"params": []
+		},
+		"success": true
+	},
+	"name": "oracle_number_types",
+	"query_sql": "-- @name GetProducts\n-- @returns :many\nSELECT id, name, quantity, price FROM products;",
+	"schema_sql": [
+		"CREATE TABLE products (id NUMBER NOT NULL, name VARCHAR2(255) NOT NULL, quantity NUMBER(10) NOT NULL, price NUMBER(10,2) NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["oracle"]
+}

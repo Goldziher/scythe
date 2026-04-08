@@ -1,0 +1,22 @@
+{
+	"category": "engines/snowflake/types",
+	"config": { "engine": "snowflake" },
+	"description": "Snowflake VARIANT type maps to json",
+	"expected": {
+		"query": {
+			"name": "GetEvents",
+			"command": "many",
+			"columns": [
+				{ "name": "id", "nullable": false, "type": "int64" },
+				{ "name": "payload", "nullable": true, "type": "json" }
+			],
+			"params": []
+		},
+		"success": true
+	},
+	"name": "snowflake_variant_type",
+	"query_sql": "-- @name GetEvents\n-- @returns :many\nSELECT id, payload FROM events;",
+	"schema_sql": ["CREATE TABLE events (id INTEGER NOT NULL, payload VARIANT);"],
+	"source": "original",
+	"tags": ["snowflake", "variant"]
+}

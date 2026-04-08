@@ -33,7 +33,7 @@
 
 ---
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 5 databases with 34 backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 70+ backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
 
 ## Installation
 
@@ -50,10 +50,12 @@ Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.co
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.5.0
+    rev: v0.6.0
     hooks:
-      - id: scythe-fmt
-      - id: scythe-lint
+      - id: scythe-fmt       # Format SQL files
+      - id: scythe-lint      # Lint SQL with auto-fix
+      - id: scythe-generate  # Regenerate code on SQL changes
+      - id: scythe-check     # Validate SQL without generating
 ```
 
 See [Pre-commit Hooks](https://goldziher.github.io/scythe/guide/pre-commit-hooks/) for all available hooks and configuration options.
@@ -330,8 +332,8 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 ## Features
 
 - **10 languages** -- Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP
-- **5 databases** -- PostgreSQL, MySQL, SQLite, DuckDB, CockroachDB
-- **34 backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, pgx, JDBC, R2DBC, Exposed, Npgsql, PDO, Trilogy, Ecto, AMPHP, python-duckdb, and more
+- **10 databases** -- PostgreSQL, MySQL, SQLite, DuckDB, CockroachDB, MSSQL, Oracle, MariaDB, Redshift, Snowflake
+- **70+ backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, pgx, JDBC, R2DBC, Exposed, Npgsql, PDO, tiberius, oracledb, pyodbc, and more
 - **93 lint rules** -- UPDATE without WHERE, SELECT *, NULL comparisons, leading wildcard LIKE, plus 71 sqruff rules
 - **SQL formatting** -- consistent style via sqruff integration
 - **Smart type inference** -- nullability from JOINs, COALESCE, window functions, CASE WHEN, aggregates
@@ -347,18 +349,18 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 
 ## Supported Languages
 
-| Language   | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB |
-|------------|:----------:|:-----:|:------:|:------:|:-----------:|
-| Rust       | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx |
-| Python     | psycopg3, asyncpg | aiomysql | aiosqlite | python-duckdb | psycopg3 |
-| TypeScript | pg, postgres.js | mysql2 | better-sqlite3 | typescript-duckdb | pg |
-| Go         | pgx | database/sql | database/sql | database/sql | pgx |
-| Java       | JDBC, R2DBC | JDBC | JDBC | JDBC | JDBC |
-| Kotlin     | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC | JDBC |
-| C#         | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | Npgsql |
-| Ruby       | pg, Trilogy | mysql2, Trilogy | sqlite3 | -- | pg |
-| PHP        | PDO, AMPHP | PDO | PDO | -- | PDO |
-| Elixir     | Postgrex, Ecto | MyXQL | Exqlite | -- | Postgrex |
+| Language   | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB | MSSQL | Oracle | MariaDB | Redshift | Snowflake |
+|------------|:----------:|:-----:|:------:|:------:|:-----------:|:-----:|:------:|:-------:|:--------:|:---------:|
+| Rust       | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx | tiberius | sibyl | sqlx | sqlx | -- |
+| Python     | psycopg3, asyncpg | aiomysql | aiosqlite | python-duckdb | psycopg3 | pyodbc | oracledb | aiomysql | psycopg3 | snowflake-connector |
+| TypeScript | pg, postgres.js | mysql2 | better-sqlite3 | typescript-duckdb | pg | mssql | oracledb | mysql2 | pg | snowflake-sdk |
+| Go         | pgx | database/sql | database/sql | database/sql | pgx | go-mssqldb | godror | database/sql | pgx | gosnowflake |
+| Java       | JDBC, R2DBC | JDBC | JDBC | JDBC | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
+| Kotlin     | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
+| C#         | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | Npgsql | Microsoft.Data.SqlClient | ODP.NET | MySqlConnector | Npgsql | Snowflake.Data |
+| Ruby       | pg, Trilogy | mysql2, Trilogy | sqlite3 | -- | pg | tiny_tds | ruby-oci8 | mysql2 | pg | -- |
+| PHP        | PDO, AMPHP | PDO | PDO | -- | PDO | PDO | PDO | PDO | PDO | PDO |
+| Elixir     | Postgrex, Ecto | MyXQL | Exqlite | -- | Postgrex | tds | jamdb_oracle | MyXQL | Postgrex | -- |
 
 ## Documentation
 

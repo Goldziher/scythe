@@ -1,0 +1,25 @@
+{
+	"category": "engines/oracle/types",
+	"config": { "engine": "oracle" },
+	"description": "Oracle VARCHAR2 and CLOB type mapping",
+	"expected": {
+		"query": {
+			"name": "GetArticles",
+			"command": "many",
+			"columns": [
+				{ "name": "id", "nullable": false, "type": "int64" },
+				{ "name": "title", "nullable": false, "type": "string" },
+				{ "name": "body", "nullable": true, "type": "string" }
+			],
+			"params": []
+		},
+		"success": true
+	},
+	"name": "oracle_varchar2_clob",
+	"query_sql": "-- @name GetArticles\n-- @returns :many\nSELECT id, title, body FROM articles;",
+	"schema_sql": [
+		"CREATE TABLE articles (id NUMBER NOT NULL, title VARCHAR2(255) NOT NULL, body CLOB);"
+	],
+	"source": "original",
+	"tags": ["oracle", "clob"]
+}

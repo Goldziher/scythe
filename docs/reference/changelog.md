@@ -4,6 +4,20 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/basemind-ai/scythe/blob/main/CHANGELOG.md) in the repository root.
 
+## [0.6.0] - 2026-04-08
+
+### Added
+
+- **Microsoft SQL Server (MSSQL)** -- T-SQL support with tiberius (Rust), pyodbc (Python), mssql/tedious (TypeScript), go-mssqldb (Go), JDBC/R2DBC (Java/Kotlin), Microsoft.Data.SqlClient (C#), tiny_tds (Ruby), PDO (PHP), tds (Elixir)
+- **Oracle Database** -- PL/SQL support with sibyl (Rust), oracledb (Python/TypeScript), godror (Go), JDBC/R2DBC (Java/Kotlin), ODP.NET (C#), ruby-oci8 (Ruby), PDO (PHP), jamdb_oracle (Elixir)
+- **MariaDB** -- Native UUID type support, INSERT/DELETE RETURNING, dedicated manifests for all MySQL-compatible backends
+- **Amazon Redshift** -- PostgreSQL-based with SUPER type support, IDENTITY columns, all existing PG backends
+- **Snowflake** -- VARIANT/OBJECT/ARRAY types, TIMESTAMP variants, snowflake-connector (Python), snowflake-sdk (TypeScript), gosnowflake (Go), JDBC (Java/Kotlin), Snowflake.Data (C#), PDO (PHP)
+- **17 new backend drivers**: rust-tiberius, rust-sibyl, python-pyodbc, python-oracledb, python-snowflake, typescript-mssql, typescript-oracledb, typescript-snowflake, go-godror, go-gosnowflake, csharp-sqlclient, csharp-oracle, csharp-snowflake, ruby-tiny-tds, ruby-oci8, elixir-tds, elixir-jamdb
+- **51 new type mapping manifests** for engine/backend combinations
+- **Test fixtures** for all new engines
+- **Integration test SQL schemas** for MSSQL, Oracle, MariaDB, Redshift, Snowflake
+
 ## [0.5.0] - 2026-04-08
 
 ### Added

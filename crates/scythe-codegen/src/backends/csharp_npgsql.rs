@@ -1,7 +1,6 @@
 use std::fmt::Write;
-use std::path::Path;
 
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
 };
@@ -14,6 +13,7 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/csharp-npgsql.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/csharp-npgsql.redshift.toml");
 
 pub struct CsharpNpgsqlBackend {
     manifest: BackendManifest,
@@ -21,26 +21,21 @@ pub struct CsharpNpgsqlBackend {
 
 impl CsharpNpgsqlBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
-        match engine {
-            "postgresql" | "postgres" | "pg" => {}
+        let default_toml = match engine {
+            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
                     format!(
-                        "csharp-npgsql only supports PostgreSQL, got engine '{}'",
+                        "csharp-npgsql only supports PostgreSQL/Redshift, got engine '{}'",
                         engine
                     ),
                 ));
             }
-        }
-        let manifest_path = Path::new("backends/csharp-npgsql/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
+        let manifest =
+            super::load_or_default_manifest("backends/csharp-npgsql/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
 }
@@ -65,18 +60,6 @@ fn reader_method(neutral_type: &str) -> &'static str {
     }
 }
 
-/// Rewrite $1, $2, ... to @p1, @p2, ...
-fn rewrite_params(sql: &str) -> String {
-    let mut result = sql.to_string();
-    // Replace from highest number down to avoid $1 matching inside $10
-    for i in (1..=99).rev() {
-        let from = format!("${}", i);
-        let to = format!("@p{}", i);
-        result = result.replace(&from, &to);
-    }
-    result
-}
-
 /// Build the expression to read a column from NpgsqlDataReader.
 fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
     if col.neutral_type.starts_with("enum::") {
@@ -98,6 +81,10 @@ impl CodegenBackend for CsharpNpgsqlBackend {
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
         &self.manifest
+    }
+
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql", "redshift"]
     }
 
     fn file_header(&self) -> String {
@@ -143,11 +130,14 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let mut sql = rewrite_params(&super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        ));
+        let mut sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(
+                &analyzed.sql,
+                &analyzed.optional_params,
+                &analyzed.params,
+            ),
+            |n| format!("@p{n}"),
+        );
         // Cast enum parameters to their PG type so Npgsql sends them correctly
         for (i, p) in params.iter().enumerate() {
             if let Some(enum_name) = p.neutral_type.strip_prefix("enum::") {

@@ -1,0 +1,25 @@
+{
+	"category": "engines/snowflake/types",
+	"config": { "engine": "snowflake" },
+	"description": "Snowflake TIMESTAMP_NTZ and TIMESTAMP_TZ type mapping",
+	"expected": {
+		"query": {
+			"name": "GetAuditLog",
+			"command": "many",
+			"columns": [
+				{ "name": "id", "nullable": false, "type": "int64" },
+				{ "name": "created_at", "nullable": false, "type": "datetime" },
+				{ "name": "scheduled_at", "nullable": true, "type": "datetime_tz" }
+			],
+			"params": []
+		},
+		"success": true
+	},
+	"name": "snowflake_timestamp_variants",
+	"query_sql": "-- @name GetAuditLog\n-- @returns :many\nSELECT id, created_at, scheduled_at FROM audit_log;",
+	"schema_sql": [
+		"CREATE TABLE audit_log (id INTEGER NOT NULL AUTOINCREMENT, created_at TIMESTAMP_NTZ NOT NULL, scheduled_at TIMESTAMP_TZ);"
+	],
+	"source": "original",
+	"tags": ["snowflake", "timestamp"]
+}

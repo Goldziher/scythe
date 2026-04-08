@@ -1,0 +1,27 @@
+{
+	"category": "engines/mssql/types",
+	"config": { "engine": "mssql" },
+	"description": "MSSQL datetime type mapping (DATETIME2, DATETIMEOFFSET, DATE, TIME)",
+	"expected": {
+		"query": {
+			"name": "GetEvents",
+			"command": "many",
+			"columns": [
+				{ "name": "id", "nullable": false, "type": "int32" },
+				{ "name": "event_date", "nullable": false, "type": "date" },
+				{ "name": "event_time", "nullable": false, "type": "time" },
+				{ "name": "created_at", "nullable": false, "type": "datetime" },
+				{ "name": "scheduled_at", "nullable": true, "type": "datetime_tz" }
+			],
+			"params": []
+		},
+		"success": true
+	},
+	"name": "mssql_datetime_types",
+	"query_sql": "-- @name GetEvents\n-- @returns :many\nSELECT id, event_date, event_time, created_at, scheduled_at FROM events;",
+	"schema_sql": [
+		"CREATE TABLE events (id INT NOT NULL IDENTITY(1,1), event_date DATE NOT NULL, event_time TIME NOT NULL, created_at DATETIME2 NOT NULL, scheduled_at DATETIMEOFFSET);"
+	],
+	"source": "original",
+	"tags": ["mssql", "datetime"]
+}

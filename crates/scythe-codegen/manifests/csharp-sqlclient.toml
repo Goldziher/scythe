@@ -1,0 +1,41 @@
+[backend]
+name = "csharp-sqlclient"
+language = "csharp"
+file_extension = "cs"
+engine = "mssql"
+description = "C# code generation targeting Microsoft.Data.SqlClient with MSSQL"
+
+[types.scalars]
+bool = "bool"
+int16 = "short"
+int32 = "int"
+int64 = "long"
+float32 = "float"
+float64 = "double"
+string = "string"
+bytes = "byte[]"
+uuid = "Guid"
+decimal = "decimal"
+date = "DateOnly"
+time = "TimeOnly"
+time_tz = "TimeOnly"
+datetime = "DateTime"
+datetime_tz = "DateTimeOffset"
+interval = "TimeSpan"
+json = "string"
+inet = "string"
+
+[types.containers]
+array = "List<{T}>"
+nullable = "{T}?"
+range = "string"
+json_typed = "{T}"
+
+[naming]
+struct_case = "PascalCase"
+field_case = "PascalCase"
+fn_case = "PascalCase"
+enum_variant_case = "PascalCase"
+row_suffix = "Row"
+
+[imports.rules]

@@ -1,12 +1,10 @@
-use std::collections::HashMap;
-use std::fmt::Write;
-use std::path::Path;
-
-use scythe_backend::manifest::{BackendManifest, load_manifest};
+use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
     enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
 };
 use scythe_backend::types::resolve_type;
+use std::collections::HashMap;
+use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -18,6 +16,8 @@ use crate::singularize;
 use super::python_common::PythonRowType;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-asyncpg.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str =
+    include_str!("../../manifests/python-asyncpg.redshift.toml");
 
 pub struct PythonAsyncpgBackend {
     manifest: BackendManifest,
@@ -26,26 +26,21 @@ pub struct PythonAsyncpgBackend {
 
 impl PythonAsyncpgBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
-        match engine {
-            "postgresql" | "postgres" | "pg" => {}
+        let default_toml = match engine {
+            "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_TOML,
+            "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
                     format!(
-                        "python-asyncpg only supports PostgreSQL, got engine '{}'",
+                        "python-asyncpg only supports PostgreSQL/Redshift, got engine '{}'",
                         engine
                     ),
                 ));
             }
-        }
-        let manifest_path = Path::new("backends/python-asyncpg/manifest.toml");
-        let manifest = if manifest_path.exists() {
-            load_manifest(manifest_path)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
-        } else {
-            toml::from_str(DEFAULT_MANIFEST_TOML)
-                .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))?
         };
+        let manifest =
+            super::load_or_default_manifest("backends/python-asyncpg/manifest.toml", default_toml)?;
         Ok(Self {
             manifest,
             row_type: PythonRowType::default(),
@@ -60,6 +55,10 @@ impl CodegenBackend for PythonAsyncpgBackend {
 
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
         &self.manifest
+    }
+
+    fn supported_engines(&self) -> &[&str] {
+        &["postgresql", "redshift"]
     }
 
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {

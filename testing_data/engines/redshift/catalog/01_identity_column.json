@@ -1,0 +1,24 @@
+{
+	"category": "engines/redshift/catalog",
+	"config": { "engine": "redshift", "gen": { "target": "sqlx" } },
+	"description": "Redshift IDENTITY columns map to integer types",
+	"expected": {
+		"query": {
+			"name": "GetUser",
+			"command": "one",
+			"columns": [
+				{ "name": "id", "nullable": false, "type": "int32" },
+				{ "name": "name", "nullable": false, "type": "string" }
+			],
+			"params": [{ "name": "id", "type": "int32", "nullable": false }]
+		},
+		"success": true
+	},
+	"name": "redshift_identity_column",
+	"query_sql": "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;",
+	"schema_sql": [
+		"CREATE TABLE users (id INTEGER IDENTITY(1,1) NOT NULL, name VARCHAR(255) NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["redshift", "identity"]
+}

@@ -1,0 +1,29 @@
+{
+	"category": "engines/mariadb/types",
+	"config": {
+		"engine": "mariadb",
+		"gen": {
+			"target": "sqlx"
+		}
+	},
+	"description": "MariaDB native UUID type maps to uuid::Uuid",
+	"expected": {
+		"query": {
+			"name": "GetUsers",
+			"command": "many",
+			"columns": [
+				{ "name": "id", "nullable": false, "type": "uuid" },
+				{ "name": "name", "nullable": false, "type": "string" }
+			],
+			"params": []
+		},
+		"success": true
+	},
+	"name": "mariadb_uuid_type",
+	"query_sql": "-- @name GetUsers\n-- @returns :many\nSELECT id, name FROM users;",
+	"schema_sql": [
+		"CREATE TABLE users (id UUID PRIMARY KEY, name VARCHAR(255) NOT NULL);"
+	],
+	"source": "original",
+	"tags": ["mariadb", "uuid"]
+}
