@@ -24,6 +24,7 @@ nav = [
     { "Custom Types" = "guide/custom-types.md" },
     { "Linting" = "guide/linting.md" },
     { "Formatting" = "guide/formatting.md" },
+    { "Pre-commit Hooks" = "guide/pre-commit-hooks.md" },
     { "CLI Reference" = "guide/cli-reference.md" },
     { "Migration from sqlfluff" = "guide/migration-from-sqlfluff.md" },
   ] },
