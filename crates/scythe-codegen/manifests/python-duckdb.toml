@@ -22,7 +22,7 @@ time_tz = "datetime.time"
 datetime = "datetime.datetime"
 datetime_tz = "datetime.datetime"
 interval = "datetime.timedelta"
-json = "dict[str, Any]"
+json = "dict[str, object]"
 inet = "str"
 
 [types.containers]
@@ -41,4 +41,3 @@ row_suffix = "Row"
 [imports.rules]
 "datetime." = "import datetime"
 "decimal." = "import decimal"
-"dict[" = "from typing import Any"

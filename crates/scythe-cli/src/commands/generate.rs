@@ -5,14 +5,17 @@ use serde::Deserialize;
 
 use ahash::AHashSet;
 
+use scythe_backend::naming::{
+    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
+};
 use scythe_codegen::{
-    CodegenBackend, TypeOverride, generate_single_enum_def_with_backend,
-    generate_with_backend_and_overrides, get_backend,
+    CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, TypeOverride,
+    generate_single_enum_def_with_backend, generate_with_backend_and_overrides, get_backend,
 };
 use scythe_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
 use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
-use scythe_core::parser::parse_query_with_dialect;
+use scythe_core::parser::{QueryCommand, parse_query_with_dialect};
 
 use super::shared::{resolve_globs, split_query_file};
 
@@ -415,6 +418,123 @@ fn generate_for_backend(
         backend.name(),
         output_file.display()
     );
+
+    // Generate RBS type signature file for Ruby backends
+    generate_rbs_if_supported(config_name, backend, analyzed_queries, overrides, out_path)?;
+
+    Ok(())
+}
+
+/// Determine the struct name for a query, matching the logic in scythe_codegen.
+fn determine_struct_name(
+    analyzed: &AnalyzedQuery,
+    naming: &scythe_backend::naming::NamingConfig,
+) -> String {
+    if let Some(ref table_name) = analyzed.source_table {
+        let singular = scythe_codegen::singularize(table_name);
+        to_pascal_case(&singular).into_owned()
+    } else {
+        row_struct_name(&analyzed.name, naming)
+    }
+}
+
+/// Generate an RBS type signature file alongside the Ruby output file,
+/// if the backend supports RBS generation (Ruby backends only).
+fn generate_rbs_if_supported(
+    config_name: &str,
+    backend: &dyn CodegenBackend,
+    analyzed_queries: &[AnalyzedQuery],
+    overrides: &[TypeOverride],
+    out_path: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Quick check: only Ruby backends produce RBS files. Test with an empty context.
+    let empty_context = RbsGenerationContext {
+        queries: vec![],
+        enums: vec![],
+    };
+    if backend.generate_rbs_file(&empty_context).is_none() {
+        return Ok(());
+    }
+
+    let manifest = backend.manifest();
+    let naming = &manifest.naming;
+
+    // Build RBS query info for each analyzed query
+    let mut rbs_queries: Vec<RbsQueryInfo> = Vec::new();
+    let mut seen_enums = AHashSet::new();
+    let mut rbs_enums: Vec<RbsEnumInfo> = Vec::new();
+
+    for analyzed in analyzed_queries {
+        let source_table = analyzed.source_table.as_deref().unwrap_or("");
+        let columns = scythe_codegen::resolve::resolve_columns(
+            &analyzed.columns,
+            manifest,
+            overrides,
+            source_table,
+        )?;
+        let params = scythe_codegen::resolve::resolve_params(
+            &analyzed.params,
+            manifest,
+            overrides,
+            source_table,
+        )?;
+
+        let func = fn_name(&analyzed.name, naming);
+        let struct_name = determine_struct_name(analyzed, naming);
+
+        let needs_struct = matches!(
+            analyzed.command,
+            QueryCommand::One | QueryCommand::Many | QueryCommand::Grouped
+        ) && !analyzed.columns.is_empty();
+
+        let command = if analyzed.command == QueryCommand::Grouped {
+            QueryCommand::Many
+        } else {
+            analyzed.command.clone()
+        };
+
+        rbs_queries.push(RbsQueryInfo {
+            func_name: func,
+            struct_name: if needs_struct {
+                Some(struct_name)
+            } else {
+                None
+            },
+            columns,
+            params,
+            command,
+        });
+
+        // Collect enum info
+        for enum_info in &analyzed.enums {
+            if seen_enums.insert(enum_info.sql_name.clone()) {
+                let type_name = enum_type_name(&enum_info.sql_name, naming);
+                let values: Vec<String> = enum_info
+                    .values
+                    .iter()
+                    .map(|v| enum_variant_name(v, naming))
+                    .collect();
+                rbs_enums.push(RbsEnumInfo { type_name, values });
+            }
+        }
+    }
+
+    let context = RbsGenerationContext {
+        queries: rbs_queries,
+        enums: rbs_enums,
+    };
+
+    if let Some(rbs_content) = backend.generate_rbs_file(&context) {
+        let rbs_file = out_path.join("queries.rbs");
+        std::fs::write(&rbs_file, &rbs_content)
+            .map_err(|e| format!("failed to write RBS file '{}': {}", rbs_file.display(), e))?;
+        eprintln!(
+            "[{}] Writing {} RBS signatures to {}",
+            config_name,
+            backend.name(),
+            rbs_file.display()
+        );
+    }
 
     Ok(())
 }

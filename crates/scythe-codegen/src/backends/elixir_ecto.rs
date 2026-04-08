@@ -76,7 +76,12 @@ impl CodegenBackend for ElixirEctoBackend {
         let _ = writeln!(out, "  @type t :: %__MODULE__{{");
         for (i, c) in columns.iter().enumerate() {
             let sep = if i + 1 < columns.len() { "," } else { "" };
-            let _ = writeln!(out, "    {}: {}{}", c.field_name, c.full_type, sep);
+            let type_ref = if c.neutral_type.starts_with("enum::") {
+                format!("{}.t()", c.full_type)
+            } else {
+                c.full_type.clone()
+            };
+            let _ = writeln!(out, "    {}: {}{}", c.field_name, type_ref, sep);
         }
         let _ = writeln!(out, "  }}");
 
@@ -317,8 +322,10 @@ impl CodegenBackend for ElixirEctoBackend {
         );
         let _ = writeln!(out);
         let _ = writeln!(out, "  @type t :: String.t()");
+        let _ = writeln!(out);
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
+            let _ = writeln!(out, "  @spec {}() :: String.t()", to_snake_case(&variant));
             let _ = writeln!(
                 out,
                 "  def {}(), do: \"{}\"",
@@ -333,6 +340,7 @@ impl CodegenBackend for ElixirEctoBackend {
             .map(|v| format!("\"{}\"", v))
             .collect::<Vec<_>>()
             .join(", ");
+        let _ = writeln!(out, "  @spec values() :: [String.t()]");
         let _ = writeln!(out, "  def values, do: [{}]", values_list);
         let _ = write!(out, "end");
         Ok(out)
@@ -347,6 +355,22 @@ impl CodegenBackend for ElixirEctoBackend {
             "  @moduledoc \"Composite type for {}.\"",
             composite.sql_name
         );
+        let _ = writeln!(out);
+        // Generate @type definition
+        if composite.fields.is_empty() {
+            let _ = writeln!(out, "  @type t :: %__MODULE__{{}}");
+        } else {
+            let _ = writeln!(out, "  @type t :: %__MODULE__{{");
+            for (i, f) in composite.fields.iter().enumerate() {
+                let sep = if i + 1 < composite.fields.len() {
+                    ","
+                } else {
+                    ""
+                };
+                let _ = writeln!(out, "    {}: term(){}", to_snake_case(&f.name), sep);
+            }
+            let _ = writeln!(out, "  }}");
+        }
         let _ = writeln!(out);
         if composite.fields.is_empty() {
             let _ = writeln!(out, "  defstruct []");

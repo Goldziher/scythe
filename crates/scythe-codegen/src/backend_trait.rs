@@ -1,6 +1,30 @@
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::ScytheError;
 
+/// Information needed to generate an RBS type signature file.
+#[derive(Debug, Clone)]
+pub struct RbsGenerationContext {
+    pub queries: Vec<RbsQueryInfo>,
+    pub enums: Vec<RbsEnumInfo>,
+}
+
+/// Per-query info for RBS generation.
+#[derive(Debug, Clone)]
+pub struct RbsQueryInfo {
+    pub func_name: String,
+    pub struct_name: Option<String>,
+    pub columns: Vec<ResolvedColumn>,
+    pub params: Vec<ResolvedParam>,
+    pub command: scythe_core::parser::QueryCommand,
+}
+
+/// Per-enum info for RBS generation.
+#[derive(Debug, Clone)]
+pub struct RbsEnumInfo {
+    pub type_name: String,
+    pub values: Vec<String>,
+}
+
 /// A column with its type resolved to the target language.
 #[derive(Debug, Clone)]
 pub struct ResolvedColumn {
@@ -80,6 +104,12 @@ pub trait CodegenBackend: Send + Sync {
     /// Returns an empty string by default (no class wrapper).
     fn query_class_header(&self) -> String {
         String::new()
+    }
+
+    /// Generate an RBS type signature file for Ruby backends.
+    /// Returns `None` by default; Ruby backends override this.
+    fn generate_rbs_file(&self, _context: &RbsGenerationContext) -> Option<String> {
+        None
     }
 
     /// Apply per-backend configuration options from [[sql.gen]].
