@@ -7,6 +7,8 @@ require_once __DIR__ . '/generated/queries.php';
 use App\Generated\Queries;
 {%- if engine == "postgresql" %}
 use App\Generated\UserStatus;
+{%- elif engine == "mysql" %}
+use App\Generated\UsersStatus;
 {%- endif %}
 use App\Generated\CreateUserRow;
 use App\Generated\GetUserByIdRow;
@@ -75,8 +77,13 @@ function parse_database_url(string $url): array
         fwrite(STDERR, "ERROR: Invalid {{ connection_env }} format\n");
         exit(1);
     }
+    // Force TCP connection on macOS where localhost triggers Unix socket mode
+    $host = $parts['host'] ?? 'localhost';
+    if ($host === 'localhost') {
+        $host = '127.0.0.1';
+    }
     return [
-        'host' => $parts['host'] ?? 'localhost',
+        'host' => $host,
         'port' => $parts['port'] ?? 3306,
         'dbname' => ltrim($parts['path'] ?? '/scythe_test', '/'),
         'user' => $parts['user'] ?? 'root',
@@ -201,7 +208,14 @@ function assert_true(bool $value, string $message): void
 
 function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo): int
 {
-    $user = Queries::createUser($pdo, "Alice", "alice@example.com"{% if engine == "postgresql" %}, UserStatus::active{% endif %});
+    {%- if engine == "postgresql" %}
+    $user = Queries::createUser($pdo, "Alice", "alice@example.com", UserStatus::ACTIVE);
+    {%- elif engine == "mysql" %}
+    Queries::createUser($pdo, "Alice", "alice@example.com", UsersStatus::ACTIVE);
+    $user = Queries::getLastInsertUser($pdo);
+    {%- else %}
+    $user = Queries::createUser($pdo, "Alice", "alice@example.com");
+    {%- endif %}
     assert_not_null($user, "CreateUser returned null");
     assert_equal("Alice", $user->name, "CreateUser name");
     assert_equal("alice@example.com", $user->email, "CreateUser email");
@@ -220,7 +234,13 @@ function test_get_user_by_id({% if driver == "pdo" or driver == "pdo-mysql" or d
 
 function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo): void
 {
-    $users = iterator_to_array(Queries::listActiveUsers($pdo{% if engine == "postgresql" %}, UserStatus::active{% endif %}));
+    {%- if engine == "postgresql" %}
+    $users = iterator_to_array(Queries::listActiveUsers($pdo, UserStatus::ACTIVE));
+    {%- elif engine == "mysql" %}
+    $users = iterator_to_array(Queries::listActiveUsers($pdo, UsersStatus::ACTIVE));
+    {%- else %}
+    $users = iterator_to_array(Queries::listActiveUsers($pdo));
+    {%- endif %}
     assert_true(count($users) >= 1, "Expected at least 1 active user, got " . count($users));
     $names = array_map(fn($u) => $u->name, $users);
     assert_true(in_array("Alice", $names, true), "Expected 'Alice' in active users");
@@ -229,7 +249,12 @@ function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" o
 
 function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo, int $user_id): int
 {
+    {%- if engine == "mysql" %}
+    Queries::createOrder($pdo, $user_id, "49.99", "Test order");
+    $order = Queries::getLastInsertOrder($pdo);
+    {%- else %}
     $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
+    {%- endif %}
     assert_not_null($order, "CreateOrder returned null");
     assert_equal($user_id, $order->user_id, "CreateOrder user_id");
     assert_equal("Test order", $order->notes, "CreateOrder notes");
