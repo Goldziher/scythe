@@ -172,21 +172,27 @@ impl CodegenBackend for ElixirExqliteBackend {
                 let _ = writeln!(out, "def {}(conn, items) do", batch_fn_name);
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
                 let _ = writeln!(out, "  Enum.reduce_while(items, :ok, fn item, :ok ->");
+                let _ = writeln!(
+                    out,
+                    "    with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),"
+                );
                 if params.len() > 1 {
                     let _ = writeln!(
                         out,
-                        "    case Exqlite.Sqlite3.execute(conn, sql, Tuple.to_list(item)) do"
+                        "         :ok <- Exqlite.Sqlite3.bind(stmt, Tuple.to_list(item)),"
                     );
                 } else if params.len() == 1 {
-                    let _ = writeln!(
-                        out,
-                        "    case Exqlite.Sqlite3.execute(conn, sql, [item]) do"
-                    );
+                    let _ = writeln!(out, "         :ok <- Exqlite.Sqlite3.bind(stmt, [item]),");
                 } else {
-                    let _ = writeln!(out, "    case Exqlite.Sqlite3.execute(conn, sql, []) do");
+                    let _ = writeln!(out, "         :ok <- Exqlite.Sqlite3.bind(stmt, []),");
                 }
-                let _ = writeln!(out, "      {{:ok, _}} -> {{:cont, :ok}}");
+                let _ = writeln!(out, "         :done <- Exqlite.Sqlite3.step(conn, stmt)");
+                let _ = writeln!(out, "    do");
+                let _ = writeln!(out, "      Exqlite.Sqlite3.release(conn, stmt)");
+                let _ = writeln!(out, "      {{:cont, :ok}}");
+                let _ = writeln!(out, "    else");
                 let _ = writeln!(out, "      {{:error, err}} -> {{:halt, {{:error, err}}}}");
+                let _ = writeln!(out, "      _ -> {{:halt, {{:error, :unexpected_result}}}}");
                 let _ = writeln!(out, "    end");
                 let _ = writeln!(out, "  end)");
                 let _ = write!(out, "end");
@@ -217,25 +223,42 @@ impl CodegenBackend for ElixirExqliteBackend {
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
                 let _ = writeln!(
                     out,
-                    "  case Exqlite.Sqlite3.execute(conn, sql, {}) do",
+                    "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),"
+                );
+                let _ = writeln!(
+                    out,
+                    "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),",
                     param_args
                 );
-                let _ = writeln!(out, "    {{:ok, [[_|_] = row]}} ->");
+                let _ = writeln!(out, "       rows <- Exqlite.Sqlite3.fetch_all(conn, stmt)");
+                let _ = writeln!(out, "  do");
+                let _ = writeln!(out, "    Exqlite.Sqlite3.release(conn, stmt)");
+                let _ = writeln!(out, "    case rows do");
+                let _ = writeln!(out, "      {{:ok, [[_|_] = row]}} ->");
 
                 let field_vars = columns
                     .iter()
                     .map(|c| c.field_name.clone())
                     .collect::<Vec<_>>()
                     .join(", ");
-                let _ = writeln!(out, "      [{}] = row", field_vars);
+                let _ = writeln!(out, "        [{}] = row", field_vars);
 
                 let struct_fields = columns
                     .iter()
                     .map(|c| format!("{}: {}", c.field_name, c.field_name))
                     .collect::<Vec<_>>()
                     .join(", ");
-                let _ = writeln!(out, "      {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
-                let _ = writeln!(out, "    {{:ok, []}} -> {{:error, :not_found}}");
+                let _ = writeln!(
+                    out,
+                    "        {{:ok, %{}{{{}}}}}",
+                    struct_name, struct_fields
+                );
+                let _ = writeln!(out, "      {{:ok, []}} ->");
+                let _ = writeln!(out, "        {{:error, :not_found}}");
+                let _ = writeln!(out, "      {{:error, err}} ->");
+                let _ = writeln!(out, "        {{:error, err}}");
+                let _ = writeln!(out, "    end");
+                let _ = writeln!(out, "  else");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
@@ -243,10 +266,21 @@ impl CodegenBackend for ElixirExqliteBackend {
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
                 let _ = writeln!(
                     out,
-                    "  case Exqlite.Sqlite3.execute(conn, sql, {}) do",
+                    "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),"
+                );
+                let _ = writeln!(
+                    out,
+                    "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),",
                     param_args
                 );
-                let _ = writeln!(out, "    {{:ok, rows}} ->");
+                let _ = writeln!(
+                    out,
+                    "       result <- Exqlite.Sqlite3.fetch_all(conn, stmt)"
+                );
+                let _ = writeln!(out, "  do");
+                let _ = writeln!(out, "    Exqlite.Sqlite3.release(conn, stmt)");
+                let _ = writeln!(out, "    case result do");
+                let _ = writeln!(out, "      {{:ok, rows}} ->");
 
                 let field_vars = columns
                     .iter()
@@ -259,11 +293,15 @@ impl CodegenBackend for ElixirExqliteBackend {
                     .collect::<Vec<_>>()
                     .join(", ");
 
-                let _ = writeln!(out, "      results = Enum.map(rows, fn row ->");
-                let _ = writeln!(out, "        [{}] = row", field_vars);
-                let _ = writeln!(out, "        %{}{{{}}}", struct_name, struct_fields);
-                let _ = writeln!(out, "      end)");
-                let _ = writeln!(out, "      {{:ok, results}}");
+                let _ = writeln!(out, "        results = Enum.map(rows, fn row ->");
+                let _ = writeln!(out, "          [{}] = row", field_vars);
+                let _ = writeln!(out, "          %{}{{{}}}", struct_name, struct_fields);
+                let _ = writeln!(out, "        end)");
+                let _ = writeln!(out, "        {{:ok, results}}");
+                let _ = writeln!(out, "      {{:error, err}} ->");
+                let _ = writeln!(out, "        {{:error, err}}");
+                let _ = writeln!(out, "    end");
+                let _ = writeln!(out, "  else");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
@@ -271,10 +309,18 @@ impl CodegenBackend for ElixirExqliteBackend {
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
                 let _ = writeln!(
                     out,
-                    "  case Exqlite.Sqlite3.execute(conn, sql, {}) do",
+                    "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),"
+                );
+                let _ = writeln!(
+                    out,
+                    "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),",
                     param_args
                 );
-                let _ = writeln!(out, "    {{:ok, _}} -> :ok");
+                let _ = writeln!(out, "       :done <- Exqlite.Sqlite3.step(conn, stmt)");
+                let _ = writeln!(out, "  do");
+                let _ = writeln!(out, "    Exqlite.Sqlite3.release(conn, stmt)");
+                let _ = writeln!(out, "    :ok");
+                let _ = writeln!(out, "  else");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
@@ -282,11 +328,22 @@ impl CodegenBackend for ElixirExqliteBackend {
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
                 let _ = writeln!(
                     out,
-                    "  case Exqlite.Sqlite3.execute(conn, sql, {}) do",
+                    "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),"
+                );
+                let _ = writeln!(
+                    out,
+                    "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),",
                     param_args
                 );
-                let _ = writeln!(out, "    {{:ok, _}} ->");
-                let _ = writeln!(out, "      {{:ok, Exqlite.Sqlite3.changes(conn)}}");
+                let _ = writeln!(out, "       :done <- Exqlite.Sqlite3.step(conn, stmt),");
+                let _ = writeln!(
+                    out,
+                    "       {{:ok, changes}} <- Exqlite.Sqlite3.changes(conn)"
+                );
+                let _ = writeln!(out, "  do");
+                let _ = writeln!(out, "    Exqlite.Sqlite3.release(conn, stmt)");
+                let _ = writeln!(out, "    {{:ok, changes}}");
+                let _ = writeln!(out, "  else");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }

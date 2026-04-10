@@ -2,6 +2,7 @@
 
 declare(strict_types=1);
 
+require_once __DIR__ . '/vendor/autoload.php';
 require_once __DIR__ . '/generated/queries.php';
 
 use App\Generated\Queries;
@@ -96,7 +97,7 @@ function assert_true(bool $value, string $message): void
 
 function test_create_user(PostgresConnectionPool $pool): int
 {
-    $user = Queries::createUser($pool, "Alice", "alice@example.com", UserStatus::active);
+    $user = Queries::createUser($pool, "Alice", "alice@example.com", UserStatus::ACTIVE);
     assert_not_null($user, "CreateUser returned null");
     assert_equal("Alice", $user->name, "CreateUser name");
     assert_equal("alice@example.com", $user->email, "CreateUser email");
@@ -115,7 +116,7 @@ function test_get_user_by_id(PostgresConnectionPool $pool, int $user_id): void
 
 function test_list_active_users(PostgresConnectionPool $pool): void
 {
-    $users = iterator_to_array(Queries::listActiveUsers($pool, UserStatus::active));
+    $users = iterator_to_array(Queries::listActiveUsers($pool, UserStatus::ACTIVE));
     assert_true(count($users) >= 1, "Expected at least 1 active user, got " . count($users));
     $names = array_map(fn($u) => $u->name, $users);
     assert_true(in_array("Alice", $names, true), "Expected 'Alice' in active users");

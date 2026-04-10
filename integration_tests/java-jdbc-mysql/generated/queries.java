@@ -4,19 +4,20 @@ import java.sql.*;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public enum UsersStatus {
-    active("active"),
-    inactive("inactive"),
-    banned("banned");
+    ACTIVE("active"),
+    INACTIVE("inactive"),
+    BANNED("banned");
 
     private final String value;
     UsersStatus(String value) { this.value = value; }
     public String getValue() { return value; }
 }
 
-public static void createOrder(Connection conn, int user_id, java.math.BigDecimal total, String notes) throws SQLException {
+public static void createOrder(Connection conn, int user_id, @Nonnull java.math.BigDecimal total, @Nullable String notes) throws SQLException {
     try (var ps = conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")) {
         ps.setInt(1, user_id);
         ps.setBigDecimal(2, total);
@@ -38,12 +39,12 @@ public record GetLastInsertOrderRow(
             rs.getInt("user_id"),
             rs.getBigDecimal("total"),
             rs.getString("notes"),
-            rs.getObject("created_at")
+            rs.getObject("created_at", LocalDateTime.class)
         );
     }
 }
 
-public static GetLastInsertOrderRow getLastInsertOrder(Connection conn) throws SQLException {
+public static @Nullable GetLastInsertOrderRow getLastInsertOrder(Connection conn) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()")) {
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
@@ -65,16 +66,16 @@ public record GetOrdersByUserRow(
             rs.getInt("id"),
             rs.getBigDecimal("total"),
             rs.getString("notes"),
-            rs.getObject("created_at")
+            rs.getObject("created_at", LocalDateTime.class)
         );
     }
 }
 
-public static java.util.List<GetOrdersByUserRow> getOrdersByUser(Connection conn, int user_id) throws SQLException {
+public static List<GetOrdersByUserRow> getOrdersByUser(Connection conn, int user_id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC")) {
         ps.setInt(1, user_id);
         try (ResultSet rs = ps.executeQuery()) {
-            java.util.List<GetOrdersByUserRow> result = new java.util.ArrayList<>();
+            List<GetOrdersByUserRow> result = new ArrayList<>();
             while (rs.next()) {
                 result.add(GetOrdersByUserRow.fromResultSet(rs));
             }
@@ -93,7 +94,7 @@ public record GetOrderTotalRow(
     }
 }
 
-public static GetOrderTotalRow getOrderTotal(Connection conn, int user_id) throws SQLException {
+public static @Nullable GetOrderTotalRow getOrderTotal(Connection conn, int user_id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?")) {
         ps.setInt(1, user_id);
         try (ResultSet rs = ps.executeQuery()) {
@@ -125,12 +126,12 @@ public record GetUserByIdRow(
             rs.getString("name"),
             rs.getString("email"),
             rs.getObject("status"),
-            rs.getObject("created_at")
+            rs.getObject("created_at", LocalDateTime.class)
         );
     }
 }
 
-public static GetUserByIdRow getUserById(Connection conn, int id) throws SQLException {
+public static @Nullable GetUserByIdRow getUserById(Connection conn, int id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = ?")) {
         ps.setInt(1, id);
         try (ResultSet rs = ps.executeQuery()) {
@@ -156,11 +157,11 @@ public record ListActiveUsersRow(
     }
 }
 
-public static java.util.List<ListActiveUsersRow> listActiveUsers(Connection conn, UsersStatus status) throws SQLException {
+public static List<ListActiveUsersRow> listActiveUsers(Connection conn, @Nonnull UsersStatus status) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email FROM users WHERE status = ?")) {
         ps.setObject(1, status);
         try (ResultSet rs = ps.executeQuery()) {
-            java.util.List<ListActiveUsersRow> result = new java.util.ArrayList<>();
+            List<ListActiveUsersRow> result = new ArrayList<>();
             while (rs.next()) {
                 result.add(ListActiveUsersRow.fromResultSet(rs));
             }
@@ -169,7 +170,7 @@ public static java.util.List<ListActiveUsersRow> listActiveUsers(Connection conn
     }
 }
 
-public static void createUser(Connection conn, String name, String email, UsersStatus status) throws SQLException {
+public static void createUser(Connection conn, @Nonnull String name, @Nullable String email, @Nonnull UsersStatus status) throws SQLException {
     try (var ps = conn.prepareStatement("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")) {
         ps.setString(1, name);
         ps.setString(2, email);
@@ -191,12 +192,12 @@ public record GetLastInsertUserRow(
             rs.getString("name"),
             rs.getString("email"),
             rs.getObject("status"),
-            rs.getObject("created_at")
+            rs.getObject("created_at", LocalDateTime.class)
         );
     }
 }
 
-public static GetLastInsertUserRow getLastInsertUser(Connection conn) throws SQLException {
+public static @Nullable GetLastInsertUserRow getLastInsertUser(Connection conn) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()")) {
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
@@ -207,7 +208,7 @@ public static GetLastInsertUserRow getLastInsertUser(Connection conn) throws SQL
     }
 }
 
-public static void updateUserEmail(Connection conn, String email, int id) throws SQLException {
+public static void updateUserEmail(Connection conn, @Nonnull String email, int id) throws SQLException {
     try (var ps = conn.prepareStatement("UPDATE users SET email = ? WHERE id = ?")) {
         ps.setString(1, email);
         ps.setInt(2, id);
@@ -236,11 +237,11 @@ public record SearchUsersRow(
     }
 }
 
-public static java.util.List<SearchUsersRow> searchUsers(Connection conn, String name) throws SQLException {
+public static List<SearchUsersRow> searchUsers(Connection conn, @Nonnull String name) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email FROM users WHERE name LIKE ?")) {
         ps.setString(1, name);
         try (ResultSet rs = ps.executeQuery()) {
-            java.util.List<SearchUsersRow> result = new java.util.ArrayList<>();
+            List<SearchUsersRow> result = new ArrayList<>();
             while (rs.next()) {
                 result.add(SearchUsersRow.fromResultSet(rs));
             }

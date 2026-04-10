@@ -80,15 +80,6 @@ impl TokioPostgresBackend {
 const CLIENT_PARAM: &str = "client: &(impl tokio_postgres::GenericClient + Sync)";
 const ERROR_TYPE: &str = "tokio_postgres::Error";
 
-/// Helper: generate an expression that converts a string parse error into a
-/// `tokio_postgres::Error` via `std::io::Error`.
-fn enum_parse_error_expr(col_name: &str) -> String {
-    format!(
-        "std::io::Error::new(std::io::ErrorKind::InvalidData, format!(\"unexpected enum value for column '{}': {{}}\", s))",
-        col_name
-    )
-}
-
 impl CodegenBackend for TokioPostgresBackend {
     fn name(&self) -> &str {
         "rust-tokio-postgres"
@@ -424,11 +415,6 @@ impl CodegenBackend for TokioPostgresBackend {
 // ---------------------------------------------------------------------------
 // Internal helpers
 // ---------------------------------------------------------------------------
-
-/// Check whether any column in the struct requires enum string parsing.
-fn has_enum_columns(columns: &[ResolvedColumn]) -> bool {
-    columns.iter().any(|c| c.neutral_type.starts_with("enum::"))
-}
 
 /// Generate a struct with a `from_row` method for tokio-postgres.
 ///

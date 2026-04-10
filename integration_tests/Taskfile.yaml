@@ -1,10 +1,15 @@
 version: "3"
 
 vars:
-  DATABASE_URL: "postgres://scythe:scythe@localhost:5432/scythe_test"
+  DATABASE_URL: "postgres://scythe:scythe@localhost:5433/scythe_test"
+  MYSQL_URL: "mysql://scythe:scythe@127.0.0.1:3307/scythe_test"
+  SQLITE_PATH: "/tmp/scythe_test.db"
 
 env:
   DATABASE_URL: "{{.DATABASE_URL}}"
+  MYSQL_URL: "{{.MYSQL_URL}}"
+  SQLITE_PATH: "{{.SQLITE_PATH}}"
+  DATABASE_PATH: "{{.SQLITE_PATH}}"
 
 tasks:
   db:up:
@@ -20,38 +25,70 @@ tasks:
       - docker compose down -v
 
   db:migrate:
-    desc: Run schema migration
+    desc: Run PG schema migration
     cmds:
-      - PGPASSWORD=scythe psql -h localhost -U scythe -d scythe_test -f sql/pg/schema.sql
+      - PGPASSWORD=scythe psql -h localhost -p 5433 -U scythe -d scythe_test -f sql/pg/schema.sql
+
+  db:migrate:mysql:
+    desc: Run MySQL schema migration
+    cmds:
+      - mysql -h 127.0.0.1 -P 3307 -u scythe -pscythe scythe_test < sql/mysql/schema.sql
 
   db:reset:
     desc: Drop and recreate all tables
     cmds:
-      - PGPASSWORD=scythe psql -h localhost -U scythe -d scythe_test -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+      - PGPASSWORD=scythe psql -h localhost -p 5433 -U scythe -d scythe_test -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
       - task: db:migrate
 
   generate:
     desc: Regenerate code for all backends
     cmds:
       - for:
+          # PostgreSQL
           - rust-sqlx
           - rust-tokio-postgres
           - python-psycopg3
           - python-asyncpg
-          - typescript-postgres
-          - typescript-pg
           - python-psycopg3-pydantic
           - python-psycopg3-msgspec
-          - typescript-pg-zod
           - go-pgx
+          - typescript-postgres
+          - typescript-pg
+          - typescript-pg-zod
           - java-jdbc
           - kotlin-jdbc
           - csharp-npgsql
           - elixir-postgrex
+          - elixir-ecto
           - ruby-pg
           - php-pdo
+          - php-amphp
+          # MySQL
+          - rust-sqlx-mysql
+          - go-database-sql-mysql
+          - python-aiomysql
+          - typescript-mysql2
+          - java-jdbc-mysql
+          - kotlin-jdbc-mysql
+          - csharp-mysqlconnector
+          - elixir-myxql
+          - ruby-mysql2
+          - ruby-trilogy
+          - php-pdo-mysql
+          # SQLite
+          - rust-sqlx-sqlite
+          - go-database-sql-sqlite
+          - python-aiosqlite
+          - typescript-better-sqlite3
+          - java-jdbc-sqlite
+          - kotlin-jdbc-sqlite
+          - csharp-microsoft-sqlite
+          - elixir-exqlite
+          - ruby-sqlite3
+          - php-pdo-sqlite
         cmd: cd {{.ITEM}} && scythe generate
 
+  # --- PostgreSQL backends ---
   test:rust-sqlx:
     desc: Run rust-sqlx integration test
     dir: rust-sqlx
@@ -76,6 +113,24 @@ tasks:
     cmds:
       - uv run python test_integration.py
 
+  test:python-psycopg3-pydantic:
+    desc: Run python-psycopg3-pydantic integration test
+    dir: python-psycopg3-pydantic
+    cmds:
+      - uv run python test_integration.py
+
+  test:python-psycopg3-msgspec:
+    desc: Run python-psycopg3-msgspec integration test
+    dir: python-psycopg3-msgspec
+    cmds:
+      - uv run python test_integration.py
+
+  test:go-pgx:
+    desc: Run go-pgx integration test
+    dir: go-pgx
+    cmds:
+      - go run .
+
   test:typescript-postgres:
     desc: Run typescript-postgres integration test
     dir: typescript-postgres
@@ -90,30 +145,12 @@ tasks:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
       - pnpm exec tsx test.ts
 
-  test:python-psycopg3-pydantic:
-    desc: Run python-psycopg3-pydantic integration test
-    dir: python-psycopg3-pydantic
-    cmds:
-      - uv run python test_integration.py
-
-  test:python-psycopg3-msgspec:
-    desc: Run python-psycopg3-msgspec integration test
-    dir: python-psycopg3-msgspec
-    cmds:
-      - uv run python test_integration.py
-
   test:typescript-pg-zod:
     desc: Run typescript-pg-zod integration test
     dir: typescript-pg-zod
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
       - pnpm exec tsx test.ts
-
-  test:go-pgx:
-    desc: Run go-pgx integration test
-    dir: go-pgx
-    cmds:
-      - go run .
 
   test:java-jdbc:
     desc: Run java-jdbc integration test
@@ -140,6 +177,13 @@ tasks:
       - mix deps.get --quiet
       - mix run test/integration_test.exs
 
+  test:elixir-ecto:
+    desc: Run elixir-ecto integration test
+    dir: elixir-ecto
+    cmds:
+      - mix deps.get --quiet
+      - mix run test/integration_test.exs
+
   test:ruby-pg:
     desc: Run ruby-pg integration test
     dir: ruby-pg
@@ -153,23 +197,196 @@ tasks:
     cmds:
       - php test_integration.php
 
+  test:php-amphp:
+    desc: Run php-amphp integration test
+    dir: php-amphp
+    cmds:
+      - composer install --quiet
+      - php test_integration.php
+
+  # --- MySQL backends ---
+  test:rust-sqlx-mysql:
+    desc: Run rust-sqlx-mysql integration test
+    dir: rust-sqlx-mysql
+    env:
+      DATABASE_URL: "{{.MYSQL_URL}}"
+    cmds:
+      - cargo run --quiet
+
+  test:go-database-sql-mysql:
+    desc: Run go-database-sql-mysql integration test
+    dir: go-database-sql-mysql
+    cmds:
+      - go run .
+
+  test:python-aiomysql:
+    desc: Run python-aiomysql integration test
+    dir: python-aiomysql
+    cmds:
+      - uv run python test_integration.py
+
+  test:typescript-mysql2:
+    desc: Run typescript-mysql2 integration test
+    dir: typescript-mysql2
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsx test.ts
+
+  test:java-jdbc-mysql:
+    desc: Run java-jdbc-mysql integration test
+    dir: java-jdbc-mysql
+    cmds:
+      - mvn -q compile exec:java
+
+  test:kotlin-jdbc-mysql:
+    desc: Run kotlin-jdbc-mysql integration test
+    dir: kotlin-jdbc-mysql
+    cmds:
+      - gradle run --quiet
+
+  test:csharp-mysqlconnector:
+    desc: Run csharp-mysqlconnector integration test
+    dir: csharp-mysqlconnector
+    cmds:
+      - dotnet run
+
+  test:elixir-myxql:
+    desc: Run elixir-myxql integration test
+    dir: elixir-myxql
+    cmds:
+      - mix deps.get --quiet
+      - mix run test/integration_test.exs
+
+  test:ruby-mysql2:
+    desc: Run ruby-mysql2 integration test
+    dir: ruby-mysql2
+    cmds:
+      - bundle install --quiet
+      - bundle exec ruby test_integration.rb
+
+  test:ruby-trilogy:
+    desc: Run ruby-trilogy integration test
+    dir: ruby-trilogy
+    cmds:
+      - bundle install --quiet
+      - bundle exec ruby test_integration.rb
+
+  test:php-pdo-mysql:
+    desc: Run php-pdo-mysql integration test
+    dir: php-pdo-mysql
+    cmds:
+      - php test_integration.php
+
+  # --- SQLite backends ---
+  test:rust-sqlx-sqlite:
+    desc: Run rust-sqlx-sqlite integration test
+    dir: rust-sqlx-sqlite
+    env:
+      DATABASE_URL: "sqlite://{{.SQLITE_PATH}}"
+    cmds:
+      - cargo run --quiet
+
+  test:go-database-sql-sqlite:
+    desc: Run go-database-sql-sqlite integration test
+    dir: go-database-sql-sqlite
+    cmds:
+      - go run .
+
+  test:python-aiosqlite:
+    desc: Run python-aiosqlite integration test
+    dir: python-aiosqlite
+    cmds:
+      - uv run python test_integration.py
+
+  test:typescript-better-sqlite3:
+    desc: Run typescript-better-sqlite3 integration test
+    dir: typescript-better-sqlite3
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsx test.ts
+
+  test:java-jdbc-sqlite:
+    desc: Run java-jdbc-sqlite integration test
+    dir: java-jdbc-sqlite
+    cmds:
+      - mvn -q compile exec:java
+
+  test:kotlin-jdbc-sqlite:
+    desc: Run kotlin-jdbc-sqlite integration test
+    dir: kotlin-jdbc-sqlite
+    cmds:
+      - gradle run --quiet
+
+  test:csharp-microsoft-sqlite:
+    desc: Run csharp-microsoft-sqlite integration test
+    dir: csharp-microsoft-sqlite
+    cmds:
+      - dotnet run
+
+  test:elixir-exqlite:
+    desc: Run elixir-exqlite integration test
+    dir: elixir-exqlite
+    cmds:
+      - mix deps.get --quiet
+      - mix run test/integration_test.exs
+
+  test:ruby-sqlite3:
+    desc: Run ruby-sqlite3 integration test
+    dir: ruby-sqlite3
+    cmds:
+      - bundle install --quiet
+      - bundle exec ruby test_integration.rb
+
+  test:php-pdo-sqlite:
+    desc: Run php-pdo-sqlite integration test
+    dir: php-pdo-sqlite
+    cmds:
+      - php test_integration.php
+
+  # --- Aggregate tasks ---
   all:
     desc: Run all integration tests
     cmds:
       - task: db:reset
+      # PostgreSQL
       - task: test:rust-sqlx
       - task: test:rust-tokio-postgres
       - task: test:python-psycopg3
       - task: test:python-asyncpg
-      - task: test:typescript-postgres
-      - task: test:typescript-pg
       - task: test:python-psycopg3-pydantic
       - task: test:python-psycopg3-msgspec
-      - task: test:typescript-pg-zod
       - task: test:go-pgx
+      - task: test:typescript-postgres
+      - task: test:typescript-pg
+      - task: test:typescript-pg-zod
       - task: test:java-jdbc
       - task: test:kotlin-jdbc
       - task: test:csharp-npgsql
       - task: test:elixir-postgrex
+      - task: test:elixir-ecto
       - task: test:ruby-pg
       - task: test:php-pdo
+      - task: test:php-amphp
+      # MySQL
+      - task: test:rust-sqlx-mysql
+      - task: test:go-database-sql-mysql
+      - task: test:python-aiomysql
+      - task: test:typescript-mysql2
+      - task: test:java-jdbc-mysql
+      - task: test:kotlin-jdbc-mysql
+      - task: test:csharp-mysqlconnector
+      - task: test:elixir-myxql
+      - task: test:ruby-mysql2
+      - task: test:ruby-trilogy
+      - task: test:php-pdo-mysql
+      # SQLite
+      - task: test:rust-sqlx-sqlite
+      - task: test:go-database-sql-sqlite
+      - task: test:python-aiosqlite
+      - task: test:typescript-better-sqlite3
+      - task: test:java-jdbc-sqlite
+      - task: test:kotlin-jdbc-sqlite
+      - task: test:csharp-microsoft-sqlite
+      - task: test:elixir-exqlite
+      - task: test:ruby-sqlite3
+      - task: test:php-pdo-sqlite

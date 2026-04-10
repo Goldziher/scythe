@@ -1,4 +1,5 @@
 use std::fmt::Write;
+use std::sync::{Arc, Mutex};
 
 use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{
@@ -17,6 +18,8 @@ const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/csharp-npg
 
 pub struct CsharpNpgsqlBackend {
     manifest: BackendManifest,
+    /// Track generated enums so we can emit their extensions in post_footer
+    generated_enums: Arc<Mutex<Vec<EnumInfo>>>,
 }
 
 impl CsharpNpgsqlBackend {
@@ -36,7 +39,10 @@ impl CsharpNpgsqlBackend {
         };
         let manifest =
             super::load_or_default_manifest("backends/csharp-npgsql/manifest.toml", default_toml)?;
-        Ok(Self { manifest })
+        Ok(Self {
+            manifest,
+            generated_enums: Arc::new(Mutex::new(Vec::new())),
+        })
     }
 }
 
@@ -94,6 +100,50 @@ impl CodegenBackend for CsharpNpgsqlBackend {
 
     fn file_footer(&self) -> String {
         "}".to_string()
+    }
+
+    fn post_footer(&self) -> String {
+        // Generate extension methods for all tracked enums
+        // These must be top-level static classes, not nested inside the Queries class
+        // They reference the nested enum types via Queries.EnumName
+        if let Ok(enums) = self.generated_enums.lock() {
+            if enums.is_empty() {
+                return String::new();
+            }
+
+            let mut out = String::new();
+            for (i, enum_info) in enums.iter().enumerate() {
+                if i > 0 {
+                    out.push_str("\n\n");
+                }
+
+                let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
+                let qualified_type = format!("Queries.{}", type_name);
+                let _ = writeln!(out, "public static class {}Extensions {{", type_name);
+                let _ = writeln!(
+                    out,
+                    "    public static string ToDbValue(this {} value) => value switch {{",
+                    qualified_type
+                );
+                for value in &enum_info.values {
+                    let variant = enum_variant_name(value, &self.manifest.naming);
+                    let _ = writeln!(
+                        out,
+                        "        {}.{} => \"{}\",",
+                        qualified_type, variant, value
+                    );
+                }
+                let _ = writeln!(
+                    out,
+                    "        _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),"
+                );
+                let _ = writeln!(out, "    }};");
+                let _ = write!(out, "}}");
+            }
+            out
+        } else {
+            String::new()
+        }
     }
 
     fn generate_row_struct(
@@ -337,24 +387,16 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             let variant = enum_variant_name(value, &self.manifest.naming);
             let _ = writeln!(out, "    {},", variant);
         }
-        let _ = writeln!(out, "}}");
-        let _ = writeln!(out);
-        let _ = writeln!(out, "public static class {}Extensions {{", type_name);
-        let _ = writeln!(
-            out,
-            "    public static string ToDbValue(this {} value) => value switch {{",
-            type_name
-        );
-        for value in &enum_info.values {
-            let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(out, "        {}.{} => \"{}\",", type_name, variant, value);
-        }
-        let _ = writeln!(
-            out,
-            "        _ => throw new ArgumentOutOfRangeException(nameof(value), value, null),"
-        );
-        let _ = writeln!(out, "    }};");
         let _ = write!(out, "}}");
+
+        // Track this enum so we can generate its extension method in post_footer
+        if let Ok(mut enums) = self.generated_enums.lock() {
+            // Only add if not already present
+            if !enums.iter().any(|e| e.sql_name == enum_info.sql_name) {
+                enums.push(enum_info.clone());
+            }
+        }
+
         Ok(out)
     }
 

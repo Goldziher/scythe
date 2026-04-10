@@ -12,18 +12,18 @@ import aiomysql  # noqa: F401
 class UsersStatus(str, Enum):
     """Database enum type users_status."""
 
-    active = "active"
-    inactive = "inactive"
-    banned = "banned"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    BANNED = "banned"
 
 
-async def create_order(conn: aiomysql.Connection, *, user_id: int, total: decimal.Decimal, notes: str) -> None:
+async def create_order(conn: aiomysql.Connection, *, user_id: int, total: decimal.Decimal, notes: str | None) -> None:
     """Execute CreateOrder query."""
     async with conn.cursor() as cur:
         await cur.execute("""INSERT INTO orders (user_id, total, notes) VALUES (%s, %s, %s)""", (user_id, total, notes))
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetLastInsertOrderRow:
     """Row type for GetLastInsertOrder query."""
 
@@ -50,7 +50,7 @@ async def get_last_insert_order(conn: aiomysql.Connection) -> GetLastInsertOrder
     )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetOrdersByUserRow:
     """Row type for GetOrdersByUser query."""
 
@@ -76,7 +76,7 @@ async def get_orders_by_user(conn: aiomysql.Connection, *, user_id: int) -> list
     ]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetOrderTotalRow:
     """Row type for GetOrderTotal query."""
 
@@ -93,13 +93,14 @@ async def get_order_total(conn: aiomysql.Connection, *, user_id: int) -> GetOrde
     return GetOrderTotalRow(total_sum=row[0])
 
 
-async def delete_orders_by_user(conn: aiomysql.Connection, *, user_id: int) -> None:
+async def delete_orders_by_user(conn: aiomysql.Connection, *, user_id: int) -> int:
     """Execute DeleteOrdersByUser query."""
     async with conn.cursor() as cur:
         await cur.execute("""DELETE FROM orders WHERE user_id = %s""", (user_id,))
+        return cur.rowcount
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetUserByIdRow:
     """Row type for GetUserById query."""
 
@@ -126,7 +127,7 @@ async def get_user_by_id(conn: aiomysql.Connection, *, id: int) -> GetUserByIdRo
     )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ListActiveUsersRow:
     """Row type for ListActiveUsers query."""
 
@@ -143,13 +144,13 @@ async def list_active_users(conn: aiomysql.Connection, *, status: UsersStatus) -
     return [ListActiveUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
 
 
-async def create_user(conn: aiomysql.Connection, *, name: str, email: str, status: UsersStatus) -> None:
+async def create_user(conn: aiomysql.Connection, *, name: str, email: str | None, status: UsersStatus) -> None:
     """Execute CreateUser query."""
     async with conn.cursor() as cur:
         await cur.execute("""INSERT INTO users (name, email, status) VALUES (%s, %s, %s)""", (name, email, status))
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetLastInsertUserRow:
     """Row type for GetLastInsertUser query."""
 
@@ -188,7 +189,7 @@ async def delete_user(conn: aiomysql.Connection, *, id: int) -> None:
         await cur.execute("""DELETE FROM users WHERE id = %s""", (id,))
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SearchUsersRow:
     """Row type for SearchUsers query."""
 

@@ -7,12 +7,12 @@ import aiosqlite  # noqa: F401
 
 
 
-async def create_order(conn: aiosqlite.Connection, *, user_id: int, total: float, notes: str) -> None:
+async def create_order(conn: aiosqlite.Connection, *, user_id: int, total: float, notes: str | None) -> None:
     """Execute CreateOrder query."""
     await conn.execute("""INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)""", (user_id, total, notes))
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetOrdersByUserRow:
     """Row type for GetOrdersByUser query."""
 
@@ -37,11 +37,11 @@ async def get_orders_by_user(conn: aiosqlite.Connection, *, user_id: int) -> lis
     ]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetOrderTotalRow:
     """Row type for GetOrderTotal query."""
 
-    total_sum: float | None
+    total_sum: decimal.Decimal | None
 
 
 async def get_order_total(conn: aiosqlite.Connection, *, user_id: int) -> GetOrderTotalRow | None:
@@ -53,12 +53,13 @@ async def get_order_total(conn: aiosqlite.Connection, *, user_id: int) -> GetOrd
     return GetOrderTotalRow(total_sum=row[0])
 
 
-async def delete_orders_by_user(conn: aiosqlite.Connection, *, user_id: int) -> None:
+async def delete_orders_by_user(conn: aiosqlite.Connection, *, user_id: int) -> int:
     """Execute DeleteOrdersByUser query."""
-    await conn.execute("""DELETE FROM orders WHERE user_id = ?""", (user_id,))
+    cursor = await conn.execute("""DELETE FROM orders WHERE user_id = ?""", (user_id,))
+    return cursor.rowcount
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetUserByIdRow:
     """Row type for GetUserById query."""
 
@@ -84,7 +85,7 @@ async def get_user_by_id(conn: aiosqlite.Connection, *, id: int) -> GetUserByIdR
     )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ListActiveUsersRow:
     """Row type for ListActiveUsers query."""
 
@@ -100,7 +101,7 @@ async def list_active_users(conn: aiosqlite.Connection, *, status: str) -> list[
     return [ListActiveUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
 
 
-async def create_user(conn: aiosqlite.Connection, *, name: str, email: str, status: str) -> None:
+async def create_user(conn: aiosqlite.Connection, *, name: str, email: str | None, status: str) -> None:
     """Execute CreateUser query."""
     await conn.execute("""INSERT INTO users (name, email, status) VALUES (?, ?, ?)""", (name, email, status))
 
@@ -115,7 +116,7 @@ async def delete_user(conn: aiosqlite.Connection, *, id: int) -> None:
     await conn.execute("""DELETE FROM users WHERE id = ?""", (id,))
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SearchUsersRow:
     """Row type for SearchUsers query."""
 

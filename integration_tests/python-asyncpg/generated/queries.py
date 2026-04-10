@@ -12,12 +12,12 @@ from asyncpg import Connection  # noqa: F401
 class UserStatus(str, Enum):
     """Database enum type user_status."""
 
-    active = "active"
-    inactive = "inactive"
-    banned = "banned"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    BANNED = "banned"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CreateOrderRow:
     """Row type for CreateOrder query."""
 
@@ -28,7 +28,7 @@ class CreateOrderRow:
     created_at: datetime.datetime
 
 
-async def create_order(conn: Connection, *, user_id: int, total: decimal.Decimal, notes: str) -> CreateOrderRow | None:
+async def create_order(conn: Connection, *, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow | None:
     """Execute CreateOrder query."""
     row = await conn.fetchrow(
         """INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at""",
@@ -45,7 +45,7 @@ async def create_order(conn: Connection, *, user_id: int, total: decimal.Decimal
     )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetOrdersByUserRow:
     """Row type for GetOrdersByUser query."""
 
@@ -72,7 +72,7 @@ async def get_orders_by_user(conn: Connection, *, user_id: int) -> list[GetOrder
     ]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetOrderTotalRow:
     """Row type for GetOrderTotal query."""
 
@@ -90,15 +90,16 @@ async def get_order_total(conn: Connection, *, user_id: int) -> GetOrderTotalRow
     return GetOrderTotalRow(total_sum=row["total_sum"])
 
 
-async def delete_orders_by_user(conn: Connection, *, user_id: int) -> None:
+async def delete_orders_by_user(conn: Connection, *, user_id: int) -> int:
     """Execute DeleteOrdersByUser query."""
-    await conn.execute(
+    result = await conn.execute(
         """DELETE FROM orders WHERE user_id = $1""",
         user_id,
     )
+    return int(result.split()[-1])
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetUserByIdRow:
     """Row type for GetUserById query."""
 
@@ -126,7 +127,7 @@ async def get_user_by_id(conn: Connection, *, id: int) -> GetUserByIdRow | None:
     )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ListActiveUsersRow:
     """Row type for ListActiveUsers query."""
 
@@ -151,7 +152,7 @@ async def list_active_users(conn: Connection, *, status: UserStatus) -> list[Lis
     ]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CreateUserRow:
     """Row type for CreateUser query."""
 
@@ -162,7 +163,7 @@ class CreateUserRow:
     created_at: datetime.datetime
 
 
-async def create_user(conn: Connection, *, name: str, email: str, status: UserStatus) -> CreateUserRow | None:
+async def create_user(conn: Connection, *, name: str, email: str | None, status: UserStatus) -> CreateUserRow | None:
     """Execute CreateUser query."""
     row = await conn.fetchrow(
         """INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at""",
@@ -195,7 +196,7 @@ async def delete_user(conn: Connection, *, id: int) -> None:
     )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetUserOrdersRow:
     """Row type for GetUserOrders query."""
 
@@ -225,7 +226,7 @@ WHERE u.status = $1""",
     ]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CountUsersByStatusRow:
     """Row type for CountUsersByStatus query."""
 
@@ -244,7 +245,7 @@ async def count_users_by_status(conn: Connection, *, status: UserStatus) -> Coun
     return CountUsersByStatusRow(status=row["status"], user_count=row["user_count"])
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetUserWithTagsRow:
     """Row type for GetUserWithTags query."""
 
@@ -273,7 +274,7 @@ WHERE u.id = $1""",
     ]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SearchUsersRow:
     """Row type for SearchUsers query."""
 

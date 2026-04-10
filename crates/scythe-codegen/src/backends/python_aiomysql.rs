@@ -146,14 +146,13 @@ impl CodegenBackend for PythonAiomysqlBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        let sql = super::rewrite_pg_placeholders(
-            &super::clean_sql_with_optional(
-                &analyzed.sql,
-                &analyzed.optional_params,
-                &analyzed.params,
-            ),
-            |_| "%s".to_string(),
+        let cleaned = super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
         );
+        // Rewrite $N (PG-style) placeholders to %s, then also rewrite ? (MySQL-style) to %s
+        let sql = super::rewrite_pg_placeholders(&cleaned, |_| "%s".to_string()).replace('?', "%s");
 
         let args_tuple = if params.is_empty() {
             String::new()

@@ -5,10 +5,10 @@
 module Queries
 
   module UsersStatus
-    active = "active"
-    inactive = "inactive"
-    banned = "banned"
-    ALL = [active, inactive, banned].freeze
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    BANNED = "banned"
+    ALL = [ACTIVE, INACTIVE, BANNED].freeze
   end
 
   def self.create_order(client, user_id, total, notes)
@@ -53,7 +53,7 @@ module Queries
   def self.delete_orders_by_user(client, user_id)
     stmt = client.prepare("DELETE FROM orders WHERE user_id = ?")
     stmt.execute(user_id)
-    stmt.affected_rows
+    client.affected_rows
   end
 
   GetUserByIdRow = Data.define(:id, :name, :email, :status, :created_at)

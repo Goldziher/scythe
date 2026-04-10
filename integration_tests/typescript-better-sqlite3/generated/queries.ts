@@ -7,7 +7,7 @@ export function createOrder(
 	db: Database,
 	user_id: number,
 	total: number,
-	notes: string,
+	notes: string | null,
 ): void {
 	const stmt = db.prepare(
 		`INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)`,
@@ -96,7 +96,7 @@ export function listActiveUsers(
 export function createUser(
 	db: Database,
 	name: string,
-	email: string,
+	email: string | null,
 	status: string,
 ): void {
 	const stmt = db.prepare(

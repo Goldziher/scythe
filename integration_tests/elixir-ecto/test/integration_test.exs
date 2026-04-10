@@ -1,3 +1,6 @@
+# Load generated queries module
+Code.require_file("generated/queries.ex")
+
 alias Scythe.Queries
 
 database_url =

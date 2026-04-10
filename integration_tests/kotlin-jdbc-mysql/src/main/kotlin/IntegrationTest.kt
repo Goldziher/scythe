@@ -26,9 +26,9 @@ fun fail(name: String, e: Exception) {
 var createdUserId = 0
 
 fun main() {
-    val mysqlUrl = System.getenv("MYSQL_URL")
+    val mysqlUrl = System.getenv("DATABASE_URL")
     if (mysqlUrl.isNullOrEmpty()) {
-        System.err.println("MYSQL_URL environment variable is required")
+        System.err.println("DATABASE_URL environment variable is required")
         exitProcess(1)
     }
 

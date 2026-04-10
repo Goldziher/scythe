@@ -13,7 +13,7 @@ import {
 
 const DATABASE_URL =
 	process.env["DATABASE_URL"] ??
-	"mysql://scythe:scythe@localhost:3306/scythe_test";
+	"mysql://scythe:scythe@localhost:3307/scythe_test";
 
 const pool = mysql.createPool(DATABASE_URL);
 

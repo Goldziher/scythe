@@ -13,7 +13,7 @@ export async function createOrder(
 	pool: Pool,
 	user_id: number,
 	total: string,
-	notes: string,
+	notes: string | null,
 ): Promise<void> {
 	await pool.execute(
 		`INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)`,
@@ -132,7 +132,7 @@ export async function listActiveUsers(
 export async function createUser(
 	pool: Pool,
 	name: string,
-	email: string,
+	email: string | null,
 	status: UsersStatus,
 ): Promise<void> {
 	await pool.execute(

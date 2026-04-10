@@ -2,11 +2,14 @@
 
 import type { PoolClient } from "pg";
 
-export enum UserStatus {
-	Active = "active",
-	Inactive = "inactive",
-	Banned = "banned",
-}
+export const UserStatusValues = {
+	Active: "active",
+	Inactive: "inactive",
+	Banned: "banned",
+} as const;
+
+export type UserStatus =
+	(typeof UserStatusValues)[keyof typeof UserStatusValues];
 
 /** Row type for CreateOrder queries. */
 export interface CreateOrderRow {
@@ -22,7 +25,7 @@ export async function createOrder(
 	client: PoolClient,
 	user_id: number,
 	total: string,
-	notes: string,
+	notes: string | null,
 ): Promise<CreateOrderRow | null> {
 	const { rows } = await client.query<CreateOrderRow>(
 		`INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at`,
@@ -132,7 +135,7 @@ export interface CreateUserRow {
 export async function createUser(
 	client: PoolClient,
 	name: string,
-	email: string,
+	email: string | null,
 	status: UserStatus,
 ): Promise<CreateUserRow | null> {
 	const { rows } = await client.query<CreateUserRow>(

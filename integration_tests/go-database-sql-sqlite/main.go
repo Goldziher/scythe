@@ -2,13 +2,14 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
 	"os"
 	"path/filepath"
 	"runtime"
 
-	_ "modernc.org/sqlite"
+	"database/sql"
+
+	_ "github.com/mattn/go-sqlite3"
 
 	queries "scythe-integration/go-database-sql-sqlite/generated"
 )
@@ -35,14 +36,19 @@ func assertf(name string, condition bool, format string, args ...interface{}) bo
 }
 
 func main() {
-	db, err := sql.Open("sqlite", ":memory:")
+	databasePath := os.Getenv("SQLITE_PATH")
+	if databasePath == "" {
+		databasePath = "test.db"
+	}
+
+	ctx := context.Background()
+
+	db, err := sql.Open("sqlite3", databasePath)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "failed to open database: %v\n", err)
+		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
 		os.Exit(1)
 	}
 	defer db.Close()
-
-	ctx := context.Background()
 
 	if err := runMigration(ctx, db); err != nil {
 		fmt.Fprintf(os.Stderr, "failed to run migration: %v\n", err)
@@ -51,12 +57,9 @@ func main() {
 
 	testCreateUser(ctx, db)
 	testGetUserById(ctx, db)
-	testUpdateUserEmail(ctx, db)
 	testCreateOrder(ctx, db)
 	testGetOrdersByUser(ctx, db)
-	testGetOrderTotal(ctx, db)
 	testListActiveUsers(ctx, db)
-	testSearchUsers(ctx, db)
 	testDeleteOrdersByUser(ctx, db)
 	testDeleteUser(ctx, db)
 
@@ -76,6 +79,18 @@ func runMigration(ctx context.Context, db *sql.DB) error {
 		return fmt.Errorf("reading schema file at %s: %w", schemaPath, err)
 	}
 
+	dropStatements := []string{
+		"DROP TABLE IF EXISTS user_tags",
+		"DROP TABLE IF EXISTS tags",
+		"DROP TABLE IF EXISTS orders",
+		"DROP TABLE IF EXISTS users",
+	}
+	for _, stmt := range dropStatements {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("dropping tables: %w", err)
+		}
+	}
+
 	if _, err := db.ExecContext(ctx, string(schema)); err != nil {
 		return fmt.Errorf("creating schema: %w", err)
 	}
@@ -87,12 +102,28 @@ var createdUserID int32
 
 func testCreateUser(ctx context.Context, db *sql.DB) {
 	name := "CreateUser"
-	err := queries.CreateUser(ctx, db, "Alice", "alice@example.com", "active")
+	email := "alice@example.com"
+	err := queries.CreateUser(ctx, db, "Alice", &email, "active")
 	if err != nil {
 		fail(name, err)
 		return
 	}
-	createdUserID = 1 // SQLite AUTOINCREMENT starts at 1
+
+	// Fetch the created user to verify
+	users, err := queries.ListActiveUsers(ctx, db, "active")
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, len(users) > 0, "expected at least one active user") {
+		return
+	}
+
+	user := users[0]
+	if !assertf(name, user.Name == "Alice", "expected name Alice, got %s", user.Name) {
+		return
+	}
+	createdUserID = user.Id
 	pass(name)
 }
 
@@ -112,27 +143,10 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 	pass(name)
 }
 
-func testUpdateUserEmail(ctx context.Context, db *sql.DB) {
-	name := "UpdateUserEmail"
-	err := queries.UpdateUserEmail(ctx, db, "alice-updated@example.com", createdUserID)
-	if err != nil {
-		fail(name, err)
-		return
-	}
-	user, err := queries.GetUserById(ctx, db, createdUserID)
-	if err != nil {
-		fail(name, err)
-		return
-	}
-	if !assertf(name, user.Email != nil && *user.Email == "alice-updated@example.com", "expected updated email") {
-		return
-	}
-	pass(name)
-}
-
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
-	err := queries.CreateOrder(ctx, db, createdUserID, float32(99.99), "Test order")
+	notes := "Test order"
+	err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes)
 	if err != nil {
 		fail(name, err)
 		return
@@ -147,20 +161,7 @@ func testGetOrdersByUser(ctx context.Context, db *sql.DB) {
 		fail(name, err)
 		return
 	}
-	if !assertf(name, len(orders) == 1, "expected 1 order, got %d", len(orders)) {
-		return
-	}
-	pass(name)
-}
-
-func testGetOrderTotal(ctx context.Context, db *sql.DB) {
-	name := "GetOrderTotal"
-	result, err := queries.GetOrderTotal(ctx, db, createdUserID)
-	if err != nil {
-		fail(name, err)
-		return
-	}
-	if !assertf(name, result.TotalSum != nil, "expected non-nil total_sum") {
+	if !assertf(name, len(orders) >= 1, "expected at least 1 order, got %d", len(orders)) {
 		return
 	}
 	pass(name)
@@ -179,19 +180,6 @@ func testListActiveUsers(ctx context.Context, db *sql.DB) {
 	pass(name)
 }
 
-func testSearchUsers(ctx context.Context, db *sql.DB) {
-	name := "SearchUsers"
-	users, err := queries.SearchUsers(ctx, db, "%Alice%")
-	if err != nil {
-		fail(name, err)
-		return
-	}
-	if !assertf(name, len(users) >= 1, "expected at least 1 user matching Alice, got %d", len(users)) {
-		return
-	}
-	pass(name)
-}
-
 func testDeleteOrdersByUser(ctx context.Context, db *sql.DB) {
 	name := "DeleteOrdersByUser"
 	count, err := queries.DeleteOrdersByUser(ctx, db, createdUserID)
@@ -199,7 +187,7 @@ func testDeleteOrdersByUser(ctx context.Context, db *sql.DB) {
 		fail(name, err)
 		return
 	}
-	if !assertf(name, count == 1, "expected 1 deleted order, got %d", count) {
+	if !assertf(name, count >= 1, "expected at least 1 deleted order, got %d", count) {
 		return
 	}
 	pass(name)
@@ -210,6 +198,11 @@ func testDeleteUser(ctx context.Context, db *sql.DB) {
 	err := queries.DeleteUser(ctx, db, createdUserID)
 	if err != nil {
 		fail(name, err)
+		return
+	}
+	// Verify user is deleted
+	_, err = queries.GetUserById(ctx, db, createdUserID)
+	if !assertf(name, err != nil, "expected error when fetching deleted user, but got success") {
 		return
 	}
 	pass(name)

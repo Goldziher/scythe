@@ -140,7 +140,18 @@ impl CodegenBackend for ElixirEctoBackend {
         let param_specs = if params.is_empty() {
             String::new()
         } else {
-            let specs: Vec<String> = params.iter().map(|p| p.full_type.clone()).collect();
+            let specs: Vec<String> = params
+                .iter()
+                .map(|p| {
+                    // For enum parameters, use String.t() instead of the enum module type,
+                    // since parameters are passed as strings to the database
+                    if p.neutral_type.starts_with("enum::") {
+                        "String.t()".to_string()
+                    } else {
+                        p.full_type.clone()
+                    }
+                })
+                .collect();
             format!(", {}", specs.join(", "))
         };
         match &analyzed.command {

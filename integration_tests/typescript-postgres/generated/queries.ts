@@ -22,7 +22,7 @@ export async function createOrder(
 	sql: Sql,
 	user_id: number,
 	total: string,
-	notes: string,
+	notes: string | null,
 ): Promise<CreateOrderRow | null> {
 	const rows = await sql<CreateOrderRow[]>`
     INSERT INTO orders (user_id, total, notes) VALUES (${user_id}, ${total}, ${notes}) RETURNING id, user_id, total, notes, created_at
@@ -127,7 +127,7 @@ export interface CreateUserRow {
 export async function createUser(
 	sql: Sql,
 	name: string,
-	email: string,
+	email: string | null,
 	status: UserStatus,
 ): Promise<CreateUserRow | null> {
 	const rows = await sql<CreateUserRow[]>`

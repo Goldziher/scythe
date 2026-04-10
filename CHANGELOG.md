@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.4] - 2026-04-10
+
+### Added
+
+- Integration tests now run all generated code against real databases (PostgreSQL, MySQL, SQLite) across all 39 backends and 10 languages
+- CI split into 3 parallel jobs (PostgreSQL, MySQL, SQLite) covering all backends
+- New MySQL/SQLite SQL queries: GetUserOrders, CountUsersByStatus, GetUserWithTags
+
+### Fixed
+
+- tokio-postgres: enum parameters now use `::text::enum_name` casts for proper PostgreSQL enum handling
+- tokio-postgres: enum columns in SELECT/RETURNING use `::text` cast for correct deserialization
+- sqlx: RETURNING clauses now include enum type annotations (`"status: UserStatus"`)
+- sqlx: aggregate functions (COUNT, SUM) get non-null override annotations (`"column_name!"`)
+- C# Npgsql: enum extension methods moved to top-level static classes (fixes CS1109)
+- C# Microsoft.Data.Sqlite: fixed type mappings (int32->long, float32->double for SQLite)
+- Elixir exqlite: updated to Exqlite 0.36 prepare/bind/step API
+- Elixir myxql/exqlite/ecto: generated code now properly wrapped in `defmodule`
+- Python aiomysql: `?` placeholders correctly rewritten to `%s`
+- Go pgx: added missing `time` and `decimal` imports in generated code
+- Ruby trilogy: parameterized queries use string interpolation (trilogy lacks prepared statement support)
+- TypeScript pg-zod: enum columns use correct Zod schema references
+
 ## [0.6.3] - 2026-04-10
 
 ### Added

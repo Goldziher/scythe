@@ -14,6 +14,37 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/csharp-microsoft-sqlite.toml");
 
+/// Convert SQLite's unnamed ? placeholders to ?1, ?2, etc.
+fn rewrite_sqlite_placeholders(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    let mut placeholder_count = 0u32;
+
+    while let Some(ch) = chars.next() {
+        if ch == '\'' {
+            // Inside string literal, don't change anything
+            result.push(ch);
+            while let Some(inner) = chars.next() {
+                result.push(inner);
+                if inner == '\'' {
+                    if chars.peek() == Some(&'\'') {
+                        result.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+            }
+        } else if ch == '?' && !chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+            // Replace unnamed ? with ?1, ?2, etc.
+            placeholder_count += 1;
+            result.push_str(&format!("?{placeholder_count}"));
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
 pub struct CsharpMicrosoftSqliteBackend {
     manifest: BackendManifest,
 }
@@ -41,17 +72,20 @@ impl CsharpMicrosoftSqliteBackend {
 }
 
 /// Map a neutral type to a SqliteDataReader method.
+/// Note: For SQLite via Microsoft.Data.Sqlite, we remap int32 and float32 to their larger
+/// counterparts (int64 and double) in the manifest to properly handle SQLite's unbounded
+/// INTEGER and REAL types. This function must match those remappings.
 fn reader_method(neutral_type: &str) -> &'static str {
     match neutral_type {
         "bool" => "GetBoolean",
         "int16" => "GetInt16",
-        "int32" => "GetInt32",
+        "int32" => "GetInt64", // SQLite INTEGER is unbounded, use Int64
         "int64" => "GetInt64",
-        "float32" => "GetFloat",
+        "float32" => "GetDouble", // SQLite REAL is double-precision, use Double
         "float64" => "GetDouble",
         "string" | "json" | "inet" | "interval" | "uuid" | "date" | "time" | "time_tz"
         | "datetime_tz" => "GetString",
-        "decimal" => "GetDouble",
+        "decimal" => "GetDecimal",
         "datetime" => "GetDateTime",
         _ => "GetValue",
     }
@@ -127,14 +161,14 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = rewrite_sqlite_placeholders(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(
                 &analyzed.sql,
                 &analyzed.optional_params,
                 &analyzed.params,
             ),
-            |n| format!("$p{n}"),
-        );
+            |n| format!("?{n}"),
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -199,7 +233,7 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
                 };
                 let _ = writeln!(
                     out,
-                    "            cmd.Parameters.AddWithValue(\"$p{}\", {});",
+                    "            cmd.Parameters.AddWithValue(\"?{}\", {});",
                     i + 1,
                     value_expr
                 );
@@ -251,7 +285,7 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
             };
             let _ = writeln!(
                 out,
-                "    cmd.Parameters.AddWithValue(\"$p{}\", {});",
+                "    cmd.Parameters.AddWithValue(\"?{}\", {});",
                 i + 1,
                 value_expr
             );
