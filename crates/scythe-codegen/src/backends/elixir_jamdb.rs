@@ -131,7 +131,7 @@ impl CodegenBackend for ElixirJamdbBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "@spec {}(DBConnection.conn(){}) :: {{:ok, %{}{{}}}} | {{:error, :not_found}} | {{:error, term()}}",
@@ -196,7 +196,7 @@ impl CodegenBackend for ElixirJamdbBackend {
         let _ = writeln!(out, "def {}(conn{}{}) do", func_name, sep, param_list);
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "  case Jamdb.Oracle.query(conn, \"{}\", {}) do",

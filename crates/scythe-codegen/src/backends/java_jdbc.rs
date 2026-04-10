@@ -356,7 +356,7 @@ impl CodegenBackend for JavaJdbcBackend {
                 let _ = writeln!(out, "    }}");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "public static @Nullable {} {}(Connection conn{}{}) throws SQLException {{",

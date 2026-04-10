@@ -137,7 +137,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
             format!(", {}", specs.join(", "))
         };
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "@spec {}(MyXQL.conn(){}) :: {{:ok, %{}{{}}}} | {{:error, term()}}",
@@ -199,7 +199,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
         let _ = writeln!(out, "def {}(conn{}{}) do", func_name, sep, param_list);
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "  case MyXQL.query(conn, \"{}\", {}) do",

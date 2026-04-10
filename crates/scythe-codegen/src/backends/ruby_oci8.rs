@@ -129,7 +129,7 @@ impl CodegenBackend for RubyOci8Backend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "    cursor = conn.exec(\"{}\"{})", sql, bind_vars);
                 let _ = writeln!(out, "    row = cursor.fetch");
                 let _ = writeln!(out, "    return nil if row.nil?");

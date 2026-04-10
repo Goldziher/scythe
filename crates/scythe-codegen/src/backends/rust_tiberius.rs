@@ -198,7 +198,7 @@ impl CodegenBackend for RustTiberiusBackend {
         }
 
         let return_type = match &analyzed.command {
-            QueryCommand::One => struct_name.to_string(),
+            QueryCommand::One | QueryCommand::Opt => struct_name.to_string(),
             QueryCommand::Many => format!("Vec<{}>", struct_name),
             QueryCommand::Exec => "()".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "u64".to_string(),
@@ -230,7 +230,7 @@ impl CodegenBackend for RustTiberiusBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "    let stream = client.query(r#\"{}\"#, {}).await?;",

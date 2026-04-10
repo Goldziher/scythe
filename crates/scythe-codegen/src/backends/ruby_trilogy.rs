@@ -132,7 +132,7 @@ impl CodegenBackend for RubyTrilogyBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
                 let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
                 let _ = writeln!(

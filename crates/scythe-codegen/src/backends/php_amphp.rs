@@ -237,7 +237,7 @@ impl CodegenBackend for PhpAmphpBackend {
 
         // Return type depends on command
         let return_type = match &analyzed.command {
-            QueryCommand::One => format!("?{}", struct_name),
+            QueryCommand::One | QueryCommand::Opt => format!("?{}", struct_name),
             QueryCommand::Many => "\\Generator".to_string(),
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
@@ -251,7 +251,7 @@ impl CodegenBackend for PhpAmphpBackend {
             let _ = writeln!(out, "     * @param {} ${}", p.full_type, p.field_name);
         }
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "     * @return {}|null", struct_name);
             }
             QueryCommand::Many => {
@@ -306,7 +306,7 @@ impl CodegenBackend for PhpAmphpBackend {
         }
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "        foreach ($result as $row) {{");
                 let _ = writeln!(out, "            return {}::fromRow($row);", struct_name);
                 let _ = writeln!(out, "        }}");

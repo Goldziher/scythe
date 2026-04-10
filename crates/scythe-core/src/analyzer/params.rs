@@ -264,6 +264,16 @@ impl<'a> Analyzer<'a> {
         type_str: &str,
         name: &str,
     ) {
+        self.collect_param_from_expr_with_type_nullable(expr, type_str, name, false);
+    }
+
+    pub(super) fn collect_param_from_expr_with_type_nullable(
+        &mut self,
+        expr: &Expr,
+        type_str: &str,
+        name: &str,
+        nullable: bool,
+    ) {
         if let Expr::Value(vws) = expr {
             if let Some(p) = value_is_placeholder(vws)
                 && let Some(pos) = self.resolve_placeholder_position(p)
@@ -272,7 +282,7 @@ impl<'a> Analyzer<'a> {
                     pos,
                     Some(name.to_string()),
                     Some(type_str.to_string()),
-                    false,
+                    nullable,
                 );
             }
         } else if let Expr::Cast {
@@ -285,7 +295,7 @@ impl<'a> Analyzer<'a> {
             && let Some(pos) = self.resolve_placeholder_position(p)
         {
             let neutral = datatype_to_neutral(data_type, self.catalog);
-            self.register_param(pos, Some(name.to_string()), Some(neutral), false);
+            self.register_param(pos, Some(name.to_string()), Some(neutral), nullable);
         }
     }
 

@@ -267,7 +267,7 @@ impl CodegenBackend for SqlxBackend {
 
         // Return type for non-batch commands
         let return_type = match &analyzed.command {
-            QueryCommand::One => struct_name.to_string(),
+            QueryCommand::One | QueryCommand::Opt => struct_name.to_string(),
             QueryCommand::Many => format!("Vec<{}>", struct_name),
             QueryCommand::Exec => "()".to_string(),
             QueryCommand::ExecResult => self.query_result_type().to_string(),
@@ -323,7 +323,7 @@ impl CodegenBackend for SqlxBackend {
 
         // Fetch method
         let fetch_method = match &analyzed.command {
-            QueryCommand::One => ".fetch_one(pool)",
+            QueryCommand::One | QueryCommand::Opt => ".fetch_one(pool)",
             QueryCommand::Many => ".fetch_all(pool)",
             QueryCommand::Exec => ".execute(pool)",
             QueryCommand::ExecResult => ".execute(pool)",

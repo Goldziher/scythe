@@ -150,7 +150,7 @@ impl CodegenBackend for TypescriptMssqlBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let ret = format!("{} | null", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);

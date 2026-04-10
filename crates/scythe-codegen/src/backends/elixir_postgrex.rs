@@ -143,7 +143,7 @@ impl CodegenBackend for ElixirPostgrexBackend {
             format!(", {}", specs.join(", "))
         };
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "@spec {}(Postgrex.conn(){}) :: {{:ok, %{}{{}}}} | {{:error, :not_found}} | {{:error, term()}}",
@@ -218,7 +218,7 @@ impl CodegenBackend for ElixirPostgrexBackend {
         let _ = writeln!(out, "def {}(conn{}{}) do", func_name, sep, param_list);
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "  case Postgrex.query(conn, \"{}\", {}) do",

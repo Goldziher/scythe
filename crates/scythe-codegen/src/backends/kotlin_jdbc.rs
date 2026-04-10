@@ -234,7 +234,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "}}");
             }
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let ret = format!(": {}?", struct_name);
                 write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
                 let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);

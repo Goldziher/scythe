@@ -168,7 +168,7 @@ impl CodegenBackend for PythonSnowflakeBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "def {}(conn: snowflake.connector.SnowflakeConnection{}{}) -> {} | None:",

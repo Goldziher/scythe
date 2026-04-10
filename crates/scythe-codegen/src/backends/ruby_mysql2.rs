@@ -137,7 +137,7 @@ impl CodegenBackend for RubyMysql2Backend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
                 let _ = writeln!(
                     out,

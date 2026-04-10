@@ -170,7 +170,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
         });
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "async def {}(conn: AsyncConnection{}{}) -> {} | None:",

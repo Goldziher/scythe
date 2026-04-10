@@ -5,6 +5,111 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.1] - 2026-04-10
+
+### Added
+
+- `:opt` query command across all backends — returns optional/nullable single row (distinct from `:one` which expects exactly one row)
+- Serde and custom derive support for tokio-postgres backend via `serde` and `derive` options
+- `apply_options()` method on tokio-postgres backend for runtime configuration
+- `is_column_nullable()` helper on analyzer scope for nullable column lookups
+- `collect_param_from_expr_with_type_nullable()` for nullable-aware parameter collection
+- `version:sync` task in Taskfile for updating all crate versions at once
+
+### Changed
+
+- tokio-postgres: `client` parameter now accepts `&(impl GenericClient + Sync)` instead of concrete `&Client`
+- tokio-postgres: batch functions no longer wrap operations in implicit transactions
+
+### Fixed
+
+- INSERT parameter analysis now propagates column nullability to parameters
+- Changelog retroactively aligned with Cargo.toml version history (0.1.0–0.6.0)
+
+## [0.6.0] - 2026-04-08
+
+### Added
+
+- Microsoft SQL Server engine (6 backends: tiberius, pyodbc, mssql, sqlclient, tiny_tds, tds)
+- Oracle Database engine (6 backends: sibyl, oracledb, godror, oracle, oci8, jamdb)
+- MariaDB engine with native UUID support, RETURNING clause, and dedicated manifests
+- Amazon Redshift engine (PostgreSQL-based with SUPER type support)
+- Snowflake engine with VARIANT/OBJECT/ARRAY types
+- 17 new database backends and 51 type mapping manifests
+- Pre-commit/prek hooks for scythe users
+
+### Changed
+
+- Flattened docs structure for better organization
+- Expanded to 10 total databases with 70+ backend drivers across 10 languages
+
+### Fixed
+
+- Extracted shared `rewrite_pg_placeholders` function (eliminated 26+ duplicated functions)
+- Extracted shared `load_or_default_manifest` function (eliminated 49 duplicated code blocks)
+- CockroachDB documentation TOML snippet duplicate key issue
+- Python DuckDB missing datetime import
+- TypeScript DuckDB import type issue
+- Go godror PascalCase conversion issue
+- Go unconditional imports problem
+- SQLx hardcoded PgPool issue
+- Tiberius unwrap error handling
+- Kotlin wasNull null handling
+- Ruby batch operation fix
+- Sibyl error swallowing issue
+- Go `interface{}` updated to `any` keyword
+
+## [0.5.0] - 2026-04-08
+
+### Added
+
+- CockroachDB engine support
+- DuckDB engine support
+- `:grouped` operation support
+- Kotlin Exposed backend
+- R2DBC backend support
+- Homebrew bottles for distribution
+- Integration test generator for all 39 backend test suites
+
+## [0.4.0] - 2026-04-08
+
+### Added
+
+- Real `:batch` operations across all backends
+- PHP AMPHP backend
+- Custom type overrides feature
+- `@optional` annotation support
+- Elixir Ecto backend
+- Ruby Trilogy backend
+- Pydantic/msgspec row types for Python
+- Zod v4 schemas for TypeScript
+- GenOptions infrastructure for per-backend configuration
+
+### Changed
+
+- Extended Quick Start documentation with all 10 languages
+
+## [0.3.0] - 2026-04-07
+
+### Added
+
+- Snippet-runner tool for validating documentation code snippets across 13 languages
+- PHP namespace support and Generator for `:many` queries
+- C# SQLite async API
+- Ruby module `Queries` encapsulation across all 3 backends
+
+### Changed
+
+- C# all backends: Enum.TryParse with descriptive InvalidOperationException
+- Python aiosqlite: Decimal maps to `decimal.Decimal` instead of float
+- Go database-sql MySQL: Decimal maps to float64
+- Ruby: SCREAMING_SNAKE_CASE enum variants
+- PHP: Final class `Queries` wrapper
+
+### Fixed
+
+- 8 backend-specific fixes across PHP, Ruby, C#, Rust, Python, and Go
+
 ## [0.2.0] - 2026-04-07
 
 ### Added

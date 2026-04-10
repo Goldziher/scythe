@@ -367,6 +367,15 @@ impl<'a> Analyzer<'a> {
         }
         None
     }
+
+    pub(super) fn is_column_nullable(&self, table_name: &str, col_name: &str) -> bool {
+        if let Some(table) = self.catalog.get_table(table_name)
+            && let Some(col) = table.columns.iter().find(|c| c.name == col_name)
+        {
+            return col.nullable;
+        }
+        false
+    }
 }
 
 #[cfg(test)]

@@ -218,7 +218,7 @@ impl CodegenBackend for CsharpMysqlConnectorBackend {
         }
 
         let return_type = match &analyzed.command {
-            QueryCommand::One => format!("{}?", struct_name),
+            QueryCommand::One | QueryCommand::Opt => format!("{}?", struct_name),
             QueryCommand::Many => {
                 format!("List<{}>", struct_name)
             }
@@ -260,7 +260,7 @@ impl CodegenBackend for CsharpMysqlConnectorBackend {
         }
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "    await using var reader = await cmd.ExecuteReaderAsync();"

@@ -136,7 +136,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
         let mut out = String::new();
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "export async function {}(conn: oracledb.Connection{}{}): Promise<{} | null> {{",

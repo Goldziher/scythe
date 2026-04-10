@@ -164,7 +164,7 @@ impl CodegenBackend for PythonAiosqliteBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "async def {}(conn: aiosqlite.Connection{}{}) -> {} | None:",

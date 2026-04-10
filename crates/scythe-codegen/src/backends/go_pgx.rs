@@ -159,7 +159,7 @@ impl CodegenBackend for GoPgxBackend {
                 let _ = writeln!(out, "\treturn result.RowsAffected(), nil");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 // :one - returns single struct
                 // Generated doc comment explains zero-value behavior
                 let _ = writeln!(

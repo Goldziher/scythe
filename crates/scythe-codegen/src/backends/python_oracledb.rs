@@ -163,7 +163,7 @@ impl CodegenBackend for PythonOracledbBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "async def {}(conn: oracledb.AsyncConnection{}{}) -> {} | None:",

@@ -163,7 +163,7 @@ impl CodegenBackend for PythonDuckdbBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "def {}(conn: duckdb.DuckDBPyConnection{}{}) -> {} | None:",

@@ -81,6 +81,16 @@ tasks:
     cmds:
       - cargo clean
 
+  version:sync:
+    desc: "Update all package versions to the given VERSION"
+    requires:
+      vars: [VERSION]
+    cmds:
+      - sed -i '' 's/^version = ".*"/version = "{{.VERSION}}"/' crates/scythe-cli/Cargo.toml crates/scythe-core/Cargo.toml crates/scythe-codegen/Cargo.toml crates/scythe-backend/Cargo.toml crates/scythe-lint/Cargo.toml
+      - sed -i '' -E 's/(scythe-(core|codegen|backend|lint|cli).*version = ")[^"]*"/\1{{.VERSION}}"/' crates/scythe-cli/Cargo.toml crates/scythe-codegen/Cargo.toml crates/scythe-lint/Cargo.toml
+      - cargo check --workspace 2>/dev/null || true
+      - echo "All crate versions updated to {{.VERSION}}"
+
   update:
     desc: Update dependencies
     cmds:

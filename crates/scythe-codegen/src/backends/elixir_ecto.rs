@@ -144,7 +144,7 @@ impl CodegenBackend for ElixirEctoBackend {
             format!(", {}", specs.join(", "))
         };
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "@spec {}(Ecto.Repo.t(){}) :: {{:ok, %{}{{}} | nil}} | {{:error, term()}}",
@@ -224,7 +224,7 @@ impl CodegenBackend for ElixirEctoBackend {
         let _ = writeln!(out, "def {}(repo{}{}) do", func_name, sep, param_list);
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "  case Ecto.Adapters.SQL.query(repo, \"{}\", {}) do",
