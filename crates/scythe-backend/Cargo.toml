@@ -1,6 +1,6 @@
 [package]
 name = "scythe-backend"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 license = "MIT"
 description = "Backend manifest, type resolution, and template rendering for scythe"

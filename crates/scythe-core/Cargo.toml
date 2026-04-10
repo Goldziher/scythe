@@ -1,6 +1,6 @@
 [package]
 name = "scythe-core"
-version = "0.6.1"
+version = "0.6.2"
 edition = "2024"
 license = "MIT"
 description = "Core SQL parsing, catalog building, and type inference for scythe"
