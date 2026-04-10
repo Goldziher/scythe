@@ -12,12 +12,12 @@ from psycopg import AsyncConnection  # noqa: F401
 class UserStatus(str, Enum):
     """Database enum type user_status."""
 
-    active = "active"
-    inactive = "inactive"
-    banned = "banned"
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    BANNED = "banned"
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CreateOrderRow:
     """Row type for CreateOrder query."""
 
@@ -28,7 +28,7 @@ class CreateOrderRow:
     created_at: datetime.datetime
 
 
-async def create_order(conn: AsyncConnection, *, user_id: int, total: decimal.Decimal, notes: str) -> CreateOrderRow | None:
+async def create_order(conn: AsyncConnection, *, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow | None:
     """Execute CreateOrder query."""
     cur = await conn.execute(
         """INSERT INTO orders (user_id, total, notes) VALUES (%(user_id)s, %(total)s, %(notes)s) RETURNING id, user_id, total, notes, created_at""",
@@ -46,7 +46,7 @@ async def create_order(conn: AsyncConnection, *, user_id: int, total: decimal.De
     )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetOrdersByUserRow:
     """Row type for GetOrdersByUser query."""
 
@@ -74,7 +74,7 @@ async def get_orders_by_user(conn: AsyncConnection, *, user_id: int) -> list[Get
     ]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetOrderTotalRow:
     """Row type for GetOrderTotal query."""
 
@@ -93,15 +93,16 @@ async def get_order_total(conn: AsyncConnection, *, user_id: int) -> GetOrderTot
     return GetOrderTotalRow(total_sum=row[0])
 
 
-async def delete_orders_by_user(conn: AsyncConnection, *, user_id: int) -> None:
+async def delete_orders_by_user(conn: AsyncConnection, *, user_id: int) -> int:
     """Execute DeleteOrdersByUser query."""
-    await conn.execute(
+    cur = await conn.execute(
         """DELETE FROM orders WHERE user_id = %(user_id)s""",
         {"user_id": user_id},
     )
+    return cur.rowcount
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetUserByIdRow:
     """Row type for GetUserById query."""
 
@@ -130,7 +131,7 @@ async def get_user_by_id(conn: AsyncConnection, *, id: int) -> GetUserByIdRow | 
     )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class ListActiveUsersRow:
     """Row type for ListActiveUsers query."""
 
@@ -149,7 +150,7 @@ async def list_active_users(conn: AsyncConnection, *, status: UserStatus) -> lis
     return [ListActiveUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CreateUserRow:
     """Row type for CreateUser query."""
 
@@ -160,7 +161,7 @@ class CreateUserRow:
     created_at: datetime.datetime
 
 
-async def create_user(conn: AsyncConnection, *, name: str, email: str, status: UserStatus) -> CreateUserRow | None:
+async def create_user(conn: AsyncConnection, *, name: str, email: str | None, status: UserStatus) -> CreateUserRow | None:
     """Execute CreateUser query."""
     cur = await conn.execute(
         """INSERT INTO users (name, email, status) VALUES (%(name)s, %(email)s, %(status)s) RETURNING id, name, email, status, created_at""",
@@ -194,7 +195,7 @@ async def delete_user(conn: AsyncConnection, *, id: int) -> None:
     )
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetUserOrdersRow:
     """Row type for GetUserOrders query."""
 
@@ -217,7 +218,7 @@ WHERE u.status = %(status)s""",
     return [GetUserOrdersRow(id=r[0], name=r[1], total=r[2], notes=r[3]) for r in rows]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class CountUsersByStatusRow:
     """Row type for CountUsersByStatus query."""
 
@@ -237,7 +238,7 @@ async def count_users_by_status(conn: AsyncConnection, *, status: UserStatus) ->
     return CountUsersByStatusRow(status=row[0], user_count=row[1])
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class GetUserWithTagsRow:
     """Row type for GetUserWithTags query."""
 
@@ -260,7 +261,7 @@ WHERE u.id = %(id)s""",
     return [GetUserWithTagsRow(id=r[0], name=r[1], tag_name=r[2]) for r in rows]
 
 
-@dataclass
+@dataclass(frozen=True, slots=True)
 class SearchUsersRow:
     """Row type for SearchUsers query."""
 

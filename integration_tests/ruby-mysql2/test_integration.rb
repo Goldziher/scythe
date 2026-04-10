@@ -143,7 +143,8 @@ begin
     port: opts[:port],
     username: opts[:username],
     password: opts[:password],
-    database: opts[:database]
+    database: opts[:database],
+    socket: nil
   )
 
   setup_schema(client)

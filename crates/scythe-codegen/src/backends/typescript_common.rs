@@ -30,6 +30,7 @@ impl TsRowType {
 }
 
 /// Map a neutral type to its Zod v4 schema expression.
+/// Note: This does not handle enums - use column_to_zod for full column handling.
 pub fn neutral_to_zod(neutral_type: &str, nullable: bool) -> String {
     let base = match neutral_type {
         "int16" | "int32" | "int64" => "z.number()",
@@ -63,7 +64,7 @@ pub fn generate_zod_row_struct(
     let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
     let _ = writeln!(out, "export const {} = z.object({{", schema_name);
     for col in columns {
-        let zod_type = neutral_to_zod(&col.neutral_type, col.nullable);
+        let zod_type = column_to_zod(col);
         let _ = writeln!(out, "\t{}: {},", col.field_name, zod_type);
     }
     let _ = writeln!(out, "}});");
@@ -74,6 +75,32 @@ pub fn generate_zod_row_struct(
         struct_name, schema_name
     );
     out
+}
+
+/// Map a ResolvedColumn to its Zod schema expression, handling enums properly.
+fn column_to_zod(col: &ResolvedColumn) -> String {
+    if col.neutral_type.starts_with("enum::") {
+        // For enum types, extract the enum name from lang_type or compute it from neutral_type
+        // lang_type should be like "UserStatus", we need "UserStatusSchema"
+        let base = if col.lang_type.starts_with("enum::") {
+            // If lang_type still has enum::, extract the enum name
+            col.lang_type
+                .strip_prefix("enum::")
+                .unwrap_or(&col.lang_type)
+                .to_string()
+        } else {
+            // lang_type should be the proper TypeScript enum name
+            col.lang_type.clone()
+        };
+        let schema_name = format!("{}Schema", base);
+        if col.nullable {
+            format!("{schema_name}.nullable()")
+        } else {
+            schema_name
+        }
+    } else {
+        neutral_to_zod(&col.neutral_type, col.nullable)
+    }
 }
 
 /// Generate a Zod enum schema from enum values.
@@ -93,5 +120,13 @@ pub fn generate_zod_enum(type_name: &str, values: &[String]) -> String {
         "export type {} = z.infer<typeof {}>;",
         type_name, schema_name
     );
+    let _ = writeln!(out);
+    let _ = writeln!(out);
+    let _ = writeln!(out, "export const {} = {{", type_name);
+    for value in values {
+        let key = scythe_backend::naming::to_pascal_case(value);
+        let _ = writeln!(out, "\t{}: \"{}\",", key, value);
+    }
+    let _ = write!(out, "}} as const;");
     out
 }

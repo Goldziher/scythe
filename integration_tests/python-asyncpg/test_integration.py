@@ -46,7 +46,7 @@ async def setup_schema(conn: asyncpg.Connection) -> None:
 async def test_create_user(conn: asyncpg.Connection) -> int:
     """Test CreateUser query. Returns created user ID."""
     user = await create_user(
-        conn, name="Alice", email="alice@example.com", status=UserStatus.active
+        conn, name="Alice", email="alice@example.com", status=UserStatus.ACTIVE
     )
     assert user is not None, "CreateUser returned None"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
@@ -66,7 +66,7 @@ async def test_get_user_by_id(conn: asyncpg.Connection, user_id: int) -> None:
 
 async def test_list_active_users(conn: asyncpg.Connection) -> None:
     """Test ListActiveUsers query."""
-    users = await list_active_users(conn, status=UserStatus.active)
+    users = await list_active_users(conn, status=UserStatus.ACTIVE)
     assert len(users) >= 1, f"Expected at least 1 active user, got {len(users)}"
     names = [u.name for u in users]
     assert "Alice" in names, f"Expected 'Alice' in active users, got {names}"

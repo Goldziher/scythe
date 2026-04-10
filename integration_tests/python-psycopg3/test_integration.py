@@ -47,12 +47,12 @@ async def setup_schema(conn: psycopg.AsyncConnection) -> None:
 async def test_create_user(conn: psycopg.AsyncConnection) -> int:
     """Test CreateUser query. Returns created user ID."""
     user = await create_user(
-        conn, name="Alice", email="alice@example.com", status=UserStatus.active
+        conn, name="Alice", email="alice@example.com", status=UserStatus.ACTIVE
     )
     assert user is not None, "CreateUser returned None"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.email == "alice@example.com", f"Expected email 'alice@example.com', got '{user.email}'"
-    assert user.status == UserStatus.active or user.status == "active", (
+    assert user.status == UserStatus.ACTIVE or user.status == "active", (
         f"Expected status 'active', got '{user.status}'"
     )
     await conn.commit()
@@ -71,7 +71,7 @@ async def test_get_user_by_id(conn: psycopg.AsyncConnection, user_id: int) -> No
 
 async def test_list_active_users(conn: psycopg.AsyncConnection) -> None:
     """Test ListActiveUsers query."""
-    users = await list_active_users(conn, status=UserStatus.active)
+    users = await list_active_users(conn, status=UserStatus.ACTIVE)
     assert len(users) >= 1, f"Expected at least 1 active user, got {len(users)}"
     names = [u.name for u in users]
     assert "Alice" in names, f"Expected 'Alice' in active users, got {names}"

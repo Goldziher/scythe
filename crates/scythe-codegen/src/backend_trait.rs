@@ -106,6 +106,14 @@ pub trait CodegenBackend: Send + Sync {
         String::new()
     }
 
+    /// Generate code that should be emitted after the file footer.
+    /// This is useful for backends that need top-level code after a class wrapper.
+    /// For example, C# extension methods must be top-level, not nested.
+    /// Returns an empty string by default.
+    fn post_footer(&self) -> String {
+        String::new()
+    }
+
     /// Generate an RBS type signature file for Ruby backends.
     /// Returns `None` by default; Ruby backends override this.
     fn generate_rbs_file(&self, _context: &RbsGenerationContext) -> Option<String> {

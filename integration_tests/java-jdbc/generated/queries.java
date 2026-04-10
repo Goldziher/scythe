@@ -4,12 +4,13 @@ import java.sql.*;
 import java.time.OffsetDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import javax.annotation.Nonnull;
 import javax.annotation.Nullable;
 
 public enum UserStatus {
-    active("active"),
-    inactive("inactive"),
-    banned("banned");
+    ACTIVE("active"),
+    INACTIVE("inactive"),
+    BANNED("banned");
 
     private final String value;
     UserStatus(String value) { this.value = value; }
@@ -29,12 +30,12 @@ public record CreateOrderRow(
             rs.getInt("user_id"),
             rs.getBigDecimal("total"),
             rs.getString("notes"),
-            rs.getObject("created_at")
+            rs.getObject("created_at", OffsetDateTime.class)
         );
     }
 }
 
-public static CreateOrderRow createOrder(Connection conn, int user_id, java.math.BigDecimal total, String notes) throws SQLException {
+public static @Nullable CreateOrderRow createOrder(Connection conn, int user_id, @Nonnull java.math.BigDecimal total, @Nullable String notes) throws SQLException {
     try (var ps = conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at")) {
         ps.setInt(1, user_id);
         ps.setBigDecimal(2, total);
@@ -59,16 +60,16 @@ public record GetOrdersByUserRow(
             rs.getInt("id"),
             rs.getBigDecimal("total"),
             rs.getString("notes"),
-            rs.getObject("created_at")
+            rs.getObject("created_at", OffsetDateTime.class)
         );
     }
 }
 
-public static java.util.List<GetOrdersByUserRow> getOrdersByUser(Connection conn, int user_id) throws SQLException {
+public static List<GetOrdersByUserRow> getOrdersByUser(Connection conn, int user_id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC")) {
         ps.setInt(1, user_id);
         try (ResultSet rs = ps.executeQuery()) {
-            java.util.List<GetOrdersByUserRow> result = new java.util.ArrayList<>();
+            List<GetOrdersByUserRow> result = new ArrayList<>();
             while (rs.next()) {
                 result.add(GetOrdersByUserRow.fromResultSet(rs));
             }
@@ -87,7 +88,7 @@ public record GetOrderTotalRow(
     }
 }
 
-public static GetOrderTotalRow getOrderTotal(Connection conn, int user_id) throws SQLException {
+public static @Nullable GetOrderTotalRow getOrderTotal(Connection conn, int user_id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?")) {
         ps.setInt(1, user_id);
         try (ResultSet rs = ps.executeQuery()) {
@@ -119,12 +120,12 @@ public record GetUserByIdRow(
             rs.getString("name"),
             rs.getString("email"),
             rs.getObject("status"),
-            rs.getObject("created_at")
+            rs.getObject("created_at", OffsetDateTime.class)
         );
     }
 }
 
-public static GetUserByIdRow getUserById(Connection conn, int id) throws SQLException {
+public static @Nullable GetUserByIdRow getUserById(Connection conn, int id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = ?")) {
         ps.setInt(1, id);
         try (ResultSet rs = ps.executeQuery()) {
@@ -150,11 +151,11 @@ public record ListActiveUsersRow(
     }
 }
 
-public static java.util.List<ListActiveUsersRow> listActiveUsers(Connection conn, UserStatus status) throws SQLException {
+public static List<ListActiveUsersRow> listActiveUsers(Connection conn, @Nonnull UserStatus status) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email FROM users WHERE status = ?")) {
         ps.setObject(1, status);
         try (ResultSet rs = ps.executeQuery()) {
-            java.util.List<ListActiveUsersRow> result = new java.util.ArrayList<>();
+            List<ListActiveUsersRow> result = new ArrayList<>();
             while (rs.next()) {
                 result.add(ListActiveUsersRow.fromResultSet(rs));
             }
@@ -176,12 +177,12 @@ public record CreateUserRow(
             rs.getString("name"),
             rs.getString("email"),
             rs.getObject("status"),
-            rs.getObject("created_at")
+            rs.getObject("created_at", OffsetDateTime.class)
         );
     }
 }
 
-public static CreateUserRow createUser(Connection conn, String name, String email, UserStatus status) throws SQLException {
+public static @Nullable CreateUserRow createUser(Connection conn, @Nonnull String name, @Nullable String email, @Nonnull UserStatus status) throws SQLException {
     try (var ps = conn.prepareStatement("INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email, status, created_at")) {
         ps.setString(1, name);
         ps.setString(2, email);
@@ -195,7 +196,7 @@ public static CreateUserRow createUser(Connection conn, String name, String emai
     }
 }
 
-public static void updateUserEmail(Connection conn, String email, int id) throws SQLException {
+public static void updateUserEmail(Connection conn, @Nonnull String email, int id) throws SQLException {
     try (var ps = conn.prepareStatement("UPDATE users SET email = ? WHERE id = ?")) {
         ps.setString(1, email);
         ps.setInt(2, id);
@@ -226,11 +227,11 @@ public record GetUserOrdersRow(
     }
 }
 
-public static java.util.List<GetUserOrdersRow> getUserOrders(Connection conn, UserStatus status) throws SQLException {
+public static List<GetUserOrdersRow> getUserOrders(Connection conn, @Nonnull UserStatus status) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT u.id, u.name, o.total, o.notes FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.status = ?")) {
         ps.setObject(1, status);
         try (ResultSet rs = ps.executeQuery()) {
-            java.util.List<GetUserOrdersRow> result = new java.util.ArrayList<>();
+            List<GetUserOrdersRow> result = new ArrayList<>();
             while (rs.next()) {
                 result.add(GetUserOrdersRow.fromResultSet(rs));
             }
@@ -251,7 +252,7 @@ public record CountUsersByStatusRow(
     }
 }
 
-public static CountUsersByStatusRow countUsersByStatus(Connection conn, UserStatus status) throws SQLException {
+public static @Nullable CountUsersByStatusRow countUsersByStatus(Connection conn, @Nonnull UserStatus status) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = ?")) {
         ps.setObject(1, status);
         try (ResultSet rs = ps.executeQuery()) {
@@ -277,11 +278,11 @@ public record GetUserWithTagsRow(
     }
 }
 
-public static java.util.List<GetUserWithTagsRow> getUserWithTags(Connection conn, int id) throws SQLException {
+public static List<GetUserWithTagsRow> getUserWithTags(Connection conn, int id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT u.id, u.name, t.name AS tag_name FROM users u INNER JOIN user_tags ut ON u.id = ut.user_id INNER JOIN tags t ON ut.tag_id = t.id WHERE u.id = ?")) {
         ps.setInt(1, id);
         try (ResultSet rs = ps.executeQuery()) {
-            java.util.List<GetUserWithTagsRow> result = new java.util.ArrayList<>();
+            List<GetUserWithTagsRow> result = new ArrayList<>();
             while (rs.next()) {
                 result.add(GetUserWithTagsRow.fromResultSet(rs));
             }
@@ -304,11 +305,11 @@ public record SearchUsersRow(
     }
 }
 
-public static java.util.List<SearchUsersRow> searchUsers(Connection conn, String name) throws SQLException {
+public static List<SearchUsersRow> searchUsers(Connection conn, @Nonnull String name) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email FROM users WHERE name LIKE ?")) {
         ps.setString(1, name);
         try (ResultSet rs = ps.executeQuery()) {
-            java.util.List<SearchUsersRow> result = new java.util.ArrayList<>();
+            List<SearchUsersRow> result = new ArrayList<>();
             while (rs.next()) {
                 result.add(SearchUsersRow.fromResultSet(rs));
             }

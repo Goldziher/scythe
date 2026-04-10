@@ -1,10 +1,17 @@
+import java.math.BigDecimal
 import java.sql.Connection
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.time.OffsetTime
+import java.util.UUID
 
 
 enum class UserStatus(val value: String) {
-    active("active"),
-    inactive("inactive"),
-    banned("banned");
+    ACTIVE("active"),
+    INACTIVE("inactive"),
+    BANNED("banned");
 }
 
 
@@ -21,7 +28,7 @@ fun createOrder(
     conn: Connection,
     user_id: Int,
     total: java.math.BigDecimal,
-    notes: String,
+    notes: String?,
 ): CreateOrderRow? {
     conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at").use { ps ->
         ps.setInt(1, user_id)
@@ -29,12 +36,14 @@ fun createOrder(
         ps.setString(3, notes)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
+                val notesValue = rs.getString("notes")
+                val notes = if (rs.wasNull()) null else notesValue
                 CreateOrderRow(
                     id = rs.getInt("id"),
                     user_id = rs.getInt("user_id"),
                     total = rs.getBigDecimal("total"),
-                    notes = rs.getString("notes"),
-                    created_at = rs.getObject("created_at"),
+                    notes = notes,
+                    created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
                 null
@@ -61,12 +70,14 @@ fun getOrdersByUser(
         ps.executeQuery().use { rs ->
             val result = mutableListOf<GetOrdersByUserRow>()
             while (rs.next()) {
+                val notesValue = rs.getString("notes")
+                val notes = if (rs.wasNull()) null else notesValue
                 result.add(
                     GetOrdersByUserRow(
                         id = rs.getInt("id"),
                         total = rs.getBigDecimal("total"),
-                        notes = rs.getString("notes"),
-                        created_at = rs.getObject("created_at"),
+                        notes = notes,
+                        created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                     ),
                 )
             }
@@ -89,8 +100,10 @@ fun getOrderTotal(
         ps.setInt(1, user_id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
+                val total_sumValue = rs.getBigDecimal("total_sum")
+                val total_sum = if (rs.wasNull()) null else total_sumValue
                 GetOrderTotalRow(
-                    total_sum = rs.getBigDecimal("total_sum"),
+                    total_sum = total_sum,
                 )
             } else {
                 null
@@ -128,12 +141,14 @@ fun getUserById(
         ps.setInt(1, id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 GetUserByIdRow(
                     id = rs.getInt("id"),
                     name = rs.getString("name"),
-                    email = rs.getString("email"),
+                    email = email,
                     status = rs.getObject("status"),
-                    created_at = rs.getObject("created_at"),
+                    created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
                 null
@@ -159,11 +174,13 @@ fun listActiveUsers(
         ps.executeQuery().use { rs ->
             val result = mutableListOf<ListActiveUsersRow>()
             while (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 result.add(
                     ListActiveUsersRow(
                         id = rs.getInt("id"),
                         name = rs.getString("name"),
-                        email = rs.getString("email"),
+                        email = email,
                     ),
                 )
             }
@@ -185,7 +202,7 @@ data class CreateUserRow(
 fun createUser(
     conn: Connection,
     name: String,
-    email: String,
+    email: String?,
     status: UserStatus,
 ): CreateUserRow? {
     conn.prepareStatement("INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email, status, created_at").use { ps ->
@@ -194,12 +211,14 @@ fun createUser(
         ps.setObject(3, status)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 CreateUserRow(
                     id = rs.getInt("id"),
                     name = rs.getString("name"),
-                    email = rs.getString("email"),
+                    email = email,
                     status = rs.getObject("status"),
-                    created_at = rs.getObject("created_at"),
+                    created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
                 null
@@ -250,12 +269,16 @@ fun getUserOrders(
         ps.executeQuery().use { rs ->
             val result = mutableListOf<GetUserOrdersRow>()
             while (rs.next()) {
+                val totalValue = rs.getBigDecimal("total")
+                val total = if (rs.wasNull()) null else totalValue
+                val notesValue = rs.getString("notes")
+                val notes = if (rs.wasNull()) null else notesValue
                 result.add(
                     GetUserOrdersRow(
                         id = rs.getInt("id"),
                         name = rs.getString("name"),
-                        total = rs.getBigDecimal("total"),
-                        notes = rs.getString("notes"),
+                        total = total,
+                        notes = notes,
                     ),
                 )
             }
@@ -337,11 +360,13 @@ fun searchUsers(
         ps.executeQuery().use { rs ->
             val result = mutableListOf<SearchUsersRow>()
             while (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 result.add(
                     SearchUsersRow(
                         id = rs.getInt("id"),
                         name = rs.getString("name"),
-                        email = rs.getString("email"),
+                        email = email,
                     ),
                 )
             }

@@ -512,8 +512,8 @@ mod tests {
 
         let query_fn = result.query_fn.unwrap();
         assert!(query_fn.contains("pub async fn list_users("));
-        assert!(query_fn.contains("tokio_postgres::Client"));
-        assert!(query_fn.contains("Box<dyn std::error::Error>"));
+        assert!(query_fn.contains("tokio_postgres::GenericClient"));
+        assert!(query_fn.contains("tokio_postgres::Error"));
         assert!(!query_fn.contains("sqlx"));
     }
 

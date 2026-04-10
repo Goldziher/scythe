@@ -5,10 +5,10 @@
 module Queries
 
   module UserStatus
-    active = "active"
-    inactive = "inactive"
-    banned = "banned"
-    ALL = [active, inactive, banned].freeze
+    ACTIVE = "active"
+    INACTIVE = "inactive"
+    BANNED = "banned"
+    ALL = [ACTIVE, INACTIVE, BANNED].freeze
   end
 
   CreateOrderRow = Data.define(:id, :user_id, :total, :notes, :created_at)

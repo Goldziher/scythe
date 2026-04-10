@@ -91,11 +91,23 @@ readonly class SearchUsersRow {
 
 final class Queries {
 
-    public static function createOrder(\PDO $pdo, int $user_id, float $total, string $notes): void {
+    /**
+     * @param \PDO $pdo
+     * @param int $user_id
+     * @param float $total
+     * @param ?string $notes
+     * @return void
+     */
+    public static function createOrder(\PDO $pdo, int $user_id, float $total, ?string $notes): void {
         $stmt = $pdo->prepare("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)");
         $stmt->execute([$user_id, $total, $notes]);
     }
 
+    /**
+     * @param \PDO $pdo
+     * @param int $user_id
+     * @return \Generator<int, GetOrdersByUserRow, mixed, void>
+     */
     public static function getOrdersByUser(\PDO $pdo, int $user_id): \Generator {
         $stmt = $pdo->prepare("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC");
         $stmt->execute([$user_id]);
@@ -104,6 +116,11 @@ final class Queries {
         }
     }
 
+    /**
+     * @param \PDO $pdo
+     * @param int $user_id
+     * @return GetOrderTotalRow|null
+     */
     public static function getOrderTotal(\PDO $pdo, int $user_id): ?GetOrderTotalRow {
         $stmt = $pdo->prepare("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?");
         $stmt->execute([$user_id]);
@@ -111,12 +128,22 @@ final class Queries {
         return $row ? GetOrderTotalRow::fromRow($row) : null;
     }
 
+    /**
+     * @param \PDO $pdo
+     * @param int $user_id
+     * @return int
+     */
     public static function deleteOrdersByUser(\PDO $pdo, int $user_id): int {
         $stmt = $pdo->prepare("DELETE FROM orders WHERE user_id = ?");
         $stmt->execute([$user_id]);
         return $stmt->rowCount();
     }
 
+    /**
+     * @param \PDO $pdo
+     * @param int $id
+     * @return GetUserByIdRow|null
+     */
     public static function getUserById(\PDO $pdo, int $id): ?GetUserByIdRow {
         $stmt = $pdo->prepare("SELECT id, name, email, status, created_at FROM users WHERE id = ?");
         $stmt->execute([$id]);
@@ -124,6 +151,11 @@ final class Queries {
         return $row ? GetUserByIdRow::fromRow($row) : null;
     }
 
+    /**
+     * @param \PDO $pdo
+     * @param string $status
+     * @return \Generator<int, ListActiveUsersRow, mixed, void>
+     */
     public static function listActiveUsers(\PDO $pdo, string $status): \Generator {
         $stmt = $pdo->prepare("SELECT id, name, email FROM users WHERE status = ?");
         $stmt->execute([$status]);
@@ -132,21 +164,44 @@ final class Queries {
         }
     }
 
-    public static function createUser(\PDO $pdo, string $name, string $email, string $status): void {
+    /**
+     * @param \PDO $pdo
+     * @param string $name
+     * @param ?string $email
+     * @param string $status
+     * @return void
+     */
+    public static function createUser(\PDO $pdo, string $name, ?string $email, string $status): void {
         $stmt = $pdo->prepare("INSERT INTO users (name, email, status) VALUES (?, ?, ?)");
         $stmt->execute([$name, $email, $status]);
     }
 
+    /**
+     * @param \PDO $pdo
+     * @param string $email
+     * @param int $id
+     * @return void
+     */
     public static function updateUserEmail(\PDO $pdo, string $email, int $id): void {
         $stmt = $pdo->prepare("UPDATE users SET email = ? WHERE id = ?");
         $stmt->execute([$email, $id]);
     }
 
+    /**
+     * @param \PDO $pdo
+     * @param int $id
+     * @return void
+     */
     public static function deleteUser(\PDO $pdo, int $id): void {
         $stmt = $pdo->prepare("DELETE FROM users WHERE id = ?");
         $stmt->execute([$id]);
     }
 
+    /**
+     * @param \PDO $pdo
+     * @param string $name
+     * @return \Generator<int, SearchUsersRow, mixed, void>
+     */
     public static function searchUsers(\PDO $pdo, string $name): \Generator {
         $stmt = $pdo->prepare("SELECT id, name, email FROM users WHERE name LIKE ?");
         $stmt->execute([$name]);

@@ -395,6 +395,12 @@ fn generate_for_backend(
         output_parts.push(footer);
     }
 
+    // Post-footer code (e.g., top-level C# extension methods)
+    let post_footer = backend.post_footer();
+    if !post_footer.is_empty() {
+        output_parts.push(post_footer);
+    }
+
     // Determine output filename from backend manifest
     let ext = &backend.manifest().backend.file_extension;
     let filename = format!("queries.{}", ext);

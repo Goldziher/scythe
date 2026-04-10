@@ -15,7 +15,7 @@ const (
 	UsersStatusBanned UsersStatus = "banned"
 )
 
-func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total string, Notes string) error {
+func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total float64, Notes *string) error {
 	_, err := db.ExecContext(ctx, "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)", UserId, Total, Notes)
 	return err
 }
@@ -23,7 +23,7 @@ func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total string, No
 type GetLastInsertOrderRow struct {
 	Id int32 `json:"id"`
 	UserId int32 `json:"user_id"`
-	Total string `json:"total"`
+	Total float64 `json:"total"`
 	Notes *string `json:"notes"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -37,7 +37,7 @@ func GetLastInsertOrder(ctx context.Context, db *sql.DB) (GetLastInsertOrderRow,
 
 type GetOrdersByUserRow struct {
 	Id int32 `json:"id"`
-	Total string `json:"total"`
+	Total float64 `json:"total"`
 	Notes *string `json:"notes"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -60,7 +60,7 @@ func GetOrdersByUser(ctx context.Context, db *sql.DB, UserId int32) ([]GetOrders
 }
 
 type GetOrderTotalRow struct {
-	TotalSum *string `json:"total_sum"`
+	TotalSum *float64 `json:"total_sum"`
 }
 
 func GetOrderTotal(ctx context.Context, db *sql.DB, UserId int32) (GetOrderTotalRow, error) {
@@ -116,7 +116,7 @@ func ListActiveUsers(ctx context.Context, db *sql.DB, Status UsersStatus) ([]Lis
 	return result, rows.Err()
 }
 
-func CreateUser(ctx context.Context, db *sql.DB, Name string, Email string, Status UsersStatus) error {
+func CreateUser(ctx context.Context, db *sql.DB, Name string, Email *string, Status UsersStatus) error {
 	_, err := db.ExecContext(ctx, "INSERT INTO users (name, email, status) VALUES (?, ?, ?)", Name, Email, Status)
 	return err
 }

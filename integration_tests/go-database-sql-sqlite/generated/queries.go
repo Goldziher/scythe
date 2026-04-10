@@ -6,7 +6,7 @@ import (
 )
 
 
-func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total float32, Notes string) error {
+func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total float32, Notes *string) error {
 	_, err := db.ExecContext(ctx, "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)", UserId, Total, Notes)
 	return err
 }
@@ -92,7 +92,7 @@ func ListActiveUsers(ctx context.Context, db *sql.DB, Status string) ([]ListActi
 	return result, rows.Err()
 }
 
-func CreateUser(ctx context.Context, db *sql.DB, Name string, Email string, Status string) error {
+func CreateUser(ctx context.Context, db *sql.DB, Name string, Email *string, Status string) error {
 	_, err := db.ExecContext(ctx, "INSERT INTO users (name, email, status) VALUES (?, ?, ?)", Name, Email, Status)
 	return err
 }

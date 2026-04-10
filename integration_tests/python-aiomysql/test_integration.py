@@ -17,6 +17,7 @@ from generated.queries import (
     get_orders_by_user,
     get_user_by_id,
     list_active_users,
+    UsersStatus,
 )
 
 
@@ -35,12 +36,10 @@ def get_database_url() -> str:
 async def setup_schema(conn: aiomysql.Connection) -> None:
     """Drop all tables and recreate schema from SQL file."""
     async with conn.cursor() as cur:
-        await cur.execute("SET FOREIGN_KEY_CHECKS = 0")
         await cur.execute("DROP TABLE IF EXISTS user_tags")
         await cur.execute("DROP TABLE IF EXISTS tags")
         await cur.execute("DROP TABLE IF EXISTS orders")
         await cur.execute("DROP TABLE IF EXISTS users")
-        await cur.execute("SET FOREIGN_KEY_CHECKS = 1")
         schema_sql = SCHEMA_PATH.read_text()
         for statement in schema_sql.split(";"):
             statement = statement.strip()
@@ -51,7 +50,7 @@ async def setup_schema(conn: aiomysql.Connection) -> None:
 
 async def test_create_user(conn: aiomysql.Connection) -> int:
     """Test CreateUser + GetLastInsertUser queries. Returns created user ID."""
-    await create_user(conn, name="Alice", email="alice@example.com", status="active")
+    await create_user(conn, name="Alice", email="alice@example.com", status=UsersStatus.ACTIVE)
     user = await get_last_insert_user(conn)
     assert user is not None, "GetLastInsertUser returned None"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
@@ -71,7 +70,7 @@ async def test_get_user_by_id(conn: aiomysql.Connection, user_id: int) -> None:
 
 async def test_list_active_users(conn: aiomysql.Connection) -> None:
     """Test ListActiveUsers query."""
-    users = await list_active_users(conn, status="active")
+    users = await list_active_users(conn, status=UsersStatus.ACTIVE)
     assert len(users) >= 1, f"Expected at least 1 active user, got {len(users)}"
     names = [u.name for u in users]
     assert "Alice" in names, f"Expected 'Alice' in active users, got {names}"

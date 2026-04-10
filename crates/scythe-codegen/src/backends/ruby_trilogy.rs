@@ -118,7 +118,7 @@ impl CodegenBackend for RubyTrilogyBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        let param_array = if params.is_empty() {
+        let _param_array = if params.is_empty() {
             "[]".to_string()
         } else {
             format!(
@@ -134,12 +134,45 @@ impl CodegenBackend for RubyTrilogyBackend {
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
-                let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
-                let _ = writeln!(
-                    out,
-                    "    results = stmt.execute({})",
-                    param_array.trim_start_matches('[').trim_end_matches(']')
-                );
+                // Trilogy does not support parameterized queries, so we use string interpolation
+                // Replace ? placeholders with #{param_name} for Ruby string interpolation
+                // String types need to be quoted for SQL
+                let mut sql_interpolated = sql.clone();
+                for param in params.iter() {
+                    if let Some(pos) = sql_interpolated.find('?') {
+                        // Quote strings for SQL, keep numbers unquoted
+                        let _param_expr = if param.neutral_type.starts_with("enum::")
+                            || param.neutral_type == "string"
+                        {
+                            format!(
+                                "\\\"#{{{}}}\\\"\"\n                             ",
+                                param.field_name
+                            )
+                            .replace("\n                             ", "")
+                            .replace("\\\"", "'")
+                        } else {
+                            format!("#{{{}}}", param.field_name)
+                        };
+
+                        if param.neutral_type.starts_with("enum::")
+                            || param.neutral_type == "string"
+                        {
+                            sql_interpolated.replace_range(
+                                pos..pos + 1,
+                                &format!("'#{{{}}}'", param.field_name),
+                            );
+                        } else {
+                            sql_interpolated
+                                .replace_range(pos..pos + 1, &format!("#{{{}}}", param.field_name));
+                        }
+                    }
+                }
+
+                if params.is_empty() {
+                    let _ = writeln!(out, "    results = client.query(\"{}\")", sql);
+                } else {
+                    let _ = writeln!(out, "    results = client.query(\"{}\")", sql_interpolated);
+                }
                 let _ = writeln!(out, "    row = results.first");
                 let _ = writeln!(out, "    return nil if row.nil?");
 
@@ -162,14 +195,41 @@ impl CodegenBackend for RubyTrilogyBackend {
                 let batch_fn_name = format!("{}_batch", func_name);
                 // Batch writes its own function signature (not the outer one)
                 let _ = writeln!(out, "  def self.{}(client, items)", batch_fn_name);
-                let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
                 let _ = writeln!(out, "    items.each do |item|");
-                if params.len() > 1 {
-                    let _ = writeln!(out, "      stmt.execute(*item)");
-                } else if params.len() == 1 {
-                    let _ = writeln!(out, "      stmt.execute(item)");
+                if params.is_empty() {
+                    let _ = writeln!(out, "      client.query(\"{}\")", sql);
+                } else if params.len() > 1 {
+                    // Multiple params: destructure from tuple/array
+                    let mut sql_with_params = sql.clone();
+                    for (i, param) in params.iter().enumerate() {
+                        if let Some(pos) = sql_with_params.find('?') {
+                            let item_expr = format!("item[{}]", i);
+                            if param.neutral_type.starts_with("enum::")
+                                || param.neutral_type == "string"
+                            {
+                                sql_with_params
+                                    .replace_range(pos..pos + 1, &format!("'#{{{}}}'", item_expr));
+                            } else {
+                                sql_with_params
+                                    .replace_range(pos..pos + 1, &format!("#{{{}}}", item_expr));
+                            }
+                        }
+                    }
+                    let _ = writeln!(out, "      client.query(\"{}\")", sql_with_params);
                 } else {
-                    let _ = writeln!(out, "      stmt.execute");
+                    // Single param
+                    let mut sql_with_param = sql.clone();
+                    if let Some(pos) = sql_with_param.find('?') {
+                        let param = &params[0];
+                        if param.neutral_type.starts_with("enum::")
+                            || param.neutral_type == "string"
+                        {
+                            sql_with_param.replace_range(pos..pos + 1, "'#{item}'");
+                        } else {
+                            sql_with_param.replace_range(pos..pos + 1, "#{item}");
+                        }
+                    }
+                    let _ = writeln!(out, "      client.query(\"{}\")", sql_with_param);
                 }
                 let _ = writeln!(out, "    end");
                 let _ = write!(out, "  end");
@@ -177,12 +237,30 @@ impl CodegenBackend for RubyTrilogyBackend {
             }
             QueryCommand::Many => {
                 let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
-                let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
-                let _ = writeln!(
-                    out,
-                    "    results = stmt.execute({})",
-                    param_array.trim_start_matches('[').trim_end_matches(']')
-                );
+                // Replace ? placeholders with #{param_name} for Ruby string interpolation
+                // String types need to be quoted for SQL
+                let mut sql_interpolated = sql.clone();
+                for param in params.iter() {
+                    if let Some(pos) = sql_interpolated.find('?') {
+                        if param.neutral_type.starts_with("enum::")
+                            || param.neutral_type == "string"
+                        {
+                            sql_interpolated.replace_range(
+                                pos..pos + 1,
+                                &format!("'#{{{}}}'", param.field_name),
+                            );
+                        } else {
+                            sql_interpolated
+                                .replace_range(pos..pos + 1, &format!("#{{{}}}", param.field_name));
+                        }
+                    }
+                }
+
+                if params.is_empty() {
+                    let _ = writeln!(out, "    results = client.query(\"{}\")", sql);
+                } else {
+                    let _ = writeln!(out, "    results = client.query(\"{}\")", sql_interpolated);
+                }
                 let _ = writeln!(out, "    results.map do |row|");
                 let fields = columns
                     .iter()
@@ -202,22 +280,58 @@ impl CodegenBackend for RubyTrilogyBackend {
             }
             QueryCommand::Exec => {
                 let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
-                let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
-                let _ = writeln!(
-                    out,
-                    "    stmt.execute({})",
-                    param_array.trim_start_matches('[').trim_end_matches(']')
-                );
+                // Replace ? placeholders with #{param_name} for Ruby string interpolation
+                // String types need to be quoted for SQL
+                let mut sql_interpolated = sql.clone();
+                for param in params.iter() {
+                    if let Some(pos) = sql_interpolated.find('?') {
+                        if param.neutral_type.starts_with("enum::")
+                            || param.neutral_type == "string"
+                        {
+                            sql_interpolated.replace_range(
+                                pos..pos + 1,
+                                &format!("'#{{{}}}'", param.field_name),
+                            );
+                        } else {
+                            sql_interpolated
+                                .replace_range(pos..pos + 1, &format!("#{{{}}}", param.field_name));
+                        }
+                    }
+                }
+
+                if params.is_empty() {
+                    let _ = writeln!(out, "    client.query(\"{}\")", sql);
+                } else {
+                    let _ = writeln!(out, "    client.query(\"{}\")", sql_interpolated);
+                }
                 let _ = writeln!(out, "    nil");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
-                let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
-                let _ = writeln!(
-                    out,
-                    "    stmt.execute({})",
-                    param_array.trim_start_matches('[').trim_end_matches(']')
-                );
+                // Replace ? placeholders with #{param_name} for Ruby string interpolation
+                // String types need to be quoted for SQL
+                let mut sql_interpolated = sql.clone();
+                for param in params.iter() {
+                    if let Some(pos) = sql_interpolated.find('?') {
+                        if param.neutral_type.starts_with("enum::")
+                            || param.neutral_type == "string"
+                        {
+                            sql_interpolated.replace_range(
+                                pos..pos + 1,
+                                &format!("'#{{{}}}'", param.field_name),
+                            );
+                        } else {
+                            sql_interpolated
+                                .replace_range(pos..pos + 1, &format!("#{{{}}}", param.field_name));
+                        }
+                    }
+                }
+
+                if params.is_empty() {
+                    let _ = writeln!(out, "    client.query(\"{}\")", sql);
+                } else {
+                    let _ = writeln!(out, "    client.query(\"{}\")", sql_interpolated);
+                }
                 let _ = writeln!(out, "    client.affected_rows");
             }
             QueryCommand::Grouped => unreachable!("handled as Many in codegen"),
