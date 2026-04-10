@@ -1,6 +1,6 @@
 {
 	"name": "scythe/integration-php-pdo",
-	"description": "Scythe integration tests for PHP PDO backend",
+	"description": "Scythe integration tests for php-pdo backend",
 	"type": "project",
 	"require": {
 		"php": ">=8.2"

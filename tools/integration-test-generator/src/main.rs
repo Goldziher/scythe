@@ -401,8 +401,8 @@ fn build_backends() -> Vec<BackendConfig> {
             language: "php".into(),
             engine: "mysql".into(),
             driver: "pdo-mysql".into(),
-            connection_env: "MYSQL_URL".into(),
-            backend: "php-pdo-mysql".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "php-pdo".into(),
             options: HashMap::new(),
         },
         BackendConfig {

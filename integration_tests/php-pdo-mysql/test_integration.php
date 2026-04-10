@@ -6,26 +6,36 @@ require_once __DIR__ . '/generated/queries.php';
 
 use App\Generated\Queries;
 use App\Generated\UsersStatus;
+use App\Generated\CreateUserRow;
+use App\Generated\GetUserByIdRow;
+use App\Generated\ListActiveUsersRow;
+use App\Generated\CreateOrderRow;
+use App\Generated\GetOrdersByUserRow;
 
-function get_mysql_url(): string
+function get_database_url(): string
 {
-    $url = getenv('MYSQL_URL');
+    $url = getenv('DATABASE_URL');
     if ($url === false || $url === '') {
-        fwrite(STDERR, "ERROR: MYSQL_URL environment variable is not set\n");
+        fwrite(STDERR, "ERROR: DATABASE_URL environment variable is not set\n");
         exit(1);
     }
     return $url;
 }
 
-function parse_mysql_url(string $url): array
+function parse_database_url(string $url): array
 {
     $parts = parse_url($url);
     if ($parts === false) {
-        fwrite(STDERR, "ERROR: Invalid MYSQL_URL format\n");
+        fwrite(STDERR, "ERROR: Invalid DATABASE_URL format\n");
         exit(1);
     }
+    // Force TCP connection on macOS where localhost triggers Unix socket mode
+    $host = $parts['host'] ?? 'localhost';
+    if ($host === 'localhost') {
+        $host = '127.0.0.1';
+    }
     return [
-        'host' => $parts['host'] ?? 'localhost',
+        'host' => $host,
         'port' => $parts['port'] ?? 3306,
         'dbname' => ltrim($parts['path'] ?? '/scythe_test', '/'),
         'user' => $parts['user'] ?? 'root',
@@ -35,7 +45,7 @@ function parse_mysql_url(string $url): array
 
 function create_pdo(string $url): PDO
 {
-    $params = parse_mysql_url($url);
+    $params = parse_database_url($url);
     $dsn = sprintf(
         'mysql:host=%s;port=%d;dbname=%s',
         $params['host'],
@@ -60,11 +70,10 @@ function setup_schema(PDO $pdo): void
     if ($schema_sql === false) {
         throw new RuntimeException("Failed to read schema file: {$schema_path}");
     }
-    // MySQL requires executing statements one at a time
-    $statements = array_filter(array_map('trim', explode(';', $schema_sql)));
-    foreach ($statements as $statement) {
-        if ($statement !== '') {
-            $pdo->exec($statement);
+    foreach (explode(';', $schema_sql) as $stmt) {
+        $stmt = trim($stmt);
+        if ($stmt !== '') {
+            $pdo->exec($stmt);
         }
     }
 }
@@ -95,9 +104,9 @@ function assert_true(bool $value, string $message): void
 
 function test_create_user(PDO $pdo): int
 {
-    Queries::createUser($pdo, "Alice", "alice@example.com", UsersStatus::active);
+    Queries::createUser($pdo, "Alice", "alice@example.com", UsersStatus::ACTIVE);
     $user = Queries::getLastInsertUser($pdo);
-    assert_not_null($user, "CreateUser: getLastInsertUser returned null");
+    assert_not_null($user, "CreateUser returned null");
     assert_equal("Alice", $user->name, "CreateUser name");
     assert_equal("alice@example.com", $user->email, "CreateUser email");
     echo "PASS: CreateUser\n";
@@ -115,7 +124,7 @@ function test_get_user_by_id(PDO $pdo, int $user_id): void
 
 function test_list_active_users(PDO $pdo): void
 {
-    $users = iterator_to_array(Queries::listActiveUsers($pdo, UsersStatus::active));
+    $users = iterator_to_array(Queries::listActiveUsers($pdo, UsersStatus::ACTIVE));
     assert_true(count($users) >= 1, "Expected at least 1 active user, got " . count($users));
     $names = array_map(fn($u) => $u->name, $users);
     assert_true(in_array("Alice", $names, true), "Expected 'Alice' in active users");
@@ -126,7 +135,7 @@ function test_create_order(PDO $pdo, int $user_id): int
 {
     Queries::createOrder($pdo, $user_id, "49.99", "Test order");
     $order = Queries::getLastInsertOrder($pdo);
-    assert_not_null($order, "CreateOrder: getLastInsertOrder returned null");
+    assert_not_null($order, "CreateOrder returned null");
     assert_equal($user_id, $order->user_id, "CreateOrder user_id");
     assert_equal("Test order", $order->notes, "CreateOrder notes");
     echo "PASS: CreateOrder\n";
@@ -152,8 +161,8 @@ function test_delete_user(PDO $pdo, int $user_id): void
 }
 
 try {
-    $mysql_url = get_mysql_url();
-    $pdo = create_pdo($mysql_url);
+    $database_url = get_database_url();
+    $pdo = create_pdo($database_url);
 
     setup_schema($pdo);
 
