@@ -387,7 +387,8 @@ var createdUserID int64
 
 func testCreateUser(ctx context.Context, db *sql.DB) {
 	name := "CreateUser"
-	user, err := queries.CreateUser(ctx, db, "Alice", "alice@example.com"{% if engine == "postgresql" %}, queries.UserStatusActive{% endif %})
+	email := "alice@example.com"
+	user, err := queries.CreateUser(ctx, db, "Alice", &email{% if engine == "postgresql" %}, queries.UserStatusActive{% endif %})
 	if err != nil {
 		fail(name, err)
 		return
@@ -417,11 +418,12 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
+	notes := "Test order"
 {%- if engine == "sqlite" %}
-	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.99, "Test order")
+	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes)
 {%- else %}
 	total := decimal.NewFromFloat(99.99)
-	order, err := queries.CreateOrder(ctx, db, createdUserID, total, "Test order")
+	order, err := queries.CreateOrder(ctx, db, createdUserID, total, &notes)
 {%- endif %}
 	if err != nil {
 		fail(name, err)

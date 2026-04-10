@@ -54,6 +54,14 @@ impl CodegenBackend for ElixirPostgrexBackend {
         &["postgresql", "redshift"]
     }
 
+    fn query_class_header(&self) -> String {
+        "defmodule Scythe.Queries do".to_string()
+    }
+
+    fn file_footer(&self) -> String {
+        "end".to_string()
+    }
+
     fn generate_row_struct(
         &self,
         query_name: &str,
