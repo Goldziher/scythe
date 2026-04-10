@@ -1,5 +1,7 @@
 use scythe_lint::sqruff_adapter;
 
+use super::shared::engine_to_sqruff_dialect;
+
 /// Run the `fmt` command: format SQL files using sqruff.
 ///
 /// - If `files` is non-empty, format those files directly.
@@ -14,13 +16,15 @@ pub fn run_fmt(
     dialect: Option<&str>,
     files: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let dialect = dialect.unwrap_or("ansi");
-
-    let file_paths = if files.is_empty() {
-        resolve_files_from_config(config_path)?
+    let (file_paths, config_dialect) = if files.is_empty() {
+        let resolved = resolve_files_from_config(config_path)?;
+        (resolved.files, resolved.dialect)
     } else {
-        files.to_vec()
+        (files.to_vec(), None)
     };
+
+    // CLI --dialect flag takes precedence, then config engine, then "ansi"
+    let dialect = dialect.unwrap_or_else(|| config_dialect.as_deref().unwrap_or("ansi"));
 
     if file_paths.is_empty() {
         eprintln!("No SQL files found to format.");
@@ -64,8 +68,17 @@ pub fn run_fmt(
     Ok(())
 }
 
-/// Resolve SQL query files from the scythe config (reads `sql[*].queries` globs).
-fn resolve_files_from_config(config_path: &str) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+/// Resolved files and dialect from the scythe config.
+struct ResolvedConfig {
+    files: Vec<String>,
+    /// The sqruff dialect derived from the first sql block's engine.
+    dialect: Option<String>,
+}
+
+/// Resolve SQL query files and dialect from the scythe config.
+fn resolve_files_from_config(
+    config_path: &str,
+) -> Result<ResolvedConfig, Box<dyn std::error::Error>> {
     use serde::Deserialize;
 
     #[derive(Deserialize)]
@@ -75,6 +88,8 @@ fn resolve_files_from_config(config_path: &str) -> Result<Vec<String>, Box<dyn s
 
     #[derive(Deserialize)]
     struct MinSqlConfig {
+        #[serde(default)]
+        engine: Option<String>,
         queries: Vec<String>,
         #[serde(default)]
         schema: Vec<String>,
@@ -84,6 +99,13 @@ fn resolve_files_from_config(config_path: &str) -> Result<Vec<String>, Box<dyn s
         .map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: MinConfig = toml::from_str(&config_str)
         .map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+
+    // Use the engine from the first sql block as the dialect
+    let dialect = config
+        .sql
+        .first()
+        .and_then(|s| s.engine.as_deref())
+        .map(|e| engine_to_sqruff_dialect(e).to_string());
 
     let mut all_files = Vec::new();
     for sql_config in &config.sql {
@@ -98,7 +120,10 @@ fn resolve_files_from_config(config_path: &str) -> Result<Vec<String>, Box<dyn s
         }
     }
 
-    Ok(all_files)
+    Ok(ResolvedConfig {
+        files: all_files,
+        dialect,
+    })
 }
 
 /// Print a simple unified diff between original and formatted content.

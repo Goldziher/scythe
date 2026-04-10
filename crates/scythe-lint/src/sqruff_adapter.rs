@@ -16,19 +16,20 @@ pub struct SqruffViolation {
 
 /// Create a sqruff `FluffConfig` for the given dialect, optionally applying
 /// rule include/exclude settings from [`SqruffConfig`].
+/// Rules excluded by default due to upstream sqruff bugs.
+/// LT01: incorrectly splits compound operators (>=, <=, <@, etc.) into separate tokens.
+const DEFAULT_EXCLUDED_RULES: &[&str] = &["LT01"];
+
 fn make_config(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> FluffConfig {
     let mut source = format!("[sqruff]\ndialect = {}\n", dialect);
 
+    let mut excluded: Vec<&str> = DEFAULT_EXCLUDED_RULES.to_vec();
     if let Some(cfg) = sqruff_config {
-        // Add exclude_rules for rules set to "off"
-        let excluded: Vec<&str> = cfg
-            .rules
-            .iter()
-            .filter(|(_, v)| v.as_str() == "off")
-            .map(|(k, _)| k.as_str())
-            .collect();
-        if !excluded.is_empty() {
-            source.push_str(&format!("exclude_rules = {}\n", excluded.join(",")));
+        // Add user-configured rules set to "off"
+        for (k, v) in &cfg.rules {
+            if v.as_str() == "off" && !excluded.contains(&k.as_str()) {
+                excluded.push(k.as_str());
+            }
         }
 
         // Add rules for rules explicitly enabled
@@ -41,6 +42,10 @@ fn make_config(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> FluffConf
         if !included.is_empty() {
             source.push_str(&format!("rules = {}\n", included.join(",")));
         }
+    }
+
+    if !excluded.is_empty() {
+        source.push_str(&format!("exclude_rules = {}\n", excluded.join(",")));
     }
 
     FluffConfig::from_source(&source, None)
@@ -134,7 +139,20 @@ pub fn format_sql(
 
     let result = linter.lint_string(sql, None, true).map_err(|e| e.value)?;
 
-    Ok(result.fix_string())
+    let fixed = result.fix_string();
+
+    // Workaround: sqruff incorrectly splits compound operators inside CHECK
+    // constraints (e.g., ">=" becomes "> ="). Rejoin them.
+    // See: https://github.com/quarylabs/sqruff/issues/2530
+    Ok(rejoin_split_operators(&fixed))
+}
+
+/// Rejoin compound operators that sqruff incorrectly splits with whitespace.
+fn rejoin_split_operators(sql: &str) -> String {
+    sql.replace("> =", ">=")
+        .replace("< =", "<=")
+        .replace("! =", "!=")
+        .replace("< >", "<>")
 }
 
 #[cfg(test)]
