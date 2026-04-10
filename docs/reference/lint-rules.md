@@ -12,7 +12,7 @@ Scythe includes 22 built-in rules and integrates sqruff for additional SQL style
 | `SC-S02` | `delete-without-where` | DELETE without WHERE affects all rows | Error |
 | `SC-S03` | `no-select-star` | SELECT * makes queries fragile when columns change | Warn |
 | `SC-S04` | `unused-params` | Declared parameter placeholders ($N) not all used | Warn |
-| `SC-S05` | `missing-returning` | DML with :one/:many command should have a RETURNING clause | Warn |
+| `SC-S05` | `missing-returning` | DML with :one/:opt/:many command should have a RETURNING clause | Warn |
 | `SC-S06` | `ambiguous-column-in-join` | SELECT with JOIN has unqualified column references | Warn |
 
 ### Codegen
