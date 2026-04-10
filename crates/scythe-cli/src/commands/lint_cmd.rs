@@ -4,7 +4,7 @@ use std::path::Path;
 use scythe_lint::sqruff_adapter;
 use scythe_lint::types::Severity;
 
-use super::shared::{resolve_globs, split_query_file};
+use super::shared::{engine_to_sqruff_dialect, resolve_globs, split_query_file};
 
 /// A combined lint violation that can come from either scythe rules or sqruff.
 struct FileViolation {
@@ -28,14 +28,13 @@ pub fn run_lint(
     dialect: Option<&str>,
     files: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let dialect = dialect.unwrap_or("ansi");
-
     // Determine if we have a config file available
     let has_config = Path::new(config_path).exists();
 
     if !files.is_empty() {
-        // Files explicitly provided: run sqruff on those files
-        return lint_files(files, dialect, fix);
+        // Files explicitly provided: use CLI dialect or default to ansi
+        let d = dialect.unwrap_or("ansi");
+        return lint_files(files, d, fix);
     }
 
     if !has_config {
@@ -47,6 +46,7 @@ pub fn run_lint(
     }
 
     // Run full lint: scythe rules + sqruff rules using config
+    // dialect from config engine will be used, CLI flag overrides
     lint_from_config(config_path, dialect, fix)
 }
 
@@ -102,7 +102,7 @@ fn lint_files(
 /// Lint from config: run both scythe rules and sqruff rules.
 fn lint_from_config(
     config_path: &str,
-    dialect: &str,
+    cli_dialect: Option<&str>,
     fix: bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     use serde::Deserialize;
@@ -150,6 +150,10 @@ fn lint_from_config(
     for sql_config in &config.sql {
         eprintln!("[{}] Parsing schema...", sql_config.name);
 
+        // Derive sqruff dialect from config engine, CLI flag takes precedence
+        let sqruff_dialect =
+            cli_dialect.unwrap_or_else(|| engine_to_sqruff_dialect(&sql_config.engine));
+
         // Resolve schema files
         let schema_files = resolve_globs(&sql_config.schema)?;
         let schema_contents: Vec<String> = schema_files
@@ -175,7 +179,7 @@ fn lint_from_config(
             // Run sqruff on the entire file
             if fix {
                 let (sq_violations, fixed) =
-                    sqruff_adapter::lint_and_fix_sql(&content, dialect, sqruff_config);
+                    sqruff_adapter::lint_and_fix_sql(&content, sqruff_dialect, sqruff_config);
                 for sv in &sq_violations {
                     all_violations.push(FileViolation {
                         file: query_file.clone(),
@@ -193,7 +197,8 @@ fn lint_from_config(
                     eprintln!("fixed {}", query_file);
                 }
             } else {
-                let sq_violations = sqruff_adapter::lint_sql(&content, dialect, sqruff_config);
+                let sq_violations =
+                    sqruff_adapter::lint_sql(&content, sqruff_dialect, sqruff_config);
                 for sv in &sq_violations {
                     all_violations.push(FileViolation {
                         file: query_file.clone(),

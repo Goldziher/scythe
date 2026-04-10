@@ -30,6 +30,21 @@ pub fn split_query_file(content: &str) -> Vec<String> {
     blocks
 }
 
+/// Map scythe engine names to sqruff dialect names.
+pub fn engine_to_sqruff_dialect(engine: &str) -> &str {
+    match engine {
+        "postgresql" | "postgres" | "pg" => "postgres",
+        "mysql" | "mariadb" => "mysql",
+        "sqlite" | "sqlite3" => "sqlite",
+        "duckdb" => "duckdb",
+        "mssql" | "sqlserver" | "tsql" => "tsql",
+        "redshift" => "redshift",
+        "snowflake" => "snowflake",
+        "oracle" => "oracle",
+        _ => "ansi",
+    }
+}
+
 pub fn resolve_globs(patterns: &[String]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut paths = Vec::new();
     for pattern in patterns {

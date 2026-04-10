@@ -41,7 +41,7 @@ repos:
 
   # Markdown: linting
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: "v0.1.67"
+    rev: "v0.1.68"
     hooks:
       - id: rumdl-fmt
         exclude: "docs/snippets/"
@@ -85,14 +85,14 @@ repos:
 
   # Shell scripts: formatting and linting
   - repo: https://github.com/scop/pre-commit-shfmt
-    rev: v3.13.0-1
+    rev: v3.13.1-1
     hooks:
       - id: shfmt
         args: ["-w", "-i", "2"]
 
   # JavaScript/TypeScript/JSON/CSS: biome (formatting + linting with autofixes)
   - repo: https://github.com/biomejs/pre-commit
-    rev: v2.4.10
+    rev: v2.4.11
     hooks:
       - id: biome-format
 
