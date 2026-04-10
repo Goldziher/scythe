@@ -20,7 +20,8 @@ Specifies the query return type. Must include a colon prefix.
 
 | Value | Description | Use Case |
 |-------|-------------|----------|
-| `:one` | Returns a single row | SELECT ... WHERE id = $1 |
+| `:one` | Returns exactly one row (errors if missing) | SELECT ... WHERE id = $1 |
+| `:opt` | Returns zero or one row (nullable/optional) | SELECT ... WHERE email = $1 |
 | `:many` | Returns multiple rows | SELECT ... WHERE status = $1 |
 | `:exec` | Returns nothing | INSERT, UPDATE, DELETE without RETURNING |
 | `:exec_result` | Returns affected row count | UPDATE/DELETE when you need the count |

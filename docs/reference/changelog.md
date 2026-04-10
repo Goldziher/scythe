@@ -4,6 +4,19 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/basemind-ai/scythe/blob/main/CHANGELOG.md) in the repository root.
 
+## [0.6.1] - 2026-04-10
+
+### Added
+
+- **`:opt` query command** -- Returns zero or one row as an optional/nullable type across all backends. Distinct from `:one` which expects exactly one row and errors if missing.
+- **tokio-postgres options** -- `serde` and `derive` options for generated structs via `apply_options()`. Custom derives (e.g., `serde::Serialize`) propagate to all generated structs, enums, and batch params.
+- **GenericClient support** -- tokio-postgres functions now accept `&(impl GenericClient + Sync)` instead of `&Client`, enabling use with transactions and connection pools directly.
+- **Nullable INSERT parameters** -- Column nullability is now propagated to INSERT parameter types, generating `Option<T>` / `T | None` for nullable columns.
+
+### Changed
+
+- tokio-postgres batch functions no longer wrap operations in implicit transactions -- callers control transaction boundaries.
+
 ## [0.6.0] - 2026-04-08
 
 ### Added
