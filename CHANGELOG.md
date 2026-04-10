@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.2] - 2026-04-10
+
+### Changed
+
+- tokio-postgres: `from_row` is now infallible (returns `Self` instead of `Result`) matching tokio-postgres `row.get()` conventions
+- tokio-postgres: all query functions uniformly return `Result<T, tokio_postgres::Error>` instead of mixed error types
+- tokio-postgres: extracted `ERROR_TYPE` constant to reduce string duplication in signatures
+
+### Fixed
+
+- `:opt` command now correctly generates row structs (was missing from struct generation match)
+
 ## [0.6.1] - 2026-04-10
 
 ### Added

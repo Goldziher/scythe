@@ -50,7 +50,7 @@ impl TokioPostgresBackend {
         })
     }
 
-    /// Build the derive line for structs and enums, incorporating serde and extra derives.
+    /// Build the derive line for structs, incorporating serde and extra derives.
     fn struct_derives(&self) -> String {
         let mut derives = vec!["Debug", "Clone"];
         if self.serde {
@@ -78,6 +78,16 @@ impl TokioPostgresBackend {
 }
 
 const CLIENT_PARAM: &str = "client: &(impl tokio_postgres::GenericClient + Sync)";
+const ERROR_TYPE: &str = "tokio_postgres::Error";
+
+/// Helper: generate an expression that converts a string parse error into a
+/// `tokio_postgres::Error` via `std::io::Error`.
+fn enum_parse_error_expr(col_name: &str) -> String {
+    format!(
+        "std::io::Error::new(std::io::ErrorKind::InvalidData, format!(\"unexpected enum value for column '{}': {{}}\", s))",
+        col_name
+    )
+}
 
 impl CodegenBackend for TokioPostgresBackend {
     fn name(&self) -> &str {
@@ -105,7 +115,6 @@ impl CodegenBackend for TokioPostgresBackend {
             self.serde = val == "true";
         }
         if let Some(val) = options.get("derive") {
-            // Comma-separated list of extra derives
             self.extra_derives = val.split(',').map(|s| s.trim().to_string()).collect();
         }
         Ok(())
@@ -173,8 +182,8 @@ impl CodegenBackend for TokioPostgresBackend {
                 let _ = writeln!(out);
                 let _ = writeln!(
                     out,
-                    "pub async fn {}({}, items: &[{}]) -> Result<(), tokio_postgres::Error> {{",
-                    batch_fn_name, CLIENT_PARAM, params_struct_name
+                    "pub async fn {}({}, items: &[{}]) -> Result<(), {}> {{",
+                    batch_fn_name, CLIENT_PARAM, params_struct_name, ERROR_TYPE
                 );
                 let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
                 let _ = writeln!(out, "    for item in items {{");
@@ -199,8 +208,8 @@ impl CodegenBackend for TokioPostgresBackend {
                 let param = &params[0];
                 let _ = writeln!(
                     out,
-                    "pub async fn {}({}, items: &[{}]) -> Result<(), tokio_postgres::Error> {{",
-                    batch_fn_name, CLIENT_PARAM, param.full_type
+                    "pub async fn {}({}, items: &[{}]) -> Result<(), {}> {{",
+                    batch_fn_name, CLIENT_PARAM, param.full_type, ERROR_TYPE
                 );
                 let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
                 let _ = writeln!(out, "    for item in items {{");
@@ -210,8 +219,8 @@ impl CodegenBackend for TokioPostgresBackend {
             } else {
                 let _ = writeln!(
                     out,
-                    "pub async fn {}({}, count: usize) -> Result<(), tokio_postgres::Error> {{",
-                    batch_fn_name, CLIENT_PARAM
+                    "pub async fn {}({}, count: usize) -> Result<(), {}> {{",
+                    batch_fn_name, CLIENT_PARAM, ERROR_TYPE
                 );
                 let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
                 let _ = writeln!(out, "    for _ in 0..count {{");
@@ -241,20 +250,13 @@ impl CodegenBackend for TokioPostgresBackend {
             }
         };
 
-        // Function signature — queries that call from_row need Box<dyn Error>
-        let error_type = match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt | QueryCommand::Many => {
-                "Box<dyn std::error::Error>"
-            }
-            _ => "tokio_postgres::Error",
-        };
         let _ = writeln!(
             out,
             "pub async fn {}({}) -> Result<{}, {}> {{",
             func_name,
             param_parts.join(", "),
             return_type,
-            error_type
+            ERROR_TYPE
         );
 
         // Build param references for the query call
@@ -281,7 +283,7 @@ impl CodegenBackend for TokioPostgresBackend {
                     "    let row = client.query_one(r#\"{}\"#, {}).await?;",
                     sql, param_refs
                 );
-                let _ = writeln!(out, "    Ok({}::from_row(&row)?)", struct_name);
+                let _ = writeln!(out, "    Ok({}::from_row(&row))", struct_name);
             }
             QueryCommand::Opt => {
                 let _ = writeln!(
@@ -289,11 +291,7 @@ impl CodegenBackend for TokioPostgresBackend {
                     "    let row = client.query_opt(r#\"{}\"#, {}).await?;",
                     sql, param_refs
                 );
-                let _ = writeln!(
-                    out,
-                    "    row.as_ref().map({}::from_row).transpose()",
-                    struct_name
-                );
+                let _ = writeln!(out, "    Ok(row.as_ref().map({}::from_row))", struct_name);
             }
             QueryCommand::Many => {
                 let _ = writeln!(
@@ -303,7 +301,7 @@ impl CodegenBackend for TokioPostgresBackend {
                 );
                 let _ = writeln!(
                     out,
-                    "    rows.iter().map({}::from_row).collect()",
+                    "    Ok(rows.iter().map({}::from_row).collect())",
                     struct_name
                 );
             }
@@ -427,7 +425,16 @@ impl CodegenBackend for TokioPostgresBackend {
 // Internal helpers
 // ---------------------------------------------------------------------------
 
+/// Check whether any column in the struct requires enum string parsing.
+fn has_enum_columns(columns: &[ResolvedColumn]) -> bool {
+    columns.iter().any(|c| c.neutral_type.starts_with("enum::"))
+}
+
 /// Generate a struct with a `from_row` method for tokio-postgres.
+///
+/// When no enum columns exist, `from_row` is infallible (panics on type mismatch
+/// just like `row.get()` does). When enum columns are present, `from_row` returns
+/// `Self` but panics on invalid enum values — matching tokio-postgres conventions.
 fn generate_struct_with_from_row(
     struct_name: &str,
     columns: &[ResolvedColumn],
@@ -443,26 +450,26 @@ fn generate_struct_with_from_row(
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
+    // from_row is infallible — matches tokio-postgres row.get() convention (panics on mismatch)
     let _ = writeln!(out, "impl {} {{", struct_name);
     let _ = writeln!(
         out,
-        "    pub fn from_row(row: &tokio_postgres::Row) -> Result<Self, Box<dyn std::error::Error>> {{"
+        "    pub fn from_row(row: &tokio_postgres::Row) -> Self {{"
     );
-    let _ = writeln!(out, "        Ok(Self {{");
+    let _ = writeln!(out, "        Self {{");
     for col in columns {
         if col.neutral_type.starts_with("enum::") {
-            // Enum columns need string conversion
             if col.nullable {
                 let _ = writeln!(
                     out,
-                    "            {field}: row.get::<_, Option<String>>(\"{col}\").map(|s| s.parse().map_err(|_| format!(\"unexpected enum value for column '{col}': {{}}\", s))).transpose()?,",
+                    "            {field}: row.get::<_, Option<String>>(\"{col}\").map(|s| s.parse().unwrap_or_else(|_| panic!(\"unexpected enum value for column '{col}': {{}}\", s))),",
                     field = col.field_name,
                     col = col.name
                 );
             } else {
                 let _ = writeln!(
                     out,
-                    "            {field}: {{ let val = row.get::<_, String>(\"{col}\"); val.parse().map_err(|_| format!(\"unexpected enum value for column '{col}': {{}}\", val))? }},",
+                    "            {field}: {{ let val: String = row.get(\"{col}\"); val.parse().unwrap_or_else(|_| panic!(\"unexpected enum value for column '{col}': {{}}\", val)) }},",
                     field = col.field_name,
                     col = col.name
                 );
@@ -475,7 +482,7 @@ fn generate_struct_with_from_row(
             );
         }
     }
-    let _ = writeln!(out, "        }})");
+    let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "    }}");
     let _ = write!(out, "}}");
 
