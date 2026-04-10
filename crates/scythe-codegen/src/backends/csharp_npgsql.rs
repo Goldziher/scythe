@@ -235,7 +235,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
 
         // Return type depends on command
         let return_type = match &analyzed.command {
-            QueryCommand::One => format!("{}?", struct_name),
+            QueryCommand::One | QueryCommand::Opt => format!("{}?", struct_name),
             QueryCommand::Many => format!("List<{}>", struct_name),
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
@@ -276,7 +276,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         }
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "    await using var reader = await cmd.ExecuteReaderAsync();"

@@ -140,7 +140,7 @@ impl CodegenBackend for ElixirExqliteBackend {
             format!(", {}", specs.join(", "))
         };
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "@spec {}(Exqlite.Sqlite3.db(){}) :: {{:ok, %{}{{}}}} | {{:error, term()}}",
@@ -205,7 +205,7 @@ impl CodegenBackend for ElixirExqliteBackend {
         let _ = writeln!(out, "def {}(conn{}{}) do", func_name, sep, param_list);
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
                 let _ = writeln!(
                     out,

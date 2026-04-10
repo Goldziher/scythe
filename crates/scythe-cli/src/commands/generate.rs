@@ -153,10 +153,17 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
                     "tokio-postgres" => "rust-tokio-postgres",
                     _ => "rust-sqlx",
                 };
+                let mut options = std::collections::HashMap::new();
+                if let Some(true) = rust.serde {
+                    options.insert("serde".to_string(), "true".to_string());
+                }
+                if let Some(ref derives) = rust.derive {
+                    options.insert("derive".to_string(), derives.join(", "));
+                }
                 targets.push(ResolvedGenTarget {
                     backend: backend.to_string(),
                     output: default_output.clone(),
-                    options: std::collections::HashMap::new(),
+                    options,
                 });
             }
             if let Some(ref py) = legacy.python {

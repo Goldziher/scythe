@@ -20,6 +20,8 @@ const DEFAULT_MANIFEST_REDSHIFT: &str =
 /// TokioPostgresBackend generates Rust code targeting the tokio-postgres crate.
 pub struct TokioPostgresBackend {
     manifest: BackendManifest,
+    serde: bool,
+    extra_derives: Vec<String>,
 }
 
 impl TokioPostgresBackend {
@@ -41,9 +43,41 @@ impl TokioPostgresBackend {
             "backends/rust-tokio-postgres/manifest.toml",
             default_toml,
         )?;
-        Ok(Self { manifest })
+        Ok(Self {
+            manifest,
+            serde: false,
+            extra_derives: Vec::new(),
+        })
+    }
+
+    /// Build the derive line for structs and enums, incorporating serde and extra derives.
+    fn struct_derives(&self) -> String {
+        let mut derives = vec!["Debug", "Clone"];
+        if self.serde {
+            derives.push("serde::Serialize");
+            derives.push("serde::Deserialize");
+        }
+        for d in &self.extra_derives {
+            derives.push(d);
+        }
+        format!("#[derive({})]", derives.join(", "))
+    }
+
+    /// Build the derive line for enums (includes PartialEq, Eq).
+    fn enum_derives(&self) -> String {
+        let mut derives = vec!["Debug", "Clone", "PartialEq", "Eq"];
+        if self.serde {
+            derives.push("serde::Serialize");
+            derives.push("serde::Deserialize");
+        }
+        for d in &self.extra_derives {
+            derives.push(d);
+        }
+        format!("#[derive({})]", derives.join(", "))
     }
 }
+
+const CLIENT_PARAM: &str = "client: &(impl tokio_postgres::GenericClient + Sync)";
 
 impl CodegenBackend for TokioPostgresBackend {
     fn name(&self) -> &str {
@@ -63,13 +97,27 @@ impl CodegenBackend for TokioPostgresBackend {
             .to_string()
     }
 
+    fn apply_options(
+        &mut self,
+        options: &std::collections::HashMap<String, String>,
+    ) -> Result<(), ScytheError> {
+        if let Some(val) = options.get("serde") {
+            self.serde = val == "true";
+        }
+        if let Some(val) = options.get("derive") {
+            // Comma-separated list of extra derives
+            self.extra_derives = val.split(',').map(|s| s.trim().to_string()).collect();
+        }
+        Ok(())
+    }
+
     fn generate_row_struct(
         &self,
         query_name: &str,
         columns: &[ResolvedColumn],
     ) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
-        generate_struct_with_from_row(&struct_name, columns)
+        generate_struct_with_from_row(&struct_name, columns, &self.struct_derives())
     }
 
     fn generate_model_struct(
@@ -79,7 +127,7 @@ impl CodegenBackend for TokioPostgresBackend {
     ) -> Result<String, ScytheError> {
         let singular = singularize(table_name);
         let struct_name = to_pascal_case(&singular).into_owned();
-        generate_struct_with_from_row(&struct_name, columns)
+        generate_struct_with_from_row(&struct_name, columns, &self.struct_derives())
     }
 
     fn generate_query_fn(
@@ -98,7 +146,7 @@ impl CodegenBackend for TokioPostgresBackend {
         }
 
         // Build parameter list
-        let mut param_parts: Vec<String> = vec!["client: &tokio_postgres::Client".to_string()];
+        let mut param_parts: Vec<String> = vec![CLIENT_PARAM.to_string()];
         for param in params {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
@@ -116,7 +164,7 @@ impl CodegenBackend for TokioPostgresBackend {
 
             if params.len() > 1 {
                 let params_struct_name = format!("{}BatchParams", struct_name);
-                let _ = writeln!(out, "#[derive(Debug, Clone)]");
+                let _ = writeln!(out, "{}", self.struct_derives());
                 let _ = writeln!(out, "pub struct {} {{", params_struct_name);
                 for param in params {
                     let _ = writeln!(out, "    pub {}: {},", param.field_name, param.full_type);
@@ -125,11 +173,10 @@ impl CodegenBackend for TokioPostgresBackend {
                 let _ = writeln!(out);
                 let _ = writeln!(
                     out,
-                    "pub async fn {}(client: &tokio_postgres::Client, items: &[{}]) -> Result<(), tokio_postgres::Error> {{",
-                    batch_fn_name, params_struct_name
+                    "pub async fn {}({}, items: &[{}]) -> Result<(), tokio_postgres::Error> {{",
+                    batch_fn_name, CLIENT_PARAM, params_struct_name
                 );
                 let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
-                let _ = writeln!(out, "    let tx = client.transaction().await?;");
                 let _ = writeln!(out, "    for item in items {{");
                 let refs: Vec<String> = params
                     .iter()
@@ -143,38 +190,33 @@ impl CodegenBackend for TokioPostgresBackend {
                     .collect();
                 let _ = writeln!(
                     out,
-                    "        tx.execute(&stmt, &[{}]).await?;",
+                    "        client.execute(&stmt, &[{}]).await?;",
                     refs.join(", ")
                 );
                 let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "    tx.commit().await?;");
                 let _ = writeln!(out, "    Ok(())");
             } else if params.len() == 1 {
                 let param = &params[0];
                 let _ = writeln!(
                     out,
-                    "pub async fn {}(client: &tokio_postgres::Client, items: &[{}]) -> Result<(), tokio_postgres::Error> {{",
-                    batch_fn_name, param.full_type
+                    "pub async fn {}({}, items: &[{}]) -> Result<(), tokio_postgres::Error> {{",
+                    batch_fn_name, CLIENT_PARAM, param.full_type
                 );
                 let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
-                let _ = writeln!(out, "    let tx = client.transaction().await?;");
                 let _ = writeln!(out, "    for item in items {{");
-                let _ = writeln!(out, "        tx.execute(&stmt, &[item]).await?;");
+                let _ = writeln!(out, "        client.execute(&stmt, &[item]).await?;");
                 let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "    tx.commit().await?;");
                 let _ = writeln!(out, "    Ok(())");
             } else {
                 let _ = writeln!(
                     out,
-                    "pub async fn {}(client: &tokio_postgres::Client, count: usize) -> Result<(), tokio_postgres::Error> {{",
-                    batch_fn_name
+                    "pub async fn {}({}, count: usize) -> Result<(), tokio_postgres::Error> {{",
+                    batch_fn_name, CLIENT_PARAM
                 );
                 let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
-                let _ = writeln!(out, "    let tx = client.transaction().await?;");
                 let _ = writeln!(out, "    for _ in 0..count {{");
-                let _ = writeln!(out, "        tx.execute(&stmt, &[]).await?;");
+                let _ = writeln!(out, "        client.execute(&stmt, &[]).await?;");
                 let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "    tx.commit().await?;");
                 let _ = writeln!(out, "    Ok(())");
             }
 
@@ -185,6 +227,7 @@ impl CodegenBackend for TokioPostgresBackend {
         // Return type for non-batch commands
         let return_type = match &analyzed.command {
             QueryCommand::One => struct_name.to_string(),
+            QueryCommand::Opt => format!("Option<{}>", struct_name),
             QueryCommand::Many => format!("Vec<{}>", struct_name),
             QueryCommand::Exec => "()".to_string(),
             QueryCommand::ExecResult => "u64".to_string(),
@@ -200,7 +243,9 @@ impl CodegenBackend for TokioPostgresBackend {
 
         // Function signature — queries that call from_row need Box<dyn Error>
         let error_type = match &analyzed.command {
-            QueryCommand::One | QueryCommand::Many => "Box<dyn std::error::Error>",
+            QueryCommand::One | QueryCommand::Opt | QueryCommand::Many => {
+                "Box<dyn std::error::Error>"
+            }
             _ => "tokio_postgres::Error",
         };
         let _ = writeln!(
@@ -237,6 +282,18 @@ impl CodegenBackend for TokioPostgresBackend {
                     sql, param_refs
                 );
                 let _ = writeln!(out, "    Ok({}::from_row(&row)?)", struct_name);
+            }
+            QueryCommand::Opt => {
+                let _ = writeln!(
+                    out,
+                    "    let row = client.query_opt(r#\"{}\"#, {}).await?;",
+                    sql, param_refs
+                );
+                let _ = writeln!(
+                    out,
+                    "    row.as_ref().map({}::from_row).transpose()",
+                    struct_name
+                );
             }
             QueryCommand::Many => {
                 let _ = writeln!(
@@ -283,7 +340,7 @@ impl CodegenBackend for TokioPostgresBackend {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::with_capacity(512);
 
-        let _ = writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq)]");
+        let _ = writeln!(out, "{}", self.enum_derives());
         let _ = writeln!(out, "pub enum {} {{", type_name);
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
@@ -343,7 +400,7 @@ impl CodegenBackend for TokioPostgresBackend {
         let struct_name = to_pascal_case(&composite.sql_name).into_owned();
         let mut out = String::new();
 
-        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "{}", self.struct_derives());
         let _ = writeln!(out, "pub struct {} {{", struct_name);
         for field in &composite.fields {
             let rust_type = resolve_type(&field.neutral_type, &self.manifest, false)
@@ -374,10 +431,11 @@ impl CodegenBackend for TokioPostgresBackend {
 fn generate_struct_with_from_row(
     struct_name: &str,
     columns: &[ResolvedColumn],
+    derive_line: &str,
 ) -> Result<String, ScytheError> {
     let mut out = String::new();
 
-    let _ = writeln!(out, "#[derive(Debug, Clone)]");
+    let _ = writeln!(out, "{}", derive_line);
     let _ = writeln!(out, "pub struct {} {{", struct_name);
     for col in columns {
         let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);

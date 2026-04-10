@@ -312,7 +312,7 @@ impl CodegenBackend for JavaR2dbcBackend {
                 let _ = writeln!(out, "    );");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "public static Mono<{}> {}(ConnectionFactory cf{}{}) {{",

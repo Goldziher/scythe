@@ -216,7 +216,7 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
         }
 
         let return_type = match &analyzed.command {
-            QueryCommand::One => format!("{}?", struct_name),
+            QueryCommand::One | QueryCommand::Opt => format!("{}?", struct_name),
             QueryCommand::Many => {
                 format!("List<{}>", struct_name)
             }
@@ -258,7 +258,7 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
         }
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "    await using var reader = await cmd.ExecuteReaderAsync();"

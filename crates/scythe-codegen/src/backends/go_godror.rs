@@ -121,7 +121,7 @@ impl CodegenBackend for GoGodrorBackend {
         let mut out = String::new();
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "func {}(ctx context.Context, db *sql.DB{}{}) (*{}, error) {{",

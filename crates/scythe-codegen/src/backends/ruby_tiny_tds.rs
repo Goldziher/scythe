@@ -126,7 +126,7 @@ impl CodegenBackend for RubyTinyTdsBackend {
         }
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 if params.is_empty() {
                     let _ = writeln!(out, "    result = client.execute(\"{}\").first", sql);
                 } else {

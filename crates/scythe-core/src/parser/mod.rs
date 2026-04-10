@@ -6,6 +6,7 @@ use crate::errors::ScytheError;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryCommand {
     One,
+    Opt,
     Many,
     Exec,
     ExecResult,
@@ -18,6 +19,7 @@ impl std::fmt::Display for QueryCommand {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             QueryCommand::One => write!(f, "one"),
+            QueryCommand::Opt => write!(f, "opt"),
             QueryCommand::Many => write!(f, "many"),
             QueryCommand::Exec => write!(f, "exec"),
             QueryCommand::ExecResult => write!(f, "exec_result"),
@@ -32,6 +34,7 @@ impl QueryCommand {
     fn from_str(s: &str) -> Result<Self, ScytheError> {
         match s {
             "one" => Ok(QueryCommand::One),
+            "opt" => Ok(QueryCommand::Opt),
             "many" => Ok(QueryCommand::Many),
             "exec" => Ok(QueryCommand::Exec),
             "exec_result" => Ok(QueryCommand::ExecResult),

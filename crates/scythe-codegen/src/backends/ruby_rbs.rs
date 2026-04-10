@@ -123,7 +123,7 @@ fn write_rbs_method(out: &mut String, query: &RbsQueryInfo, connection_type: &st
     let params_str = all_param_types.join(", ");
 
     let return_type = match query.command {
-        QueryCommand::One => {
+        QueryCommand::One | QueryCommand::Opt => {
             if let Some(ref sn) = query.struct_name {
                 format!("{}?", sn)
             } else {

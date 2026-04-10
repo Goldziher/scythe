@@ -169,7 +169,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                 let _ = writeln!(out, "\treturn result.RowsAffected()");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "func {}(ctx context.Context, db *sql.DB{}{}) ({}, error) {{",

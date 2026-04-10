@@ -137,7 +137,7 @@ impl CodegenBackend for RubySqlite3Backend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "    row = db.get_first_row(\"{}\", {})",

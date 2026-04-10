@@ -347,7 +347,10 @@ impl<'a> Analyzer<'a> {
                         if i < target_cols.len() {
                             let col_name = &target_cols[i];
                             if let Some(col_type) = self.get_column_type(table_name, col_name) {
-                                self.collect_param_from_expr_with_type(expr, &col_type, col_name);
+                                let nullable = self.is_column_nullable(table_name, col_name);
+                                self.collect_param_from_expr_with_type_nullable(
+                                    expr, &col_type, col_name, nullable,
+                                );
                             }
                         }
                     }

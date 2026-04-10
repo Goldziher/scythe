@@ -145,7 +145,7 @@ impl CodegenBackend for RubyPgBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
                     "    result = conn.exec_params(\"{}\", {})",

@@ -215,7 +215,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "}}");
             }
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let ret = format!(": {}?", struct_name);
                 write_suspend_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
                 let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");

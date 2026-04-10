@@ -267,7 +267,7 @@ impl CodegenBackend for KotlinExposedBackend {
                 let _ = writeln!(out, "        exec(\"{}\"{}) ?: 0", sql, args);
                 let _ = writeln!(out, "    }}");
             }
-            QueryCommand::One => {
+            QueryCommand::One | QueryCommand::Opt => {
                 let ret = format!(": {}?", struct_name);
                 write_fn_sig(&mut out, &func_name, &ret, params);
                 let args = build_args(params);
