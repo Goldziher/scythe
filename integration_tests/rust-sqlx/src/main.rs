@@ -53,7 +53,7 @@ let pool = PgPoolOptions::new()
         .await?;
 
     let schema_sql = std::fs::read_to_string("../sql/pg/schema.sql")?;
-    sqlx::query(&schema_sql).execute(&pool).await?;
+    sqlx::raw_sql(&schema_sql).execute(&pool).await?;
 
     // Test: CreateUser
 let user: CreateUserRow = sqlx::query_as(

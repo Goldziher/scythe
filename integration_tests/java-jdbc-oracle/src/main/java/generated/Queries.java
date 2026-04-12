@@ -3,7 +3,7 @@ package generated;
 
 import java.math.BigDecimal;
 import java.sql.*;
-import java.time.OffsetDateTime;
+import java.time.*;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -30,7 +30,7 @@ public record CreateOrderRow(
 }
 
 public static @Nullable CreateOrderRow createOrder(Connection conn, long user_id, long total, @Nullable String notes) throws SQLException {
-    try (var cs = conn.prepareCall("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at INTO ?, ?, ?, ?, ?")) {
+    try (var cs = conn.prepareCall("BEGIN INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at INTO ?, ?, ?, ?, ?; END;")) {
         cs.setLong(1, user_id);
         cs.setLong(2, total);
         cs.setString(3, notes);
@@ -38,14 +38,14 @@ public static @Nullable CreateOrderRow createOrder(Connection conn, long user_id
         cs.registerOutParameter(5, java.sql.Types.NUMERIC);
         cs.registerOutParameter(6, java.sql.Types.NUMERIC);
         cs.registerOutParameter(7, java.sql.Types.VARCHAR);
-        cs.registerOutParameter(8, java.sql.Types.DATE);
+        cs.registerOutParameter(8, java.sql.Types.TIMESTAMP);
         cs.execute();
         return new CreateOrderRow(
             cs.getLong(4),
             cs.getLong(5),
             cs.getLong(6),
             cs.getString(7),
-            cs.getDate(8)
+            cs.getObject(8, LocalDateTime.class)
         );
     }
 }
@@ -185,7 +185,7 @@ public record CreateUserRow(
 }
 
 public static @Nullable CreateUserRow createUser(Connection conn, @Nonnull String name, @Nullable String email, long active) throws SQLException {
-    try (var cs = conn.prepareCall("INSERT INTO users (name, email, active) VALUES (?, ?, ?) RETURNING id, name, email, active, created_at INTO ?, ?, ?, ?, ?")) {
+    try (var cs = conn.prepareCall("BEGIN INSERT INTO users (name, email, active) VALUES (?, ?, ?) RETURNING id, name, email, active, created_at INTO ?, ?, ?, ?, ?; END;")) {
         cs.setString(1, name);
         cs.setString(2, email);
         cs.setLong(3, active);
@@ -193,14 +193,14 @@ public static @Nullable CreateUserRow createUser(Connection conn, @Nonnull Strin
         cs.registerOutParameter(5, java.sql.Types.VARCHAR);
         cs.registerOutParameter(6, java.sql.Types.VARCHAR);
         cs.registerOutParameter(7, java.sql.Types.NUMERIC);
-        cs.registerOutParameter(8, java.sql.Types.DATE);
+        cs.registerOutParameter(8, java.sql.Types.TIMESTAMP);
         cs.execute();
         return new CreateUserRow(
             cs.getLong(4),
             cs.getString(5),
             cs.getString(6),
             cs.getLong(7),
-            cs.getDate(8)
+            cs.getObject(8, LocalDateTime.class)
         );
     }
 }
@@ -248,3 +248,4 @@ public static List<SearchUsersRow> searchUsers(Connection conn, @Nonnull String 
 }
 
 }
+

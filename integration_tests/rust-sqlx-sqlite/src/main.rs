@@ -30,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         std::env::var("SQLITE_PATH").expect("SQLITE_PATH environment variable required");
 
 let pool = SqlitePoolOptions::new()
-        .max_connections(5)
+        .max_connections(1)
         .connect(&database_url)
         .await?;
 
@@ -49,7 +49,7 @@ let pool = SqlitePoolOptions::new()
         .await?;
 
     let schema_sql = std::fs::read_to_string("../sql/sqlite/schema.sql")?;
-    sqlx::query(&schema_sql).execute(&pool).await?;
+    sqlx::raw_sql(&schema_sql).execute(&pool).await?;
 
     // Test: CreateUser
 sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
@@ -71,7 +71,7 @@ sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
 
     // Test: GetUserById
 let fetched: GetUserByIdRow =
-        sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = ?")
             .bind(user_id)
             .fetch_one(&pool)
             .await?;

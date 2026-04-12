@@ -110,7 +110,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
-    sqlx::query(&schema_sql).execute(&pool).await?;
+    sqlx::raw_sql(&schema_sql).execute(&pool).await?;
 {%- elif driver == "sqlx-mysql" -%}
     let pool = MySqlPoolOptions::new()
         .max_connections(5)
@@ -186,7 +186,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
-    sqlx::query(&schema_sql).execute(&pool).await?;
+    sqlx::raw_sql(&schema_sql).execute(&pool).await?;
 {%- elif driver == "tokio-postgres" -%}
     let (client, connection) = tokio_postgres::connect(&database_url, NoTls).await?;
 

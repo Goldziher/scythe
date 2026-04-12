@@ -100,22 +100,25 @@ fn temporal_class_literal(kotlin_type: &str) -> Option<&str> {
 fn oracle_jdbc_type(neutral_type: &str) -> &'static str {
     match neutral_type {
         "int32" | "int64" | "float32" | "float64" | "decimal" => "java.sql.Types.NUMERIC",
-        "date" | "datetime" | "datetime_tz" => "java.sql.Types.DATE",
+        "date" | "datetime" => "java.sql.Types.TIMESTAMP",
+        "datetime_tz" => "java.sql.Types.TIMESTAMP_WITH_TIMEZONE",
         "string" | "json" | "uuid" | "inet" | "interval" => "java.sql.Types.VARCHAR",
         _ => "java.sql.Types.VARCHAR",
     }
 }
 
-/// Get the CallableStatement getter method for a neutral type.
-fn oracle_cs_getter(neutral_type: &str) -> &'static str {
+/// Build the full CallableStatement getter call expression for an Oracle OUT parameter.
+/// Returns the complete expression like `getLong(3)` or `getObject(3, LocalDateTime::class.java)`.
+fn oracle_cs_getter_call(neutral_type: &str, index: usize) -> String {
     match neutral_type {
-        "int32" => "getInt",
-        "int64" => "getLong",
-        "float32" => "getFloat",
-        "float64" => "getDouble",
-        "decimal" => "getBigDecimal",
-        "date" | "datetime" | "datetime_tz" => "getDate",
-        _ => "getString",
+        "int32" => format!("getInt({})", index),
+        "int64" => format!("getLong({})", index),
+        "float32" => format!("getFloat({})", index),
+        "float64" => format!("getDouble({})", index),
+        "decimal" => format!("getBigDecimal({})", index),
+        "date" | "datetime" => format!("getObject({}, LocalDateTime::class.java)", index),
+        "datetime_tz" => format!("getObject({}, OffsetDateTime::class.java)", index),
+        _ => format!("getString({})", index),
     }
 }
 
@@ -293,14 +296,26 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let is_oracle_returning =
                     self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
                 if is_oracle_returning {
-                    // Oracle RETURNING … INTO requires CallableStatement with OUT parameters.
+                    // Oracle RETURNING … INTO requires a PL/SQL BEGIN…END block so that
+                    // the JDBC driver correctly maps the OUT parameters from a DML statement.
+                    // Plain prepareCall on a bare DML RETURNING INTO raises ORA-17173.
                     let into_placeholders =
                         columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-                    let full_sql = format!("{} INTO {}", sql, into_placeholders);
+                    let full_sql = format!("BEGIN {} INTO {}; END;", sql, into_placeholders);
                     let use_multiline = !params.is_empty();
                     write_fn_sig(&mut out, &func_name, &ret, use_multiline, params);
                     let _ = writeln!(out, "    conn.prepareCall(\"{}\").use {{ cs ->", full_sql);
-                    write_setters(&mut out, params);
+                    // Write setters using cs (not ps) for CallableStatement
+                    for (i, param) in params.iter().enumerate() {
+                        let setter = ps_setter(&param.lang_type);
+                        let _ = writeln!(
+                            out,
+                            "        cs.{}({}, {})",
+                            setter,
+                            i + 1,
+                            param.field_name
+                        );
+                    }
                     for (i, col) in columns.iter().enumerate() {
                         let jdbc_type = oracle_jdbc_type(&col.neutral_type);
                         let _ = writeln!(
@@ -313,13 +328,13 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "        cs.execute()");
                     let _ = writeln!(out, "        return {}(", struct_name);
                     for (i, col) in columns.iter().enumerate() {
-                        let getter = oracle_cs_getter(&col.neutral_type);
+                        let getter_call =
+                            oracle_cs_getter_call(&col.neutral_type, params.len() + i + 1);
                         let _ = writeln!(
                             out,
-                            "            {} = cs.{}({}),",
+                            "            {} = cs.{},",
                             col.field_name,
-                            getter,
-                            params.len() + i + 1
+                            getter_call
                         );
                     }
                     let _ = writeln!(out, "        )");

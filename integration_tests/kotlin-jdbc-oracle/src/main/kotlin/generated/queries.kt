@@ -25,22 +25,22 @@ fun createOrder(
     total: Long,
     notes: String?,
 ): CreateOrderRow? {
-    conn.prepareCall("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at INTO ?, ?, ?, ?, ?").use { cs ->
-        ps.setLong(1, user_id)
-        ps.setLong(2, total)
-        ps.setString(3, notes)
+    conn.prepareCall("BEGIN INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at INTO ?, ?, ?, ?, ?; END;").use { cs ->
+        cs.setLong(1, user_id)
+        cs.setLong(2, total)
+        cs.setString(3, notes)
         cs.registerOutParameter(4, java.sql.Types.NUMERIC)
         cs.registerOutParameter(5, java.sql.Types.NUMERIC)
         cs.registerOutParameter(6, java.sql.Types.NUMERIC)
         cs.registerOutParameter(7, java.sql.Types.VARCHAR)
-        cs.registerOutParameter(8, java.sql.Types.DATE)
+        cs.registerOutParameter(8, java.sql.Types.TIMESTAMP)
         cs.execute()
         return CreateOrderRow(
             id = cs.getLong(4),
             user_id = cs.getLong(5),
             total = cs.getLong(6),
             notes = cs.getString(7),
-            created_at = cs.getDate(8),
+            created_at = cs.getObject(8, LocalDateTime::class.java),
         )
     }
 }
@@ -194,22 +194,22 @@ fun createUser(
     email: String?,
     active: Long,
 ): CreateUserRow? {
-    conn.prepareCall("INSERT INTO users (name, email, active) VALUES (?, ?, ?) RETURNING id, name, email, active, created_at INTO ?, ?, ?, ?, ?").use { cs ->
-        ps.setString(1, name)
-        ps.setString(2, email)
-        ps.setLong(3, active)
+    conn.prepareCall("BEGIN INSERT INTO users (name, email, active) VALUES (?, ?, ?) RETURNING id, name, email, active, created_at INTO ?, ?, ?, ?, ?; END;").use { cs ->
+        cs.setString(1, name)
+        cs.setString(2, email)
+        cs.setLong(3, active)
         cs.registerOutParameter(4, java.sql.Types.NUMERIC)
         cs.registerOutParameter(5, java.sql.Types.VARCHAR)
         cs.registerOutParameter(6, java.sql.Types.VARCHAR)
         cs.registerOutParameter(7, java.sql.Types.NUMERIC)
-        cs.registerOutParameter(8, java.sql.Types.DATE)
+        cs.registerOutParameter(8, java.sql.Types.TIMESTAMP)
         cs.execute()
         return CreateUserRow(
             id = cs.getLong(4),
             name = cs.getString(5),
             email = cs.getString(6),
             active = cs.getLong(7),
-            created_at = cs.getDate(8),
+            created_at = cs.getObject(8, LocalDateTime::class.java),
         )
     }
 }
@@ -269,3 +269,4 @@ fun searchUsers(
         }
     }
 }
+

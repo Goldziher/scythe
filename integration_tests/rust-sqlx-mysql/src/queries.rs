@@ -2,7 +2,7 @@
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "users_status", rename_all = "snake_case")]
+#[sqlx(rename_all = "snake_case")]
 pub enum UsersStatus {
     Active,
     Inactive,
@@ -46,7 +46,7 @@ pub struct GetUserByIdRow {
     pub id: i32,
     pub name: String,
     pub email: Option<String>,
-    pub status: UsersStatus,
+    pub status: String,
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -68,7 +68,7 @@ pub struct GetLastInsertUserRow {
     pub id: i32,
     pub name: String,
     pub email: Option<String>,
-    pub status: UsersStatus,
+    pub status: String,
     pub created_at: chrono::NaiveDateTime,
 }
 

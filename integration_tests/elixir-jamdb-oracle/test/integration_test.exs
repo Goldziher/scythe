@@ -20,30 +20,8 @@ database = String.trim_leading(uri.path, "/")
     password: password
   )
 
-# Clean slate
-for table <- ["user_tags", "tags", "orders", "users"] do
-  try do
-    Jamdb.Oracle.query!(conn, "DROP TABLE #{table}", [])
-  rescue
-    _ -> :ok
-  end
-end
-
-for seq <- ["tags_seq", "orders_seq", "users_seq"] do
-  try do
-    Jamdb.Oracle.query!(conn, "DROP SEQUENCE #{seq}", [])
-  rescue
-    _ -> :ok
-  end
-end
-
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "oracle", "schema_full.sql"]))
-
-schema_sql
-|> String.split("/\n")
-|> Enum.map(&String.trim/1)
-|> Enum.filter(&(&1 != ""))
-|> Enum.each(fn stmt -> Jamdb.Oracle.query!(conn, stmt, []) end)
+# Allow the DBConnection pool to finish establishing the connection before querying.
+Process.sleep(500)
 
 exit_code = 0
 

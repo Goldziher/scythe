@@ -62,6 +62,38 @@ impl SqlxBackend {
 }
 
 impl SqlxBackend {
+    /// Return true if this engine uses inline ENUMs (not named custom types).
+    ///
+    /// MySQL, MariaDB, and SQLite represent ENUMs as plain strings at the wire
+    /// level. sqlx's `#[derive(sqlx::Type)]` generates `type_info()` returning
+    /// `MySqlTypeInfo::__enum()` (ColumnType::String + ENUM flag), but the
+    /// server sends `ColumnType::Enum`. The PartialEq check in MySqlTypeInfo
+    /// fails because the r#type fields differ, producing a runtime
+    /// "mismatched types" ColumnDecode error.
+    ///
+    /// For these engines, row struct fields must use `String` (or `Option<String>`)
+    /// instead of the generated Rust enum type.
+    fn uses_inline_enums(&self) -> bool {
+        matches!(self.engine.as_str(), "mysql" | "mariadb" | "sqlite" | "sqlite3")
+    }
+
+    /// Resolve the field type for a row struct column.
+    ///
+    /// For engines that use inline ENUMs, enum-typed columns are mapped to
+    /// `String` / `Option<String>` because sqlx cannot type-check them against
+    /// the generated Rust enum at runtime (see `uses_inline_enums`).
+    fn row_field_type<'a>(&self, col: &'a ResolvedColumn) -> &'a str {
+        if self.uses_inline_enums() && col.neutral_type.starts_with("enum::") {
+            if col.nullable {
+                "Option<String>"
+            } else {
+                "String"
+            }
+        } else {
+            &col.full_type
+        }
+    }
+
     /// Return the sqlx pool type for the configured engine.
     fn pool_type(&self) -> &str {
         match self.engine.as_str() {
@@ -121,7 +153,8 @@ impl CodegenBackend for SqlxBackend {
         let _ = writeln!(out, "pub struct {} {{", struct_name);
 
         for col in columns {
-            let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
+            let field_type = self.row_field_type(col);
+            let _ = writeln!(out, "    pub {}: {},", col.field_name, field_type);
         }
 
         let _ = write!(out, "}}");
@@ -141,7 +174,8 @@ impl CodegenBackend for SqlxBackend {
         let _ = writeln!(out, "pub struct {} {{", struct_name);
 
         for col in columns {
-            let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
+            let field_type = self.row_field_type(col);
+            let _ = writeln!(out, "    pub {}: {},", col.field_name, field_type);
         }
 
         let _ = write!(out, "}}");
@@ -384,11 +418,21 @@ impl CodegenBackend for SqlxBackend {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
 
         let _ = writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]");
-        let _ = writeln!(
-            out,
-            "#[sqlx(type_name = \"{}\", rename_all = \"snake_case\")]",
-            enum_info.sql_name
-        );
+        // MySQL/MariaDB/SQLite use inline ENUMs — sqlx decodes them by value matching only.
+        // The `type_name` annotation is PostgreSQL-specific (for named custom types) and
+        // causes a "mismatched types" error on MySQL at runtime.
+        match self.engine.as_str() {
+            "mysql" | "mariadb" | "sqlite" | "sqlite3" => {
+                let _ = writeln!(out, "#[sqlx(rename_all = \"snake_case\")]");
+            }
+            _ => {
+                let _ = writeln!(
+                    out,
+                    "#[sqlx(type_name = \"{}\", rename_all = \"snake_case\")]",
+                    enum_info.sql_name
+                );
+            }
+        }
         let _ = writeln!(out, "pub enum {type_name} {{");
 
         for value in &enum_info.values {

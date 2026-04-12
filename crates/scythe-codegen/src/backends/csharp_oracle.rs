@@ -214,17 +214,16 @@ impl CodegenBackend for CsharpOracleBackend {
                 "            using var cmd = new OracleCommand(\"{}\", conn);",
                 sql
             );
-            let _ = writeln!(out, "            cmd.BindByName = true;");
             for (i, p) in params.iter().enumerate() {
                 let value_expr = if params.len() > 1 {
                     format!("item.{}", to_pascal_case(&p.field_name))
                 } else {
                     "item".to_string()
                 };
+                let _ = format!("{}", i); // suppress unused i warning
                 let _ = writeln!(
                     out,
-                    "            cmd.Parameters.Add(\"p{}\", {});",
-                    i + 1,
+                    "            cmd.Parameters.Add(new OracleParameter {{ Value = (object){} ?? DBNull.Value }});",
                     value_expr
                 );
             }
@@ -282,12 +281,10 @@ impl CodegenBackend for CsharpOracleBackend {
             "    using var cmd = new OracleCommand(\"{}\", conn);",
             effective_sql
         );
-        let _ = writeln!(out, "    cmd.BindByName = true;");
-        for (i, p) in params.iter().enumerate() {
+        for p in params.iter() {
             let _ = writeln!(
                 out,
-                "    cmd.Parameters.Add(\"p{}\", {});",
-                i + 1,
+                "    cmd.Parameters.Add(new OracleParameter {{ Value = (object){} ?? DBNull.Value }});",
                 p.field_name
             );
         }
@@ -296,12 +293,18 @@ impl CodegenBackend for CsharpOracleBackend {
             QueryCommand::One | QueryCommand::Opt => {
                 if is_one_returning {
                     // Add output parameters and execute without a reader.
+                    // VARCHAR2 output params need an explicit size or Oracle ODP.NET returns empty strings.
                     for (i, col) in columns.iter().enumerate() {
                         let db_type = oracle_db_type(&col.neutral_type);
+                        let size_part = if db_type == "OracleDbType.Varchar2" {
+                            " Size = 4000,".to_string()
+                        } else {
+                            String::new()
+                        };
                         let _ = writeln!(
                             out,
-                            "    cmd.Parameters.Add(\"out{i}\", {db_type}, \
-                             System.Data.ParameterDirection.Output);"
+                            "    cmd.Parameters.Add(new OracleParameter {{ ParameterName = \"out{i}\", \
+                             OracleDbType = {db_type},{size_part} Direction = System.Data.ParameterDirection.Output }});"
                         );
                     }
                     let _ = writeln!(out, "    await cmd.ExecuteNonQueryAsync();");
