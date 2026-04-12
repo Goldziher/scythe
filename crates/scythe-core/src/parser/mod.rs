@@ -208,6 +208,15 @@ pub fn parse_query_with_dialect(
         return Err(ScytheError::syntax("empty SQL body"));
     }
 
+    // Preprocess Oracle-specific syntax before parsing:
+    // 1. Strip `INTO :N, :N, ...` from `RETURNING ... INTO` clauses (Oracle output binds)
+    // 2. Convert `:N` positional placeholders to `?` (universal placeholder)
+    let sql = if *dialect == SqlDialect::Oracle {
+        preprocess_oracle_sql(&sql)
+    } else {
+        sql
+    };
+
     let parser_dialect = dialect.to_sqlparser_dialect();
     let statements = Parser::parse_sql(parser_dialect.as_ref(), &sql)
         .map_err(|e| ScytheError::syntax(format!("syntax error: {}", e)))?;
@@ -272,6 +281,60 @@ pub fn parse_query_with_dialect(
         stmt,
         annotations,
     })
+}
+
+/// Preprocess Oracle SQL before parsing:
+/// 1. Strip `INTO :N, :N, ...` suffix from `RETURNING ... INTO` clauses
+/// 2. Convert `:N` positional placeholders to `?` (universally supported)
+fn preprocess_oracle_sql(sql: &str) -> String {
+    // Strip Oracle RETURNING ... INTO clause (output bind variables)
+    // e.g. "INSERT ... RETURNING id, name INTO :4, :5" → "INSERT ... RETURNING id, name"
+    let sql = strip_returning_into(sql);
+
+    // Convert :N → ? (outside string literals)
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\'' {
+            // Skip string literals
+            result.push(ch);
+            while let Some(inner) = chars.next() {
+                result.push(inner);
+                if inner == '\'' {
+                    if chars.peek() == Some(&'\'') {
+                        result.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+            }
+        } else if ch == ':' && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+            // Convert :N → ?
+            result.push('?');
+            while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+                chars.next();
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+/// Strip the `INTO :N, :N, ...` suffix from an Oracle `RETURNING ... INTO` clause.
+fn strip_returning_into(sql: &str) -> String {
+    // Case-insensitive search for "INTO" after "RETURNING" at the end of the statement
+    let upper = sql.to_uppercase();
+    if let Some(ret_pos) = upper.rfind("RETURNING") {
+        let after_returning = &upper[ret_pos + "RETURNING".len()..];
+        if let Some(into_offset) = after_returning.find("INTO") {
+            let into_pos = ret_pos + "RETURNING".len() + into_offset;
+            // Keep everything before INTO, trim trailing whitespace/semicolons
+            let trimmed = sql[..into_pos].trim_end();
+            return trimmed.to_string();
+        }
+    }
+    sql.to_string()
 }
 
 #[cfg(test)]
@@ -459,5 +522,53 @@ mod tests {
         let q = parse(input).unwrap();
         assert_eq!(q.command, QueryCommand::Many);
         assert_eq!(q.annotations.group_by, Some("users.id".to_string()));
+    }
+
+    #[test]
+    fn test_preprocess_oracle_colon_placeholders() {
+        assert_eq!(
+            preprocess_oracle_sql("SELECT * FROM users WHERE id = :1"),
+            "SELECT * FROM users WHERE id = ?"
+        );
+        assert_eq!(
+            preprocess_oracle_sql("INSERT INTO users (name, email) VALUES (:1, :2)"),
+            "INSERT INTO users (name, email) VALUES (?, ?)"
+        );
+    }
+
+    #[test]
+    fn test_preprocess_oracle_preserves_string_literals() {
+        assert_eq!(
+            preprocess_oracle_sql("SELECT * FROM users WHERE name = ':1' AND id = :1"),
+            "SELECT * FROM users WHERE name = ':1' AND id = ?"
+        );
+    }
+
+    #[test]
+    fn test_preprocess_oracle_strips_returning_into() {
+        assert_eq!(
+            preprocess_oracle_sql(
+                "INSERT INTO users (name) VALUES (:1) RETURNING id, name INTO :2, :3"
+            ),
+            "INSERT INTO users (name) VALUES (?) RETURNING id, name"
+        );
+    }
+
+    #[test]
+    fn test_preprocess_oracle_full_insert_returning_into() {
+        let sql = "INSERT INTO users (name, email, active) VALUES (:1, :2, :3) RETURNING id, name, email, active, created_at INTO :4, :5, :6, :7, :8";
+        let result = preprocess_oracle_sql(sql);
+        assert_eq!(
+            result,
+            "INSERT INTO users (name, email, active) VALUES (?, ?, ?) RETURNING id, name, email, active, created_at"
+        );
+    }
+
+    #[test]
+    fn test_preprocess_oracle_no_returning_into_unchanged() {
+        assert_eq!(
+            preprocess_oracle_sql("DELETE FROM users WHERE id = :1"),
+            "DELETE FROM users WHERE id = ?"
+        );
     }
 }

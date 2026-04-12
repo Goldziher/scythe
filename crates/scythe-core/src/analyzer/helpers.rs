@@ -132,6 +132,7 @@ pub(super) fn detect_select_star_source(stmt: &Statement) -> Option<String> {
 /// Handles PostgreSQL `$N` placeholders (returns the number).
 /// For MySQL `?` placeholders, returns `None` — the caller must
 /// use `Analyzer::resolve_placeholder_position` to assign a sequential position.
+/// Oracle `:N` placeholders are preprocessed to `?` before parsing.
 pub(super) fn parse_placeholder(s: &str) -> Option<i64> {
     if s == "?" {
         return None;

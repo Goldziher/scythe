@@ -18,7 +18,7 @@ impl SqlDialect {
             SqlDialect::MySQL => Box::new(sqlparser::dialect::MySqlDialect {}),
             SqlDialect::SQLite => Box::new(sqlparser::dialect::SQLiteDialect {}),
             SqlDialect::MsSql => Box::new(sqlparser::dialect::MsSqlDialect {}),
-            SqlDialect::Oracle => Box::new(sqlparser::dialect::GenericDialect {}),
+            SqlDialect::Oracle => Box::new(sqlparser::dialect::OracleDialect {}),
             SqlDialect::Snowflake => Box::new(sqlparser::dialect::SnowflakeDialect {}),
         }
     }

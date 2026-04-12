@@ -330,11 +330,14 @@ fn is_ident_char(c: char) -> bool {
 }
 
 /// Rewrite PostgreSQL `$1, $2, ...` positional placeholders to a target format.
+/// Rewrite SQL placeholders (`$N` or `?`) to a target format.
 /// Skips placeholders inside single-quoted SQL string literals.
-/// The `formatter` closure receives the parameter number and returns the replacement string.
+/// The `formatter` closure receives the parameter number (1-based) and returns the replacement.
+/// Handles both PostgreSQL `$N` and positional `?` placeholders.
 pub(crate) fn rewrite_pg_placeholders(sql: &str, formatter: impl Fn(u32) -> String) -> String {
     let mut result = String::with_capacity(sql.len());
     let mut chars = sql.chars().peekable();
+    let mut positional_counter: u32 = 0;
     while let Some(ch) = chars.next() {
         if ch == '\'' {
             result.push(ch);
@@ -359,6 +362,9 @@ pub(crate) fn rewrite_pg_placeholders(sql: &str, formatter: impl Fn(u32) -> Stri
             } else {
                 result.push(ch);
             }
+        } else if ch == '?' && !chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+            positional_counter += 1;
+            result.push_str(&formatter(positional_counter));
         } else {
             result.push(ch);
         }
