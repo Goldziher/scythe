@@ -7,7 +7,6 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.OffsetTime
-import java.util.UUID
 
 
 enum class UsersStatus(val value: String) {
@@ -19,7 +18,7 @@ enum class UsersStatus(val value: String) {
 
 data class CreateOrderRow(
     val id: Int,
-    val user_id: java.util.UUID,
+    val user_id: String,
     val total: java.math.BigDecimal,
     val notes: String?,
     val created_at: java.time.LocalDateTime,
@@ -28,12 +27,12 @@ data class CreateOrderRow(
 
 fun createOrder(
     conn: Connection,
-    user_id: java.util.UUID,
+    user_id: String,
     total: java.math.BigDecimal,
     notes: String?,
 ): CreateOrderRow? {
     conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at").use { ps ->
-        ps.setObject(1, user_id)
+        ps.setString(1, user_id)
         ps.setBigDecimal(2, total)
         ps.setString(3, notes)
         ps.executeQuery().use { rs ->
@@ -42,7 +41,7 @@ fun createOrder(
                 val notes = if (rs.wasNull()) null else notesValue
                 CreateOrderRow(
                     id = rs.getInt("id"),
-                    user_id = rs.getObject("user_id"),
+                    user_id = rs.getString("user_id"),
                     total = rs.getBigDecimal("total"),
                     notes = notes,
                     created_at = rs.getObject("created_at", LocalDateTime::class.java),
@@ -65,10 +64,10 @@ data class GetOrdersByUserRow(
 
 fun getOrdersByUser(
     conn: Connection,
-    user_id: java.util.UUID,
+    user_id: String,
 ): List<GetOrdersByUserRow> {
     conn.prepareStatement("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC").use { ps ->
-        ps.setObject(1, user_id)
+        ps.setString(1, user_id)
         ps.executeQuery().use { rs ->
             val result = mutableListOf<GetOrdersByUserRow>()
             while (rs.next()) {
@@ -96,10 +95,10 @@ data class GetOrderTotalRow(
 
 fun getOrderTotal(
     conn: Connection,
-    user_id: java.util.UUID,
+    user_id: String,
 ): GetOrderTotalRow? {
     conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?").use { ps ->
-        ps.setObject(1, user_id)
+        ps.setString(1, user_id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
                 val total_sumValue = rs.getBigDecimal("total_sum")
@@ -117,17 +116,17 @@ fun getOrderTotal(
 
 fun deleteOrdersByUser(
     conn: Connection,
-    user_id: java.util.UUID,
+    user_id: String,
 ): Int {
     return conn.prepareStatement("DELETE FROM orders WHERE user_id = ?").use { ps ->
-        ps.setObject(1, user_id)
+        ps.setString(1, user_id)
         ps.executeUpdate()
     }
 }
 
 
 data class GetUserByIdRow(
-    val id: java.util.UUID,
+    val id: String,
     val name: String,
     val email: String?,
     val status: UsersStatus,
@@ -137,19 +136,19 @@ data class GetUserByIdRow(
 
 fun getUserById(
     conn: Connection,
-    id: java.util.UUID,
+    id: String,
 ): GetUserByIdRow? {
     conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = ?").use { ps ->
-        ps.setObject(1, id)
+        ps.setString(1, id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
                 val emailValue = rs.getString("email")
                 val email = if (rs.wasNull()) null else emailValue
                 GetUserByIdRow(
-                    id = rs.getObject("id"),
+                    id = rs.getString("id"),
                     name = rs.getString("name"),
                     email = email,
-                    status = UsersStatus.fromString(rs.getString("status")),
+                    status = UsersStatus.valueOf(rs.getString("status").uppercase()),
                     created_at = rs.getObject("created_at", LocalDateTime::class.java),
                 )
             } else {
@@ -161,7 +160,7 @@ fun getUserById(
 
 
 data class ListActiveUsersRow(
-    val id: java.util.UUID,
+    val id: String,
     val name: String,
     val email: String?,
 )
@@ -172,7 +171,7 @@ fun listActiveUsers(
     status: UsersStatus,
 ): List<ListActiveUsersRow> {
     conn.prepareStatement("SELECT id, name, email FROM users WHERE status = ?").use { ps ->
-        ps.setObject(1, status)
+        ps.setString(1, status.value)
         ps.executeQuery().use { rs ->
             val result = mutableListOf<ListActiveUsersRow>()
             while (rs.next()) {
@@ -180,7 +179,7 @@ fun listActiveUsers(
                 val email = if (rs.wasNull()) null else emailValue
                 result.add(
                     ListActiveUsersRow(
-                        id = rs.getObject("id"),
+                        id = rs.getString("id"),
                         name = rs.getString("name"),
                         email = email,
                     ),
@@ -193,7 +192,7 @@ fun listActiveUsers(
 
 
 data class CreateUserRow(
-    val id: java.util.UUID,
+    val id: String,
     val name: String,
     val email: String?,
 )
@@ -208,13 +207,13 @@ fun createUser(
     conn.prepareStatement("INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email").use { ps ->
         ps.setString(1, name)
         ps.setString(2, email)
-        ps.setObject(3, status)
+        ps.setString(3, status.value)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
                 val emailValue = rs.getString("email")
                 val email = if (rs.wasNull()) null else emailValue
                 CreateUserRow(
-                    id = rs.getObject("id"),
+                    id = rs.getString("id"),
                     name = rs.getString("name"),
                     email = email,
                 )
@@ -229,11 +228,11 @@ fun createUser(
 fun updateUserEmail(
     conn: Connection,
     email: String,
-    id: java.util.UUID,
+    id: String,
 ) {
     conn.prepareStatement("UPDATE users SET email = ? WHERE id = ?").use { ps ->
         ps.setString(1, email)
-        ps.setObject(2, id)
+        ps.setString(2, id)
         ps.executeUpdate()
     }
 }
@@ -241,17 +240,17 @@ fun updateUserEmail(
 
 fun deleteUser(
     conn: Connection,
-    id: java.util.UUID,
+    id: String,
 ) {
     conn.prepareStatement("DELETE FROM users WHERE id = ? RETURNING id").use { ps ->
-        ps.setObject(1, id)
+        ps.setString(1, id)
         ps.executeUpdate()
     }
 }
 
 
 data class SearchUsersRow(
-    val id: java.util.UUID,
+    val id: String,
     val name: String,
     val email: String?,
 )
@@ -270,7 +269,7 @@ fun searchUsers(
                 val email = if (rs.wasNull()) null else emailValue
                 result.add(
                     SearchUsersRow(
-                        id = rs.getObject("id"),
+                        id = rs.getString("id"),
                         name = rs.getString("name"),
                         email = email,
                     ),
@@ -280,3 +279,4 @@ fun searchUsers(
         }
     }
 }
+

@@ -58,7 +58,7 @@ let pool = MySqlPoolOptions::new()
 
     // Test: CreateUser
 let user: CreateUserRow = sqlx::query_as(
-        "INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email, created_at",
+        "INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING CAST(id AS CHAR) AS id, name, email, created_at",
     )
     .bind("Alice")
     .bind("alice@example.com")
@@ -75,7 +75,7 @@ let user: CreateUserRow = sqlx::query_as(
 
     // Test: GetUserById
 let fetched: GetUserByIdRow =
-        sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, created_at FROM users WHERE id = ?")
             .bind(&user_id)
             .fetch_one(&pool)
             .await?;
@@ -89,7 +89,7 @@ let fetched: GetUserByIdRow =
 
     // Test: ListActiveUsers
 let active_users: Vec<ListActiveUsersRow> =
-        sqlx::query_as("SELECT id, name, email FROM users WHERE status = ?")
+        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email FROM users WHERE status = ?")
             .bind("active")
             .fetch_all(&pool)
             .await?;
@@ -101,7 +101,7 @@ let active_users: Vec<ListActiveUsersRow> =
 
     let total = Decimal::from_str("99.95").unwrap();
 let order: CreateOrderRow = sqlx::query_as(
-        "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at",
+        "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, CAST(user_id AS CHAR) AS user_id, total, notes, created_at",
     )
     .bind(&user_id)
     .bind(&total)
@@ -138,7 +138,7 @@ sqlx::query("DELETE FROM orders WHERE user_id = ?")
         .await?;
     // Verify user is gone
     let deleted: Option<GetUserByIdRow> =
-        sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, created_at FROM users WHERE id = ?")
             .bind(&user_id)
             .fetch_optional(&pool)
             .await?;

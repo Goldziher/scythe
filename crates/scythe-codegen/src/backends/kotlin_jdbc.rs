@@ -163,17 +163,32 @@ impl CodegenBackend for KotlinJdbcBackend {
     }
 
     fn file_header(&self) -> String {
-        "package generated\n\
-         \n\
-         import java.math.BigDecimal\n\
-         import java.sql.Connection\n\
-         import java.time.LocalDate\n\
-         import java.time.LocalDateTime\n\
-         import java.time.LocalTime\n\
-         import java.time.OffsetDateTime\n\
-         import java.time.OffsetTime\n\
-         import java.util.UUID\n"
-            .to_string()
+        // Only import UUID when uuid type actually resolves to java.util.UUID.
+        // Some engines (e.g. MariaDB) map uuid to String, making the import unused.
+        let uuid_type = self
+            .manifest
+            .types
+            .scalars
+            .get("uuid")
+            .map(String::as_str)
+            .unwrap_or("java.util.UUID");
+        let uuid_import = if uuid_type.contains("UUID") {
+            "import java.util.UUID\n"
+        } else {
+            ""
+        };
+        format!(
+            "package generated\n\
+             \n\
+             import java.math.BigDecimal\n\
+             import java.sql.Connection\n\
+             import java.time.LocalDate\n\
+             import java.time.LocalDateTime\n\
+             import java.time.LocalTime\n\
+             import java.time.OffsetDateTime\n\
+             import java.time.OffsetTime\n\
+             {uuid_import}"
+        )
     }
 
     fn generate_row_struct(

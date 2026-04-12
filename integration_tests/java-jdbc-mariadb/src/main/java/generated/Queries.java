@@ -3,7 +3,7 @@ package generated;
 
 import java.math.BigDecimal;
 import java.sql.*;
-import java.time.OffsetDateTime;
+import java.time.*;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -23,7 +23,7 @@ public enum UsersStatus {
 
 public record CreateOrderRow(
     int id,
-    java.util.UUID user_id,
+    String user_id,
     java.math.BigDecimal total,
     @Nullable String notes,
     java.time.LocalDateTime created_at
@@ -31,7 +31,7 @@ public record CreateOrderRow(
     public static CreateOrderRow fromResultSet(ResultSet rs) throws SQLException {
         return new CreateOrderRow(
             rs.getInt("id"),
-            rs.getObject("user_id"),
+            rs.getString("user_id"),
             rs.getBigDecimal("total"),
             rs.getString("notes"),
             rs.getObject("created_at", LocalDateTime.class)
@@ -39,9 +39,9 @@ public record CreateOrderRow(
     }
 }
 
-public static @Nullable CreateOrderRow createOrder(Connection conn, @Nonnull java.util.UUID user_id, @Nonnull java.math.BigDecimal total, @Nullable String notes) throws SQLException {
+public static @Nullable CreateOrderRow createOrder(Connection conn, @Nonnull String user_id, @Nonnull java.math.BigDecimal total, @Nullable String notes) throws SQLException {
     try (var ps = conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at")) {
-        ps.setObject(1, user_id);
+        ps.setString(1, user_id);
         ps.setBigDecimal(2, total);
         ps.setString(3, notes);
         try (ResultSet rs = ps.executeQuery()) {
@@ -69,9 +69,9 @@ public record GetOrdersByUserRow(
     }
 }
 
-public static List<GetOrdersByUserRow> getOrdersByUser(Connection conn, @Nonnull java.util.UUID user_id) throws SQLException {
+public static List<GetOrdersByUserRow> getOrdersByUser(Connection conn, @Nonnull String user_id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC")) {
-        ps.setObject(1, user_id);
+        ps.setString(1, user_id);
         try (ResultSet rs = ps.executeQuery()) {
             List<GetOrdersByUserRow> result = new ArrayList<>();
             while (rs.next()) {
@@ -92,9 +92,9 @@ public record GetOrderTotalRow(
     }
 }
 
-public static @Nullable GetOrderTotalRow getOrderTotal(Connection conn, @Nonnull java.util.UUID user_id) throws SQLException {
+public static @Nullable GetOrderTotalRow getOrderTotal(Connection conn, @Nonnull String user_id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?")) {
-        ps.setObject(1, user_id);
+        ps.setString(1, user_id);
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetOrderTotalRow.fromResultSet(rs);
@@ -104,15 +104,15 @@ public static @Nullable GetOrderTotalRow getOrderTotal(Connection conn, @Nonnull
     }
 }
 
-public static int deleteOrdersByUser(Connection conn, @Nonnull java.util.UUID user_id) throws SQLException {
+public static int deleteOrdersByUser(Connection conn, @Nonnull String user_id) throws SQLException {
     try (var ps = conn.prepareStatement("DELETE FROM orders WHERE user_id = ?")) {
-        ps.setObject(1, user_id);
+        ps.setString(1, user_id);
         return ps.executeUpdate();
     }
 }
 
 public record GetUserByIdRow(
-    java.util.UUID id,
+    String id,
     String name,
     @Nullable String email,
     UsersStatus status,
@@ -120,18 +120,18 @@ public record GetUserByIdRow(
 ) {
     public static GetUserByIdRow fromResultSet(ResultSet rs) throws SQLException {
         return new GetUserByIdRow(
-            rs.getObject("id"),
+            rs.getString("id"),
             rs.getString("name"),
             rs.getString("email"),
-            UsersStatus.fromString(rs.getString("status")),
+            UsersStatus.valueOf(rs.getString("status").toUpperCase()),
             rs.getObject("created_at", LocalDateTime.class)
         );
     }
 }
 
-public static @Nullable GetUserByIdRow getUserById(Connection conn, @Nonnull java.util.UUID id) throws SQLException {
+public static @Nullable GetUserByIdRow getUserById(Connection conn, @Nonnull String id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = ?")) {
-        ps.setObject(1, id);
+        ps.setString(1, id);
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetUserByIdRow.fromResultSet(rs);
@@ -142,13 +142,13 @@ public static @Nullable GetUserByIdRow getUserById(Connection conn, @Nonnull jav
 }
 
 public record ListActiveUsersRow(
-    java.util.UUID id,
+    String id,
     String name,
     @Nullable String email
 ) {
     public static ListActiveUsersRow fromResultSet(ResultSet rs) throws SQLException {
         return new ListActiveUsersRow(
-            rs.getObject("id"),
+            rs.getString("id"),
             rs.getString("name"),
             rs.getString("email")
         );
@@ -157,7 +157,7 @@ public record ListActiveUsersRow(
 
 public static List<ListActiveUsersRow> listActiveUsers(Connection conn, @Nonnull UsersStatus status) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email FROM users WHERE status = ?")) {
-        ps.setObject(1, status);
+        ps.setString(1, status.getValue());
         try (ResultSet rs = ps.executeQuery()) {
             List<ListActiveUsersRow> result = new ArrayList<>();
             while (rs.next()) {
@@ -169,13 +169,13 @@ public static List<ListActiveUsersRow> listActiveUsers(Connection conn, @Nonnull
 }
 
 public record CreateUserRow(
-    java.util.UUID id,
+    String id,
     String name,
     @Nullable String email
 ) {
     public static CreateUserRow fromResultSet(ResultSet rs) throws SQLException {
         return new CreateUserRow(
-            rs.getObject("id"),
+            rs.getString("id"),
             rs.getString("name"),
             rs.getString("email")
         );
@@ -186,7 +186,7 @@ public static @Nullable CreateUserRow createUser(Connection conn, @Nonnull Strin
     try (var ps = conn.prepareStatement("INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email")) {
         ps.setString(1, name);
         ps.setString(2, email);
-        ps.setObject(3, status);
+        ps.setString(3, status.getValue());
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return CreateUserRow.fromResultSet(rs);
@@ -196,29 +196,29 @@ public static @Nullable CreateUserRow createUser(Connection conn, @Nonnull Strin
     }
 }
 
-public static void updateUserEmail(Connection conn, @Nonnull String email, @Nonnull java.util.UUID id) throws SQLException {
+public static void updateUserEmail(Connection conn, @Nonnull String email, @Nonnull String id) throws SQLException {
     try (var ps = conn.prepareStatement("UPDATE users SET email = ? WHERE id = ?")) {
         ps.setString(1, email);
-        ps.setObject(2, id);
+        ps.setString(2, id);
         ps.executeUpdate();
     }
 }
 
-public static void deleteUser(Connection conn, @Nonnull java.util.UUID id) throws SQLException {
+public static void deleteUser(Connection conn, @Nonnull String id) throws SQLException {
     try (var ps = conn.prepareStatement("DELETE FROM users WHERE id = ? RETURNING id")) {
-        ps.setObject(1, id);
+        ps.setString(1, id);
         ps.executeUpdate();
     }
 }
 
 public record SearchUsersRow(
-    java.util.UUID id,
+    String id,
     String name,
     @Nullable String email
 ) {
     public static SearchUsersRow fromResultSet(ResultSet rs) throws SQLException {
         return new SearchUsersRow(
-            rs.getObject("id"),
+            rs.getString("id"),
             rs.getString("name"),
             rs.getString("email")
         );
@@ -239,3 +239,4 @@ public static List<SearchUsersRow> searchUsers(Connection conn, @Nonnull String 
 }
 
 }
+

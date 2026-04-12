@@ -26,7 +26,7 @@ func CreateOrder(ctx context.Context, db *sql.DB, user_id int64, total int64, no
 	if _, err := db.ExecContext(ctx, "INSERT INTO orders (user_id, total, notes) VALUES (:1, :2, :3) RETURNING id, user_id, total, notes, created_at INTO :4, :5, :6, :7, :8", user_id, total, notes, sql.Out{Dest: &outId}, sql.Out{Dest: &outUserId}, sql.Out{Dest: &outTotal}, sql.Out{Dest: &outNotes}, sql.Out{Dest: &outCreatedAt}); err != nil {
 		return nil, err
 	}
-	return &CreateOrderRow{Id: outId, UserId: outUserId, Total: outTotal, Notes: outNotes, CreatedAt: outCreatedAt}, nil
+	return &CreateOrderRow{Id: outId, UserId: outUserId, Total: outTotal, Notes: &outNotes, CreatedAt: outCreatedAt}, nil
 }
 
 type GetOrdersByUserRow struct {
@@ -137,7 +137,7 @@ func CreateUser(ctx context.Context, db *sql.DB, name string, email *string, act
 	if _, err := db.ExecContext(ctx, "INSERT INTO users (name, email, active) VALUES (:1, :2, :3) RETURNING id, name, email, active, created_at INTO :4, :5, :6, :7, :8", name, email, active, sql.Out{Dest: &outId}, sql.Out{Dest: &outName}, sql.Out{Dest: &outEmail}, sql.Out{Dest: &outActive}, sql.Out{Dest: &outCreatedAt}); err != nil {
 		return nil, err
 	}
-	return &CreateUserRow{Id: outId, Name: outName, Email: outEmail, Active: outActive, CreatedAt: outCreatedAt}, nil
+	return &CreateUserRow{Id: outId, Name: outName, Email: &outEmail, Active: outActive, CreatedAt: outCreatedAt}, nil
 }
 
 func UpdateUserEmail(ctx context.Context, db *sql.DB, email string, id int64) error {

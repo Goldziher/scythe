@@ -241,7 +241,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 {%- elif driver == "sqlx-mariadb" -%}
     let user: CreateUserRow = sqlx::query_as(
-        "INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email, created_at",
+        "INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING CAST(id AS CHAR) AS id, name, email, created_at",
     )
     .bind("Alice")
     .bind("alice@example.com")
@@ -288,7 +288,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("get_user_by_id returned None");
 {%- elif driver == "sqlx-mariadb" -%}
     let fetched: GetUserByIdRow =
-        sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, created_at FROM users WHERE id = ?")
             .bind(&user_id)
             .fetch_one(&pool)
             .await?;
@@ -329,7 +329,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let active_users = generated::list_active_users(&session).await?;
 {%- elif driver == "sqlx-mariadb" -%}
     let active_users: Vec<ListActiveUsersRow> =
-        sqlx::query_as("SELECT id, name, email FROM users WHERE status = ?")
+        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email FROM users WHERE status = ?")
             .bind("active")
             .fetch_all(&pool)
             .await?;
@@ -373,7 +373,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 {%- endif %}
 {% if driver == "sqlx-mariadb" -%}
     let order: CreateOrderRow = sqlx::query_as(
-        "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at",
+        "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, CAST(user_id AS CHAR) AS user_id, total, notes, created_at",
     )
     .bind(&user_id)
     .bind(&total)
@@ -495,7 +495,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     // Verify user is gone
     let deleted: Option<GetUserByIdRow> =
-        sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, created_at FROM users WHERE id = ?")
             .bind(&user_id)
             .fetch_optional(&pool)
             .await?;
