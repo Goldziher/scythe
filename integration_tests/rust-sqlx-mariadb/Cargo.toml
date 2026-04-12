@@ -6,8 +6,8 @@ edition = "2024"
 [workspace]
 
 [dependencies]
-
+sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "chrono", "rust_decimal"] }
 tokio = { version = "1", features = ["full"] }
-sqlx = { version = "0.8", features = ["mysql", "runtime-tokio", "chrono", "rust_decimal"] }
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = "1"
+uuid = "1"

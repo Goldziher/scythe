@@ -1,5 +1,5 @@
 [package]
-name = "scythe-integration-test-sqlx"
+name = "scythe-integration-test-rust-sqlx"
 version = "0.1.0"
 edition = "2024"
 

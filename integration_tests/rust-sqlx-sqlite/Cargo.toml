@@ -1,10 +1,12 @@
 [package]
-name = "scythe-integration-test-sqlx-sqlite"
+name = "scythe-integration-test-rust-sqlx-sqlite"
 version = "0.1.0"
 edition = "2024"
 
 [workspace]
 
 [dependencies]
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite"] }
+sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
 tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = "1"

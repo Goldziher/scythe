@@ -1,7 +1,7 @@
 #[allow(dead_code, unused_imports, clippy::all)]
-mod generated;
+mod queries;
 
-use generated::{
+use queries::{
     CreateOrderRow, CreateUserRow, GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
 };
 use sibyl::prelude::*;

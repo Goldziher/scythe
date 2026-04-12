@@ -1,5 +1,5 @@
 [package]
-name = "scythe-integration-test-tokio-postgres"
+name = "scythe-integration-test-rust-tokio-postgres"
 version = "0.1.0"
 edition = "2024"
 
@@ -7,6 +7,7 @@ edition = "2024"
 
 [dependencies]
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+postgres-types = { version = "0.2", features = ["derive"] }
 tokio = { version = "1", features = ["full"] }
-chrono = "0.4"
+chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["db-tokio-postgres"] }

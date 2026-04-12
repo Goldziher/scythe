@@ -9,4 +9,4 @@ queries = ["../sql/pg/queries/*.sql"]
 
 [[sql.gen]]
 backend = "rust-tokio-postgres"
-output = "generated"
+output = "src"

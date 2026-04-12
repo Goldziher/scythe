@@ -9,4 +9,5 @@ queries = ["../sql/oracle/queries/*.sql"]
 
 [[sql.gen]]
 backend = "rust-sibyl"
-output = "generated"
+output = "src"
+structs_only = "true"

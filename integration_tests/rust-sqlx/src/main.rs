@@ -1,8 +1,9 @@
 #[allow(dead_code, unused_imports, clippy::all)]
-mod generated;
+mod queries;
 
-use generated::{
-    CreateOrderRow, CreateUserRow, GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
+use queries::{
+    CreateOrderRow, CreateUserRow,
+    GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
     UserStatus,
 };
 use rust_decimal::Decimal;
@@ -29,7 +30,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url =
         std::env::var("DATABASE_URL").expect("DATABASE_URL environment variable required");
 
-    let pool = PgPoolOptions::new()
+let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
         .await?;
@@ -51,52 +52,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .execute(&pool)
         .await?;
 
-    sqlx::query("CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')")
-        .execute(&pool)
-        .await?;
-    sqlx::query(
-        "CREATE TABLE users (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL,
-            email TEXT,
-            status user_status NOT NULL DEFAULT 'active',
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )",
-    )
-    .execute(&pool)
-    .await?;
-    sqlx::query(
-        "CREATE TABLE orders (
-            id SERIAL PRIMARY KEY,
-            user_id INT NOT NULL REFERENCES users (id),
-            total NUMERIC(10, 2) NOT NULL,
-            notes TEXT,
-            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        )",
-    )
-    .execute(&pool)
-    .await?;
-    sqlx::query(
-        "CREATE TABLE tags (
-            id SERIAL PRIMARY KEY,
-            name TEXT NOT NULL UNIQUE
-        )",
-    )
-    .execute(&pool)
-    .await?;
-    sqlx::query(
-        "CREATE TABLE user_tags (
-            user_id INT NOT NULL REFERENCES users (id),
-            tag_id INT NOT NULL REFERENCES tags (id),
-            PRIMARY KEY (user_id, tag_id)
-        )",
-    )
-    .execute(&pool)
-    .await?;
+    let schema_sql = std::fs::read_to_string("../sql/pg/schema.sql")?;
+    sqlx::query(&schema_sql).execute(&pool).await?;
 
     // Test: CreateUser
-    // Uses the generated CreateUserRow struct with UserStatus enum to prove codegen output is correct
-    let user: CreateUserRow = sqlx::query_as(
+let user: CreateUserRow = sqlx::query_as(
         "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at",
     )
     .bind("Alice")
@@ -114,8 +74,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("CreateUser");
 
     // Test: GetUserById
-    // Uses the generated GetUserByIdRow struct with UserStatus enum
-    let fetched: GetUserByIdRow =
+let fetched: GetUserByIdRow =
         sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = $1")
             .bind(user_id)
             .fetch_one(&pool)
@@ -130,8 +89,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("GetUserById");
 
     // Test: ListActiveUsers
-    // Uses the generated ListActiveUsersRow struct
-    let active_users: Vec<ListActiveUsersRow> =
+let active_users: Vec<ListActiveUsersRow> =
         sqlx::query_as("SELECT id, name, email FROM users WHERE status = $1")
             .bind(UserStatus::Active)
             .fetch_all(&pool)
@@ -141,9 +99,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("ListActiveUsers");
 
     // Test: CreateOrder
-    // Uses the generated CreateOrderRow struct with Decimal type
+
     let total = Decimal::from_str("99.95").unwrap();
-    let order: CreateOrderRow = sqlx::query_as(
+let order: CreateOrderRow = sqlx::query_as(
         "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at",
     )
     .bind(user_id)
@@ -160,8 +118,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("CreateOrder");
 
     // Test: GetOrdersByUser
-    // Uses the generated GetOrdersByUserRow struct, verifies ordering
-    let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
+let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
         "SELECT id, total, notes, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC",
     )
     .bind(user_id)
@@ -172,7 +129,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("GetOrdersByUser");
 
     // Test: DeleteUser (delete orders first due to FK)
-    sqlx::query("DELETE FROM orders WHERE user_id = $1")
+sqlx::query("DELETE FROM orders WHERE user_id = $1")
         .bind(user_id)
         .execute(&pool)
         .await?;

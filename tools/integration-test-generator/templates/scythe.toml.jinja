@@ -13,6 +13,11 @@ backend = "{{ backend }}"
 output = "src/main/java/generated"
 {%- elif language == "kotlin" %}
 output = "src/main/kotlin/generated"
+{%- elif language == "rust" and driver != "tokio-postgres" %}
+output = "src"
+structs_only = "true"
+{%- elif language == "rust" %}
+output = "src"
 {%- else %}
 output = "generated"
 {%- endif %}
