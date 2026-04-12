@@ -20,6 +20,7 @@ const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/kotlin-jdbc
 const DEFAULT_MANIFEST_MSSQL: &str = include_str!("../../manifests/kotlin-jdbc.mssql.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/kotlin-jdbc.redshift.toml");
 const DEFAULT_MANIFEST_SNOWFLAKE: &str = include_str!("../../manifests/kotlin-jdbc.snowflake.toml");
+const DEFAULT_MANIFEST_ORACLE: &str = include_str!("../../manifests/kotlin-jdbc.oracle.toml");
 
 pub struct KotlinJdbcBackend {
     manifest: BackendManifest,
@@ -36,6 +37,7 @@ impl KotlinJdbcBackend {
             "mssql" => DEFAULT_MANIFEST_MSSQL,
             "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             "snowflake" => DEFAULT_MANIFEST_SNOWFLAKE,
+            "oracle" => DEFAULT_MANIFEST_ORACLE,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
@@ -126,6 +128,7 @@ impl CodegenBackend for KotlinJdbcBackend {
             "mssql",
             "redshift",
             "snowflake",
+            "oracle",
         ]
     }
 

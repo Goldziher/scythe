@@ -222,7 +222,7 @@ impl CodegenBackend for RubyMysql2Backend {
                     "    stmt.execute({})",
                     param_array.trim_start_matches('[').trim_end_matches(']')
                 );
-                let _ = writeln!(out, "    client.affected_rows");
+                let _ = writeln!(out, "    stmt.affected_rows");
             }
             QueryCommand::Grouped => unreachable!("handled as Many in codegen"),
         }
