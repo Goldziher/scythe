@@ -725,7 +725,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-backend"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "ahash",
  "minijinja",
@@ -736,7 +736,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-cli"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "ahash",
  "clap",
@@ -756,7 +756,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-codegen"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "ahash",
  "scythe-backend",
@@ -766,7 +766,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-core"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "ahash",
  "sqlparser",
@@ -774,7 +774,7 @@ dependencies = [
 
 [[package]]
 name = "scythe-lint"
-version = "0.6.4"
+version = "0.6.5"
 dependencies = [
  "ahash",
  "scythe-core",
