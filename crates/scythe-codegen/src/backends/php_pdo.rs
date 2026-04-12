@@ -14,6 +14,7 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-pdo.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/php-pdo.mysql.toml");
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/php-pdo.sqlite.toml");
+const DEFAULT_MANIFEST_MSSQL: &str = include_str!("../../manifests/php-pdo.mssql.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/php-pdo.redshift.toml");
 const DEFAULT_MANIFEST_SNOWFLAKE: &str = include_str!("../../manifests/php-pdo.snowflake.toml");
 
@@ -27,6 +28,7 @@ impl PhpPdoBackend {
             "postgresql" | "postgres" | "pg" => DEFAULT_MANIFEST_PG,
             "mysql" | "mariadb" => DEFAULT_MANIFEST_MYSQL,
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
+            "mssql" => DEFAULT_MANIFEST_MSSQL,
             "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             "snowflake" => DEFAULT_MANIFEST_SNOWFLAKE,
             _ => {
@@ -68,6 +70,7 @@ impl CodegenBackend for PhpPdoBackend {
             "mysql",
             "mariadb",
             "sqlite",
+            "mssql",
             "redshift",
             "snowflake",
         ]

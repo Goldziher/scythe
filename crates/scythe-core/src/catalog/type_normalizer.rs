@@ -69,6 +69,13 @@ pub(crate) fn normalize_data_type(
         },
         DataType::Text => ("text".to_string(), false),
 
+        // MSSQL-specific character types (treated as text/varchar)
+        DataType::Nvarchar(len) => match len {
+            Some(sqlparser::ast::CharacterLength::IntegerLength { length, .. }) => {
+                (format!("varchar({})", length), false)
+            }
+            _ => ("text".to_string(), false),
+        },
         // Numeric
         DataType::Numeric(info) | DataType::Decimal(info) | DataType::Dec(info) => {
             use sqlparser::ast::ExactNumberInfo;
@@ -104,6 +111,8 @@ pub(crate) fn normalize_data_type(
             }
         }
         DataType::Interval { .. } => ("interval".to_string(), false),
+
+        // MSSQL-specific datetime types
 
         // JSON
         DataType::JSON => ("json".to_string(), false),

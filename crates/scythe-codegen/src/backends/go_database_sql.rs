@@ -22,13 +22,14 @@ impl GoDatabaseSqlBackend {
         let manifest_toml = match engine {
             "mysql" => include_str!("../../manifests/go-database-sql.mysql.toml"),
             "mariadb" => include_str!("../../manifests/go-database-sql.mariadb.toml"),
+            "mssql" => include_str!("../../manifests/go-database-sql.mssql.toml"),
             "sqlite" | "sqlite3" => include_str!("../../manifests/go-database-sql.sqlite.toml"),
             "duckdb" => include_str!("../../manifests/go-database-sql.duckdb.toml"),
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
                     format!(
-                        "go-database-sql supports MySQL, SQLite, and DuckDB, got engine '{}'",
+                        "go-database-sql supports MySQL, MSSQL, SQLite, and DuckDB, got engine '{}'",
                         engine
                     ),
                 ));
@@ -55,7 +56,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
     }
 
     fn supported_engines(&self) -> &[&str] {
-        &["mysql", "mariadb", "sqlite", "duckdb"]
+        &["mysql", "mariadb", "mssql", "sqlite", "duckdb"]
     }
 
     fn file_header(&self) -> String {

@@ -17,6 +17,7 @@ const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/kotlin-jdbc.m
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/kotlin-jdbc.sqlite.toml");
 const DEFAULT_MANIFEST_DUCKDB: &str = include_str!("../../manifests/kotlin-jdbc.duckdb.toml");
 const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/kotlin-jdbc.mariadb.toml");
+const DEFAULT_MANIFEST_MSSQL: &str = include_str!("../../manifests/kotlin-jdbc.mssql.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/kotlin-jdbc.redshift.toml");
 const DEFAULT_MANIFEST_SNOWFLAKE: &str = include_str!("../../manifests/kotlin-jdbc.snowflake.toml");
 
@@ -32,6 +33,7 @@ impl KotlinJdbcBackend {
             "mariadb" => DEFAULT_MANIFEST_MARIADB,
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
             "duckdb" => DEFAULT_MANIFEST_DUCKDB,
+            "mssql" => DEFAULT_MANIFEST_MSSQL,
             "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             "snowflake" => DEFAULT_MANIFEST_SNOWFLAKE,
             _ => {
@@ -121,6 +123,7 @@ impl CodegenBackend for KotlinJdbcBackend {
             "mariadb",
             "sqlite",
             "duckdb",
+            "mssql",
             "redshift",
             "snowflake",
         ]

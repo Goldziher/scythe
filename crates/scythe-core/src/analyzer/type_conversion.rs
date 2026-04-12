@@ -12,12 +12,13 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
     let normalized = strip_precision(&lower);
 
     match normalized.as_str() {
-        // -- Integer types (PostgreSQL + MySQL + SQLite) --
+        // -- Integer types (PostgreSQL + MySQL + SQLite + Oracle) --
         "integer" | "int" | "int4" | "serial" => Cow::Borrowed("int32"),
         "smallint" | "int2" | "smallserial" => Cow::Borrowed("int16"),
         "bigint" | "int8" | "bigserial" => Cow::Borrowed("int64"),
         "tinyint" => Cow::Borrowed("int16"),
         "mediumint" => Cow::Borrowed("int32"),
+        "number" => Cow::Borrowed("int64"), // Oracle NUMBER defaults to int64
 
         // -- Float types --
         "real" | "float4" => Cow::Borrowed("float32"),
@@ -26,7 +27,9 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "numeric" | "decimal" => Cow::Borrowed("decimal"),
 
         // -- String types --
-        "text" | "character varying" | "character" | "varchar" | "char" => Cow::Borrowed("string"),
+        "text" | "character varying" | "character" | "varchar" | "char" | "varchar2"
+        | "nvarchar2" => Cow::Borrowed("string"),
+        "nvarchar" | "nchar" | "ntext" => Cow::Borrowed("string"),
         "tinytext" | "mediumtext" | "longtext" | "clob" => Cow::Borrowed("string"),
         "set" => Cow::Borrowed("string"),
 
@@ -40,7 +43,7 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         }
 
         // -- UUID --
-        "uuid" => Cow::Borrowed("uuid"),
+        "uuid" | "uniqueidentifier" => Cow::Borrowed("uuid"),
 
         // -- Date/time types --
         "date" => Cow::Borrowed("date"),
@@ -48,7 +51,7 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "time with time zone" | "timetz" => Cow::Borrowed("time_tz"),
         "timestamp" | "timestamp without time zone" => Cow::Borrowed("datetime"),
         "timestamp with time zone" | "timestamptz" => Cow::Borrowed("datetime_tz"),
-        "datetime" => Cow::Borrowed("datetime"),
+        "datetime" | "datetime2" => Cow::Borrowed("datetime"),
         "interval" => Cow::Borrowed("interval"),
         "year" => Cow::Borrowed("int16"),
 
@@ -141,7 +144,8 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
         | DataType::CharacterVarying(_)
         | DataType::Text
         | DataType::Char(_)
-        | DataType::Character(_) => "string".to_string(),
+        | DataType::Character(_)
+        | DataType::Nvarchar(_) => "string".to_string(),
         DataType::Bool | DataType::Boolean => "bool".to_string(),
         DataType::Bytea => "bytes".to_string(),
         DataType::Blob(_) => "bytes".to_string(),

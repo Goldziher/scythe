@@ -1,5 +1,5 @@
 CREATE TABLE users (
-    id INT NOT NULL IDENTITY(1,1) PRIMARY KEY,
+    id INT PRIMARY KEY,
     name NVARCHAR(255) NOT NULL,
     email NVARCHAR(255),
     active BIT NOT NULL DEFAULT 1,
@@ -8,16 +8,16 @@ CREATE TABLE users (
 );
 
 CREATE TABLE orders (
-    id INT NOT NULL IDENTITY(1,1) PRIMARY KEY,
+    id INT PRIMARY KEY,
     user_id INT NOT NULL,
     total DECIMAL(10, 2) NOT NULL,
-    notes NVARCHAR(MAX),
+    notes NVARCHAR(4000),
     created_at DATETIME2 NOT NULL DEFAULT GETDATE(),
     CONSTRAINT FK_orders_users FOREIGN KEY (user_id) REFERENCES users (id)
 );
 
 CREATE TABLE tags (
-    id INT NOT NULL IDENTITY(1,1) PRIMARY KEY,
+    id INT PRIMARY KEY,
     name NVARCHAR(255) NOT NULL UNIQUE
 );
 
