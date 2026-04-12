@@ -21,6 +21,7 @@ const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/java-jdbc.m
 const DEFAULT_MANIFEST_MSSQL: &str = include_str!("../../manifests/java-jdbc.mssql.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/java-jdbc.redshift.toml");
 const DEFAULT_MANIFEST_SNOWFLAKE: &str = include_str!("../../manifests/java-jdbc.snowflake.toml");
+const DEFAULT_MANIFEST_ORACLE: &str = include_str!("../../manifests/java-jdbc.oracle.toml");
 
 pub struct JavaJdbcBackend {
     manifest: BackendManifest,
@@ -37,6 +38,7 @@ impl JavaJdbcBackend {
             "mssql" => DEFAULT_MANIFEST_MSSQL,
             "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             "snowflake" => DEFAULT_MANIFEST_SNOWFLAKE,
+            "oracle" => DEFAULT_MANIFEST_ORACLE,
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
@@ -180,6 +182,7 @@ impl CodegenBackend for JavaJdbcBackend {
             "mssql",
             "redshift",
             "snowflake",
+            "oracle",
         ]
     }
 
