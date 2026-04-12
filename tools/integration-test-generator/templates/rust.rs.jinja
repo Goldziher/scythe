@@ -7,11 +7,11 @@ use generated::{
     UserStatus,
 {%- endif %}
 };
-{%- if driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" %}
+{%- if driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-mariadb" or driver == "sqlx-sqlite" %}
 use rust_decimal::Decimal;
 {%- if driver == "sqlx" %}
 use sqlx::postgres::PgPoolOptions;
-{%- elif driver == "sqlx-mysql" %}
+{%- elif driver == "sqlx-mysql" or driver == "sqlx-mariadb" %}
 use sqlx::mysql::MySqlPoolOptions;
 {%- elif driver == "sqlx-sqlite" %}
 use sqlx::sqlite::SqlitePoolOptions;
@@ -94,6 +94,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             sqlx::query(stmt).execute(&pool).await?;
         }
     }
+{%- elif driver == "sqlx-mariadb" -%}
+    let pool = MySqlPoolOptions::new()
+        .max_connections(5)
+        .connect(&database_url)
+        .await?;
+
+    // Clean slate: drop tables in dependency order, then recreate
+    sqlx::query("DROP TABLE IF EXISTS user_tags")
+        .execute(&pool)
+        .await?;
+    sqlx::query("DROP TABLE IF EXISTS tags")
+        .execute(&pool)
+        .await?;
+    sqlx::query("DROP TABLE IF EXISTS orders")
+        .execute(&pool)
+        .await?;
+    sqlx::query("DROP TABLE IF EXISTS users")
+        .execute(&pool)
+        .await?;
+
+    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
+    for stmt in schema_sql.split(';') {
+        let stmt = stmt.trim();
+        if !stmt.is_empty() {
+            sqlx::query(stmt).execute(&pool).await?;
+        }
+    }
 {%- elif driver == "sqlx-sqlite" -%}
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
@@ -148,7 +175,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 {%- endif %}
 
     // Test: CreateUser
-{% if driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
+{% if driver == "sqlx-mariadb" -%}
+    let user: CreateUserRow = sqlx::query_as(
+        "INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email, created_at",
+    )
+    .bind("Alice")
+    .bind("alice@example.com")
+    .bind("active")
+    .fetch_one(&pool)
+    .await?;
+{%- elif driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
     let user: CreateUserRow = sqlx::query_as(
         "INSERT INTO users (name, email{% if engine == "postgresql" %}, status{% endif %}) VALUES ($1, $2{% if engine == "postgresql" %}, $3{% endif %}) RETURNING id, name, email{% if engine == "postgresql" %}, status{% endif %}, created_at",
     )
@@ -180,7 +216,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("CreateUser");
 
     // Test: GetUserById
-{% if driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
+{% if driver == "sqlx-mariadb" -%}
+    let fetched: GetUserByIdRow =
+        sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
+            .bind(&user_id)
+            .fetch_one(&pool)
+            .await?;
+{%- elif driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
     let fetched: GetUserByIdRow =
         sqlx::query_as("SELECT id, name, email{% if engine == "postgresql" %}, status{% endif %}, created_at FROM users WHERE id = $1")
             .bind(user_id)
@@ -207,7 +249,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("GetUserById");
 
     // Test: ListActiveUsers
-{% if driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
+{% if driver == "sqlx-mariadb" -%}
+    let active_users: Vec<ListActiveUsersRow> =
+        sqlx::query_as("SELECT id, name, email FROM users WHERE status = ?")
+            .bind("active")
+            .fetch_all(&pool)
+            .await?;
+{%- elif driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
     let active_users: Vec<ListActiveUsersRow> =
         sqlx::query_as("SELECT id, name, email FROM users WHERE status = $1")
 {%- if engine == "postgresql" %}
@@ -230,7 +278,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Test: CreateOrder
     let total = Decimal::from_str("99.95").unwrap();
-{% if driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
+{% if driver == "sqlx-mariadb" -%}
+    let order: CreateOrderRow = sqlx::query_as(
+        "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at",
+    )
+    .bind(&user_id)
+    .bind(&total)
+    .bind("first order")
+    .fetch_one(&pool)
+    .await?;
+{%- elif driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
     let order: CreateOrderRow = sqlx::query_as(
         "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at",
     )
@@ -257,7 +314,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("CreateOrder");
 
     // Test: GetOrdersByUser
-{% if driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
+{% if driver == "sqlx-mariadb" -%}
+    let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
+        "SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC",
+    )
+    .bind(&user_id)
+    .fetch_all(&pool)
+    .await?;
+{%- elif driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
     let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
         "SELECT id, total, notes, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC",
     )
@@ -278,7 +342,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("GetOrdersByUser");
 
     // Test: DeleteUser (delete orders first due to FK)
-{% if driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
+{% if driver == "sqlx-mariadb" -%}
+    sqlx::query("DELETE FROM orders WHERE user_id = ?")
+        .bind(&user_id)
+        .execute(&pool)
+        .await?;
+    sqlx::query("DELETE FROM users WHERE id = ?")
+        .bind(&user_id)
+        .execute(&pool)
+        .await?;
+    // Verify user is gone
+    let deleted: Option<GetUserByIdRow> =
+        sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
+            .bind(&user_id)
+            .fetch_optional(&pool)
+            .await?;
+{%- elif driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
     sqlx::query("DELETE FROM orders WHERE user_id = $1")
         .bind(user_id)
         .execute(&pool)

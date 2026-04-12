@@ -1,4 +1,6 @@
 # frozen_string_literal: true
+
+require "uri"
 {% if driver == "pg" %}
 require "pg"
 {%- elif driver == "mysql2" %}
@@ -14,6 +16,8 @@ require_relative "generated/queries"
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "pg", "schema.sql")
 {%- elif engine == "mysql" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "mysql", "schema.sql")
+{%- elif engine == "mariadb" -%}
+SCHEMA_PATH = File.join(__dir__, "..", "sql", "mariadb", "schema.sql")
 {%- elif engine == "sqlite" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "sqlite", "schema.sql")
 {%- endif %}
@@ -91,14 +95,24 @@ def assert_true(value, message)
 end
 
 def test_create_user(conn)
-  user = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" %}, "active"{% endif %})
+{%- if engine == "mysql" %}
+  Queries.create_user(conn, "Alice", "alice@example.com", Queries::UsersStatus::ACTIVE)
+  user = Queries.get_last_insert_user(conn)
+{%- else %}
+  user = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" %}, "active"{% elif engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
+{%- endif %}
   assert_not_nil(user, "create_user returned nil")
   assert_equal("Alice", user.name, "create_user name")
   assert_equal("alice@example.com", user.email, "create_user email")
 {%- if engine == "postgresql" %}
   assert_equal("active", user.status, "create_user status")
 {%- endif %}
+{%- if engine == "mariadb" %}
+  assert_not_nil(user.id, "create_user id should not be nil")
+  assert_true(!user.id.to_s.empty?, "create_user id should not be empty")
+{%- else %}
   assert_true(user.id.positive?, "create_user id should be positive")
+{%- endif %}
   puts "PASS: CreateUser"
   user.id
 end
@@ -116,7 +130,7 @@ def test_get_user_by_id(conn, user_id)
 end
 
 def test_list_active_users(conn)
-  users = Queries.list_active_users(conn{% if engine == "postgresql" %}, "active"{% endif %})
+  users = Queries.list_active_users(conn{% if engine == "postgresql" %}, "active"{% elif engine == "mysql" or engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
   assert_true(users.length >= 1, "Expected at least 1 active user, got #{users.length}")
   names = users.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in active users, got #{names}")
@@ -132,7 +146,12 @@ def test_update_user_email(conn, user_id)
 end
 
 def test_create_order(conn, user_id)
+{%- if engine == "mysql" %}
+  Queries.create_order(conn, user_id, "49.99", "Test order")
+  order = Queries.get_last_insert_order(conn)
+{%- else %}
   order = Queries.create_order(conn, user_id, "49.99", "Test order")
+{%- endif %}
   assert_not_nil(order, "create_order returned nil")
   assert_equal(user_id, order.user_id, "create_order user_id")
   assert_equal("Test order", order.notes, "create_order notes")

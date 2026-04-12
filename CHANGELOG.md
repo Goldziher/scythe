@@ -5,6 +5,14 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.6] - 2026-04-12
+
+### Added
+
+- MariaDB integration tests across all 11 supported backends (Rust sqlx, Python aiomysql, TypeScript mysql2, Go database/sql, Java JDBC, Kotlin JDBC, C# MySqlConnector, Elixir MyXQL, Ruby mysql2, Ruby trilogy, PHP PDO)
+- MariaDB CI job running all 11 backends against MariaDB 11
+- MariaDB `orders.sql` queries with `INSERT...RETURNING` support
+
 ## [0.6.5] - 2026-04-12
 
 ### Added

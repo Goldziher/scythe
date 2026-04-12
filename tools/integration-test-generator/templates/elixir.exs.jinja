@@ -71,6 +71,38 @@ database = String.trim_leading(uri.path, "/")
     database: database
   )
 {%- endif %}
+{%- elif engine == "mariadb" %}
+database_url =
+  System.get_env("{{ connection_env }}", "mysql://root@localhost:3306/scythe_test")
+
+uri = URI.parse(database_url)
+userinfo = uri.userinfo || "root"
+parts = String.split(userinfo, ":")
+username = List.first(parts)
+password = Enum.at(parts, 1) || ""
+database = String.trim_leading(uri.path, "/")
+
+{%- if driver == "myxql" %}
+
+{:ok, conn} =
+  MyXQL.start_link(
+    hostname: uri.host,
+    port: uri.port || 3306,
+    username: username,
+    password: password,
+    database: database
+  )
+{%- elif driver == "ecto" %}
+
+{:ok, conn} =
+  Ecto.Adapters.MyXQL.start_link(
+    hostname: uri.host,
+    port: uri.port || 3306,
+    username: username,
+    password: password,
+    database: database
+  )
+{%- endif %}
 {%- elif engine == "sqlite" %}
 database_path = System.get_env("{{ connection_env }}", ":memory:")
 
@@ -132,6 +164,34 @@ schema_sql
 |> Enum.filter(&(&1 != ""))
 |> Enum.each(fn stmt -> Ecto.Adapters.SQL.query!(conn, stmt, []) end)
 {%- endif %}
+{%- elif engine == "mariadb" -%}
+{% if driver == "myxql" -%}
+MyXQL.query!(conn, "DROP TABLE IF EXISTS user_tags", [])
+MyXQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
+MyXQL.query!(conn, "DROP TABLE IF EXISTS orders", [])
+MyXQL.query!(conn, "DROP TABLE IF EXISTS users", [])
+
+schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "mariadb", "schema.sql"]))
+
+schema_sql
+|> String.split(";")
+|> Enum.map(&String.trim/1)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt -> MyXQL.query!(conn, stmt, []) end)
+{%- elif driver == "ecto" %}
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS orders", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users", [])
+
+schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "mariadb", "schema.sql"]))
+
+schema_sql
+|> String.split(";")
+|> Enum.map(&String.trim/1)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt -> Ecto.Adapters.SQL.query!(conn, stmt, []) end)
+{%- endif %}
 {%- elif engine == "sqlite" -%}
 {% if driver == "exqlite" -%}
 Exqlite.query!(conn, "DROP TABLE IF EXISTS user_tags", [])
@@ -174,7 +234,12 @@ end
 Process.put(:exit_code, 0)
 
 # Test: CreateUser
-{:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" %}, "active"{% endif %})
+{%- if engine == "mysql" %}
+:ok = Queries.create_user(conn, "Alice", "alice@example.com", UsersStatus.active())
+{:ok, user} = Queries.get_last_insert_user(conn)
+{%- else %}
+{:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" %}, "active"{% elif engine == "mariadb" %}, UsersStatus.active(){% endif %})
+{%- endif %}
 assert.(user.name == "Alice", "CreateUser", "expected name Alice, got #{user.name}")
 assert.(user.email == "alice@example.com", "CreateUser", "expected email alice@example.com")
 {%- if engine == "postgresql" %}
@@ -191,14 +256,19 @@ assert.(fetched.email == "alice@example.com", "GetUserById", "expected email ali
 IO.puts("PASS: GetUserById")
 
 # Test: ListActiveUsers
-{:ok, active_users} = Queries.list_active_users(conn{% if engine == "postgresql" %}, "active"{% endif %})
+{:ok, active_users} = Queries.list_active_users(conn{% if engine == "postgresql" %}, "active"{% elif engine == "mysql" or engine == "mariadb" %}, UsersStatus.active(){% endif %})
 assert.(length(active_users) > 0, "ListActiveUsers", "should have at least one user")
 first = List.first(active_users)
 assert.(first.name == "Alice", "ListActiveUsers", "first user should be Alice")
 IO.puts("PASS: ListActiveUsers")
 
 # Test: CreateOrder
+{%- if engine == "mysql" %}
+:ok = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
+{:ok, order} = Queries.get_last_insert_order(conn)
+{%- else %}
 {:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
+{%- endif %}
 assert.(order.user_id == user_id, "CreateOrder", "expected user_id #{user_id}")
 assert.(Decimal.equal?(order.total, Decimal.new("99.95")), "CreateOrder", "expected total 99.95, got #{order.total}")
 assert.(order.notes == "first order", "CreateOrder", "expected notes 'first order'")
