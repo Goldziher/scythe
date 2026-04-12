@@ -4,12 +4,11 @@ SELECT id, name, email, active, external_id, created_at FROM users WHERE id = @p
 
 -- @name ListActiveUsers
 -- @returns :many
-SELECT id, name, email FROM users WHERE active = 1;
+SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT);
 
 -- @name CreateUser
--- @returns :one
+-- @returns :exec
 INSERT INTO users (name, email, active, external_id)
-OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.external_id, INSERTED.created_at
 VALUES (@p1, @p2, @p3, @p4);
 
 -- @name UpdateUserEmail

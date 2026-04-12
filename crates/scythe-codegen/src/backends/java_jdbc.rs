@@ -18,6 +18,7 @@ const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/java-jdbc.mys
 const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/java-jdbc.sqlite.toml");
 const DEFAULT_MANIFEST_DUCKDB: &str = include_str!("../../manifests/java-jdbc.duckdb.toml");
 const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/java-jdbc.mariadb.toml");
+const DEFAULT_MANIFEST_MSSQL: &str = include_str!("../../manifests/java-jdbc.mssql.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/java-jdbc.redshift.toml");
 const DEFAULT_MANIFEST_SNOWFLAKE: &str = include_str!("../../manifests/java-jdbc.snowflake.toml");
 
@@ -33,6 +34,7 @@ impl JavaJdbcBackend {
             "mariadb" => DEFAULT_MANIFEST_MARIADB,
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
             "duckdb" => DEFAULT_MANIFEST_DUCKDB,
+            "mssql" => DEFAULT_MANIFEST_MSSQL,
             "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             "snowflake" => DEFAULT_MANIFEST_SNOWFLAKE,
             _ => {
@@ -175,6 +177,7 @@ impl CodegenBackend for JavaJdbcBackend {
             "mariadb",
             "sqlite",
             "duckdb",
+            "mssql",
             "redshift",
             "snowflake",
         ]
