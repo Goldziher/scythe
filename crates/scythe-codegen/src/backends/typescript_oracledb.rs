@@ -133,6 +133,9 @@ impl CodegenBackend for TypescriptOracledbBackend {
             )
         };
 
+        // Check if this is a DML with RETURNING (INSERT/UPDATE/DELETE RETURNING)
+        let has_returning = sql.to_uppercase().contains("RETURNING");
+
         let mut out = String::new();
 
         match &analyzed.command {
@@ -142,31 +145,90 @@ impl CodegenBackend for TypescriptOracledbBackend {
                     "export async function {}(conn: oracledb.Connection{}{}): Promise<{} | null> {{",
                     func_name, sep, param_list, struct_name
                 );
-                let _ = writeln!(
-                    out,
-                    "\tconst result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
-                    sql, bind_array
-                );
-                let _ = writeln!(out, "\tif (!result.rows || result.rows.length === 0) {{");
-                let _ = writeln!(out, "\t\treturn null;");
-                let _ = writeln!(out, "\t}}");
-                let _ = writeln!(
-                    out,
-                    "\tconst row = result.rows[0] as Record<string, unknown>;"
-                );
-                let _ = writeln!(out, "\treturn {{");
-                for col in columns {
-                    // Oracle returns column names as uppercase by default for unquoted identifiers.
+
+                if has_returning {
+                    // Oracle RETURNING requires output bind variables via INTO clause.
+                    // node-oracledb uses { dir: oracledb.BIND_OUT, type: oracledb.NUMBER/STRING/DATE }
+                    let out_bind_entries: Vec<String> = columns
+                        .iter()
+                        .map(|col| {
+                            let nt = col.neutral_type.as_str();
+                            let oratype = match nt {
+                                "int32" | "int64" | "float32" | "float64" | "decimal" => {
+                                    "oracledb.NUMBER"
+                                }
+                                "date" | "datetime" | "datetime_tz" | "time" | "time_tz" => {
+                                    "oracledb.DATE"
+                                }
+                                _ => "oracledb.STRING",
+                            };
+                            format!("{{ dir: oracledb.BIND_OUT, type: {} }}", oratype)
+                        })
+                        .collect();
+                    let into_clause = columns
+                        .iter()
+                        .enumerate()
+                        .map(|(i, _)| format!(":{}", params.len() + i + 1))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let full_sql = format!("{} INTO {}", sql, into_clause);
+                    let all_binds = if params.is_empty() {
+                        format!("[{}]", out_bind_entries.join(", "))
+                    } else {
+                        let input_names: Vec<String> =
+                            params.iter().map(|p| p.field_name.clone()).collect();
+                        format!(
+                            "[{}, {}]",
+                            input_names.join(", "),
+                            out_bind_entries.join(", ")
+                        )
+                    };
                     let _ = writeln!(
                         out,
-                        "\t\t{}: row[\"{}\"] as {},",
-                        col.field_name,
-                        col.name.to_uppercase(),
-                        col.lang_type
+                        "\tconst result = await conn.execute(\"{}\", {});",
+                        full_sql, all_binds
                     );
+                    let _ = writeln!(out, "\tif (!result.outBinds) {{");
+                    let _ = writeln!(out, "\t\treturn null;");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = writeln!(out, "\tconst outBinds = result.outBinds as unknown[][];");
+                    let _ = writeln!(out, "\treturn {{");
+                    for (i, col) in columns.iter().enumerate() {
+                        let _ = writeln!(
+                            out,
+                            "\t\t{}: outBinds[{}][0] as {},",
+                            col.field_name, i, col.lang_type
+                        );
+                    }
+                    let _ = writeln!(out, "\t}};");
+                    let _ = write!(out, "}}");
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "\tconst result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
+                        sql, bind_array
+                    );
+                    let _ = writeln!(out, "\tif (!result.rows || result.rows.length === 0) {{");
+                    let _ = writeln!(out, "\t\treturn null;");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = writeln!(
+                        out,
+                        "\tconst row = result.rows[0] as Record<string, unknown>;"
+                    );
+                    let _ = writeln!(out, "\treturn {{");
+                    for col in columns {
+                        // Oracle returns column names as uppercase by default for unquoted identifiers.
+                        let _ = writeln!(
+                            out,
+                            "\t\t{}: row[\"{}\"] as {},",
+                            col.field_name,
+                            col.name.to_uppercase(),
+                            col.lang_type
+                        );
+                    }
+                    let _ = writeln!(out, "\t}};");
+                    let _ = write!(out, "}}");
                 }
-                let _ = writeln!(out, "\t}};");
-                let _ = write!(out, "}}");
             }
             QueryCommand::Many => {
                 let _ = writeln!(

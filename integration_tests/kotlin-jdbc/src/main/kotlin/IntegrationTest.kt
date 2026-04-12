@@ -86,7 +86,7 @@ fun runMigration(conn: java.sql.Connection) {
 fun testCreateUser(conn: java.sql.Connection) {
     val name = "CreateUser"
     try {
-        val user = createUser(conn, "Alice", "alice@example.com", UserStatus.active)
+        val user = createUser(conn, "Alice", "alice@example.com", UserStatus.ACTIVE)
         if (user == null) {
             fail(name, "returned null")
             return
@@ -204,7 +204,7 @@ fun testGetOrderTotal(conn: java.sql.Connection) {
 fun testListActiveUsers(conn: java.sql.Connection) {
     val name = "ListActiveUsers"
     try {
-        val users = listActiveUsers(conn, UserStatus.active)
+        val users = listActiveUsers(conn, UserStatus.ACTIVE)
         if (users.isEmpty()) {
             fail(name, "expected at least 1 active user")
             return
@@ -218,7 +218,7 @@ fun testListActiveUsers(conn: java.sql.Connection) {
 fun testGetUserOrders(conn: java.sql.Connection) {
     val name = "GetUserOrders"
     try {
-        val results = getUserOrders(conn, UserStatus.active)
+        val results = getUserOrders(conn, UserStatus.ACTIVE)
         if (results.isEmpty()) {
             fail(name, "expected at least 1 result")
             return
@@ -232,7 +232,7 @@ fun testGetUserOrders(conn: java.sql.Connection) {
 fun testCountUsersByStatus(conn: java.sql.Connection) {
     val name = "CountUsersByStatus"
     try {
-        val result = countUsersByStatus(conn, UserStatus.active)
+        val result = countUsersByStatus(conn, UserStatus.ACTIVE)
         if (result == null) {
             fail(name, "returned null")
             return

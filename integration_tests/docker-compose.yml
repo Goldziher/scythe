@@ -28,6 +28,20 @@ services:
       timeout: 5s
       retries: 10
 
+  oracle:
+    image: gvenzl/oracle-xe:21-slim
+    environment:
+      ORACLE_PASSWORD: scythe
+      APP_USER: scythe
+      APP_USER_PASSWORD: scythe
+    ports:
+      - "1521:1521"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
   mariadb:
     image: mariadb:11
     environment:

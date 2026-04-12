@@ -128,18 +128,60 @@ impl CodegenBackend for RubyOci8Backend {
             )
         };
 
+        // Check if this is a DML with RETURNING (INSERT/UPDATE/DELETE RETURNING)
+        let has_returning = sql.to_uppercase().contains("RETURNING");
+
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
-                let _ = writeln!(out, "    cursor = conn.exec(\"{}\"{})", sql, bind_vars);
-                let _ = writeln!(out, "    row = cursor.fetch");
-                let _ = writeln!(out, "    return nil if row.nil?");
-                let fields = columns
-                    .iter()
-                    .enumerate()
-                    .map(|(i, c)| format!("{}: row[{}]", c.field_name, i))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+                if has_returning {
+                    // Oracle RETURNING requires output bind variables via INTO clause.
+                    // ruby-oci8 uses cursor.parse + cursor.bind_param(N, nil, Type) for outputs.
+                    let _ = writeln!(out, "    cursor = conn.parse(\"{}\")", {
+                        let into_clause = columns
+                            .iter()
+                            .enumerate()
+                            .map(|(i, _)| format!(":{}", params.len() + i + 1))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("{} INTO {}", sql, into_clause)
+                    });
+                    for (i, p) in params.iter().enumerate() {
+                        let _ = writeln!(out, "    cursor.bind_param({}, {})", i + 1, p.field_name);
+                    }
+                    for (i, col) in columns.iter().enumerate() {
+                        let ruby_type = match col.neutral_type.as_str() {
+                            "int32" | "int64" => "Integer",
+                            "float32" | "float64" | "decimal" => "Float",
+                            "date" | "datetime" | "datetime_tz" | "time" | "time_tz" => "Time",
+                            _ => "String",
+                        };
+                        let _ = writeln!(
+                            out,
+                            "    cursor.bind_param({}, nil, {})",
+                            params.len() + i + 1,
+                            ruby_type
+                        );
+                    }
+                    let _ = writeln!(out, "    cursor.exec");
+                    let fields = columns
+                        .iter()
+                        .enumerate()
+                        .map(|(i, c)| format!("{}: cursor[{}]", c.field_name, params.len() + i + 1))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+                } else {
+                    let _ = writeln!(out, "    cursor = conn.exec(\"{}\"{})", sql, bind_vars);
+                    let _ = writeln!(out, "    row = cursor.fetch");
+                    let _ = writeln!(out, "    return nil if row.nil?");
+                    let fields = columns
+                        .iter()
+                        .enumerate()
+                        .map(|(i, c)| format!("{}: row[{}]", c.field_name, i))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+                }
             }
             QueryCommand::Many => {
                 let _ = writeln!(out, "    cursor = conn.exec(\"{}\"{})", sql, bind_vars);

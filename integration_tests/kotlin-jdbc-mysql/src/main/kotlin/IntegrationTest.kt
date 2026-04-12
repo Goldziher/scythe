@@ -26,9 +26,9 @@ fun fail(name: String, e: Exception) {
 var createdUserId = 0
 
 fun main() {
-    val mysqlUrl = System.getenv("DATABASE_URL")
+    val mysqlUrl = System.getenv("MYSQL_URL")
     if (mysqlUrl.isNullOrEmpty()) {
-        System.err.println("DATABASE_URL environment variable is required")
+        System.err.println("MYSQL_URL environment variable is required")
         exitProcess(1)
     }
 
@@ -86,7 +86,7 @@ fun runMigration(conn: java.sql.Connection) {
 fun testCreateUser(conn: java.sql.Connection) {
     val name = "CreateUser"
     try {
-        createUser(conn, "Alice", "alice@example.com", UsersStatus.active)
+        createUser(conn, "Alice", "alice@example.com", UsersStatus.ACTIVE)
         val user = getLastInsertUser(conn)
         if (user == null) {
             fail(name, "returned null")
@@ -132,7 +132,7 @@ fun testGetUserById(conn: java.sql.Connection) {
 fun testListActiveUsers(conn: java.sql.Connection) {
     val name = "ListActiveUsers"
     try {
-        val users = listActiveUsers(conn, UsersStatus.active)
+        val users = listActiveUsers(conn, UsersStatus.ACTIVE)
         if (users.isEmpty()) {
             fail(name, "expected at least 1 active user")
             return

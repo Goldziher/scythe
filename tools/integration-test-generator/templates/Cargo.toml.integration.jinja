@@ -14,7 +14,12 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "chrono", "rust_
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
 {%- elif driver == "tokio-postgres" -%}
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-rust_decimal-0_1"] }
+{%- elif driver == "sibyl" -%}
+sibyl = { version = "0.6", features = ["tokio"] }
+url = "2"
 {%- endif %}
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
+{%- if driver != "sibyl" %}
 rust_decimal = "1"
+{%- endif %}

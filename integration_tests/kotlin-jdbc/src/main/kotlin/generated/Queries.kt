@@ -1,17 +1,19 @@
 package generated
 
+import java.math.BigDecimal
 import java.sql.Connection
-import java.sql.Types
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.time.OffsetTime
+import java.util.UUID
 
 
 enum class UserStatus(val value: String) {
-    active("active"),
-    inactive("inactive"),
-    banned("banned");
-
-    companion object {
-        fun fromString(text: String): UserStatus = entries.first { it.value == text }
-    }
+    ACTIVE("active"),
+    INACTIVE("inactive"),
+    BANNED("banned");
 }
 
 
@@ -28,7 +30,7 @@ fun createOrder(
     conn: Connection,
     user_id: Int,
     total: java.math.BigDecimal,
-    notes: String,
+    notes: String?,
 ): CreateOrderRow? {
     conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at").use { ps ->
         ps.setInt(1, user_id)
@@ -36,12 +38,14 @@ fun createOrder(
         ps.setString(3, notes)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
+                val notesValue = rs.getString("notes")
+                val notes = if (rs.wasNull()) null else notesValue
                 CreateOrderRow(
                     id = rs.getInt("id"),
                     user_id = rs.getInt("user_id"),
                     total = rs.getBigDecimal("total"),
-                    notes = rs.getString("notes"),
-                    created_at = rs.getObject("created_at", java.time.OffsetDateTime::class.java),
+                    notes = notes,
+                    created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
                 null
@@ -68,12 +72,14 @@ fun getOrdersByUser(
         ps.executeQuery().use { rs ->
             val result = mutableListOf<GetOrdersByUserRow>()
             while (rs.next()) {
+                val notesValue = rs.getString("notes")
+                val notes = if (rs.wasNull()) null else notesValue
                 result.add(
                     GetOrdersByUserRow(
                         id = rs.getInt("id"),
                         total = rs.getBigDecimal("total"),
-                        notes = rs.getString("notes"),
-                        created_at = rs.getObject("created_at", java.time.OffsetDateTime::class.java),
+                        notes = notes,
+                        created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                     ),
                 )
             }
@@ -96,8 +102,10 @@ fun getOrderTotal(
         ps.setInt(1, user_id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
+                val total_sumValue = rs.getBigDecimal("total_sum")
+                val total_sum = if (rs.wasNull()) null else total_sumValue
                 GetOrderTotalRow(
-                    total_sum = rs.getBigDecimal("total_sum"),
+                    total_sum = total_sum,
                 )
             } else {
                 null
@@ -135,12 +143,14 @@ fun getUserById(
         ps.setInt(1, id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 GetUserByIdRow(
                     id = rs.getInt("id"),
                     name = rs.getString("name"),
-                    email = rs.getString("email"),
-                    status = UserStatus.fromString(rs.getString("status")),
-                    created_at = rs.getObject("created_at", java.time.OffsetDateTime::class.java),
+                    email = email,
+                    status = UserStatus.valueOf(rs.getString("status").uppercase()),
+                    created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
                 null
@@ -162,15 +172,17 @@ fun listActiveUsers(
     status: UserStatus,
 ): List<ListActiveUsersRow> {
     conn.prepareStatement("SELECT id, name, email FROM users WHERE status = ?").use { ps ->
-        ps.setObject(1, status.value, Types.OTHER)
+        ps.setObject(1, status.value, java.sql.Types.OTHER)
         ps.executeQuery().use { rs ->
             val result = mutableListOf<ListActiveUsersRow>()
             while (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 result.add(
                     ListActiveUsersRow(
                         id = rs.getInt("id"),
                         name = rs.getString("name"),
-                        email = rs.getString("email"),
+                        email = email,
                     ),
                 )
             }
@@ -192,21 +204,23 @@ data class CreateUserRow(
 fun createUser(
     conn: Connection,
     name: String,
-    email: String,
+    email: String?,
     status: UserStatus,
 ): CreateUserRow? {
     conn.prepareStatement("INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email, status, created_at").use { ps ->
         ps.setString(1, name)
         ps.setString(2, email)
-        ps.setObject(3, status.value, Types.OTHER)
+        ps.setObject(3, status.value, java.sql.Types.OTHER)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 CreateUserRow(
                     id = rs.getInt("id"),
                     name = rs.getString("name"),
-                    email = rs.getString("email"),
-                    status = UserStatus.fromString(rs.getString("status")),
-                    created_at = rs.getObject("created_at", java.time.OffsetDateTime::class.java),
+                    email = email,
+                    status = UserStatus.valueOf(rs.getString("status").uppercase()),
+                    created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
                 null
@@ -253,16 +267,20 @@ fun getUserOrders(
     status: UserStatus,
 ): List<GetUserOrdersRow> {
     conn.prepareStatement("SELECT u.id, u.name, o.total, o.notes FROM users u LEFT JOIN orders o ON u.id = o.user_id WHERE u.status = ?").use { ps ->
-        ps.setObject(1, status.value, Types.OTHER)
+        ps.setObject(1, status.value, java.sql.Types.OTHER)
         ps.executeQuery().use { rs ->
             val result = mutableListOf<GetUserOrdersRow>()
             while (rs.next()) {
+                val totalValue = rs.getBigDecimal("total")
+                val total = if (rs.wasNull()) null else totalValue
+                val notesValue = rs.getString("notes")
+                val notes = if (rs.wasNull()) null else notesValue
                 result.add(
                     GetUserOrdersRow(
                         id = rs.getInt("id"),
                         name = rs.getString("name"),
-                        total = rs.getBigDecimal("total"),
-                        notes = rs.getString("notes"),
+                        total = total,
+                        notes = notes,
                     ),
                 )
             }
@@ -283,16 +301,46 @@ fun countUsersByStatus(
     status: UserStatus,
 ): CountUsersByStatusRow? {
     conn.prepareStatement("SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = ?").use { ps ->
-        ps.setObject(1, status.value, Types.OTHER)
+        ps.setObject(1, status.value, java.sql.Types.OTHER)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
                 CountUsersByStatusRow(
-                    status = UserStatus.fromString(rs.getString("status")),
+                    status = UserStatus.valueOf(rs.getString("status").uppercase()),
                     user_count = rs.getLong("user_count"),
                 )
             } else {
                 null
             }
+        }
+    }
+}
+
+
+data class GetUserWithTagsRow(
+    val id: Int,
+    val name: String,
+    val tag_name: String,
+)
+
+
+fun getUserWithTags(
+    conn: Connection,
+    id: Int,
+): List<GetUserWithTagsRow> {
+    conn.prepareStatement("SELECT u.id, u.name, t.name AS tag_name FROM users u INNER JOIN user_tags ut ON u.id = ut.user_id INNER JOIN tags t ON ut.tag_id = t.id WHERE u.id = ?").use { ps ->
+        ps.setInt(1, id)
+        ps.executeQuery().use { rs ->
+            val result = mutableListOf<GetUserWithTagsRow>()
+            while (rs.next()) {
+                result.add(
+                    GetUserWithTagsRow(
+                        id = rs.getInt("id"),
+                        name = rs.getString("name"),
+                        tag_name = rs.getString("tag_name"),
+                    ),
+                )
+            }
+            return result
         }
     }
 }
@@ -314,11 +362,13 @@ fun searchUsers(
         ps.executeQuery().use { rs ->
             val result = mutableListOf<SearchUsersRow>()
             while (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 result.add(
                     SearchUsersRow(
                         id = rs.getInt("id"),
                         name = rs.getString("name"),
-                        email = rs.getString("email"),
+                        email = email,
                     ),
                 )
             }

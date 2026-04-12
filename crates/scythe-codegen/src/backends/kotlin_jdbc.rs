@@ -24,6 +24,7 @@ const DEFAULT_MANIFEST_ORACLE: &str = include_str!("../../manifests/kotlin-jdbc.
 
 pub struct KotlinJdbcBackend {
     manifest: BackendManifest,
+    engine: String,
 }
 
 impl KotlinJdbcBackend {
@@ -47,7 +48,10 @@ impl KotlinJdbcBackend {
         };
         let manifest =
             super::load_or_default_manifest("backends/kotlin-jdbc/manifest.toml", default_toml)?;
-        Ok(Self { manifest })
+        Ok(Self {
+            manifest,
+            engine: engine.to_string(),
+        })
     }
 }
 
@@ -92,6 +96,29 @@ fn temporal_class_literal(kotlin_type: &str) -> Option<&str> {
     }
 }
 
+/// Map a neutral type to the java.sql.Types constant used for Oracle OUT parameters.
+fn oracle_jdbc_type(neutral_type: &str) -> &'static str {
+    match neutral_type {
+        "int32" | "int64" | "float32" | "float64" | "decimal" => "java.sql.Types.NUMERIC",
+        "date" | "datetime" | "datetime_tz" => "java.sql.Types.DATE",
+        "string" | "json" | "uuid" | "inet" | "interval" => "java.sql.Types.VARCHAR",
+        _ => "java.sql.Types.VARCHAR",
+    }
+}
+
+/// Get the CallableStatement getter method for a neutral type.
+fn oracle_cs_getter(neutral_type: &str) -> &'static str {
+    match neutral_type {
+        "int32" => "getInt",
+        "int64" => "getLong",
+        "float32" => "getFloat",
+        "float64" => "getDouble",
+        "decimal" => "getBigDecimal",
+        "date" | "datetime" | "datetime_tz" => "getDate",
+        _ => "getString",
+    }
+}
+
 /// Get the PreparedStatement setter method name for a given Kotlin type.
 fn ps_setter(kotlin_type: &str) -> &str {
     match kotlin_type {
@@ -133,7 +160,9 @@ impl CodegenBackend for KotlinJdbcBackend {
     }
 
     fn file_header(&self) -> String {
-        "import java.math.BigDecimal\n\
+        "package generated\n\
+         \n\
+         import java.math.BigDecimal\n\
          import java.sql.Connection\n\
          import java.time.LocalDate\n\
          import java.time.LocalDateTime\n\
@@ -191,16 +220,35 @@ impl CodegenBackend for KotlinJdbcBackend {
         let mut out = String::new();
 
         // Helper: write param setters
+        let engine = &self.engine;
         let write_setters = |out: &mut String, params: &[ResolvedParam]| {
             for (i, param) in params.iter().enumerate() {
-                let setter = ps_setter(&param.lang_type);
-                let _ = writeln!(
-                    out,
-                    "        ps.{}({}, {})",
-                    setter,
-                    i + 1,
-                    param.field_name
-                );
+                if param.neutral_type.starts_with("enum::") {
+                    if engine == "postgresql" {
+                        let _ = writeln!(
+                            out,
+                            "        ps.setObject({}, {}.value, java.sql.Types.OTHER)",
+                            i + 1,
+                            param.field_name
+                        );
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "        ps.setString({}, {}.value)",
+                            i + 1,
+                            param.field_name
+                        );
+                    }
+                } else {
+                    let setter = ps_setter(&param.lang_type);
+                    let _ = writeln!(
+                        out,
+                        "        ps.{}({}, {})",
+                        setter,
+                        i + 1,
+                        param.field_name
+                    );
+                }
             }
         };
 
@@ -242,68 +290,111 @@ impl CodegenBackend for KotlinJdbcBackend {
             }
             QueryCommand::One | QueryCommand::Opt => {
                 let ret = format!(": {}?", struct_name);
-                write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
-                let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
-                write_setters(&mut out, params);
-                let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
-                let _ = writeln!(out, "            return if (rs.next()) {{");
-                for col in columns.iter() {
-                    if col.nullable {
-                        if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                let is_oracle_returning =
+                    self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
+                if is_oracle_returning {
+                    // Oracle RETURNING … INTO requires CallableStatement with OUT parameters.
+                    let into_placeholders =
+                        columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                    let full_sql = format!("{} INTO {}", sql, into_placeholders);
+                    let use_multiline = !params.is_empty();
+                    write_fn_sig(&mut out, &func_name, &ret, use_multiline, params);
+                    let _ = writeln!(out, "    conn.prepareCall(\"{}\").use {{ cs ->", full_sql);
+                    write_setters(&mut out, params);
+                    for (i, col) in columns.iter().enumerate() {
+                        let jdbc_type = oracle_jdbc_type(&col.neutral_type);
+                        let _ = writeln!(
+                            out,
+                            "        cs.registerOutParameter({}, {})",
+                            params.len() + i + 1,
+                            jdbc_type
+                        );
+                    }
+                    let _ = writeln!(out, "        cs.execute()");
+                    let _ = writeln!(out, "        return {}(", struct_name);
+                    for (i, col) in columns.iter().enumerate() {
+                        let getter = oracle_cs_getter(&col.neutral_type);
+                        let _ = writeln!(
+                            out,
+                            "            {} = cs.{}({}),",
+                            col.field_name,
+                            getter,
+                            params.len() + i + 1
+                        );
+                    }
+                    let _ = writeln!(out, "        )");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                } else {
+                    write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
+                    let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
+                    write_setters(&mut out, params);
+                    let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
+                    let _ = writeln!(out, "            return if (rs.next()) {{");
+                    for col in columns.iter() {
+                        if col.nullable {
+                            if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                                let _ = writeln!(
+                                    out,
+                                    "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
+                                    field = col.field_name,
+                                    name = col.name,
+                                    class_lit = class_lit,
+                                );
+                            } else {
+                                let getter = rs_getter(&col.lang_type);
+                                let _ = writeln!(
+                                    out,
+                                    "                val {field}Value = rs.{getter}(\"{name}\")",
+                                    field = col.field_name,
+                                    getter = getter,
+                                    name = col.name,
+                                );
+                            }
                             let _ = writeln!(
                                 out,
-                                "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
+                                "                val {field} = if (rs.wasNull()) null else {field}Value",
                                 field = col.field_name,
-                                name = col.name,
-                                class_lit = class_lit,
+                            );
+                        }
+                    }
+                    let _ = writeln!(out, "                {}(", struct_name);
+                    for col in columns.iter() {
+                        if col.nullable {
+                            let _ = writeln!(
+                                out,
+                                "                    {} = {},",
+                                col.field_name, col.field_name
+                            );
+                        } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                            let _ = writeln!(
+                                out,
+                                "                    {} = rs.getObject(\"{}\", {}),",
+                                col.field_name, col.name, class_lit
+                            );
+                        } else if col.neutral_type.starts_with("enum::") {
+                            let _ = writeln!(
+                                out,
+                                "                    {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
+                                col.field_name, col.lang_type, col.name
                             );
                         } else {
                             let getter = rs_getter(&col.lang_type);
                             let _ = writeln!(
                                 out,
-                                "                val {field}Value = rs.{getter}(\"{name}\")",
-                                field = col.field_name,
-                                getter = getter,
-                                name = col.name,
+                                "                    {} = rs.{}(\"{}\"),",
+                                col.field_name, getter, col.name
                             );
                         }
-                        let _ = writeln!(
-                            out,
-                            "                val {field} = if (rs.wasNull()) null else {field}Value",
-                            field = col.field_name,
-                        );
                     }
+                    let _ = writeln!(out, "                )");
+                    let _ = writeln!(out, "            }} else {{");
+                    let _ = writeln!(out, "                null");
+                    let _ = writeln!(out, "            }}");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
                 }
-                let _ = writeln!(out, "                {}(", struct_name);
-                for col in columns.iter() {
-                    if col.nullable {
-                        let _ = writeln!(
-                            out,
-                            "                    {} = {},",
-                            col.field_name, col.field_name
-                        );
-                    } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                        let _ = writeln!(
-                            out,
-                            "                    {} = rs.getObject(\"{}\", {}),",
-                            col.field_name, col.name, class_lit
-                        );
-                    } else {
-                        let getter = rs_getter(&col.lang_type);
-                        let _ = writeln!(
-                            out,
-                            "                    {} = rs.{}(\"{}\"),",
-                            col.field_name, getter, col.name
-                        );
-                    }
-                }
-                let _ = writeln!(out, "                )");
-                let _ = writeln!(out, "            }} else {{");
-                let _ = writeln!(out, "                null");
-                let _ = writeln!(out, "            }}");
-                let _ = writeln!(out, "        }}");
-                let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "}}");
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
@@ -458,6 +549,12 @@ impl CodegenBackend for KotlinJdbcBackend {
                             out,
                             "                        {} = rs.getObject(\"{}\", {}),",
                             col.field_name, col.name, class_lit
+                        );
+                    } else if col.neutral_type.starts_with("enum::") {
+                        let _ = writeln!(
+                            out,
+                            "                        {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
+                            col.field_name, col.lang_type, col.name
                         );
                     } else {
                         let getter = rs_getter(&col.lang_type);

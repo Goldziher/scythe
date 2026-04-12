@@ -1,7 +1,9 @@
 -- Full Oracle schema including sequences and triggers.
 -- Used by integration tests for actual database setup.
+-- Each statement is terminated by / on its own line.
 
-CREATE SEQUENCE users_seq START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE users_seq START WITH 1 INCREMENT BY 1
+/
 
 CREATE TABLE users (
     id NUMBER NOT NULL PRIMARY KEY,
@@ -9,7 +11,8 @@ CREATE TABLE users (
     email VARCHAR2(255),
     active NUMBER(1) DEFAULT 1 NOT NULL,
     created_at DATE DEFAULT SYSDATE NOT NULL
-);
+)
+/
 
 CREATE OR REPLACE TRIGGER users_bi
 BEFORE INSERT ON users
@@ -21,7 +24,8 @@ BEGIN
 END;
 /
 
-CREATE SEQUENCE orders_seq START WITH 1 INCREMENT BY 1;
+CREATE SEQUENCE orders_seq START WITH 1 INCREMENT BY 1
+/
 
 CREATE TABLE orders (
     id NUMBER NOT NULL PRIMARY KEY,
@@ -30,7 +34,8 @@ CREATE TABLE orders (
     notes CLOB,
     created_at DATE DEFAULT SYSDATE NOT NULL,
     CONSTRAINT fk_orders_users FOREIGN KEY (user_id) REFERENCES users (id)
-);
+)
+/
 
 CREATE OR REPLACE TRIGGER orders_bi
 BEFORE INSERT ON orders
@@ -42,12 +47,14 @@ BEGIN
 END;
 /
 
+CREATE SEQUENCE tags_seq START WITH 1 INCREMENT BY 1
+/
+
 CREATE TABLE tags (
     id NUMBER NOT NULL PRIMARY KEY,
     name VARCHAR2(255) NOT NULL UNIQUE
-);
-
-CREATE SEQUENCE tags_seq START WITH 1 INCREMENT BY 1;
+)
+/
 
 CREATE OR REPLACE TRIGGER tags_bi
 BEFORE INSERT ON tags
@@ -65,4 +72,5 @@ CREATE TABLE user_tags (
     PRIMARY KEY (user_id, tag_id),
     CONSTRAINT fk_user_tags_users FOREIGN KEY (user_id) REFERENCES users (id),
     CONSTRAINT fk_user_tags_tags FOREIGN KEY (tag_id) REFERENCES tags (id)
-);
+)
+/

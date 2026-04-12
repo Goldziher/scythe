@@ -107,6 +107,9 @@ impl CodegenBackend for RustSibylBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
+        // Check if this is a DML with RETURNING (INSERT/UPDATE/DELETE RETURNING)
+        let has_returning = sql.to_uppercase().contains("RETURNING");
+
         let mut out = String::new();
 
         match &analyzed.command {
@@ -116,38 +119,117 @@ impl CodegenBackend for RustSibylBackend {
                     "pub async fn {}<'a>(session: &'a Session<'a>{}{}) -> sibyl::Result<Option<{}>> {{",
                     func_name, sep, param_list, struct_name
                 );
-                let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
-                for (i, param) in params.iter().enumerate() {
+
+                if has_returning {
+                    // Oracle RETURNING INTO uses sibyl's returning_into() output binding.
+                    // Append INTO :N+1, :N+2, ... placeholders to SQL.
+                    let into_placeholders: Vec<String> = (0..columns.len())
+                        .map(|i| format!(":{}", params.len() + i + 1))
+                        .collect();
+                    let full_sql = format!("{} INTO {}", sql, into_placeholders.join(", "));
                     let _ = writeln!(
                         out,
-                        "    stmt.bind({}, &{}).await?;",
-                        i + 1,
-                        param.field_name
+                        "    let stmt = session.prepare(\"{}\").await?;",
+                        full_sql
                     );
-                }
-                let _ = writeln!(out, "    let rows = stmt.query(\"\").await?;");
-                let _ = writeln!(out, "    if let Some(row) = rows.next().await? {{");
-                for (i, col) in columns.iter().enumerate() {
+                    for (i, param) in params.iter().enumerate() {
+                        let _ = writeln!(
+                            out,
+                            "    stmt.bind({}, &{}).await?;",
+                            i + 1,
+                            param.field_name
+                        );
+                    }
+                    for (i, col) in columns.iter().enumerate() {
+                        let slot = params.len() + i + 1;
+                        let sibyl_type = match col.neutral_type.as_str() {
+                            "int16" | "int32" | "int64" | "float32" | "float64" | "decimal" => {
+                                "sibyl::Number"
+                            }
+                            "date" | "datetime" | "datetime_tz" => "sibyl::Date",
+                            _ => "sibyl::Varchar",
+                        };
+                        let _ = writeln!(
+                            out,
+                            "    let out_{}: {} = stmt.returning_into({}).await?;",
+                            col.field_name, sibyl_type, slot
+                        );
+                    }
+                    let _ = writeln!(out, "    stmt.execute(\"\").await?;");
+                    for col in columns {
+                        let extract = match col.neutral_type.as_str() {
+                            "int16" => format!(
+                                "    let {} = out_{}.to_int::<i16>()? as {};",
+                                col.field_name, col.field_name, col.lang_type
+                            ),
+                            "int32" => format!(
+                                "    let {} = out_{}.to_int::<i32>()? as {};",
+                                col.field_name, col.field_name, col.lang_type
+                            ),
+                            "int64" => format!(
+                                "    let {} = out_{}.to_int::<i64>()? as {};",
+                                col.field_name, col.field_name, col.lang_type
+                            ),
+                            "float32" | "float64" | "decimal" => format!(
+                                "    let {} = out_{}.to_float::<f64>()? as {};",
+                                col.field_name, col.field_name, col.lang_type
+                            ),
+                            "date" | "datetime" | "datetime_tz" => format!(
+                                "    let {} = out_{}.timestamp()? as {};",
+                                col.field_name, col.field_name, col.lang_type
+                            ),
+                            _ => format!(
+                                "    let {} = out_{}.as_str()?.to_string();",
+                                col.field_name, col.field_name
+                            ),
+                        };
+                        let _ = writeln!(out, "{}", extract);
+                    }
+                    let field_assigns: Vec<String> = columns
+                        .iter()
+                        .map(|c| format!("{}: {}", c.field_name, c.field_name))
+                        .collect();
                     let _ = writeln!(
                         out,
-                        "        let {} = row.get::<{}>({})?;",
-                        col.field_name, col.lang_type, i
+                        "    Ok(Some({} {{ {} }}))",
+                        struct_name,
+                        field_assigns.join(", ")
                     );
+                    let _ = write!(out, "}}");
+                } else {
+                    let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
+                    for (i, param) in params.iter().enumerate() {
+                        let _ = writeln!(
+                            out,
+                            "    stmt.bind({}, &{}).await?;",
+                            i + 1,
+                            param.field_name
+                        );
+                    }
+                    let _ = writeln!(out, "    let rows = stmt.query(\"\").await?;");
+                    let _ = writeln!(out, "    if let Some(row) = rows.next().await? {{");
+                    for (i, col) in columns.iter().enumerate() {
+                        let _ = writeln!(
+                            out,
+                            "        let {} = row.get::<{}>({})?;",
+                            col.field_name, col.lang_type, i
+                        );
+                    }
+                    let field_assigns: Vec<String> = columns
+                        .iter()
+                        .map(|c| format!("{}: {}", c.field_name, c.field_name))
+                        .collect();
+                    let _ = writeln!(
+                        out,
+                        "        Ok(Some({} {{ {} }}))",
+                        struct_name,
+                        field_assigns.join(", ")
+                    );
+                    let _ = writeln!(out, "    }} else {{");
+                    let _ = writeln!(out, "        Ok(None)");
+                    let _ = writeln!(out, "    }}");
+                    let _ = write!(out, "}}");
                 }
-                let field_assigns: Vec<String> = columns
-                    .iter()
-                    .map(|c| format!("{}: {}", c.field_name, c.field_name))
-                    .collect();
-                let _ = writeln!(
-                    out,
-                    "        Ok(Some({} {{ {} }}))",
-                    struct_name,
-                    field_assigns.join(", ")
-                );
-                let _ = writeln!(out, "    }} else {{");
-                let _ = writeln!(out, "        Ok(None)");
-                let _ = writeln!(out, "    }}");
-                let _ = write!(out, "}}");
             }
             QueryCommand::Many => {
                 let _ = writeln!(

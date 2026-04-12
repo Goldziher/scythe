@@ -17,6 +17,9 @@ import aiomysql
 {%- elif driver == "aiosqlite" %}
 
 import aiosqlite
+{%- elif driver == "oracledb" %}
+
+import oracledb
 {%- endif %}
 {%- if options.row_type == "pydantic" %}
 from pydantic import BaseModel
@@ -59,6 +62,8 @@ SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mysql" / "schema.sql"
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mariadb" / "schema.sql"
 {%- elif engine == "sqlite" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "sqlite" / "schema.sql"
+{%- elif engine == "oracle" -%}
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "oracle" / "schema_full.sql"
 {%- endif %}
 
 
@@ -121,6 +126,25 @@ async def setup_schema(conn: aiosqlite.Connection) -> None:
     schema_sql = SCHEMA_PATH.read_text()
     await conn.executescript(schema_sql)
     await conn.commit()
+{%- elif driver == "oracledb" -%}
+async def setup_schema(conn: oracledb.AsyncConnection) -> None:
+    """Drop all tables and sequences, then recreate schema from SQL file."""
+    for table in ("user_tags", "tags", "orders", "users"):
+        try:
+            await conn.execute(f"DROP TABLE {table} CASCADE CONSTRAINTS")
+        except Exception:
+            pass
+    for seq in ("tags_seq", "orders_seq", "users_seq"):
+        try:
+            await conn.execute(f"DROP SEQUENCE {seq}")
+        except Exception:
+            pass
+    schema_sql = SCHEMA_PATH.read_text()
+    for block in schema_sql.split("/\n"):
+        block = block.strip()
+        if block:
+            await conn.execute(block)
+    await conn.commit()
 {%- endif %}
 
 {% if options.row_type == "pydantic" %}
@@ -156,6 +180,8 @@ async def test_create_user(conn) -> int:
         row = await cur.fetchone()
         user_id = row[0]
     user = await get_user_by_id(conn, id=user_id)
+{%- elif engine == "oracle" %}
+    user = await create_user(conn, name="Alice", email="alice@example.com", active=1)
 {%- else %}
     user = await create_user(
         conn, name="Alice", email="alice@example.com"
@@ -238,6 +264,8 @@ async def test_create_order(conn, user_id: int) -> int:
     await create_order(conn, user_id=user_id, total=49.99, notes="Test order")
     orders = await get_orders_by_user(conn, user_id=user_id)
     order = orders[0] if orders else None
+{%- elif engine == "oracle" %}
+    order = await create_order(conn, user_id=user_id, total=9999, notes="Test order")
 {%- else %}
     order = await create_order(
         conn, user_id=user_id, total=Decimal("49.99"), notes="Test order"
@@ -349,6 +377,27 @@ async def run_tests() -> None:
         conn.close()
 {%- elif driver == "aiosqlite" %}
     conn = await aiosqlite.connect(database_url)
+    try:
+        await setup_schema(conn)
+
+        user_id = await test_create_user(conn)
+        await test_get_user_by_id(conn, user_id)
+        await test_list_active_users(conn)
+        order_id = await test_create_order(conn, user_id)
+        await test_get_orders_by_user(conn, user_id)
+        await test_delete_user(conn, user_id)
+    finally:
+        await conn.close()
+{%- elif driver == "oracledb" %}
+    oracledb.defaults.fetch_lobs = False
+    from urllib.parse import urlparse
+    parsed = urlparse(database_url)
+    dsn = f"{parsed.hostname}:{parsed.port}{parsed.path}"
+    conn = await oracledb.connect_async(
+        user=parsed.username,
+        password=parsed.password,
+        dsn=dsn,
+    )
     try:
         await setup_schema(conn)
 

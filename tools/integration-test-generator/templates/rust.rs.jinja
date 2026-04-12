@@ -19,6 +19,8 @@ use sqlx::sqlite::SqlitePoolOptions;
 {%- elif driver == "tokio-postgres" %}
 use rust_decimal::Decimal;
 use tokio_postgres::NoTls;
+{%- elif driver == "sibyl" %}
+use sibyl::prelude::*;
 {%- endif %}
 use std::str::FromStr;
 
@@ -42,7 +44,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url =
         std::env::var("{{ connection_env }}").expect("{{ connection_env }} environment variable required");
 
-{% if driver == "sqlx" -%}
+{% if driver == "sibyl" -%}
+    // Parse oracle://user:pass@host:port/service URL
+    let url = url::Url::parse(&database_url).expect("invalid ORACLE_URL");
+    let oracle_user = url.username();
+    let oracle_pass = url.password().unwrap_or("");
+    let oracle_host = url.host_str().unwrap_or("localhost");
+    let oracle_port = url.port().unwrap_or(1521);
+    let oracle_service = url.path().trim_start_matches('/');
+    let oracle_connect = format!("{}:{}/{}", oracle_host, oracle_port, oracle_service);
+
+    let oracle = Oracle::new().expect("Oracle environment");
+    let session = oracle
+        .connect(&oracle_connect, oracle_user, oracle_pass)
+        .await?;
+
+    // Clean slate: drop tables and sequences, ignore errors, then recreate
+    for table in &["user_tags", "tags", "orders", "users"] {
+        if let Ok(stmt) = session.prepare(&format!("DROP TABLE {}", table)).await {
+            let _ = stmt.execute("").await;
+        }
+    }
+    for seq in &["tags_seq", "orders_seq", "users_seq"] {
+        if let Ok(stmt) = session.prepare(&format!("DROP SEQUENCE {}", seq)).await {
+            let _ = stmt.execute("").await;
+        }
+    }
+
+    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema_full.sql")?;
+    for block in schema_sql.split("/\n") {
+        let block = block.trim();
+        if !block.is_empty() {
+            let stmt = session.prepare(block).await?;
+            stmt.execute("").await?;
+        }
+    }
+{%- elif driver == "sqlx" -%}
     let pool = PgPoolOptions::new()
         .max_connections(5)
         .connect(&database_url)
@@ -204,6 +241,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     let user = CreateUserRow::from(row);
 {%- endif %}
+{% if driver == "sibyl" -%}
+    let user = generated::create_user(&session, "Alice", "alice@example.com", 1i32)
+        .await?
+        .expect("create_user returned None");
+{%- endif %}
     assert_test!(user.name == "Alice", "CreateUser");
     assert_test!(
         user.email.as_deref() == Some("alice@example.com"),
@@ -216,7 +258,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("CreateUser");
 
     // Test: GetUserById
-{% if driver == "sqlx-mariadb" -%}
+{% if driver == "sibyl" -%}
+    let fetched = generated::get_user_by_id(&session, user_id)
+        .await?
+        .expect("get_user_by_id returned None");
+{%- elif driver == "sqlx-mariadb" -%}
     let fetched: GetUserByIdRow =
         sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
             .bind(&user_id)
@@ -249,7 +295,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("GetUserById");
 
     // Test: ListActiveUsers
-{% if driver == "sqlx-mariadb" -%}
+{% if driver == "sibyl" -%}
+    let active_users = generated::list_active_users(&session).await?;
+{%- elif driver == "sqlx-mariadb" -%}
     let active_users: Vec<ListActiveUsersRow> =
         sqlx::query_as("SELECT id, name, email FROM users WHERE status = ?")
             .bind("active")
@@ -277,7 +325,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("ListActiveUsers");
 
     // Test: CreateOrder
+{% if driver == "sibyl" -%}
+    let order_total: i32 = 9999;
+    let order = generated::create_order(&session, user_id, order_total, "first order")
+        .await?
+        .expect("create_order returned None");
+{%- else %}
     let total = Decimal::from_str("99.95").unwrap();
+{%- endif %}
 {% if driver == "sqlx-mariadb" -%}
     let order: CreateOrderRow = sqlx::query_as(
         "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at",
@@ -306,7 +361,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let order = CreateOrderRow::from(row);
 {%- endif %}
     assert_test!(order.user_id == user_id, "CreateOrder");
+{%- if driver == "sibyl" %}
+    assert_test!(order.total == order_total, "CreateOrder");
+{%- else %}
     assert_test!(order.total == total, "CreateOrder");
+{%- endif %}
     assert_test!(
         order.notes.as_deref() == Some("first order"),
         "CreateOrder"
@@ -314,7 +373,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     pass!("CreateOrder");
 
     // Test: GetOrdersByUser
-{% if driver == "sqlx-mariadb" -%}
+{% if driver == "sibyl" -%}
+    let orders = generated::get_orders_by_user(&session, user_id).await?;
+{%- elif driver == "sqlx-mariadb" -%}
     let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
         "SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC",
     )
@@ -338,11 +399,20 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let orders: Vec<GetOrdersByUserRow> = rows.into_iter().map(GetOrdersByUserRow::from).collect();
 {%- endif %}
     assert_test!(orders.len() == 1, "GetOrdersByUser");
+{%- if driver == "sibyl" %}
+    assert_test!(orders[0].total == order_total, "GetOrdersByUser");
+{%- else %}
     assert_test!(orders[0].total == total, "GetOrdersByUser");
+{%- endif %}
     pass!("GetOrdersByUser");
 
     // Test: DeleteUser (delete orders first due to FK)
-{% if driver == "sqlx-mariadb" -%}
+{% if driver == "sibyl" -%}
+    generated::delete_orders_by_user(&session, user_id).await?;
+    generated::delete_user(&session, user_id).await?;
+    // Verify user is gone
+    let deleted = generated::get_user_by_id(&session, user_id).await?;
+{%- elif driver == "sqlx-mariadb" -%}
     sqlx::query("DELETE FROM orders WHERE user_id = ?")
         .bind(&user_id)
         .execute(&pool)

@@ -162,6 +162,9 @@ impl CodegenBackend for PythonOracledbBackend {
             format!("[{}]", args.join(", "))
         };
 
+        // Check if this is a DML with RETURNING (INSERT/UPDATE/DELETE RETURNING)
+        let has_returning = sql.to_uppercase().contains("RETURNING");
+
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
@@ -171,29 +174,91 @@ impl CodegenBackend for PythonOracledbBackend {
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    async with conn.cursor() as cur:");
-                if params.is_empty() {
-                    let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\")", sql);
-                } else {
+
+                if has_returning {
+                    // Oracle RETURNING requires output bind variables via INTO clause
+                    let oracledb_types: Vec<String> = columns
+                        .iter()
+                        .map(|col| {
+                            let nt = col.neutral_type.as_str();
+                            match nt {
+                                "int32" | "int64" | "float32" | "float64" | "decimal" => {
+                                    "cur.var(oracledb.NUMBER)".to_string()
+                                }
+                                "date" | "datetime" | "datetime_tz" | "time" | "time_tz" => {
+                                    "cur.var(oracledb.DATETIME)".to_string()
+                                }
+                                _ => "cur.var(oracledb.STRING, 4000)".to_string(),
+                            }
+                        })
+                        .collect();
+                    for (i, col) in columns.iter().enumerate() {
+                        let _ = writeln!(
+                            out,
+                            "        out_{} = {}",
+                            col.field_name, oracledb_types[i]
+                        );
+                    }
+                    let out_var_names: Vec<String> = columns
+                        .iter()
+                        .map(|col| format!("out_{}", col.field_name))
+                        .collect();
+
+                    // Append INTO clause to the SQL
+                    let into_clause = out_var_names
+                        .iter()
+                        .enumerate()
+                        .map(|(i, _)| format!(":{}", params.len() + i + 1))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let full_sql = format!("{} INTO {}", sql, into_clause);
+                    let mut all_args: Vec<String> =
+                        params.iter().map(|p| p.field_name.clone()).collect();
+                    all_args.extend(out_var_names.iter().cloned());
                     let _ = writeln!(
                         out,
-                        "        await cur.execute(\"\"\"{}\"\"\", {})",
-                        sql, args_list
+                        "        await cur.execute(\"\"\"{}\"\"\", [{}])",
+                        full_sql,
+                        all_args.join(", ")
+                    );
+                    let field_assignments: Vec<String> = columns
+                        .iter()
+                        .map(|col| {
+                            format!("{}=out_{}.getvalue()[0]", col.field_name, col.field_name)
+                        })
+                        .collect();
+                    let _ = writeln!(
+                        out,
+                        "        return {}({})",
+                        struct_name,
+                        field_assignments.join(", ")
+                    );
+                } else {
+                    // SELECT query — use fetchone()
+                    if params.is_empty() {
+                        let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\")", sql);
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "        await cur.execute(\"\"\"{}\"\"\", {})",
+                            sql, args_list
+                        );
+                    }
+                    let _ = writeln!(out, "        row = await cur.fetchone()");
+                    let _ = writeln!(out, "        if row is None:");
+                    let _ = writeln!(out, "            return None");
+                    let field_assignments: Vec<String> = columns
+                        .iter()
+                        .enumerate()
+                        .map(|(i, col)| format!("{}=row[{}]", col.field_name, i))
+                        .collect();
+                    let _ = writeln!(
+                        out,
+                        "        return {}({})",
+                        struct_name,
+                        field_assignments.join(", ")
                     );
                 }
-                let _ = writeln!(out, "        row = await cur.fetchone()");
-                let _ = writeln!(out, "        if row is None:");
-                let _ = writeln!(out, "            return None");
-                let field_assignments: Vec<String> = columns
-                    .iter()
-                    .enumerate()
-                    .map(|(i, col)| format!("{}=row[{}]", col.field_name, i))
-                    .collect();
-                let _ = writeln!(
-                    out,
-                    "        return {}({})",
-                    struct_name,
-                    field_assignments.join(", ")
-                );
             }
             QueryCommand::Many => {
                 let _ = writeln!(

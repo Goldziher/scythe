@@ -23,7 +23,7 @@ fun fail(name: String, e: Exception) {
     failed++
 }
 
-var createdUserId: java.util.UUID = java.util.UUID.randomUUID()
+var createdUserId = ""
 
 fun main() {
     val mariadbUrl = System.getenv("MARIADB_URL")

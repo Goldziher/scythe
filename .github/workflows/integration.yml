@@ -436,6 +436,122 @@ jobs:
         working-directory: integration_tests/php-pdo-mariadb
         run: php test_integration.php
 
+  integration-oracle:
+    name: Oracle Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      oracle:
+        image: gvenzl/oracle-xe:21-slim
+        env:
+          ORACLE_PASSWORD: scythe
+          APP_USER: scythe
+          APP_USER_PASSWORD: scythe
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd "healthcheck.sh"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      ORACLE_URL: oracle://scythe:scythe@localhost:1521/XEPDB1
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run Oracle schema migration
+        run: |
+          sudo apt-get update && sudo apt-get install -y libaio1 alien
+          wget -q https://download.oracle.com/otn_software/linux/instantclient/2340000/oracle-instantclient-basic-23.4.0.24.05-1.el9.x86_64.rpm
+          wget -q https://download.oracle.com/otn_software/linux/instantclient/2340000/oracle-instantclient-sqlplus-23.4.0.24.05-1.el9.x86_64.rpm
+          sudo alien -i oracle-instantclient-basic-*.rpm
+          sudo alien -i oracle-instantclient-sqlplus-*.rpm
+          echo "/usr/lib/oracle/23/client64/lib" | sudo tee /etc/ld.so.conf.d/oracle.conf
+          sudo ldconfig
+          export LD_LIBRARY_PATH="/usr/lib/oracle/23/client64/lib:${LD_LIBRARY_PATH:-}"
+          export PATH=/usr/lib/oracle/23/client64/bin:$PATH
+          sqlplus scythe/scythe@localhost:1521/XEPDB1 @integration_tests/sql/oracle/schema_full.sql
+
+      # Language toolchains
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0"
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26"
+          elixir-version: "1.16"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+
+      - run: pip install uv
+      - run: npm install -g pnpm
+
+      - name: Set Oracle library paths
+        run: |
+          echo "LD_LIBRARY_PATH=/usr/lib/oracle/23/client64/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "/usr/lib/oracle/23/client64/bin" >> "$GITHUB_PATH"
+
+      - name: Test python-oracledb-oracle
+        working-directory: integration_tests/python-oracledb-oracle
+        run: uv run python test_integration.py
+
+      - name: Test typescript-oracledb-oracle
+        working-directory: integration_tests/typescript-oracledb-oracle
+        run: |
+          pnpm install
+          pnpm exec tsx test.ts
+
+      - name: Test go-godror-oracle
+        working-directory: integration_tests/go-godror-oracle
+        run: go run .
+
+      - name: Test java-jdbc-oracle
+        working-directory: integration_tests/java-jdbc-oracle
+        run: mvn -q compile exec:java
+
+      - name: Test kotlin-jdbc-oracle
+        working-directory: integration_tests/kotlin-jdbc-oracle
+        run: gradle run --quiet
+
+      - name: Test csharp-oracle
+        working-directory: integration_tests/csharp-oracle
+        run: dotnet run
+
+      - name: Test elixir-jamdb-oracle
+        working-directory: integration_tests/elixir-jamdb-oracle
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix run test/integration_test.exs
+
+      - name: Test ruby-oci8-oracle
+        working-directory: integration_tests/ruby-oci8-oracle
+        run: |
+          bundle install
+          bundle exec ruby test_integration.rb
+
+      - name: Test rust-sibyl-oracle
+        working-directory: integration_tests/rust-sibyl-oracle
+        run: cargo run --quiet
+
   integration-sqlite:
     name: SQLite Integration Tests
     runs-on: ubuntu-latest

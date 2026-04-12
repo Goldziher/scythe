@@ -40,6 +40,47 @@ impl CsharpOracleBackend {
     }
 }
 
+/// Map a neutral type to an OracleDbType variant for output parameters.
+fn oracle_db_type(neutral_type: &str) -> &'static str {
+    match neutral_type {
+        "int32" | "int64" => "OracleDbType.Int64",
+        "float32" | "float64" => "OracleDbType.Double",
+        "decimal" => "OracleDbType.Decimal",
+        "date" | "datetime" | "datetime_tz" => "OracleDbType.Date",
+        _ => "OracleDbType.Varchar2",
+    }
+}
+
+/// Cast an Oracle output parameter value to the appropriate C# type.
+fn oracle_out_cast(neutral_type: &str, param_expr: &str) -> String {
+    match neutral_type {
+        "int32" => format!(
+            "((Oracle.ManagedDataAccess.Types.OracleDecimal){}).ToInt32()",
+            param_expr
+        ),
+        "int64" => format!(
+            "((Oracle.ManagedDataAccess.Types.OracleDecimal){}).ToInt64()",
+            param_expr
+        ),
+        "float32" | "float64" => format!(
+            "((Oracle.ManagedDataAccess.Types.OracleDecimal){}).ToDouble()",
+            param_expr
+        ),
+        "decimal" => format!(
+            "((Oracle.ManagedDataAccess.Types.OracleDecimal){}).ToDecimal()",
+            param_expr
+        ),
+        "date" | "datetime" | "datetime_tz" => format!(
+            "((Oracle.ManagedDataAccess.Types.OracleDate){}).Value",
+            param_expr
+        ),
+        _ => format!(
+            "((Oracle.ManagedDataAccess.Types.OracleString){}).Value",
+            param_expr
+        ),
+    }
+}
+
 /// Map a neutral type to an OracleDataReader method.
 fn reader_method(neutral_type: &str) -> &'static str {
     match neutral_type {
@@ -213,6 +254,23 @@ impl CodegenBackend for CsharpOracleBackend {
             format!("Task<{}>", return_type)
         };
 
+        // For Oracle RETURNING queries, the SQL must include "INTO :out0, :out1, …" so that
+        // Oracle binds the output values. Compute the effective SQL before emitting any code.
+        let is_one_returning = matches!(analyzed.command, QueryCommand::One | QueryCommand::Opt)
+            && sql.to_uppercase().contains("RETURNING");
+
+        let effective_sql = if is_one_returning {
+            let into_clause = columns
+                .iter()
+                .enumerate()
+                .map(|(i, _)| format!(":out{i}"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            format!("{} INTO {}", sql, into_clause)
+        } else {
+            sql.clone()
+        };
+
         let _ = writeln!(
             out,
             "public static async {} {}(OracleConnection conn{}{}) {{",
@@ -222,7 +280,7 @@ impl CodegenBackend for CsharpOracleBackend {
         let _ = writeln!(
             out,
             "    using var cmd = new OracleCommand(\"{}\", conn);",
-            sql
+            effective_sql
         );
         let _ = writeln!(out, "    cmd.BindByName = true;");
         for (i, p) in params.iter().enumerate() {
@@ -236,25 +294,46 @@ impl CodegenBackend for CsharpOracleBackend {
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
-                let _ = writeln!(
-                    out,
-                    "    using var reader = await cmd.ExecuteReaderAsync();"
-                );
-                let _ = writeln!(out, "    if (!await reader.ReadAsync()) return null;");
-                let _ = writeln!(out, "    return new {}(", struct_name);
-                for (i, col) in columns.iter().enumerate() {
-                    let method = reader_method(&col.neutral_type);
-                    let sep = if i + 1 < columns.len() { "," } else { "" };
-                    if col.nullable {
+                if is_one_returning {
+                    // Add output parameters and execute without a reader.
+                    for (i, col) in columns.iter().enumerate() {
+                        let db_type = oracle_db_type(&col.neutral_type);
                         let _ = writeln!(
                             out,
-                            "        reader.IsDBNull({i}) ? null : reader.{method}({i}){sep}"
+                            "    cmd.Parameters.Add(\"out{i}\", {db_type}, \
+                             System.Data.ParameterDirection.Output);"
                         );
-                    } else {
-                        let _ = writeln!(out, "        reader.{method}({i}){sep}");
                     }
+                    let _ = writeln!(out, "    await cmd.ExecuteNonQueryAsync();");
+                    let _ = writeln!(out, "    return new {}(", struct_name);
+                    for (i, col) in columns.iter().enumerate() {
+                        let param_expr = format!("cmd.Parameters[\"out{i}\"].Value");
+                        let cast = oracle_out_cast(&col.neutral_type, &param_expr);
+                        let sep = if i + 1 < columns.len() { "," } else { "" };
+                        let _ = writeln!(out, "        {cast}{sep}");
+                    }
+                    let _ = writeln!(out, "    );");
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "    using var reader = await cmd.ExecuteReaderAsync();"
+                    );
+                    let _ = writeln!(out, "    if (!await reader.ReadAsync()) return null;");
+                    let _ = writeln!(out, "    return new {}(", struct_name);
+                    for (i, col) in columns.iter().enumerate() {
+                        let method = reader_method(&col.neutral_type);
+                        let sep = if i + 1 < columns.len() { "," } else { "" };
+                        if col.nullable {
+                            let _ = writeln!(
+                                out,
+                                "        reader.IsDBNull({i}) ? null : reader.{method}({i}){sep}"
+                            );
+                        } else {
+                            let _ = writeln!(out, "        reader.{method}({i}){sep}");
+                        }
+                    }
+                    let _ = writeln!(out, "    );");
                 }
-                let _ = writeln!(out, "    );");
             }
             QueryCommand::Many => {
                 let _ = writeln!(

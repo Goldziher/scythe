@@ -9,6 +9,8 @@ require "mysql2"
 require "sqlite3"
 {%- elif driver == "trilogy" %}
 require "trilogy"
+{%- elif driver == "oci8" %}
+require "oci8"
 {%- endif %}
 require_relative "generated/queries"
 
@@ -20,6 +22,8 @@ SCHEMA_PATH = File.join(__dir__, "..", "sql", "mysql", "schema.sql")
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "mariadb", "schema.sql")
 {%- elif engine == "sqlite" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "sqlite", "schema.sql")
+{%- elif engine == "oracle" -%}
+SCHEMA_PATH = File.join(__dir__, "..", "sql", "oracle", "schema_full.sql")
 {%- endif %}
 
 def get_database_url
@@ -74,6 +78,20 @@ def setup_schema(conn)
     conn.query(stmt) unless stmt.empty?
   end
 end
+{%- elif driver == "oci8" -%}
+def setup_schema(conn)
+  ["user_tags", "tags", "orders", "users"].each do |table|
+    conn.exec("DROP TABLE #{table}") rescue nil
+  end
+  ["tags_seq", "orders_seq", "users_seq"].each do |seq|
+    conn.exec("DROP SEQUENCE #{seq}") rescue nil
+  end
+  schema_sql = File.read(SCHEMA_PATH)
+  schema_sql.split("/\n").each do |stmt|
+    stmt = stmt.strip
+    conn.exec(stmt) unless stmt.empty?
+  end
+end
 {%- endif %}
 
 def assert_equal(expected, actual, message)
@@ -98,6 +116,8 @@ def test_create_user(conn)
 {%- if engine == "mysql" %}
   Queries.create_user(conn, "Alice", "alice@example.com", Queries::UsersStatus::ACTIVE)
   user = Queries.get_last_insert_user(conn)
+{%- elif engine == "oracle" %}
+  user = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 {%- else %}
   user = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" %}, "active"{% elif engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
 {%- endif %}
@@ -149,6 +169,8 @@ def test_create_order(conn, user_id)
 {%- if engine == "mysql" %}
   Queries.create_order(conn, user_id, "49.99", "Test order")
   order = Queries.get_last_insert_order(conn)
+{%- elif engine == "oracle" %}
+  order = Queries.create_order(conn, user_id, 9999, "Test order")
 {%- else %}
   order = Queries.create_order(conn, user_id, "49.99", "Test order")
 {%- endif %}
@@ -169,7 +191,11 @@ end
 def test_get_order_total(conn, user_id)
   result = Queries.get_order_total(conn, user_id)
   assert_not_nil(result, "get_order_total returned nil")
+{%- if engine == "oracle" %}
+  assert_true(result.total_sum.to_i == 9999, "get_order_total total_sum")
+{%- else %}
   assert_equal("49.99", result.total_sum, "get_order_total total_sum")
+{%- endif %}
   puts "PASS: GetOrderTotal"
 end
 
@@ -187,6 +213,8 @@ def test_count_users_by_status(conn)
   assert_true(result.user_count >= 1, "Expected count >= 1, got #{result.user_count}")
 {%- if engine == "postgresql" %}
   assert_equal("active", result.status, "count_users_by_status status")
+{%- elif engine == "oracle" %}
+  assert_equal(1, result.active, "count_users_by_status active")
 {%- endif %}
   puts "PASS: CountUsersByStatus"
 end
@@ -228,6 +256,11 @@ begin
     password: uri.password,
     database: uri.path&.delete_prefix("/")
   )
+  {%- elif driver == "oci8" -%}
+  database_url = get_database_url
+  uri = URI.parse(database_url)
+  service = "#{uri.host}:#{uri.port || 1521}/#{uri.path&.delete_prefix('/')}"
+  conn = OCI8.new(uri.user, uri.password, service)
   {%- endif %}
 
   setup_schema(conn)

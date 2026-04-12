@@ -9,4 +9,4 @@ queries = ["../sql/sqlite/queries/*.sql"]
 
 [[sql.gen]]
 backend = "java-jdbc"
-output = "generated"
+output = "src/main/java/generated"

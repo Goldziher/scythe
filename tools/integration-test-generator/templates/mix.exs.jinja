@@ -25,6 +25,8 @@ defmodule ScytheIntegrationTest.MixProject do
       {:myxql, "~> 0.7"},
 {%- elif driver == "exqlite" %}
       {:exqlite, "~> 0.23"},
+{%- elif driver == "jamdb" %}
+      {:jamdb_oracle, "~> 0.5"},
 {%- elif driver == "ecto" %}
       {:ecto_sql, "~> 3.11"},
 {%- if engine == "postgresql" %}

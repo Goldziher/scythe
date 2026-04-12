@@ -9,4 +9,4 @@ queries = ["../sql/sqlite/queries/*.sql"]
 
 [[sql.gen]]
 backend = "kotlin-jdbc"
-output = "generated"
+output = "src/main/kotlin/generated"

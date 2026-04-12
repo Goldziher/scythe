@@ -138,6 +138,9 @@ impl CodegenBackend for ElixirJamdbBackend {
             format!(", {}", specs.join(", "))
         };
 
+        // Check if this is a DML with RETURNING (INSERT/UPDATE/DELETE RETURNING)
+        let has_returning = sql.to_uppercase().contains("RETURNING");
+
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
@@ -205,29 +208,83 @@ impl CodegenBackend for ElixirJamdbBackend {
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
-                let _ = writeln!(
-                    out,
-                    "  case Jamdb.Oracle.query(conn, \"{}\", {}) do",
-                    sql, param_args
-                );
-                let _ = writeln!(out, "    {{:ok, %{{rows: [row | _]}}}} ->");
+                if has_returning {
+                    // Oracle RETURNING INTO requires output bind variables appended to params.
+                    // jamdb_oracle accepts {:out, type} tuples for output slots.
+                    let out_type_atoms: Vec<&str> = columns
+                        .iter()
+                        .map(|col| match col.neutral_type.as_str() {
+                            "int32" | "int64" => ":integer",
+                            "string" | "uuid" | "bytes" => ":varchar",
+                            "date" | "datetime" | "datetime_tz" => ":date",
+                            _ => ":number",
+                        })
+                        .collect();
+                    let out_tuples: Vec<String> = out_type_atoms
+                        .iter()
+                        .map(|t| format!("{{:out, {}}}", t))
+                        .collect();
 
-                let field_vars = columns
-                    .iter()
-                    .map(|c| c.field_name.clone())
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let _ = writeln!(out, "      [{}] = row", field_vars);
+                    // Append INTO :N+1, :N+2, ... placeholders to SQL
+                    let into_placeholders: Vec<String> = (0..columns.len())
+                        .map(|i| format!(":{}", params.len() + i + 1))
+                        .collect();
+                    let full_sql = format!("{} INTO {}", sql, into_placeholders.join(", "));
 
-                let struct_fields = columns
-                    .iter()
-                    .map(|c| format!("{}: {}", c.field_name, c.field_name))
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                let _ = writeln!(out, "      {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
-                let _ = writeln!(out, "    {{:ok, %{{rows: []}}}} -> {{:error, :not_found}}");
-                let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
-                let _ = writeln!(out, "  end");
+                    let all_args = if params.is_empty() {
+                        format!("[{}]", out_tuples.join(", "))
+                    } else {
+                        let input_args: Vec<String> =
+                            params.iter().map(|p| p.field_name.clone()).collect();
+                        format!("[{}, {}]", input_args.join(", "), out_tuples.join(", "))
+                    };
+
+                    let _ = writeln!(
+                        out,
+                        "  case Jamdb.Oracle.query(conn, \"{}\", {}) do",
+                        full_sql, all_args
+                    );
+                    let _ = writeln!(out, "    {{:ok, %{{rows: [row | _]}}}} ->");
+                    let field_vars = columns
+                        .iter()
+                        .map(|c| c.field_name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(out, "      [{}] = row", field_vars);
+                    let struct_fields = columns
+                        .iter()
+                        .map(|c| format!("{}: {}", c.field_name, c.field_name))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(out, "      {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
+                    let _ = writeln!(out, "    {{:ok, %{{rows: []}}}} -> {{:error, :not_found}}");
+                    let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
+                    let _ = writeln!(out, "  end");
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "  case Jamdb.Oracle.query(conn, \"{}\", {}) do",
+                        sql, param_args
+                    );
+                    let _ = writeln!(out, "    {{:ok, %{{rows: [row | _]}}}} ->");
+
+                    let field_vars = columns
+                        .iter()
+                        .map(|c| c.field_name.clone())
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(out, "      [{}] = row", field_vars);
+
+                    let struct_fields = columns
+                        .iter()
+                        .map(|c| format!("{}: {}", c.field_name, c.field_name))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(out, "      {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
+                    let _ = writeln!(out, "    {{:ok, %{{rows: []}}}} -> {{:error, :not_found}}");
+                    let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
+                    let _ = writeln!(out, "  end");
+                }
             }
             QueryCommand::Many => {
                 let _ = writeln!(

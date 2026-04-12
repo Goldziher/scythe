@@ -92,7 +92,7 @@ public class IntegrationTest {
     private static void testCreateUser(Connection conn) {
         String name = "CreateUser";
         try {
-            var user = Queries.createUser(conn, "Alice", "alice@example.com", UserStatus.active);
+            var user = Queries.createUser(conn, "Alice", "alice@example.com", UserStatus.ACTIVE);
             if (user == null) {
                 fail(name, "returned null");
                 return;
@@ -210,7 +210,7 @@ public class IntegrationTest {
     private static void testListActiveUsers(Connection conn) {
         String name = "ListActiveUsers";
         try {
-            var users = Queries.listActiveUsers(conn, UserStatus.active);
+            var users = Queries.listActiveUsers(conn, UserStatus.ACTIVE);
             if (users.isEmpty()) {
                 fail(name, "expected at least 1 active user");
                 return;
@@ -224,7 +224,7 @@ public class IntegrationTest {
     private static void testGetUserOrders(Connection conn) {
         String name = "GetUserOrders";
         try {
-            var results = Queries.getUserOrders(conn, UserStatus.active);
+            var results = Queries.getUserOrders(conn, UserStatus.ACTIVE);
             if (results.isEmpty()) {
                 fail(name, "expected at least 1 result");
                 return;
@@ -238,7 +238,7 @@ public class IntegrationTest {
     private static void testCountUsersByStatus(Connection conn) {
         String name = "CountUsersByStatus";
         try {
-            var result = Queries.countUsersByStatus(conn, UserStatus.active);
+            var result = Queries.countUsersByStatus(conn, UserStatus.ACTIVE);
             if (result == null) {
                 fail(name, "returned null");
                 return;

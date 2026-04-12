@@ -9,7 +9,13 @@ queries = ["{{ queries_dir }}/*.sql"]
 
 [[sql.gen]]
 backend = "{{ backend }}"
+{%- if language == "java" %}
+output = "src/main/java/generated"
+{%- elif language == "kotlin" %}
+output = "src/main/kotlin/generated"
+{%- else %}
 output = "generated"
+{%- endif %}
 {%- if options.row_type %}
 row_type = "{{ options.row_type }}"
 {%- endif %}

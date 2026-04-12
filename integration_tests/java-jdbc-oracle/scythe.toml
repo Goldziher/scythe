@@ -1,0 +1,12 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "oracle"
+schema = ["../sql/oracle/schema.sql"]
+queries = ["../sql/oracle/queries/*.sql"]
+
+[[sql.gen]]
+backend = "java-jdbc"
+output = "src/main/java/generated"

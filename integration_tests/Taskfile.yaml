@@ -4,12 +4,14 @@ vars:
   DATABASE_URL: "postgres://scythe:scythe@localhost:5433/scythe_test"
   MYSQL_URL: "mysql://scythe:scythe@127.0.0.1:3307/scythe_test"
   MARIADB_URL: "mysql://scythe:scythe@127.0.0.1:3308/scythe_test"
+  ORACLE_URL: "oracle://scythe:scythe@localhost:1521/XEPDB1"
   SQLITE_PATH: "/tmp/scythe_test.db"
 
 env:
   DATABASE_URL: "{{.DATABASE_URL}}"
   MYSQL_URL: "{{.MYSQL_URL}}"
   MARIADB_URL: "{{.MARIADB_URL}}"
+  ORACLE_URL: "{{.ORACLE_URL}}"
   SQLITE_PATH: "{{.SQLITE_PATH}}"
   DATABASE_PATH: "{{.SQLITE_PATH}}"
 
@@ -94,6 +96,16 @@ tasks:
           - ruby-mysql2-mariadb
           - ruby-trilogy-mariadb
           - php-pdo-mariadb
+          # Oracle
+          - python-oracledb-oracle
+          - typescript-oracledb-oracle
+          - go-godror-oracle
+          - java-jdbc-oracle
+          - kotlin-jdbc-oracle
+          - csharp-oracle
+          - elixir-jamdb-oracle
+          - ruby-oci8-oracle
+          - rust-sibyl-oracle
           # SQLite
           - rust-sqlx-sqlite
           - go-database-sql-sqlite
@@ -369,6 +381,64 @@ tasks:
     cmds:
       - php test_integration.php
 
+  # --- Oracle backends ---
+  test:python-oracledb-oracle:
+    desc: Run python-oracledb-oracle integration test
+    dir: python-oracledb-oracle
+    cmds:
+      - uv run python test_integration.py
+
+  test:typescript-oracledb-oracle:
+    desc: Run typescript-oracledb-oracle integration test
+    dir: typescript-oracledb-oracle
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsx test.ts
+
+  test:go-godror-oracle:
+    desc: Run go-godror-oracle integration test
+    dir: go-godror-oracle
+    cmds:
+      - go run .
+
+  test:java-jdbc-oracle:
+    desc: Run java-jdbc-oracle integration test
+    dir: java-jdbc-oracle
+    cmds:
+      - mvn -q compile exec:java
+
+  test:kotlin-jdbc-oracle:
+    desc: Run kotlin-jdbc-oracle integration test
+    dir: kotlin-jdbc-oracle
+    cmds:
+      - gradle run --quiet
+
+  test:csharp-oracle:
+    desc: Run csharp-oracle integration test
+    dir: csharp-oracle
+    cmds:
+      - dotnet run
+
+  test:elixir-jamdb-oracle:
+    desc: Run elixir-jamdb-oracle integration test
+    dir: elixir-jamdb-oracle
+    cmds:
+      - mix deps.get --quiet
+      - mix run test/integration_test.exs
+
+  test:ruby-oci8-oracle:
+    desc: Run ruby-oci8-oracle integration test
+    dir: ruby-oci8-oracle
+    cmds:
+      - bundle install --quiet
+      - bundle exec ruby test_integration.rb
+
+  test:rust-sibyl-oracle:
+    desc: Run rust-sibyl-oracle integration test
+    dir: rust-sibyl-oracle
+    cmds:
+      - cargo run --quiet
+
   # --- SQLite backends ---
   test:rust-sqlx-sqlite:
     desc: Run rust-sqlx-sqlite integration test
@@ -483,6 +553,16 @@ tasks:
       - task: test:ruby-mysql2-mariadb
       - task: test:ruby-trilogy-mariadb
       - task: test:php-pdo-mariadb
+      # Oracle
+      - task: test:python-oracledb-oracle
+      - task: test:typescript-oracledb-oracle
+      - task: test:go-godror-oracle
+      - task: test:java-jdbc-oracle
+      - task: test:kotlin-jdbc-oracle
+      - task: test:csharp-oracle
+      - task: test:elixir-jamdb-oracle
+      - task: test:ruby-oci8-oracle
+      - task: test:rust-sibyl-oracle
       # SQLite
       - task: test:rust-sqlx-sqlite
       - task: test:go-database-sql-sqlite

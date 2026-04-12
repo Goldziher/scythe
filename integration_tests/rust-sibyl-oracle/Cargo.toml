@@ -1,0 +1,12 @@
+[package]
+name = "scythe-integration-test-rust-sibyl-oracle"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+sibyl = { version = "0.6", features = ["tokio"] }
+url = "2"
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }

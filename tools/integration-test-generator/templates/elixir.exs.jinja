@@ -113,6 +113,25 @@ database_path = System.get_env("{{ connection_env }}", ":memory:")
 
 {:ok, conn} = Ecto.Adapters.SQLite3.start_link(database: database_path)
 {%- endif %}
+{%- elif engine == "oracle" %}
+database_url =
+  System.get_env("{{ connection_env }}", "oracle://system:oracle@localhost:1521/FREEPDB1")
+
+uri = URI.parse(database_url)
+userinfo = uri.userinfo || "system"
+parts = String.split(userinfo, ":")
+username = List.first(parts)
+password = Enum.at(parts, 1) || ""
+database = String.trim_leading(uri.path, "/")
+
+{:ok, conn} =
+  Jamdb.Oracle.start_link(
+    hostname: uri.host,
+    port: uri.port || 1521,
+    database: database,
+    username: username,
+    password: password
+  )
 {%- endif %}
 
 # Clean slate
@@ -220,6 +239,30 @@ schema_sql
 |> Enum.filter(&(&1 != ""))
 |> Enum.each(fn stmt -> Ecto.Adapters.SQL.query!(conn, stmt, []) end)
 {%- endif %}
+{%- elif engine == "oracle" -%}
+for table <- ["user_tags", "tags", "orders", "users"] do
+  try do
+    Jamdb.Oracle.query!(conn, "DROP TABLE #{table}", [])
+  rescue
+    _ -> :ok
+  end
+end
+
+for seq <- ["tags_seq", "orders_seq", "users_seq"] do
+  try do
+    Jamdb.Oracle.query!(conn, "DROP SEQUENCE #{seq}", [])
+  rescue
+    _ -> :ok
+  end
+end
+
+schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "oracle", "schema_full.sql"]))
+
+schema_sql
+|> String.split("/\n")
+|> Enum.map(&String.trim/1)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt -> Jamdb.Oracle.query!(conn, stmt, []) end)
 {%- endif %}
 
 exit_code = 0
@@ -237,6 +280,8 @@ Process.put(:exit_code, 0)
 {%- if engine == "mysql" %}
 :ok = Queries.create_user(conn, "Alice", "alice@example.com", UsersStatus.active())
 {:ok, user} = Queries.get_last_insert_user(conn)
+{%- elif engine == "oracle" %}
+{:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 {%- else %}
 {:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" %}, "active"{% elif engine == "mariadb" %}, UsersStatus.active(){% endif %})
 {%- endif %}
@@ -266,11 +311,17 @@ IO.puts("PASS: ListActiveUsers")
 {%- if engine == "mysql" %}
 :ok = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
 {:ok, order} = Queries.get_last_insert_order(conn)
+{%- elif engine == "oracle" %}
+{:ok, order} = Queries.create_order(conn, user_id, 9999, "first order")
 {%- else %}
 {:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
 {%- endif %}
 assert.(order.user_id == user_id, "CreateOrder", "expected user_id #{user_id}")
+{%- if engine == "oracle" %}
+assert.(order.total == 9999, "CreateOrder", "expected total 9999, got #{order.total}")
+{%- else %}
 assert.(Decimal.equal?(order.total, Decimal.new("99.95")), "CreateOrder", "expected total 99.95, got #{order.total}")
+{%- endif %}
 assert.(order.notes == "first order", "CreateOrder", "expected notes 'first order'")
 IO.puts("PASS: CreateOrder")
 
@@ -278,7 +329,11 @@ IO.puts("PASS: CreateOrder")
 {:ok, orders} = Queries.get_orders_by_user(conn, user_id)
 assert.(length(orders) == 1, "GetOrdersByUser", "expected 1 order, got #{length(orders)}")
 first_order = List.first(orders)
+{%- if engine == "oracle" %}
+assert.(first_order.total == 9999, "GetOrdersByUser", "expected total 9999")
+{%- else %}
 assert.(Decimal.equal?(first_order.total, Decimal.new("99.95")), "GetOrdersByUser", "expected total 99.95")
+{%- endif %}
 IO.puts("PASS: GetOrdersByUser")
 
 # Test: DeleteUser (delete orders first due to FK)

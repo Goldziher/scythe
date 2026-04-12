@@ -87,7 +87,7 @@ public class IntegrationTest {
         }
     }
 
-    private static java.util.UUID createdUserId;
+    private static String createdUserId;
 
     private static void testCreateUser(Connection conn) {
         String name = "CreateUser";

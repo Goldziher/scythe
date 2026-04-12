@@ -1,17 +1,24 @@
 package generated
 
+import java.math.BigDecimal
 import java.sql.Connection
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.LocalTime
+import java.time.OffsetDateTime
+import java.time.OffsetTime
+import java.util.UUID
 
 
 fun createOrder(
     conn: Connection,
     user_id: Int,
-    total: Double,
-    notes: String,
+    total: Float,
+    notes: String?,
 ) {
     conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)").use { ps ->
         ps.setInt(1, user_id)
-        ps.setDouble(2, total)
+        ps.setFloat(2, total)
         ps.setString(3, notes)
         ps.executeUpdate()
     }
@@ -20,7 +27,7 @@ fun createOrder(
 
 data class GetOrdersByUserRow(
     val id: Int,
-    val total: Double,
+    val total: Float,
     val notes: String?,
     val created_at: String,
 )
@@ -35,11 +42,13 @@ fun getOrdersByUser(
         ps.executeQuery().use { rs ->
             val result = mutableListOf<GetOrdersByUserRow>()
             while (rs.next()) {
+                val notesValue = rs.getString("notes")
+                val notes = if (rs.wasNull()) null else notesValue
                 result.add(
                     GetOrdersByUserRow(
                         id = rs.getInt("id"),
-                        total = rs.getDouble("total"),
-                        notes = rs.getString("notes"),
+                        total = rs.getFloat("total"),
+                        notes = notes,
                         created_at = rs.getString("created_at"),
                     ),
                 )
@@ -63,8 +72,10 @@ fun getOrderTotal(
         ps.setInt(1, user_id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
+                val total_sumValue = rs.getDouble("total_sum")
+                val total_sum = if (rs.wasNull()) null else total_sumValue
                 GetOrderTotalRow(
-                    total_sum = rs.getDouble("total_sum"),
+                    total_sum = total_sum,
                 )
             } else {
                 null
@@ -102,10 +113,12 @@ fun getUserById(
         ps.setInt(1, id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 GetUserByIdRow(
                     id = rs.getInt("id"),
                     name = rs.getString("name"),
-                    email = rs.getString("email"),
+                    email = email,
                     status = rs.getString("status"),
                     created_at = rs.getString("created_at"),
                 )
@@ -133,11 +146,13 @@ fun listActiveUsers(
         ps.executeQuery().use { rs ->
             val result = mutableListOf<ListActiveUsersRow>()
             while (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 result.add(
                     ListActiveUsersRow(
                         id = rs.getInt("id"),
                         name = rs.getString("name"),
-                        email = rs.getString("email"),
+                        email = email,
                     ),
                 )
             }
@@ -150,7 +165,7 @@ fun listActiveUsers(
 fun createUser(
     conn: Connection,
     name: String,
-    email: String,
+    email: String?,
     status: String,
 ) {
     conn.prepareStatement("INSERT INTO users (name, email, status) VALUES (?, ?, ?)").use { ps ->
@@ -202,11 +217,13 @@ fun searchUsers(
         ps.executeQuery().use { rs ->
             val result = mutableListOf<SearchUsersRow>()
             while (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
                 result.add(
                     SearchUsersRow(
                         id = rs.getInt("id"),
                         name = rs.getString("name"),
-                        email = rs.getString("email"),
+                        email = email,
                     ),
                 )
             }

@@ -402,8 +402,13 @@ fn generate_for_backend(
     }
 
     // Determine output filename from backend manifest
+    // Java requires the filename to match the public class name (Queries.java, not queries.java)
     let ext = &backend.manifest().backend.file_extension;
-    let filename = format!("queries.{}", ext);
+    let filename = if ext == "java" {
+        format!("Queries.{}", ext)
+    } else {
+        format!("queries.{}", ext)
+    };
 
     // Write output
     let out_path = Path::new(output_dir);

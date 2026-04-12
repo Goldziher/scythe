@@ -34,6 +34,12 @@
             <artifactId>sqlite-jdbc</artifactId>
             <version>3.45.1.0</version>
         </dependency>
+{%- elif engine == "oracle" %}
+        <dependency>
+            <groupId>com.oracle.database.jdbc</groupId>
+            <artifactId>ojdbc11</artifactId>
+            <version>23.4.0.24.05</version>
+        </dependency>
 {%- endif %}
         <dependency>
             <groupId>com.google.code.findbugs</groupId>
