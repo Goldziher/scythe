@@ -5,12 +5,36 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.6.7] - 2026-04-12
+
+### Added
+
+- Oracle integration tests across 9 backends (Python oracledb, TypeScript oracledb, Go godror, Java JDBC, Kotlin JDBC, C# Oracle, Elixir jamdb, Ruby oci8, Rust sibyl)
+- Oracle CI job with Oracle XE 21 and Instant Client
+- Oracle SQL support: `:N` placeholder preprocessing, `RETURNING ... INTO` output bind codegen
+- Oracle `orders.sql` queries with `RETURNING INTO` support
+- `structs_only` option for Rust sqlx backend (skips `sqlx::query!()` macros that require compile-time DB)
+
+### Changed
+
+- Java codegen: emit `package generated;` and `public class Queries { ... }` wrapper — eliminates hand-written wrapper files
+- Kotlin codegen: emit `package generated` header
+- Java output path: `src/main/java/generated/Queries.java`; Kotlin: `src/main/kotlin/generated/queries.kt`
+- Rust sqlx integration tests output to `src/queries.rs` with `structs_only` mode
+- Oracle dialect uses `OracleDialect` from sqlparser (was `GenericDialect`)
 
 ### Fixed
 
 - Go database-sql MySQL: fixed connection failure when `MYSQL_URL` uses `mysql://` URL format
 - Ruby mysql2 MySQL: regenerated code to use `stmt.affected_rows` (fixes incorrect `DELETE` row counts)
+- Java/Kotlin JDBC: enum columns read via `valueOf(toUpperCase())` instead of broken `getObject()`
+- Java/Kotlin JDBC: PostgreSQL enum params use `setObject(Types.OTHER)`, others use `setString(getValue())`
+- Java/Kotlin JDBC MariaDB: `RETURNING` queries use `execute()` + `getResultSet()` (MySQL Connector/J doesn't support `executeQuery()` for DML RETURNING)
+- Rust sqlx MariaDB: UUID columns cast to `CHAR` in all queries (sqlx can't decode MariaDB BINARY UUID)
+- Rust sqlx MariaDB/MySQL: use `last_insert_id()` from result instead of `LAST_INSERT_ID()` SQL function (pool connection mismatch)
+- Rust sqlx: `raw_sql()` for multi-statement schema loading (PG and SQLite)
+- MariaDB manifests: UUID mapped to `String` for Rust sqlx, Java JDBC, Kotlin JDBC (drivers return String, not UUID object)
+- Java imports: `java.time.*` wildcard for all temporal types
 
 ## [0.6.6] - 2026-04-12
 
