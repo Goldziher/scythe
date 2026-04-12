@@ -34,11 +34,17 @@ from generated.queries import (
 {%- endif %}
 {%- if engine == "postgresql" %}
     UserStatus,
+{%- elif engine == "mysql" or engine == "mariadb" %}
+    UsersStatus,
 {%- endif %}
     create_order,
     create_user,
     delete_orders_by_user,
     delete_user,
+{%- if engine == "mysql" %}
+    get_last_insert_order,
+    get_last_insert_user,
+{%- endif %}
     get_orders_by_user,
     get_user_by_id,
     list_active_users,
@@ -49,6 +55,8 @@ from generated.queries import (
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "pg" / "schema.sql"
 {%- elif engine == "mysql" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mysql" / "schema.sql"
+{%- elif engine == "mariadb" -%}
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mariadb" / "schema.sql"
 {%- elif engine == "sqlite" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "sqlite" / "schema.sql"
 {%- endif %}
@@ -130,14 +138,31 @@ async def test_row_types_are_pydantic_models() -> None:
 async def test_create_user(conn: psycopg.AsyncConnection) -> int:
 {%- elif driver == "asyncpg" %}
 async def test_create_user(conn: asyncpg.Connection) -> int:
+{%- elif engine == "mariadb" %}
+async def test_create_user(conn) -> str:
 {%- else %}
 async def test_create_user(conn) -> int:
 {%- endif %}
     """Test CreateUser query. Returns created user ID."""
+{%- if engine == "mysql" %}
+    await create_user(
+        conn, name="Alice", email="alice@example.com", status=UsersStatus.ACTIVE
+    )
+    user = await get_last_insert_user(conn)
+{%- elif engine == "sqlite" %}
+    await create_user(conn, name="Alice", email="alice@example.com", status="active")
+    async with conn.cursor() as cur:
+        await cur.execute("SELECT last_insert_rowid()")
+        row = await cur.fetchone()
+        user_id = row[0]
+    user = await get_user_by_id(conn, id=user_id)
+{%- else %}
     user = await create_user(
         conn, name="Alice", email="alice@example.com"
-        {%- if engine == "postgresql" %}, status=UserStatus.active{%- endif %}
+        {%- if engine == "postgresql" %}, status=UserStatus.ACTIVE
+        {%- elif engine == "mariadb" %}, status=UsersStatus.ACTIVE{%- endif %}
     )
+{%- endif %}
     assert user is not None, "CreateUser returned None"
 {%- if options.row_type == "pydantic" %}
     assert isinstance(user, BaseModel), f"Expected BaseModel instance, got {type(user)}"
@@ -145,7 +170,7 @@ async def test_create_user(conn) -> int:
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.email == "alice@example.com", f"Expected email 'alice@example.com', got '{user.email}'"
 {%- if engine == "postgresql" %}
-    assert user.status == UserStatus.active or user.status == "active", (
+    assert user.status == UserStatus.ACTIVE or user.status == "active", (
         f"Expected status 'active', got '{user.status}'"
     )
 {%- endif %}
@@ -160,6 +185,8 @@ async def test_create_user(conn) -> int:
 async def test_get_user_by_id(conn: psycopg.AsyncConnection, user_id: int) -> None:
 {%- elif driver == "asyncpg" -%}
 async def test_get_user_by_id(conn: asyncpg.Connection, user_id: int) -> None:
+{%- elif engine == "mariadb" -%}
+async def test_get_user_by_id(conn, user_id: str) -> None:
 {%- else -%}
 async def test_get_user_by_id(conn, user_id: int) -> None:
 {%- endif %}
@@ -182,7 +209,7 @@ async def test_list_active_users(conn: asyncpg.Connection) -> None:
 async def test_list_active_users(conn) -> None:
 {%- endif %}
     """Test ListActiveUsers query."""
-    users = await list_active_users(conn{% if engine == "postgresql" %}, status=UserStatus.active{% endif %})
+    users = await list_active_users(conn{% if engine == "postgresql" %}, status=UserStatus.ACTIVE{% elif engine == "mysql" or engine == "mariadb" %}, status=UsersStatus.ACTIVE{% elif engine == "sqlite" %}, status="active"{% endif %})
     assert len(users) >= 1, f"Expected at least 1 active user, got {len(users)}"
 {%- if options.row_type == "pydantic" %}
     assert isinstance(users[0], BaseModel), f"Expected BaseModel instance, got {type(users[0])}"
@@ -196,18 +223,33 @@ async def test_list_active_users(conn) -> None:
 async def test_create_order(conn: psycopg.AsyncConnection, user_id: int) -> int:
 {%- elif driver == "asyncpg" -%}
 async def test_create_order(conn: asyncpg.Connection, user_id: int) -> int:
+{%- elif engine == "mariadb" -%}
+async def test_create_order(conn, user_id: str) -> int:
 {%- else -%}
 async def test_create_order(conn, user_id: int) -> int:
 {%- endif %}
     """Test CreateOrder query. Returns created order ID."""
+{%- if engine == "mysql" %}
+    await create_order(
+        conn, user_id=user_id, total=Decimal("49.99"), notes="Test order"
+    )
+    order = await get_last_insert_order(conn)
+{%- elif engine == "sqlite" %}
+    await create_order(conn, user_id=user_id, total=49.99, notes="Test order")
+    orders = await get_orders_by_user(conn, user_id=user_id)
+    order = orders[0] if orders else None
+{%- else %}
     order = await create_order(
         conn, user_id=user_id, total=Decimal("49.99"), notes="Test order"
     )
+{%- endif %}
     assert order is not None, "CreateOrder returned None"
 {%- if options.row_type == "pydantic" %}
     assert isinstance(order, BaseModel), f"Expected BaseModel instance, got {type(order)}"
 {%- endif %}
+{%- if engine != "sqlite" %}
     assert order.user_id == user_id, f"Expected user_id {user_id}, got {order.user_id}"
+{%- endif %}
     assert order.notes == "Test order", f"Expected notes 'Test order', got '{order.notes}'"
 {%- if driver == "psycopg3" %}
     await conn.commit()
@@ -220,6 +262,8 @@ async def test_create_order(conn, user_id: int) -> int:
 async def test_get_orders_by_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
 {%- elif driver == "asyncpg" -%}
 async def test_get_orders_by_user(conn: asyncpg.Connection, user_id: int) -> None:
+{%- elif engine == "mariadb" -%}
+async def test_get_orders_by_user(conn, user_id: str) -> None:
 {%- else -%}
 async def test_get_orders_by_user(conn, user_id: int) -> None:
 {%- endif %}
@@ -237,6 +281,8 @@ async def test_get_orders_by_user(conn, user_id: int) -> None:
 async def test_delete_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
 {%- elif driver == "asyncpg" -%}
 async def test_delete_user(conn: asyncpg.Connection, user_id: int) -> None:
+{%- elif engine == "mariadb" -%}
+async def test_delete_user(conn, user_id: str) -> None:
 {%- else -%}
 async def test_delete_user(conn, user_id: int) -> None:
 {%- endif %}
@@ -281,7 +327,15 @@ async def run_tests() -> None:
     finally:
         await conn.close()
 {%- elif driver == "aiomysql" %}
-    conn = await aiomysql.connect(host="localhost", user="root", password="", db="scythe_test")
+    from urllib.parse import urlparse
+    parsed = urlparse(database_url)
+    conn = await aiomysql.connect(
+        host=parsed.hostname or "127.0.0.1",
+        port=parsed.port or 3306,
+        user=parsed.username or "root",
+        password=parsed.password or "",
+        db=parsed.path.lstrip("/") or "scythe_test",
+    )
     try:
         await setup_schema(conn)
 

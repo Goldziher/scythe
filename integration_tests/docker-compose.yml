@@ -27,3 +27,18 @@ services:
       interval: 2s
       timeout: 5s
       retries: 10
+
+  mariadb:
+    image: mariadb:11
+    environment:
+      MARIADB_ROOT_PASSWORD: scythe
+      MARIADB_DATABASE: scythe_test
+      MARIADB_USER: scythe
+      MARIADB_PASSWORD: scythe
+    ports:
+      - "3308:3306"
+    healthcheck:
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 2s
+      timeout: 5s
+      retries: 10

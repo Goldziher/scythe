@@ -9,11 +9,10 @@ import (
 {% if driver == "pgx" %}
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
-{%- elif driver == "database-sql" and engine == "mysql" %}
+{%- elif driver == "database-sql" and (engine == "mysql" or engine == "mariadb") %}
 	"database/sql"
 
 	_ "github.com/go-sql-driver/mysql"
-	"github.com/shopspring/decimal"
 {%- elif driver == "database-sql" and engine == "sqlite" %}
 	"database/sql"
 
@@ -85,7 +84,7 @@ func main() {
 	testDeleteOrdersByUser(ctx, pool)
 	testDeleteUser(ctx, pool)
 {%- elif driver == "database-sql" %}
-{%- if engine == "mysql" %}
+{%- if engine == "mysql" or engine == "mariadb" %}
 	db, err := sql.Open("mysql", databaseURL)
 {%- elif engine == "sqlite" %}
 	db, err := sql.Open("sqlite3", databasePath)
@@ -325,7 +324,35 @@ func testDeleteUser(ctx context.Context, pool *pgxpool.Pool) {
 	pass(name)
 }
 {%- elif driver == "database-sql" %}
-{%- if engine == "mysql" %}
+{%- if engine == "mariadb" %}
+func runMigration(ctx context.Context, db *sql.DB) error {
+	_, thisFile, _, _ := runtime.Caller(0)
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "mariadb", "schema.sql")
+
+	schema, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("reading schema file at %s: %w", schemaPath, err)
+	}
+
+	dropStatements := []string{
+		"DROP TABLE IF EXISTS user_tags",
+		"DROP TABLE IF EXISTS tags",
+		"DROP TABLE IF EXISTS orders",
+		"DROP TABLE IF EXISTS users",
+	}
+	for _, stmt := range dropStatements {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("dropping tables: %w", err)
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, string(schema)); err != nil {
+		return fmt.Errorf("creating schema: %w", err)
+	}
+
+	return nil
+}
+{%- elif engine == "mysql" %}
 func runMigration(ctx context.Context, db *sql.DB) error {
 	_, thisFile, _, _ := runtime.Caller(0)
 	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "mysql", "schema.sql")
@@ -383,12 +410,23 @@ func runMigration(ctx context.Context, db *sql.DB) error {
 }
 {%- endif %}
 
+{% if engine == "mariadb" -%}
+var createdUserID string
+{%- elif engine == "mysql" or engine == "sqlite" -%}
+var createdUserID int32
+{%- else -%}
 var createdUserID int64
+{%- endif %}
 
 func testCreateUser(ctx context.Context, db *sql.DB) {
 	name := "CreateUser"
 	email := "alice@example.com"
-	user, err := queries.CreateUser(ctx, db, "Alice", &email{% if engine == "postgresql" %}, queries.UserStatusActive{% endif %})
+{%- if engine == "mysql" %}
+	if err := queries.CreateUser(ctx, db, "Alice", &email, queries.UsersStatusActive); err != nil {
+		fail(name, err)
+		return
+	}
+	user, err := queries.GetLastInsertUser(ctx, db)
 	if err != nil {
 		fail(name, err)
 		return
@@ -397,6 +435,17 @@ func testCreateUser(ctx context.Context, db *sql.DB) {
 		return
 	}
 	createdUserID = user.Id
+{%- else %}
+	user, err := queries.CreateUser(ctx, db, "Alice", &email{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mariadb" %}, queries.UsersStatusActive{% endif %})
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, user.Name == "Alice", "expected name Alice, got %s", user.Name) {
+		return
+	}
+	createdUserID = user.Id
+{%- endif %}
 	pass(name)
 }
 
@@ -410,7 +459,11 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 	if !assertf(name, user.Name == "Alice", "expected name Alice, got %s", user.Name) {
 		return
 	}
+{%- if engine == "mariadb" %}
+	if !assertf(name, user.Id == createdUserID, "expected id %s, got %s", createdUserID, user.Id) {
+{%- else %}
 	if !assertf(name, user.Id == createdUserID, "expected id %d, got %d", createdUserID, user.Id) {
+{%- endif %}
 		return
 	}
 	pass(name)
@@ -419,12 +472,12 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
-{%- if engine == "sqlite" %}
-	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes)
-{%- else %}
-	total := decimal.NewFromFloat(99.99)
-	order, err := queries.CreateOrder(ctx, db, createdUserID, total, &notes)
-{%- endif %}
+{%- if engine == "mysql" %}
+	if err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes); err != nil {
+		fail(name, err)
+		return
+	}
+	order, err := queries.GetLastInsertOrder(ctx, db)
 	if err != nil {
 		fail(name, err)
 		return
@@ -432,6 +485,30 @@ func testCreateOrder(ctx context.Context, db *sql.DB) {
 	if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
 		return
 	}
+{%- elif engine == "sqlite" %}
+	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
+		return
+	}
+{%- else %}
+	total := decimal.NewFromFloat(99.99)
+	order, err := queries.CreateOrder(ctx, db, createdUserID, total, &notes)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+{%- if engine == "mariadb" %}
+	if !assertf(name, order.UserId == createdUserID, "expected user_id %s, got %s", createdUserID, order.UserId) {
+{%- else %}
+	if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
+{%- endif %}
+		return
+	}
+{%- endif %}
 	pass(name)
 }
 
@@ -450,7 +527,7 @@ func testGetOrdersByUser(ctx context.Context, db *sql.DB) {
 
 func testListActiveUsers(ctx context.Context, db *sql.DB) {
 	name := "ListActiveUsers"
-	users, err := queries.ListActiveUsers(ctx, db{% if engine == "postgresql" %}, queries.UserStatusActive{% endif %})
+	users, err := queries.ListActiveUsers(ctx, db{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mysql" or engine == "mariadb" %}, queries.UsersStatusActive{% endif %})
 	if err != nil {
 		fail(name, err)
 		return

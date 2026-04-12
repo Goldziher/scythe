@@ -3,11 +3,13 @@ version: "3"
 vars:
   DATABASE_URL: "postgres://scythe:scythe@localhost:5433/scythe_test"
   MYSQL_URL: "mysql://scythe:scythe@127.0.0.1:3307/scythe_test"
+  MARIADB_URL: "mysql://scythe:scythe@127.0.0.1:3308/scythe_test"
   SQLITE_PATH: "/tmp/scythe_test.db"
 
 env:
   DATABASE_URL: "{{.DATABASE_URL}}"
   MYSQL_URL: "{{.MYSQL_URL}}"
+  MARIADB_URL: "{{.MARIADB_URL}}"
   SQLITE_PATH: "{{.SQLITE_PATH}}"
   DATABASE_PATH: "{{.SQLITE_PATH}}"
 
@@ -33,6 +35,11 @@ tasks:
     desc: Run MySQL schema migration
     cmds:
       - mysql -h 127.0.0.1 -P 3307 -u scythe -pscythe scythe_test < sql/mysql/schema.sql
+
+  db:migrate:mariadb:
+    desc: Run MariaDB schema migration
+    cmds:
+      - mysql -h 127.0.0.1 -P 3308 -u scythe -pscythe scythe_test < sql/mariadb/schema.sql
 
   db:reset:
     desc: Drop and recreate all tables
@@ -75,6 +82,18 @@ tasks:
           - ruby-mysql2
           - ruby-trilogy
           - php-pdo-mysql
+          # MariaDB
+          - rust-sqlx-mariadb
+          - go-database-sql-mariadb
+          - python-aiomysql-mariadb
+          - typescript-mysql2-mariadb
+          - java-jdbc-mariadb
+          - kotlin-jdbc-mariadb
+          - csharp-mysqlconnector-mariadb
+          - elixir-myxql-mariadb
+          - ruby-mysql2-mariadb
+          - ruby-trilogy-mariadb
+          - php-pdo-mariadb
           # SQLite
           - rust-sqlx-sqlite
           - go-database-sql-sqlite
@@ -277,6 +296,79 @@ tasks:
     cmds:
       - php test_integration.php
 
+  # --- MariaDB backends ---
+  test:rust-sqlx-mariadb:
+    desc: Run rust-sqlx-mariadb integration test
+    dir: rust-sqlx-mariadb
+    env:
+      DATABASE_URL: "{{.MARIADB_URL}}"
+    cmds:
+      - cargo run --quiet
+
+  test:go-database-sql-mariadb:
+    desc: Run go-database-sql-mariadb integration test
+    dir: go-database-sql-mariadb
+    cmds:
+      - go run .
+
+  test:python-aiomysql-mariadb:
+    desc: Run python-aiomysql-mariadb integration test
+    dir: python-aiomysql-mariadb
+    cmds:
+      - uv run python test_integration.py
+
+  test:typescript-mysql2-mariadb:
+    desc: Run typescript-mysql2-mariadb integration test
+    dir: typescript-mysql2-mariadb
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsx test.ts
+
+  test:java-jdbc-mariadb:
+    desc: Run java-jdbc-mariadb integration test
+    dir: java-jdbc-mariadb
+    cmds:
+      - mvn -q compile exec:java
+
+  test:kotlin-jdbc-mariadb:
+    desc: Run kotlin-jdbc-mariadb integration test
+    dir: kotlin-jdbc-mariadb
+    cmds:
+      - gradle run --quiet
+
+  test:csharp-mysqlconnector-mariadb:
+    desc: Run csharp-mysqlconnector-mariadb integration test
+    dir: csharp-mysqlconnector-mariadb
+    cmds:
+      - dotnet run
+
+  test:elixir-myxql-mariadb:
+    desc: Run elixir-myxql-mariadb integration test
+    dir: elixir-myxql-mariadb
+    cmds:
+      - mix deps.get --quiet
+      - mix run test/integration_test.exs
+
+  test:ruby-mysql2-mariadb:
+    desc: Run ruby-mysql2-mariadb integration test
+    dir: ruby-mysql2-mariadb
+    cmds:
+      - bundle install --quiet
+      - bundle exec ruby test_integration.rb
+
+  test:ruby-trilogy-mariadb:
+    desc: Run ruby-trilogy-mariadb integration test
+    dir: ruby-trilogy-mariadb
+    cmds:
+      - bundle install --quiet
+      - bundle exec ruby test_integration.rb
+
+  test:php-pdo-mariadb:
+    desc: Run php-pdo-mariadb integration test
+    dir: php-pdo-mariadb
+    cmds:
+      - php test_integration.php
+
   # --- SQLite backends ---
   test:rust-sqlx-sqlite:
     desc: Run rust-sqlx-sqlite integration test
@@ -379,6 +471,18 @@ tasks:
       - task: test:ruby-mysql2
       - task: test:ruby-trilogy
       - task: test:php-pdo-mysql
+      # MariaDB
+      - task: test:rust-sqlx-mariadb
+      - task: test:go-database-sql-mariadb
+      - task: test:python-aiomysql-mariadb
+      - task: test:typescript-mysql2-mariadb
+      - task: test:java-jdbc-mariadb
+      - task: test:kotlin-jdbc-mariadb
+      - task: test:csharp-mysqlconnector-mariadb
+      - task: test:elixir-myxql-mariadb
+      - task: test:ruby-mysql2-mariadb
+      - task: test:ruby-trilogy-mariadb
+      - task: test:php-pdo-mariadb
       # SQLite
       - task: test:rust-sqlx-sqlite
       - task: test:go-database-sql-sqlite

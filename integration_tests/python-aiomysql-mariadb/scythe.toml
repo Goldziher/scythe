@@ -1,0 +1,12 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "mariadb"
+schema = ["../sql/mariadb/schema.sql"]
+queries = ["../sql/mariadb/queries/*.sql"]
+
+[[sql.gen]]
+backend = "python-aiomysql"
+output = "generated"

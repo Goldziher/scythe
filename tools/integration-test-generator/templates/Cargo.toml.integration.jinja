@@ -8,7 +8,7 @@ edition = "2024"
 [dependencies]
 {% if driver == "sqlx" -%}
 sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal"] }
-{%- elif driver == "sqlx-mysql" -%}
+{%- elif driver == "sqlx-mysql" or driver == "sqlx-mariadb" -%}
 sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "chrono", "rust_decimal"] }
 {%- elif driver == "sqlx-sqlite" -%}
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
