@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -44,8 +45,17 @@ func main() {
 
 	ctx := context.Background()
 
-	// Add parseTime parameter if not already present
+	// Convert mysql:// URL to Go MySQL DSN format: user:pass@tcp(host:port)/db
 	dsn := databaseURL
+	if strings.HasPrefix(dsn, "mysql://") {
+		u, err := url.Parse(dsn)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "failed to parse MYSQL_URL: %v\n", err)
+			os.Exit(1)
+		}
+		password, _ := u.User.Password()
+		dsn = fmt.Sprintf("%s:%s@tcp(%s)%s", u.User.Username(), password, u.Host, u.Path)
+	}
 	if !strings.Contains(dsn, "parseTime") {
 		sep := "?"
 		if strings.Contains(dsn, "?") {

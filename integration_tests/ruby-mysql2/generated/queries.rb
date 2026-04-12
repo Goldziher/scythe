@@ -53,7 +53,7 @@ module Queries
   def self.delete_orders_by_user(client, user_id)
     stmt = client.prepare("DELETE FROM orders WHERE user_id = ?")
     stmt.execute(user_id)
-    client.affected_rows
+    stmt.affected_rows
   end
 
   GetUserByIdRow = Data.define(:id, :name, :email, :status, :created_at)
