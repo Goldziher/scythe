@@ -13,7 +13,7 @@ repositories {
 dependencies {
 {%- if engine == "postgresql" %}
     implementation("org.postgresql:postgresql:42.7.4")
-{%- elif engine == "mysql" %}
+{%- elif engine == "mysql" or engine == "mariadb" %}
     implementation("com.mysql:mysql-connector-j:9.0.0")
 {%- elif engine == "sqlite" %}
     implementation("org.xerial:sqlite-jdbc:3.45.1.0")

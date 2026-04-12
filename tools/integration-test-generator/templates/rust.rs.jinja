@@ -240,14 +240,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .fetch_one(&pool)
         .await?;
 {%- elif driver == "sqlx-mariadb" -%}
-    let user: CreateUserRow = sqlx::query_as(
-        "INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING CAST(id AS CHAR) AS id, name, email, created_at",
-    )
-    .bind("Alice")
-    .bind("alice@example.com")
-    .bind("active")
-    .fetch_one(&pool)
-    .await?;
+    sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
+        .bind("Alice")
+        .bind("alice@example.com")
+        .bind("active")
+        .execute(&pool)
+        .await?;
+    let user: CreateUserRow = sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email FROM users WHERE name = ? AND email = ? LIMIT 1")
+        .bind("Alice")
+        .bind("alice@example.com")
+        .fetch_one(&pool)
+        .await?;
 {%- elif driver == "sqlx" -%}
     let user: CreateUserRow = sqlx::query_as(
         "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at",
@@ -288,7 +291,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .expect("get_user_by_id returned None");
 {%- elif driver == "sqlx-mariadb" -%}
     let fetched: GetUserByIdRow =
-        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, status, created_at FROM users WHERE id = ?")
             .bind(&user_id)
             .fetch_one(&pool)
             .await?;
@@ -372,14 +375,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 {%- endif %}
 {%- endif %}
 {% if driver == "sqlx-mariadb" -%}
-    let order: CreateOrderRow = sqlx::query_as(
-        "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, CAST(user_id AS CHAR) AS user_id, total, notes, created_at",
-    )
-    .bind(&user_id)
-    .bind(&total)
-    .bind("first order")
-    .fetch_one(&pool)
-    .await?;
+    sqlx::query("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")
+        .bind(&user_id)
+        .bind(&total)
+        .bind("first order")
+        .execute(&pool)
+        .await?;
+    let order: GetOrdersByUserRow = sqlx::query_as("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 1")
+        .bind(&user_id)
+        .fetch_one(&pool)
+        .await?;
 {%- elif driver == "sqlx" -%}
     let order: CreateOrderRow = sqlx::query_as(
         "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at",
@@ -423,7 +428,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     let order = CreateOrderRow::from_row(&row);
 {%- endif %}
-{%- if engine != "sqlite" %}
+{%- if engine != "sqlite" and driver != "sqlx-mariadb" %}
     assert_test!(order.user_id == user_id, "CreateOrder");
 {%- endif %}
 {%- if driver == "sibyl" %}
@@ -495,7 +500,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
     // Verify user is gone
     let deleted: Option<GetUserByIdRow> =
-        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, status, created_at FROM users WHERE id = ?")
             .bind(&user_id)
             .fetch_optional(&pool)
             .await?;

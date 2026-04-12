@@ -310,7 +310,46 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let ret = format!(": {}?", struct_name);
                 let is_oracle_returning =
                     self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
-                if is_oracle_returning {
+                let is_mariadb_returning =
+                    self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
+                if is_mariadb_returning {
+                    // MySQL Connector/J rejects executeQuery() for DML statements.
+                    // MariaDB RETURNING works via execute() + getResultSet() instead.
+                    write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
+                    let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
+                    write_setters(&mut out, params);
+                    let _ = writeln!(out, "        ps.execute()");
+                    let _ = writeln!(out, "        val rs = ps.resultSet");
+                    let _ = writeln!(out, "        if (rs != null && rs.next()) {{");
+                    let _ = writeln!(out, "            return {}(", struct_name);
+                    for col in columns.iter() {
+                        if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                            let _ = writeln!(
+                                out,
+                                "                {} = rs.getObject(\"{}\", {}),",
+                                col.field_name, col.name, class_lit
+                            );
+                        } else if col.neutral_type.starts_with("enum::") {
+                            let _ = writeln!(
+                                out,
+                                "                {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
+                                col.field_name, col.lang_type, col.name
+                            );
+                        } else {
+                            let getter = rs_getter(&col.lang_type);
+                            let _ = writeln!(
+                                out,
+                                "                {} = rs.{}(\"{}\"),",
+                                col.field_name, getter, col.name
+                            );
+                        }
+                    }
+                    let _ = writeln!(out, "            )");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        return null");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                } else if is_oracle_returning {
                     // Oracle RETURNING … INTO requires a PL/SQL BEGIN…END block so that
                     // the JDBC driver correctly maps the OUT parameters from a DML statement.
                     // Plain prepareCall on a bare DML RETURNING INTO raises ORA-17173.

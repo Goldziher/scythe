@@ -4,7 +4,7 @@ version = "1"
 [[sql]]
 name = "main"
 engine = "{{ engine }}"
-schema = ["{{ schema_dir }}/schema.sql"]
+schema = ["{{ schema_dir }}/schema{% if engine == "oracle" %}_full{% endif %}.sql"]
 queries = ["{{ queries_dir }}/*.sql"]
 
 [[sql.gen]]

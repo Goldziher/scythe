@@ -44,12 +44,12 @@ public static @Nullable CreateOrderRow createOrder(Connection conn, @Nonnull Str
         ps.setString(1, user_id);
         ps.setBigDecimal(2, total);
         ps.setString(3, notes);
-        try (ResultSet rs = ps.executeQuery()) {
-            if (rs.next()) {
-                return CreateOrderRow.fromResultSet(rs);
-            }
-            return null;
+        ps.execute();
+        ResultSet rs = ps.getResultSet();
+        if (rs != null && rs.next()) {
+            return CreateOrderRow.fromResultSet(rs);
         }
+        return null;
     }
 }
 
@@ -187,12 +187,12 @@ public static @Nullable CreateUserRow createUser(Connection conn, @Nonnull Strin
         ps.setString(1, name);
         ps.setString(2, email);
         ps.setString(3, status.getValue());
-        try (ResultSet rs = ps.executeQuery()) {
-            if (rs.next()) {
-                return CreateUserRow.fromResultSet(rs);
-            }
-            return null;
+        ps.execute();
+        ResultSet rs = ps.getResultSet();
+        if (rs != null && rs.next()) {
+            return CreateUserRow.fromResultSet(rs);
         }
+        return null;
     }
 }
 

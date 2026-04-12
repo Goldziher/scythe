@@ -425,7 +425,32 @@ impl CodegenBackend for JavaJdbcBackend {
                 );
                 let is_oracle_returning =
                     self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
-                if is_oracle_returning {
+                let is_mariadb_returning =
+                    self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
+                if is_mariadb_returning {
+                    // MySQL Connector/J rejects executeQuery() for DML statements.
+                    // MariaDB RETURNING works via execute() + getResultSet() instead.
+                    let _ = writeln!(
+                        out,
+                        "    try (var ps = conn.prepareStatement(\"{}\")) {{",
+                        sql
+                    );
+                    for (i, param) in params.iter().enumerate() {
+                        let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
+                    }
+                    let _ = writeln!(out, "        ps.execute();");
+                    let _ = writeln!(out, "        ResultSet rs = ps.getResultSet();");
+                    let _ = writeln!(out, "        if (rs != null && rs.next()) {{");
+                    let _ = writeln!(
+                        out,
+                        "            return {}.fromResultSet(rs);",
+                        struct_name
+                    );
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        return null;");
+                    let _ = writeln!(out, "    }}");
+                    let _ = write!(out, "}}");
+                } else if is_oracle_returning {
                     // Oracle RETURNING … INTO requires a PL/SQL BEGIN…END block so that
                     // the JDBC driver correctly maps the OUT parameters from a DML statement.
                     // Plain prepareCall on a bare DML RETURNING INTO raises ORA-17173.

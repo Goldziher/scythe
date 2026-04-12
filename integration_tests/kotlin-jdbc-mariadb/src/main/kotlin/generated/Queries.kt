@@ -35,21 +35,18 @@ fun createOrder(
         ps.setString(1, user_id)
         ps.setBigDecimal(2, total)
         ps.setString(3, notes)
-        ps.executeQuery().use { rs ->
-            return if (rs.next()) {
-                val notesValue = rs.getString("notes")
-                val notes = if (rs.wasNull()) null else notesValue
-                CreateOrderRow(
-                    id = rs.getInt("id"),
-                    user_id = rs.getString("user_id"),
-                    total = rs.getBigDecimal("total"),
-                    notes = notes,
-                    created_at = rs.getObject("created_at", LocalDateTime::class.java),
-                )
-            } else {
-                null
-            }
+        ps.execute()
+        val rs = ps.resultSet
+        if (rs != null && rs.next()) {
+            return CreateOrderRow(
+                id = rs.getInt("id"),
+                user_id = rs.getString("user_id"),
+                total = rs.getBigDecimal("total"),
+                notes = rs.getString("notes"),
+                created_at = rs.getObject("created_at", LocalDateTime::class.java),
+            )
         }
+        return null
     }
 }
 
@@ -208,19 +205,16 @@ fun createUser(
         ps.setString(1, name)
         ps.setString(2, email)
         ps.setString(3, status.value)
-        ps.executeQuery().use { rs ->
-            return if (rs.next()) {
-                val emailValue = rs.getString("email")
-                val email = if (rs.wasNull()) null else emailValue
-                CreateUserRow(
-                    id = rs.getString("id"),
-                    name = rs.getString("name"),
-                    email = email,
-                )
-            } else {
-                null
-            }
+        ps.execute()
+        val rs = ps.resultSet
+        if (rs != null && rs.next()) {
+            return CreateUserRow(
+                id = rs.getString("id"),
+                name = rs.getString("name"),
+                email = rs.getString("email"),
+            )
         }
+        return null
     }
 }
 

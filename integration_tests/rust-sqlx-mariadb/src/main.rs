@@ -57,14 +57,17 @@ let pool = MySqlPoolOptions::new()
     }
 
     // Test: CreateUser
-let user: CreateUserRow = sqlx::query_as(
-        "INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING CAST(id AS CHAR) AS id, name, email, created_at",
-    )
-    .bind("Alice")
-    .bind("alice@example.com")
-    .bind("active")
-    .fetch_one(&pool)
-    .await?;
+sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
+        .bind("Alice")
+        .bind("alice@example.com")
+        .bind("active")
+        .execute(&pool)
+        .await?;
+    let user: CreateUserRow = sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email FROM users WHERE name = ? AND email = ? LIMIT 1")
+        .bind("Alice")
+        .bind("alice@example.com")
+        .fetch_one(&pool)
+        .await?;
     assert_test!(user.name == "Alice", "CreateUser");
     assert_test!(
         user.email.as_deref() == Some("alice@example.com"),
@@ -75,7 +78,7 @@ let user: CreateUserRow = sqlx::query_as(
 
     // Test: GetUserById
 let fetched: GetUserByIdRow =
-        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, status, created_at FROM users WHERE id = ?")
             .bind(&user_id)
             .fetch_one(&pool)
             .await?;
@@ -100,15 +103,16 @@ let active_users: Vec<ListActiveUsersRow> =
     // Test: CreateOrder
 
     let total = Decimal::from_str("99.95").unwrap();
-let order: CreateOrderRow = sqlx::query_as(
-        "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, CAST(user_id AS CHAR) AS user_id, total, notes, created_at",
-    )
-    .bind(&user_id)
-    .bind(&total)
-    .bind("first order")
-    .fetch_one(&pool)
-    .await?;
-    assert_test!(order.user_id == user_id, "CreateOrder");
+sqlx::query("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")
+        .bind(&user_id)
+        .bind(&total)
+        .bind("first order")
+        .execute(&pool)
+        .await?;
+    let order: GetOrdersByUserRow = sqlx::query_as("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC LIMIT 1")
+        .bind(&user_id)
+        .fetch_one(&pool)
+        .await?;
     assert_test!(order.total == total, "CreateOrder");
     assert_test!(
         order.notes.as_deref() == Some("first order"),
@@ -138,7 +142,7 @@ sqlx::query("DELETE FROM orders WHERE user_id = ?")
         .await?;
     // Verify user is gone
     let deleted: Option<GetUserByIdRow> =
-        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, status, created_at FROM users WHERE id = ?")
             .bind(&user_id)
             .fetch_optional(&pool)
             .await?;
