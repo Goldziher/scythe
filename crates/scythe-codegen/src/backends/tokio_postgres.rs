@@ -256,13 +256,7 @@ impl CodegenBackend for TokioPostgresBackend {
         } else {
             let refs: Vec<String> = params
                 .iter()
-                .map(|p| {
-                    if p.neutral_type.starts_with("enum::") {
-                        format!("&{}.to_string()", p.field_name)
-                    } else {
-                        format!("&{}", p.field_name)
-                    }
-                })
+                .map(|p| format!("&{}", p.field_name))
                 .collect();
             format!("&[{}]", refs.join(", "))
         };
@@ -380,7 +374,69 @@ impl CodegenBackend for TokioPostgresBackend {
         );
         let _ = writeln!(out, "        }}");
         let _ = writeln!(out, "    }}");
-        let _ = write!(out, "}}");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+
+        // impl FromSql for tokio-postgres row deserialization
+        let _ = writeln!(
+            out,
+            "impl<'a> tokio_postgres::types::FromSql<'a> for {} {{",
+            type_name
+        );
+        let _ = writeln!(
+            out,
+            "    fn from_sql(ty: &tokio_postgres::types::Type, raw: &'a [u8]) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {{"
+        );
+        let _ = writeln!(
+            out,
+            "        let s = <&str as tokio_postgres::types::FromSql>::from_sql(ty, raw)?;"
+        );
+        let _ = writeln!(
+            out,
+            "        s.parse::<{}>().map_err(|e| e.into())",
+            type_name
+        );
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "    fn accepts(ty: &tokio_postgres::types::Type) -> bool {{"
+        );
+        let _ = writeln!(
+            out,
+            "        ty.name() == \"{}\" || <&str as tokio_postgres::types::FromSql>::accepts(ty)",
+            enum_info.sql_name
+        );
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+
+        // impl ToSql for tokio-postgres parameter serialization
+        let _ = writeln!(
+            out,
+            "impl tokio_postgres::types::ToSql for {} {{",
+            type_name
+        );
+        let _ = writeln!(
+            out,
+            "    fn to_sql(&self, ty: &tokio_postgres::types::Type, out: &mut tokio_postgres::types::private::BytesMut) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {{"
+        );
+        let _ = writeln!(out, "        self.to_string().to_sql(ty, out)");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "    fn accepts(ty: &tokio_postgres::types::Type) -> bool {{"
+        );
+        let _ = writeln!(
+            out,
+            "        ty.name() == \"{}\" || <String as tokio_postgres::types::ToSql>::accepts(ty)",
+            enum_info.sql_name
+        );
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    tokio_postgres::types::to_sql_checked!();");
+        let _ = writeln!(out, "}}");
 
         Ok(out)
     }
@@ -444,29 +500,11 @@ fn generate_struct_with_from_row(
     );
     let _ = writeln!(out, "        Self {{");
     for col in columns {
-        if col.neutral_type.starts_with("enum::") {
-            if col.nullable {
-                let _ = writeln!(
-                    out,
-                    "            {field}: row.get::<_, Option<String>>(\"{col}\").map(|s| s.parse().unwrap_or_else(|_| panic!(\"unexpected enum value for column '{col}': {{}}\", s))),",
-                    field = col.field_name,
-                    col = col.name
-                );
-            } else {
-                let _ = writeln!(
-                    out,
-                    "            {field}: {{ let val: String = row.get(\"{col}\"); val.parse().unwrap_or_else(|_| panic!(\"unexpected enum value for column '{col}': {{}}\", val)) }},",
-                    field = col.field_name,
-                    col = col.name
-                );
-            }
-        } else {
-            let _ = writeln!(
-                out,
-                "            {}: row.get(\"{}\"),",
-                col.field_name, col.name
-            );
-        }
+        let _ = writeln!(
+            out,
+            "            {}: row.get(\"{}\"),",
+            col.field_name, col.name
+        );
     }
     let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "    }}");
