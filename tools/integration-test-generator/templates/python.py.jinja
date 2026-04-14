@@ -567,6 +567,7 @@ def run_tests() -> None:
         if not fakesnow:
             print("ERROR: fakesnow not installed but SNOWFLAKE_USE_FAKESNOW=1", file=sys.stderr)
             sys.exit(1)
+        snowflake.connector.paramstyle = "qmark"
         with fakesnow.patch():
             conn = snowflake.connector.connect(database="testdb", schema="public")
             try:

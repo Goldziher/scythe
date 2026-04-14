@@ -577,6 +577,13 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
+      - name: Install sqlcmd
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+          curl "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y mssql-tools18
+
       - name: Create database and run schema migration
         run: |
           /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Scythe_Test1" -C -Q "CREATE DATABASE scythe_test"

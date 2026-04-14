@@ -332,6 +332,8 @@ async function main(): Promise<void> {
 			"alice@example.com",
 {%- if engine == "postgresql" %}
 			UserStatusValues.Active,
+{%- elif engine == "redshift" %}
+			"active",
 {%- endif %}
 		);
 		assert(user !== null, "CreateUser", "user should not be null");

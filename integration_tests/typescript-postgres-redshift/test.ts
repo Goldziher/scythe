@@ -27,7 +27,7 @@ async function main(): Promise<void> {
 		// Clean slate
 
 		// Test: CreateUser
-		const user = await createUser(sql, "Alice", "alice@example.com");
+		const user = await createUser(sql, "Alice", "alice@example.com", "active");
 		assert(user !== null, "CreateUser", "user should not be null");
 		assert(
 			user!.name === "Alice",
