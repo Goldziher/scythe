@@ -51,18 +51,15 @@ let (client, connection) = tokio_postgres::connect(&database_url, NoTls).await?;
     client
         .execute("DROP TABLE IF EXISTS users CASCADE", &[])
         .await?;
-    client
-        .execute("DROP TYPE IF EXISTS user_status CASCADE", &[])
-        .await?;
 
-    let schema_sql = std::fs::read_to_string("../sql/redshift/schema.sql")?;
+    let schema_sql = std::fs::read_to_string("../sql/redshift/schema_pg_compat.sql")?;
     client.batch_execute(&schema_sql).await?;
 
     // Test: CreateUser
 let row = client
         .query_one(
             "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at",
-            &[&"Alice", &"alice@example.com", &UserStatus::Active],
+            &[&"Alice", &"alice@example.com", &("active".to_string())],
         )
         .await?;
     let user = CreateUserRow::from_row(&row);
@@ -92,11 +89,10 @@ let row = client
     pass!("GetUserById");
 
     // Test: ListActiveUsers
-
-    let rows = client
+let rows = client
         .query(
             "SELECT id, name, email FROM users WHERE status = $1",
-            &[],
+            &[&("active".to_string())],
         )
         .await?;
     let active_users: Vec<ListActiveUsersRow> = rows.iter().map(ListActiveUsersRow::from_row).collect();
@@ -147,7 +143,7 @@ let row = client
     // Verify user is gone
     let row = client
         .query_opt(
-            "SELECT id, name, email, created_at FROM users WHERE id = $1",
+            "SELECT id, name, email, status, created_at FROM users WHERE id = $1",
             &[&user_id],
         )
         .await?;

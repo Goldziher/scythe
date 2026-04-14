@@ -210,17 +210,23 @@ pub fn parse_query_with_dialect(
 
     // Preprocess dialect-specific syntax before parsing:
     // - Oracle: strip `RETURNING ... INTO` output binds, convert `:N` → `?`
-    // - MSSQL: convert `@pN` named positional placeholders → `?`
-    let sql = if *dialect == SqlDialect::Oracle {
-        preprocess_oracle_sql(&sql)
+    // - MSSQL: convert `OUTPUT INSERTED.*` → `RETURNING` for parsing,
+    //          convert `@pN` → `?` for parsing; keep original SQL for codegen
+    let (sql, parse_sql) = if *dialect == SqlDialect::Oracle {
+        let processed = preprocess_oracle_sql(&sql);
+        (processed.clone(), processed)
     } else if *dialect == SqlDialect::MsSql {
-        preprocess_mssql_sql(&sql)
+        // For codegen: only convert @pN → ? placeholders (keep OUTPUT syntax)
+        let codegen_sql = convert_mssql_placeholders(&sql);
+        // For parsing: also convert OUTPUT INSERTED → RETURNING
+        let parse_sql = preprocess_mssql_sql(&sql);
+        (codegen_sql, parse_sql)
     } else {
-        sql
+        (sql.clone(), sql)
     };
 
     let parser_dialect = dialect.to_sqlparser_dialect();
-    let statements = Parser::parse_sql(parser_dialect.as_ref(), &sql)
+    let statements = Parser::parse_sql(parser_dialect.as_ref(), &parse_sql)
         .map_err(|e| ScytheError::syntax(format!("syntax error: {}", e)))?;
 
     if statements.len() != 1 {
@@ -323,11 +329,10 @@ fn preprocess_oracle_sql(sql: &str) -> String {
     result
 }
 
-/// Preprocess MSSQL SQL before parsing:
-/// Convert `@pN` positional placeholders to `?` (outside string literals).
+/// Convert MSSQL `@pN` positional placeholders to `?` (outside string literals).
 /// MsSqlDialect treats `@` as an identifier start, so `@p1` becomes an identifier
 /// rather than a `Placeholder` token — preprocessing normalises it to `?`.
-fn preprocess_mssql_sql(sql: &str) -> String {
+fn convert_mssql_placeholders(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len());
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
@@ -364,6 +369,128 @@ fn preprocess_mssql_sql(sql: &str) -> String {
         }
     }
     result
+}
+
+/// Preprocess MSSQL SQL before parsing:
+/// 1. Strip `OUTPUT INSERTED.col, ...` clauses and convert to RETURNING
+/// 2. Convert `@pN` positional placeholders to `?`
+fn preprocess_mssql_sql(sql: &str) -> String {
+    // First pass: convert OUTPUT INSERTED.col to RETURNING col
+    let sql = strip_and_convert_mssql_output(sql);
+    // Second pass: convert @pN to ?
+    convert_mssql_placeholders(&sql)
+}
+
+/// Strip MSSQL `OUTPUT INSERTED.col1, INSERTED.col2, ...` from INSERT statements
+/// and convert it to a `RETURNING col1, col2, ...` clause.
+/// The OUTPUT clause appears between the column list and VALUES clause:
+///   INSERT INTO table (cols) OUTPUT INSERTED.col1, INSERTED.col2, ... VALUES (...)
+/// becomes:
+///   INSERT INTO table (cols) VALUES (...) RETURNING col1, col2, ...
+fn strip_and_convert_mssql_output(sql: &str) -> String {
+    // Case-insensitive search for OUTPUT keyword in INSERT statements
+    let upper = sql.to_uppercase();
+
+    // Only process INSERT statements with OUTPUT
+    if !upper.contains("INSERT") || !upper.contains("OUTPUT") {
+        return sql.to_string();
+    }
+
+    // Find the OUTPUT keyword
+    if let Some(output_pos) = find_word_position(&upper, "OUTPUT") {
+        // Check if this is actually part of an INSERT statement by finding INSERT before it
+        let before_output = &upper[..output_pos];
+        if !before_output.contains("INSERT") {
+            return sql.to_string();
+        }
+
+        // Look for the VALUES keyword after OUTPUT
+        let after_output = &upper[output_pos + "OUTPUT".len()..];
+        if let Some(values_offset) = find_word_position(after_output, "VALUES") {
+            let values_pos = output_pos + "OUTPUT".len() + values_offset;
+
+            // Extract the OUTPUT column list (between OUTPUT and VALUES)
+            let output_cols_str = &sql[output_pos + "OUTPUT".len()..values_pos];
+
+            // Parse column names: strip "INSERTED." prefix from each column name
+            let cols = parse_inserted_columns(output_cols_str);
+
+            if !cols.is_empty() {
+                // Build result: keep everything before OUTPUT, then VALUES clause,
+                // then RETURNING clause (before any trailing semicolon)
+                let before_output_sql = sql[..output_pos].trim_end();
+                let after_values = sql[values_pos..].trim_end();
+                let (values_body, trailing) = if let Some(stripped) = after_values.strip_suffix(';')
+                {
+                    (stripped, ";")
+                } else {
+                    (after_values, "")
+                };
+
+                return format!(
+                    "{}\n{} RETURNING {}{}",
+                    before_output_sql, values_body, cols, trailing
+                );
+            }
+        }
+    }
+
+    sql.to_string()
+}
+
+/// Find the position of a word (case-insensitive) in the text.
+/// The word must be a separate word, not part of another identifier.
+fn find_word_position(text: &str, word: &str) -> Option<usize> {
+    let mut pos = 0;
+    let word_len = word.len();
+    while let Some(idx) = text[pos..].find(word) {
+        let abs_idx = pos + idx;
+
+        // Check character before
+        let before_ok = abs_idx == 0
+            || !text
+                .as_bytes()
+                .get(abs_idx - 1)
+                .is_some_and(|&b| b.is_ascii_alphanumeric() || b == b'_');
+
+        // Check character after
+        let after_idx = abs_idx + word_len;
+        let after_ok = after_idx >= text.len()
+            || !text
+                .as_bytes()
+                .get(after_idx)
+                .is_some_and(|&b| b.is_ascii_alphanumeric() || b == b'_');
+
+        if before_ok && after_ok {
+            return Some(abs_idx);
+        }
+        pos = abs_idx + 1;
+    }
+    None
+}
+
+/// Parse INSERTED.col1, INSERTED.col2, ... and extract column names as "col1, col2, ..."
+fn parse_inserted_columns(output_str: &str) -> String {
+    let mut cols = Vec::new();
+
+    for part in output_str.split(',') {
+        let trimmed = part.trim();
+
+        // Try to extract column name after INSERTED.
+        if let Some(after_inserted) = trimmed
+            .strip_prefix("INSERTED.")
+            .or_else(|| trimmed.strip_prefix("inserted."))
+            .or_else(|| trimmed.strip_prefix("INSERTED"))
+            .or_else(|| trimmed.strip_prefix("inserted"))
+        {
+            let col_name = after_inserted.trim().to_string();
+            if !col_name.is_empty() {
+                cols.push(col_name);
+            }
+        }
+    }
+
+    cols.join(", ")
 }
 
 /// Strip the `INTO :N, :N, ...` suffix from an Oracle `RETURNING ... INTO` clause.
@@ -658,5 +785,67 @@ mod tests {
     #[test]
     fn test_preprocess_mssql_multi_digit_placeholder() {
         assert_eq!(preprocess_mssql_sql("SELECT @p10, @p2"), "SELECT ?, ?");
+    }
+
+    #[test]
+    fn test_preprocess_mssql_output_inserted_simple() {
+        let sql =
+            "INSERT INTO users (id, name) OUTPUT INSERTED.id, INSERTED.name VALUES (@p1, @p2)";
+        let result = preprocess_mssql_sql(sql);
+        // Should convert OUTPUT INSERTED.col to RETURNING col and @pN to ?
+        assert!(result.contains("RETURNING id, name"), "got: {}", result);
+        assert!(result.contains("VALUES (?, ?)"), "got: {}", result);
+        assert!(!result.contains("OUTPUT"), "got: {}", result);
+    }
+
+    #[test]
+    fn test_preprocess_mssql_output_inserted_full_example() {
+        let sql = "INSERT INTO users (id, name, email, active) OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)";
+        let result = preprocess_mssql_sql(sql);
+        assert!(
+            result.contains("RETURNING id, name, email, active, created_at"),
+            "got: {}",
+            result
+        );
+        assert!(result.contains("VALUES (?, ?, ?, ?)"), "got: {}", result);
+    }
+
+    #[test]
+    fn test_preprocess_mssql_output_case_insensitive() {
+        let sql = "INSERT INTO users (id) output inserted.id values (@p1)";
+        let result = preprocess_mssql_sql(sql);
+        assert!(result.contains("RETURNING id"), "got: {}", result);
+        // The original lowercase "values" is preserved, then @p1 becomes ?
+        assert!(
+            result.contains("values (?)") || result.contains("VALUES (?)"),
+            "got: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_preprocess_mssql_no_output_unchanged() {
+        let sql = "INSERT INTO users (id, name) VALUES (@p1, @p2)";
+        let result = preprocess_mssql_sql(sql);
+        assert_eq!(result, "INSERT INTO users (id, name) VALUES (?, ?)");
+    }
+
+    #[test]
+    fn test_preprocess_mssql_output_with_string_literal() {
+        // @p1 inside a string should be preserved by placeholder conversion
+        let sql =
+            "INSERT INTO users (id, name) OUTPUT INSERTED.id, INSERTED.name VALUES (@p1, '@p2')";
+        let result = preprocess_mssql_sql(sql);
+        assert!(result.contains("RETURNING id, name"), "got: {}", result);
+        assert!(result.contains("(?, '@p2')"), "got: {}", result);
+    }
+
+    #[test]
+    fn test_preprocess_mssql_output_with_whitespace() {
+        let sql =
+            "INSERT INTO users (id, name)\nOUTPUT INSERTED.id,\n  INSERTED.name\nVALUES (@p1, @p2)";
+        let result = preprocess_mssql_sql(sql);
+        assert!(result.contains("RETURNING id, name"), "got: {}", result);
+        assert!(result.contains("VALUES (?, ?)"), "got: {}", result);
     }
 }

@@ -13,6 +13,8 @@ require (
 	github.com/mattn/go-sqlite3 v1.14.24
 {%- elif driver == "database-sql" and engine == "mssql" %}
 	github.com/microsoft/go-mssqldb v1.8.0
+{%- elif driver == "database-sql" and engine == "snowflake" %}
+	github.com/snowflakedb/gosnowflake v1.10.1
 {%- elif driver == "godror" %}
 	github.com/godror/godror v0.44.2
 {%- endif %}

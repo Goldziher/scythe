@@ -6,7 +6,9 @@
 	"scripts": {
 		"test": "tsx test.ts"
 	},
-	"dependencies": {},
+	"dependencies": {
+		"snowflake-sdk": "^1.13.0"
+	},
 	"devDependencies": {
 		"tsx": "^4.19.0",
 		"typescript": "^5.6.0"

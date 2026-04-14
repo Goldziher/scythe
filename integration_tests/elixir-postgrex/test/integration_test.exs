@@ -10,7 +10,7 @@ database = String.trim_leading(uri.path, "/")
 {:ok, conn} =
   Postgrex.start_link(
     hostname: uri.host,
-    port: uri.port,
+    port: uri.port || 5432,
     username: username,
     password: password,
     database: database
@@ -23,7 +23,7 @@ Postgrex.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
 Postgrex.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
 Postgrex.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "pg", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "pg/schema.sql"]))
 Postgrex.query!(conn, schema_sql, [])
 
 exit_code = 0

@@ -69,7 +69,7 @@ let mut stream = client
         .into_row()
         .await?
         .expect("expected a row");
-    let user = CreateUserRow::from_row(&row);
+    let user = CreateUserRow::from_row(&row)?;
     assert_test!(user.name == "Alice", "CreateUser");
     assert_test!(
         user.email.as_deref() == Some("alice@example.com"),
@@ -89,7 +89,7 @@ let mut stream = client
         .into_row()
         .await?
         .expect("expected a row");
-    let fetched = GetUserByIdRow::from_row(&row);
+    let fetched = GetUserByIdRow::from_row(&row)?;
     assert_test!(fetched.id == user_id, "GetUserById");
     assert_test!(fetched.name == "Alice", "GetUserById");
     assert_test!(
@@ -108,7 +108,7 @@ let rows = client
         .into_first_result()
         .await?;
     let active_users: Vec<ListActiveUsersRow> =
-        rows.iter().map(ListActiveUsersRow::from_row).collect();
+        rows.iter().map(|r| ListActiveUsersRow::from_row(r).unwrap()).collect();
     assert_test!(!active_users.is_empty(), "ListActiveUsers");
     assert_test!(active_users[0].name == "Alice", "ListActiveUsers");
     pass!("ListActiveUsers");
@@ -125,7 +125,7 @@ let mut stream = client
         .into_row()
         .await?
         .expect("expected a row");
-    let order = CreateOrderRow::from_row(&row);
+    let order = CreateOrderRow::from_row(&row)?;
     assert_test!(order.user_id == user_id, "CreateOrder");
     assert_test!(order.total == total, "CreateOrder");
     assert_test!(
@@ -143,7 +143,7 @@ let rows = client
         .await?
         .into_first_result()
         .await?;
-    let orders: Vec<GetOrdersByUserRow> = rows.iter().map(GetOrdersByUserRow::from_row).collect();
+    let orders: Vec<GetOrdersByUserRow> = rows.iter().map(|r| GetOrdersByUserRow::from_row(r).unwrap()).collect();
     assert_test!(orders.len() == 1, "GetOrdersByUser");
     assert_test!(orders[0].total == total, "GetOrdersByUser");
     pass!("GetOrdersByUser");

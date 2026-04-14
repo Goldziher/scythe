@@ -18,6 +18,8 @@ require_relative "generated/queries"
 
 {% if engine == "postgresql" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "pg", "schema.sql")
+{%- elif engine == "redshift" -%}
+SCHEMA_PATH = File.join(__dir__, "..", "sql", "redshift", "schema_pg_compat.sql")
 {%- elif engine == "mysql" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "mysql", "schema.sql")
 {%- elif engine == "mariadb" -%}
@@ -45,7 +47,9 @@ def setup_schema(conn)
   conn.exec("DROP TABLE IF EXISTS tags CASCADE")
   conn.exec("DROP TABLE IF EXISTS orders CASCADE")
   conn.exec("DROP TABLE IF EXISTS users CASCADE")
+{%- if engine == "postgresql" %}
   conn.exec("DROP TYPE IF EXISTS user_status CASCADE")
+{%- endif %}
   schema_sql = File.read(SCHEMA_PATH)
   conn.exec(schema_sql)
 end
@@ -137,12 +141,12 @@ def test_create_user(conn)
 {%- elif engine == "mssql" %}
   user = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 {%- else %}
-  user = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" %}, "active"{% elif engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
+  user = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" or engine == "redshift" %}, "active"{% elif engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
 {%- endif %}
   assert_not_nil(user, "create_user returned nil")
   assert_equal("Alice", user.name, "create_user name")
   assert_equal("alice@example.com", user.email, "create_user email")
-{%- if engine == "postgresql" %}
+{%- if engine == "postgresql" or engine == "redshift" %}
   assert_equal("active", user.status, "create_user status")
 {%- endif %}
 {%- if engine == "mariadb" %}
@@ -161,14 +165,14 @@ def test_get_user_by_id(conn, user_id)
   assert_equal("Alice", user.name, "get_user_by_id name")
   assert_equal(user_id, user.id, "get_user_by_id id")
   assert_equal("alice@example.com", user.email, "get_user_by_id email")
-{%- if engine == "postgresql" %}
+{%- if engine == "postgresql" or engine == "redshift" %}
   assert_equal("active", user.status, "get_user_by_id status")
 {%- endif %}
   puts "PASS: GetUserById"
 end
 
 def test_list_active_users(conn)
-  users = Queries.list_active_users(conn{% if engine == "postgresql" %}, "active"{% elif engine == "mysql" or engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
+  users = Queries.list_active_users(conn{% if engine == "postgresql" or engine == "redshift" %}, "active"{% elif engine == "mysql" or engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
   assert_true(users.length >= 1, "Expected at least 1 active user, got #{users.length}")
   names = users.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in active users, got #{names}")
@@ -228,10 +232,10 @@ def test_search_users(conn)
 end
 
 def test_count_users_by_status(conn)
-  result = Queries.count_users_by_status(conn{% if engine == "postgresql" %}, "active"{% endif %})
+  result = Queries.count_users_by_status(conn{% if engine == "postgresql" or engine == "redshift" %}, "active"{% endif %})
   assert_not_nil(result, "count_users_by_status returned nil")
   assert_true(result.user_count >= 1, "Expected count >= 1, got #{result.user_count}")
-{%- if engine == "postgresql" %}
+{%- if engine == "postgresql" or engine == "redshift" %}
   assert_equal("active", result.status, "count_users_by_status status")
 {%- elif engine == "oracle" %}
   assert_equal(1, result.active, "count_users_by_status active")

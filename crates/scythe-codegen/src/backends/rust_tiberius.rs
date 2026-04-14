@@ -133,8 +133,10 @@ impl CodegenBackend for RustTiberiusBackend {
             |n| format!("@p{n}"),
         );
 
-        let mut param_parts: Vec<String> =
-            vec!["client: &mut tiberius::Client<tokio::net::TcpStream>".to_string()];
+        let mut param_parts: Vec<String> = vec![
+            "client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>"
+                .to_string(),
+        ];
         for param in params {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
@@ -152,7 +154,7 @@ impl CodegenBackend for RustTiberiusBackend {
                 let _ = writeln!(out);
                 let _ = writeln!(
                     out,
-                    "pub async fn {}(client: &mut tiberius::Client<tokio::net::TcpStream>, items: &[{}]) -> Result<(), tiberius::error::Error> {{",
+                    "pub async fn {}(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, items: &[{}]) -> Result<(), tiberius::error::Error> {{",
                     batch_fn_name, params_struct_name
                 );
                 let _ = writeln!(out, "    for item in items {{");
@@ -171,7 +173,7 @@ impl CodegenBackend for RustTiberiusBackend {
             } else if params.len() == 1 {
                 let _ = writeln!(
                     out,
-                    "pub async fn {}(client: &mut tiberius::Client<tokio::net::TcpStream>, items: &[{}]) -> Result<(), tiberius::error::Error> {{",
+                    "pub async fn {}(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, items: &[{}]) -> Result<(), tiberius::error::Error> {{",
                     batch_fn_name, params[0].full_type
                 );
                 let _ = writeln!(out, "    for item in items {{");
@@ -185,7 +187,7 @@ impl CodegenBackend for RustTiberiusBackend {
             } else {
                 let _ = writeln!(
                     out,
-                    "pub async fn {}(client: &mut tiberius::Client<tokio::net::TcpStream>, count: usize) -> Result<(), tiberius::error::Error> {{",
+                    "pub async fn {}(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, count: usize) -> Result<(), tiberius::error::Error> {{",
                     batch_fn_name
                 );
                 let _ = writeln!(out, "    for _ in 0..count {{");

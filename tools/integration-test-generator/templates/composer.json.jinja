@@ -10,6 +10,8 @@
 		"amphp/mysql": "^3.0"
 {%- elif engine == "mssql" %},
 		"ext-pdo_sqlsrv": "*"
+{%- elif engine == "snowflake" %},
+		"ext-pdo_odbc": "*"
 {%- endif %}
 	}
 }

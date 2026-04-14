@@ -51,7 +51,7 @@ async function main(): Promise<void> {
 		console.log("PASS: GetUserById");
 
 		// Test: ListActiveUsers
-		const activeUsers = await listActiveUsers(client);
+		const activeUsers = await listActiveUsers(client, "active");
 		assert(
 			activeUsers.length > 0,
 			"ListActiveUsers",

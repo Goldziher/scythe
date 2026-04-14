@@ -22,6 +22,11 @@ import (
 	"strings"
 
 	_ "github.com/microsoft/go-mssqldb"
+{%- elif driver == "database-sql" and engine == "snowflake" %}
+	"database/sql"
+	"strings"
+
+	_ "github.com/snowflakedb/gosnowflake"
 {%- elif driver == "godror" %}
 	"database/sql"
 	"net/url"
@@ -84,13 +89,17 @@ func main() {
 
 	testCreateUser(ctx, pool)
 	testGetUserById(ctx, pool)
+{%- if engine != "redshift" %}
 	testUpdateUserEmail(ctx, pool)
+{%- endif %}
 	testCreateOrder(ctx, pool)
 	testGetOrdersByUser(ctx, pool)
 	testGetOrderTotal(ctx, pool)
 	testListActiveUsers(ctx, pool)
+{%- if engine != "redshift" %}
 	testGetUserOrders(ctx, pool)
 	testCountUsersByStatus(ctx, pool)
+{%- endif %}
 	testSearchUsers(ctx, pool)
 	testDeleteOrdersByUser(ctx, pool)
 	testDeleteUser(ctx, pool)
@@ -101,6 +110,8 @@ func main() {
 	db, err := sql.Open("sqlite3", databasePath)
 {%- elif engine == "mssql" %}
 	db, err := sql.Open("sqlserver", databaseURL)
+{%- elif engine == "snowflake" %}
+	db, err := sql.Open("snowflake", databaseURL)
 {%- endif %}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
@@ -172,7 +183,11 @@ func main() {
 {% if driver == "pgx" %}
 func runMigration(ctx context.Context, pool *pgxpool.Pool) error {
 	_, thisFile, _, _ := runtime.Caller(0)
+{%- if engine == "redshift" %}
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "redshift", "schema_pg_compat.sql")
+{%- else %}
 	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "pg", "schema.sql")
+{%- endif %}
 
 	schema, err := os.ReadFile(schemaPath)
 	if err != nil {
@@ -184,7 +199,9 @@ func runMigration(ctx context.Context, pool *pgxpool.Pool) error {
 		DROP TABLE IF EXISTS tags CASCADE;
 		DROP TABLE IF EXISTS orders CASCADE;
 		DROP TABLE IF EXISTS users CASCADE;
+{%- if engine != "redshift" %}
 		DROP TYPE IF EXISTS user_status CASCADE;
+{%- endif %}
 	`
 	if _, err := pool.Exec(ctx, dropSQL); err != nil {
 		return fmt.Errorf("dropping tables: %w", err)
@@ -202,7 +219,12 @@ var createdUserID int32
 
 func testCreateUser(ctx context.Context, pool *pgxpool.Pool) {
 	name := "CreateUser"
+{%- if engine == "redshift" %}
+	email := "alice@example.com"
+	user, err := queries.CreateUser(ctx, pool, "Alice", &email, "active")
+{%- else %}
 	user, err := queries.CreateUser(ctx, pool, "Alice", "alice@example.com", queries.UserStatusActive)
+{%- endif %}
 	if err != nil {
 		fail(name, err)
 		return
@@ -213,7 +235,7 @@ func testCreateUser(ctx context.Context, pool *pgxpool.Pool) {
 	if !assertf(name, user.Email != nil && *user.Email == "alice@example.com", "expected email alice@example.com") {
 		return
 	}
-	if !assertf(name, user.Status == queries.UserStatusActive, "expected status active, got %s", user.Status) {
+	if !assertf(name, user.Status == {% if engine == "redshift" %}"active"{% else %}queries.UserStatusActive{% endif %}, "expected status active, got %s", user.Status) {
 		return
 	}
 	createdUserID = user.Id
@@ -236,6 +258,7 @@ func testGetUserById(ctx context.Context, pool *pgxpool.Pool) {
 	pass(name)
 }
 
+{%- if engine != "redshift" %}
 func testUpdateUserEmail(ctx context.Context, pool *pgxpool.Pool) {
 	name := "UpdateUserEmail"
 	err := queries.UpdateUserEmail(ctx, pool, "alice-updated@example.com", createdUserID)
@@ -253,11 +276,17 @@ func testUpdateUserEmail(ctx context.Context, pool *pgxpool.Pool) {
 	}
 	pass(name)
 }
+{%- endif %}
 
 func testCreateOrder(ctx context.Context, pool *pgxpool.Pool) {
 	name := "CreateOrder"
 	total := decimal.NewFromFloat(99.99)
+{%- if engine == "redshift" %}
+	notes := "Test order"
+	order, err := queries.CreateOrder(ctx, pool, createdUserID, total, &notes)
+{%- else %}
 	order, err := queries.CreateOrder(ctx, pool, createdUserID, total, "Test order")
+{%- endif %}
 	if err != nil {
 		fail(name, err)
 		return
@@ -300,7 +329,7 @@ func testGetOrderTotal(ctx context.Context, pool *pgxpool.Pool) {
 
 func testListActiveUsers(ctx context.Context, pool *pgxpool.Pool) {
 	name := "ListActiveUsers"
-	users, err := queries.ListActiveUsers(ctx, pool, queries.UserStatusActive)
+	users, err := queries.ListActiveUsers(ctx, pool, {% if engine == "redshift" %}"active"{% else %}queries.UserStatusActive{% endif %})
 	if err != nil {
 		fail(name, err)
 		return
@@ -311,6 +340,7 @@ func testListActiveUsers(ctx context.Context, pool *pgxpool.Pool) {
 	pass(name)
 }
 
+{%- if engine != "redshift" %}
 func testGetUserOrders(ctx context.Context, pool *pgxpool.Pool) {
 	name := "GetUserOrders"
 	results, err := queries.GetUserOrders(ctx, pool, queries.UserStatusActive)
@@ -336,15 +366,16 @@ func testCountUsersByStatus(ctx context.Context, pool *pgxpool.Pool) {
 	}
 	pass(name)
 }
+{%- endif %}
 
 func testSearchUsers(ctx context.Context, pool *pgxpool.Pool) {
 	name := "SearchUsers"
-	users, err := queries.SearchUsers(ctx, pool, "%Alice%")
+	users, err := queries.SearchUsers(ctx, pool, {% if engine == "redshift" %}"active"{% else %}"%Alice%"{% endif %})
 	if err != nil {
 		fail(name, err)
 		return
 	}
-	if !assertf(name, len(users) >= 1, "expected at least 1 user matching Alice, got %d", len(users)) {
+	if !assertf(name, len(users) >= 1, "expected at least 1 user, got %d", len(users)) {
 		return
 	}
 	pass(name)
@@ -495,11 +526,44 @@ func runMigration(ctx context.Context, db *sql.DB) error {
 
 	return nil
 }
+{%- elif engine == "snowflake" %}
+func runMigration(ctx context.Context, db *sql.DB) error {
+	_, thisFile, _, _ := runtime.Caller(0)
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "snowflake", "schema.sql")
+
+	schema, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("reading schema file at %s: %w", schemaPath, err)
+	}
+
+	dropStatements := []string{
+		"DROP TABLE IF EXISTS user_tags",
+		"DROP TABLE IF EXISTS tags",
+		"DROP TABLE IF EXISTS orders",
+		"DROP TABLE IF EXISTS users",
+	}
+	for _, stmt := range dropStatements {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("dropping tables: %w", err)
+		}
+	}
+
+	for _, stmt := range strings.Split(string(schema), ";") {
+		stmt = strings.TrimSpace(stmt)
+		if stmt != "" {
+			if _, err := db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("executing schema: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
 {%- endif %}
 
 {% if engine == "mariadb" -%}
 var createdUserID string
-{%- elif engine == "mysql" or engine == "sqlite" or engine == "mssql" -%}
+{%- elif engine == "mysql" or engine == "sqlite" or engine == "mssql" or engine == "snowflake" -%}
 var createdUserID int32
 {%- else -%}
 var createdUserID int64

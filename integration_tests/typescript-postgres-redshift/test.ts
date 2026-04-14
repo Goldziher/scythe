@@ -50,7 +50,7 @@ async function main(): Promise<void> {
 		console.log("PASS: GetUserById");
 
 		// Test: ListActiveUsers
-		const activeUsers = await listActiveUsers(sql);
+		const activeUsers = await listActiveUsers(sql, "active");
 		assert(
 			activeUsers.length > 0,
 			"ListActiveUsers",

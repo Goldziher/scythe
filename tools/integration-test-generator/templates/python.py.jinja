@@ -23,6 +23,9 @@ import oracledb
 {%- elif driver == "pyodbc" %}
 
 import pyodbc
+{%- elif driver == "snowflake" %}
+
+import snowflake.connector
 {%- endif %}
 {%- if options.row_type == "pydantic" %}
 from pydantic import BaseModel
@@ -38,7 +41,7 @@ from generated.queries import (
     GetUserByIdRow,
     ListActiveUsersRow,
 {%- endif %}
-{%- if engine == "postgresql" %}
+{%- if engine == "postgresql" and engine != "redshift" %}
     UserStatus,
 {%- elif engine == "mysql" or engine == "mariadb" %}
     UsersStatus,
@@ -57,8 +60,10 @@ from generated.queries import (
 )
 
 
-{% if engine == "postgresql" -%}
+{% if engine == "postgresql" and engine != "redshift" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "pg" / "schema.sql"
+{%- elif engine == "redshift" -%}
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "redshift" / "schema_pg_compat.sql"
 {%- elif engine == "mysql" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mysql" / "schema.sql"
 {%- elif engine == "mariadb" -%}
@@ -69,6 +74,8 @@ SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "sqlite" / "schema.sql"
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "oracle" / "schema_full.sql"
 {%- elif engine == "mssql" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mssql" / "schema.sql"
+{%- elif engine == "snowflake" -%}
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "snowflake" / "schema.sql"
 {%- endif %}
 
 
@@ -84,12 +91,14 @@ def get_database_url() -> str:
 {% if driver == "psycopg3" -%}
 async def setup_schema(conn: psycopg.AsyncConnection) -> None:
     """Drop all tables and recreate schema from SQL file."""
-{%- if engine == "postgresql" %}
+{%- if engine == "postgresql" or engine == "redshift" %}
     await conn.execute("DROP TABLE IF EXISTS user_tags CASCADE")
     await conn.execute("DROP TABLE IF EXISTS tags CASCADE")
     await conn.execute("DROP TABLE IF EXISTS orders CASCADE")
     await conn.execute("DROP TABLE IF EXISTS users CASCADE")
+{%- if engine == "postgresql" and engine != "redshift" %}
     await conn.execute("DROP TYPE IF EXISTS user_status CASCADE")
+{%- endif %}
 {%- endif %}
     schema_sql = SCHEMA_PATH.read_text()
     await conn.execute(schema_sql)
@@ -97,12 +106,14 @@ async def setup_schema(conn: psycopg.AsyncConnection) -> None:
 {%- elif driver == "asyncpg" -%}
 async def setup_schema(conn: asyncpg.Connection) -> None:
     """Drop all tables and recreate schema from SQL file."""
-{%- if engine == "postgresql" %}
+{%- if engine == "postgresql" or engine == "redshift" %}
     await conn.execute("DROP TABLE IF EXISTS user_tags CASCADE")
     await conn.execute("DROP TABLE IF EXISTS tags CASCADE")
     await conn.execute("DROP TABLE IF EXISTS orders CASCADE")
     await conn.execute("DROP TABLE IF EXISTS users CASCADE")
+{%- if engine == "postgresql" and engine != "redshift" %}
     await conn.execute("DROP TYPE IF EXISTS user_status CASCADE")
+{%- endif %}
 {%- endif %}
     schema_sql = SCHEMA_PATH.read_text()
     await conn.execute(schema_sql)
@@ -163,10 +174,25 @@ def setup_schema(conn: pyodbc.Connection) -> None:
         if stmt:
             cursor.execute(stmt)
     conn.commit()
+{%- elif driver == "snowflake" -%}
+def setup_schema(conn) -> None:
+    """Drop all tables and recreate schema from SQL file."""
+    cursor = conn.cursor()
+    for table in ("user_tags", "tags", "orders", "users"):
+        try:
+            cursor.execute(f"DROP TABLE IF EXISTS {table}")
+        except Exception:
+            pass
+    schema_sql = SCHEMA_PATH.read_text()
+    for stmt in schema_sql.split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            cursor.execute(stmt)
+    conn.commit()
 {%- endif %}
 
 {% if options.row_type == "pydantic" %}
-{% if driver != "pyodbc" %}
+{% if driver != "pyodbc" and driver != "snowflake" %}
 async def test_row_types_are_pydantic_models() -> None:
 {% else %}
 def test_row_types_are_pydantic_models() -> None:
@@ -186,6 +212,8 @@ async def test_create_user(conn: psycopg.AsyncConnection) -> int:
 async def test_create_user(conn: asyncpg.Connection) -> int:
 {%- elif driver == "pyodbc" %}
 def test_create_user(conn: pyodbc.Connection) -> int:
+{%- elif driver == "snowflake" %}
+def test_create_user(conn) -> int:
 {%- elif engine == "mariadb" %}
 async def test_create_user(conn) -> str:
 {%- else %}
@@ -208,6 +236,17 @@ async def test_create_user(conn) -> int:
     user = await create_user(conn, name="Alice", email="alice@example.com", active=1)
 {%- elif engine == "mssql" %}
     user = create_user(conn, name="Alice", email="alice@example.com")
+{%- elif engine == "snowflake" %}
+    create_user(conn, name="Alice", email="alice@example.com", active=True, metadata='{}')
+    cursor = conn.cursor()
+    cursor.execute("SELECT MAX(id) FROM users")
+    max_id_row = cursor.fetchone()
+    user_id = max_id_row[0] if max_id_row and max_id_row[0] else 1
+    user = get_user_by_id(conn, id=user_id)
+{%- elif engine == "redshift" %}
+    user = await create_user(
+        conn, name="Alice", email="alice@example.com", status="active"
+    )
 {%- else %}
     user = await create_user(
         conn, name="Alice", email="alice@example.com"
@@ -221,14 +260,18 @@ async def test_create_user(conn) -> int:
 {%- endif %}
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.email == "alice@example.com", f"Expected email 'alice@example.com', got '{user.email}'"
-{%- if engine == "postgresql" %}
+{%- if engine == "postgresql" and engine != "redshift" %}
     assert user.status == UserStatus.ACTIVE or user.status == "active", (
+        f"Expected status 'active', got '{user.status}'"
+    )
+{%- elif engine == "redshift" %}
+    assert user.status == "active", (
         f"Expected status 'active', got '{user.status}'"
     )
 {%- endif %}
 {%- if driver == "psycopg3" %}
     await conn.commit()
-{%- elif driver == "pyodbc" %}
+{%- elif driver == "pyodbc" or driver == "snowflake" %}
     conn.commit()
 {%- endif %}
     print("PASS: CreateUser")
@@ -241,13 +284,15 @@ async def test_get_user_by_id(conn: psycopg.AsyncConnection, user_id: int) -> No
 async def test_get_user_by_id(conn: asyncpg.Connection, user_id: int) -> None:
 {%- elif driver == "pyodbc" -%}
 def test_get_user_by_id(conn: pyodbc.Connection, user_id: int) -> None:
+{%- elif driver == "snowflake" -%}
+def test_get_user_by_id(conn, user_id: int) -> None:
 {%- elif engine == "mariadb" -%}
 async def test_get_user_by_id(conn, user_id: str) -> None:
 {%- else -%}
 async def test_get_user_by_id(conn, user_id: int) -> None:
 {%- endif %}
     """Test GetUserById query."""
-{%- if driver != "pyodbc" %}
+{%- if driver != "pyodbc" and driver != "snowflake" %}
     user = await get_user_by_id(conn, id=user_id)
 {%- else %}
     user = get_user_by_id(conn, id=user_id)
@@ -267,12 +312,14 @@ async def test_list_active_users(conn: psycopg.AsyncConnection) -> None:
 async def test_list_active_users(conn: asyncpg.Connection) -> None:
 {%- elif driver == "pyodbc" -%}
 def test_list_active_users(conn: pyodbc.Connection) -> None:
+{%- elif driver == "snowflake" -%}
+def test_list_active_users(conn) -> None:
 {%- else -%}
 async def test_list_active_users(conn) -> None:
 {%- endif %}
     """Test ListActiveUsers query."""
-{%- if driver != "pyodbc" %}
-    users = await list_active_users(conn{% if engine == "postgresql" %}, status=UserStatus.ACTIVE{% elif engine == "mysql" or engine == "mariadb" %}, status=UsersStatus.ACTIVE{% elif engine == "sqlite" %}, status="active"{% endif %})
+{%- if driver != "pyodbc" and driver != "snowflake" %}
+    users = await list_active_users(conn{% if engine == "postgresql" and engine != "redshift" %}, status=UserStatus.ACTIVE{% elif engine == "redshift" %}, status="active"{% elif engine == "mysql" or engine == "mariadb" %}, status=UsersStatus.ACTIVE{% elif engine == "sqlite" %}, status="active"{% endif %})
 {%- else %}
     users = list_active_users(conn)
 {%- endif %}
@@ -291,6 +338,8 @@ async def test_create_order(conn: psycopg.AsyncConnection, user_id: int) -> int:
 async def test_create_order(conn: asyncpg.Connection, user_id: int) -> int:
 {%- elif driver == "pyodbc" -%}
 def test_create_order(conn: pyodbc.Connection, user_id: int) -> int:
+{%- elif driver == "snowflake" -%}
+def test_create_order(conn, user_id: int) -> int:
 {%- elif engine == "mariadb" -%}
 async def test_create_order(conn, user_id: str) -> int:
 {%- else -%}
@@ -310,6 +359,10 @@ async def test_create_order(conn, user_id: int) -> int:
     order = await create_order(conn, user_id=user_id, total=9999, notes="Test order")
 {%- elif engine == "mssql" %}
     order = create_order(conn, user_id=user_id, total=Decimal("49.99"), notes="Test order")
+{%- elif engine == "snowflake" %}
+    create_order(conn, user_id=user_id, total=Decimal("49.99"), notes="Test order")
+    orders = get_orders_by_user(conn, user_id=user_id)
+    order = orders[0] if orders else None
 {%- else %}
     order = await create_order(
         conn, user_id=user_id, total=Decimal("49.99"), notes="Test order"
@@ -325,7 +378,7 @@ async def test_create_order(conn, user_id: int) -> int:
     assert order.notes == "Test order", f"Expected notes 'Test order', got '{order.notes}'"
 {%- if driver == "psycopg3" %}
     await conn.commit()
-{%- elif driver == "pyodbc" %}
+{%- elif driver == "pyodbc" or driver == "snowflake" %}
     conn.commit()
 {%- endif %}
     print("PASS: CreateOrder")
@@ -338,13 +391,15 @@ async def test_get_orders_by_user(conn: psycopg.AsyncConnection, user_id: int) -
 async def test_get_orders_by_user(conn: asyncpg.Connection, user_id: int) -> None:
 {%- elif driver == "pyodbc" -%}
 def test_get_orders_by_user(conn: pyodbc.Connection, user_id: int) -> None:
+{%- elif driver == "snowflake" -%}
+def test_get_orders_by_user(conn, user_id: int) -> None:
 {%- elif engine == "mariadb" -%}
 async def test_get_orders_by_user(conn, user_id: str) -> None:
 {%- else -%}
 async def test_get_orders_by_user(conn, user_id: int) -> None:
 {%- endif %}
     """Test GetOrdersByUser query."""
-{%- if driver != "pyodbc" %}
+{%- if driver != "pyodbc" and driver != "snowflake" %}
     orders = await get_orders_by_user(conn, user_id=user_id)
 {%- else %}
     orders = get_orders_by_user(conn, user_id=user_id)
@@ -363,6 +418,8 @@ async def test_delete_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
 async def test_delete_user(conn: asyncpg.Connection, user_id: int) -> None:
 {%- elif driver == "pyodbc" -%}
 def test_delete_user(conn: pyodbc.Connection, user_id: int) -> None:
+{%- elif driver == "snowflake" -%}
+def test_delete_user(conn, user_id: int) -> None:
 {%- elif engine == "mariadb" -%}
 async def test_delete_user(conn, user_id: str) -> None:
 {%- else -%}
@@ -370,7 +427,7 @@ async def test_delete_user(conn, user_id: int) -> None:
 {%- endif %}
     """Test DeleteUser query."""
     # Delete orders first due to FK constraint
-{%- if driver != "pyodbc" %}
+{%- if driver != "pyodbc" and driver != "snowflake" %}
     await delete_orders_by_user(conn, user_id=user_id)
     await delete_user(conn, id=user_id)
 {%- else %}
@@ -379,10 +436,10 @@ async def test_delete_user(conn, user_id: int) -> None:
 {%- endif %}
 {%- if driver == "psycopg3" %}
     await conn.commit()
-{%- elif driver == "pyodbc" %}
+{%- elif driver == "pyodbc" or driver == "snowflake" %}
     conn.commit()
 {%- endif %}
-{%- if driver != "pyodbc" %}
+{%- if driver != "pyodbc" and driver != "snowflake" %}
     user = await get_user_by_id(conn, id=user_id)
 {%- else %}
     user = get_user_by_id(conn, id=user_id)
@@ -391,7 +448,7 @@ async def test_delete_user(conn, user_id: int) -> None:
     print("PASS: DeleteUser")
 
 
-{% if driver != "pyodbc" -%}
+{% if driver != "pyodbc" and driver != "snowflake" -%}
 async def run_tests() -> None:
 {%- else -%}
 def run_tests() -> None:
@@ -498,6 +555,35 @@ def run_tests() -> None:
         test_delete_user(conn, user_id)
     finally:
         conn.close()
+{%- elif driver == "snowflake" %}
+    from urllib.parse import urlparse
+    parsed = urlparse(database_url)
+    # Parse snowflake://account:password@host/database/schema
+    account = parsed.hostname
+    user = parsed.username
+    password = parsed.password
+    database = parsed.path.split("/")[1] if len(parsed.path.split("/")) > 1 else "scythe_test"
+    schema = parsed.path.split("/")[2] if len(parsed.path.split("/")) > 2 else "public"
+    conn = snowflake.connector.connect(
+        account=account,
+        user=user,
+        password=password,
+        database=database,
+        schema=schema,
+    )
+    try:
+        setup_schema(conn)
+{% if options.row_type == "pydantic" %}
+        test_row_types_are_pydantic_models()
+{%- endif %}
+        user_id = test_create_user(conn)
+        test_get_user_by_id(conn, user_id)
+        test_list_active_users(conn)
+        order_id = test_create_order(conn, user_id)
+        test_get_orders_by_user(conn, user_id)
+        test_delete_user(conn, user_id)
+    finally:
+        conn.close()
 {%- endif %}
 
     print("\nALL TESTS PASSED")
@@ -505,7 +591,7 @@ def run_tests() -> None:
 
 if __name__ == "__main__":
     try:
-{%- if driver != "pyodbc" %}
+{%- if driver != "pyodbc" and driver != "snowflake" %}
         asyncio.run(run_tests())
 {%- else %}
         run_tests()

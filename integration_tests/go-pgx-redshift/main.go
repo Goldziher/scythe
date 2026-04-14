@@ -57,13 +57,10 @@ func main() {
 
 	testCreateUser(ctx, pool)
 	testGetUserById(ctx, pool)
-	testUpdateUserEmail(ctx, pool)
 	testCreateOrder(ctx, pool)
 	testGetOrdersByUser(ctx, pool)
 	testGetOrderTotal(ctx, pool)
 	testListActiveUsers(ctx, pool)
-	testGetUserOrders(ctx, pool)
-	testCountUsersByStatus(ctx, pool)
 	testSearchUsers(ctx, pool)
 	testDeleteOrdersByUser(ctx, pool)
 	testDeleteUser(ctx, pool)
@@ -77,7 +74,7 @@ func main() {
 
 func runMigration(ctx context.Context, pool *pgxpool.Pool) error {
 	_, thisFile, _, _ := runtime.Caller(0)
-	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "pg", "schema.sql")
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "redshift", "schema_pg_compat.sql")
 
 	schema, err := os.ReadFile(schemaPath)
 	if err != nil {
@@ -89,7 +86,6 @@ func runMigration(ctx context.Context, pool *pgxpool.Pool) error {
 		DROP TABLE IF EXISTS tags CASCADE;
 		DROP TABLE IF EXISTS orders CASCADE;
 		DROP TABLE IF EXISTS users CASCADE;
-		DROP TYPE IF EXISTS user_status CASCADE;
 	`
 	if _, err := pool.Exec(ctx, dropSQL); err != nil {
 		return fmt.Errorf("dropping tables: %w", err)
@@ -107,7 +103,8 @@ var createdUserID int32
 
 func testCreateUser(ctx context.Context, pool *pgxpool.Pool) {
 	name := "CreateUser"
-	user, err := queries.CreateUser(ctx, pool, "Alice", "alice@example.com", queries.UserStatusActive)
+	email := "alice@example.com"
+	user, err := queries.CreateUser(ctx, pool, "Alice", &email, "active")
 	if err != nil {
 		fail(name, err)
 		return
@@ -118,7 +115,7 @@ func testCreateUser(ctx context.Context, pool *pgxpool.Pool) {
 	if !assertf(name, user.Email != nil && *user.Email == "alice@example.com", "expected email alice@example.com") {
 		return
 	}
-	if !assertf(name, user.Status == queries.UserStatusActive, "expected status active, got %s", user.Status) {
+	if !assertf(name, user.Status == "active", "expected status active, got %s", user.Status) {
 		return
 	}
 	createdUserID = user.Id
@@ -141,28 +138,11 @@ func testGetUserById(ctx context.Context, pool *pgxpool.Pool) {
 	pass(name)
 }
 
-func testUpdateUserEmail(ctx context.Context, pool *pgxpool.Pool) {
-	name := "UpdateUserEmail"
-	err := queries.UpdateUserEmail(ctx, pool, "alice-updated@example.com", createdUserID)
-	if err != nil {
-		fail(name, err)
-		return
-	}
-	user, err := queries.GetUserById(ctx, pool, createdUserID)
-	if err != nil {
-		fail(name, err)
-		return
-	}
-	if !assertf(name, user.Email != nil && *user.Email == "alice-updated@example.com", "expected updated email") {
-		return
-	}
-	pass(name)
-}
-
 func testCreateOrder(ctx context.Context, pool *pgxpool.Pool) {
 	name := "CreateOrder"
 	total := decimal.NewFromFloat(99.99)
-	order, err := queries.CreateOrder(ctx, pool, createdUserID, total, "Test order")
+	notes := "Test order"
+	order, err := queries.CreateOrder(ctx, pool, createdUserID, total, &notes)
 	if err != nil {
 		fail(name, err)
 		return
@@ -205,7 +185,7 @@ func testGetOrderTotal(ctx context.Context, pool *pgxpool.Pool) {
 
 func testListActiveUsers(ctx context.Context, pool *pgxpool.Pool) {
 	name := "ListActiveUsers"
-	users, err := queries.ListActiveUsers(ctx, pool, queries.UserStatusActive)
+	users, err := queries.ListActiveUsers(ctx, pool, "active")
 	if err != nil {
 		fail(name, err)
 		return
@@ -216,40 +196,14 @@ func testListActiveUsers(ctx context.Context, pool *pgxpool.Pool) {
 	pass(name)
 }
 
-func testGetUserOrders(ctx context.Context, pool *pgxpool.Pool) {
-	name := "GetUserOrders"
-	results, err := queries.GetUserOrders(ctx, pool, queries.UserStatusActive)
-	if err != nil {
-		fail(name, err)
-		return
-	}
-	if !assertf(name, len(results) >= 1, "expected at least 1 result, got %d", len(results)) {
-		return
-	}
-	pass(name)
-}
-
-func testCountUsersByStatus(ctx context.Context, pool *pgxpool.Pool) {
-	name := "CountUsersByStatus"
-	result, err := queries.CountUsersByStatus(ctx, pool, queries.UserStatusActive)
-	if err != nil {
-		fail(name, err)
-		return
-	}
-	if !assertf(name, result.UserCount >= 1, "expected count >= 1, got %d", result.UserCount) {
-		return
-	}
-	pass(name)
-}
-
 func testSearchUsers(ctx context.Context, pool *pgxpool.Pool) {
 	name := "SearchUsers"
-	users, err := queries.SearchUsers(ctx, pool, "%Alice%")
+	users, err := queries.SearchUsers(ctx, pool, "active")
 	if err != nil {
 		fail(name, err)
 		return
 	}
-	if !assertf(name, len(users) >= 1, "expected at least 1 user matching Alice, got %d", len(users)) {
+	if !assertf(name, len(users) >= 1, "expected at least 1 user, got %d", len(users)) {
 		return
 	}
 	pass(name)

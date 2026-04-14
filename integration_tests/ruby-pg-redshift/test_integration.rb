@@ -5,7 +5,7 @@ require "uri"
 require "pg"
 require_relative "generated/queries"
 
-
+SCHEMA_PATH = File.join(__dir__, "..", "sql", "redshift", "schema_pg_compat.sql")
 
 def get_database_url
   url = ENV["REDSHIFT_URL"]
@@ -21,7 +21,6 @@ def setup_schema(conn)
   conn.exec("DROP TABLE IF EXISTS tags CASCADE")
   conn.exec("DROP TABLE IF EXISTS orders CASCADE")
   conn.exec("DROP TABLE IF EXISTS users CASCADE")
-  conn.exec("DROP TYPE IF EXISTS user_status CASCADE")
   schema_sql = File.read(SCHEMA_PATH)
   conn.exec(schema_sql)
 end
@@ -45,10 +44,11 @@ def assert_true(value, message)
 end
 
 def test_create_user(conn)
-  user = Queries.create_user(conn, "Alice", "alice@example.com")
+  user = Queries.create_user(conn, "Alice", "alice@example.com", "active")
   assert_not_nil(user, "create_user returned nil")
   assert_equal("Alice", user.name, "create_user name")
   assert_equal("alice@example.com", user.email, "create_user email")
+  assert_equal("active", user.status, "create_user status")
   assert_true(user.id.positive?, "create_user id should be positive")
   puts "PASS: CreateUser"
   user.id
@@ -60,11 +60,12 @@ def test_get_user_by_id(conn, user_id)
   assert_equal("Alice", user.name, "get_user_by_id name")
   assert_equal(user_id, user.id, "get_user_by_id id")
   assert_equal("alice@example.com", user.email, "get_user_by_id email")
+  assert_equal("active", user.status, "get_user_by_id status")
   puts "PASS: GetUserById"
 end
 
 def test_list_active_users(conn)
-  users = Queries.list_active_users(conn)
+  users = Queries.list_active_users(conn, "active")
   assert_true(users.length >= 1, "Expected at least 1 active user, got #{users.length}")
   names = users.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in active users, got #{names}")
@@ -111,9 +112,10 @@ def test_search_users(conn)
 end
 
 def test_count_users_by_status(conn)
-  result = Queries.count_users_by_status(conn)
+  result = Queries.count_users_by_status(conn, "active")
   assert_not_nil(result, "count_users_by_status returned nil")
   assert_true(result.user_count >= 1, "Expected count >= 1, got #{result.user_count}")
+  assert_equal("active", result.status, "count_users_by_status status")
   puts "PASS: CountUsersByStatus"
 end
 

@@ -47,11 +47,8 @@ let pool = PgPoolOptions::new()
     sqlx::query("DROP TABLE IF EXISTS users CASCADE")
         .execute(&pool)
         .await?;
-    sqlx::query("DROP TYPE IF EXISTS user_status CASCADE")
-        .execute(&pool)
-        .await?;
 
-    let schema_sql = std::fs::read_to_string("../sql/redshift/schema.sql")?;
+    let schema_sql = std::fs::read_to_string("../sql/redshift/schema_pg_compat.sql")?;
     sqlx::raw_sql(&schema_sql).execute(&pool).await?;
 
     // Test: CreateUser
@@ -60,7 +57,7 @@ let user: CreateUserRow = sqlx::query_as(
     )
     .bind("Alice")
     .bind("alice@example.com")
-    .bind(UserStatus::Active)
+    .bind("active")
     .fetch_one(&pool)
     .await?;
     assert_test!(user.name == "Alice", "CreateUser");
@@ -88,7 +85,7 @@ let fetched: GetUserByIdRow =
     // Test: ListActiveUsers
 let active_users: Vec<ListActiveUsersRow> =
         sqlx::query_as("SELECT id, name, email FROM users WHERE status = $1")
-            .bind(UserStatus::Active)
+            .bind("active")
             .fetch_all(&pool)
             .await?;
     assert_test!(!active_users.is_empty(), "ListActiveUsers");

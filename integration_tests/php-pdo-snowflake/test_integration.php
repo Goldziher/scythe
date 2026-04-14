@@ -23,7 +23,42 @@ function get_database_url(): string
 
 
 
+function parse_database_url(string $url): array
+{
+    $parts = parse_url($url);
+    if ($parts === false) {
+        fwrite(STDERR, "ERROR: Invalid SNOWFLAKE_URL format\n");
+        exit(1);
+    }
+    $pathParts = explode('/', ltrim($parts['path'] ?? '/snowflake_test/public', '/'));
+    return [
+        'account' => $parts['query'] ?? 'dev',
+        'host' => $parts['host'] ?? 'localhost',
+        'port' => $parts['port'] ?? 443,
+        'database' => $pathParts[0] ?? 'snowflake_test',
+        'schema' => $pathParts[1] ?? 'public',
+        'user' => $parts['user'] ?? 'scythe',
+        'password' => $parts['pass'] ?? 'scythe',
+    ];
+}
 
+function create_pdo(string $url): PDO
+{
+    $params = parse_database_url($url);
+    $dsn = sprintf(
+        'snowflake:account=%s;host=%s;port=%d;database=%s;schema=%s',
+        $params['account'],
+        $params['host'],
+        $params['port'],
+        $params['database'],
+        $params['schema']
+    );
+    $pdo = new PDO($dsn, $params['user'], $params['password'], [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+    return $pdo;
+}
 
 function assert_equal(mixed $expected, mixed $actual, string $message): void
 {
@@ -49,9 +84,29 @@ function assert_true(bool $value, string $message): void
     }
 }
 
+function setup_schema(PDO $pdo): void
+{
+    $pdo->exec("DROP TABLE IF EXISTS user_tags");
+    $pdo->exec("DROP TABLE IF EXISTS tags");
+    $pdo->exec("DROP TABLE IF EXISTS orders");
+    $pdo->exec("DROP TABLE IF EXISTS users");
+    $schema_path = __DIR__ . '/../sql/snowflake/schema.sql';
+    $schema_sql = file_get_contents($schema_path);
+    if ($schema_sql === false) {
+        throw new RuntimeException("Failed to read schema file: {$schema_path}");
+    }
+    foreach (explode(';', $schema_sql) as $stmt) {
+        $stmt = trim($stmt);
+        if ($stmt !== '') {
+            $pdo->exec($stmt);
+        }
+    }
+}
+
 function test_create_user(PDO $pdo): int
 {
-    $user = Queries::createUser($pdo, "Alice", "alice@example.com");
+    Queries::createUser($pdo, "Alice", "alice@example.com");
+    $user = Queries::getUserById($pdo, 1);
     assert_not_null($user, "CreateUser returned null");
     assert_equal("Alice", $user->name, "CreateUser name");
     assert_equal("alice@example.com", $user->email, "CreateUser email");
@@ -79,7 +134,9 @@ function test_list_active_users(PDO $pdo): void
 
 function test_create_order(PDO $pdo, int $user_id): int
 {
-    $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
+    Queries::createOrder($pdo, $user_id, "49.99", "Test order");
+    $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
+    $order = !empty($orders) ? $orders[0] : null;
     assert_not_null($order, "CreateOrder returned null");
     assert_equal($user_id, $order->user_id, "CreateOrder user_id");
     assert_equal("Test order", $order->notes, "CreateOrder notes");

@@ -71,6 +71,8 @@ function assert_true(bool $value, string $message): void
     }
 }
 
+function setup_schema(PDO $pdo): void
+
 function test_create_user(PDO $pdo): int
 {
     $user = Queries::createUser($pdo, "Alice", "alice@example.com");

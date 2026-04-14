@@ -1,9 +1,29 @@
 alias Scythe.Queries
 
+database_url =
+  System.get_env("REDSHIFT_URL", "postgres://scythe:scythe@localhost:5432/scythe_test")
 
+uri = URI.parse(database_url)
+[username, password] = String.split(uri.userinfo, ":")
+database = String.trim_leading(uri.path, "/")
+
+{:ok, conn} =
+  Postgrex.start_link(
+    hostname: uri.host,
+    port: uri.port || 5439,
+    username: username,
+    password: password,
+    database: database
+  )
 
 # Clean slate
+Postgrex.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
 
+schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "redshift/schema_pg_compat.sql"]))
+Postgrex.query!(conn, schema_sql, [])
 
 exit_code = 0
 
@@ -17,9 +37,10 @@ end
 Process.put(:exit_code, 0)
 
 # Test: CreateUser
-{:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com")
+{:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com", "active")
 assert.(user.name == "Alice", "CreateUser", "expected name Alice, got #{user.name}")
 assert.(user.email == "alice@example.com", "CreateUser", "expected email alice@example.com")
+assert.(user.status == "active", "CreateUser", "expected status active, got #{user.status}")
 user_id = user.id
 IO.puts("PASS: CreateUser")
 
@@ -31,7 +52,7 @@ assert.(fetched.email == "alice@example.com", "GetUserById", "expected email ali
 IO.puts("PASS: GetUserById")
 
 # Test: ListActiveUsers
-{:ok, active_users} = Queries.list_active_users(conn)
+{:ok, active_users} = Queries.list_active_users(conn, "active")
 assert.(length(active_users) > 0, "ListActiveUsers", "should have at least one user")
 first = List.first(active_users)
 assert.(first.name == "Alice", "ListActiveUsers", "first user should be Alice")

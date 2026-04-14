@@ -18,6 +18,8 @@
     <PackageReference Include="Microsoft.Data.SqlClient" Version="5.2.0" />
 {%- elif driver == "oracle" %}
     <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.4.2" />
+{%- elif engine == "snowflake" %}
+    <PackageReference Include="Snowflake.Data" Version="3.0.18" />
 {%- endif %}
   </ItemGroup>
 

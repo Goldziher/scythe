@@ -11,6 +11,7 @@ repositories {
 }
 
 dependencies {
+    implementation("net.snowflake:snowflake-jdbc:3.16.1")
 }
 
 application {

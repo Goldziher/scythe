@@ -19,7 +19,7 @@ from generated.queries import (
 )
 
 
-
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "redshift" / "schema_pg_compat.sql"
 
 
 def get_database_url() -> str:
@@ -33,6 +33,10 @@ def get_database_url() -> str:
 
 async def setup_schema(conn: asyncpg.Connection) -> None:
     """Drop all tables and recreate schema from SQL file."""
+    await conn.execute("DROP TABLE IF EXISTS user_tags CASCADE")
+    await conn.execute("DROP TABLE IF EXISTS tags CASCADE")
+    await conn.execute("DROP TABLE IF EXISTS orders CASCADE")
+    await conn.execute("DROP TABLE IF EXISTS users CASCADE")
     schema_sql = SCHEMA_PATH.read_text()
     await conn.execute(schema_sql)
 
@@ -40,11 +44,14 @@ async def setup_schema(conn: asyncpg.Connection) -> None:
 async def test_create_user(conn: asyncpg.Connection) -> int:
     """Test CreateUser query. Returns created user ID."""
     user = await create_user(
-        conn, name="Alice", email="alice@example.com"
+        conn, name="Alice", email="alice@example.com", status="active"
     )
     assert user is not None, "CreateUser returned None"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.email == "alice@example.com", f"Expected email 'alice@example.com', got '{user.email}'"
+    assert user.status == "active", (
+        f"Expected status 'active', got '{user.status}'"
+    )
     print("PASS: CreateUser")
     return user.id
 
@@ -60,7 +67,7 @@ async def test_get_user_by_id(conn: asyncpg.Connection, user_id: int) -> None:
 
 async def test_list_active_users(conn: asyncpg.Connection) -> None:
     """Test ListActiveUsers query."""
-    users = await list_active_users(conn)
+    users = await list_active_users(conn, status="active")
     assert len(users) >= 1, f"Expected at least 1 active user, got {len(users)}"
     names = [u.name for u in users]
     assert "Alice" in names, f"Expected 'Alice' in active users, got {names}"

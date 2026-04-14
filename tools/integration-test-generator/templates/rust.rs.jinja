@@ -10,7 +10,7 @@ use queries::{
     CreateOrderRow, CreateUserRow,
 {%- endif %}
     GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
-{%- if engine == "postgresql" %}
+{%- if engine == "postgresql" and engine != "redshift" %}
     UserStatus,
 {%- endif %}
 };
@@ -110,11 +110,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     sqlx::query("DROP TABLE IF EXISTS users CASCADE")
         .execute(&pool)
         .await?;
+{%- if engine == "postgresql" and engine != "redshift" %}
     sqlx::query("DROP TYPE IF EXISTS user_status CASCADE")
         .execute(&pool)
         .await?;
+{%- endif %}
 
-    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
+    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{% if engine == "redshift" %}schema_pg_compat.sql{% else %}schema.sql{% endif %}")?;
     sqlx::raw_sql(&schema_sql).execute(&pool).await?;
 {%- elif driver == "sqlx-mysql" -%}
     let pool = MySqlPoolOptions::new()
@@ -217,11 +219,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     client
         .execute("DROP TABLE IF EXISTS users CASCADE", &[])
         .await?;
+{%- if engine == "postgresql" and engine != "redshift" %}
     client
         .execute("DROP TYPE IF EXISTS user_status CASCADE", &[])
         .await?;
+{%- endif %}
 
-    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
+    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{% if engine == "redshift" %}schema_pg_compat.sql{% else %}schema.sql{% endif %}")?;
     client.batch_execute(&schema_sql).await?;
 {%- elif driver == "tiberius" -%}
     let mut config = Config::from_ado_string(&database_url)?;
@@ -291,14 +295,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     )
     .bind("Alice")
     .bind("alice@example.com")
-    .bind(UserStatus::Active)
+    .bind({% if engine == "redshift" %}"active"{% else %}UserStatus::Active{% endif %})
     .fetch_one(&pool)
     .await?;
 {%- elif driver == "tokio-postgres" -%}
     let row = client
         .query_one(
             "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at",
-            &[&"Alice", &"alice@example.com", &UserStatus::Active],
+            &[&"Alice", &"alice@example.com", &({% if engine == "redshift" %}"active".to_string(){% else %}UserStatus::Active{% endif %})],
         )
         .await?;
     let user = CreateUserRow::from_row(&row);
@@ -313,7 +317,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_row()
         .await?
         .expect("expected a row");
-    let user = CreateUserRow::from_row(&row);
+    let user = CreateUserRow::from_row(&row)?;
 {%- elif driver == "sibyl" -%}
     let user = queries::create_user(&session, "Alice", "alice@example.com", 1i32)
         .await?
@@ -324,7 +328,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         user.email.as_deref() == Some("alice@example.com"),
         "CreateUser"
     );
-{%- if engine == "postgresql" %}
+{%- if engine == "postgresql" and engine != "redshift" %}
     assert_test!(user.status == UserStatus::Active, "CreateUser");
 {%- endif %}
     let user_id = user.id;
@@ -346,7 +350,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_row()
         .await?
         .expect("expected a row");
-    let fetched = GetUserByIdRow::from_row(&row);
+    let fetched = GetUserByIdRow::from_row(&row)?;
 {%- elif driver == "sqlx-mariadb" -%}
     let fetched: GetUserByIdRow =
         sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, status, created_at FROM users WHERE id = ?")
@@ -380,7 +384,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         fetched.email.as_deref() == Some("alice@example.com"),
         "GetUserById"
     );
-{%- if engine == "postgresql" %}
+{%- if engine == "postgresql" and engine != "redshift" %}
     assert_test!(fetched.status == UserStatus::Active, "GetUserById");
 {%- endif %}
     pass!("GetUserById");
@@ -398,7 +402,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_first_result()
         .await?;
     let active_users: Vec<ListActiveUsersRow> =
-        rows.iter().map(ListActiveUsersRow::from_row).collect();
+        rows.iter().map(|r| ListActiveUsersRow::from_row(r).unwrap()).collect();
 {%- elif driver == "sqlx-mariadb" -%}
     let active_users: Vec<ListActiveUsersRow> =
         sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email FROM users WHERE status = ?")
@@ -408,7 +412,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 {%- elif driver == "sqlx" -%}
     let active_users: Vec<ListActiveUsersRow> =
         sqlx::query_as("SELECT id, name, email FROM users WHERE status = $1")
-            .bind(UserStatus::Active)
+            .bind({% if engine == "redshift" %}"active"{% else %}UserStatus::Active{% endif %})
             .fetch_all(&pool)
             .await?;
 {%- elif driver == "sqlx-mysql" or driver == "sqlx-sqlite" -%}
@@ -417,11 +421,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .bind("active")
             .fetch_all(&pool)
             .await?;
-{%- elif driver == "tokio-postgres" %}
+{%- elif driver == "tokio-postgres" -%}
     let rows = client
         .query(
             "SELECT id, name, email FROM users WHERE status = $1",
-            &[{% if engine == "postgresql" %}&UserStatus::Active{% endif %}],
+            &[&({% if engine == "postgresql" or engine == "redshift" %}{% if engine == "redshift" %}"active".to_string(){% else %}UserStatus::Active{% endif %}{% endif %})],
         )
         .await?;
     let active_users: Vec<ListActiveUsersRow> = rows.iter().map(ListActiveUsersRow::from_row).collect();
@@ -456,7 +460,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .into_row()
         .await?
         .expect("expected a row");
-    let order = CreateOrderRow::from_row(&row);
+    let order = CreateOrderRow::from_row(&row)?;
 {%- elif driver == "sqlx-mariadb" -%}
     sqlx::query("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")
         .bind(&user_id)
@@ -537,7 +541,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?
         .into_first_result()
         .await?;
-    let orders: Vec<GetOrdersByUserRow> = rows.iter().map(GetOrdersByUserRow::from_row).collect();
+    let orders: Vec<GetOrdersByUserRow> = rows.iter().map(|r| GetOrdersByUserRow::from_row(r).unwrap()).collect();
 {%- elif driver == "sqlx-mariadb" -%}
     let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
         "SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC",
@@ -652,7 +656,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Verify user is gone
     let row = client
         .query_opt(
-            "SELECT id, name, email{% if engine == "postgresql" %}, status{% endif %}, created_at FROM users WHERE id = $1",
+            "SELECT id, name, email{% if engine == "postgresql" or engine == "redshift" %}, status{% endif %}, created_at FROM users WHERE id = $1",
             &[&user_id],
         )
         .await?;

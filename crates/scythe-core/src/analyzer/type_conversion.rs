@@ -54,9 +54,13 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "datetime" | "datetime2" => Cow::Borrowed("datetime"),
         "interval" => Cow::Borrowed("interval"),
         "year" => Cow::Borrowed("int16"),
+        // -- Snowflake timestamp types --
+        "timestamp_ntz" => Cow::Borrowed("datetime"),
+        "timestamp_ltz" => Cow::Borrowed("datetime_tz"),
+        "timestamp_tz" => Cow::Borrowed("datetime_tz"),
 
         // -- JSON types --
-        "json" | "jsonb" => Cow::Borrowed("json"),
+        "json" | "jsonb" | "variant" => Cow::Borrowed("json"),
 
         // -- Network types (PostgreSQL) --
         "inet" | "cidr" | "macaddr" => Cow::Borrowed("inet"),
@@ -200,6 +204,11 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
                 "serial" | "serial4" => "int32".to_string(),
                 "bigserial" | "serial8" => "int64".to_string(),
                 "smallserial" | "serial2" => "int16".to_string(),
+                // -- Snowflake timestamp types --
+                "timestamp_ntz" => "datetime".to_string(),
+                "timestamp_ltz" => "datetime_tz".to_string(),
+                "timestamp_tz" => "datetime_tz".to_string(),
+                "variant" => "json".to_string(),
                 _ => sql_type_to_neutral(&raw, catalog).into_owned(),
             }
         }
@@ -417,6 +426,21 @@ mod tests {
             sql_type_to_neutral("timestamptz[]", &c),
             "array<datetime_tz>"
         );
+    }
+
+    // ---- Snowflake-specific types ----
+    #[test]
+    fn test_snowflake_timestamp_types() {
+        let c = empty_catalog();
+        assert_eq!(sql_type_to_neutral("timestamp_ntz", &c), "datetime");
+        assert_eq!(sql_type_to_neutral("timestamp_ltz", &c), "datetime_tz");
+        assert_eq!(sql_type_to_neutral("timestamp_tz", &c), "datetime_tz");
+    }
+
+    #[test]
+    fn test_snowflake_variant_type() {
+        let c = empty_catalog();
+        assert_eq!(sql_type_to_neutral("variant", &c), "json");
     }
 
     // ---- MySQL-specific types ----

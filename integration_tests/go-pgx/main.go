@@ -140,7 +140,6 @@ func testGetUserById(ctx context.Context, pool *pgxpool.Pool) {
 	}
 	pass(name)
 }
-
 func testUpdateUserEmail(ctx context.Context, pool *pgxpool.Pool) {
 	name := "UpdateUserEmail"
 	err := queries.UpdateUserEmail(ctx, pool, "alice-updated@example.com", createdUserID)
@@ -215,7 +214,6 @@ func testListActiveUsers(ctx context.Context, pool *pgxpool.Pool) {
 	}
 	pass(name)
 }
-
 func testGetUserOrders(ctx context.Context, pool *pgxpool.Pool) {
 	name := "GetUserOrders"
 	results, err := queries.GetUserOrders(ctx, pool, queries.UserStatusActive)
@@ -249,7 +247,7 @@ func testSearchUsers(ctx context.Context, pool *pgxpool.Pool) {
 		fail(name, err)
 		return
 	}
-	if !assertf(name, len(users) >= 1, "expected at least 1 user matching Alice, got %d", len(users)) {
+	if !assertf(name, len(users) >= 1, "expected at least 1 user, got %d", len(users)) {
 		return
 	}
 	pass(name)

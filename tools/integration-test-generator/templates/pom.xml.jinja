@@ -46,6 +46,12 @@
             <artifactId>mssql-jdbc</artifactId>
             <version>12.4.1.jre11</version>
         </dependency>
+{%- elif engine == "snowflake" %}
+        <dependency>
+            <groupId>net.snowflake</groupId>
+            <artifactId>snowflake-jdbc</artifactId>
+            <version>3.16.1</version>
+        </dependency>
 {%- endif %}
         <dependency>
             <groupId>com.google.code.findbugs</groupId>

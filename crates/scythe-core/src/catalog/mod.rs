@@ -204,14 +204,133 @@ impl Catalog {
             } else if upper.starts_with("CREATE SCHEMA") {
                 // Silently ignore
             } else {
-                result.push_str(raw_stmt);
+                // For Redshift/MSSQL, strip IDENTITY(seed,step) patterns that PostgreSQL parser doesn't support
+                let stmt_to_add = if matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::MsSql) {
+                    Self::strip_identity_patterns(raw_stmt)
+                } else {
+                    raw_stmt.to_string()
+                };
+                result.push_str(&stmt_to_add);
                 // Ensure there's a semicolon separator if the original had one
-                if !raw_stmt.ends_with(';') {
+                if !stmt_to_add.ends_with(';') {
                     result.push(';');
                 }
             }
         }
         result
+    }
+
+    /// Strip IDENTITY(seed,step) patterns from SQL for Redshift/MSSQL compatibility.
+    /// Redshift uses IDENTITY(1,1) syntax which PostgreSQL parser doesn't recognize.
+    /// This removes those patterns, converting columns to plain type WITHOUT the IDENTITY clause.
+    fn strip_identity_patterns(sql: &str) -> String {
+        let mut result = String::with_capacity(sql.len());
+        let bytes = sql.as_bytes();
+        let mut i = 0;
+
+        while i < bytes.len() {
+            // Check for "IDENTITY" keyword (case-insensitive) at word boundary
+            if i + 8 <= bytes.len() && Self::matches_identity_keyword(bytes, i) {
+                // Verify this is a word boundary (not preceded by alphanumeric/underscore)
+                let is_start_boundary =
+                    i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+                if !is_start_boundary {
+                    result.push(bytes[i] as char);
+                    i += 1;
+                    continue;
+                }
+
+                // Skip past "IDENTITY"
+                i += 8;
+                // Skip whitespace
+                while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                    i += 1;
+                }
+                // Check for opening parenthesis
+                if i < bytes.len() && bytes[i] == b'(' {
+                    // Try to parse IDENTITY(N,N)
+                    let mut j = i + 1;
+                    let mut found_valid_pattern = false;
+
+                    // Skip whitespace after opening paren
+                    while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                        j += 1;
+                    }
+                    // Try to parse first number
+                    let num_start = j;
+                    while j < bytes.len() && bytes[j].is_ascii_digit() {
+                        j += 1;
+                    }
+                    if j > num_start {
+                        // Found first number, now look for comma
+                        while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                            j += 1;
+                        }
+                        if j < bytes.len() && bytes[j] == b',' {
+                            j += 1;
+                            // Skip whitespace after comma
+                            while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                                j += 1;
+                            }
+                            // Try to parse second number
+                            let num_start2 = j;
+                            while j < bytes.len() && bytes[j].is_ascii_digit() {
+                                j += 1;
+                            }
+                            if j > num_start2 {
+                                // Found second number, now look for closing paren
+                                while j < bytes.len() && bytes[j].is_ascii_whitespace() {
+                                    j += 1;
+                                }
+                                if j < bytes.len() && bytes[j] == b')' {
+                                    // Valid IDENTITY(N,N) pattern found - skip it
+                                    i = j + 1;
+                                    found_valid_pattern = true;
+                                }
+                            }
+                        }
+                    }
+
+                    if !found_valid_pattern {
+                        // Not a valid IDENTITY pattern, output the opening paren
+                        result.push_str("IDENTITY");
+                        result.push('(');
+                        i += 9;
+                    }
+                } else {
+                    // No opening paren after IDENTITY, just output it
+                    result.push_str("IDENTITY");
+                }
+            } else {
+                result.push(bytes[i] as char);
+                i += 1;
+            }
+        }
+
+        result
+    }
+
+    /// Check if bytes at position i match the IDENTITY keyword (case-insensitive)
+    fn matches_identity_keyword(bytes: &[u8], i: usize) -> bool {
+        if i + 8 > bytes.len() {
+            return false;
+        }
+
+        const IDENTITY_UPPER: &[u8; 8] = b"IDENTITY";
+        const IDENTITY_LOWER: &[u8; 8] = b"identity";
+
+        if bytes[i..i + 8] == *IDENTITY_UPPER {
+            return true;
+        }
+        if bytes[i..i + 8] == *IDENTITY_LOWER {
+            return true;
+        }
+
+        // Check for mixed case
+        bytes[i..i + 8]
+            .iter()
+            .zip(IDENTITY_UPPER.iter())
+            .all(|(b, ub)| b.to_ascii_uppercase() == *ub)
     }
 
     /// Split SQL text into top-level statements by semicolons, preserving
@@ -1068,5 +1187,142 @@ mod tests {
         // Ensure the original from_ddl signature still works
         let catalog = Catalog::from_ddl(&["CREATE TABLE t (id INTEGER);"]).unwrap();
         assert!(catalog.get_table("t").is_some());
+    }
+
+    // -----------------------------------------------------------------------
+    // Redshift IDENTITY support
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_redshift_identity_stripping() {
+        // Test that IDENTITY(1,1) is stripped for Redshift (which maps to PostgreSQL dialect)
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE users (
+                id INTEGER IDENTITY(1,1) PRIMARY KEY,
+                name VARCHAR(100) NOT NULL
+            );"],
+            &crate::dialect::SqlDialect::PostgreSQL,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("users").unwrap();
+        assert_eq!(table.columns.len(), 2);
+
+        let id = &table.columns[0];
+        assert_eq!(id.name, "id");
+        assert!(id.primary_key);
+        assert!(!id.nullable);
+
+        let name = &table.columns[1];
+        assert_eq!(name.name, "name");
+        assert!(!name.nullable);
+    }
+
+    #[test]
+    fn test_mssql_identity_stripping() {
+        // Test that IDENTITY(seed,step) is stripped for MSSQL
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE products (
+                id INT IDENTITY(100, 5) PRIMARY KEY,
+                product_name VARCHAR(255)
+            );"],
+            &crate::dialect::SqlDialect::MsSql,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("products").unwrap();
+        assert_eq!(table.columns.len(), 2);
+
+        let id = &table.columns[0];
+        assert_eq!(id.name, "id");
+        assert!(id.primary_key);
+    }
+
+    #[test]
+    fn test_identity_with_whitespace() {
+        // Test IDENTITY with various whitespace patterns
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE test (
+                id INTEGER IDENTITY  (  1  ,  1  ) NOT NULL
+            );"],
+            &crate::dialect::SqlDialect::PostgreSQL,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("test").unwrap();
+        assert_eq!(table.columns.len(), 1);
+        assert_eq!(table.columns[0].name, "id");
+    }
+
+    #[test]
+    fn test_redshift_full_schema() {
+        // Test parsing the full Redshift integration test schema
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE users (
+                    id INTEGER IDENTITY(1,1) NOT NULL,
+                    name VARCHAR(255) NOT NULL,
+                    email VARCHAR(255),
+                    status VARCHAR(50) NOT NULL DEFAULT 'active',
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT GETDATE()
+                );
+
+                CREATE TABLE orders (
+                    id INTEGER IDENTITY(1,1) NOT NULL,
+                    user_id INTEGER NOT NULL,
+                    total DECIMAL(10, 2) NOT NULL,
+                    notes VARCHAR(4000),
+                    created_at TIMESTAMPTZ NOT NULL DEFAULT GETDATE()
+                );
+
+                CREATE TABLE tags (
+                    id INTEGER IDENTITY(1,1) NOT NULL,
+                    name VARCHAR(255) NOT NULL
+                );
+
+                CREATE TABLE user_tags (
+                    user_id INTEGER NOT NULL,
+                    tag_id INTEGER NOT NULL
+                );"],
+            &crate::dialect::SqlDialect::PostgreSQL,
+        )
+        .unwrap();
+
+        // Verify all tables were parsed
+        assert!(catalog.get_table("users").is_some());
+        assert!(catalog.get_table("orders").is_some());
+        assert!(catalog.get_table("tags").is_some());
+        assert!(catalog.get_table("user_tags").is_some());
+
+        // Verify users table
+        let users = catalog.get_table("users").unwrap();
+        assert_eq!(users.columns.len(), 5);
+        assert_eq!(users.columns[0].name, "id");
+        assert!(!users.columns[0].nullable);
+        assert_eq!(users.columns[1].name, "name");
+        assert!(!users.columns[1].nullable);
+        assert_eq!(users.columns[2].name, "email");
+        assert!(users.columns[2].nullable);
+
+        // Verify orders table
+        let orders = catalog.get_table("orders").unwrap();
+        assert_eq!(orders.columns.len(), 5);
+        assert_eq!(orders.columns[0].name, "id");
+        assert!(!orders.columns[0].nullable);
+    }
+
+    #[test]
+    fn test_identity_case_insensitive() {
+        // Test that IDENTITY works regardless of case
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE test (
+                id INT Identity(1,1) NOT NULL
+            );"],
+            &crate::dialect::SqlDialect::PostgreSQL,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("test").unwrap();
+        assert_eq!(table.columns.len(), 1);
+        assert_eq!(table.columns[0].name, "id");
     }
 }
