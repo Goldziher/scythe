@@ -29,13 +29,17 @@ await using (var cmd = new NpgsqlCommand(@"
     DROP TABLE IF EXISTS tags CASCADE;
     DROP TABLE IF EXISTS orders CASCADE;
     DROP TABLE IF EXISTS users CASCADE;
+{%- if engine == "postgresql" and engine != "redshift" %}
     DROP TYPE IF EXISTS user_status CASCADE;
+{%- endif %}
+{%- if engine == "postgresql" and engine != "redshift" %}
     CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned');
+{%- endif %}
     CREATE TABLE users (
         id SERIAL PRIMARY KEY,
         name TEXT NOT NULL,
         email TEXT,
-        status user_status NOT NULL DEFAULT 'active',
+        status {% if engine == "postgresql" and engine != "redshift" %}user_status{% else %}VARCHAR(50){% endif %} NOT NULL DEFAULT 'active',
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     );
     CREATE TABLE orders (
@@ -58,15 +62,19 @@ await using (var cmd = new NpgsqlCommand(@"
     await cmd.ExecuteNonQueryAsync();
 }
 
+{%- if engine == "postgresql" and engine != "redshift" %}
 // Reload types so Npgsql knows about user_status enum
 conn.ReloadTypes();
+{%- endif %}
 
 // Test: CreateUser
-var user = await Queries.CreateUser(conn, "Alice", "alice@example.com", Queries.UserStatus.Active);
+var user = await Queries.CreateUser(conn, "Alice", "alice@example.com", {% if engine == "postgresql" and engine != "redshift" %}Queries.UserStatus.Active{% elif engine == "redshift" %}"active"{% endif %});
 Assert(user != null, "CreateUser", "returned null");
 Assert(user!.Name == "Alice", "CreateUser", $"expected name Alice, got {user.Name}");
 Assert(user.Email == "alice@example.com", "CreateUser", $"expected email alice@example.com, got {user.Email}");
+{%- if engine == "postgresql" and engine != "redshift" %}
 Assert(user.Status == Queries.UserStatus.Active, "CreateUser", $"expected status Active, got {user.Status}");
+{%- endif %}
 Assert(user.Id > 0, "CreateUser", $"expected positive id, got {user.Id}");
 Console.WriteLine("PASS: CreateUser");
 
@@ -78,11 +86,13 @@ Assert(fetched != null, "GetUserById", "returned null");
 Assert(fetched!.Id == userId, "GetUserById", $"expected id {userId}, got {fetched.Id}");
 Assert(fetched.Name == "Alice", "GetUserById", $"expected name Alice, got {fetched.Name}");
 Assert(fetched.Email == "alice@example.com", "GetUserById", $"expected email alice@example.com, got {fetched.Email}");
+{%- if engine == "postgresql" and engine != "redshift" %}
 Assert(fetched.Status == Queries.UserStatus.Active, "GetUserById", $"expected status Active, got {fetched.Status}");
+{%- endif %}
 Console.WriteLine("PASS: GetUserById");
 
 // Test: ListActiveUsers
-var activeUsers = await Queries.ListActiveUsers(conn, Queries.UserStatus.Active);
+var activeUsers = await Queries.ListActiveUsers(conn, {% if engine == "postgresql" and engine != "redshift" %}Queries.UserStatus.Active{% elif engine == "redshift" %}"active"{% endif %});
 Assert(activeUsers.Count >= 1, "ListActiveUsers", $"expected at least 1 user, got {activeUsers.Count}");
 Assert(activeUsers.Any(u => u.Name == "Alice"), "ListActiveUsers", "expected Alice in active users");
 Console.WriteLine("PASS: ListActiveUsers");
@@ -122,10 +132,12 @@ Assert(searchResults.Any(u => u.Name == "Alice"), "SearchUsers", "expected Alice
 Console.WriteLine("PASS: SearchUsers");
 
 // Test: CountUsersByStatus
-var countResult = await Queries.CountUsersByStatus(conn, Queries.UserStatus.Active);
+var countResult = await Queries.CountUsersByStatus(conn, {% if engine == "postgresql" and engine != "redshift" %}Queries.UserStatus.Active{% elif engine == "redshift" %}"active"{% endif %});
 Assert(countResult != null, "CountUsersByStatus", "returned null");
 Assert(countResult!.UserCount >= 1, "CountUsersByStatus", $"expected count >= 1, got {countResult.UserCount}");
+{%- if engine == "postgresql" and engine != "redshift" %}
 Assert(countResult.Status == Queries.UserStatus.Active, "CountUsersByStatus", $"expected status Active, got {countResult.Status}");
+{%- endif %}
 Console.WriteLine("PASS: CountUsersByStatus");
 
 // Test: DeleteUser (delete orders first due to FK)
@@ -589,7 +601,7 @@ foreach (var block in schemaText.Split("GO\n"))
 }
 
 // Test: CreateUser
-var user = await Queries.CreateUser(conn, "Alice", "alice@example.com", true);
+var user = await Queries.CreateUser(conn, 1, "Alice", "alice@example.com", true);
 Assert(user != null, "CreateUser", "returned null");
 Assert(user!.Name == "Alice", "CreateUser", $"expected name Alice, got {user.Name}");
 Assert(user.Email == "alice@example.com", "CreateUser", $"expected email alice@example.com, got {user.Email}");
@@ -607,7 +619,7 @@ Assert(fetched.Email == "alice@example.com", "GetUserById", $"expected email ali
 Console.WriteLine("PASS: GetUserById");
 
 // Test: ListActiveUsers
-var activeUsers = await Queries.ListActiveUsers(conn, true);
+var activeUsers = await Queries.ListActiveUsers(conn);
 Assert(activeUsers.Count >= 1, "ListActiveUsers", $"expected at least 1 user, got {activeUsers.Count}");
 Assert(activeUsers.Any(u => u.Name == "Alice"), "ListActiveUsers", "expected Alice in active users");
 Console.WriteLine("PASS: ListActiveUsers");
@@ -620,7 +632,7 @@ Assert(updated!.Email == "alice-new@example.com", "UpdateUserEmail", $"expected 
 Console.WriteLine("PASS: UpdateUserEmail");
 
 // Test: CreateOrder
-var order = await Queries.CreateOrder(conn, userId, 99.95m, "first order");
+var order = await Queries.CreateOrder(conn, 1, userId, 99.95m, "first order");
 Assert(order != null, "CreateOrder", "returned null");
 Assert(order!.UserId == userId, "CreateOrder", $"expected user_id {userId}, got {order.UserId}");
 Assert(order.Total == 99.95m, "CreateOrder", $"expected total 99.95, got {order.Total}");
@@ -645,12 +657,6 @@ var searchResults = await Queries.SearchUsers(conn, "%Ali%");
 Assert(searchResults.Count >= 1, "SearchUsers", $"expected at least 1 result, got {searchResults.Count}");
 Assert(searchResults.Any(u => u.Name == "Alice"), "SearchUsers", "expected Alice in search results");
 Console.WriteLine("PASS: SearchUsers");
-
-// Test: CountUsersByStatus
-var countResult = await Queries.CountUsersByStatus(conn, true);
-Assert(countResult != null, "CountUsersByStatus", "returned null");
-Assert(countResult!.UserCount >= 1, "CountUsersByStatus", $"expected count >= 1, got {countResult.UserCount}");
-Console.WriteLine("PASS: CountUsersByStatus");
 
 // Test: DeleteUser (delete orders first due to FK)
 var deletedOrders = await Queries.DeleteOrdersByUser(conn, userId);

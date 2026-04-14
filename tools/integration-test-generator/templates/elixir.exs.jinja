@@ -171,7 +171,7 @@ Postgrex.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
 Postgrex.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
 {%- endif %}
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "{% if engine == "redshift" %}redshift/schema_pg_compat{% else %}pg/schema{% endif %}.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "{% if engine == "redshift" %}redshift/schema_pg_compat{% else %}pg/schema{% endif %}.sql"]))
 Postgrex.query!(conn, schema_sql, [])
 {%- elif driver == "ecto" %}
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
@@ -182,7 +182,7 @@ Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
 {%- endif %}
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "{% if engine == "redshift" %}redshift/schema_pg_compat{% else %}pg/schema{% endif %}.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "{% if engine == "redshift" %}redshift/schema_pg_compat{% else %}pg/schema{% endif %}.sql"]))
 Ecto.Adapters.SQL.query!(conn, schema_sql, [])
 {%- endif %}
 {%- elif engine == "mysql" -%}
@@ -192,7 +192,7 @@ MyXQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
 MyXQL.query!(conn, "DROP TABLE IF EXISTS orders", [])
 MyXQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "mysql", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mysql", "schema.sql"]))
 
 schema_sql
 |> String.split(";")
@@ -205,7 +205,7 @@ Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS orders", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "mysql", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mysql", "schema.sql"]))
 
 schema_sql
 |> String.split(";")
@@ -220,7 +220,7 @@ MyXQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
 MyXQL.query!(conn, "DROP TABLE IF EXISTS orders", [])
 MyXQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "mariadb", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mariadb", "schema.sql"]))
 
 schema_sql
 |> String.split(";")
@@ -233,7 +233,7 @@ Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS orders", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "mariadb", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mariadb", "schema.sql"]))
 
 schema_sql
 |> String.split(";")
@@ -248,7 +248,7 @@ Exqlite.query!(conn, "DROP TABLE IF EXISTS tags", [])
 Exqlite.query!(conn, "DROP TABLE IF EXISTS orders", [])
 Exqlite.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "sqlite", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "sqlite", "schema.sql"]))
 
 schema_sql
 |> String.split(";")
@@ -261,7 +261,7 @@ Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS orders", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "sqlite", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "sqlite", "schema.sql"]))
 
 schema_sql
 |> String.split(";")
@@ -276,7 +276,7 @@ Tds.query!(conn, "IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags", [])
 Tds.query!(conn, "IF OBJECT_ID('orders','U') IS NOT NULL DROP TABLE orders", [])
 Tds.query!(conn, "IF OBJECT_ID('users','U') IS NOT NULL DROP TABLE users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mssql", "schema_full.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mssql", "schema.sql"]))
 
 schema_sql
 |> String.split("GO\n")
@@ -294,7 +294,7 @@ for seq <- ["tags_seq", "orders_seq", "users_seq"] do
   Jamdb.Oracle.query(conn, "DROP SEQUENCE #{seq}", [])
 end
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "oracle", "schema_full.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "oracle", "schema.sql"]))
 
 schema_sql
 |> String.split("/\n")

@@ -95,7 +95,7 @@ public class IntegrationTest {
     private static void testCreateUser(Connection conn) {
         String name = "CreateUser";
         try {
-            var user = Queries.createUser(conn, "Alice", "alice@example.com", true);
+            var user = Queries.createUser(conn, 1, "Alice", "alice@example.com", true);
             if (user == null) {
                 fail(name, "returned null");
                 return;
@@ -140,7 +140,7 @@ public class IntegrationTest {
     private static void testListActiveUsers(Connection conn) {
         String name = "ListActiveUsers";
         try {
-            var users = Queries.listActiveUsers(conn, true);
+            var users = Queries.listActiveUsers(conn);
             if (users.isEmpty()) {
                 fail(name, "expected at least 1 active user");
                 return;
@@ -154,7 +154,7 @@ public class IntegrationTest {
     private static void testCreateOrder(Connection conn) {
         String name = "CreateOrder";
         try {
-            var order = Queries.createOrder(conn, createdUserId, "99.95", "Test order");
+            var order = Queries.createOrder(conn, 1, createdUserId, new BigDecimal("99.95"), "Test order");
             if (order == null) {
                 fail(name, "returned null");
                 return;
@@ -163,7 +163,7 @@ public class IntegrationTest {
                 fail(name, "expected user_id " + createdUserId + ", got " + order.user_id());
                 return;
             }
-            if (!"99.95".equals(order.total())) {
+            if (!new BigDecimal("99.95").equals(order.total())) {
                 fail(name, "expected total 99.95, got " + order.total());
                 return;
             }

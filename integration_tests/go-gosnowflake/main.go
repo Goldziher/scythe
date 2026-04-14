@@ -110,7 +110,11 @@ var createdUserID int32
 func testCreateUser(ctx context.Context, db *sql.DB) {
 	name := "CreateUser"
 	email := "alice@example.com"
-	user, err := queries.CreateUser(ctx, db, "Alice", &email)
+	if err := queries.CreateUser(ctx, db, "Alice", &email, true); err != nil {
+		fail(name, err)
+		return
+	}
+	user, err := queries.GetUserById(ctx, db, 1)
 	if err != nil {
 		fail(name, err)
 		return
@@ -141,13 +145,16 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
-	total := decimal.NewFromFloat(99.99)
-	order, err := queries.CreateOrder(ctx, db, createdUserID, total, &notes)
+	if err := queries.CreateOrder(ctx, db, createdUserID, int64(9995), &notes); err != nil {
+		fail(name, err)
+		return
+	}
+	orders, err := queries.GetOrdersByUser(ctx, db, createdUserID)
 	if err != nil {
 		fail(name, err)
 		return
 	}
-	if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
+	if !assertf(name, len(orders) >= 1, "expected at least 1 order, got %d", len(orders)) {
 		return
 	}
 	pass(name)

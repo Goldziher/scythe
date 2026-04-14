@@ -56,7 +56,6 @@ await using (var cmd = new NpgsqlCommand(@"
 {
     await cmd.ExecuteNonQueryAsync();
 }
-
 // Reload types so Npgsql knows about user_status enum
 conn.ReloadTypes();
 

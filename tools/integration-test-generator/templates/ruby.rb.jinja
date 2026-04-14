@@ -25,7 +25,7 @@ SCHEMA_PATH = File.join(__dir__, "..", "sql", "mysql", "schema.sql")
 {%- elif engine == "mariadb" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "mariadb", "schema.sql")
 {%- elif engine == "mssql" -%}
-SCHEMA_PATH = File.join(__dir__, "..", "sql", "mssql", "schema_full.sql")
+SCHEMA_PATH = File.join(__dir__, "..", "sql", "mssql", "schema.sql")
 {%- elif engine == "sqlite" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "sqlite", "schema.sql")
 {%- elif engine == "oracle" -%}
@@ -224,7 +224,11 @@ def test_get_order_total(conn, user_id)
 end
 
 def test_search_users(conn)
+  {%- if engine == "redshift" %}
+  results = Queries.search_users(conn, "active")
+  {%- else %}
   results = Queries.search_users(conn, "%Ali%")
+  {%- endif %}
   assert_true(results.length >= 1, "Expected at least 1 search result, got #{results.length}")
   names = results.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in search results, got #{names}")

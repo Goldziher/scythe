@@ -5,7 +5,7 @@ require "uri"
 require "tiny_tds"
 require_relative "generated/queries"
 
-SCHEMA_PATH = File.join(__dir__, "..", "sql", "mssql", "schema_full.sql")
+SCHEMA_PATH = File.join(__dir__, "..", "sql", "mssql", "schema.sql")
 
 def get_database_url
   url = ENV["MSSQL_URL"]

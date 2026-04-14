@@ -104,7 +104,7 @@ def test_get_order_total(conn, user_id)
 end
 
 def test_search_users(conn)
-  results = Queries.search_users(conn, "%Ali%")
+  results = Queries.search_users(conn, "active")
   assert_true(results.length >= 1, "Expected at least 1 search result, got #{results.length}")
   names = results.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in search results, got #{names}")

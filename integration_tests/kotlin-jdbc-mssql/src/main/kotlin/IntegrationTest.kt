@@ -86,7 +86,7 @@ fun runMigration(conn: java.sql.Connection) {
 fun testCreateUser(conn: java.sql.Connection) {
     val name = "CreateUser"
     try {
-        val user = createUser(conn, "Alice", "alice@example.com", true)
+        val user = createUser(conn, 1, "Alice", "alice@example.com", true)
         if (user == null) {
             fail(name, "returned null")
             return
@@ -131,7 +131,7 @@ fun testGetUserById(conn: java.sql.Connection) {
 fun testListActiveUsers(conn: java.sql.Connection) {
     val name = "ListActiveUsers"
     try {
-        val users = listActiveUsers(conn, true)
+        val users = listActiveUsers(conn)
         if (users.isEmpty()) {
             fail(name, "expected at least 1 active user")
             return
@@ -145,7 +145,7 @@ fun testListActiveUsers(conn: java.sql.Connection) {
 fun testCreateOrder(conn: java.sql.Connection) {
     val name = "CreateOrder"
     try {
-        val order = createOrder(conn, createdUserId, "99.95", "Test order")
+        val order = createOrder(conn, 1, createdUserId, BigDecimal("99.95"), "Test order")
         if (order == null) {
             fail(name, "returned null")
             return
@@ -154,7 +154,7 @@ fun testCreateOrder(conn: java.sql.Connection) {
             fail(name, "expected user_id $createdUserId, got ${order.user_id}")
             return
         }
-        if (order.total != "99.95") {
+        if (order.total != BigDecimal("99.95")) {
             fail(name, "expected total 99.95, got ${order.total}")
             return
         }

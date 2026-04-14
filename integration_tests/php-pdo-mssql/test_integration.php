@@ -49,7 +49,7 @@ function setup_schema($conn $pdo): void
     $pdo->exec("IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags");
     $pdo->exec("IF OBJECT_ID('orders','U') IS NOT NULL DROP TABLE orders");
     $pdo->exec("IF OBJECT_ID('users','U') IS NOT NULL DROP TABLE users");
-    $schema_path = __DIR__ . '/../sql/mssql/schema_full.sql';
+    $schema_path = __DIR__ . '/../sql/mssql/schema.sql';
     $schema_sql = file_get_contents($schema_path);
     if ($schema_sql === false) {
         throw new RuntimeException("Failed to read schema file: {$schema_path}");
@@ -87,6 +87,8 @@ function assert_true(bool $value, string $message): void
 }
 
 function setup_schema($conn $pdo): void
+{
+}
 
 function test_create_user($conn $pdo): int
 {

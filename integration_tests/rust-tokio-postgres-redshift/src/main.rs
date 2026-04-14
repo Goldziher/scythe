@@ -75,7 +75,7 @@ let row = client
 
     let row = client
         .query_one(
-            "SELECT id, name, email, created_at FROM users WHERE id = $1",
+            "SELECT id, name, email, status, created_at FROM users WHERE id = $1",
             &[&user_id],
         )
         .await?;

@@ -27,7 +27,7 @@ Tds.query!(conn, "IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags", [])
 Tds.query!(conn, "IF OBJECT_ID('orders','U') IS NOT NULL DROP TABLE orders", [])
 Tds.query!(conn, "IF OBJECT_ID('users','U') IS NOT NULL DROP TABLE users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mssql", "schema_full.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mssql", "schema.sql"]))
 
 schema_sql
 |> String.split("GO\n")

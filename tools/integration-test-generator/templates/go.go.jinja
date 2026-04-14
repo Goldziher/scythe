@@ -586,8 +586,32 @@ func testCreateUser(ctx context.Context, db *sql.DB) {
 		return
 	}
 	createdUserID = user.Id
+{%- elif engine == "mssql" %}
+	user, err := queries.CreateUser(ctx, db, 1, "Alice", &email, true)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, user.Name == "Alice", "expected name Alice, got %s", user.Name) {
+		return
+	}
+	createdUserID = user.Id
+{%- elif engine == "snowflake" %}
+	if err := queries.CreateUser(ctx, db, "Alice", &email, true); err != nil {
+		fail(name, err)
+		return
+	}
+	user, err := queries.GetUserById(ctx, db, 1)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, user.Name == "Alice", "expected name Alice, got %s", user.Name) {
+		return
+	}
+	createdUserID = user.Id
 {%- else %}
-	user, err := queries.CreateUser(ctx, db, "Alice", &email{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mariadb" %}, queries.UsersStatusActive{% elif engine == "mssql" %}, true{% endif %})
+	user, err := queries.CreateUser(ctx, db, "Alice", &email{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mariadb" %}, queries.UsersStatusActive{% endif %})
 	if err != nil {
 		fail(name, err)
 		return
@@ -645,9 +669,8 @@ func testCreateOrder(ctx context.Context, db *sql.DB) {
 	if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
 		return
 	}
-{%- else %}
-	{% if engine == "mssql" -%}
-	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.95, &notes)
+{%- elif engine == "mssql" %}
+	order, err := queries.CreateOrder(ctx, db, 1, createdUserID, 99.95, &notes)
 	if err != nil {
 		fail(name, err)
 		return
@@ -655,7 +678,20 @@ func testCreateOrder(ctx context.Context, db *sql.DB) {
 	if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
 		return
 	}
-	{%- else -%}
+{%- elif engine == "snowflake" %}
+	if err := queries.CreateOrder(ctx, db, createdUserID, int64(9995), &notes); err != nil {
+		fail(name, err)
+		return
+	}
+	orders, err := queries.GetOrdersByUser(ctx, db, createdUserID)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, len(orders) >= 1, "expected at least 1 order, got %d", len(orders)) {
+		return
+	}
+{%- else %}
 	total := decimal.NewFromFloat(99.99)
 	order, err := queries.CreateOrder(ctx, db, createdUserID, total, &notes)
 	if err != nil {
@@ -669,7 +705,7 @@ func testCreateOrder(ctx context.Context, db *sql.DB) {
 {%- endif %}
 		return
 	}
-	{%- endif %}
+{%- endif %}
 	pass(name)
 }
 
@@ -688,7 +724,7 @@ func testGetOrdersByUser(ctx context.Context, db *sql.DB) {
 
 func testListActiveUsers(ctx context.Context, db *sql.DB) {
 	name := "ListActiveUsers"
-	users, err := queries.ListActiveUsers(ctx, db{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mysql" or engine == "mariadb" %}, queries.UsersStatusActive{% elif engine == "mssql" %}, true{% endif %})
+	users, err := queries.ListActiveUsers(ctx, db{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mysql" or engine == "mariadb" %}, queries.UsersStatusActive{% endif %})
 	if err != nil {
 		fail(name, err)
 		return
@@ -726,7 +762,6 @@ func testDeleteUser(ctx context.Context, db *sql.DB) {
 	}
 	pass(name)
 }
-{%- endif %}
 {%- elif driver == "godror" %}
 func runMigration(ctx context.Context, db *sql.DB) error {
 	_, thisFile, _, _ := runtime.Caller(0)

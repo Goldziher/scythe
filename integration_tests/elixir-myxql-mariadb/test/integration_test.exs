@@ -26,7 +26,7 @@ MyXQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
 MyXQL.query!(conn, "DROP TABLE IF EXISTS orders", [])
 MyXQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "mariadb", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mariadb", "schema.sql"]))
 
 schema_sql
 |> String.split(";")

@@ -22,7 +22,7 @@ Postgrex.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
 Postgrex.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
 Postgrex.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "redshift/schema_pg_compat.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "redshift/schema_pg_compat.sql"]))
 Postgrex.query!(conn, schema_sql, [])
 
 exit_code = 0

@@ -11,7 +11,7 @@ Exqlite.query!(conn, "DROP TABLE IF EXISTS tags", [])
 Exqlite.query!(conn, "DROP TABLE IF EXISTS orders", [])
 Exqlite.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "sqlite", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "sqlite", "schema.sql"]))
 
 schema_sql
 |> String.split(";")

@@ -273,7 +273,7 @@ function setup_schema({% if driver == "pdo" %}PDO{% else %}$conn{% endif %} $pdo
     $pdo->exec("IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags");
     $pdo->exec("IF OBJECT_ID('orders','U') IS NOT NULL DROP TABLE orders");
     $pdo->exec("IF OBJECT_ID('users','U') IS NOT NULL DROP TABLE users");
-    $schema_path = __DIR__ . '/../sql/mssql/schema_full.sql';
+    $schema_path = __DIR__ . '/../sql/mssql/schema.sql';
     $schema_sql = file_get_contents($schema_path);
     if ($schema_sql === false) {
         throw new RuntimeException("Failed to read schema file: {$schema_path}");
@@ -366,8 +366,8 @@ function assert_true(bool $value, string $message): void
 }
 
 function setup_schema({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo): void
-{%- if engine == "snowflake" %}
 {
+{%- if engine == "snowflake" %}
     $pdo->exec("DROP TABLE IF EXISTS user_tags");
     $pdo->exec("DROP TABLE IF EXISTS tags");
     $pdo->exec("DROP TABLE IF EXISTS orders");
@@ -383,8 +383,8 @@ function setup_schema({% if driver == "pdo" or driver == "pdo-mysql" or driver =
             $pdo->exec($stmt);
         }
     }
-}
 {%- endif %}
+}
 
 function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo): {% if engine == "mariadb" %}string{% else %}int{% endif %}
 {

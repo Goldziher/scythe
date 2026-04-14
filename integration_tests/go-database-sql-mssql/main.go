@@ -110,7 +110,7 @@ var createdUserID int32
 func testCreateUser(ctx context.Context, db *sql.DB) {
 	name := "CreateUser"
 	email := "alice@example.com"
-	user, err := queries.CreateUser(ctx, db, "Alice", &email, true)
+	user, err := queries.CreateUser(ctx, db, 1, "Alice", &email, true)
 	if err != nil {
 		fail(name, err)
 		return
@@ -141,7 +141,7 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
-	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.95, &notes)
+	order, err := queries.CreateOrder(ctx, db, 1, createdUserID, 99.95, &notes)
 	if err != nil {
 		fail(name, err)
 		return
@@ -167,7 +167,7 @@ func testGetOrdersByUser(ctx context.Context, db *sql.DB) {
 
 func testListActiveUsers(ctx context.Context, db *sql.DB) {
 	name := "ListActiveUsers"
-	users, err := queries.ListActiveUsers(ctx, db, true)
+	users, err := queries.ListActiveUsers(ctx, db)
 	if err != nil {
 		fail(name, err)
 		return
