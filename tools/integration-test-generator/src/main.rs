@@ -961,7 +961,7 @@ fn build_backends() -> Vec<BackendConfig> {
             name: "go-gosnowflake".into(),
             language: "go".into(),
             engine: "snowflake".into(),
-            driver: "gosnowflake".into(),
+            driver: "database-sql".into(),
             connection_env: "SNOWFLAKE_URL".into(),
             backend: "go-gosnowflake".into(),
             options: HashMap::new(),

@@ -61,7 +61,10 @@ impl CodegenBackend for GoDatabaseSqlBackend {
 
     fn file_header(&self) -> String {
         // TODO: determine uses_time from actual column types instead of engine
-        let uses_time = matches!(self.engine.as_str(), "mysql" | "mariadb" | "duckdb");
+        let uses_time = matches!(
+            self.engine.as_str(),
+            "mysql" | "mariadb" | "duckdb" | "mssql" | "snowflake"
+        );
         let mut header =
             String::from("package queries\n\nimport (\n\t\"context\"\n\t\"database/sql\"");
         if uses_time {

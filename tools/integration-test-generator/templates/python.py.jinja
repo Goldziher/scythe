@@ -556,20 +556,24 @@ def run_tests() -> None:
     finally:
         conn.close()
 {%- elif driver == "snowflake" %}
-    from urllib.parse import urlparse
+    from urllib.parse import urlparse, parse_qs
     parsed = urlparse(database_url)
-    # Parse snowflake://account:password@host/database/schema
-    account = parsed.hostname
-    user = parsed.username
-    password = parsed.password
-    database = parsed.path.split("/")[1] if len(parsed.path.split("/")) > 1 else "scythe_test"
-    schema = parsed.path.split("/")[2] if len(parsed.path.split("/")) > 2 else "public"
+    # Parse snowflake://user:password@host:port/database/schema?account=X&protocol=http
+    query_params = parse_qs(parsed.query or "")
+    account = query_params.get("account", [parsed.hostname])[0]
+    protocol = query_params.get("protocol", ["https"])[0]
+    path_parts = parsed.path.strip("/").split("/")
+    database = path_parts[0] if len(path_parts) > 0 else "testdb"
+    schema = path_parts[1] if len(path_parts) > 1 else "public"
     conn = snowflake.connector.connect(
         account=account,
-        user=user,
-        password=password,
+        user=parsed.username or "test",
+        password=parsed.password or "test",
+        host=parsed.hostname or "localhost",
+        port=parsed.port or 443,
         database=database,
         schema=schema,
+        protocol=protocol,
     )
     try:
         setup_schema(conn)

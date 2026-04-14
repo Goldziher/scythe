@@ -80,17 +80,33 @@ impl CodegenBackend for RustTiberiusBackend {
         let _ = writeln!(out, "        Ok(Self {{");
         for col in columns {
             if col.nullable {
-                let _ = writeln!(
-                    out,
-                    "            {}: row.try_get(\"{}\")?,",
-                    col.field_name, col.name
-                );
+                if col.neutral_type == "string" {
+                    let _ = writeln!(
+                        out,
+                        "            {}: row.try_get::<&str, _>(\"{}\")?.map(|s| s.to_string()),",
+                        col.field_name, col.name
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "            {}: row.try_get(\"{}\")?,",
+                        col.field_name, col.name
+                    );
+                }
             } else {
-                let _ = writeln!(
-                    out,
-                    "            {}: row.try_get(\"{}\")?.ok_or_else(|| tiberius::error::Error::Protocol(\"unexpected NULL for non-nullable column '{}'\".into()))?,",
-                    col.field_name, col.name, col.name
-                );
+                if col.neutral_type == "string" {
+                    let _ = writeln!(
+                        out,
+                        "            {}: row.try_get::<&str, _>(\"{}\")?.ok_or_else(|| tiberius::error::Error::Protocol(\"unexpected NULL for non-nullable column '{}'\".into()))?.to_string(),",
+                        col.field_name, col.name, col.name
+                    );
+                } else {
+                    let _ = writeln!(
+                        out,
+                        "            {}: row.try_get(\"{}\")?.ok_or_else(|| tiberius::error::Error::Protocol(\"unexpected NULL for non-nullable column '{}'\".into()))?,",
+                        col.field_name, col.name, col.name
+                    );
+                }
             }
         }
         let _ = writeln!(out, "        }})");
@@ -160,7 +176,7 @@ impl CodegenBackend for RustTiberiusBackend {
                 let _ = writeln!(out, "    for item in items {{");
                 let bind_args: Vec<String> = params
                     .iter()
-                    .map(|p| format!("&item.{}", p.field_name))
+                    .map(|p| format!("&item.{} as &dyn tiberius::ToSql", p.field_name))
                     .collect();
                 let _ = writeln!(
                     out,
@@ -221,14 +237,30 @@ impl CodegenBackend for RustTiberiusBackend {
             return_type
         );
 
-        let param_refs: String = if params.is_empty() {
+        // Build parameter slice for tiberius query with references to trait objects
+        let param_slice: String = if params.is_empty() {
             "&[]".to_string()
         } else {
-            let refs: Vec<String> = params
+            let param_refs_vec: Vec<String> = params
                 .iter()
-                .map(|p| format!("&{}", p.field_name))
+                .map(|p| {
+                    if p.borrowed_type.starts_with('&') {
+                        // References: cast directly to &dyn ToSql
+                        // For types like &Decimal that don't impl ToSql, we need to dereference first
+                        if p.borrowed_type == "&str" {
+                            // &str can be cast directly
+                            format!("{} as &dyn tiberius::ToSql", p.field_name)
+                        } else {
+                            // Other references like &Decimal: dereference then reference
+                            format!("&*{} as &dyn tiberius::ToSql", p.field_name)
+                        }
+                    } else {
+                        // Owned types (including Option): take a reference and cast to &dyn ToSql
+                        format!("&{} as &dyn tiberius::ToSql", p.field_name)
+                    }
+                })
                 .collect();
-            format!("&[{}]", refs.join(", "))
+            format!("&[{}]", param_refs_vec.join(", "))
         };
 
         match &analyzed.command {
@@ -236,7 +268,7 @@ impl CodegenBackend for RustTiberiusBackend {
                 let _ = writeln!(
                     out,
                     "    let stream = client.query(r#\"{}\"#, {}).await?;",
-                    sql, param_refs
+                    sql, param_slice
                 );
                 let _ = writeln!(
                     out,
@@ -248,7 +280,7 @@ impl CodegenBackend for RustTiberiusBackend {
                 let _ = writeln!(
                     out,
                     "    let stream = client.query(r#\"{}\"#, {}).await?;",
-                    sql, param_refs
+                    sql, param_slice
                 );
                 let _ = writeln!(out, "    let rows = stream.into_first_result().await?;");
                 let _ = writeln!(
@@ -261,7 +293,7 @@ impl CodegenBackend for RustTiberiusBackend {
                 let _ = writeln!(
                     out,
                     "    client.execute(r#\"{}\"#, {}).await?;",
-                    sql, param_refs
+                    sql, param_slice
                 );
                 let _ = writeln!(out, "    Ok(())");
             }
@@ -269,7 +301,7 @@ impl CodegenBackend for RustTiberiusBackend {
                 let _ = writeln!(
                     out,
                     "    let result = client.execute(r#\"{}\"#, {}).await?;",
-                    sql, param_refs
+                    sql, param_slice
                 );
                 let _ = writeln!(out, "    Ok(result.total())");
             }
