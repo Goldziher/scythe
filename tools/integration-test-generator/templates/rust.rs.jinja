@@ -21,7 +21,7 @@ use sqlx::postgres::PgPoolOptions;
 {%- elif driver == "sqlx-mysql" or driver == "sqlx-mariadb" %}
 use sqlx::mysql::MySqlPoolOptions;
 {%- elif driver == "sqlx-sqlite" %}
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 {%- endif %}
 {%- elif driver == "tokio-postgres" %}
 use rust_decimal::Decimal;
@@ -166,9 +166,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 {%- elif driver == "sqlx-sqlite" -%}
+    let connect_options = database_url.parse::<SqliteConnectOptions>()?
+        .create_if_missing(true);
     let pool = SqlitePoolOptions::new()
         .max_connections(5)
-        .connect(&database_url)
+        .connect_with(connect_options)
         .await?;
 
     // Clean slate: drop tables in dependency order, then recreate

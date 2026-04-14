@@ -464,7 +464,7 @@ jobs:
 
       - name: Run Oracle schema migration
         run: |
-          sudo apt-get update && sudo apt-get install -y libaio1 alien
+          sudo apt-get update && sudo apt-get install -y libaio1t64 alien
           wget -q https://download.oracle.com/otn_software/linux/instantclient/2340000/oracle-instantclient-basic-23.4.0.24.05-1.el9.x86_64.rpm
           wget -q https://download.oracle.com/otn_software/linux/instantclient/2340000/oracle-instantclient-sqlplus-23.4.0.24.05-1.el9.x86_64.rpm
           sudo alien -i oracle-instantclient-basic-*.rpm
@@ -552,6 +552,128 @@ jobs:
         working-directory: integration_tests/rust-sibyl-oracle
         run: cargo run --quiet
 
+  integration-mssql:
+    name: MSSQL Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Scythe_Test1"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Scythe_Test1' -C -Q 'SELECT 1' -b"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      MSSQL_URL: "sqlserver://sa:Scythe_Test1@localhost:1433?database=master"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Create database and run schema migration
+        run: |
+          /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Scythe_Test1" -C -Q "CREATE DATABASE scythe_test"
+          /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Scythe_Test1" -C -d scythe_test -i integration_tests/sql/mssql/schema.sql
+
+      # Language toolchains
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            integration_tests/rust-tiberius-mssql -> target
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0"
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26"
+          elixir-version: "1.16"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_sqlsrv
+
+      - run: pip install uv
+      - run: npm install -g pnpm
+
+      - name: Install ODBC driver for SQL Server
+        run: |
+          curl https://packages.microsoft.com/keys/microsoft.asc | sudo tee /etc/apt/trusted.gpg.d/microsoft.asc
+          curl "https://packages.microsoft.com/config/ubuntu/$(lsb_release -rs)/prod.list" | sudo tee /etc/apt/sources.list.d/mssql-release.list
+          sudo apt-get update
+          sudo ACCEPT_EULA=Y apt-get install -y msodbcsql18 unixodbc-dev
+
+      - name: Test rust-tiberius-mssql
+        working-directory: integration_tests/rust-tiberius-mssql
+        run: cargo run --quiet
+
+      - name: Test python-pyodbc-mssql
+        working-directory: integration_tests/python-pyodbc-mssql
+        run: uv run python test_integration.py
+
+      - name: Test typescript-mssql
+        working-directory: integration_tests/typescript-mssql
+        run: |
+          pnpm install
+          pnpm exec tsx test.ts
+
+      - name: Test go-database-sql-mssql
+        working-directory: integration_tests/go-database-sql-mssql
+        run: go run .
+
+      - name: Test java-jdbc-mssql
+        working-directory: integration_tests/java-jdbc-mssql
+        run: mvn -q compile exec:java
+
+      - name: Test kotlin-jdbc-mssql
+        working-directory: integration_tests/kotlin-jdbc-mssql
+        run: gradle run --quiet
+
+      - name: Test csharp-sqlclient-mssql
+        working-directory: integration_tests/csharp-sqlclient-mssql
+        run: dotnet run
+
+      - name: Test elixir-tds-mssql
+        working-directory: integration_tests/elixir-tds-mssql
+        run: |
+          mix local.hex --force
+          mix local.rebar --force
+          mix deps.get
+          mix run test/integration_test.exs
+
+      - name: Test ruby-tiny-tds-mssql
+        working-directory: integration_tests/ruby-tiny-tds-mssql
+        run: |
+          bundle install
+          bundle exec ruby test_integration.rb
+
+      - name: Test php-pdo-mssql
+        working-directory: integration_tests/php-pdo-mssql
+        run: php test_integration.php
+
   integration-sqlite:
     name: SQLite Integration Tests
     runs-on: ubuntu-latest
@@ -601,6 +723,9 @@ jobs:
 
       - run: pip install uv
       - run: npm install -g pnpm
+
+      - name: Create SQLite database
+        run: touch /tmp/scythe_test.db
 
       - name: Test rust-sqlx-sqlite
         working-directory: integration_tests/rust-sqlx-sqlite

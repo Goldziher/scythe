@@ -10,4 +10,3 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "chrono", "rust_
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = "1"
-uuid = "1"

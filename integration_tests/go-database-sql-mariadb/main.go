@@ -2,13 +2,12 @@ package main
 
 import (
 	"context"
-	"database/sql"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
-	"strings"
+
+	"database/sql"
 
 	_ "github.com/go-sql-driver/mysql"
 
@@ -45,33 +44,7 @@ func main() {
 
 	ctx := context.Background()
 
-	// Convert mysql:// URL to go-sql-driver DSN format: user:pass@tcp(host:port)/db
-	dsn := databaseURL
-	if strings.HasPrefix(databaseURL, "mysql://") {
-		u, err := url.Parse(databaseURL)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "failed to parse MARIADB_URL: %v\n", err)
-			os.Exit(1)
-		}
-		password, _ := u.User.Password()
-		host := u.Hostname()
-		port := u.Port()
-		if port == "" {
-			port = "3306"
-		}
-		dbName := strings.TrimPrefix(u.Path, "/")
-		dsn = fmt.Sprintf("%s:%s@tcp(%s:%s)/%s", u.User.Username(), password, host, port, dbName)
-	}
-
-	if !strings.Contains(dsn, "parseTime") {
-		sep := "?"
-		if strings.Contains(dsn, "?") {
-			sep = "&"
-		}
-		dsn += sep + "parseTime=true"
-	}
-
-	db, err := sql.Open("mysql", dsn)
+	db, err := sql.Open("mysql", databaseURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
 		os.Exit(1)
@@ -119,14 +92,8 @@ func runMigration(ctx context.Context, db *sql.DB) error {
 		}
 	}
 
-	for _, stmt := range strings.Split(string(schema), ";") {
-		stmt = strings.TrimSpace(stmt)
-		if stmt == "" {
-			continue
-		}
-		if _, err := db.ExecContext(ctx, stmt); err != nil {
-			return fmt.Errorf("creating schema: %w", err)
-		}
+	if _, err := db.ExecContext(ctx, string(schema)); err != nil {
+		return fmt.Errorf("creating schema: %w", err)
 	}
 
 	return nil
@@ -168,7 +135,7 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
-	total := 99.99
+	total := decimal.NewFromFloat(99.99)
 	order, err := queries.CreateOrder(ctx, db, createdUserID, total, &notes)
 	if err != nil {
 		fail(name, err)

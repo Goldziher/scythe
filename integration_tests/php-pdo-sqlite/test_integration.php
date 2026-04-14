@@ -5,14 +5,31 @@ declare(strict_types=1);
 require_once __DIR__ . '/generated/queries.php';
 
 use App\Generated\Queries;
+use App\Generated\CreateUserRow;
+use App\Generated\GetUserByIdRow;
+use App\Generated\ListActiveUsersRow;
+use App\Generated\CreateOrderRow;
+use App\Generated\GetOrdersByUserRow;
 
-function create_pdo(): PDO
+function get_database_url(): string
 {
-    $pdo = new PDO("sqlite::memory:", null, null, [
+    $url = getenv('SQLITE_PATH');
+    if ($url === false || $url === '') {
+        fwrite(STDERR, "ERROR: SQLITE_PATH environment variable is not set\n");
+        exit(1);
+    }
+    return $url;
+}
+
+
+
+function create_pdo(string $path): PDO
+{
+    $dsn = sprintf('sqlite:%s', $path);
+    $pdo = new PDO($dsn, null, null, [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
-    $pdo->exec("PRAGMA foreign_keys = ON");
     return $pdo;
 }
 
@@ -27,12 +44,7 @@ function setup_schema(PDO $pdo): void
     if ($schema_sql === false) {
         throw new RuntimeException("Failed to read schema file: {$schema_path}");
     }
-    $statements = array_filter(array_map('trim', explode(';', $schema_sql)));
-    foreach ($statements as $statement) {
-        if ($statement !== '') {
-            $pdo->exec($statement);
-        }
-    }
+    $pdo->exec($schema_sql);
 }
 
 function assert_equal(mixed $expected, mixed $actual, string $message): void
@@ -61,14 +73,12 @@ function assert_true(bool $value, string $message): void
 
 function test_create_user(PDO $pdo): int
 {
-    Queries::createUser($pdo, "Alice", "alice@example.com", "active");
-    $user_id = (int) $pdo->lastInsertId();
-    $user = Queries::getUserById($pdo, $user_id);
-    assert_not_null($user, "CreateUser: getUserById returned null");
+    $user = Queries::createUser($pdo, "Alice", "alice@example.com");
+    assert_not_null($user, "CreateUser returned null");
     assert_equal("Alice", $user->name, "CreateUser name");
     assert_equal("alice@example.com", $user->email, "CreateUser email");
     echo "PASS: CreateUser\n";
-    return $user_id;
+    return $user->id;
 }
 
 function test_get_user_by_id(PDO $pdo, int $user_id): void
@@ -82,7 +92,7 @@ function test_get_user_by_id(PDO $pdo, int $user_id): void
 
 function test_list_active_users(PDO $pdo): void
 {
-    $users = iterator_to_array(Queries::listActiveUsers($pdo, "active"));
+    $users = iterator_to_array(Queries::listActiveUsers($pdo));
     assert_true(count($users) >= 1, "Expected at least 1 active user, got " . count($users));
     $names = array_map(fn($u) => $u->name, $users);
     assert_true(in_array("Alice", $names, true), "Expected 'Alice' in active users");
@@ -91,14 +101,12 @@ function test_list_active_users(PDO $pdo): void
 
 function test_create_order(PDO $pdo, int $user_id): int
 {
-    Queries::createOrder($pdo, $user_id, 49.99, "Test order");
-    $order_id = (int) $pdo->lastInsertId();
-    // Verify via GetOrdersByUser
-    $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
-    assert_true(count($orders) >= 1, "Expected at least 1 order after creation");
-    assert_equal("Test order", $orders[0]->notes, "CreateOrder notes");
+    $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
+    assert_not_null($order, "CreateOrder returned null");
+    assert_equal($user_id, $order->user_id, "CreateOrder user_id");
+    assert_equal("Test order", $order->notes, "CreateOrder notes");
     echo "PASS: CreateOrder\n";
-    return $order_id;
+    return $order->id;
 }
 
 function test_get_orders_by_user(PDO $pdo, int $user_id): void
@@ -120,7 +128,8 @@ function test_delete_user(PDO $pdo, int $user_id): void
 }
 
 try {
-    $pdo = create_pdo();
+    $database_url = get_database_url();
+    $pdo = create_pdo($database_url);
 
     setup_schema($pdo);
 

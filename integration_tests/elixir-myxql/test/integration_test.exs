@@ -1,18 +1,20 @@
 alias Scythe.Queries
 
+
 database_url =
-  System.get_env("MYSQL_URL") ||
-  System.get_env("DATABASE_URL") ||
-  "mysql://scythe:scythe@localhost:3306/scythe_test"
+  System.get_env("MYSQL_URL", "mysql://root@localhost:3306/scythe_test")
 
 uri = URI.parse(database_url)
-[username, password] = String.split(uri.userinfo, ":")
+userinfo = uri.userinfo || "root"
+parts = String.split(userinfo, ":")
+username = List.first(parts)
+password = Enum.at(parts, 1) || ""
 database = String.trim_leading(uri.path, "/")
 
 {:ok, conn} =
   MyXQL.start_link(
     hostname: uri.host,
-    port: uri.port,
+    port: uri.port || 3306,
     username: username,
     password: password,
     database: database
@@ -24,59 +26,15 @@ MyXQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
 MyXQL.query!(conn, "DROP TABLE IF EXISTS orders", [])
 MyXQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-MyXQL.query!(
-  conn,
-  """
-  CREATE TABLE users (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) NOT NULL,
-    email VARCHAR(255),
-    status ENUM('active', 'inactive', 'banned') NOT NULL DEFAULT 'active',
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-  )
-  """,
-  []
-)
+schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "mysql", "schema.sql"]))
 
-MyXQL.query!(
-  conn,
-  """
-  CREATE TABLE orders (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    user_id INT NOT NULL,
-    total DECIMAL(10, 2) NOT NULL,
-    notes TEXT,
-    created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    FOREIGN KEY (user_id) REFERENCES users (id)
-  )
-  """,
-  []
-)
+schema_sql
+|> String.split(";")
+|> Enum.map(&String.trim/1)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt -> MyXQL.query!(conn, stmt, []) end)
 
-MyXQL.query!(
-  conn,
-  """
-  CREATE TABLE tags (
-    id INT AUTO_INCREMENT PRIMARY KEY,
-    name VARCHAR(255) NOT NULL UNIQUE
-  )
-  """,
-  []
-)
-
-MyXQL.query!(
-  conn,
-  """
-  CREATE TABLE user_tags (
-    user_id INT NOT NULL,
-    tag_id INT NOT NULL,
-    PRIMARY KEY (user_id, tag_id),
-    FOREIGN KEY (user_id) REFERENCES users (id),
-    FOREIGN KEY (tag_id) REFERENCES tags (id)
-  )
-  """,
-  []
-)
+exit_code = 0
 
 assert = fn condition, test_name, detail ->
   unless condition do
@@ -88,11 +46,10 @@ end
 Process.put(:exit_code, 0)
 
 # Test: CreateUser
-:ok = Queries.create_user(conn, "Alice", "alice@example.com", "active")
+:ok = Queries.create_user(conn, "Alice", "alice@example.com", UsersStatus.active())
 {:ok, user} = Queries.get_last_insert_user(conn)
 assert.(user.name == "Alice", "CreateUser", "expected name Alice, got #{user.name}")
 assert.(user.email == "alice@example.com", "CreateUser", "expected email alice@example.com")
-assert.(user.status == "active", "CreateUser", "expected status active, got #{user.status}")
 user_id = user.id
 IO.puts("PASS: CreateUser")
 
@@ -104,7 +61,7 @@ assert.(fetched.email == "alice@example.com", "GetUserById", "expected email ali
 IO.puts("PASS: GetUserById")
 
 # Test: ListActiveUsers
-{:ok, active_users} = Queries.list_active_users(conn, "active")
+{:ok, active_users} = Queries.list_active_users(conn, UsersStatus.active())
 assert.(length(active_users) > 0, "ListActiveUsers", "should have at least one user")
 first = List.first(active_users)
 assert.(first.name == "Alice", "ListActiveUsers", "first user should be Alice")

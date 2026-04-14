@@ -1,0 +1,13 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "mssql"
+schema = ["../sql/mssql/schema.sql"]
+queries = ["../sql/mssql/queries/*.sql"]
+
+[[sql.gen]]
+backend = "rust-tiberius"
+output = "src"
+structs_only = "true"

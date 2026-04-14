@@ -1,12 +1,13 @@
-defmodule ScytheEctoIntegrationTest.MixProject do
+defmodule ScytheIntegrationTest.MixProject do
   use Mix.Project
 
   def project do
     [
-      app: :scythe_ecto_integration_test,
+      app: :scythe_integration_test,
       version: "0.1.0",
       elixir: "~> 1.14",
       start_permanent: false,
+
       deps: deps()
     ]
   end
@@ -19,8 +20,8 @@ defmodule ScytheEctoIntegrationTest.MixProject do
 
   defp deps do
     [
-      {:ecto_sql, "~> 3.10"},
-      {:postgrex, ">= 0.0.0"},
+      {:ecto_sql, "~> 3.11"},
+      {:postgrex, "~> 0.19"},
       {:decimal, "~> 2.0"}
     ]
   end

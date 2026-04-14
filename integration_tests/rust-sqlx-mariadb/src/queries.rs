@@ -78,5 +78,3 @@ pub struct SearchUsersRow {
     pub name: String,
     pub email: Option<String>,
 }
-
-

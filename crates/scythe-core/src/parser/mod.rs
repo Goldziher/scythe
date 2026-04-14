@@ -208,11 +208,13 @@ pub fn parse_query_with_dialect(
         return Err(ScytheError::syntax("empty SQL body"));
     }
 
-    // Preprocess Oracle-specific syntax before parsing:
-    // 1. Strip `INTO :N, :N, ...` from `RETURNING ... INTO` clauses (Oracle output binds)
-    // 2. Convert `:N` positional placeholders to `?` (universal placeholder)
+    // Preprocess dialect-specific syntax before parsing:
+    // - Oracle: strip `RETURNING ... INTO` output binds, convert `:N` → `?`
+    // - MSSQL: convert `@pN` named positional placeholders → `?`
     let sql = if *dialect == SqlDialect::Oracle {
         preprocess_oracle_sql(&sql)
+    } else if *dialect == SqlDialect::MsSql {
+        preprocess_mssql_sql(&sql)
     } else {
         sql
     };
@@ -313,6 +315,49 @@ fn preprocess_oracle_sql(sql: &str) -> String {
             result.push('?');
             while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                 chars.next();
+            }
+        } else {
+            result.push(ch);
+        }
+    }
+    result
+}
+
+/// Preprocess MSSQL SQL before parsing:
+/// Convert `@pN` positional placeholders to `?` (outside string literals).
+/// MsSqlDialect treats `@` as an identifier start, so `@p1` becomes an identifier
+/// rather than a `Placeholder` token — preprocessing normalises it to `?`.
+fn preprocess_mssql_sql(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\'' {
+            // Skip string literals verbatim
+            result.push(ch);
+            while let Some(inner) = chars.next() {
+                result.push(inner);
+                if inner == '\'' {
+                    if chars.peek() == Some(&'\'') {
+                        // Escaped quote inside string literal
+                        result.push(chars.next().unwrap());
+                    } else {
+                        break;
+                    }
+                }
+            }
+        } else if ch == '@' && chars.peek().is_some_and(|c| *c == 'p' || *c == 'P') {
+            // Peek ahead: must be `@p` followed by at least one digit
+            let mut lookahead = chars.clone();
+            lookahead.next(); // consume the 'p'/'P'
+            if lookahead.peek().is_some_and(|c| c.is_ascii_digit()) {
+                // It is an `@pN` placeholder — consume `p` and all digits
+                chars.next(); // consume 'p'/'P'
+                while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+                    chars.next();
+                }
+                result.push('?');
+            } else {
+                result.push(ch);
             }
         } else {
             result.push(ch);
@@ -570,5 +615,48 @@ mod tests {
             preprocess_oracle_sql("DELETE FROM users WHERE id = :1"),
             "DELETE FROM users WHERE id = ?"
         );
+    }
+
+    #[test]
+    fn test_preprocess_mssql_single_placeholder() {
+        assert_eq!(
+            preprocess_mssql_sql("SELECT * FROM users WHERE id = @p1"),
+            "SELECT * FROM users WHERE id = ?"
+        );
+    }
+
+    #[test]
+    fn test_preprocess_mssql_multiple_placeholders() {
+        assert_eq!(
+            preprocess_mssql_sql("INSERT INTO users (name, email) VALUES (@p1, @p2)"),
+            "INSERT INTO users (name, email) VALUES (?, ?)"
+        );
+    }
+
+    #[test]
+    fn test_preprocess_mssql_preserves_string_literals() {
+        assert_eq!(
+            preprocess_mssql_sql("SELECT * FROM users WHERE name = '@p1' AND id = @p1"),
+            "SELECT * FROM users WHERE name = '@p1' AND id = ?"
+        );
+    }
+
+    #[test]
+    fn test_preprocess_mssql_case_insensitive_p() {
+        assert_eq!(
+            preprocess_mssql_sql("SELECT * FROM users WHERE id = @P1"),
+            "SELECT * FROM users WHERE id = ?"
+        );
+    }
+
+    #[test]
+    fn test_preprocess_mssql_non_placeholder_at_variable_unchanged() {
+        // @variable (not @pN pattern) must not be touched
+        assert_eq!(preprocess_mssql_sql("SELECT @myvar"), "SELECT @myvar");
+    }
+
+    #[test]
+    fn test_preprocess_mssql_multi_digit_placeholder() {
+        assert_eq!(preprocess_mssql_sql("SELECT @p10, @p2"), "SELECT ?, ?");
     }
 }

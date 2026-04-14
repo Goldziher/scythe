@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "uri"
+
 require "pg"
 require_relative "generated/queries"
 

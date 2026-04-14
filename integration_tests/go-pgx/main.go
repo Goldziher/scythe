@@ -107,8 +107,7 @@ var createdUserID int32
 
 func testCreateUser(ctx context.Context, pool *pgxpool.Pool) {
 	name := "CreateUser"
-	email := "alice@example.com"
-	user, err := queries.CreateUser(ctx, pool, "Alice", &email, queries.UserStatusActive)
+	user, err := queries.CreateUser(ctx, pool, "Alice", "alice@example.com", queries.UserStatusActive)
 	if err != nil {
 		fail(name, err)
 		return
@@ -163,8 +162,7 @@ func testUpdateUserEmail(ctx context.Context, pool *pgxpool.Pool) {
 func testCreateOrder(ctx context.Context, pool *pgxpool.Pool) {
 	name := "CreateOrder"
 	total := decimal.NewFromFloat(99.99)
-	notes := "Test order"
-	order, err := queries.CreateOrder(ctx, pool, createdUserID, total, &notes)
+	order, err := queries.CreateOrder(ctx, pool, createdUserID, total, "Test order")
 	if err != nil {
 		fail(name, err)
 		return

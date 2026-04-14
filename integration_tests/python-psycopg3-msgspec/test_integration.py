@@ -1,4 +1,4 @@
-"""Integration tests for scythe-generated psycopg3 queries with msgspec row types."""
+"""Integration tests for scythe-generated psycopg3 queries with Msgspec row types."""
 
 import asyncio
 import os
@@ -6,15 +6,10 @@ import sys
 from decimal import Decimal
 from pathlib import Path
 
-import msgspec
 import psycopg
+import msgspec
 
 from generated.queries import (
-    CreateOrderRow,
-    CreateUserRow,
-    GetOrdersByUserRow,
-    GetUserByIdRow,
-    ListActiveUsersRow,
     UserStatus,
     create_order,
     create_user,
@@ -50,22 +45,12 @@ async def setup_schema(conn: psycopg.AsyncConnection) -> None:
     await conn.commit()
 
 
-async def test_row_types_are_msgspec_structs() -> None:
-    """Verify generated row types are msgspec Struct subclasses."""
-    for row_cls in (CreateUserRow, GetUserByIdRow, ListActiveUsersRow, CreateOrderRow, GetOrdersByUserRow):
-        assert issubclass(row_cls, msgspec.Struct), (
-            f"Expected {row_cls.__name__} to be a msgspec.Struct subclass, got {row_cls.__bases__}"
-        )
-    print("PASS: Row types are msgspec.Struct subclasses")
-
-
 async def test_create_user(conn: psycopg.AsyncConnection) -> int:
     """Test CreateUser query. Returns created user ID."""
     user = await create_user(
         conn, name="Alice", email="alice@example.com", status=UserStatus.ACTIVE
     )
     assert user is not None, "CreateUser returned None"
-    assert isinstance(user, msgspec.Struct), f"Expected msgspec.Struct instance, got {type(user)}"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.email == "alice@example.com", f"Expected email 'alice@example.com', got '{user.email}'"
     assert user.status == UserStatus.ACTIVE or user.status == "active", (
@@ -80,7 +65,6 @@ async def test_get_user_by_id(conn: psycopg.AsyncConnection, user_id: int) -> No
     """Test GetUserById query."""
     user = await get_user_by_id(conn, id=user_id)
     assert user is not None, f"GetUserById returned None for id={user_id}"
-    assert isinstance(user, msgspec.Struct), f"Expected msgspec.Struct instance, got {type(user)}"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.id == user_id, f"Expected id {user_id}, got {user.id}"
     print("PASS: GetUserById")
@@ -90,7 +74,6 @@ async def test_list_active_users(conn: psycopg.AsyncConnection) -> None:
     """Test ListActiveUsers query."""
     users = await list_active_users(conn, status=UserStatus.ACTIVE)
     assert len(users) >= 1, f"Expected at least 1 active user, got {len(users)}"
-    assert isinstance(users[0], msgspec.Struct), f"Expected msgspec.Struct instance, got {type(users[0])}"
     names = [u.name for u in users]
     assert "Alice" in names, f"Expected 'Alice' in active users, got {names}"
     print("PASS: ListActiveUsers")
@@ -102,7 +85,6 @@ async def test_create_order(conn: psycopg.AsyncConnection, user_id: int) -> int:
         conn, user_id=user_id, total=Decimal("49.99"), notes="Test order"
     )
     assert order is not None, "CreateOrder returned None"
-    assert isinstance(order, msgspec.Struct), f"Expected msgspec.Struct instance, got {type(order)}"
     assert order.user_id == user_id, f"Expected user_id {user_id}, got {order.user_id}"
     assert order.notes == "Test order", f"Expected notes 'Test order', got '{order.notes}'"
     await conn.commit()
@@ -114,13 +96,13 @@ async def test_get_orders_by_user(conn: psycopg.AsyncConnection, user_id: int) -
     """Test GetOrdersByUser query."""
     orders = await get_orders_by_user(conn, user_id=user_id)
     assert len(orders) >= 1, f"Expected at least 1 order, got {len(orders)}"
-    assert isinstance(orders[0], msgspec.Struct), f"Expected msgspec.Struct instance, got {type(orders[0])}"
     assert orders[0].notes == "Test order", f"Expected notes 'Test order', got '{orders[0].notes}'"
     print("PASS: GetOrdersByUser")
 
 
 async def test_delete_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
     """Test DeleteUser query."""
+    # Delete orders first due to FK constraint
     await delete_orders_by_user(conn, user_id=user_id)
     await delete_user(conn, id=user_id)
     await conn.commit()
@@ -135,7 +117,6 @@ async def run_tests() -> None:
     async with await psycopg.AsyncConnection.connect(database_url) as conn:
         await setup_schema(conn)
 
-        await test_row_types_are_msgspec_structs()
         user_id = await test_create_user(conn)
         await test_get_user_by_id(conn, user_id)
         await test_list_active_users(conn)

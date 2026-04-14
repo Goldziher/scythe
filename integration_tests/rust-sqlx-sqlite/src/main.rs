@@ -2,11 +2,11 @@
 mod queries;
 
 use queries::{
-    
+
     GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
 };
 use rust_decimal::Decimal;
-use sqlx::sqlite::SqlitePoolOptions;
+use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 use std::str::FromStr;
 
 macro_rules! assert_test {
@@ -29,9 +29,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url =
         std::env::var("SQLITE_PATH").expect("SQLITE_PATH environment variable required");
 
-let pool = SqlitePoolOptions::new()
-        .max_connections(1)
-        .connect(&database_url)
+let connect_options = database_url.parse::<SqliteConnectOptions>()?
+        .create_if_missing(true);
+    let pool = SqlitePoolOptions::new()
+        .max_connections(5)
+        .connect_with(connect_options)
         .await?;
 
     // Clean slate: drop tables in dependency order, then recreate
@@ -71,7 +73,7 @@ sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
 
     // Test: GetUserById
 let fetched: GetUserByIdRow =
-        sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
             .bind(user_id)
             .fetch_one(&pool)
             .await?;

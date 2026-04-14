@@ -103,23 +103,11 @@ var createdUserID int32
 func testCreateUser(ctx context.Context, db *sql.DB) {
 	name := "CreateUser"
 	email := "alice@example.com"
-	err := queries.CreateUser(ctx, db, "Alice", &email, "active")
+	user, err := queries.CreateUser(ctx, db, "Alice", &email)
 	if err != nil {
 		fail(name, err)
 		return
 	}
-
-	// Fetch the created user to verify
-	users, err := queries.ListActiveUsers(ctx, db, "active")
-	if err != nil {
-		fail(name, err)
-		return
-	}
-	if !assertf(name, len(users) > 0, "expected at least one active user") {
-		return
-	}
-
-	user := users[0]
 	if !assertf(name, user.Name == "Alice", "expected name Alice, got %s", user.Name) {
 		return
 	}
@@ -146,9 +134,12 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
-	err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes)
+	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes)
 	if err != nil {
 		fail(name, err)
+		return
+	}
+	if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
 		return
 	}
 	pass(name)
@@ -161,7 +152,7 @@ func testGetOrdersByUser(ctx context.Context, db *sql.DB) {
 		fail(name, err)
 		return
 	}
-	if !assertf(name, len(orders) >= 1, "expected at least 1 order, got %d", len(orders)) {
+	if !assertf(name, len(orders) == 1, "expected 1 order, got %d", len(orders)) {
 		return
 	}
 	pass(name)
@@ -169,7 +160,7 @@ func testGetOrdersByUser(ctx context.Context, db *sql.DB) {
 
 func testListActiveUsers(ctx context.Context, db *sql.DB) {
 	name := "ListActiveUsers"
-	users, err := queries.ListActiveUsers(ctx, db, "active")
+	users, err := queries.ListActiveUsers(ctx, db)
 	if err != nil {
 		fail(name, err)
 		return
@@ -187,7 +178,7 @@ func testDeleteOrdersByUser(ctx context.Context, db *sql.DB) {
 		fail(name, err)
 		return
 	}
-	if !assertf(name, count >= 1, "expected at least 1 deleted order, got %d", count) {
+	if !assertf(name, count == 1, "expected 1 deleted order, got %d", count) {
 		return
 	}
 	pass(name)
@@ -202,7 +193,7 @@ func testDeleteUser(ctx context.Context, db *sql.DB) {
 	}
 	// Verify user is deleted
 	_, err = queries.GetUserById(ctx, db, createdUserID)
-	if !assertf(name, err != nil, "expected error when fetching deleted user, but got success") {
+	if !assertf(name, err != nil, "expected error when fetching deleted user") {
 		return
 	}
 	pass(name)

@@ -23,6 +23,35 @@ database = String.trim_leading(uri.path, "/")
 # Allow the DBConnection pool to finish establishing the connection before querying.
 Process.sleep(500)
 
+# Clean slate
+# Clean slate: drop tables and sequences, ignoring errors if they do not exist.
+for table <- ["user_tags", "tags", "orders", "users"] do
+  Jamdb.Oracle.query(conn, "DROP TABLE #{table} CASCADE CONSTRAINTS", [])
+end
+
+for seq <- ["tags_seq", "orders_seq", "users_seq"] do
+  Jamdb.Oracle.query(conn, "DROP SEQUENCE #{seq}", [])
+end
+
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "oracle", "schema_full.sql"]))
+
+schema_sql
+|> String.split("/\n")
+|> Enum.map(fn block ->
+  block
+  |> String.split("\n")
+  |> Enum.reject(&String.starts_with?(String.trim(&1), "--"))
+  |> Enum.join("\n")
+  |> String.trim()
+end)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt ->
+  case Jamdb.Oracle.query(conn, stmt, []) do
+    {:ok, _} -> :ok
+    {:error, reason} -> raise "Schema statement failed: #{inspect(reason)}\nSQL: #{stmt}"
+  end
+end)
+
 exit_code = 0
 
 assert = fn condition, test_name, detail ->

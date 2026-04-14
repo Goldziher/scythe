@@ -23,58 +23,8 @@ Postgrex.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
 Postgrex.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
 Postgrex.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
 
-Postgrex.query!(conn, "CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')", [])
-
-Postgrex.query!(
-  conn,
-  """
-  CREATE TABLE users (
-    id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL,
-    email TEXT,
-    status user_status NOT NULL DEFAULT 'active',
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )
-  """,
-  []
-)
-
-Postgrex.query!(
-  conn,
-  """
-  CREATE TABLE orders (
-    id SERIAL PRIMARY KEY,
-    user_id INT NOT NULL REFERENCES users (id),
-    total NUMERIC(10, 2) NOT NULL,
-    notes TEXT,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-  )
-  """,
-  []
-)
-
-Postgrex.query!(
-  conn,
-  """
-  CREATE TABLE tags (
-    id SERIAL PRIMARY KEY,
-    name TEXT NOT NULL UNIQUE
-  )
-  """,
-  []
-)
-
-Postgrex.query!(
-  conn,
-  """
-  CREATE TABLE user_tags (
-    user_id INT NOT NULL REFERENCES users (id),
-    tag_id INT NOT NULL REFERENCES tags (id),
-    PRIMARY KEY (user_id, tag_id)
-  )
-  """,
-  []
-)
+schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "pg", "schema.sql"]))
+Postgrex.query!(conn, schema_sql, [])
 
 exit_code = 0
 

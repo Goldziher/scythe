@@ -7,15 +7,13 @@ import {
 	getOrdersByUser,
 	deleteOrdersByUser,
 	deleteUser,
+	UsersStatus,
 	getLastInsertUser,
 	getLastInsertOrder,
 } from "./generated/queries.js";
 
 const DATABASE_URL =
-	process.env["DATABASE_URL"] ??
-	"mysql://scythe:scythe@localhost:3307/scythe_test";
-
-const pool = mysql.createPool(DATABASE_URL);
+	process.env["MYSQL_URL"] ?? "mysql://root@localhost:3306/scythe_test";
 
 let exitCode = 0;
 
@@ -27,42 +25,27 @@ function assert(condition: boolean, testName: string, detail: string): void {
 }
 
 async function main(): Promise<void> {
+	const pool = mysql.createPool(DATABASE_URL);
 	try {
 		// Clean slate
-		await pool.execute("DROP TABLE IF EXISTS user_tags");
-		await pool.execute("DROP TABLE IF EXISTS tags");
-		await pool.execute("DROP TABLE IF EXISTS orders");
-		await pool.execute("DROP TABLE IF EXISTS users");
+		await pool.query("DROP TABLE IF EXISTS user_tags");
+		await pool.query("DROP TABLE IF EXISTS tags");
+		await pool.query("DROP TABLE IF EXISTS orders");
+		await pool.query("DROP TABLE IF EXISTS users");
 
-		await pool.execute(`CREATE TABLE users (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(255) NOT NULL,
-      email VARCHAR(255),
-      status ENUM('active', 'inactive', 'banned') NOT NULL DEFAULT 'active',
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
-    )`);
-		await pool.execute(`CREATE TABLE orders (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      user_id INT NOT NULL,
-      total DECIMAL(10, 2) NOT NULL,
-      notes TEXT,
-      created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
-      FOREIGN KEY (user_id) REFERENCES users (id)
-    )`);
-		await pool.execute(`CREATE TABLE tags (
-      id INT AUTO_INCREMENT PRIMARY KEY,
-      name VARCHAR(255) NOT NULL UNIQUE
-    )`);
-		await pool.execute(`CREATE TABLE user_tags (
-      user_id INT NOT NULL,
-      tag_id INT NOT NULL,
-      PRIMARY KEY (user_id, tag_id),
-      FOREIGN KEY (user_id) REFERENCES users (id),
-      FOREIGN KEY (tag_id) REFERENCES tags (id)
-    )`);
+		const schemaPath = new URL("../sql/mysql/schema.sql", import.meta.url)
+			.pathname;
+		const { readFile } = await import("node:fs/promises");
+		const schemaSql = await readFile(schemaPath, "utf8");
+		for (const stmt of schemaSql
+			.split(";")
+			.map((s) => s.trim())
+			.filter(Boolean)) {
+			await pool.query(stmt);
+		}
 
-		// Test: CreateUser + GetLastInsertUser
-		await createUser(pool, "Alice", "alice@example.com", "active");
+		// Test: CreateUser
+		await createUser(pool, "Alice", "alice@example.com", UsersStatus.Active);
 		const user = await getLastInsertUser(pool);
 		assert(user !== null, "CreateUser", "user should not be null");
 		assert(
@@ -86,7 +69,7 @@ async function main(): Promise<void> {
 		console.log("PASS: GetUserById");
 
 		// Test: ListActiveUsers
-		const activeUsers = await listActiveUsers(pool, "active");
+		const activeUsers = await listActiveUsers(pool, UsersStatus.Active);
 		assert(
 			activeUsers.length > 0,
 			"ListActiveUsers",
@@ -99,7 +82,7 @@ async function main(): Promise<void> {
 		);
 		console.log("PASS: ListActiveUsers");
 
-		// Test: CreateOrder + GetLastInsertOrder
+		// Test: CreateOrder
 		await createOrder(pool, userId, "99.95", "first order");
 		const order = await getLastInsertOrder(pool);
 		assert(order !== null, "CreateOrder", "order should not be null");
@@ -127,13 +110,18 @@ async function main(): Promise<void> {
 			"GetOrdersByUser",
 			`expected 1 order, got ${orders.length}`,
 		);
+		assert(
+			orders[0]!.total === "99.95",
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
 		console.log("PASS: GetOrdersByUser");
 
-		// Test: DeleteOrdersByUser
+		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(pool, userId);
 		assert(
 			deletedOrders === 1,
-			"DeleteOrdersByUser",
+			"DeleteUser",
 			`expected 1 deleted order, got ${deletedOrders}`,
 		);
 		await deleteUser(pool, userId);
@@ -150,10 +138,6 @@ async function main(): Promise<void> {
 
 	process.exit(exitCode);
 }
-
-// Force exit after 10 seconds if pool.end() hangs
-const forceExitTimer = setTimeout(() => process.exit(exitCode), 10_000);
-forceExitTimer.unref();
 
 main().catch((error) => {
 	console.error("Fatal error:", error);

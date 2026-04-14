@@ -15,6 +15,9 @@
 .DS_Store
 Thumbs.db
 
+# Ruby
+.bundle/
+
 # Generated output (except integration test fixtures)
 **/generated/
 generated/

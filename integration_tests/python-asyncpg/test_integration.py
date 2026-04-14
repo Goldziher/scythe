@@ -51,6 +51,9 @@ async def test_create_user(conn: asyncpg.Connection) -> int:
     assert user is not None, "CreateUser returned None"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.email == "alice@example.com", f"Expected email 'alice@example.com', got '{user.email}'"
+    assert user.status == UserStatus.ACTIVE or user.status == "active", (
+        f"Expected status 'active', got '{user.status}'"
+    )
     print("PASS: CreateUser")
     return user.id
 

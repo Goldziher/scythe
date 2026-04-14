@@ -26,13 +26,15 @@ MyXQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
 MyXQL.query!(conn, "DROP TABLE IF EXISTS orders", [])
 MyXQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mariadb", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "mariadb", "schema.sql"]))
 
 schema_sql
 |> String.split(";")
 |> Enum.map(&String.trim/1)
 |> Enum.filter(&(&1 != ""))
 |> Enum.each(fn stmt -> MyXQL.query!(conn, stmt, []) end)
+
+exit_code = 0
 
 assert = fn condition, test_name, detail ->
   unless condition do

@@ -7,7 +7,7 @@ defmodule ScytheIntegrationTest.MixProject do
       version: "0.1.0",
       elixir: "~> 1.14",
       start_permanent: false,
-      elixirc_paths: ["generated"],
+
       deps: deps()
     ]
   end
@@ -20,7 +20,8 @@ defmodule ScytheIntegrationTest.MixProject do
 
   defp deps do
     [
-      {:exqlite, "~> 0.23"}
+      {:exqlite, "~> 0.23"},
+      {:decimal, "~> 2.0"}
     ]
   end
 end

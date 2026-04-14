@@ -384,12 +384,8 @@ impl CodegenBackend for KotlinJdbcBackend {
                     for (i, col) in columns.iter().enumerate() {
                         let getter_call =
                             oracle_cs_getter_call(&col.neutral_type, params.len() + i + 1);
-                        let _ = writeln!(
-                            out,
-                            "            {} = cs.{},",
-                            col.field_name,
-                            getter_call
-                        );
+                        let _ =
+                            writeln!(out, "            {} = cs.{},", col.field_name, getter_call);
                     }
                     let _ = writeln!(out, "        )");
                     let _ = writeln!(out, "    }}");

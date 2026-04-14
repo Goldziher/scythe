@@ -2,7 +2,8 @@
 mod queries;
 
 use queries::{
-    CreateOrderRow, CreateUserRow, GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
+    CreateOrderRow, CreateUserRow,
+    GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
 };
 use sibyl::prelude::*;
 use std::str::FromStr;
@@ -63,8 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Test: CreateUser
-
-let user = generated::create_user(&session, "Alice", "alice@example.com", 1i32)
+let user = queries::create_user(&session, "Alice", "alice@example.com", 1i32)
         .await?
         .expect("create_user returned None");
     assert_test!(user.name == "Alice", "CreateUser");

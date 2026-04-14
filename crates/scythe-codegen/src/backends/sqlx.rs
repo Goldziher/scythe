@@ -74,7 +74,10 @@ impl SqlxBackend {
     /// For these engines, row struct fields must use `String` (or `Option<String>`)
     /// instead of the generated Rust enum type.
     fn uses_inline_enums(&self) -> bool {
-        matches!(self.engine.as_str(), "mysql" | "mariadb" | "sqlite" | "sqlite3")
+        matches!(
+            self.engine.as_str(),
+            "mysql" | "mariadb" | "sqlite" | "sqlite3"
+        )
     }
 
     /// Resolve the field type for a row struct column.

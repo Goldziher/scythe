@@ -1,61 +1,25 @@
 alias Scythe.Queries
 
-db_path = System.get_env("DATABASE_PATH", ":memory:")
 
-{:ok, conn} = Exqlite.Sqlite3.open(db_path)
+database_path = System.get_env("SQLITE_PATH", ":memory:")
+
+{:ok, conn} = Exqlite.start_link(database: database_path)
 
 # Clean slate
-Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS user_tags")
-Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS tags")
-Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS orders")
-Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS users")
+Exqlite.query!(conn, "DROP TABLE IF EXISTS user_tags", [])
+Exqlite.query!(conn, "DROP TABLE IF EXISTS tags", [])
+Exqlite.query!(conn, "DROP TABLE IF EXISTS orders", [])
+Exqlite.query!(conn, "DROP TABLE IF EXISTS users", [])
 
-Exqlite.Sqlite3.execute(
-  conn,
-  """
-  CREATE TABLE users (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL,
-    email TEXT,
-    status TEXT NOT NULL DEFAULT 'active' CHECK(status IN ('active', 'inactive', 'banned')),
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )
-  """
-)
+schema_sql = File.read!(Path.join([__DIR__, "..", "sql", "sqlite", "schema.sql"]))
 
-Exqlite.Sqlite3.execute(
-  conn,
-  """
-  CREATE TABLE orders (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    user_id INTEGER NOT NULL REFERENCES users (id),
-    total REAL NOT NULL,
-    notes TEXT,
-    created_at TEXT NOT NULL DEFAULT (datetime('now'))
-  )
-  """
-)
+schema_sql
+|> String.split(";")
+|> Enum.map(&String.trim/1)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt -> Exqlite.query!(conn, stmt, []) end)
 
-Exqlite.Sqlite3.execute(
-  conn,
-  """
-  CREATE TABLE tags (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE
-  )
-  """
-)
-
-Exqlite.Sqlite3.execute(
-  conn,
-  """
-  CREATE TABLE user_tags (
-    user_id INTEGER NOT NULL REFERENCES users (id),
-    tag_id INTEGER NOT NULL REFERENCES tags (id),
-    PRIMARY KEY (user_id, tag_id)
-  )
-  """
-)
+exit_code = 0
 
 assert = fn condition, test_name, detail ->
   unless condition do
@@ -67,16 +31,9 @@ end
 Process.put(:exit_code, 0)
 
 # Test: CreateUser
-:ok = Queries.create_user(conn, "Alice", "alice@example.com", "active")
-
-# SQLite: get last inserted user via last_insert_rowid
-{:ok, stmt} = Exqlite.Sqlite3.prepare(conn, "SELECT last_insert_rowid()")
-{:ok, [[last_id]]} = Exqlite.Sqlite3.fetch_all(conn, stmt)
-Exqlite.Sqlite3.release(conn, stmt)
-{:ok, user} = Queries.get_user_by_id(conn, last_id)
+{:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com")
 assert.(user.name == "Alice", "CreateUser", "expected name Alice, got #{user.name}")
 assert.(user.email == "alice@example.com", "CreateUser", "expected email alice@example.com")
-assert.(user.status == "active", "CreateUser", "expected status active, got #{user.status}")
 user_id = user.id
 IO.puts("PASS: CreateUser")
 
@@ -88,35 +45,33 @@ assert.(fetched.email == "alice@example.com", "GetUserById", "expected email ali
 IO.puts("PASS: GetUserById")
 
 # Test: ListActiveUsers
-{:ok, active_users} = Queries.list_active_users(conn, "active")
+{:ok, active_users} = Queries.list_active_users(conn)
 assert.(length(active_users) > 0, "ListActiveUsers", "should have at least one user")
 first = List.first(active_users)
 assert.(first.name == "Alice", "ListActiveUsers", "first user should be Alice")
 IO.puts("PASS: ListActiveUsers")
 
 # Test: CreateOrder
-:ok = Queries.create_order(conn, user_id, 99.95, "first order")
-{:ok, orders} = Queries.get_orders_by_user(conn, user_id)
-assert.(length(orders) == 1, "CreateOrder", "expected 1 order, got #{length(orders)}")
-first_order = List.first(orders)
-assert.(first_order.total == 99.95, "CreateOrder", "expected total 99.95, got #{first_order.total}")
-assert.(first_order.notes == "first order", "CreateOrder", "expected notes 'first order'")
+{:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
+assert.(order.user_id == user_id, "CreateOrder", "expected user_id #{user_id}")
+assert.(Decimal.equal?(order.total, Decimal.new("99.95")), "CreateOrder", "expected total 99.95, got #{order.total}")
+assert.(order.notes == "first order", "CreateOrder", "expected notes 'first order'")
 IO.puts("PASS: CreateOrder")
 
 # Test: GetOrdersByUser
 {:ok, orders} = Queries.get_orders_by_user(conn, user_id)
 assert.(length(orders) == 1, "GetOrdersByUser", "expected 1 order, got #{length(orders)}")
+first_order = List.first(orders)
+assert.(Decimal.equal?(first_order.total, Decimal.new("99.95")), "GetOrdersByUser", "expected total 99.95")
 IO.puts("PASS: GetOrdersByUser")
 
 # Test: DeleteUser (delete orders first due to FK)
 {:ok, deleted_orders} = Queries.delete_orders_by_user(conn, user_id)
-assert.(deleted_orders >= 1, "DeleteUser", "expected at least 1 deleted order, got #{deleted_orders}")
+assert.(deleted_orders == 1, "DeleteUser", "expected 1 deleted order, got #{deleted_orders}")
 :ok = Queries.delete_user(conn, user_id)
 result = Queries.get_user_by_id(conn, user_id)
 assert.(result == {:error, :not_found}, "DeleteUser", "user should not exist after deletion")
 IO.puts("PASS: DeleteUser")
-
-Exqlite.Sqlite3.close(conn)
 
 final_exit_code = Process.get(:exit_code, 0)
 

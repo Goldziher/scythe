@@ -248,4 +248,3 @@ public static List<SearchUsersRow> searchUsers(Connection conn, @Nonnull String 
 }
 
 }
-

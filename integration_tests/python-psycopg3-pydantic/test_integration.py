@@ -59,6 +59,7 @@ async def test_row_types_are_pydantic_models() -> None:
     print("PASS: Row types are Pydantic BaseModel subclasses")
 
 
+
 async def test_create_user(conn: psycopg.AsyncConnection) -> int:
     """Test CreateUser query. Returns created user ID."""
     user = await create_user(
@@ -121,6 +122,7 @@ async def test_get_orders_by_user(conn: psycopg.AsyncConnection, user_id: int) -
 
 async def test_delete_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
     """Test DeleteUser query."""
+    # Delete orders first due to FK constraint
     await delete_orders_by_user(conn, user_id=user_id)
     await delete_user(conn, id=user_id)
     await conn.commit()

@@ -143,7 +143,7 @@ fun testListActiveUsers(conn: java.sql.Connection) {
 fun testCreateOrder(conn: java.sql.Connection) {
     val name = "CreateOrder"
     try {
-        createOrder(conn, createdUserId, 99.99f, "Test order")
+        createOrder(conn, createdUserId, 99.99, "Test order")
         // Verify via GetOrdersByUser
         val orders = getOrdersByUser(conn, createdUserId)
         if (orders.isEmpty()) {

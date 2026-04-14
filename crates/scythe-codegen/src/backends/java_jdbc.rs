@@ -441,11 +441,7 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "        ps.execute();");
                     let _ = writeln!(out, "        ResultSet rs = ps.getResultSet();");
                     let _ = writeln!(out, "        if (rs != null && rs.next()) {{");
-                    let _ = writeln!(
-                        out,
-                        "            return {}.fromResultSet(rs);",
-                        struct_name
-                    );
+                    let _ = writeln!(out, "            return {}.fromResultSet(rs);", struct_name);
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "        return null;");
                     let _ = writeln!(out, "    }}");
@@ -487,7 +483,7 @@ impl CodegenBackend for JavaJdbcBackend {
                         let getter_call =
                             oracle_cs_getter_call(&col.neutral_type, params.len() + i + 1);
                         let sep = if i + 1 < columns.len() { "," } else { "" };
-                        let _ = writeln!(out, "            cs.{}{}",  getter_call, sep);
+                        let _ = writeln!(out, "            cs.{}{}", getter_call, sep);
                     }
                     let _ = writeln!(out, "        );");
                     let _ = writeln!(out, "    }}");

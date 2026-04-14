@@ -16,7 +16,7 @@ ahash = { version = "0.8", features = ["serde"] }
 scythe-core = { path = "../scythe-core", version = "0.6.7" }
 serde = { version = "1", features = ["derive"] }
 sqlparser = { version = "0.61", features = ["visitor"] }
-sqruff-lib = "0.37"
+sqruff-lib = "0.38"
 
 [dev-dependencies]
 serde_json = "1"

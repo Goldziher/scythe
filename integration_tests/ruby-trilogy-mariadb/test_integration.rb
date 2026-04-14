@@ -101,7 +101,7 @@ end
 def test_get_order_total(conn, user_id)
   result = Queries.get_order_total(conn, user_id)
   assert_not_nil(result, "get_order_total returned nil")
-  assert_true(result.total_sum.to_f == 49.99, "get_order_total total_sum: expected 49.99, got #{result.total_sum}")
+  assert_equal("49.99", result.total_sum, "get_order_total total_sum")
   puts "PASS: GetOrderTotal"
 end
 
@@ -111,6 +111,13 @@ def test_search_users(conn)
   names = results.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in search results, got #{names}")
   puts "PASS: SearchUsers"
+end
+
+def test_count_users_by_status(conn)
+  result = Queries.count_users_by_status(conn)
+  assert_not_nil(result, "count_users_by_status returned nil")
+  assert_true(result.user_count >= 1, "Expected count >= 1, got #{result.user_count}")
+  puts "PASS: CountUsersByStatus"
 end
 
 def test_delete_user(conn, user_id)
@@ -144,6 +151,7 @@ begin
   test_get_orders_by_user(conn, user_id)
   test_get_order_total(conn, user_id)
   test_search_users(conn)
+  test_count_users_by_status(conn)
   test_delete_user(conn, user_id)
 
   puts "\nALL TESTS PASSED"
