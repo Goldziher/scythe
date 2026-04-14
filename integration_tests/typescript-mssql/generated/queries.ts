@@ -87,7 +87,6 @@ export interface GetUserByIdRow {
 	name: string;
 	email: string | null;
 	active: boolean;
-	external_id: string | null;
 	created_at: Date;
 }
 
@@ -99,7 +98,7 @@ export async function getUserById(
 	const request = pool.request();
 	request.input("p1", id);
 	const result = await request.query<GetUserByIdRow>(
-		`SELECT id, name, email, active, external_id, created_at FROM users WHERE id = @p1`,
+		`SELECT id, name, email, active, created_at FROM users WHERE id = @p1`,
 	);
 	return result.recordset[0] ?? null;
 }

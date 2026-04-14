@@ -107,7 +107,6 @@ public record GetUserByIdRow(
     String name,
     @Nullable String email,
     boolean active,
-    @Nullable java.util.UUID external_id,
     java.time.LocalDateTime created_at
 ) {
     public static GetUserByIdRow fromResultSet(ResultSet rs) throws SQLException {
@@ -116,14 +115,13 @@ public record GetUserByIdRow(
             rs.getString("name"),
             rs.getString("email"),
             rs.getBoolean("active"),
-            rs.getObject("external_id"),
             rs.getObject("created_at", LocalDateTime.class)
         );
     }
 }
 
 public static @Nullable GetUserByIdRow getUserById(Connection conn, int id) throws SQLException {
-    try (var ps = conn.prepareStatement("SELECT id, name, email, active, external_id, created_at FROM users WHERE id = ?")) {
+    try (var ps = conn.prepareStatement("SELECT id, name, email, active, created_at FROM users WHERE id = ?")) {
         ps.setInt(1, id);
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {

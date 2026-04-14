@@ -1,6 +1,6 @@
 -- @name GetUserById
 -- @returns :one
-SELECT id, name, email, active, external_id, created_at FROM users WHERE id = @p1;
+SELECT id, name, email, active, created_at FROM users WHERE id = @p1;
 
 -- @name ListActiveUsers
 -- @returns :many

@@ -63,7 +63,6 @@ readonly class GetUserByIdRow {
         public string $name,
         public ?string $email,
         public bool $active,
-        public ?string $external_id,
         public \DateTimeImmutable $created_at,
     ) {}
 
@@ -73,7 +72,6 @@ readonly class GetUserByIdRow {
             name: (string) $row['name'],
             email: $row['email'] !== null ? (string) $row['email'] : null,
             active: (bool) $row['active'],
-            external_id: $row['external_id'] !== null ? (string) $row['external_id'] : null,
             created_at: new \DateTimeImmutable($row['created_at']),
         );
     }
@@ -190,7 +188,7 @@ final class Queries {
      * @return GetUserByIdRow|null
      */
     public static function getUserById(\PDO $pdo, int $id): ?GetUserByIdRow {
-        $stmt = $pdo->prepare("SELECT id, name, email, active, external_id, created_at FROM users WHERE id = :p1");
+        $stmt = $pdo->prepare("SELECT id, name, email, active, created_at FROM users WHERE id = :p1");
         $stmt->execute(["p1" => $id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row ? GetUserByIdRow::fromRow($row) : null;

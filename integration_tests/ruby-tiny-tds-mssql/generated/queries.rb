@@ -44,14 +44,14 @@ VALUES (@p1, @p2, @p3, @p4)"
     client.execute(sql).affected_rows
   end
 
-  GetUserByIdRow = Data.define(:id, :name, :email, :active, :external_id, :created_at)
+  GetUserByIdRow = Data.define(:id, :name, :email, :active, :created_at)
 
 
   def self.get_user_by_id(client, id)
-    sql = "DECLARE @p1 = '#{client.escape(id)}'; SELECT id, name, email, active, external_id, created_at FROM users WHERE id = @p1"
+    sql = "DECLARE @p1 = '#{client.escape(id)}'; SELECT id, name, email, active, created_at FROM users WHERE id = @p1"
     result = client.execute(sql).first
     return nil if result.nil?
-    GetUserByIdRow.new(id: result["id"], name: result["name"], email: result["email"], active: result["active"], external_id: result["external_id"], created_at: result["created_at"])
+    GetUserByIdRow.new(id: result["id"], name: result["name"], email: result["email"], active: result["active"], created_at: result["created_at"])
   end
 
   ListActiveUsersRow = Data.define(:id, :name, :email)

@@ -78,12 +78,11 @@ public record GetUserByIdRow(
     string Name,
     string? Email,
     bool Active,
-    Guid? ExternalId,
     DateTime CreatedAt
 );
 
 public static async Task<GetUserByIdRow?> GetUserById(SqlConnection conn, int id) {
-    await using var cmd = new SqlCommand("SELECT id, name, email, active, external_id, created_at FROM users WHERE id = @p1", conn);
+    await using var cmd = new SqlCommand("SELECT id, name, email, active, created_at FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", id);
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -92,8 +91,7 @@ public static async Task<GetUserByIdRow?> GetUserById(SqlConnection conn, int id
         reader.GetString(1),
         reader.IsDBNull(2) ? null : reader.GetString(2),
         reader.GetBoolean(3),
-        reader.IsDBNull(4) ? null : reader.GetGuid(4),
-        reader.GetDateTime(5)
+        reader.GetDateTime(4)
     );
 }
 

@@ -85,7 +85,6 @@ pub struct GetUserByIdRow {
     pub name: String,
     pub email: Option<String>,
     pub active: bool,
-    pub external_id: Option<uuid::Uuid>,
     pub created_at: chrono::NaiveDateTime,
 }
 
@@ -96,14 +95,13 @@ impl GetUserByIdRow {
             name: row.try_get::<&str, _>("name")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'name'".into()))?.to_string(),
             email: row.try_get::<&str, _>("email")?.map(|s| s.to_string()),
             active: row.try_get("active")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'active'".into()))?,
-            external_id: row.try_get("external_id")?,
             created_at: row.try_get("created_at")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'created_at'".into()))?,
         })
     }
 }
 
 pub async fn get_user_by_id(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, id: i32) -> Result<GetUserByIdRow, tiberius::error::Error> {
-    let stream = client.query(r#"SELECT id, name, email, active, external_id, created_at FROM users WHERE id = @p1"#, &[&id as &dyn tiberius::ToSql]).await?;
+    let stream = client.query(r#"SELECT id, name, email, active, created_at FROM users WHERE id = @p1"#, &[&id as &dyn tiberius::ToSql]).await?;
     let row = stream.into_row().await?.expect("expected one row");
     Ok(GetUserByIdRow::from_row(&row)?)
 }

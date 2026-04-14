@@ -97,14 +97,13 @@ class GetUserByIdRow:
     name: str
     email: str | None
     active: bool
-    external_id: str | None
     created_at: datetime.datetime
 
 
 def get_user_by_id(conn: pyodbc.Connection, *, id: int) -> GetUserByIdRow | None:
     """Execute GetUserById query."""
     cursor = conn.cursor()
-    cursor.execute("""SELECT id, name, email, active, external_id, created_at FROM users WHERE id = ?""", (id,))
+    cursor.execute("""SELECT id, name, email, active, created_at FROM users WHERE id = ?""", (id,))
     row = cursor.fetchone()
     if row is None:
         return None
@@ -113,8 +112,7 @@ def get_user_by_id(conn: pyodbc.Connection, *, id: int) -> GetUserByIdRow | None
         name=row[1],
         email=row[2],
         active=row[3],
-        external_id=row[4],
-        created_at=row[5],
+        created_at=row[4],
     )
 
 

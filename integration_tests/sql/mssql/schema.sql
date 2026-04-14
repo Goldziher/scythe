@@ -3,7 +3,6 @@ CREATE TABLE users (
     name NVARCHAR(255) NOT NULL,
     email NVARCHAR(255),
     active BIT NOT NULL DEFAULT 1,
-    external_id UNIQUEIDENTIFIER,
     created_at DATETIME2 NOT NULL DEFAULT GETDATE()
 );
 

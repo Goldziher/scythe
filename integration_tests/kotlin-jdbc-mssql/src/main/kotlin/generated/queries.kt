@@ -126,7 +126,6 @@ data class GetUserByIdRow(
     val name: String,
     val email: String?,
     val active: Boolean,
-    val external_id: java.util.UUID?,
     val created_at: java.time.LocalDateTime,
 )
 
@@ -135,20 +134,17 @@ fun getUserById(
     conn: Connection,
     id: Int,
 ): GetUserByIdRow? {
-    conn.prepareStatement("SELECT id, name, email, active, external_id, created_at FROM users WHERE id = ?").use { ps ->
+    conn.prepareStatement("SELECT id, name, email, active, created_at FROM users WHERE id = ?").use { ps ->
         ps.setInt(1, id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
                 val emailValue = rs.getString("email")
                 val email = if (rs.wasNull()) null else emailValue
-                val external_idValue = rs.getObject("external_id")
-                val external_id = if (rs.wasNull()) null else external_idValue
                 GetUserByIdRow(
                     id = rs.getInt("id"),
                     name = rs.getString("name"),
                     email = email,
                     active = rs.getBoolean("active"),
-                    external_id = external_id,
                     created_at = rs.getObject("created_at", LocalDateTime::class.java),
                 )
             } else {

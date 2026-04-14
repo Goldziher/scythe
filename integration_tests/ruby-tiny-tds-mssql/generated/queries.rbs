@@ -36,9 +36,8 @@ module Queries
     attr_reader name: String
     attr_reader email: String?
     attr_reader active: bool
-    attr_reader external_id: String?
     attr_reader created_at: Time
-    def self.new: (id: Integer, name: String, email: String?, active: bool, external_id: String?, created_at: Time) -> GetUserByIdRow
+    def self.new: (id: Integer, name: String, email: String?, active: bool, created_at: Time) -> GetUserByIdRow
   end
 
   def self.get_user_by_id: (TinyTds::Client, Integer) -> GetUserByIdRow?

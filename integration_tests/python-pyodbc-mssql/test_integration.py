@@ -47,7 +47,7 @@ def setup_schema(conn: pyodbc.Connection) -> None:
 
 def test_create_user(conn: pyodbc.Connection) -> int:
     """Test CreateUser query. Returns created user ID."""
-    user = create_user(conn, name="Alice", email="alice@example.com")
+    user = create_user(conn, id=1, name="Alice", email="alice@example.com", active=True)
     assert user is not None, "CreateUser returned None"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.email == "alice@example.com", f"Expected email 'alice@example.com', got '{user.email}'"
@@ -76,7 +76,7 @@ def test_list_active_users(conn: pyodbc.Connection) -> None:
 
 def test_create_order(conn: pyodbc.Connection, user_id: int) -> int:
     """Test CreateOrder query. Returns created order ID."""
-    order = create_order(conn, user_id=user_id, total=Decimal("49.99"), notes="Test order")
+    order = create_order(conn, id=1, user_id=user_id, total=Decimal("49.99"), notes="Test order")
     assert order is not None, "CreateOrder returned None"
     assert order.user_id == user_id, f"Expected user_id {user_id}, got {order.user_id}"
     assert order.notes == "Test order", f"Expected notes 'Test order', got '{order.notes}'"

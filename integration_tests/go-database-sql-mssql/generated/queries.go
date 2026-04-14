@@ -3,6 +3,7 @@ package queries
 import (
 	"context"
 	"database/sql"
+	"time"
 )
 
 
@@ -69,14 +70,13 @@ type GetUserByIdRow struct {
 	Name string `json:"name"`
 	Email *string `json:"email"`
 	Active bool `json:"active"`
-	ExternalId *string `json:"external_id"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
 func GetUserById(ctx context.Context, db *sql.DB, Id int32) (GetUserByIdRow, error) {
-	row := db.QueryRowContext(ctx, "SELECT id, name, email, active, external_id, created_at FROM users WHERE id = ?", Id)
+	row := db.QueryRowContext(ctx, "SELECT id, name, email, active, created_at FROM users WHERE id = ?", Id)
 	var r GetUserByIdRow
-	err := row.Scan(&r.Id, &r.Name, &r.Email, &r.Active, &r.ExternalId, &r.CreatedAt)
+	err := row.Scan(&r.Id, &r.Name, &r.Email, &r.Active, &r.CreatedAt)
 	return r, err
 }
 

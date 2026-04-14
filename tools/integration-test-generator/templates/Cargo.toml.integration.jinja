@@ -18,7 +18,6 @@ tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls", "rust_decimal", "chrono"] }
 tokio-util = { version = "0.7", features = ["compat"] }
 chrono = { version = "0.4", features = ["serde"] }
-uuid = "1"
 {%- elif driver == "sibyl" -%}
 sibyl = { version = "0.6", features = ["tokio"] }
 url = "2"

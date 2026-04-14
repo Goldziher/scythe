@@ -235,7 +235,7 @@ async def test_create_user(conn) -> int:
 {%- elif engine == "oracle" %}
     user = await create_user(conn, name="Alice", email="alice@example.com", active=1)
 {%- elif engine == "mssql" %}
-    user = create_user(conn, name="Alice", email="alice@example.com")
+    user = create_user(conn, id=1, name="Alice", email="alice@example.com", active=True)
 {%- elif engine == "snowflake" %}
     create_user(conn, name="Alice", email="alice@example.com", active=True, metadata='{}')
     cursor = conn.cursor()
@@ -358,7 +358,7 @@ async def test_create_order(conn, user_id: int) -> int:
 {%- elif engine == "oracle" %}
     order = await create_order(conn, user_id=user_id, total=9999, notes="Test order")
 {%- elif engine == "mssql" %}
-    order = create_order(conn, user_id=user_id, total=Decimal("49.99"), notes="Test order")
+    order = create_order(conn, id=1, user_id=user_id, total=Decimal("49.99"), notes="Test order")
 {%- elif engine == "snowflake" %}
     create_order(conn, user_id=user_id, total=Decimal("49.99"), notes="Test order")
     orders = get_orders_by_user(conn, user_id=user_id)

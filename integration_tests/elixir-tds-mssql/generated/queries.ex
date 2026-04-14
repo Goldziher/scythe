@@ -40,10 +40,9 @@ defmodule GetUserByIdRow do
     name: String.t(),
     email: String.t() | nil,
     active: boolean(),
-    external_id: String.t() | nil,
     created_at: NaiveDateTime.t()
   }
-  defstruct [:id, :name, :email, :active, :external_id, :created_at]
+  defstruct [:id, :name, :email, :active, :created_at]
 end
 
 defmodule ListActiveUsersRow do
@@ -130,10 +129,10 @@ end
 
 @spec get_user_by_id(pid(), integer()) :: {:ok, %GetUserByIdRow{}} | {:error, :not_found} | {:error, term()}
 def get_user_by_id(conn, id) do
-  case Tds.query(conn, "SELECT id, name, email, active, external_id, created_at FROM users WHERE id = @p1", [id]) do
+  case Tds.query(conn, "SELECT id, name, email, active, created_at FROM users WHERE id = @p1", [id]) do
     {:ok, %{rows: [row | _]}} ->
-      [id, name, email, active, external_id, created_at] = row
-      {:ok, %GetUserByIdRow{id: id, name: name, email: email, active: active, external_id: external_id, created_at: created_at}}
+      [id, name, email, active, created_at] = row
+      {:ok, %GetUserByIdRow{id: id, name: name, email: email, active: active, created_at: created_at}}
     {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
