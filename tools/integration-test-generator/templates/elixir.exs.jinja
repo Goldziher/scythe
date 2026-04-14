@@ -336,7 +336,7 @@ Process.put(:exit_code, 0)
 {%- elif engine == "oracle" %}
 {:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 {%- elif engine == "mssql" %}
-{:ok, user} = Queries.create_user(conn, 1, "Alice", "alice@example.com", 1)
+{:ok, user} = Queries.create_user(conn, 1, "Alice", "alice@example.com", true)
 {%- else %}
 {:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" or engine == "redshift" %}, "active"{% elif engine == "mariadb" %}, UsersStatus.active(){% endif %})
 {%- endif %}

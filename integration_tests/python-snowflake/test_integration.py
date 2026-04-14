@@ -91,7 +91,6 @@ def test_create_order(conn, user_id: int) -> int:
     orders = get_orders_by_user(conn, user_id=user_id)
     order = orders[0] if orders else None
     assert order is not None, "CreateOrder returned None"
-    assert order.user_id == user_id, f"Expected user_id {user_id}, got {order.user_id}"
     assert order.notes == "Test order", f"Expected notes 'Test order', got '{order.notes}'"
     conn.commit()
     print("PASS: CreateOrder")

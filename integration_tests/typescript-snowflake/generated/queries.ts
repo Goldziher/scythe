@@ -147,7 +147,7 @@ export async function createUser(
 ): Promise<void> {
 	await new Promise<void>((resolve, reject) => {
 		conn.execute({
-			sqlText: `INSERT INTO users (name, email, active, metadata) VALUES (?, ?, ?, PARSE_JSON(?))`,
+			sqlText: `INSERT INTO users (name, email, active) VALUES (?, ?, ?)`,
 			binds: [[name, email, active]],
 			complete: (err) => (err ? reject(err) : resolve()),
 		});

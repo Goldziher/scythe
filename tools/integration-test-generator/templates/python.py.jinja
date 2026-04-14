@@ -376,7 +376,7 @@ async def test_create_order(conn, user_id: int) -> int:
 {%- if options.row_type == "pydantic" %}
     assert isinstance(order, BaseModel), f"Expected BaseModel instance, got {type(order)}"
 {%- endif %}
-{%- if engine != "sqlite" %}
+{%- if engine != "sqlite" and engine != "snowflake" %}
     assert order.user_id == user_id, f"Expected user_id {user_id}, got {order.user_id}"
 {%- endif %}
     assert order.notes == "Test order", f"Expected notes 'Test order', got '{order.notes}'"

@@ -175,7 +175,7 @@ final class Queries {
      * @return void
      */
     public static function createUser(\PDO $pdo, string $name, ?string $email, bool $active): void {
-        $stmt = $pdo->prepare("INSERT INTO users (name, email, active, metadata) VALUES (:p1, :p2, :p3, PARSE_JSON(:p4))");
+        $stmt = $pdo->prepare("INSERT INTO users (name, email, active) VALUES (:p1, :p2, :p3)");
         $stmt->execute(["p1" => $name, "p2" => $email, "p3" => $active]);
     }
 

@@ -97,7 +97,7 @@ func ListActiveUsers(ctx context.Context, db *sql.DB) ([]ListActiveUsersRow, err
 }
 
 func CreateUser(ctx context.Context, db *sql.DB, Name string, Email *string, Active bool) error {
-	_, err := db.ExecContext(ctx, "INSERT INTO users (name, email, active, metadata) VALUES (?, ?, ?, PARSE_JSON(?))", Name, Email, Active)
+	_, err := db.ExecContext(ctx, "INSERT INTO users (name, email, active) VALUES (?, ?, ?)", Name, Email, Active)
 	return err
 }
 

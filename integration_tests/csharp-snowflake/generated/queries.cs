@@ -111,7 +111,7 @@ public static async Task<List<ListActiveUsersRow>> ListActiveUsers(SnowflakeDbCo
 
 public static async Task CreateUser(SnowflakeDbConnection conn, string name, string? email, bool active) {
     await using var cmd = new SnowflakeDbCommand(conn);
-    cmd.CommandText = "INSERT INTO users (name, email, active, metadata) VALUES (?, ?, ?, PARSE_JSON(?))";
+    cmd.CommandText = "INSERT INTO users (name, email, active) VALUES (?, ?, ?)";
     cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", Value = name });
     cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p2", Value = email });
     cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p3", Value = active });

@@ -14,9 +14,8 @@ use crate::backend_trait::{CodegenBackend, RbsGenerationContext, ResolvedColumn,
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-tiny-tds.toml");
 
 /// Check if a neutral type should not be escaped (numeric or boolean types).
-/// Neutral types come from the backend manifest (e.g., "Boolean", "Integer", "Float").
+/// Neutral types are core type identifiers like "int32", "bool", "decimal".
 fn is_numeric_or_bool_type(neutral_type: &str) -> bool {
-    // Neutral type names are PascalCase or have special forms like "Array<Integer>"
     // Remove container wrappers and check the base type
     let base_type = if neutral_type.contains('<') {
         // Handle Array<T> or similar generic types
@@ -27,20 +26,7 @@ fn is_numeric_or_bool_type(neutral_type: &str) -> bool {
 
     matches!(
         base_type,
-        "Integer"
-            | "Boolean"
-            | "Int16"
-            | "Int32"
-            | "Int64"
-            | "Float"
-            | "Float32"
-            | "Float64"
-            | "Decimal"
-            | "BigDecimal"
-            | "Numeric"
-            | "Double"
-            | "Money"
-            | "SmallMoney"
+        "bool" | "int16" | "int32" | "int64" | "float32" | "float64" | "decimal"
     )
 }
 
@@ -51,7 +37,7 @@ fn is_bool_type(neutral_type: &str) -> bool {
     } else {
         neutral_type
     };
-    base_type == "Boolean"
+    base_type == "bool"
 }
 
 /// Generate a parameter assignment for MSSQL with proper type handling.

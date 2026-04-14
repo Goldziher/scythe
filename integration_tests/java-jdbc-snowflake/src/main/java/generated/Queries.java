@@ -141,7 +141,7 @@ public static List<ListActiveUsersRow> listActiveUsers(Connection conn) throws S
 }
 
 public static void createUser(Connection conn, @Nonnull String name, @Nullable String email, boolean active) throws SQLException {
-    try (var ps = conn.prepareStatement("INSERT INTO users (name, email, active, metadata) VALUES (?, ?, ?, PARSE_JSON(?))")) {
+    try (var ps = conn.prepareStatement("INSERT INTO users (name, email, active) VALUES (?, ?, ?)")) {
         ps.setString(1, name);
         ps.setString(2, email);
         ps.setBoolean(3, active);

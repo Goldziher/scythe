@@ -53,7 +53,7 @@ async function main(): Promise<void> {
 		}
 
 		// Test: CreateUser
-		const user = await createUser(pool, "Alice", "alice@example.com", true);
+		const user = await createUser(pool, 1, "Alice", "alice@example.com", true);
 		assert(user !== null, "CreateUser", "user should not be null");
 		assert(
 			user!.name === "Alice",
@@ -90,7 +90,7 @@ async function main(): Promise<void> {
 		console.log("PASS: ListActiveUsers");
 
 		// Test: CreateOrder
-		const order = await createOrder(pool, userId, "99.95", "first order");
+		const order = await createOrder(pool, 1, userId, "99.95", "first order");
 		assert(order !== null, "CreateOrder", "order should not be null");
 		assert(
 			order!.user_id === userId,

@@ -10,7 +10,7 @@ module Queries
 
 
   def self.create_order(client, id, user_id, total, notes)
-    sql = "DECLARE @p1 = '#{client.escape(id)}', @p2 = '#{client.escape(user_id)}', @p3 = '#{client.escape(total)}', @p4 = '#{client.escape(notes)}'; INSERT INTO orders (id, user_id, total, notes)
+    sql = "DECLARE @p1 = #{id}, @p2 = #{user_id}, @p3 = #{total}, @p4 = '#{client.escape(notes)}'; INSERT INTO orders (id, user_id, total, notes)
 OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at
 VALUES (@p1, @p2, @p3, @p4)"
     result = client.execute(sql).first
@@ -22,7 +22,7 @@ VALUES (@p1, @p2, @p3, @p4)"
 
 
   def self.get_orders_by_user(client, user_id)
-    sql = "DECLARE @p1 = '#{client.escape(user_id)}'; SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC"
+    sql = "DECLARE @p1 = #{user_id}; SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC"
     results = client.execute(sql)
     results.map do |row|
       GetOrdersByUserRow.new(id: row["id"], total: row["total"], notes: row["notes"], created_at: row["created_at"])
@@ -33,14 +33,14 @@ VALUES (@p1, @p2, @p3, @p4)"
 
 
   def self.get_order_total(client, user_id)
-    sql = "DECLARE @p1 = '#{client.escape(user_id)}'; SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1"
+    sql = "DECLARE @p1 = #{user_id}; SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1"
     result = client.execute(sql).first
     return nil if result.nil?
     GetOrderTotalRow.new(total_sum: result["total_sum"])
   end
 
   def self.delete_orders_by_user(client, user_id)
-    sql = "DECLARE @p1 = '#{client.escape(user_id)}'; DELETE FROM orders WHERE user_id = @p1"
+    sql = "DECLARE @p1 = #{user_id}; DELETE FROM orders WHERE user_id = @p1"
     client.execute(sql).affected_rows
   end
 
@@ -48,7 +48,7 @@ VALUES (@p1, @p2, @p3, @p4)"
 
 
   def self.get_user_by_id(client, id)
-    sql = "DECLARE @p1 = '#{client.escape(id)}'; SELECT id, name, email, active, created_at FROM users WHERE id = @p1"
+    sql = "DECLARE @p1 = #{id}; SELECT id, name, email, active, created_at FROM users WHERE id = @p1"
     result = client.execute(sql).first
     return nil if result.nil?
     GetUserByIdRow.new(id: result["id"], name: result["name"], email: result["email"], active: result["active"], created_at: result["created_at"])
@@ -68,7 +68,7 @@ VALUES (@p1, @p2, @p3, @p4)"
 
 
   def self.create_user(client, id, name, email, active)
-    sql = "DECLARE @p1 = '#{client.escape(id)}', @p2 = '#{client.escape(name)}', @p3 = '#{client.escape(email)}', @p4 = '#{client.escape(active)}'; INSERT INTO users (id, name, email, active)
+    sql = "DECLARE @p1 = #{id}, @p2 = '#{client.escape(name)}', @p3 = '#{client.escape(email)}', @p4 = #{active ? 1 : 0}; INSERT INTO users (id, name, email, active)
 OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at
 VALUES (@p1, @p2, @p3, @p4)"
     result = client.execute(sql).first
@@ -77,13 +77,13 @@ VALUES (@p1, @p2, @p3, @p4)"
   end
 
   def self.update_user_email(client, email, id)
-    sql = "DECLARE @p1 = '#{client.escape(email)}', @p2 = '#{client.escape(id)}'; UPDATE users SET email = @p1 WHERE id = @p2"
+    sql = "DECLARE @p1 = '#{client.escape(email)}', @p2 = #{id}; UPDATE users SET email = @p1 WHERE id = @p2"
     client.execute(sql).do
     nil
   end
 
   def self.delete_user(client, id)
-    sql = "DECLARE @p1 = '#{client.escape(id)}'; DELETE FROM users WHERE id = @p1"
+    sql = "DECLARE @p1 = #{id}; DELETE FROM users WHERE id = @p1"
     client.execute(sql).do
     nil
   end

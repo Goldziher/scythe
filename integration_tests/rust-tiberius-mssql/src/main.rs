@@ -31,7 +31,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let database_url =
         std::env::var("MSSQL_URL").expect("MSSQL_URL environment variable required");
 
-let mut config = Config::from_ado_string(&database_url)?;
+// Parse sqlserver://user:pass@host:port?database=db URL
+    let url = url::Url::parse(&database_url).expect("invalid MSSQL_URL");
+    let mut config = Config::new();
+    config.host(url.host_str().unwrap_or("localhost"));
+    config.port(url.port().unwrap_or(1433));
+    config.authentication(AuthMethod::sql_server(
+        url.username(),
+        url.password().unwrap_or(""),
+    ));
+    if let Some(db) = url.query_pairs().find(|(k, _)| k == "database").map(|(_, v)| v) {
+        config.database(db);
+    }
     config.trust_cert();
     let tcp = TcpStream::connect(config.get_addr()).await?;
     tcp.set_nodelay(true)?;

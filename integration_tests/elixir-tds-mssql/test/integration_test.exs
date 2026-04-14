@@ -47,7 +47,7 @@ end
 Process.put(:exit_code, 0)
 
 # Test: CreateUser
-{:ok, user} = Queries.create_user(conn, 1, "Alice", "alice@example.com", 1)
+{:ok, user} = Queries.create_user(conn, 1, "Alice", "alice@example.com", true)
 assert.(user.name == "Alice", "CreateUser", "expected name Alice, got #{user.name}")
 assert.(user.email == "alice@example.com", "CreateUser", "expected email alice@example.com")
 user_id = user.id

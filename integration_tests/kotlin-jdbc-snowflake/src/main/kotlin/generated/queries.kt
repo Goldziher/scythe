@@ -171,7 +171,7 @@ fun createUser(
     email: String?,
     active: Boolean,
 ) {
-    conn.prepareStatement("INSERT INTO users (name, email, active, metadata) VALUES (?, ?, ?, PARSE_JSON(?))").use { ps ->
+    conn.prepareStatement("INSERT INTO users (name, email, active) VALUES (?, ?, ?)").use { ps ->
         ps.setString(1, name)
         ps.setString(2, email)
         ps.setBoolean(3, active)

@@ -863,14 +863,14 @@ foreach (var block in schemaText.Split(";"))
 
 // Test: CreateUser
 await Queries.CreateUser(conn, "Alice", "alice@example.com");
-var user = await Queries.GetUserById(conn, 1L);
+var user = await Queries.GetUserById(conn, 1);
 Assert(user != null, "CreateUser", "returned null");
 Assert(user!.Name == "Alice", "CreateUser", $"expected name Alice, got {user.Name}");
 Assert(user.Email == "alice@example.com", "CreateUser", $"expected email alice@example.com, got {user.Email}");
-Assert(user.Id == 1L, "CreateUser", $"expected id 1, got {user.Id}");
+Assert(user.Id == 1, "CreateUser", $"expected id 1, got {user.Id}");
 Console.WriteLine("PASS: CreateUser");
 
-var userId = 1L;
+var userId = 1;
 
 // Test: GetUserById
 var fetched = await Queries.GetUserById(conn, userId);
