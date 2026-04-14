@@ -237,30 +237,33 @@ impl CodegenBackend for RustTiberiusBackend {
             return_type
         );
 
-        // Build parameter slice for tiberius query with references to trait objects
+        // Build parameter slice for tiberius query
         let param_slice: String = if params.is_empty() {
             "&[]".to_string()
         } else {
-            let param_refs_vec: Vec<String> = params
+            let param_refs: Vec<String> = params
                 .iter()
                 .map(|p| {
-                    if p.borrowed_type.starts_with('&') {
-                        // References: cast directly to &dyn ToSql
-                        // For types like &Decimal that don't impl ToSql, we need to dereference first
-                        if p.borrowed_type == "&str" {
-                            // &str can be cast directly
-                            format!("{} as &dyn tiberius::ToSql", p.field_name)
+                    let bt = &p.borrowed_type;
+                    if bt == "&str" || bt == "Option<&str>" {
+                        // str is unsized, convert to String for ToSql
+                        if bt == "Option<&str>" {
+                            format!(
+                                "&{}.map(|s| s.to_string()) as &dyn tiberius::ToSql",
+                                p.field_name
+                            )
                         } else {
-                            // Other references like &Decimal: dereference then reference
-                            format!("&*{} as &dyn tiberius::ToSql", p.field_name)
+                            format!("&{}.to_string() as &dyn tiberius::ToSql", p.field_name)
                         }
+                    } else if bt.starts_with('&') {
+                        // Already a reference
+                        format!("{} as &dyn tiberius::ToSql", p.field_name)
                     } else {
-                        // Owned types (including Option): take a reference and cast to &dyn ToSql
                         format!("&{} as &dyn tiberius::ToSql", p.field_name)
                     }
                 })
                 .collect();
-            format!("&[{}]", param_refs_vec.join(", "))
+            format!("&[{}]", param_refs.join(", "))
         };
 
         match &analyzed.command {

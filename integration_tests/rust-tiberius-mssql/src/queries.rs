@@ -25,7 +25,7 @@ impl CreateOrderRow {
 pub async fn create_order(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, id: i32, user_id: i32, total: &rust_decimal::Decimal, notes: Option<&str>) -> Result<CreateOrderRow, tiberius::error::Error> {
     let stream = client.query(r#"INSERT INTO orders (id, user_id, total, notes)
 OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at
-VALUES (@p1, @p2, @p3, @p4)"#, &[&id as &dyn tiberius::ToSql, &user_id as &dyn tiberius::ToSql, &*total as &dyn tiberius::ToSql, &notes as &dyn tiberius::ToSql]).await?;
+VALUES (@p1, @p2, @p3, @p4)"#, &[&id as &dyn tiberius::ToSql, &user_id as &dyn tiberius::ToSql, total as &dyn tiberius::ToSql, &notes.map(|s| s.to_string()) as &dyn tiberius::ToSql]).await?;
     let row = stream.into_row().await?.expect("expected one row");
     Ok(CreateOrderRow::from_row(&row)?)
 }
@@ -155,13 +155,13 @@ impl CreateUserRow {
 pub async fn create_user(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, id: i32, name: &str, email: Option<&str>, active: bool) -> Result<CreateUserRow, tiberius::error::Error> {
     let stream = client.query(r#"INSERT INTO users (id, name, email, active)
 OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at
-VALUES (@p1, @p2, @p3, @p4)"#, &[&id as &dyn tiberius::ToSql, name as &dyn tiberius::ToSql, &email as &dyn tiberius::ToSql, &active as &dyn tiberius::ToSql]).await?;
+VALUES (@p1, @p2, @p3, @p4)"#, &[&id as &dyn tiberius::ToSql, &name.to_string() as &dyn tiberius::ToSql, &email.map(|s| s.to_string()) as &dyn tiberius::ToSql, &active as &dyn tiberius::ToSql]).await?;
     let row = stream.into_row().await?.expect("expected one row");
     Ok(CreateUserRow::from_row(&row)?)
 }
 
 pub async fn update_user_email(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, email: &str, id: i32) -> Result<(), tiberius::error::Error> {
-    client.execute(r#"UPDATE users SET email = @p1 WHERE id = @p2"#, &[email as &dyn tiberius::ToSql, &id as &dyn tiberius::ToSql]).await?;
+    client.execute(r#"UPDATE users SET email = @p1 WHERE id = @p2"#, &[&email.to_string() as &dyn tiberius::ToSql, &id as &dyn tiberius::ToSql]).await?;
     Ok(())
 }
 
@@ -188,7 +188,7 @@ impl SearchUsersRow {
 }
 
 pub async fn search_users(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, name: &str) -> Result<Vec<SearchUsersRow>, tiberius::error::Error> {
-    let stream = client.query(r#"SELECT id, name, email FROM users WHERE name LIKE @p1"#, &[name as &dyn tiberius::ToSql]).await?;
+    let stream = client.query(r#"SELECT id, name, email FROM users WHERE name LIKE @p1"#, &[&name.to_string() as &dyn tiberius::ToSql]).await?;
     let rows = stream.into_first_result().await?;
     rows.iter().map(SearchUsersRow::from_row).collect()
 }
