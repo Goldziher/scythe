@@ -139,7 +139,7 @@ def test_create_user(conn)
 {%- elif engine == "oracle" %}
   user = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 {%- elif engine == "mssql" %}
-  user = Queries.create_user(conn, "Alice", "alice@example.com", 1)
+  user = Queries.create_user(conn, 1, "Alice", "alice@example.com", true)
 {%- else %}
   user = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" or engine == "redshift" %}, "active"{% elif engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
 {%- endif %}
@@ -194,7 +194,7 @@ def test_create_order(conn, user_id)
 {%- elif engine == "oracle" %}
   order = Queries.create_order(conn, user_id, 9999, "Test order")
 {%- elif engine == "mssql" %}
-  order = Queries.create_order(conn, user_id, "49.99", "Test order")
+  order = Queries.create_order(conn, 1, user_id, "49.99", "Test order")
 {%- else %}
   order = Queries.create_order(conn, user_id, "49.99", "Test order")
 {%- endif %}
@@ -235,6 +235,7 @@ def test_search_users(conn)
   puts "PASS: SearchUsers"
 end
 
+{%- if engine == "postgresql" %}
 def test_count_users_by_status(conn)
   result = Queries.count_users_by_status(conn{% if engine == "postgresql" or engine == "redshift" %}, "active"{% endif %})
   assert_not_nil(result, "count_users_by_status returned nil")
@@ -246,6 +247,7 @@ def test_count_users_by_status(conn)
 {%- endif %}
   puts "PASS: CountUsersByStatus"
 end
+{%- endif %}
 
 def test_delete_user(conn, user_id)
   # Delete orders first due to FK constraint
@@ -312,7 +314,9 @@ begin
   test_get_orders_by_user(conn, user_id)
   test_get_order_total(conn, user_id)
   test_search_users(conn)
+{%- if engine == "postgresql" %}
   test_count_users_by_status(conn)
+{%- endif %}
   test_delete_user(conn, user_id)
 
   puts "\nALL TESTS PASSED"

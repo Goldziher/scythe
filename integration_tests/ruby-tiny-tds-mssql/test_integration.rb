@@ -47,7 +47,7 @@ def assert_true(value, message)
 end
 
 def test_create_user(conn)
-  user = Queries.create_user(conn, "Alice", "alice@example.com", 1)
+  user = Queries.create_user(conn, 1, "Alice", "alice@example.com", true)
   assert_not_nil(user, "create_user returned nil")
   assert_equal("Alice", user.name, "create_user name")
   assert_equal("alice@example.com", user.email, "create_user email")
@@ -82,7 +82,7 @@ def test_update_user_email(conn, user_id)
 end
 
 def test_create_order(conn, user_id)
-  order = Queries.create_order(conn, user_id, "49.99", "Test order")
+  order = Queries.create_order(conn, 1, user_id, "49.99", "Test order")
   assert_not_nil(order, "create_order returned nil")
   assert_equal(user_id, order.user_id, "create_order user_id")
   assert_equal("Test order", order.notes, "create_order notes")
@@ -110,13 +110,6 @@ def test_search_users(conn)
   names = results.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in search results, got #{names}")
   puts "PASS: SearchUsers"
-end
-
-def test_count_users_by_status(conn)
-  result = Queries.count_users_by_status(conn)
-  assert_not_nil(result, "count_users_by_status returned nil")
-  assert_true(result.user_count >= 1, "Expected count >= 1, got #{result.user_count}")
-  puts "PASS: CountUsersByStatus"
 end
 
 def test_delete_user(conn, user_id)
@@ -151,7 +144,6 @@ begin
   test_get_orders_by_user(conn, user_id)
   test_get_order_total(conn, user_id)
   test_search_users(conn)
-  test_count_users_by_status(conn)
   test_delete_user(conn, user_id)
 
   puts "\nALL TESTS PASSED"

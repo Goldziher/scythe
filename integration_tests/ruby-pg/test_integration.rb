@@ -111,7 +111,6 @@ def test_search_users(conn)
   assert_true(names.include?("Alice"), "Expected 'Alice' in search results, got #{names}")
   puts "PASS: SearchUsers"
 end
-
 def test_count_users_by_status(conn)
   result = Queries.count_users_by_status(conn, "active")
   assert_not_nil(result, "count_users_by_status returned nil")

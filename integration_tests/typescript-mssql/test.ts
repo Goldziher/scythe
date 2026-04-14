@@ -23,7 +23,16 @@ function assert(condition: boolean, testName: string, detail: string): void {
 }
 
 async function main(): Promise<void> {
-	const pool = await sql.connect(DATABASE_URL);
+	const url = new URL(DATABASE_URL);
+	const config = {
+		server: url.hostname,
+		port: parseInt(url.port) || 1433,
+		user: url.username,
+		password: url.password,
+		database: url.searchParams.get("database") || "master",
+		options: { encrypt: false, trustServerCertificate: true },
+	};
+	const pool = await sql.connect(config);
 	try {
 		// Clean slate
 		for (const table of ["user_tags", "tags", "orders", "users"]) {

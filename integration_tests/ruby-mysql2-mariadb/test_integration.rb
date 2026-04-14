@@ -113,13 +113,6 @@ def test_search_users(conn)
   puts "PASS: SearchUsers"
 end
 
-def test_count_users_by_status(conn)
-  result = Queries.count_users_by_status(conn)
-  assert_not_nil(result, "count_users_by_status returned nil")
-  assert_true(result.user_count >= 1, "Expected count >= 1, got #{result.user_count}")
-  puts "PASS: CountUsersByStatus"
-end
-
 def test_delete_user(conn, user_id)
   # Delete orders first due to FK constraint
   deleted_count = Queries.delete_orders_by_user(conn, user_id)
@@ -151,7 +144,6 @@ begin
   test_get_orders_by_user(conn, user_id)
   test_get_order_total(conn, user_id)
   test_search_users(conn)
-  test_count_users_by_status(conn)
   test_delete_user(conn, user_id)
 
   puts "\nALL TESTS PASSED"

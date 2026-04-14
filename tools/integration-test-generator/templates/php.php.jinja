@@ -180,7 +180,7 @@ function parse_database_url(string $url): array
     ];
 }
 
-{%- if driver == "pdo" %}
+{%- if driver == "pdo-mssql" %}
 
 function create_pdo(string $url): PDO
 {
@@ -205,6 +205,41 @@ function create_pdo(string $path): PDO
 {
     $dsn = sprintf('sqlite:%s', $path);
     $pdo = new PDO($dsn, null, null, [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+    return $pdo;
+}
+{%- endif %}
+{%- elif engine == "redshift" -%}
+function parse_database_url(string $url): array
+{
+    $parts = parse_url($url);
+    if ($parts === false) {
+        fwrite(STDERR, "ERROR: Invalid {{ connection_env }} format\n");
+        exit(1);
+    }
+    return [
+        'host' => $parts['host'] ?? 'localhost',
+        'port' => $parts['port'] ?? 5439,
+        'dbname' => ltrim($parts['path'] ?? '/scythe_test', '/'),
+        'user' => $parts['user'] ?? 'scythe',
+        'password' => $parts['pass'] ?? 'scythe',
+    ];
+}
+
+{%- if driver == "pdo" %}
+
+function create_pdo(string $url): PDO
+{
+    $params = parse_database_url($url);
+    $dsn = sprintf(
+        'pgsql:host=%s;port=%d;dbname=%s',
+        $params['host'],
+        $params['port'],
+        $params['dbname']
+    );
+    $pdo = new PDO($dsn, $params['user'], $params['password'], [
         PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
         PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
     ]);
@@ -267,7 +302,7 @@ function setup_schema({% if driver == "pdo-mysql" %}PDO{% else %}$conn{% endif %
     }
 }
 {%- elif engine == "mssql" -%}
-function setup_schema({% if driver == "pdo" %}PDO{% else %}$conn{% endif %} $pdo): void
+function setup_schema(PDO $pdo): void
 {
     $pdo->exec("IF OBJECT_ID('user_tags','U') IS NOT NULL DROP TABLE user_tags");
     $pdo->exec("IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags");
@@ -293,6 +328,20 @@ function setup_schema(PDO $pdo): void
     $pdo->exec("DROP TABLE IF EXISTS orders");
     $pdo->exec("DROP TABLE IF EXISTS users");
     $schema_path = __DIR__ . '/../sql/sqlite/schema.sql';
+    $schema_sql = file_get_contents($schema_path);
+    if ($schema_sql === false) {
+        throw new RuntimeException("Failed to read schema file: {$schema_path}");
+    }
+    $pdo->exec($schema_sql);
+}
+{%- elif engine == "redshift" -%}
+function setup_schema(PDO $pdo): void
+{
+    $pdo->exec("DROP TABLE IF EXISTS user_tags CASCADE");
+    $pdo->exec("DROP TABLE IF EXISTS tags CASCADE");
+    $pdo->exec("DROP TABLE IF EXISTS orders CASCADE");
+    $pdo->exec("DROP TABLE IF EXISTS users CASCADE");
+    $schema_path = __DIR__ . '/../sql/redshift/schema.sql';
     $schema_sql = file_get_contents($schema_path);
     if ($schema_sql === false) {
         throw new RuntimeException("Failed to read schema file: {$schema_path}");
@@ -365,9 +414,9 @@ function assert_true(bool $value, string $message): void
     }
 }
 
-function setup_schema({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo): void
+{% if engine == "snowflake" -%}
+function setup_schema({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo): void
 {
-{%- if engine == "snowflake" %}
     $pdo->exec("DROP TABLE IF EXISTS user_tags");
     $pdo->exec("DROP TABLE IF EXISTS tags");
     $pdo->exec("DROP TABLE IF EXISTS orders");
@@ -383,10 +432,10 @@ function setup_schema({% if driver == "pdo" or driver == "pdo-mysql" or driver =
             $pdo->exec($stmt);
         }
     }
-{%- endif %}
 }
+{%- endif %}
 
-function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo): {% if engine == "mariadb" %}string{% else %}int{% endif %}
+function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo): {% if engine == "mariadb" %}string{% else %}int{% endif %}
 {
     {%- if engine == "postgresql" %}
     $user = Queries::createUser($pdo, "Alice", "alice@example.com", UserStatus::ACTIVE);
@@ -410,7 +459,7 @@ function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driv
     return $user->id;
 }
 
-function test_get_user_by_id({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
+function test_get_user_by_id({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
 {
     $user = Queries::getUserById($pdo, $user_id);
     assert_not_null($user, "GetUserById returned null for id={$user_id}");
@@ -419,7 +468,7 @@ function test_get_user_by_id({% if driver == "pdo" or driver == "pdo-mysql" or d
     echo "PASS: GetUserById\n";
 }
 
-function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo): void
+function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo): void
 {
     {%- if engine == "postgresql" %}
     $users = iterator_to_array(Queries::listActiveUsers($pdo, UserStatus::ACTIVE));
@@ -434,7 +483,7 @@ function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" o
     echo "PASS: ListActiveUsers\n";
 }
 
-function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): int
+function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): int
 {
     {%- if engine == "mysql" %}
     Queries::createOrder($pdo, $user_id, "49.99", "Test order");
@@ -455,7 +504,7 @@ function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or dri
     return $order->id;
 }
 
-function test_get_orders_by_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
+function test_get_orders_by_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
 {
     $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
     assert_true(count($orders) >= 1, "Expected at least 1 order, got " . count($orders));
@@ -463,7 +512,7 @@ function test_get_orders_by_user({% if driver == "pdo" or driver == "pdo-mysql" 
     echo "PASS: GetOrdersByUser\n";
 }
 
-function test_delete_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
+function test_delete_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
 {
     // Delete orders first due to FK constraint
     Queries::deleteOrdersByUser($pdo, $user_id);

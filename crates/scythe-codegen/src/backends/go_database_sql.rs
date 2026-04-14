@@ -108,11 +108,15 @@ impl CodegenBackend for GoDatabaseSqlBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_oneline_with_optional(
+        let mut sql = super::clean_sql_oneline_with_optional(
             &analyzed.sql,
             &analyzed.optional_params,
             &analyzed.params,
         );
+        // MSSQL requires @pN placeholders instead of ?
+        if self.engine == "mssql" {
+            sql = super::rewrite_pg_placeholders(&sql, |n| format!("@p{n}"));
+        }
 
         let param_list = params
             .iter()

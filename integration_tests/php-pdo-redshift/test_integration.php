@@ -21,9 +21,51 @@ function get_database_url(): string
     return $url;
 }
 
+function parse_database_url(string $url): array
+{
+    $parts = parse_url($url);
+    if ($parts === false) {
+        fwrite(STDERR, "ERROR: Invalid REDSHIFT_URL format\n");
+        exit(1);
+    }
+    return [
+        'host' => $parts['host'] ?? 'localhost',
+        'port' => $parts['port'] ?? 5439,
+        'dbname' => ltrim($parts['path'] ?? '/scythe_test', '/'),
+        'user' => $parts['user'] ?? 'scythe',
+        'password' => $parts['pass'] ?? 'scythe',
+    ];
+}
 
+function create_pdo(string $url): PDO
+{
+    $params = parse_database_url($url);
+    $dsn = sprintf(
+        'pgsql:host=%s;port=%d;dbname=%s',
+        $params['host'],
+        $params['port'],
+        $params['dbname']
+    );
+    $pdo = new PDO($dsn, $params['user'], $params['password'], [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+    return $pdo;
+}
 
-
+function setup_schema(PDO $pdo): void
+{
+    $pdo->exec("DROP TABLE IF EXISTS user_tags CASCADE");
+    $pdo->exec("DROP TABLE IF EXISTS tags CASCADE");
+    $pdo->exec("DROP TABLE IF EXISTS orders CASCADE");
+    $pdo->exec("DROP TABLE IF EXISTS users CASCADE");
+    $schema_path = __DIR__ . '/../sql/redshift/schema.sql';
+    $schema_sql = file_get_contents($schema_path);
+    if ($schema_sql === false) {
+        throw new RuntimeException("Failed to read schema file: {$schema_path}");
+    }
+    $pdo->exec($schema_sql);
+}
 
 function assert_equal(mixed $expected, mixed $actual, string $message): void
 {
@@ -49,9 +91,7 @@ function assert_true(bool $value, string $message): void
     }
 }
 
-function setup_schema(PDO $pdo): void
-{
-}
+
 
 function test_create_user(PDO $pdo): int
 {

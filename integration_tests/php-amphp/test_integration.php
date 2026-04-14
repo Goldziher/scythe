@@ -84,9 +84,7 @@ function assert_true(bool $value, string $message): void
     }
 }
 
-function setup_schema($conn $pdo): void
-{
-}
+
 
 function test_create_user($conn $pdo): int
 {

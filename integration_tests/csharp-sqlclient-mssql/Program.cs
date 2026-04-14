@@ -40,8 +40,8 @@ await using (var cmd = new SqlCommand(@"
     await cmd.ExecuteNonQueryAsync();
 }
 
-// Read and execute schema_full.sql
-var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "../sql/mssql", "schema_full.sql");
+// Read and execute schema.sql
+var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "../sql/mssql", "schema.sql");
 var schemaText = await File.ReadAllTextAsync(schemaPath);
 foreach (var block in schemaText.Split("GO\n"))
 {
