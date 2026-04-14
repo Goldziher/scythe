@@ -19,7 +19,7 @@
         <dependency>
             <groupId>net.snowflake</groupId>
             <artifactId>snowflake-jdbc</artifactId>
-            <version>3.16.1</version>
+            <version>4.0.2</version>
         </dependency>
         <dependency>
             <groupId>com.google.code.findbugs</groupId>
