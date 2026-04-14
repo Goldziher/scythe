@@ -774,3 +774,201 @@ jobs:
       - name: Test php-pdo-sqlite
         working-directory: integration_tests/php-pdo-sqlite
         run: php test_integration.php
+
+  integration-redshift:
+    name: Redshift Integration Tests (PG-compat)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scythe
+          POSTGRES_PASSWORD: scythe
+          POSTGRES_DB: scythe_redshift_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      REDSHIFT_URL: "postgres://scythe:scythe@localhost:5432/scythe_redshift_test"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Run Redshift PG-compat schema migration
+        run: PGPASSWORD=scythe psql -h localhost -U scythe -d scythe_redshift_test -f integration_tests/sql/redshift/schema_pg_compat.sql
+
+      # Language toolchains
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            integration_tests/rust-sqlx-redshift -> target
+            integration_tests/rust-tokio-postgres-redshift -> target
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0"
+      - uses: erlef/setup-beam@v1
+        with:
+          otp-version: "26"
+          elixir-version: "1.16"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+          extensions: pdo_pgsql
+
+      - run: pip install uv
+      - run: npm install -g pnpm
+
+      - name: Test rust-sqlx-redshift
+        working-directory: integration_tests/rust-sqlx-redshift
+        run: cargo run --quiet
+
+      - name: Test rust-tokio-postgres-redshift
+        working-directory: integration_tests/rust-tokio-postgres-redshift
+        run: cargo run --quiet
+
+      - name: Test python-psycopg3-redshift
+        working-directory: integration_tests/python-psycopg3-redshift
+        run: uv run python test_integration.py
+
+      - name: Test python-asyncpg-redshift
+        working-directory: integration_tests/python-asyncpg-redshift
+        run: uv run python test_integration.py
+
+      - name: Test typescript-pg-redshift
+        working-directory: integration_tests/typescript-pg-redshift
+        run: |
+          pnpm install
+          pnpm exec tsx test.ts
+
+      - name: Test typescript-postgres-redshift
+        working-directory: integration_tests/typescript-postgres-redshift
+        run: |
+          pnpm install
+          pnpm exec tsx test.ts
+
+      - name: Test go-pgx-redshift
+        working-directory: integration_tests/go-pgx-redshift
+        run: go run .
+
+      - name: Test java-jdbc-redshift
+        working-directory: integration_tests/java-jdbc-redshift
+        run: mvn -q compile exec:java
+
+      - name: Test kotlin-jdbc-redshift
+        working-directory: integration_tests/kotlin-jdbc-redshift
+        run: ./gradlew -q run
+
+      - name: Test csharp-npgsql-redshift
+        working-directory: integration_tests/csharp-npgsql-redshift
+        run: dotnet run
+
+      - name: Test elixir-postgrex-redshift
+        working-directory: integration_tests/elixir-postgrex-redshift
+        run: |
+          mix deps.get
+          mix run test/integration_test.exs
+
+      - name: Test ruby-pg-redshift
+        working-directory: integration_tests/ruby-pg-redshift
+        run: |
+          bundle install
+          bundle exec ruby test_integration.rb
+
+      - name: Test php-pdo-redshift
+        working-directory: integration_tests/php-pdo-redshift
+        run: php test_integration.php
+
+  integration-snowflake:
+    name: Snowflake Integration Tests (Emulator)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    services:
+      snowflake:
+        image: ghcr.io/nnnkkk7/snowflake-emulator:latest
+        ports:
+          - 8080:8080
+
+    env:
+      SNOWFLAKE_URL: "snowflake://test:test@localhost:8080/testdb/public?account=testaccount&protocol=http"
+
+    steps:
+      - uses: actions/checkout@v6
+
+      # Language toolchains
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "8.0"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.3"
+
+      - run: pip install uv
+      - run: npm install -g pnpm
+
+      - name: Test python-snowflake
+        working-directory: integration_tests/python-snowflake
+        run: uv run python test_integration.py
+
+      - name: Test typescript-snowflake
+        working-directory: integration_tests/typescript-snowflake
+        run: |
+          pnpm install
+          pnpm exec tsx test.ts
+
+      - name: Test go-gosnowflake
+        working-directory: integration_tests/go-gosnowflake
+        run: go run .
+
+      - name: Test java-jdbc-snowflake
+        working-directory: integration_tests/java-jdbc-snowflake
+        run: mvn -q compile exec:java
+
+      - name: Test kotlin-jdbc-snowflake
+        working-directory: integration_tests/kotlin-jdbc-snowflake
+        run: ./gradlew -q run
+
+      - name: Test csharp-snowflake
+        working-directory: integration_tests/csharp-snowflake
+        run: dotnet run
+
+      - name: Test php-pdo-snowflake
+        working-directory: integration_tests/php-pdo-snowflake
+        run: php test_integration.php

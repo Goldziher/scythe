@@ -9,6 +9,8 @@ require "mysql2"
 require "sqlite3"
 {%- elif driver == "trilogy" %}
 require "trilogy"
+{%- elif driver == "tiny-tds" %}
+require "tiny_tds"
 {%- elif driver == "oci8" %}
 require "oci8"
 {%- endif %}
@@ -20,6 +22,8 @@ SCHEMA_PATH = File.join(__dir__, "..", "sql", "pg", "schema.sql")
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "mysql", "schema.sql")
 {%- elif engine == "mariadb" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "mariadb", "schema.sql")
+{%- elif engine == "mssql" -%}
+SCHEMA_PATH = File.join(__dir__, "..", "sql", "mssql", "schema_full.sql")
 {%- elif engine == "sqlite" -%}
 SCHEMA_PATH = File.join(__dir__, "..", "sql", "sqlite", "schema.sql")
 {%- elif engine == "oracle" -%}
@@ -78,6 +82,18 @@ def setup_schema(conn)
     conn.query(stmt) unless stmt.empty?
   end
 end
+{%- elif driver == "tiny-tds" -%}
+def setup_schema(conn)
+  conn.execute("IF OBJECT_ID('user_tags','U') IS NOT NULL DROP TABLE user_tags").do
+  conn.execute("IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags").do
+  conn.execute("IF OBJECT_ID('orders','U') IS NOT NULL DROP TABLE orders").do
+  conn.execute("IF OBJECT_ID('users','U') IS NOT NULL DROP TABLE users").do
+  schema_sql = File.read(SCHEMA_PATH)
+  schema_sql.split("GO\n").each do |stmt|
+    stmt = stmt.strip
+    conn.execute(stmt).do unless stmt.empty?
+  end
+end
 {%- elif driver == "oci8" -%}
 def setup_schema(conn)
   ["user_tags", "tags", "orders", "users"].each do |table|
@@ -117,6 +133,8 @@ def test_create_user(conn)
   Queries.create_user(conn, "Alice", "alice@example.com", Queries::UsersStatus::ACTIVE)
   user = Queries.get_last_insert_user(conn)
 {%- elif engine == "oracle" %}
+  user = Queries.create_user(conn, "Alice", "alice@example.com", 1)
+{%- elif engine == "mssql" %}
   user = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 {%- else %}
   user = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" %}, "active"{% elif engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
@@ -171,6 +189,8 @@ def test_create_order(conn, user_id)
   order = Queries.get_last_insert_order(conn)
 {%- elif engine == "oracle" %}
   order = Queries.create_order(conn, user_id, 9999, "Test order")
+{%- elif engine == "mssql" %}
+  order = Queries.create_order(conn, user_id, "49.99", "Test order")
 {%- else %}
   order = Queries.create_order(conn, user_id, "49.99", "Test order")
 {%- endif %}
@@ -255,6 +275,17 @@ begin
     username: uri.user,
     password: uri.password,
     database: uri.path&.delete_prefix("/")
+  )
+  {%- elif driver == "tiny-tds" -%}
+  database_url = get_database_url
+  uri = URI.parse(database_url)
+  query_params = URI.decode_www_form(uri.query || "").to_h
+  conn = TinyTds::Client.new(
+    host: uri.host,
+    port: uri.port || 1433,
+    username: uri.user,
+    password: uri.password,
+    database: query_params["database"] || "master"
   )
   {%- elif driver == "oci8" -%}
   database_url = get_database_url

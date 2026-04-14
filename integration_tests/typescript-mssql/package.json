@@ -6,7 +6,9 @@
 	"scripts": {
 		"test": "tsx test.ts"
 	},
-	"dependencies": {},
+	"dependencies": {
+		"mssql": "^11"
+	},
 	"devDependencies": {
 		"tsx": "^4.19.0",
 		"typescript": "^5.6.0"

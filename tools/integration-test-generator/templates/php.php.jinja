@@ -157,6 +157,47 @@ function create_pdo(string $url): PDO
     return $pdo;
 }
 {%- endif %}
+{%- elif engine == "mssql" -%}
+function parse_database_url(string $url): array
+{
+    $parts = parse_url($url);
+    if ($parts === false) {
+        fwrite(STDERR, "ERROR: Invalid {{ connection_env }} format\n");
+        exit(1);
+    }
+    $host = $parts['host'] ?? 'localhost';
+    if ($host === 'localhost') {
+        $host = '127.0.0.1';
+    }
+    // Parse database from query params
+    parse_str($parts['query'] ?? '', $query_params);
+    return [
+        'server' => $host,
+        'port' => $parts['port'] ?? 1433,
+        'dbname' => $query_params['database'] ?? 'master',
+        'user' => $parts['user'] ?? 'sa',
+        'password' => $parts['pass'] ?? '',
+    ];
+}
+
+{%- if driver == "pdo" %}
+
+function create_pdo(string $url): PDO
+{
+    $params = parse_database_url($url);
+    $dsn = sprintf(
+        'sqlsrv:Server=%s,%d;Database=%s;TrustServerCertificate=1',
+        $params['server'],
+        $params['port'],
+        $params['dbname']
+    );
+    $pdo = new PDO($dsn, $params['user'], $params['password'], [
+        PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
+        PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
+    ]);
+    return $pdo;
+}
+{%- endif %}
 {%- elif engine == "sqlite" -%}
 {%- if driver == "pdo-sqlite" %}
 
@@ -225,6 +266,25 @@ function setup_schema({% if driver == "pdo-mysql" %}PDO{% else %}$conn{% endif %
         }
     }
 }
+{%- elif engine == "mssql" -%}
+function setup_schema({% if driver == "pdo" %}PDO{% else %}$conn{% endif %} $pdo): void
+{
+    $pdo->exec("IF OBJECT_ID('user_tags','U') IS NOT NULL DROP TABLE user_tags");
+    $pdo->exec("IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags");
+    $pdo->exec("IF OBJECT_ID('orders','U') IS NOT NULL DROP TABLE orders");
+    $pdo->exec("IF OBJECT_ID('users','U') IS NOT NULL DROP TABLE users");
+    $schema_path = __DIR__ . '/../sql/mssql/schema_full.sql';
+    $schema_sql = file_get_contents($schema_path);
+    if ($schema_sql === false) {
+        throw new RuntimeException("Failed to read schema file: {$schema_path}");
+    }
+    foreach (explode('GO', $schema_sql) as $stmt) {
+        $stmt = trim($stmt);
+        if ($stmt !== '') {
+            $pdo->exec($stmt);
+        }
+    }
+}
 {%- elif engine == "sqlite" -%}
 function setup_schema(PDO $pdo): void
 {
@@ -274,6 +334,8 @@ function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driv
     $user = Queries::getLastInsertUser($pdo);
     {%- elif engine == "mariadb" %}
     $user = Queries::createUser($pdo, "Alice", "alice@example.com", UsersStatus::ACTIVE);
+    {%- elif engine == "mssql" %}
+    $user = Queries::createUser($pdo, "Alice", "alice@example.com", 1);
     {%- else %}
     $user = Queries::createUser($pdo, "Alice", "alice@example.com");
     {%- endif %}
@@ -313,6 +375,8 @@ function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or dri
     {%- if engine == "mysql" %}
     Queries::createOrder($pdo, $user_id, "49.99", "Test order");
     $order = Queries::getLastInsertOrder($pdo);
+    {%- elif engine == "mssql" %}
+    $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
     {%- else %}
     $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
     {%- endif %}
@@ -344,6 +408,8 @@ function test_delete_user({% if driver == "pdo" or driver == "pdo-mysql" or driv
 try {
     $database_url = get_database_url();
     {% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" -%}
+    $pdo = create_pdo($database_url);
+    {%- elif engine == "mssql" and driver == "pdo" -%}
     $pdo = create_pdo($database_url);
     {%- elif driver == "amphp" -%}
     $pdo = create_connection($database_url);

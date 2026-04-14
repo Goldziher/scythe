@@ -20,6 +20,9 @@ import aiosqlite
 {%- elif driver == "oracledb" %}
 
 import oracledb
+{%- elif driver == "pyodbc" %}
+
+import pyodbc
 {%- endif %}
 {%- if options.row_type == "pydantic" %}
 from pydantic import BaseModel
@@ -64,6 +67,8 @@ SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mariadb" / "schema.sql"
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "sqlite" / "schema.sql"
 {%- elif engine == "oracle" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "oracle" / "schema_full.sql"
+{%- elif engine == "mssql" -%}
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mssql" / "schema.sql"
 {%- endif %}
 
 
@@ -145,10 +150,27 @@ async def setup_schema(conn: oracledb.AsyncConnection) -> None:
         if block:
             await conn.execute(block)
     await conn.commit()
+{%- elif driver == "pyodbc" -%}
+def setup_schema(conn: pyodbc.Connection) -> None:
+    """Drop all tables and recreate schema from SQL file."""
+    cursor = conn.cursor()
+    for table in ("user_tags", "tags", "orders", "users"):
+        cursor.execute(f"IF OBJECT_ID('{table}', 'U') IS NOT NULL DROP TABLE {table}")
+    conn.commit()
+    schema_sql = SCHEMA_PATH.read_text()
+    for stmt in schema_sql.split(";"):
+        stmt = stmt.strip()
+        if stmt:
+            cursor.execute(stmt)
+    conn.commit()
 {%- endif %}
 
 {% if options.row_type == "pydantic" %}
+{% if driver != "pyodbc" %}
 async def test_row_types_are_pydantic_models() -> None:
+{% else %}
+def test_row_types_are_pydantic_models() -> None:
+{% endif %}
     """Verify generated row types are Pydantic BaseModel subclasses."""
     for row_cls in (CreateUserRow, GetUserByIdRow, ListActiveUsersRow, CreateOrderRow, GetOrdersByUserRow):
         assert issubclass(row_cls, BaseModel), (
@@ -162,6 +184,8 @@ async def test_row_types_are_pydantic_models() -> None:
 async def test_create_user(conn: psycopg.AsyncConnection) -> int:
 {%- elif driver == "asyncpg" %}
 async def test_create_user(conn: asyncpg.Connection) -> int:
+{%- elif driver == "pyodbc" %}
+def test_create_user(conn: pyodbc.Connection) -> int:
 {%- elif engine == "mariadb" %}
 async def test_create_user(conn) -> str:
 {%- else %}
@@ -182,6 +206,8 @@ async def test_create_user(conn) -> int:
     user = await get_user_by_id(conn, id=user_id)
 {%- elif engine == "oracle" %}
     user = await create_user(conn, name="Alice", email="alice@example.com", active=1)
+{%- elif engine == "mssql" %}
+    user = create_user(conn, name="Alice", email="alice@example.com")
 {%- else %}
     user = await create_user(
         conn, name="Alice", email="alice@example.com"
@@ -202,6 +228,8 @@ async def test_create_user(conn) -> int:
 {%- endif %}
 {%- if driver == "psycopg3" %}
     await conn.commit()
+{%- elif driver == "pyodbc" %}
+    conn.commit()
 {%- endif %}
     print("PASS: CreateUser")
     return user.id
@@ -211,13 +239,19 @@ async def test_create_user(conn) -> int:
 async def test_get_user_by_id(conn: psycopg.AsyncConnection, user_id: int) -> None:
 {%- elif driver == "asyncpg" -%}
 async def test_get_user_by_id(conn: asyncpg.Connection, user_id: int) -> None:
+{%- elif driver == "pyodbc" -%}
+def test_get_user_by_id(conn: pyodbc.Connection, user_id: int) -> None:
 {%- elif engine == "mariadb" -%}
 async def test_get_user_by_id(conn, user_id: str) -> None:
 {%- else -%}
 async def test_get_user_by_id(conn, user_id: int) -> None:
 {%- endif %}
     """Test GetUserById query."""
+{%- if driver != "pyodbc" %}
     user = await get_user_by_id(conn, id=user_id)
+{%- else %}
+    user = get_user_by_id(conn, id=user_id)
+{%- endif %}
     assert user is not None, f"GetUserById returned None for id={user_id}"
 {%- if options.row_type == "pydantic" %}
     assert isinstance(user, BaseModel), f"Expected BaseModel instance, got {type(user)}"
@@ -231,11 +265,17 @@ async def test_get_user_by_id(conn, user_id: int) -> None:
 async def test_list_active_users(conn: psycopg.AsyncConnection) -> None:
 {%- elif driver == "asyncpg" -%}
 async def test_list_active_users(conn: asyncpg.Connection) -> None:
+{%- elif driver == "pyodbc" -%}
+def test_list_active_users(conn: pyodbc.Connection) -> None:
 {%- else -%}
 async def test_list_active_users(conn) -> None:
 {%- endif %}
     """Test ListActiveUsers query."""
+{%- if driver != "pyodbc" %}
     users = await list_active_users(conn{% if engine == "postgresql" %}, status=UserStatus.ACTIVE{% elif engine == "mysql" or engine == "mariadb" %}, status=UsersStatus.ACTIVE{% elif engine == "sqlite" %}, status="active"{% endif %})
+{%- else %}
+    users = list_active_users(conn)
+{%- endif %}
     assert len(users) >= 1, f"Expected at least 1 active user, got {len(users)}"
 {%- if options.row_type == "pydantic" %}
     assert isinstance(users[0], BaseModel), f"Expected BaseModel instance, got {type(users[0])}"
@@ -249,6 +289,8 @@ async def test_list_active_users(conn) -> None:
 async def test_create_order(conn: psycopg.AsyncConnection, user_id: int) -> int:
 {%- elif driver == "asyncpg" -%}
 async def test_create_order(conn: asyncpg.Connection, user_id: int) -> int:
+{%- elif driver == "pyodbc" -%}
+def test_create_order(conn: pyodbc.Connection, user_id: int) -> int:
 {%- elif engine == "mariadb" -%}
 async def test_create_order(conn, user_id: str) -> int:
 {%- else -%}
@@ -266,6 +308,8 @@ async def test_create_order(conn, user_id: int) -> int:
     order = orders[0] if orders else None
 {%- elif engine == "oracle" %}
     order = await create_order(conn, user_id=user_id, total=9999, notes="Test order")
+{%- elif engine == "mssql" %}
+    order = create_order(conn, user_id=user_id, total=Decimal("49.99"), notes="Test order")
 {%- else %}
     order = await create_order(
         conn, user_id=user_id, total=Decimal("49.99"), notes="Test order"
@@ -281,6 +325,8 @@ async def test_create_order(conn, user_id: int) -> int:
     assert order.notes == "Test order", f"Expected notes 'Test order', got '{order.notes}'"
 {%- if driver == "psycopg3" %}
     await conn.commit()
+{%- elif driver == "pyodbc" %}
+    conn.commit()
 {%- endif %}
     print("PASS: CreateOrder")
     return order.id
@@ -290,13 +336,19 @@ async def test_create_order(conn, user_id: int) -> int:
 async def test_get_orders_by_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
 {%- elif driver == "asyncpg" -%}
 async def test_get_orders_by_user(conn: asyncpg.Connection, user_id: int) -> None:
+{%- elif driver == "pyodbc" -%}
+def test_get_orders_by_user(conn: pyodbc.Connection, user_id: int) -> None:
 {%- elif engine == "mariadb" -%}
 async def test_get_orders_by_user(conn, user_id: str) -> None:
 {%- else -%}
 async def test_get_orders_by_user(conn, user_id: int) -> None:
 {%- endif %}
     """Test GetOrdersByUser query."""
+{%- if driver != "pyodbc" %}
     orders = await get_orders_by_user(conn, user_id=user_id)
+{%- else %}
+    orders = get_orders_by_user(conn, user_id=user_id)
+{%- endif %}
     assert len(orders) >= 1, f"Expected at least 1 order, got {len(orders)}"
 {%- if options.row_type == "pydantic" %}
     assert isinstance(orders[0], BaseModel), f"Expected BaseModel instance, got {type(orders[0])}"
@@ -309,6 +361,8 @@ async def test_get_orders_by_user(conn, user_id: int) -> None:
 async def test_delete_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
 {%- elif driver == "asyncpg" -%}
 async def test_delete_user(conn: asyncpg.Connection, user_id: int) -> None:
+{%- elif driver == "pyodbc" -%}
+def test_delete_user(conn: pyodbc.Connection, user_id: int) -> None:
 {%- elif engine == "mariadb" -%}
 async def test_delete_user(conn, user_id: str) -> None:
 {%- else -%}
@@ -316,17 +370,32 @@ async def test_delete_user(conn, user_id: int) -> None:
 {%- endif %}
     """Test DeleteUser query."""
     # Delete orders first due to FK constraint
+{%- if driver != "pyodbc" %}
     await delete_orders_by_user(conn, user_id=user_id)
     await delete_user(conn, id=user_id)
+{%- else %}
+    delete_orders_by_user(conn, user_id=user_id)
+    delete_user(conn, id=user_id)
+{%- endif %}
 {%- if driver == "psycopg3" %}
     await conn.commit()
+{%- elif driver == "pyodbc" %}
+    conn.commit()
 {%- endif %}
+{%- if driver != "pyodbc" %}
     user = await get_user_by_id(conn, id=user_id)
+{%- else %}
+    user = get_user_by_id(conn, id=user_id)
+{%- endif %}
     assert user is None, f"Expected user to be deleted, but got {user}"
     print("PASS: DeleteUser")
 
 
+{% if driver != "pyodbc" -%}
 async def run_tests() -> None:
+{%- else -%}
+def run_tests() -> None:
+{%- endif %}
     """Run all integration tests."""
     database_url = get_database_url()
 {%- if driver == "psycopg3" %}
@@ -409,6 +478,26 @@ async def run_tests() -> None:
         await test_delete_user(conn, user_id)
     finally:
         await conn.close()
+{%- elif driver == "pyodbc" %}
+    from urllib.parse import urlparse
+    parsed = urlparse(database_url)
+    server = f"{parsed.hostname},{parsed.port}" if parsed.port else parsed.hostname
+    database = parsed.path.lstrip("/") or "master"
+    conn_str = "DRIVER={ODBC Driver 18 for SQL Server};SERVER=%s;DATABASE=%s;UID=%s;PWD=%s;TrustServerCertificate=yes" % (server, database, parsed.username, parsed.password)
+    conn = pyodbc.connect(conn_str)
+    try:
+        setup_schema(conn)
+{% if options.row_type == "pydantic" %}
+        test_row_types_are_pydantic_models()
+{%- endif %}
+        user_id = test_create_user(conn)
+        test_get_user_by_id(conn, user_id)
+        test_list_active_users(conn)
+        order_id = test_create_order(conn, user_id)
+        test_get_orders_by_user(conn, user_id)
+        test_delete_user(conn, user_id)
+    finally:
+        conn.close()
 {%- endif %}
 
     print("\nALL TESTS PASSED")
@@ -416,7 +505,11 @@ async def run_tests() -> None:
 
 if __name__ == "__main__":
     try:
+{%- if driver != "pyodbc" %}
         asyncio.run(run_tests())
+{%- else %}
+        run_tests()
+{%- endif %}
     except Exception as exc:
         print(f"FAIL: {exc}", file=sys.stderr)
         sys.exit(1)

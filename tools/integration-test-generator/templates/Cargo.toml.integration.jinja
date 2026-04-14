@@ -14,18 +14,18 @@ sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "chrono", "rust_
 sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
 {%- elif driver == "tokio-postgres" -%}
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
-postgres-types = { version = "0.2", features = ["derive"] }
+{%- elif driver == "tiberius" -%}
+tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls", "rust_decimal"] }
+tokio-util = { version = "0.7", features = ["compat"] }
 {%- elif driver == "sibyl" -%}
 sibyl = { version = "0.6", features = ["tokio"] }
 url = "2"
 {%- endif %}
 tokio = { version = "1", features = ["full"] }
-chrono = { version = "0.4", features = ["serde"] }
 {%- if driver == "tokio-postgres" %}
 rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
+{%- elif driver == "tiberius" %}
+rust_decimal = "1"
 {%- elif driver != "sibyl" %}
 rust_decimal = "1"
-{%- endif %}
-{%- if engine == "mariadb" and language == "rust" %}
-uuid = "1"
 {%- endif %}

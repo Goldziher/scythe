@@ -8,5 +8,4 @@ edition = "2024"
 [dependencies]
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 tokio = { version = "1", features = ["full"] }
-chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["db-tokio-postgres"] }

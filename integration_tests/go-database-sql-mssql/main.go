@@ -7,6 +7,10 @@ import (
 	"path/filepath"
 	"runtime"
 
+	"database/sql"
+	"strings"
+
+	_ "github.com/microsoft/go-mssqldb"
 
 	queries "scythe-integration/go-database-sql-mssql/generated"
 )
@@ -41,6 +45,7 @@ func main() {
 
 	ctx := context.Background()
 
+	db, err := sql.Open("sqlserver", databaseURL)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
 		os.Exit(1)
@@ -67,13 +72,45 @@ func main() {
 	fmt.Println("ALL TESTS PASSED")
 }
 
+func runMigration(ctx context.Context, db *sql.DB) error {
+	_, thisFile, _, _ := runtime.Caller(0)
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "mssql", "schema.sql")
 
-var createdUserID int64
+	schema, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("reading schema file at %s: %w", schemaPath, err)
+	}
+
+	dropStatements := []string{
+		"IF OBJECT_ID('user_tags', 'U') IS NOT NULL DROP TABLE user_tags",
+		"IF OBJECT_ID('tags', 'U') IS NOT NULL DROP TABLE tags",
+		"IF OBJECT_ID('orders', 'U') IS NOT NULL DROP TABLE orders",
+		"IF OBJECT_ID('users', 'U') IS NOT NULL DROP TABLE users",
+	}
+	for _, stmt := range dropStatements {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("dropping tables: %w", err)
+		}
+	}
+
+	for _, stmt := range strings.Split(string(schema), ";") {
+		stmt = strings.TrimSpace(stmt)
+		if stmt != "" {
+			if _, err := db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("executing schema: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
+
+var createdUserID int32
 
 func testCreateUser(ctx context.Context, db *sql.DB) {
 	name := "CreateUser"
 	email := "alice@example.com"
-	user, err := queries.CreateUser(ctx, db, "Alice", &email)
+	user, err := queries.CreateUser(ctx, db, "Alice", &email, true)
 	if err != nil {
 		fail(name, err)
 		return
@@ -104,8 +141,7 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
-	total := decimal.NewFromFloat(99.99)
-	order, err := queries.CreateOrder(ctx, db, createdUserID, total, &notes)
+	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.95, &notes)
 	if err != nil {
 		fail(name, err)
 		return
@@ -131,7 +167,7 @@ func testGetOrdersByUser(ctx context.Context, db *sql.DB) {
 
 func testListActiveUsers(ctx context.Context, db *sql.DB) {
 	name := "ListActiveUsers"
-	users, err := queries.ListActiveUsers(ctx, db)
+	users, err := queries.ListActiveUsers(ctx, db, true)
 	if err != nil {
 		fail(name, err)
 		return

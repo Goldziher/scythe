@@ -1,0 +1,13 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "redshift"
+schema = ["../sql/redshift/schema.sql"]
+queries = ["../sql/redshift/queries/*.sql"]
+
+[[sql.gen]]
+backend = "rust-sqlx"
+output = "src"
+structs_only = "true"

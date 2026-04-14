@@ -40,6 +40,12 @@
             <artifactId>ojdbc11</artifactId>
             <version>23.4.0.24.05</version>
         </dependency>
+{%- elif engine == "mssql" %}
+        <dependency>
+            <groupId>com.microsoft.sqlserver</groupId>
+            <artifactId>mssql-jdbc</artifactId>
+            <version>12.4.1.jre11</version>
+        </dependency>
 {%- endif %}
         <dependency>
             <groupId>com.google.code.findbugs</groupId>

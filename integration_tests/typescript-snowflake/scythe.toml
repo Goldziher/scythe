@@ -1,0 +1,12 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "snowflake"
+schema = ["../sql/snowflake/schema.sql"]
+queries = ["../sql/snowflake/queries/*.sql"]
+
+[[sql.gen]]
+backend = "typescript-snowflake"
+output = "generated"

@@ -11,6 +11,7 @@ repositories {
 }
 
 dependencies {
+    implementation("com.microsoft.sqlserver:mssql-jdbc:12.4.1.jre11")
 }
 
 application {

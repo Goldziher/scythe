@@ -21,9 +21,46 @@ function get_database_url(): string
     return $url;
 }
 
+function parse_database_url(string $url): array
+{
+    $parts = parse_url($url);
+    if ($parts === false) {
+        fwrite(STDERR, "ERROR: Invalid MSSQL_URL format\n");
+        exit(1);
+    }
+    $host = $parts['host'] ?? 'localhost';
+    if ($host === 'localhost') {
+        $host = '127.0.0.1';
+    }
+    // Parse database from query params
+    parse_str($parts['query'] ?? '', $query_params);
+    return [
+        'server' => $host,
+        'port' => $parts['port'] ?? 1433,
+        'dbname' => $query_params['database'] ?? 'master',
+        'user' => $parts['user'] ?? 'sa',
+        'password' => $parts['pass'] ?? '',
+    ];
+}
 
-
-
+function setup_schema($conn $pdo): void
+{
+    $pdo->exec("IF OBJECT_ID('user_tags','U') IS NOT NULL DROP TABLE user_tags");
+    $pdo->exec("IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags");
+    $pdo->exec("IF OBJECT_ID('orders','U') IS NOT NULL DROP TABLE orders");
+    $pdo->exec("IF OBJECT_ID('users','U') IS NOT NULL DROP TABLE users");
+    $schema_path = __DIR__ . '/../sql/mssql/schema_full.sql';
+    $schema_sql = file_get_contents($schema_path);
+    if ($schema_sql === false) {
+        throw new RuntimeException("Failed to read schema file: {$schema_path}");
+    }
+    foreach (explode('GO', $schema_sql) as $stmt) {
+        $stmt = trim($stmt);
+        if ($stmt !== '') {
+            $pdo->exec($stmt);
+        }
+    }
+}
 
 function assert_equal(mixed $expected, mixed $actual, string $message): void
 {
@@ -51,7 +88,7 @@ function assert_true(bool $value, string $message): void
 
 function test_create_user($conn $pdo): int
 {
-    $user = Queries::createUser($pdo, "Alice", "alice@example.com");
+    $user = Queries::createUser($pdo, "Alice", "alice@example.com", 1);
     assert_not_null($user, "CreateUser returned null");
     assert_equal("Alice", $user->name, "CreateUser name");
     assert_equal("alice@example.com", $user->email, "CreateUser email");

@@ -113,6 +113,29 @@ database_path = System.get_env("{{ connection_env }}", ":memory:")
 
 {:ok, conn} = Ecto.Adapters.SQLite3.start_link(database: database_path)
 {%- endif %}
+{%- elif engine == "mssql" %}
+database_url =
+  System.get_env("{{ connection_env }}", "sqlserver://sa:Scythe_Test1@localhost:1433?database=scythe_test")
+
+uri = URI.parse(database_url)
+userinfo = uri.userinfo || "sa"
+parts = String.split(userinfo, ":")
+username = List.first(parts)
+password = Enum.at(parts, 1) || ""
+query_params = URI.decode_query(uri.query || "")
+database = Map.get(query_params, "database", "master")
+
+{%- if driver == "tds" %}
+
+{:ok, conn} =
+  Tds.start_link(
+    hostname: uri.host,
+    port: uri.port || 1433,
+    username: username,
+    password: password,
+    database: database
+  )
+{%- endif %}
 {%- elif engine == "oracle" %}
 database_url =
   System.get_env("{{ connection_env }}", "oracle://system:oracle@localhost:1521/FREEPDB1")
@@ -242,6 +265,21 @@ schema_sql
 |> Enum.filter(&(&1 != ""))
 |> Enum.each(fn stmt -> Ecto.Adapters.SQL.query!(conn, stmt, []) end)
 {%- endif %}
+{%- elif engine == "mssql" -%}
+{% if driver == "tds" -%}
+Tds.query!(conn, "IF OBJECT_ID('user_tags','U') IS NOT NULL DROP TABLE user_tags", [])
+Tds.query!(conn, "IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags", [])
+Tds.query!(conn, "IF OBJECT_ID('orders','U') IS NOT NULL DROP TABLE orders", [])
+Tds.query!(conn, "IF OBJECT_ID('users','U') IS NOT NULL DROP TABLE users", [])
+
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mssql", "schema_full.sql"]))
+
+schema_sql
+|> String.split("GO\n")
+|> Enum.map(&String.trim/1)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt -> Tds.query!(conn, stmt, []) end)
+{%- endif %}
 {%- elif engine == "oracle" -%}
 # Clean slate: drop tables and sequences, ignoring errors if they do not exist.
 for table <- ["user_tags", "tags", "orders", "users"] do
@@ -289,6 +327,8 @@ Process.put(:exit_code, 0)
 {:ok, user} = Queries.get_last_insert_user(conn)
 {%- elif engine == "oracle" %}
 {:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com", 1)
+{%- elif engine == "mssql" %}
+{:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 {%- else %}
 {:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" %}, "active"{% elif engine == "mariadb" %}, UsersStatus.active(){% endif %})
 {%- endif %}
@@ -320,6 +360,8 @@ IO.puts("PASS: ListActiveUsers")
 {:ok, order} = Queries.get_last_insert_order(conn)
 {%- elif engine == "oracle" %}
 {:ok, order} = Queries.create_order(conn, user_id, 9999, "first order")
+{%- elif engine == "mssql" %}
+{:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
 {%- else %}
 {:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
 {%- endif %}
@@ -338,6 +380,8 @@ assert.(length(orders) == 1, "GetOrdersByUser", "expected 1 order, got #{length(
 first_order = List.first(orders)
 {%- if engine == "oracle" %}
 assert.(first_order.total == 9999, "GetOrdersByUser", "expected total 9999")
+{%- elif engine == "mssql" %}
+assert.(Decimal.equal?(first_order.total, Decimal.new("99.95")), "GetOrdersByUser", "expected total 99.95")
 {%- else %}
 assert.(Decimal.equal?(first_order.total, Decimal.new("99.95")), "GetOrdersByUser", "expected total 99.95")
 {%- endif %}

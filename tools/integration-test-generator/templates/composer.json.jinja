@@ -8,6 +8,8 @@
 		"amphp/postgres": "^2.0"
 {%- elif driver == "amphp" and engine == "mysql" %},
 		"amphp/mysql": "^3.0"
+{%- elif engine == "mssql" %},
+		"ext-pdo_sqlsrv": "*"
 {%- endif %}
 	}
 }

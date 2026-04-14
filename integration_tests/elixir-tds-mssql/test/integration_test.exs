@@ -1,9 +1,39 @@
 alias Scythe.Queries
 
 
+database_url =
+  System.get_env("MSSQL_URL", "sqlserver://sa:Scythe_Test1@localhost:1433?database=scythe_test")
+
+uri = URI.parse(database_url)
+userinfo = uri.userinfo || "sa"
+parts = String.split(userinfo, ":")
+username = List.first(parts)
+password = Enum.at(parts, 1) || ""
+query_params = URI.decode_query(uri.query || "")
+database = Map.get(query_params, "database", "master")
+
+{:ok, conn} =
+  Tds.start_link(
+    hostname: uri.host,
+    port: uri.port || 1433,
+    username: username,
+    password: password,
+    database: database
+  )
 
 # Clean slate
+Tds.query!(conn, "IF OBJECT_ID('user_tags','U') IS NOT NULL DROP TABLE user_tags", [])
+Tds.query!(conn, "IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags", [])
+Tds.query!(conn, "IF OBJECT_ID('orders','U') IS NOT NULL DROP TABLE orders", [])
+Tds.query!(conn, "IF OBJECT_ID('users','U') IS NOT NULL DROP TABLE users", [])
 
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mssql", "schema_full.sql"]))
+
+schema_sql
+|> String.split("GO\n")
+|> Enum.map(&String.trim/1)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt -> Tds.query!(conn, stmt, []) end)
 
 exit_code = 0
 
@@ -17,7 +47,7 @@ end
 Process.put(:exit_code, 0)
 
 # Test: CreateUser
-{:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com")
+{:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 assert.(user.name == "Alice", "CreateUser", "expected name Alice, got #{user.name}")
 assert.(user.email == "alice@example.com", "CreateUser", "expected email alice@example.com")
 user_id = user.id

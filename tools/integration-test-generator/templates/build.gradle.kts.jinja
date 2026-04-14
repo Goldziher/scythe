@@ -19,6 +19,8 @@ dependencies {
     implementation("org.xerial:sqlite-jdbc:3.45.1.0")
 {%- elif engine == "oracle" %}
     implementation("com.oracle.database.jdbc:ojdbc11:23.4.0.24.05")
+{%- elif engine == "mssql" %}
+    implementation("com.microsoft.sqlserver:mssql-jdbc:12.4.1.jre11")
 {%- endif %}
 }
 

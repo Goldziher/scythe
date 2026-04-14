@@ -26,6 +26,11 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePoolOptions};
 {%- elif driver == "tokio-postgres" %}
 use rust_decimal::Decimal;
 use tokio_postgres::NoTls;
+{%- elif driver == "tiberius" %}
+use tiberius::{Client, Config, AuthMethod};
+use tokio::net::TcpStream;
+use tokio_util::compat::TokioAsyncWriteCompatExt;
+use rust_decimal::Decimal;
 {%- elif driver == "sibyl" %}
 use sibyl::prelude::*;
 {%- endif %}
@@ -218,6 +223,33 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
     client.batch_execute(&schema_sql).await?;
+{%- elif driver == "tiberius" -%}
+    let mut config = Config::from_ado_string(&database_url)?;
+    config.trust_cert();
+    let tcp = TcpStream::connect(config.get_addr()).await?;
+    tcp.set_nodelay(true)?;
+    let mut client = Client::connect(config, tcp.compat_write()).await?;
+
+    // Clean slate
+    for table in &["user_tags", "tags", "orders", "users"] {
+        client
+            .execute(
+                &format!(
+                    "IF OBJECT_ID('{}', 'U') IS NOT NULL DROP TABLE {}",
+                    table, table
+                ),
+                &[],
+            )
+            .await?;
+    }
+
+    let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
+    for stmt in schema_sql.split(';') {
+        let stmt = stmt.trim();
+        if !stmt.is_empty() {
+            client.execute(stmt, &[]).await?;
+        }
+    }
 {%- endif %}
 
     // Test: CreateUser
@@ -270,6 +302,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         )
         .await?;
     let user = CreateUserRow::from_row(&row);
+{%- elif driver == "tiberius" -%}
+    let mut stream = client
+        .query(
+            "INSERT INTO users (id, name, email, active) OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)",
+            &[&1i32, &"Alice", &"alice@example.com", &true],
+        )
+        .await?;
+    let row = stream
+        .into_row()
+        .await?
+        .expect("expected a row");
+    let user = CreateUserRow::from_row(&row);
 {%- elif driver == "sibyl" -%}
     let user = queries::create_user(&session, "Alice", "alice@example.com", 1i32)
         .await?
@@ -291,6 +335,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let fetched = generated::get_user_by_id(&session, user_id)
         .await?
         .expect("get_user_by_id returned None");
+{%- elif driver == "tiberius" -%}
+    let mut stream = client
+        .query(
+            "SELECT id, name, email, active, created_at FROM users WHERE id = @p1",
+            &[&user_id],
+        )
+        .await?;
+    let row = stream
+        .into_row()
+        .await?
+        .expect("expected a row");
+    let fetched = GetUserByIdRow::from_row(&row);
 {%- elif driver == "sqlx-mariadb" -%}
     let fetched: GetUserByIdRow =
         sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email, status, created_at FROM users WHERE id = ?")
@@ -332,6 +388,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test: ListActiveUsers
 {% if driver == "sibyl" -%}
     let active_users = generated::list_active_users(&session).await?;
+{%- elif driver == "tiberius" -%}
+    let rows = client
+        .query(
+            "SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT)",
+            &[],
+        )
+        .await?
+        .into_first_result()
+        .await?;
+    let active_users: Vec<ListActiveUsersRow> =
+        rows.iter().map(ListActiveUsersRow::from_row).collect();
 {%- elif driver == "sqlx-mariadb" -%}
     let active_users: Vec<ListActiveUsersRow> =
         sqlx::query_as("SELECT CAST(id AS CHAR) AS id, name, email FROM users WHERE status = ?")
@@ -369,6 +436,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let order = generated::create_order(&session, user_id, order_total, "first order")
         .await?
         .expect("create_order returned None");
+{%- elif driver == "tiberius" -%}
+    let total = Decimal::from_str("99.95").unwrap();
 {%- else %}
 {%- if engine == "sqlite" %}
     let total: f32 = 99.95;
@@ -376,7 +445,19 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let total = Decimal::from_str("99.95").unwrap();
 {%- endif %}
 {%- endif %}
-{% if driver == "sqlx-mariadb" -%}
+{% if driver == "tiberius" -%}
+    let mut stream = client
+        .query(
+            "INSERT INTO orders (id, user_id, total, notes) OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)",
+            &[&1i32, &user_id, &total, &"first order"],
+        )
+        .await?;
+    let row = stream
+        .into_row()
+        .await?
+        .expect("expected a row");
+    let order = CreateOrderRow::from_row(&row);
+{%- elif driver == "sqlx-mariadb" -%}
     sqlx::query("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")
         .bind(&user_id)
         .bind(&total)
@@ -447,6 +528,16 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Test: GetOrdersByUser
 {% if driver == "sibyl" -%}
     let orders = generated::get_orders_by_user(&session, user_id).await?;
+{%- elif driver == "tiberius" -%}
+    let rows = client
+        .query(
+            "SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC",
+            &[&user_id],
+        )
+        .await?
+        .into_first_result()
+        .await?;
+    let orders: Vec<GetOrdersByUserRow> = rows.iter().map(GetOrdersByUserRow::from_row).collect();
 {%- elif driver == "sqlx-mariadb" -%}
     let orders: Vec<GetOrdersByUserRow> = sqlx::query_as(
         "SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC",
@@ -491,6 +582,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     generated::delete_user(&session, user_id).await?;
     // Verify user is gone
     let deleted = generated::get_user_by_id(&session, user_id).await?;
+{%- elif driver == "tiberius" -%}
+    client
+        .execute("DELETE FROM orders WHERE user_id = @p1", &[&user_id])
+        .await?;
+    client
+        .execute("DELETE FROM users WHERE id = @p1", &[&user_id])
+        .await?;
+    // Verify user is gone
+    let mut stream = client
+        .query(
+            "SELECT id, name, email, active, created_at FROM users WHERE id = @p1",
+            &[&user_id],
+        )
+        .await?;
+    let deleted = stream.into_row().await?;
 {%- elif driver == "sqlx-mariadb" -%}
     sqlx::query("DELETE FROM orders WHERE user_id = ?")
         .bind(&user_id)

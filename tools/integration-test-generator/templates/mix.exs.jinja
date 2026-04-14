@@ -28,6 +28,8 @@ defmodule ScytheIntegrationTest.MixProject do
       {:myxql, "~> 0.7"},
 {%- elif driver == "exqlite" %}
       {:exqlite, "~> 0.23"},
+{%- elif driver == "tds" %}
+      {:tds, "~> 2.3"},
 {%- elif driver == "jamdb" %}
       {:jamdb_oracle, "~> 0.5"},
 {%- elif driver == "ecto" %}

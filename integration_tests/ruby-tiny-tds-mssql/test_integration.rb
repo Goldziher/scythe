@@ -2,9 +2,10 @@
 
 require "uri"
 
+require "tiny_tds"
 require_relative "generated/queries"
 
-
+SCHEMA_PATH = File.join(__dir__, "..", "sql", "mssql", "schema_full.sql")
 
 def get_database_url
   url = ENV["MSSQL_URL"]
@@ -15,7 +16,17 @@ def get_database_url
   url
 end
 
-
+def setup_schema(conn)
+  conn.execute("IF OBJECT_ID('user_tags','U') IS NOT NULL DROP TABLE user_tags").do
+  conn.execute("IF OBJECT_ID('tags','U') IS NOT NULL DROP TABLE tags").do
+  conn.execute("IF OBJECT_ID('orders','U') IS NOT NULL DROP TABLE orders").do
+  conn.execute("IF OBJECT_ID('users','U') IS NOT NULL DROP TABLE users").do
+  schema_sql = File.read(SCHEMA_PATH)
+  schema_sql.split("GO\n").each do |stmt|
+    stmt = stmt.strip
+    conn.execute(stmt).do unless stmt.empty?
+  end
+end
 
 def assert_equal(expected, actual, message)
   return if expected == actual
@@ -36,7 +47,7 @@ def assert_true(value, message)
 end
 
 def test_create_user(conn)
-  user = Queries.create_user(conn, "Alice", "alice@example.com")
+  user = Queries.create_user(conn, "Alice", "alice@example.com", 1)
   assert_not_nil(user, "create_user returned nil")
   assert_equal("Alice", user.name, "create_user name")
   assert_equal("alice@example.com", user.email, "create_user email")
@@ -119,7 +130,16 @@ def test_delete_user(conn, user_id)
 end
 
 begin
-
+  database_url = get_database_url
+  uri = URI.parse(database_url)
+  query_params = URI.decode_www_form(uri.query || "").to_h
+  conn = TinyTds::Client.new(
+    host: uri.host,
+    port: uri.port || 1433,
+    username: uri.user,
+    password: uri.password,
+    database: query_params["database"] || "master"
+  )
 
   setup_schema(conn)
 

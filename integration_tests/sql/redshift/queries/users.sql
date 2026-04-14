@@ -1,25 +1,24 @@
--- @name GetUser
+-- @name GetUserById
 -- @returns :one
-SELECT id, name, email, status, metadata, created_at, updated_at
+SELECT id, name, email, status, created_at
 FROM users
 WHERE id = $1;
 
--- @name ListUsers
+-- @name ListActiveUsers
 -- @returns :many
-SELECT id, name, email, status, created_at
+SELECT id, name, email
 FROM users
-ORDER BY created_at DESC;
+WHERE status = $1;
 
 -- @name CreateUser
--- @returns :exec
+-- @returns :one
 INSERT INTO users (name, email, status)
-VALUES ($1, $2, $3);
+VALUES ($1, $2, $3)
+RETURNING id, name, email, status, created_at;
 
--- @name UpdateUser
+-- @name UpdateUserEmail
 -- @returns :exec
-UPDATE users
-SET name = $1, email = $2, status = $3, updated_at = GETDATE()
-WHERE id = $4;
+UPDATE users SET email = $1 WHERE id = $2;
 
 -- @name DeleteUser
 -- @returns :exec
@@ -27,7 +26,7 @@ DELETE FROM users WHERE id = $1;
 
 -- @name SearchUsers
 -- @returns :many
-SELECT id, name, email, status
+SELECT id, name, email
 FROM users
 WHERE status = $1
 ORDER BY name;

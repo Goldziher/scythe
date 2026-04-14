@@ -1,0 +1,11 @@
+[package]
+name = "scythe-integration-test-rust-tokio-postgres-redshift"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+tokio = { version = "1", features = ["full"] }
+rust_decimal = { version = "1", features = ["db-tokio-postgres"] }

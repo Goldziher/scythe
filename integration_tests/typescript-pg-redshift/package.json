@@ -1,0 +1,17 @@
+{
+	"name": "scythe-integration-test-pg",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "tsx test.ts"
+	},
+	"dependencies": {
+		"pg": "^8.13.0"
+	},
+	"devDependencies": {
+		"@types/pg": "^8.11.0",
+		"tsx": "^4.19.0",
+		"typescript": "^5.6.0"
+	}
+}

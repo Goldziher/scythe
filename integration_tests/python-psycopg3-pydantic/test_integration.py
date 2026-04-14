@@ -50,7 +50,9 @@ async def setup_schema(conn: psycopg.AsyncConnection) -> None:
     await conn.commit()
 
 
+
 async def test_row_types_are_pydantic_models() -> None:
+
     """Verify generated row types are Pydantic BaseModel subclasses."""
     for row_cls in (CreateUserRow, GetUserByIdRow, ListActiveUsersRow, CreateOrderRow, GetOrdersByUserRow):
         assert issubclass(row_cls, BaseModel), (

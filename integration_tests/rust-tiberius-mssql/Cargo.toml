@@ -6,5 +6,7 @@ edition = "2024"
 [workspace]
 
 [dependencies]
-
+tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls", "rust_decimal"] }
+tokio-util = { version = "0.7", features = ["compat"] }
 tokio = { version = "1", features = ["full"] }
+rust_decimal = "1"

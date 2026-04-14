@@ -17,6 +17,11 @@ import (
 	"database/sql"
 
 	_ "github.com/mattn/go-sqlite3"
+{%- elif driver == "database-sql" and engine == "mssql" %}
+	"database/sql"
+	"strings"
+
+	_ "github.com/microsoft/go-mssqldb"
 {%- elif driver == "godror" %}
 	"database/sql"
 	"net/url"
@@ -94,6 +99,8 @@ func main() {
 	db, err := sql.Open("mysql", databaseURL)
 {%- elif engine == "sqlite" %}
 	db, err := sql.Open("sqlite3", databasePath)
+{%- elif engine == "mssql" %}
+	db, err := sql.Open("sqlserver", databaseURL)
 {%- endif %}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
@@ -106,6 +113,14 @@ func main() {
 		os.Exit(1)
 	}
 
+	testCreateUser(ctx, db)
+	testGetUserById(ctx, db)
+	testCreateOrder(ctx, db)
+	testGetOrdersByUser(ctx, db)
+	testListActiveUsers(ctx, db)
+	testDeleteOrdersByUser(ctx, db)
+	testDeleteUser(ctx, db)
+{%- elif engine == "mssql" %}
 	testCreateUser(ctx, db)
 	testGetUserById(ctx, db)
 	testCreateOrder(ctx, db)
@@ -419,6 +434,39 @@ func runMigration(ctx context.Context, db *sql.DB) error {
 
 	return nil
 }
+{%- elif engine == "mssql" %}
+func runMigration(ctx context.Context, db *sql.DB) error {
+	_, thisFile, _, _ := runtime.Caller(0)
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "mssql", "schema.sql")
+
+	schema, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("reading schema file at %s: %w", schemaPath, err)
+	}
+
+	dropStatements := []string{
+		"IF OBJECT_ID('user_tags', 'U') IS NOT NULL DROP TABLE user_tags",
+		"IF OBJECT_ID('tags', 'U') IS NOT NULL DROP TABLE tags",
+		"IF OBJECT_ID('orders', 'U') IS NOT NULL DROP TABLE orders",
+		"IF OBJECT_ID('users', 'U') IS NOT NULL DROP TABLE users",
+	}
+	for _, stmt := range dropStatements {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("dropping tables: %w", err)
+		}
+	}
+
+	for _, stmt := range strings.Split(string(schema), ";") {
+		stmt = strings.TrimSpace(stmt)
+		if stmt != "" {
+			if _, err := db.ExecContext(ctx, stmt); err != nil {
+				return fmt.Errorf("executing schema: %w", err)
+			}
+		}
+	}
+
+	return nil
+}
 {%- elif engine == "sqlite" %}
 func runMigration(ctx context.Context, db *sql.DB) error {
 	_, thisFile, _, _ := runtime.Caller(0)
@@ -451,7 +499,7 @@ func runMigration(ctx context.Context, db *sql.DB) error {
 
 {% if engine == "mariadb" -%}
 var createdUserID string
-{%- elif engine == "mysql" or engine == "sqlite" -%}
+{%- elif engine == "mysql" or engine == "sqlite" or engine == "mssql" -%}
 var createdUserID int32
 {%- else -%}
 var createdUserID int64
@@ -475,7 +523,7 @@ func testCreateUser(ctx context.Context, db *sql.DB) {
 	}
 	createdUserID = user.Id
 {%- else %}
-	user, err := queries.CreateUser(ctx, db, "Alice", &email{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mariadb" %}, queries.UsersStatusActive{% endif %})
+	user, err := queries.CreateUser(ctx, db, "Alice", &email{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mariadb" %}, queries.UsersStatusActive{% elif engine == "mssql" %}, true{% endif %})
 	if err != nil {
 		fail(name, err)
 		return
@@ -534,6 +582,16 @@ func testCreateOrder(ctx context.Context, db *sql.DB) {
 		return
 	}
 {%- else %}
+	{% if engine == "mssql" -%}
+	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.95, &notes)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
+		return
+	}
+	{%- else -%}
 	total := decimal.NewFromFloat(99.99)
 	order, err := queries.CreateOrder(ctx, db, createdUserID, total, &notes)
 	if err != nil {
@@ -547,7 +605,7 @@ func testCreateOrder(ctx context.Context, db *sql.DB) {
 {%- endif %}
 		return
 	}
-{%- endif %}
+	{%- endif %}
 	pass(name)
 }
 
@@ -566,7 +624,7 @@ func testGetOrdersByUser(ctx context.Context, db *sql.DB) {
 
 func testListActiveUsers(ctx context.Context, db *sql.DB) {
 	name := "ListActiveUsers"
-	users, err := queries.ListActiveUsers(ctx, db{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mysql" or engine == "mariadb" %}, queries.UsersStatusActive{% endif %})
+	users, err := queries.ListActiveUsers(ctx, db{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mysql" or engine == "mariadb" %}, queries.UsersStatusActive{% elif engine == "mssql" %}, true{% endif %})
 	if err != nil {
 		fail(name, err)
 		return
@@ -605,7 +663,7 @@ func testDeleteUser(ctx context.Context, db *sql.DB) {
 	pass(name)
 }
 {%- endif %}
-{%- if driver == "godror" %}
+{%- elif driver == "godror" %}
 func runMigration(ctx context.Context, db *sql.DB) error {
 	_, thisFile, _, _ := runtime.Caller(0)
 	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "oracle", "schema_full.sql")
