@@ -5,6 +5,32 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.8] - Unreleased
+
+### Added
+
+- MSSQL integration tests across 10 backends (Rust tiberius, Python pyodbc, Go go-mssqldb, TypeScript mssql, Java JDBC, Kotlin JDBC, C# SqlClient, Elixir TDS, Ruby TinyTds, PHP PDO)
+- Redshift integration tests across 13 backends (all PostgreSQL-compatible drivers with Redshift-specific manifests)
+- Snowflake integration tests across 7 backends (Python, TypeScript, Go, Java, Kotlin, C#, PHP)
+- MSSQL CI job with SQL Server 2022 Docker
+- Redshift CI job using PostgreSQL container with PG-compatible schema
+- Snowflake CI job with snowflake-emulator Docker + fakesnow for Python
+- MSSQL `OUTPUT INSERTED` preprocessing: converts to `RETURNING` for parser, preserves original SQL in codegen
+- Redshift `IDENTITY(N,N)` schema preprocessing: strips before parsing
+- Snowflake type mappings: `TIMESTAMP_NTZ`, `TIMESTAMP_TZ`, `TIMESTAMP_LTZ`, `VARIANT`
+- 89 total integration test backends (up from 69)
+
+### Fixed
+
+- CI: `libaio1` → `libaio1t64` for Ubuntu 24.04 (Oracle job)
+- CI: SQLite `create_if_missing(true)` + `touch` step
+- CI: removed committed macOS `.bundle/config`
+- Go codegen: `@pN` placeholder rewriting for MSSQL
+- Rust tiberius codegen: `Compat<TcpStream>` type, `&dyn ToSql` param binding, string `FromSql` handling
+- Ruby TinyTds codegen: type-aware param escaping (integers/booleans not escaped)
+- TypeScript mssql codegen: explicit `sql.*` type bindings for params
+- Template fixes for Redshift (no enums, `schema_pg_compat.sql`, status as string)
+
 ## [0.6.7] - 2026-04-12
 
 ### Added
