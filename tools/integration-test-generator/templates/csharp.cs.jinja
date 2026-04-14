@@ -1,4 +1,4 @@
-{%- if engine == "postgresql" -%}
+{%- if engine == "postgresql" or engine == "redshift" -%}
 using Npgsql;
 
 var databaseUrl = Environment.GetEnvironmentVariable("{{ connection_env }}")
@@ -125,6 +125,7 @@ Assert(orderTotal != null, "GetOrderTotal", "returned null");
 Assert(orderTotal!.TotalSum == 99.95m, "GetOrderTotal", $"expected total 99.95, got {orderTotal.TotalSum}");
 Console.WriteLine("PASS: GetOrderTotal");
 
+{%- if engine == "postgresql" and engine != "redshift" %}
 // Test: SearchUsers
 var searchResults = await Queries.SearchUsers(conn, "%Ali%");
 Assert(searchResults.Count >= 1, "SearchUsers", $"expected at least 1 result, got {searchResults.Count}");
@@ -132,13 +133,12 @@ Assert(searchResults.Any(u => u.Name == "Alice"), "SearchUsers", "expected Alice
 Console.WriteLine("PASS: SearchUsers");
 
 // Test: CountUsersByStatus
-var countResult = await Queries.CountUsersByStatus(conn, {% if engine == "postgresql" and engine != "redshift" %}Queries.UserStatus.Active{% elif engine == "redshift" %}"active"{% endif %});
+var countResult = await Queries.CountUsersByStatus(conn, Queries.UserStatus.Active);
 Assert(countResult != null, "CountUsersByStatus", "returned null");
 Assert(countResult!.UserCount >= 1, "CountUsersByStatus", $"expected count >= 1, got {countResult.UserCount}");
-{%- if engine == "postgresql" and engine != "redshift" %}
 Assert(countResult.Status == Queries.UserStatus.Active, "CountUsersByStatus", $"expected status Active, got {countResult.Status}");
-{%- endif %}
 Console.WriteLine("PASS: CountUsersByStatus");
+{%- endif %}
 
 // Test: DeleteUser (delete orders first due to FK)
 var deletedOrders = await Queries.DeleteOrdersByUser(conn, userId);

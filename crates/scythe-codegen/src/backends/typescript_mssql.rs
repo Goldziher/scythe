@@ -13,6 +13,27 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{TsRowType, generate_zod_row_struct};
 use crate::singularize;
 
+/// Map neutral type to mssql SQL type constant.
+fn neutral_to_sql_type(neutral_type: &str) -> &'static str {
+    match neutral_type {
+        "int16" => "sql.SmallInt",
+        "int32" => "sql.Int",
+        "int64" => "sql.BigInt",
+        "float32" => "sql.Real",
+        "float64" => "sql.Float",
+        "numeric" | "decimal" => "sql.Decimal",
+        "bool" => "sql.Bit",
+        "string" => "sql.NVarChar",
+        "text" => "sql.Text",
+        "date" => "sql.Date",
+        "datetime" => "sql.DateTime",
+        "datetime_tz" => "sql.DateTimeOffset",
+        "uuid" => "sql.UniqueIdentifier",
+        "binary" => "sql.Binary",
+        _ => "sql.VarChar", // Default fallback
+    }
+}
+
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-mssql.toml");
 
 pub struct TypescriptMssqlBackend {
@@ -156,7 +177,14 @@ impl CodegenBackend for TypescriptMssqlBackend {
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
                 let _ = writeln!(out, "\tconst request = pool.request();");
                 for (i, p) in params.iter().enumerate() {
-                    let _ = writeln!(out, "\trequest.input(\"p{}\", {});", i + 1, p.field_name);
+                    let sql_type = neutral_to_sql_type(&p.neutral_type);
+                    let _ = writeln!(
+                        out,
+                        "\trequest.input(\"p{}\", {}, {});",
+                        i + 1,
+                        sql_type,
+                        p.field_name
+                    );
                 }
                 let _ = writeln!(
                     out,
@@ -191,10 +219,12 @@ impl CodegenBackend for TypescriptMssqlBackend {
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
                     let _ = writeln!(out, "\t\t\tconst request = transaction.request();");
                     for (i, p) in params.iter().enumerate() {
+                        let sql_type = neutral_to_sql_type(&p.neutral_type);
                         let _ = writeln!(
                             out,
-                            "\t\t\trequest.input(\"p{}\", item.{});",
+                            "\t\t\trequest.input(\"p{}\", {}, item.{});",
                             i + 1,
+                            sql_type,
                             p.field_name
                         );
                     }
@@ -220,7 +250,8 @@ impl CodegenBackend for TypescriptMssqlBackend {
                     let _ = writeln!(out, "\ttry {{");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
                     let _ = writeln!(out, "\t\t\tconst request = transaction.request();");
-                    let _ = writeln!(out, "\t\t\trequest.input(\"p1\", item);");
+                    let sql_type = neutral_to_sql_type(&params[0].neutral_type);
+                    let _ = writeln!(out, "\t\t\trequest.input(\"p1\", {}, item);", sql_type);
                     let _ = writeln!(out, "\t\t\tawait request.query(`{}`);", sql);
                     let _ = writeln!(out, "\t\t}}");
                     let _ = writeln!(out, "\t\tawait transaction.commit();");
@@ -262,7 +293,14 @@ impl CodegenBackend for TypescriptMssqlBackend {
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
                 let _ = writeln!(out, "\tconst request = pool.request();");
                 for (i, p) in params.iter().enumerate() {
-                    let _ = writeln!(out, "\trequest.input(\"p{}\", {});", i + 1, p.field_name);
+                    let sql_type = neutral_to_sql_type(&p.neutral_type);
+                    let _ = writeln!(
+                        out,
+                        "\trequest.input(\"p{}\", {}, {});",
+                        i + 1,
+                        sql_type,
+                        p.field_name
+                    );
                 }
                 let _ = writeln!(
                     out,
@@ -277,7 +315,14 @@ impl CodegenBackend for TypescriptMssqlBackend {
                 write_fn_sig(&mut out, &func_name, &inline_params, "void");
                 let _ = writeln!(out, "\tconst request = pool.request();");
                 for (i, p) in params.iter().enumerate() {
-                    let _ = writeln!(out, "\trequest.input(\"p{}\", {});", i + 1, p.field_name);
+                    let sql_type = neutral_to_sql_type(&p.neutral_type);
+                    let _ = writeln!(
+                        out,
+                        "\trequest.input(\"p{}\", {}, {});",
+                        i + 1,
+                        sql_type,
+                        p.field_name
+                    );
                 }
                 let _ = writeln!(out, "\tawait request.query(`{}`);", sql);
                 let _ = write!(out, "}}");
@@ -291,7 +336,14 @@ impl CodegenBackend for TypescriptMssqlBackend {
                 write_fn_sig(&mut out, &func_name, &inline_params, "number");
                 let _ = writeln!(out, "\tconst request = pool.request();");
                 for (i, p) in params.iter().enumerate() {
-                    let _ = writeln!(out, "\trequest.input(\"p{}\", {});", i + 1, p.field_name);
+                    let sql_type = neutral_to_sql_type(&p.neutral_type);
+                    let _ = writeln!(
+                        out,
+                        "\trequest.input(\"p{}\", {}, {});",
+                        i + 1,
+                        sql_type,
+                        p.field_name
+                    );
                 }
                 let _ = writeln!(out, "\tconst result = await request.query(`{}`);", sql);
                 let _ = writeln!(out, "\treturn result.rowsAffected[0] ?? 0;");

@@ -116,7 +116,7 @@ def list_active_users(conn: snowflake.connector.SnowflakeConnection) -> list[Lis
 def create_user(conn: snowflake.connector.SnowflakeConnection, *, name: str, email: str | None, active: bool) -> None:
     """Execute CreateUser query."""
     cur = conn.cursor()
-    cur.execute("""INSERT INTO users (name, email, active, metadata) VALUES (?, ?, ?, PARSE_JSON(?))""", (name, email, active))
+    cur.execute("""INSERT INTO users (name, email, active) VALUES (?, ?, ?)""", (name, email, active))
 
 
 def update_user_email(conn: snowflake.connector.SnowflakeConnection, *, email: str, id: int) -> None:

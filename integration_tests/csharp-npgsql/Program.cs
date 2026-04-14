@@ -112,7 +112,6 @@ var orderTotal = await Queries.GetOrderTotal(conn, userId);
 Assert(orderTotal != null, "GetOrderTotal", "returned null");
 Assert(orderTotal!.TotalSum == 99.95m, "GetOrderTotal", $"expected total 99.95, got {orderTotal.TotalSum}");
 Console.WriteLine("PASS: GetOrderTotal");
-
 // Test: SearchUsers
 var searchResults = await Queries.SearchUsers(conn, "%Ali%");
 Assert(searchResults.Count >= 1, "SearchUsers", $"expected at least 1 result, got {searchResults.Count}");

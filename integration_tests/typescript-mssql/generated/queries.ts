@@ -20,10 +20,10 @@ export async function createOrder(
 	notes: string | null,
 ): Promise<CreateOrderRow | null> {
 	const request = pool.request();
-	request.input("p1", id);
-	request.input("p2", user_id);
-	request.input("p3", total);
-	request.input("p4", notes);
+	request.input("p1", sql.Int, id);
+	request.input("p2", sql.Int, user_id);
+	request.input("p3", sql.Decimal, total);
+	request.input("p4", sql.NVarChar, notes);
 	const result =
 		await request.query<CreateOrderRow>(`INSERT INTO orders (id, user_id, total, notes)
 OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at
@@ -45,7 +45,7 @@ export async function getOrdersByUser(
 	user_id: number,
 ): Promise<GetOrdersByUserRow[]> {
 	const request = pool.request();
-	request.input("p1", user_id);
+	request.input("p1", sql.Int, user_id);
 	const result = await request.query<GetOrdersByUserRow>(
 		`SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC`,
 	);
@@ -63,7 +63,7 @@ export async function getOrderTotal(
 	user_id: number,
 ): Promise<GetOrderTotalRow | null> {
 	const request = pool.request();
-	request.input("p1", user_id);
+	request.input("p1", sql.Int, user_id);
 	const result = await request.query<GetOrderTotalRow>(
 		`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1`,
 	);
@@ -76,7 +76,7 @@ export async function deleteOrdersByUser(
 	user_id: number,
 ): Promise<number> {
 	const request = pool.request();
-	request.input("p1", user_id);
+	request.input("p1", sql.Int, user_id);
 	const result = await request.query(`DELETE FROM orders WHERE user_id = @p1`);
 	return result.rowsAffected[0] ?? 0;
 }
@@ -96,7 +96,7 @@ export async function getUserById(
 	id: number,
 ): Promise<GetUserByIdRow | null> {
 	const request = pool.request();
-	request.input("p1", id);
+	request.input("p1", sql.Int, id);
 	const result = await request.query<GetUserByIdRow>(
 		`SELECT id, name, email, active, created_at FROM users WHERE id = @p1`,
 	);
@@ -139,10 +139,10 @@ export async function createUser(
 	active: boolean,
 ): Promise<CreateUserRow | null> {
 	const request = pool.request();
-	request.input("p1", id);
-	request.input("p2", name);
-	request.input("p3", email);
-	request.input("p4", active);
+	request.input("p1", sql.Int, id);
+	request.input("p2", sql.NVarChar, name);
+	request.input("p3", sql.NVarChar, email);
+	request.input("p4", sql.Bit, active);
 	const result =
 		await request.query<CreateUserRow>(`INSERT INTO users (id, name, email, active)
 OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at
@@ -157,8 +157,8 @@ export async function updateUserEmail(
 	id: number,
 ): Promise<void> {
 	const request = pool.request();
-	request.input("p1", email);
-	request.input("p2", id);
+	request.input("p1", sql.NVarChar, email);
+	request.input("p2", sql.Int, id);
 	await request.query(`UPDATE users SET email = @p1 WHERE id = @p2`);
 }
 
@@ -168,7 +168,7 @@ export async function deleteUser(
 	id: number,
 ): Promise<void> {
 	const request = pool.request();
-	request.input("p1", id);
+	request.input("p1", sql.Int, id);
 	await request.query(`DELETE FROM users WHERE id = @p1`);
 }
 
@@ -185,7 +185,7 @@ export async function searchUsers(
 	name: string,
 ): Promise<SearchUsersRow[]> {
 	const request = pool.request();
-	request.input("p1", name);
+	request.input("p1", sql.NVarChar, name);
 	const result = await request.query<SearchUsersRow>(
 		`SELECT id, name, email FROM users WHERE name LIKE @p1`,
 	);

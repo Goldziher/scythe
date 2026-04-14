@@ -68,7 +68,7 @@ assert.(first.name == "Alice", "ListActiveUsers", "first user should be Alice")
 IO.puts("PASS: ListActiveUsers")
 
 # Test: CreateOrder
-{:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
+{:ok, order} = Queries.create_order(conn, 1, user_id, Decimal.new("99.95"), "first order")
 assert.(order.user_id == user_id, "CreateOrder", "expected user_id #{user_id}")
 assert.(Decimal.equal?(order.total, Decimal.new("99.95")), "CreateOrder", "expected total 99.95, got #{order.total}")
 assert.(order.notes == "first order", "CreateOrder", "expected notes 'first order'")

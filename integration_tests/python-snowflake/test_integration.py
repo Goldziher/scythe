@@ -7,6 +7,10 @@ from decimal import Decimal
 from pathlib import Path
 
 import snowflake.connector
+try:
+    import fakesnow
+except ImportError:
+    fakesnow = None
 
 from generated.queries import (
     create_order,
@@ -49,7 +53,7 @@ def setup_schema(conn) -> None:
 
 def test_create_user(conn) -> int:
     """Test CreateUser query. Returns created user ID."""
-    create_user(conn, name="Alice", email="alice@example.com", active=True, metadata='{}')
+    create_user(conn, name="Alice", email="alice@example.com", active=True)
     cursor = conn.cursor()
     cursor.execute("SELECT MAX(id) FROM users")
     max_id_row = cursor.fetchone()
@@ -115,37 +119,56 @@ def test_delete_user(conn, user_id: int) -> None:
 
 def run_tests() -> None:
     """Run all integration tests."""
-    database_url = get_database_url()
-    from urllib.parse import urlparse, parse_qs
-    parsed = urlparse(database_url)
-    # Parse snowflake://user:password@host:port/database/schema?account=X&protocol=http
-    query_params = parse_qs(parsed.query or "")
-    account = query_params.get("account", [parsed.hostname])[0]
-    protocol = query_params.get("protocol", ["https"])[0]
-    path_parts = parsed.path.strip("/").split("/")
-    database = path_parts[0] if len(path_parts) > 0 else "testdb"
-    schema = path_parts[1] if len(path_parts) > 1 else "public"
-    conn = snowflake.connector.connect(
-        account=account,
-        user=parsed.username or "test",
-        password=parsed.password or "test",
-        host=parsed.hostname or "localhost",
-        port=parsed.port or 443,
-        database=database,
-        schema=schema,
-        protocol=protocol,
-    )
-    try:
-        setup_schema(conn)
+    use_fakesnow = os.environ.get("SNOWFLAKE_USE_FAKESNOW", "0") == "1"
+    if use_fakesnow:
+        if not fakesnow:
+            print("ERROR: fakesnow not installed but SNOWFLAKE_USE_FAKESNOW=1", file=sys.stderr)
+            sys.exit(1)
+        with fakesnow.patch():
+            conn = snowflake.connector.connect(database="testdb", schema="public")
+            try:
+                setup_schema(conn)
 
-        user_id = test_create_user(conn)
-        test_get_user_by_id(conn, user_id)
-        test_list_active_users(conn)
-        order_id = test_create_order(conn, user_id)
-        test_get_orders_by_user(conn, user_id)
-        test_delete_user(conn, user_id)
-    finally:
-        conn.close()
+                user_id = test_create_user(conn)
+                test_get_user_by_id(conn, user_id)
+                test_list_active_users(conn)
+                order_id = test_create_order(conn, user_id)
+                test_get_orders_by_user(conn, user_id)
+                test_delete_user(conn, user_id)
+            finally:
+                conn.close()
+    else:
+        database_url = get_database_url()
+        from urllib.parse import urlparse, parse_qs
+        parsed = urlparse(database_url)
+        # Parse snowflake://user:password@host:port/database/schema?account=X&protocol=http
+        query_params = parse_qs(parsed.query or "")
+        account = query_params.get("account", [parsed.hostname])[0]
+        protocol = query_params.get("protocol", ["https"])[0]
+        path_parts = parsed.path.strip("/").split("/")
+        database = path_parts[0] if len(path_parts) > 0 else "testdb"
+        schema = path_parts[1] if len(path_parts) > 1 else "public"
+        conn = snowflake.connector.connect(
+            account=account,
+            user=parsed.username or "test",
+            password=parsed.password or "test",
+            host=parsed.hostname or "localhost",
+            port=parsed.port or 443,
+            database=database,
+            schema=schema,
+            protocol=protocol,
+        )
+        try:
+            setup_schema(conn)
+
+            user_id = test_create_user(conn)
+            test_get_user_by_id(conn, user_id)
+            test_list_active_users(conn)
+            order_id = test_create_order(conn, user_id)
+            test_get_orders_by_user(conn, user_id)
+            test_delete_user(conn, user_id)
+        finally:
+            conn.close()
 
     print("\nALL TESTS PASSED")
 

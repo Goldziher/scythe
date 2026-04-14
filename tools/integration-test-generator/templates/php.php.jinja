@@ -439,6 +439,8 @@ function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driv
 {
     {%- if engine == "postgresql" %}
     $user = Queries::createUser($pdo, "Alice", "alice@example.com", UserStatus::ACTIVE);
+    {%- elif engine == "redshift" %}
+    $user = Queries::createUser($pdo, "Alice", "alice@example.com", "active");
     {%- elif engine == "mysql" %}
     Queries::createUser($pdo, "Alice", "alice@example.com", UsersStatus::ACTIVE);
     $user = Queries::getLastInsertUser($pdo);
@@ -472,6 +474,8 @@ function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" o
 {
     {%- if engine == "postgresql" %}
     $users = iterator_to_array(Queries::listActiveUsers($pdo, UserStatus::ACTIVE));
+    {%- elif engine == "redshift" %}
+    $users = iterator_to_array(Queries::listActiveUsers($pdo, "active"));
     {%- elif engine == "mysql" or engine == "mariadb" %}
     $users = iterator_to_array(Queries::listActiveUsers($pdo, UsersStatus::ACTIVE));
     {%- else %}

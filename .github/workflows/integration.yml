@@ -945,6 +945,8 @@ jobs:
 
       - name: Test python-snowflake
         working-directory: integration_tests/python-snowflake
+        env:
+          SNOWFLAKE_USE_FAKESNOW: "1"
         run: uv run python test_integration.py
 
       - name: Test typescript-snowflake

@@ -172,7 +172,11 @@ Postgrex.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
 {%- endif %}
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "{% if engine == "redshift" %}redshift/schema_pg_compat{% else %}pg/schema{% endif %}.sql"]))
-Postgrex.query!(conn, schema_sql, [])
+schema_sql
+|> String.split(";")
+|> Enum.map(&String.trim/1)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt -> Postgrex.query!(conn, stmt, []) end)
 {%- elif driver == "ecto" %}
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
@@ -365,7 +369,7 @@ IO.puts("PASS: ListActiveUsers")
 {%- elif engine == "oracle" %}
 {:ok, order} = Queries.create_order(conn, user_id, 9999, "first order")
 {%- elif engine == "mssql" %}
-{:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
+{:ok, order} = Queries.create_order(conn, 1, user_id, Decimal.new("99.95"), "first order")
 {%- else %}
 {:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
 {%- endif %}

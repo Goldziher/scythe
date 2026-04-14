@@ -4,4 +4,5 @@ version = "0.1.0"
 requires-python = ">=3.10"
 dependencies = [
     "snowflake-connector-python>=3.0",
+    "fakesnow>=0.9",
 ]

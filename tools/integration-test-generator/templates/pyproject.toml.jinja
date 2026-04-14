@@ -17,6 +17,7 @@ dependencies = [
     "pyodbc>=5.1",
 {%- elif driver == "snowflake" %}
     "snowflake-connector-python>=3.0",
+    "fakesnow>=0.9",
 {%- endif %}
 {%- if options.row_type == "pydantic" %}
     "pydantic>=2.0",

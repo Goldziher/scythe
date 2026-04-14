@@ -44,6 +44,34 @@ fn is_numeric_or_bool_type(neutral_type: &str) -> bool {
     )
 }
 
+/// Check if a neutral type is specifically a boolean.
+fn is_bool_type(neutral_type: &str) -> bool {
+    let base_type = if neutral_type.contains('<') {
+        neutral_type.split('<').next().unwrap_or("")
+    } else {
+        neutral_type
+    };
+    base_type == "Boolean"
+}
+
+/// Generate a parameter assignment for MSSQL with proper type handling.
+/// - Booleans are converted to 0/1 (MSSQL BIT type)
+/// - Other numeric types are interpolated directly
+/// - Strings are escaped and quoted
+/// - `var_access` is used to reference the variable (e.g., "id" or "item[:id]")
+fn generate_param_assignment(index: usize, neutral_type: &str, var_access: &str) -> String {
+    if is_bool_type(neutral_type) {
+        // Convert boolean to 0/1 for MSSQL BIT
+        format!("@p{} = #{{{} ? 1 : 0}}", index, var_access)
+    } else if is_numeric_or_bool_type(neutral_type) {
+        // Other numeric types: interpolate directly
+        format!("@p{} = #{{{}}}", index, var_access)
+    } else {
+        // String types: escape and quote
+        format!("@p{} = '#{{client.escape({})}}'", index, var_access)
+    }
+}
+
 pub struct RubyTinyTdsBackend {
     manifest: BackendManifest,
 }
@@ -166,12 +194,7 @@ impl CodegenBackend for RubyTinyTdsBackend {
                         .iter()
                         .enumerate()
                         .map(|(i, p)| {
-                            // For integer and boolean types, interpolate directly without escaping
-                            if is_numeric_or_bool_type(&p.neutral_type) {
-                                format!("@p{} = #{{{{{}}}}}", i + 1, p.field_name)
-                            } else {
-                                format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
-                            }
+                            generate_param_assignment(i + 1, &p.neutral_type, &p.field_name)
                         })
                         .collect();
                     let declare = assignments.join(", ");
@@ -200,22 +223,11 @@ impl CodegenBackend for RubyTinyTdsBackend {
                         .map(|(i, p)| {
                             if params.len() == 1 {
                                 // Single parameter: interpolate item directly
-                                if is_numeric_or_bool_type(&p.neutral_type) {
-                                    format!("@p{} = #{{item}}", i + 1)
-                                } else {
-                                    format!("@p{} = '#{{client.escape(item)}}'", i + 1)
-                                }
+                                generate_param_assignment(i + 1, &p.neutral_type, "item")
                             } else {
                                 // Multiple parameters: access from hash
-                                if is_numeric_or_bool_type(&p.neutral_type) {
-                                    format!("@p{} = #{{item[:{}]}}", i + 1, p.field_name)
-                                } else {
-                                    format!(
-                                        "@p{} = '#{{client.escape(item[:{}])}}'",
-                                        i + 1,
-                                        p.field_name
-                                    )
-                                }
+                                let var_access = format!("item[:{}]", p.field_name);
+                                generate_param_assignment(i + 1, &p.neutral_type, &var_access)
                             }
                         })
                         .collect();
@@ -235,12 +247,7 @@ impl CodegenBackend for RubyTinyTdsBackend {
                         .iter()
                         .enumerate()
                         .map(|(i, p)| {
-                            // For integer and boolean types, interpolate directly without escaping
-                            if is_numeric_or_bool_type(&p.neutral_type) {
-                                format!("@p{} = #{{{{{}}}}}", i + 1, p.field_name)
-                            } else {
-                                format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
-                            }
+                            generate_param_assignment(i + 1, &p.neutral_type, &p.field_name)
                         })
                         .collect();
                     let declare = assignments.join(", ");
@@ -264,12 +271,7 @@ impl CodegenBackend for RubyTinyTdsBackend {
                         .iter()
                         .enumerate()
                         .map(|(i, p)| {
-                            // For integer and boolean types, interpolate directly without escaping
-                            if is_numeric_or_bool_type(&p.neutral_type) {
-                                format!("@p{} = #{{{{{}}}}}", i + 1, p.field_name)
-                            } else {
-                                format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
-                            }
+                            generate_param_assignment(i + 1, &p.neutral_type, &p.field_name)
                         })
                         .collect();
                     let declare = assignments.join(", ");
@@ -286,12 +288,7 @@ impl CodegenBackend for RubyTinyTdsBackend {
                         .iter()
                         .enumerate()
                         .map(|(i, p)| {
-                            // For integer and boolean types, interpolate directly without escaping
-                            if is_numeric_or_bool_type(&p.neutral_type) {
-                                format!("@p{} = #{{{{{}}}}}", i + 1, p.field_name)
-                            } else {
-                                format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
-                            }
+                            generate_param_assignment(i + 1, &p.neutral_type, &p.field_name)
                         })
                         .collect();
                     let declare = assignments.join(", ");

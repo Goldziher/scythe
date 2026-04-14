@@ -95,7 +95,7 @@ function assert_true(bool $value, string $message): void
 
 function test_create_user(PDO $pdo): int
 {
-    $user = Queries::createUser($pdo, "Alice", "alice@example.com");
+    $user = Queries::createUser($pdo, "Alice", "alice@example.com", "active");
     assert_not_null($user, "CreateUser returned null");
     assert_equal("Alice", $user->name, "CreateUser name");
     assert_equal("alice@example.com", $user->email, "CreateUser email");
@@ -114,7 +114,7 @@ function test_get_user_by_id(PDO $pdo, int $user_id): void
 
 function test_list_active_users(PDO $pdo): void
 {
-    $users = iterator_to_array(Queries::listActiveUsers($pdo));
+    $users = iterator_to_array(Queries::listActiveUsers($pdo, "active"));
     assert_true(count($users) >= 1, "Expected at least 1 active user, got " . count($users));
     $names = array_map(fn($u) => $u->name, $users);
     assert_true(in_array("Alice", $names, true), "Expected 'Alice' in active users");

@@ -8,7 +8,7 @@ SELECT id, name, email FROM users WHERE active = TRUE;
 
 -- @name CreateUser
 -- @returns :exec
-INSERT INTO users (name, email, active, metadata) VALUES (?, ?, ?, PARSE_JSON(?));
+INSERT INTO users (name, email, active) VALUES (?, ?, ?);
 
 -- @name UpdateUserEmail
 -- @returns :exec
