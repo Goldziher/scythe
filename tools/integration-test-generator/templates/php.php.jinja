@@ -341,7 +341,7 @@ function setup_schema(PDO $pdo): void
     $pdo->exec("DROP TABLE IF EXISTS tags CASCADE");
     $pdo->exec("DROP TABLE IF EXISTS orders CASCADE");
     $pdo->exec("DROP TABLE IF EXISTS users CASCADE");
-    $schema_path = __DIR__ . '/../sql/redshift/schema.sql';
+    $schema_path = __DIR__ . '/../sql/redshift/schema_pg_compat.sql';
     $schema_sql = file_get_contents($schema_path);
     if ($schema_sql === false) {
         throw new RuntimeException("Failed to read schema file: {$schema_path}");
@@ -524,9 +524,7 @@ function test_delete_user({% if driver == "pdo" or driver == "pdo-mysql" or driv
 
 try {
     $database_url = get_database_url();
-    {% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" -%}
-    $pdo = create_pdo($database_url);
-    {%- elif engine == "mssql" and driver == "pdo" -%}
+    {% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" -%}
     $pdo = create_pdo($database_url);
     {%- elif driver == "amphp" -%}
     $pdo = create_connection($database_url);

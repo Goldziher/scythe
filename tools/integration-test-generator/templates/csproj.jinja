@@ -20,6 +20,8 @@
     <PackageReference Include="Oracle.ManagedDataAccess.Core" Version="23.4.2" />
 {%- elif engine == "snowflake" %}
     <PackageReference Include="Snowflake.Data" Version="3.0.18" />
+{%- elif engine == "redshift" %}
+    <PackageReference Include="Npgsql" Version="8.0.6" />
 {%- endif %}
   </ItemGroup>
 

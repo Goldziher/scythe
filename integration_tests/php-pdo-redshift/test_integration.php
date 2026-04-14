@@ -59,7 +59,7 @@ function setup_schema(PDO $pdo): void
     $pdo->exec("DROP TABLE IF EXISTS tags CASCADE");
     $pdo->exec("DROP TABLE IF EXISTS orders CASCADE");
     $pdo->exec("DROP TABLE IF EXISTS users CASCADE");
-    $schema_path = __DIR__ . '/../sql/redshift/schema.sql';
+    $schema_path = __DIR__ . '/../sql/redshift/schema_pg_compat.sql';
     $schema_sql = file_get_contents($schema_path);
     if ($schema_sql === false) {
         throw new RuntimeException("Failed to read schema file: {$schema_path}");

@@ -28,7 +28,7 @@ async function main(): Promise<void> {
 		server: url.hostname,
 		port: parseInt(url.port) || 1433,
 		user: url.username,
-		password: url.password,
+		password: decodeURIComponent(url.password),
 		database: url.searchParams.get("database") || "master",
 		options: { encrypt: false, trustServerCertificate: true },
 	};

@@ -162,7 +162,7 @@ function test_delete_user(PDO $pdo, int $user_id): void
 
 try {
     $database_url = get_database_url();
-
+    $pdo = create_pdo($database_url);
 
     setup_schema($pdo);
 

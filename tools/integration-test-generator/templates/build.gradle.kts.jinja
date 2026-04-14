@@ -23,6 +23,8 @@ dependencies {
     implementation("com.microsoft.sqlserver:mssql-jdbc:12.4.1.jre11")
 {%- elif engine == "snowflake" %}
     implementation("net.snowflake:snowflake-jdbc:3.16.1")
+{%- elif engine == "redshift" %}
+    implementation("org.postgresql:postgresql:42.7.4")
 {%- endif %}
 }
 

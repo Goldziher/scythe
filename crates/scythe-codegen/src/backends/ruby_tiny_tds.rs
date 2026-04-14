@@ -13,6 +13,37 @@ use crate::backend_trait::{CodegenBackend, RbsGenerationContext, ResolvedColumn,
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-tiny-tds.toml");
 
+/// Check if a neutral type should not be escaped (numeric or boolean types).
+/// Neutral types come from the backend manifest (e.g., "Boolean", "Integer", "Float").
+fn is_numeric_or_bool_type(neutral_type: &str) -> bool {
+    // Neutral type names are PascalCase or have special forms like "Array<Integer>"
+    // Remove container wrappers and check the base type
+    let base_type = if neutral_type.contains('<') {
+        // Handle Array<T> or similar generic types
+        neutral_type.split('<').next().unwrap_or("")
+    } else {
+        neutral_type
+    };
+
+    matches!(
+        base_type,
+        "Integer"
+            | "Boolean"
+            | "Int16"
+            | "Int32"
+            | "Int64"
+            | "Float"
+            | "Float32"
+            | "Float64"
+            | "Decimal"
+            | "BigDecimal"
+            | "Numeric"
+            | "Double"
+            | "Money"
+            | "SmallMoney"
+    )
+}
+
 pub struct RubyTinyTdsBackend {
     manifest: BackendManifest,
 }
@@ -135,7 +166,12 @@ impl CodegenBackend for RubyTinyTdsBackend {
                         .iter()
                         .enumerate()
                         .map(|(i, p)| {
-                            format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
+                            // For integer and boolean types, interpolate directly without escaping
+                            if is_numeric_or_bool_type(&p.neutral_type) {
+                                format!("@p{} = #{{{{{}}}}}", i + 1, p.field_name)
+                            } else {
+                                format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
+                            }
                         })
                         .collect();
                     let declare = assignments.join(", ");
@@ -163,13 +199,23 @@ impl CodegenBackend for RubyTinyTdsBackend {
                         .enumerate()
                         .map(|(i, p)| {
                             if params.len() == 1 {
-                                format!("@p{} = '#{{client.escape(item)}}'", i + 1)
+                                // Single parameter: interpolate item directly
+                                if is_numeric_or_bool_type(&p.neutral_type) {
+                                    format!("@p{} = #{{item}}", i + 1)
+                                } else {
+                                    format!("@p{} = '#{{client.escape(item)}}'", i + 1)
+                                }
                             } else {
-                                format!(
-                                    "@p{} = '#{{client.escape(item[:{}])}}'",
-                                    i + 1,
-                                    p.field_name
-                                )
+                                // Multiple parameters: access from hash
+                                if is_numeric_or_bool_type(&p.neutral_type) {
+                                    format!("@p{} = #{{item[:{}]}}", i + 1, p.field_name)
+                                } else {
+                                    format!(
+                                        "@p{} = '#{{client.escape(item[:{}])}}'",
+                                        i + 1,
+                                        p.field_name
+                                    )
+                                }
                             }
                         })
                         .collect();
@@ -189,7 +235,12 @@ impl CodegenBackend for RubyTinyTdsBackend {
                         .iter()
                         .enumerate()
                         .map(|(i, p)| {
-                            format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
+                            // For integer and boolean types, interpolate directly without escaping
+                            if is_numeric_or_bool_type(&p.neutral_type) {
+                                format!("@p{} = #{{{{{}}}}}", i + 1, p.field_name)
+                            } else {
+                                format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
+                            }
                         })
                         .collect();
                     let declare = assignments.join(", ");
@@ -213,7 +264,12 @@ impl CodegenBackend for RubyTinyTdsBackend {
                         .iter()
                         .enumerate()
                         .map(|(i, p)| {
-                            format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
+                            // For integer and boolean types, interpolate directly without escaping
+                            if is_numeric_or_bool_type(&p.neutral_type) {
+                                format!("@p{} = #{{{{{}}}}}", i + 1, p.field_name)
+                            } else {
+                                format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
+                            }
                         })
                         .collect();
                     let declare = assignments.join(", ");
@@ -230,7 +286,12 @@ impl CodegenBackend for RubyTinyTdsBackend {
                         .iter()
                         .enumerate()
                         .map(|(i, p)| {
-                            format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
+                            // For integer and boolean types, interpolate directly without escaping
+                            if is_numeric_or_bool_type(&p.neutral_type) {
+                                format!("@p{} = #{{{{{}}}}}", i + 1, p.field_name)
+                            } else {
+                                format!("@p{} = '#{{client.escape({})}}'", i + 1, p.field_name)
+                            }
                         })
                         .collect();
                     let declare = assignments.join(", ");
