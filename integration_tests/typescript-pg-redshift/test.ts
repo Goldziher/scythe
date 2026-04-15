@@ -78,7 +78,7 @@ async function main(): Promise<void> {
 			`expected user_id ${userId}`,
 		);
 		assert(
-			order!.total === "99.95",
+			String(order!.total) === "99.95",
 			"CreateOrder",
 			`expected total 99.95, got ${order!.total}`,
 		);
@@ -97,7 +97,7 @@ async function main(): Promise<void> {
 			`expected 1 order, got ${orders.length}`,
 		);
 		assert(
-			orders[0]!.total === "99.95",
+			String(orders[0]!.total) === "99.95",
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);

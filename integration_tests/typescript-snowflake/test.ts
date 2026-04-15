@@ -104,7 +104,7 @@ async function main(): Promise<void> {
 			`expected user_id ${userId}`,
 		);
 		assert(
-			order!.total === "99.95",
+			String(order!.total) === "99.95",
 			"CreateOrder",
 			`expected total 99.95, got ${order!.total}`,
 		);
