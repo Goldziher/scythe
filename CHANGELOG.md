@@ -49,10 +49,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Elixir: `elixirc_paths` includes `generated/` for all backends
 - TypeScript: `String()` coercion for decimal total comparisons
 
-### Known Limitations
+### Unverified / Skipped in CI
 
-- MSSQL Elixir TDS: `tds` lib parameter type encoding limitations (marked not working)
-- Snowflake: emulator only supports Go (gosnowflake) driver; Python uses fakesnow
+The following backends have codegen support but are **not tested in CI** due to driver/infra limitations:
+
+**MSSQL:**
+
+- `elixir-tds` — Elixir `tds` library parameter type encoding fails ([#28](https://github.com/Goldziher/scythe/issues/28))
+
+**Oracle:**
+
+- `elixir-jamdb` — `DBConnection.ConnectionPool` dispatch error with `jamdb_oracle`
+- `ruby-oci8` — native gem requires Oracle Instant Client SDK headers not available in CI
+
+**SQLite:**
+
+- `php-pdo-sqlite` — generated `createUser` param count mismatch with test template
+
+**Snowflake** ([#27](https://github.com/Goldziher/scythe/issues/27)):
+
+- `go-gosnowflake` — no free Snowflake emulator with full Go driver support
+- `typescript-snowflake` — emulator doesn't support TS SDK protocol
+- `java-jdbc-snowflake` — emulator doesn't support JDBC protocol
+- `kotlin-jdbc-snowflake` — emulator doesn't support JDBC protocol
+- `csharp-snowflake` — emulator doesn't support .NET driver protocol
+- `php-pdo-snowflake` — emulator doesn't support PDO protocol
+
+Only `python-snowflake` is tested via [fakesnow](https://github.com/tekumara/fakesnow) (in-process DuckDB).
 
 ## [0.6.7] - 2026-04-12
 
