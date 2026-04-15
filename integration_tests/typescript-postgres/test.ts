@@ -7,7 +7,7 @@ import {
 	getOrdersByUser,
 	deleteOrdersByUser,
 	deleteUser,
-	UserStatusValues,
+	UserStatus,
 } from "./generated/queries.js";
 
 const DATABASE_URL =
@@ -64,7 +64,7 @@ async function main(): Promise<void> {
 			sql,
 			"Alice",
 			"alice@example.com",
-			UserStatusValues.Active,
+			UserStatus.Active,
 		);
 		assert(user !== null, "CreateUser", "user should not be null");
 		assert(
@@ -88,7 +88,7 @@ async function main(): Promise<void> {
 		console.log("PASS: GetUserById");
 
 		// Test: ListActiveUsers
-		const activeUsers = await listActiveUsers(sql, UserStatusValues.Active);
+		const activeUsers = await listActiveUsers(sql, UserStatus.Active);
 		assert(
 			activeUsers.length > 0,
 			"ListActiveUsers",

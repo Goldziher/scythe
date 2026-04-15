@@ -136,6 +136,13 @@ func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
 	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, order.UserId == createdUserID, "expected user_id %s, got %s", createdUserID, order.UserId) {
+		return
+	}
 	pass(name)
 }
 
