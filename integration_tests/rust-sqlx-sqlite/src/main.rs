@@ -75,7 +75,7 @@ let insert_result = sqlx::query("INSERT INTO users (name, email, status) VALUES 
 
     // Test: GetUserById
 let fetched: GetUserByIdRow =
-        sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
+        sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = ?")
             .bind(user_id)
             .fetch_one(&pool)
             .await?;

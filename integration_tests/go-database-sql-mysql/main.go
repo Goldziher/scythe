@@ -52,7 +52,7 @@ func main() {
 		os.Exit(1)
 	}
 	mysqlPass, _ := mysqlURL.User.Password()
-	mysqlDSN := fmt.Sprintf("%s:%s@tcp(%s)%s?multiStatements=true", mysqlURL.User.Username(), mysqlPass, mysqlURL.Host, mysqlURL.Path)
+	mysqlDSN := fmt.Sprintf("%s:%s@tcp(%s)%s?multiStatements=true&parseTime=true", mysqlURL.User.Username(), mysqlPass, mysqlURL.Host, mysqlURL.Path)
 	db, err := sql.Open("mysql", mysqlDSN)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
