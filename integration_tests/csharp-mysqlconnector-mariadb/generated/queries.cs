@@ -28,7 +28,7 @@ public static async Task<CreateOrderRow?> CreateOrder(MySqlConnection conn, stri
     if (!await reader.ReadAsync()) return null;
     return new CreateOrderRow(
         reader.GetInt32(0),
-        reader.GetString(1),
+        reader.GetValue(1).ToString()!,
         reader.GetDecimal(2),
         reader.IsDBNull(3) ? null : reader.GetString(3),
         reader.GetDateTime(4)
@@ -92,7 +92,7 @@ public static async Task<GetUserByIdRow?> GetUserById(MySqlConnection conn, stri
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
     return new GetUserByIdRow(
-        reader.GetString(0),
+        reader.GetValue(0).ToString()!,
         reader.GetString(1),
         reader.IsDBNull(2) ? null : reader.GetString(2),
         (Enum.TryParse<UsersStatus>(reader.GetString(3), true, out var enumVal3) ? enumVal3 : throw new InvalidOperationException($"Invalid enum value '{reader.GetString(3)}' for UsersStatus")),
@@ -113,7 +113,7 @@ public static async Task<List<ListActiveUsersRow>> ListActiveUsers(MySqlConnecti
     var results = new List<ListActiveUsersRow>();
     while (await reader.ReadAsync()) {
         results.Add(new ListActiveUsersRow(
-            reader.GetString(0),
+            reader.GetValue(0).ToString()!,
             reader.GetString(1),
             reader.IsDBNull(2) ? null : reader.GetString(2)
         ));
@@ -135,7 +135,7 @@ public static async Task<CreateUserRow?> CreateUser(MySqlConnection conn, string
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
     return new CreateUserRow(
-        reader.GetString(0),
+        reader.GetValue(0).ToString()!,
         reader.GetString(1),
         reader.IsDBNull(2) ? null : reader.GetString(2)
     );
@@ -167,7 +167,7 @@ public static async Task<List<SearchUsersRow>> SearchUsers(MySqlConnection conn,
     var results = new List<SearchUsersRow>();
     while (await reader.ReadAsync()) {
         results.Add(new SearchUsersRow(
-            reader.GetString(0),
+            reader.GetValue(0).ToString()!,
             reader.GetString(1),
             reader.IsDBNull(2) ? null : reader.GetString(2)
         ));

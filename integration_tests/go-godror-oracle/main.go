@@ -53,11 +53,11 @@ func main() {
 		os.Exit(1)
 	}
 	password, _ := parsedURL.User.Password()
-	godrorDSN := fmt.Sprintf("%s/%s@%s%s",
+	godrorDSN := fmt.Sprintf("%s/%s@//%s%s",
 		parsedURL.User.Username(),
 		password,
 		parsedURL.Host,
-		strings.TrimPrefix(parsedURL.Path, "/"),
+		parsedURL.Path,
 	)
 	db, err := sql.Open("godror", godrorDSN)
 	if err != nil {
