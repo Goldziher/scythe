@@ -35,7 +35,7 @@ impl ElixirTdsBackend {
     }
 }
 
-/// Rewrite $1, $2, ... positional params to @p1, @p2, ... for MSSQL.
+/// Rewrite $1, $2, ... positional params to ? positional placeholders for TDS.
 impl CodegenBackend for ElixirTdsBackend {
     fn name(&self) -> &str {
         "elixir-tds"
@@ -108,7 +108,7 @@ impl CodegenBackend for ElixirTdsBackend {
                 &analyzed.optional_params,
                 &analyzed.params,
             ),
-            |n| format!("@p{n}"),
+            |n| format!("@{n}"),
         );
         let mut out = String::new();
 

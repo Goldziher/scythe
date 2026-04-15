@@ -101,7 +101,7 @@ end
 def test_get_order_total(conn, user_id)
   result = Queries.get_order_total(conn, user_id)
   assert_not_nil(result, "get_order_total returned nil")
-  assert_equal("49.99", result.total_sum, "get_order_total total_sum")
+  assert_equal("49.99", result.total_sum.to_s("F"), "get_order_total total_sum")
   puts "PASS: GetOrderTotal"
 end
 

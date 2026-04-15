@@ -40,22 +40,42 @@ fn is_bool_type(neutral_type: &str) -> bool {
     base_type == "bool"
 }
 
-/// Generate a parameter assignment for MSSQL with proper type handling.
-/// - Booleans are converted to 0/1 (MSSQL BIT type)
-/// - Other numeric types are interpolated directly
-/// - Strings are escaped and quoted
+/// Generate the inline SQL interpolation for a parameter value.
+/// Returns the string that replaces `@pN` directly in the SQL body.
+/// - Booleans: `#{var ? 1 : 0}`
+/// - Other numeric/decimal types: `#{var}`
+/// - Nullable strings: `#{var.nil? ? 'NULL' : "'#{client.escape(var)}'"}`
+/// - Non-nullable strings: `'#{client.escape(var)}'`
 /// - `var_access` is used to reference the variable (e.g., "id" or "item[:id]")
-fn generate_param_assignment(index: usize, neutral_type: &str, var_access: &str) -> String {
+fn generate_inline_value(neutral_type: &str, var_access: &str, nullable: bool) -> String {
     if is_bool_type(neutral_type) {
-        // Convert boolean to 0/1 for MSSQL BIT
-        format!("@p{} = #{{{} ? 1 : 0}}", index, var_access)
+        format!("#{{{} ? 1 : 0}}", var_access)
     } else if is_numeric_or_bool_type(neutral_type) {
-        // Other numeric types: interpolate directly
-        format!("@p{} = #{{{}}}", index, var_access)
+        format!("#{{{}}}", var_access)
+    } else if nullable {
+        // Nullable string: emit SQL NULL literal or a quoted, escaped value.
+        // Ruby evaluates the ternary at runtime: nil → NULL, otherwise → 'escaped_value'.
+        // The inner double-quoted string `"'#{client.escape(...)}'"`  uses its own interpolation,
+        // which Ruby handles correctly even when nested inside the outer string's #{} block.
+        format!(
+            "#{{ {}.nil? ? 'NULL' : \"'#{{client.escape({})}}'\"}}",
+            var_access, var_access
+        )
     } else {
-        // String types: escape and quote
-        format!("@p{} = '#{{client.escape({})}}'", index, var_access)
+        format!("'#{{client.escape({})}}'", var_access)
     }
+}
+
+/// Replace `@p1`, `@p2`, ... placeholders in the SQL string with inline Ruby interpolations.
+fn inline_params(sql: &str, params: &[(String, String, bool)]) -> String {
+    let mut result = sql.to_string();
+    // Replace in reverse order so that @p10 is replaced before @p1
+    for (index, (neutral_type, var_access, nullable)) in params.iter().enumerate().rev() {
+        let placeholder = format!("@p{}", index + 1);
+        let value = generate_inline_value(neutral_type, var_access, *nullable);
+        result = result.replace(&placeholder, &value);
+    }
+    result
 }
 
 pub struct RubyTinyTdsBackend {
@@ -161,11 +181,10 @@ impl CodegenBackend for RubyTinyTdsBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // WARNING: TinyTDS does not support parameterized queries natively.
-        // We use DECLARE with client.escape() for SQL injection prevention.
-        // client.escape() handles quoting/escaping of string values, but callers
-        // must ensure non-string types (integers, floats) are validated before passing.
-        // Consider using sp_executesql for stronger parameterization if your use case requires it.
+        // WARNING: TinyTDS does not support native parameterized queries.
+        // We use Ruby string interpolation with client.escape() for SQL injection prevention.
+        // client.escape() handles string values; callers must ensure numeric types are validated.
+        // Consider sp_executesql for stronger parameterization if needed.
         if !matches!(analyzed.command, QueryCommand::Batch) {
             let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
         }
@@ -175,16 +194,12 @@ impl CodegenBackend for RubyTinyTdsBackend {
                 if params.is_empty() {
                     let _ = writeln!(out, "    result = client.execute(\"{}\").first", sql);
                 } else {
-                    // Use string interpolation to build parameterized query
-                    let assignments: Vec<String> = params
+                    let params_info: Vec<(String, String, bool)> = params
                         .iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            generate_param_assignment(i + 1, &p.neutral_type, &p.field_name)
-                        })
+                        .map(|p| (p.neutral_type.clone(), p.field_name.clone(), p.nullable))
                         .collect();
-                    let declare = assignments.join(", ");
-                    let _ = writeln!(out, "    sql = \"DECLARE {}; {}\"", declare, sql);
+                    let inlined_sql = inline_params(&sql, &params_info);
+                    let _ = writeln!(out, "    sql = \"{}\"", inlined_sql);
                     let _ = writeln!(out, "    result = client.execute(sql).first");
                 }
                 let _ = writeln!(out, "    return nil if result.nil?");
@@ -203,22 +218,19 @@ impl CodegenBackend for RubyTinyTdsBackend {
                 if params.is_empty() {
                     let _ = writeln!(out, "      client.execute(\"{}\").do", sql);
                 } else {
-                    let assignments: Vec<String> = params
+                    let params_info: Vec<(String, String, bool)> = params
                         .iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            if params.len() == 1 {
-                                // Single parameter: interpolate item directly
-                                generate_param_assignment(i + 1, &p.neutral_type, "item")
+                        .map(|p| {
+                            let var_access = if params.len() == 1 {
+                                "item".to_string()
                             } else {
-                                // Multiple parameters: access from hash
-                                let var_access = format!("item[:{}]", p.field_name);
-                                generate_param_assignment(i + 1, &p.neutral_type, &var_access)
-                            }
+                                format!("item[:{}]", p.field_name)
+                            };
+                            (p.neutral_type.clone(), var_access, p.nullable)
                         })
                         .collect();
-                    let declare = assignments.join(", ");
-                    let _ = writeln!(out, "      sql = \"DECLARE {}; {}\"", declare, sql);
+                    let inlined_sql = inline_params(&sql, &params_info);
+                    let _ = writeln!(out, "      sql = \"{}\"", inlined_sql);
                     let _ = writeln!(out, "      client.execute(sql).do");
                 }
                 let _ = writeln!(out, "    end");
@@ -229,15 +241,12 @@ impl CodegenBackend for RubyTinyTdsBackend {
                 if params.is_empty() {
                     let _ = writeln!(out, "    results = client.execute(\"{}\")", sql);
                 } else {
-                    let assignments: Vec<String> = params
+                    let params_info: Vec<(String, String, bool)> = params
                         .iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            generate_param_assignment(i + 1, &p.neutral_type, &p.field_name)
-                        })
+                        .map(|p| (p.neutral_type.clone(), p.field_name.clone(), p.nullable))
                         .collect();
-                    let declare = assignments.join(", ");
-                    let _ = writeln!(out, "    sql = \"DECLARE {}; {}\"", declare, sql);
+                    let inlined_sql = inline_params(&sql, &params_info);
+                    let _ = writeln!(out, "    sql = \"{}\"", inlined_sql);
                     let _ = writeln!(out, "    results = client.execute(sql)");
                 }
                 let _ = writeln!(out, "    results.map do |row|");
@@ -253,15 +262,12 @@ impl CodegenBackend for RubyTinyTdsBackend {
                 if params.is_empty() {
                     let _ = writeln!(out, "    client.execute(\"{}\").do", sql);
                 } else {
-                    let assignments: Vec<String> = params
+                    let params_info: Vec<(String, String, bool)> = params
                         .iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            generate_param_assignment(i + 1, &p.neutral_type, &p.field_name)
-                        })
+                        .map(|p| (p.neutral_type.clone(), p.field_name.clone(), p.nullable))
                         .collect();
-                    let declare = assignments.join(", ");
-                    let _ = writeln!(out, "    sql = \"DECLARE {}; {}\"", declare, sql);
+                    let inlined_sql = inline_params(&sql, &params_info);
+                    let _ = writeln!(out, "    sql = \"{}\"", inlined_sql);
                     let _ = writeln!(out, "    client.execute(sql).do");
                 }
                 let _ = writeln!(out, "    nil");
@@ -270,15 +276,12 @@ impl CodegenBackend for RubyTinyTdsBackend {
                 if params.is_empty() {
                     let _ = writeln!(out, "    client.execute(\"{}\").affected_rows", sql);
                 } else {
-                    let assignments: Vec<String> = params
+                    let params_info: Vec<(String, String, bool)> = params
                         .iter()
-                        .enumerate()
-                        .map(|(i, p)| {
-                            generate_param_assignment(i + 1, &p.neutral_type, &p.field_name)
-                        })
+                        .map(|p| (p.neutral_type.clone(), p.field_name.clone(), p.nullable))
                         .collect();
-                    let declare = assignments.join(", ");
-                    let _ = writeln!(out, "    sql = \"DECLARE {}; {}\"", declare, sql);
+                    let inlined_sql = inline_params(&sql, &params_info);
+                    let _ = writeln!(out, "    sql = \"{}\"", inlined_sql);
                     let _ = writeln!(out, "    client.execute(sql).affected_rows");
                 }
             }
