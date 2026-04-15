@@ -134,12 +134,8 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
-	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes)
-	if err != nil {
+	if err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes); err != nil {
 		fail(name, err)
-		return
-	}
-	if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
 		return
 	}
 	pass(name)
@@ -160,7 +156,7 @@ func testGetOrdersByUser(ctx context.Context, db *sql.DB) {
 
 func testListActiveUsers(ctx context.Context, db *sql.DB) {
 	name := "ListActiveUsers"
-	users, err := queries.ListActiveUsers(ctx, db)
+	users, err := queries.ListActiveUsers(ctx, db, "active")
 	if err != nil {
 		fail(name, err)
 		return
