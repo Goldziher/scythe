@@ -121,7 +121,7 @@ jobs:
       # Go
       - name: Test go-pgx
         working-directory: integration_tests/go-pgx
-        run: go run .
+        run: go mod tidy && go run .
 
       # TypeScript
       - name: Test typescript-postgres
@@ -265,7 +265,7 @@ jobs:
 
       - name: Test go-database-sql-mysql
         working-directory: integration_tests/go-database-sql-mysql
-        run: go run .
+        run: go mod tidy && go run .
 
       - name: Test python-aiomysql
         working-directory: integration_tests/python-aiomysql
@@ -388,7 +388,7 @@ jobs:
 
       - name: Test go-database-sql-mariadb
         working-directory: integration_tests/go-database-sql-mariadb
-        run: go run .
+        run: go mod tidy && go run .
 
       - name: Test python-aiomysql-mariadb
         working-directory: integration_tests/python-aiomysql-mariadb
@@ -520,7 +520,7 @@ jobs:
 
       - name: Test go-godror-oracle
         working-directory: integration_tests/go-godror-oracle
-        run: go run .
+        run: go mod tidy && go run .
 
       - name: Test java-jdbc-oracle
         working-directory: integration_tests/java-jdbc-oracle
@@ -741,7 +741,7 @@ jobs:
 
       - name: Test go-database-sql-sqlite
         working-directory: integration_tests/go-database-sql-sqlite
-        run: go run .
+        run: go mod tidy && go run .
 
       - name: Test python-aiosqlite
         working-directory: integration_tests/python-aiosqlite

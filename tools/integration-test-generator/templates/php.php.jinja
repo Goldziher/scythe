@@ -447,7 +447,7 @@ function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driv
     {%- elif engine == "mariadb" %}
     $user = Queries::createUser($pdo, "Alice", "alice@example.com", UsersStatus::ACTIVE);
     {%- elif engine == "mssql" %}
-    $user = Queries::createUser($pdo, "Alice", "alice@example.com", 1);
+    $user = Queries::createUser($pdo, 1, "Alice", "alice@example.com", true);
     {%- elif engine == "snowflake" %}
     Queries::createUser($pdo, "Alice", "alice@example.com");
     $user = Queries::getUserById($pdo, 1);
@@ -493,7 +493,7 @@ function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or dri
     Queries::createOrder($pdo, $user_id, "49.99", "Test order");
     $order = Queries::getLastInsertOrder($pdo);
     {%- elif engine == "mssql" %}
-    $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
+    $order = Queries::createOrder($pdo, 1, $user_id, "49.99", "Test order");
     {%- elif engine == "snowflake" %}
     Queries::createOrder($pdo, $user_id, "49.99", "Test order");
     $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));

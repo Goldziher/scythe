@@ -106,7 +106,7 @@ function assert_true(bool $value, string $message): void
 
 function test_create_user(PDO $pdo): int
 {
-    $user = Queries::createUser($pdo, "Alice", "alice@example.com", 1);
+    $user = Queries::createUser($pdo, 1, "Alice", "alice@example.com", true);
     assert_not_null($user, "CreateUser returned null");
     assert_equal("Alice", $user->name, "CreateUser name");
     assert_equal("alice@example.com", $user->email, "CreateUser email");
@@ -134,7 +134,7 @@ function test_list_active_users(PDO $pdo): void
 
 function test_create_order(PDO $pdo, int $user_id): int
 {
-    $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
+    $order = Queries::createOrder($pdo, 1, $user_id, "49.99", "Test order");
     assert_not_null($order, "CreateOrder returned null");
     assert_equal($user_id, $order->user_id, "CreateOrder user_id");
     assert_equal("Test order", $order->notes, "CreateOrder notes");

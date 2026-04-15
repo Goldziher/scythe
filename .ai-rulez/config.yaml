@@ -1,7 +1,27 @@
 $schema: https://raw.githubusercontent.com/Goldziher/ai-rulez/main/schema/ai-rules-v3.schema.json
-description: Rust-centric multi-language HTTP framework providing core library, CLI, and tower-http runtime with polyglot bindings (Python/TypeScript/Ruby/PHP/Elixir). Type-safe web service toolkit with fixture-driven testing across all platforms.
+description: SQL compilation and code generation framework — compiles annotated SQL into type-safe database access code for 10 languages
 gitignore: true
 name: scythe
+
+header:
+  style: minimal
+
+includes:
+  - name: kreuzberg-core
+    source: https://github.com/kreuzberg-dev/ai-rulez.git
+    path: modules/core
+    local_override: ../../kreuzberg-dev/ai-rulez
+    merge_strategy: local-override
+  - name: kreuzberg-cicd
+    source: https://github.com/kreuzberg-dev/ai-rulez.git
+    path: modules/cicd
+    local_override: ../../kreuzberg-dev/ai-rulez
+    merge_strategy: local-override
+  - name: kreuzberg-e2e-generator
+    source: https://github.com/kreuzberg-dev/ai-rulez.git
+    path: modules/e2e-generator
+    local_override: ../../kreuzberg-dev/ai-rulez
+    merge_strategy: local-override
 
 builtins:
   - rust
@@ -10,6 +30,11 @@ builtins:
   - ruby
   - php
   - elixir
+  - go
+  - java
+  - csharp
+  - pyo3
+  - napi-rs
   - security
   - git-workflow
   - code-quality
@@ -19,6 +44,8 @@ builtins:
 
 presets:
   - claude
+  - gemini
+  - codex
 compression:
   level: moderate
 version: "3.0"

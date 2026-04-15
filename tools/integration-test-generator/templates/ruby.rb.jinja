@@ -218,7 +218,7 @@ def test_get_order_total(conn, user_id)
 {%- if engine == "oracle" %}
   assert_true(result.total_sum.to_i == 9999, "get_order_total total_sum")
 {%- else %}
-  assert_equal("49.99", result.total_sum.to_s("F"), "get_order_total total_sum")
+  assert_true(result.total_sum.to_f == 49.99, "get_order_total total_sum (got #{result.total_sum})")
 {%- endif %}
   puts "PASS: GetOrderTotal"
 end

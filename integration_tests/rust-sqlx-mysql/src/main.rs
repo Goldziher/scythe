@@ -57,15 +57,18 @@ let pool = MySqlPoolOptions::new()
     }
 
     // Test: CreateUser
-sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
+let insert_result = sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
         .bind("Alice")
         .bind("alice@example.com")
         .bind("active")
         .execute(&pool)
         .await?;
-    let user: GetLastInsertUserRow = sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()")
-        .fetch_one(&pool)
-        .await?;
+    let user_id_mysql = insert_result.last_insert_id() as i32;
+    let user: GetLastInsertUserRow =
+        sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = ?")
+            .bind(user_id_mysql)
+            .fetch_one(&pool)
+            .await?;
     assert_test!(user.name == "Alice", "CreateUser");
     assert_test!(
         user.email.as_deref() == Some("alice@example.com"),
@@ -101,15 +104,17 @@ let active_users: Vec<ListActiveUsersRow> =
     // Test: CreateOrder
 
     let total = Decimal::from_str("99.95").unwrap();
-sqlx::query("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")
+let insert_result = sqlx::query("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")
         .bind(&user_id)
         .bind(&total)
         .bind("first order")
         .execute(&pool)
         .await?;
+    let order_id_mysql = insert_result.last_insert_id() as i32;
     let order: GetLastInsertOrderRow = sqlx::query_as(
-        "SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()",
+        "SELECT id, user_id, total, notes, created_at FROM orders WHERE id = ?",
     )
+    .bind(order_id_mysql)
     .fetch_one(&pool)
     .await?;
     assert_test!(order.user_id == user_id, "CreateOrder");
