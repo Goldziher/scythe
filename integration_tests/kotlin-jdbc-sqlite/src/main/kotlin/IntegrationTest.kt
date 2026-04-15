@@ -183,7 +183,7 @@ fun testGetOrderTotal(conn: java.sql.Connection) {
             fail(name, "returned null")
             return
         }
-        if (Math.abs(result.total_sum - 99.99) > 0.01) {
+        if (Math.abs(result.total_sum!! - 99.99) > 0.01) {
             fail(name, "expected total_sum 99.99, got ${result.total_sum}")
             return
         }

@@ -45,7 +45,7 @@ function create_connection(string $url): \Amp\Postgres\PostgresConnection
     return \Amp\Postgres\connect($config);
 }
 
-function setup_schema($conn $pdo): void
+function setup_schema($pdo): void
 {
     $pdo->exec("DROP TABLE IF EXISTS user_tags CASCADE");
     $pdo->exec("DROP TABLE IF EXISTS tags CASCADE");
@@ -86,7 +86,7 @@ function assert_true(bool $value, string $message): void
 
 
 
-function test_create_user($conn $pdo): int
+function test_create_user($pdo): int
 {
     $user = Queries::createUser($pdo, "Alice", "alice@example.com", UserStatus::ACTIVE);
     assert_not_null($user, "CreateUser returned null");
@@ -96,7 +96,7 @@ function test_create_user($conn $pdo): int
     return $user->id;
 }
 
-function test_get_user_by_id($conn $pdo, int $user_id): void
+function test_get_user_by_id($pdo, int $user_id): void
 {
     $user = Queries::getUserById($pdo, $user_id);
     assert_not_null($user, "GetUserById returned null for id={$user_id}");
@@ -105,7 +105,7 @@ function test_get_user_by_id($conn $pdo, int $user_id): void
     echo "PASS: GetUserById\n";
 }
 
-function test_list_active_users($conn $pdo): void
+function test_list_active_users($pdo): void
 {
     $users = iterator_to_array(Queries::listActiveUsers($pdo, UserStatus::ACTIVE));
     assert_true(count($users) >= 1, "Expected at least 1 active user, got " . count($users));
@@ -114,7 +114,7 @@ function test_list_active_users($conn $pdo): void
     echo "PASS: ListActiveUsers\n";
 }
 
-function test_create_order($conn $pdo, int $user_id): int
+function test_create_order($pdo, int $user_id): int
 {
     $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
     assert_not_null($order, "CreateOrder returned null");
@@ -124,7 +124,7 @@ function test_create_order($conn $pdo, int $user_id): int
     return $order->id;
 }
 
-function test_get_orders_by_user($conn $pdo, int $user_id): void
+function test_get_orders_by_user($pdo, int $user_id): void
 {
     $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
     assert_true(count($orders) >= 1, "Expected at least 1 order, got " . count($orders));
@@ -132,7 +132,7 @@ function test_get_orders_by_user($conn $pdo, int $user_id): void
     echo "PASS: GetOrdersByUser\n";
 }
 
-function test_delete_user($conn $pdo, int $user_id): void
+function test_delete_user($pdo, int $user_id): void
 {
     // Delete orders first due to FK constraint
     Queries::deleteOrdersByUser($pdo, $user_id);

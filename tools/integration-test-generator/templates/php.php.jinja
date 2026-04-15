@@ -249,7 +249,7 @@ function create_pdo(string $url): PDO
 {%- endif %}
 
 {% if engine == "postgresql" -%}
-function setup_schema({% if driver == "pdo" %}PDO{% else %}$conn{% endif %} $pdo): void
+function setup_schema({% if driver == "pdo" %}PDO {% endif %}$pdo): void
 {
     $pdo->exec("DROP TABLE IF EXISTS user_tags CASCADE");
     $pdo->exec("DROP TABLE IF EXISTS tags CASCADE");
@@ -264,7 +264,7 @@ function setup_schema({% if driver == "pdo" %}PDO{% else %}$conn{% endif %} $pdo
     $pdo->exec($schema_sql);
 }
 {%- elif engine == "mysql" -%}
-function setup_schema({% if driver == "pdo-mysql" %}PDO{% else %}$conn{% endif %} $pdo): void
+function setup_schema({% if driver == "pdo-mysql" %}PDO {% endif %}$pdo): void
 {
     $pdo->exec("DROP TABLE IF EXISTS user_tags");
     $pdo->exec("DROP TABLE IF EXISTS tags");
@@ -283,7 +283,7 @@ function setup_schema({% if driver == "pdo-mysql" %}PDO{% else %}$conn{% endif %
     }
 }
 {%- elif engine == "mariadb" -%}
-function setup_schema({% if driver == "pdo-mysql" %}PDO{% else %}$conn{% endif %} $pdo): void
+function setup_schema({% if driver == "pdo-mysql" %}PDO {% endif %}$pdo): void
 {
     $pdo->exec("DROP TABLE IF EXISTS user_tags");
     $pdo->exec("DROP TABLE IF EXISTS tags");
@@ -415,7 +415,7 @@ function assert_true(bool $value, string $message): void
 }
 
 {% if engine == "snowflake" -%}
-function setup_schema({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo): void
+function setup_schema({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO {% endif %}$pdo): void
 {
     $pdo->exec("DROP TABLE IF EXISTS user_tags");
     $pdo->exec("DROP TABLE IF EXISTS tags");
@@ -435,7 +435,7 @@ function setup_schema({% if driver == "pdo" or driver == "pdo-mysql" or driver =
 }
 {%- endif %}
 
-function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo): {% if engine == "mariadb" %}string{% else %}int{% endif %}
+function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO {% endif %}$pdo): {% if engine == "mariadb" %}string{% else %}int{% endif %}
 {
     {%- if engine == "postgresql" %}
     $user = Queries::createUser($pdo, "Alice", "alice@example.com", UserStatus::ACTIVE);
@@ -461,7 +461,7 @@ function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driv
     return $user->id;
 }
 
-function test_get_user_by_id({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
+function test_get_user_by_id({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO {% endif %}$pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
 {
     $user = Queries::getUserById($pdo, $user_id);
     assert_not_null($user, "GetUserById returned null for id={$user_id}");
@@ -470,7 +470,7 @@ function test_get_user_by_id({% if driver == "pdo" or driver == "pdo-mysql" or d
     echo "PASS: GetUserById\n";
 }
 
-function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo): void
+function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO {% endif %}$pdo): void
 {
     {%- if engine == "postgresql" %}
     $users = iterator_to_array(Queries::listActiveUsers($pdo, UserStatus::ACTIVE));
@@ -487,7 +487,7 @@ function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" o
     echo "PASS: ListActiveUsers\n";
 }
 
-function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): int
+function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO {% endif %}$pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): int
 {
     {%- if engine == "mysql" %}
     Queries::createOrder($pdo, $user_id, "49.99", "Test order");
@@ -508,7 +508,7 @@ function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or dri
     return $order->id;
 }
 
-function test_get_orders_by_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
+function test_get_orders_by_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO {% endif %}$pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
 {
     $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
     assert_true(count($orders) >= 1, "Expected at least 1 order, got " . count($orders));
@@ -516,7 +516,7 @@ function test_get_orders_by_user({% if driver == "pdo" or driver == "pdo-mysql" 
     echo "PASS: GetOrdersByUser\n";
 }
 
-function test_delete_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO{% else %}$conn{% endif %} $pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
+function test_delete_user({% if driver == "pdo" or driver == "pdo-mysql" or driver == "pdo-sqlite" or driver == "pdo-mssql" %}PDO {% endif %}$pdo, {% if engine == "mariadb" %}string{% else %}int{% endif %} $user_id): void
 {
     // Delete orders first due to FK constraint
     Queries::deleteOrdersByUser($pdo, $user_id);
