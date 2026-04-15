@@ -649,7 +649,7 @@ jobs:
 
       - name: Test go-database-sql-mssql
         working-directory: integration_tests/go-database-sql-mssql
-        run: go run .
+        run: go mod tidy && go run .
 
       - name: Test java-jdbc-mssql
         working-directory: integration_tests/java-jdbc-mssql
