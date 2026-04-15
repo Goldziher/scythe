@@ -42,3 +42,9 @@ CLAUDE.md
 
 # Docs build output
 /site/
+
+# AI Rules generated files
+.gemini/
+.codex/
+GEMINI.md
+AGENTS.md

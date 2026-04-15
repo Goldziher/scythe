@@ -10,17 +10,17 @@ includes:
   - name: kreuzberg-core
     source: https://github.com/kreuzberg-dev/ai-rulez.git
     path: modules/core
-    local_override: ../../kreuzberg-dev/ai-rulez
+    local_override: ../kreuzberg-dev/ai-rulez
     merge_strategy: local-override
   - name: kreuzberg-cicd
     source: https://github.com/kreuzberg-dev/ai-rulez.git
     path: modules/cicd
-    local_override: ../../kreuzberg-dev/ai-rulez
+    local_override: ../kreuzberg-dev/ai-rulez
     merge_strategy: local-override
   - name: kreuzberg-e2e-generator
     source: https://github.com/kreuzberg-dev/ai-rulez.git
     path: modules/e2e-generator
-    local_override: ../../kreuzberg-dev/ai-rulez
+    local_override: ../kreuzberg-dev/ai-rulez
     merge_strategy: local-override
 
 builtins:

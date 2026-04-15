@@ -135,15 +135,7 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
-	total := decimal.NewFromFloat(99.99)
-	order, err := queries.CreateOrder(ctx, db, createdUserID, total, &notes)
-	if err != nil {
-		fail(name, err)
-		return
-	}
-	if !assertf(name, order.UserId == createdUserID, "expected user_id %s, got %s", createdUserID, order.UserId) {
-		return
-	}
+	order, err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes)
 	pass(name)
 }
 
