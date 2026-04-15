@@ -108,7 +108,7 @@ database_path = System.get_env("{{ connection_env }}", ":memory:")
 
 {%- if driver == "exqlite" %}
 
-{:ok, conn} = Exqlite.start_link(database: database_path)
+{:ok, conn} = Exqlite.Sqlite3.open(database_path)
 {%- elif driver == "ecto" %}
 
 {:ok, conn} = Ecto.Adapters.SQLite3.start_link(database: database_path)
@@ -251,10 +251,10 @@ schema_sql
 {%- endif %}
 {%- elif engine == "sqlite" -%}
 {% if driver == "exqlite" -%}
-Exqlite.query!(conn, "DROP TABLE IF EXISTS user_tags", [])
-Exqlite.query!(conn, "DROP TABLE IF EXISTS tags", [])
-Exqlite.query!(conn, "DROP TABLE IF EXISTS orders", [])
-Exqlite.query!(conn, "DROP TABLE IF EXISTS users", [])
+:ok = Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS user_tags")
+:ok = Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS tags")
+:ok = Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS orders")
+:ok = Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS users")
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "sqlite", "schema.sql"]))
 
@@ -262,7 +262,7 @@ schema_sql
 |> String.split(";")
 |> Enum.map(&String.trim/1)
 |> Enum.filter(&(&1 != ""))
-|> Enum.each(fn stmt -> Exqlite.query!(conn, stmt, []) end)
+|> Enum.each(fn stmt -> :ok = Exqlite.Sqlite3.execute(conn, stmt) end)
 {%- elif driver == "ecto" %}
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags", [])
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags", [])
@@ -341,6 +341,10 @@ Process.put(:exit_code, 0)
 {:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 {%- elif engine == "mssql" %}
 {:ok, user} = Queries.create_user(conn, 1, "Alice", "alice@example.com", 1)
+{%- elif engine == "sqlite" and driver == "exqlite" %}
+:ok = Queries.create_user(conn, "Alice", "alice@example.com", "active")
+{:ok, user_id} = Exqlite.Sqlite3.last_insert_rowid(conn)
+{:ok, user} = Queries.get_user_by_id(conn, user_id)
 {%- else %}
 {:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" or engine == "redshift" %}, "active"{% elif engine == "mariadb" %}, UsersStatus.active(){% endif %})
 {%- endif %}
@@ -349,7 +353,9 @@ assert.(user.email == "alice@example.com", "CreateUser", "expected email alice@e
 {%- if engine == "postgresql" or engine == "redshift" %}
 assert.(user.status == "active", "CreateUser", "expected status active, got #{user.status}")
 {%- endif %}
+{%- if not (engine == "sqlite" and driver == "exqlite") %}
 user_id = user.id
+{%- endif %}
 IO.puts("PASS: CreateUser")
 
 # Test: GetUserById
@@ -360,7 +366,7 @@ assert.(fetched.email == "alice@example.com", "GetUserById", "expected email ali
 IO.puts("PASS: GetUserById")
 
 # Test: ListActiveUsers
-{:ok, active_users} = Queries.list_active_users(conn{% if engine == "postgresql" or engine == "redshift" %}, "active"{% elif engine == "mysql" or engine == "mariadb" %}, UsersStatus.active(){% endif %})
+{:ok, active_users} = Queries.list_active_users(conn{% if engine == "postgresql" or engine == "redshift" or engine == "sqlite" %}, "active"{% elif engine == "mysql" or engine == "mariadb" %}, UsersStatus.active(){% endif %})
 assert.(length(active_users) > 0, "ListActiveUsers", "should have at least one user")
 first = List.first(active_users)
 assert.(first.name == "Alice", "ListActiveUsers", "first user should be Alice")
@@ -374,12 +380,20 @@ IO.puts("PASS: ListActiveUsers")
 {:ok, order} = Queries.create_order(conn, user_id, 9999, "first order")
 {%- elif engine == "mssql" %}
 {:ok, order} = Queries.create_order(conn, 1, user_id, Decimal.new("99.95"), "first order")
+{%- elif engine == "sqlite" and driver == "exqlite" %}
+:ok = Queries.create_order(conn, user_id, 99.95, "first order")
+{:ok, orders_after_insert} = Queries.get_orders_by_user(conn, user_id)
+order = List.first(orders_after_insert)
 {%- else %}
 {:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
 {%- endif %}
+{%- if not (engine == "sqlite" and driver == "exqlite") %}
 assert.(order.user_id == user_id, "CreateOrder", "expected user_id #{user_id}")
+{%- endif %}
 {%- if engine == "oracle" %}
 assert.(order.total == 9999, "CreateOrder", "expected total 9999, got #{order.total}")
+{%- elif engine == "sqlite" and driver == "exqlite" %}
+assert.(abs(order.total - 99.95) < 0.001, "CreateOrder", "expected total 99.95, got #{order.total}")
 {%- else %}
 assert.(Decimal.equal?(order.total, Decimal.new("99.95")), "CreateOrder", "expected total 99.95, got #{order.total}")
 {%- endif %}
@@ -392,8 +406,8 @@ assert.(length(orders) == 1, "GetOrdersByUser", "expected 1 order, got #{length(
 first_order = List.first(orders)
 {%- if engine == "oracle" %}
 assert.(first_order.total == 9999, "GetOrdersByUser", "expected total 9999")
-{%- elif engine == "mssql" %}
-assert.(Decimal.equal?(first_order.total, Decimal.new("99.95")), "GetOrdersByUser", "expected total 99.95")
+{%- elif engine == "sqlite" and driver == "exqlite" %}
+assert.(abs(first_order.total - 99.95) < 0.001, "GetOrdersByUser", "expected total 99.95")
 {%- else %}
 assert.(Decimal.equal?(first_order.total, Decimal.new("99.95")), "GetOrdersByUser", "expected total 99.95")
 {%- endif %}

@@ -3,13 +3,13 @@ alias Scythe.Queries
 
 database_path = System.get_env("SQLITE_PATH", ":memory:")
 
-{:ok, conn} = Exqlite.start_link(database: database_path)
+{:ok, conn} = Exqlite.Sqlite3.open(database_path)
 
 # Clean slate
-Exqlite.query!(conn, "DROP TABLE IF EXISTS user_tags", [])
-Exqlite.query!(conn, "DROP TABLE IF EXISTS tags", [])
-Exqlite.query!(conn, "DROP TABLE IF EXISTS orders", [])
-Exqlite.query!(conn, "DROP TABLE IF EXISTS users", [])
+:ok = Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS user_tags")
+:ok = Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS tags")
+:ok = Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS orders")
+:ok = Exqlite.Sqlite3.execute(conn, "DROP TABLE IF EXISTS users")
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "sqlite", "schema.sql"]))
 
@@ -17,7 +17,7 @@ schema_sql
 |> String.split(";")
 |> Enum.map(&String.trim/1)
 |> Enum.filter(&(&1 != ""))
-|> Enum.each(fn stmt -> Exqlite.query!(conn, stmt, []) end)
+|> Enum.each(fn stmt -> :ok = Exqlite.Sqlite3.execute(conn, stmt) end)
 
 exit_code = 0
 
@@ -31,10 +31,11 @@ end
 Process.put(:exit_code, 0)
 
 # Test: CreateUser
-{:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com")
+:ok = Queries.create_user(conn, "Alice", "alice@example.com", "active")
+{:ok, user_id} = Exqlite.Sqlite3.last_insert_rowid(conn)
+{:ok, user} = Queries.get_user_by_id(conn, user_id)
 assert.(user.name == "Alice", "CreateUser", "expected name Alice, got #{user.name}")
 assert.(user.email == "alice@example.com", "CreateUser", "expected email alice@example.com")
-user_id = user.id
 IO.puts("PASS: CreateUser")
 
 # Test: GetUserById
@@ -45,16 +46,17 @@ assert.(fetched.email == "alice@example.com", "GetUserById", "expected email ali
 IO.puts("PASS: GetUserById")
 
 # Test: ListActiveUsers
-{:ok, active_users} = Queries.list_active_users(conn)
+{:ok, active_users} = Queries.list_active_users(conn, "active")
 assert.(length(active_users) > 0, "ListActiveUsers", "should have at least one user")
 first = List.first(active_users)
 assert.(first.name == "Alice", "ListActiveUsers", "first user should be Alice")
 IO.puts("PASS: ListActiveUsers")
 
 # Test: CreateOrder
-{:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
-assert.(order.user_id == user_id, "CreateOrder", "expected user_id #{user_id}")
-assert.(Decimal.equal?(order.total, Decimal.new("99.95")), "CreateOrder", "expected total 99.95, got #{order.total}")
+:ok = Queries.create_order(conn, user_id, 99.95, "first order")
+{:ok, orders_after_insert} = Queries.get_orders_by_user(conn, user_id)
+order = List.first(orders_after_insert)
+assert.(abs(order.total - 99.95) < 0.001, "CreateOrder", "expected total 99.95, got #{order.total}")
 assert.(order.notes == "first order", "CreateOrder", "expected notes 'first order'")
 IO.puts("PASS: CreateOrder")
 
@@ -62,7 +64,7 @@ IO.puts("PASS: CreateOrder")
 {:ok, orders} = Queries.get_orders_by_user(conn, user_id)
 assert.(length(orders) == 1, "GetOrdersByUser", "expected 1 order, got #{length(orders)}")
 first_order = List.first(orders)
-assert.(Decimal.equal?(first_order.total, Decimal.new("99.95")), "GetOrdersByUser", "expected total 99.95")
+assert.(abs(first_order.total - 99.95) < 0.001, "GetOrdersByUser", "expected total 99.95")
 IO.puts("PASS: GetOrdersByUser")
 
 # Test: DeleteUser (delete orders first due to FK)

@@ -65,7 +65,13 @@ function create_pdo(string $url): PDO
 function create_connection(string $url): \Amp\Postgres\PostgresConnection
 {
     $params = parse_database_url($url);
-    $config = \Amp\Postgres\PostgresConfig::fromArray($params);
+    $config = new \Amp\Postgres\PostgresConfig(
+        $params['host'],
+        $params['port'],
+        $params['user'],
+        $params['password'],
+        $params['dbname'],
+    );
     return \Amp\Postgres\connect($config);
 }
 {%- endif %}
