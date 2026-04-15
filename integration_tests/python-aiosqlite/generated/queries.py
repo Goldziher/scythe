@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from enum import Enum  # noqa: F401
 
+import decimal
 import aiosqlite  # noqa: F401
 
 
