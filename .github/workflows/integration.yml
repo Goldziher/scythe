@@ -879,7 +879,7 @@ jobs:
 
       - name: Test go-pgx-redshift
         working-directory: integration_tests/go-pgx-redshift
-        run: go run .
+        run: go mod tidy && go run .
 
       - name: Test java-jdbc-redshift
         working-directory: integration_tests/java-jdbc-redshift

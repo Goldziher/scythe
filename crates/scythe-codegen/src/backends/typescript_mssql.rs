@@ -21,7 +21,7 @@ fn neutral_to_sql_type(neutral_type: &str) -> &'static str {
         "int64" => "sql.BigInt",
         "float32" => "sql.Real",
         "float64" => "sql.Float",
-        "numeric" | "decimal" => "sql.Decimal",
+        "numeric" | "decimal" => "sql.VarChar",
         "bool" => "sql.Bit",
         "string" => "sql.NVarChar",
         "text" => "sql.Text",

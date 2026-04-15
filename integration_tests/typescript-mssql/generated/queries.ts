@@ -22,7 +22,7 @@ export async function createOrder(
 	const request = pool.request();
 	request.input("p1", sql.Int, id);
 	request.input("p2", sql.Int, user_id);
-	request.input("p3", sql.Decimal, total);
+	request.input("p3", sql.VarChar, total);
 	request.input("p4", sql.NVarChar, notes);
 	const result =
 		await request.query<CreateOrderRow>(`INSERT INTO orders (id, user_id, total, notes)
