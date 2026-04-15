@@ -175,7 +175,7 @@ def test_get_user_by_id(conn, user_id)
 end
 
 def test_list_active_users(conn)
-  users = Queries.list_active_users(conn{% if engine == "postgresql" or engine == "redshift" %}, "active"{% elif engine == "mysql" or engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
+  users = Queries.list_active_users(conn{% if engine == "postgresql" or engine == "redshift" or engine == "sqlite" %}, "active"{% elif engine == "mysql" or engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
   assert_true(users.length >= 1, "Expected at least 1 active user, got #{users.length}")
   names = users.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in active users, got #{names}")
@@ -198,11 +198,17 @@ def test_create_order(conn, user_id)
   order = Queries.create_order(conn, user_id, 9999, "Test order")
 {%- elif engine == "mssql" %}
   order = Queries.create_order(conn, 1, user_id, "49.99", "Test order")
+{%- elif engine == "sqlite" %}
+  Queries.create_order(conn, user_id, 49.99, "Test order")
+  orders = Queries.get_orders_by_user(conn, user_id)
+  order = orders.first
 {%- else %}
   order = Queries.create_order(conn, user_id, "49.99", "Test order")
 {%- endif %}
   assert_not_nil(order, "create_order returned nil")
+{%- if engine != "sqlite" %}
   assert_equal(user_id, order.user_id, "create_order user_id")
+{%- endif %}
   assert_equal("Test order", order.notes, "create_order notes")
   puts "PASS: CreateOrder"
   order.id

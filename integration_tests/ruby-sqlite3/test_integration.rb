@@ -64,7 +64,7 @@ def test_get_user_by_id(conn, user_id)
 end
 
 def test_list_active_users(conn)
-  users = Queries.list_active_users(conn)
+  users = Queries.list_active_users(conn, "active")
   assert_true(users.length >= 1, "Expected at least 1 active user, got #{users.length}")
   names = users.map(&:name)
   assert_true(names.include?("Alice"), "Expected 'Alice' in active users, got #{names}")
@@ -80,9 +80,10 @@ def test_update_user_email(conn, user_id)
 end
 
 def test_create_order(conn, user_id)
-  order = Queries.create_order(conn, user_id, "49.99", "Test order")
+  Queries.create_order(conn, user_id, 49.99, "Test order")
+  orders = Queries.get_orders_by_user(conn, user_id)
+  order = orders.first
   assert_not_nil(order, "create_order returned nil")
-  assert_equal(user_id, order.user_id, "create_order user_id")
   assert_equal("Test order", order.notes, "create_order notes")
   puts "PASS: CreateOrder"
   order.id

@@ -2,6 +2,9 @@
 
 declare(strict_types=1);
 
+if (file_exists(__DIR__ . '/vendor/autoload.php')) {
+    require_once __DIR__ . '/vendor/autoload.php';
+}
 require_once __DIR__ . '/generated/queries.php';
 
 use App\Generated\Queries;
@@ -47,22 +50,22 @@ function create_connection(string $url): \Amp\Postgres\PostgresLink
         $params['user'], $params['password']
     );
     $config = \Amp\Postgres\PostgresConfig::fromString($dsn);
-    return (new \Amp\Postgres\PostgresConnectionPool($config))->getConnection();
+    return new \Amp\Postgres\PostgresConnectionPool($config);
 }
 
 function setup_schema($pdo): void
 {
-    $pdo->exec("DROP TABLE IF EXISTS user_tags CASCADE");
-    $pdo->exec("DROP TABLE IF EXISTS tags CASCADE");
-    $pdo->exec("DROP TABLE IF EXISTS orders CASCADE");
-    $pdo->exec("DROP TABLE IF EXISTS users CASCADE");
-    $pdo->exec("DROP TYPE IF EXISTS user_status CASCADE");
+    $pdo->query("DROP TABLE IF EXISTS user_tags CASCADE");
+    $pdo->query("DROP TABLE IF EXISTS tags CASCADE");
+    $pdo->query("DROP TABLE IF EXISTS orders CASCADE");
+    $pdo->query("DROP TABLE IF EXISTS users CASCADE");
+    $pdo->query("DROP TYPE IF EXISTS user_status CASCADE");
     $schema_path = __DIR__ . '/../sql/pg/schema.sql';
     $schema_sql = file_get_contents($schema_path);
     if ($schema_sql === false) {
         throw new RuntimeException("Failed to read schema file: {$schema_path}");
     }
-    $pdo->exec($schema_sql);
+    $pdo->query($schema_sql);
 }
 
 function assert_equal(mixed $expected, mixed $actual, string $message): void
