@@ -24,13 +24,18 @@ database = String.trim_leading(uri.path, "/")
 Process.sleep(500)
 
 # Clean slate
+# Helper to execute raw SQL via DBConnection
+run_sql = fn conn, sql ->
+  DBConnection.execute(conn, %Jamdb.Oracle.Query{statement: sql}, [])
+end
+
 # Clean slate: drop tables and sequences, ignoring errors if they do not exist.
 for table <- ["user_tags", "tags", "orders", "users"] do
-  Jamdb.Oracle.query(conn, "DROP TABLE #{table} CASCADE CONSTRAINTS", [])
+  run_sql.(conn, "DROP TABLE #{table} CASCADE CONSTRAINTS")
 end
 
 for seq <- ["tags_seq", "orders_seq", "users_seq"] do
-  Jamdb.Oracle.query(conn, "DROP SEQUENCE #{seq}", [])
+  run_sql.(conn, "DROP SEQUENCE #{seq}")
 end
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "oracle", "schema.sql"]))
@@ -46,7 +51,8 @@ schema_sql
 end)
 |> Enum.filter(&(&1 != ""))
 |> Enum.each(fn stmt ->
-  case Jamdb.Oracle.query(conn, stmt, []) do
+  case run_sql.(conn, stmt) do
+    {:ok, _, _} -> :ok
     {:ok, _} -> :ok
     {:error, reason} -> raise "Schema statement failed: #{inspect(reason)}\nSQL: #{stmt}"
   end

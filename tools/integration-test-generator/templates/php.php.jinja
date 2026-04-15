@@ -62,17 +62,15 @@ function create_pdo(string $url): PDO
 }
 {%- elif driver == "amphp" %}
 
-function create_connection(string $url): \Amp\Postgres\PostgresConnection
+function create_connection(string $url): \Amp\Postgres\PostgresLink
 {
     $params = parse_database_url($url);
-    $config = new \Amp\Postgres\PostgresConfig(
-        $params['host'],
-        $params['port'],
-        $params['user'],
-        $params['password'],
-        $params['dbname'],
+    $dsn = sprintf(
+        "host=%s port=%d dbname=%s user=%s password=%s",
+        $params['host'], $params['port'], $params['dbname'],
+        $params['user'], $params['password']
     );
-    return \Amp\Postgres\connect($config);
+    return \Amp\Postgres\connect(\Amp\Postgres\PostgresConfig::fromString($dsn));
 }
 {%- endif %}
 {%- elif engine == "mysql" -%}
