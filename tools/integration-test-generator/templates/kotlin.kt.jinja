@@ -1523,7 +1523,7 @@ fun testListActiveUsers(conn: java.sql.Connection) {
 fun testCreateOrder(conn: java.sql.Connection) {
     val name = "CreateOrder"
     try {
-        createOrder(conn, createdUserId, 99.99, "Test order")
+        createOrder(conn, createdUserId, 99.99f, "Test order")
         // Verify via GetOrdersByUser
         val orders = getOrdersByUser(conn, createdUserId)
         if (orders.isEmpty()) {
@@ -1531,7 +1531,7 @@ fun testCreateOrder(conn: java.sql.Connection) {
             return
         }
         val order = orders[0]
-        if (Math.abs(order.total - 99.99) > 0.01) {
+        if (Math.abs(order.total - 99.99f) > 0.01f) {
             fail(name, "expected total 99.99, got ${order.total}")
             return
         }
@@ -1563,7 +1563,7 @@ fun testGetOrderTotal(conn: java.sql.Connection) {
             fail(name, "returned null")
             return
         }
-        if (Math.abs(result.total_sum!! - 99.99) > 0.01) {
+        if (Math.abs(result.total_sum!! - 99.99f) > 0.01f) {
             fail(name, "expected total_sum 99.99, got ${result.total_sum}")
             return
         }
