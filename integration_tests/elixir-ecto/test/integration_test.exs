@@ -8,9 +8,9 @@ uri = URI.parse(database_url)
 database = String.trim_leading(uri.path, "/")
 
 {:ok, conn} =
-  Ecto.Adapters.Postgres.start_link(
+  Postgrex.start_link(
     hostname: uri.host,
-    port: uri.port,
+    port: uri.port || 5432,
     username: username,
     password: password,
     database: database
@@ -18,14 +18,18 @@ database = String.trim_leading(uri.path, "/")
 
 # Clean slate
 
-Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
-Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
-Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
-Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
-Ecto.Adapters.SQL.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
+Postgrex.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "pg/schema.sql"]))
-Ecto.Adapters.SQL.query!(conn, schema_sql, [])
+schema_sql
+|> String.split(";")
+|> Enum.map(&String.trim/1)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt -> Postgrex.query!(conn, stmt, []) end)
 
 exit_code = 0
 

@@ -49,7 +49,7 @@ fn reader_method(neutral_type: &str) -> &'static str {
         "int64" => "GetInt64",
         "float32" => "GetFloat",
         "float64" => "GetDouble",
-        "string" | "json" | "inet" | "interval" | "uuid" => "GetString",
+        "string" | "json" | "inet" | "interval" => "GetString",
         "decimal" => "GetDecimal",
         "date" => "GetFieldValue<DateOnly>",
         "time" | "time_tz" => "GetFieldValue<TimeOnly>",
@@ -67,6 +67,9 @@ fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
             typ = col.lang_type,
             ord = ordinal
         )
+    } else if col.neutral_type == "uuid" {
+        // MySqlConnector returns Guid for UUID columns; use GetValue().ToString() to get a string.
+        format!("reader.GetValue({}).ToString()!", ordinal)
     } else {
         let method = reader_method(&col.neutral_type);
         format!("reader.{}({})", method, ordinal)

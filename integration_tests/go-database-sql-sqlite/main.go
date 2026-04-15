@@ -103,7 +103,11 @@ var createdUserID int32
 func testCreateUser(ctx context.Context, db *sql.DB) {
 	name := "CreateUser"
 	email := "alice@example.com"
-	user, err := queries.CreateUser(ctx, db, "Alice", &email)
+	if err := queries.CreateUser(ctx, db, "Alice", &email, "active"); err != nil {
+		fail(name, err)
+		return
+	}
+	user, err := queries.GetUserById(ctx, db, 1)
 	if err != nil {
 		fail(name, err)
 		return

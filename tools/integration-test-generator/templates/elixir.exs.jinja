@@ -31,9 +31,9 @@ database = String.trim_leading(uri.path, "/")
 {%- elif driver == "ecto" %}
 
 {:ok, conn} =
-  Ecto.Adapters.Postgres.start_link(
+  Postgrex.start_link(
     hostname: uri.host,
-    port: uri.port,
+    port: uri.port || {% if engine == "redshift" %}5439{% else %}5432{% endif %},
     username: username,
     password: password,
     database: database
@@ -178,16 +178,20 @@ schema_sql
 |> Enum.filter(&(&1 != ""))
 |> Enum.each(fn stmt -> Postgrex.query!(conn, stmt, []) end)
 {%- elif driver == "ecto" %}
-Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
-Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
-Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
-Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
+Postgrex.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
 {%- if engine == "postgresql" %}
-Ecto.Adapters.SQL.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
+Postgrex.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
 {%- endif %}
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "{% if engine == "redshift" %}redshift/schema_pg_compat{% else %}pg/schema{% endif %}.sql"]))
-Ecto.Adapters.SQL.query!(conn, schema_sql, [])
+schema_sql
+|> String.split(";")
+|> Enum.map(&String.trim/1)
+|> Enum.filter(&(&1 != ""))
+|> Enum.each(fn stmt -> Postgrex.query!(conn, stmt, []) end)
 {%- endif %}
 {%- elif engine == "mysql" -%}
 {% if driver == "myxql" -%}

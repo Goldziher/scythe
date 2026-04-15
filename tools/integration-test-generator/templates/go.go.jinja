@@ -615,6 +615,20 @@ func testCreateUser(ctx context.Context, db *sql.DB) {
 		return
 	}
 	createdUserID = user.Id
+{%- elif engine == "sqlite" %}
+	if err := queries.CreateUser(ctx, db, "Alice", &email, "active"); err != nil {
+		fail(name, err)
+		return
+	}
+	user, err := queries.GetUserById(ctx, db, 1)
+	if err != nil {
+		fail(name, err)
+		return
+	}
+	if !assertf(name, user.Name == "Alice", "expected name Alice, got %s", user.Name) {
+		return
+	}
+	createdUserID = user.Id
 {%- else %}
 	user, err := queries.CreateUser(ctx, db, "Alice", &email{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mariadb" %}, queries.UsersStatusActive{% endif %})
 	if err != nil {
