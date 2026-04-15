@@ -61,7 +61,7 @@ let insert_result = sqlx::query("INSERT INTO users (name, email, status) VALUES 
         .execute(&pool)
         .await?;
     let user_id_sqlite = insert_result.last_insert_rowid() as i64;
-    let user: GetUserByIdRow = sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
+    let user: GetUserByIdRow = sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = ?")
         .bind(user_id_sqlite)
         .fetch_one(&pool)
         .await?;

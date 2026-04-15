@@ -30,13 +30,13 @@ defmodule CreateOrderRow do
   defstruct [:id, :user_id, :total, :notes, :created_at]
 end
 
-@spec create_order(Ecto.Repo.t(), integer(), Decimal.t(), String.t() | nil) :: {:ok, %CreateOrderRow{} | nil} | {:error, term()}
+@spec create_order(Ecto.Repo.t(), integer(), Decimal.t(), String.t() | nil) :: {:ok, %CreateOrderRow{}} | {:error, :not_found} | {:error, term()}
 def create_order(repo, user_id, total, notes) do
   case Ecto.Adapters.SQL.query(repo, "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at", [user_id, total, notes]) do
     {:ok, %{rows: [row | _]}} ->
       [id, user_id, total, notes, created_at] = row
       {:ok, %CreateOrderRow{id: id, user_id: user_id, total: total, notes: notes, created_at: created_at}}
-    {:ok, %{rows: []}} -> {:ok, nil}
+    {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
 end
@@ -75,13 +75,13 @@ defmodule GetOrderTotalRow do
   defstruct [:total_sum]
 end
 
-@spec get_order_total(Ecto.Repo.t(), integer()) :: {:ok, %GetOrderTotalRow{} | nil} | {:error, term()}
+@spec get_order_total(Ecto.Repo.t(), integer()) :: {:ok, %GetOrderTotalRow{}} | {:error, :not_found} | {:error, term()}
 def get_order_total(repo, user_id) do
   case Ecto.Adapters.SQL.query(repo, "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1", [user_id]) do
     {:ok, %{rows: [row | _]}} ->
       [total_sum] = row
       {:ok, %GetOrderTotalRow{total_sum: total_sum}}
-    {:ok, %{rows: []}} -> {:ok, nil}
+    {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
 end
@@ -107,13 +107,13 @@ defmodule GetUserByIdRow do
   defstruct [:id, :name, :email, :status, :created_at]
 end
 
-@spec get_user_by_id(Ecto.Repo.t(), integer()) :: {:ok, %GetUserByIdRow{} | nil} | {:error, term()}
+@spec get_user_by_id(Ecto.Repo.t(), integer()) :: {:ok, %GetUserByIdRow{}} | {:error, :not_found} | {:error, term()}
 def get_user_by_id(repo, id) do
   case Ecto.Adapters.SQL.query(repo, "SELECT id, name, email, status, created_at FROM users WHERE id = $1", [id]) do
     {:ok, %{rows: [row | _]}} ->
       [id, name, email, status, created_at] = row
       {:ok, %GetUserByIdRow{id: id, name: name, email: email, status: status, created_at: created_at}}
-    {:ok, %{rows: []}} -> {:ok, nil}
+    {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
 end
@@ -155,13 +155,13 @@ defmodule CreateUserRow do
   defstruct [:id, :name, :email, :status, :created_at]
 end
 
-@spec create_user(Ecto.Repo.t(), String.t(), String.t() | nil, String.t()) :: {:ok, %CreateUserRow{} | nil} | {:error, term()}
+@spec create_user(Ecto.Repo.t(), String.t(), String.t() | nil, String.t()) :: {:ok, %CreateUserRow{}} | {:error, :not_found} | {:error, term()}
 def create_user(repo, name, email, status) do
   case Ecto.Adapters.SQL.query(repo, "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at", [name, email, status]) do
     {:ok, %{rows: [row | _]}} ->
       [id, name, email, status, created_at] = row
       {:ok, %CreateUserRow{id: id, name: name, email: email, status: status, created_at: created_at}}
-    {:ok, %{rows: []}} -> {:ok, nil}
+    {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
 end
@@ -220,13 +220,13 @@ defmodule CountUsersByStatusRow do
   defstruct [:status, :user_count]
 end
 
-@spec count_users_by_status(Ecto.Repo.t(), String.t()) :: {:ok, %CountUsersByStatusRow{} | nil} | {:error, term()}
+@spec count_users_by_status(Ecto.Repo.t(), String.t()) :: {:ok, %CountUsersByStatusRow{}} | {:error, :not_found} | {:error, term()}
 def count_users_by_status(repo, status) do
   case Ecto.Adapters.SQL.query(repo, "SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = $1", [status]) do
     {:ok, %{rows: [row | _]}} ->
       [status, user_count] = row
       {:ok, %CountUsersByStatusRow{status: status, user_count: user_count}}
-    {:ok, %{rows: []}} -> {:ok, nil}
+    {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
 end

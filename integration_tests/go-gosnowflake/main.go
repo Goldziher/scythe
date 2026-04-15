@@ -74,7 +74,7 @@ func main() {
 
 func runMigration(ctx context.Context, db *sql.DB) error {
 	_, thisFile, _, _ := runtime.Caller(0)
-	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "snowflake", "schema.sql")
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "snowflake", "schema_emu.sql")
 
 	schema, err := os.ReadFile(schemaPath)
 	if err != nil {

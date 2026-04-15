@@ -675,7 +675,7 @@ jobs:
         run: php test_integration.php
 
       - name: Test elixir-tds-mssql
-        continue-on-error: true
+
         working-directory: integration_tests/elixir-tds-mssql
         run: |
           mix local.hex --force
@@ -961,6 +961,6 @@ jobs:
       # Snowflake emulator only supports Go (gosnowflake) driver.
       # TS/Java/Kotlin/C#/PHP Snowflake drivers can't connect to the emulator.
       - name: Test go-gosnowflake
-        continue-on-error: true
+
         working-directory: integration_tests/go-gosnowflake
         run: go mod tidy && go run .

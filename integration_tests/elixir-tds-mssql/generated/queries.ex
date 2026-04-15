@@ -86,7 +86,7 @@ defmodule Scythe.Queries do
 def create_order(conn, id, user_id, total, notes) do
   case Tds.query(conn, "INSERT INTO orders (id, user_id, total, notes)
 OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at
-VALUES (@1, @2, @3, @4)", [id, user_id, total, notes]) do
+VALUES (@1, @2, @3, @4)", [%Tds.Parameter{name: "@1", value: id, type: :integer}, %Tds.Parameter{name: "@2", value: user_id, type: :integer}, %Tds.Parameter{name: "@3", value: total, type: :decimal}, %Tds.Parameter{name: "@4", value: notes, type: :string}]) do
     {:ok, %{rows: [row | _]}} ->
       [id, user_id, total, notes, created_at] = row
       {:ok, %CreateOrderRow{id: id, user_id: user_id, total: total, notes: notes, created_at: created_at}}
@@ -97,7 +97,7 @@ end
 
 @spec get_orders_by_user(pid(), integer()) :: {:ok, [%GetOrdersByUserRow{}]} | {:error, term()}
 def get_orders_by_user(conn, user_id) do
-  case Tds.query(conn, "SELECT id, total, notes, created_at FROM orders WHERE user_id = @1 ORDER BY created_at DESC", [user_id]) do
+  case Tds.query(conn, "SELECT id, total, notes, created_at FROM orders WHERE user_id = @1 ORDER BY created_at DESC", [%Tds.Parameter{name: "@1", value: user_id, type: :integer}]) do
     {:ok, %{rows: rows}} ->
       results = Enum.map(rows, fn row ->
         [id, total, notes, created_at] = row
@@ -110,7 +110,7 @@ end
 
 @spec get_order_total(pid(), integer()) :: {:ok, %GetOrderTotalRow{}} | {:error, :not_found} | {:error, term()}
 def get_order_total(conn, user_id) do
-  case Tds.query(conn, "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @1", [user_id]) do
+  case Tds.query(conn, "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @1", [%Tds.Parameter{name: "@1", value: user_id, type: :integer}]) do
     {:ok, %{rows: [row | _]}} ->
       [total_sum] = row
       {:ok, %GetOrderTotalRow{total_sum: total_sum}}
@@ -121,7 +121,7 @@ end
 
 @spec delete_orders_by_user(pid(), integer()) :: {:ok, non_neg_integer()} | {:error, term()}
 def delete_orders_by_user(conn, user_id) do
-  case Tds.query(conn, "DELETE FROM orders WHERE user_id = @1", [user_id]) do
+  case Tds.query(conn, "DELETE FROM orders WHERE user_id = @1", [%Tds.Parameter{name: "@1", value: user_id, type: :integer}]) do
     {:ok, %{num_rows: n}} -> {:ok, n}
     {:error, err} -> {:error, err}
   end
@@ -129,7 +129,7 @@ end
 
 @spec get_user_by_id(pid(), integer()) :: {:ok, %GetUserByIdRow{}} | {:error, :not_found} | {:error, term()}
 def get_user_by_id(conn, id) do
-  case Tds.query(conn, "SELECT id, name, email, active, created_at FROM users WHERE id = @1", [id]) do
+  case Tds.query(conn, "SELECT id, name, email, active, created_at FROM users WHERE id = @1", [%Tds.Parameter{name: "@1", value: id, type: :integer}]) do
     {:ok, %{rows: [row | _]}} ->
       [id, name, email, active, created_at] = row
       {:ok, %GetUserByIdRow{id: id, name: name, email: email, active: active, created_at: created_at}}
@@ -155,7 +155,7 @@ end
 def create_user(conn, id, name, email, active) do
   case Tds.query(conn, "INSERT INTO users (id, name, email, active)
 OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at
-VALUES (@1, @2, @3, @4)", [id, name, email, active]) do
+VALUES (@1, @2, @3, @4)", [%Tds.Parameter{name: "@1", value: id, type: :integer}, %Tds.Parameter{name: "@2", value: name, type: :string}, %Tds.Parameter{name: "@3", value: email, type: :string}, %Tds.Parameter{name: "@4", value: active, type: :boolean}]) do
     {:ok, %{rows: [row | _]}} ->
       [id, name, email, active, created_at] = row
       {:ok, %CreateUserRow{id: id, name: name, email: email, active: active, created_at: created_at}}
@@ -166,7 +166,7 @@ end
 
 @spec update_user_email(pid(), String.t(), integer()) :: :ok | {:error, term()}
 def update_user_email(conn, email, id) do
-  case Tds.query(conn, "UPDATE users SET email = @1 WHERE id = @2", [email, id]) do
+  case Tds.query(conn, "UPDATE users SET email = @1 WHERE id = @2", [%Tds.Parameter{name: "@1", value: email, type: :string}, %Tds.Parameter{name: "@2", value: id, type: :integer}]) do
     {:ok, _} -> :ok
     {:error, err} -> {:error, err}
   end
@@ -174,7 +174,7 @@ end
 
 @spec delete_user(pid(), integer()) :: :ok | {:error, term()}
 def delete_user(conn, id) do
-  case Tds.query(conn, "DELETE FROM users WHERE id = @1", [id]) do
+  case Tds.query(conn, "DELETE FROM users WHERE id = @1", [%Tds.Parameter{name: "@1", value: id, type: :integer}]) do
     {:ok, _} -> :ok
     {:error, err} -> {:error, err}
   end
@@ -182,7 +182,7 @@ end
 
 @spec search_users(pid(), String.t()) :: {:ok, [%SearchUsersRow{}]} | {:error, term()}
 def search_users(conn, name) do
-  case Tds.query(conn, "SELECT id, name, email FROM users WHERE name LIKE @1", [name]) do
+  case Tds.query(conn, "SELECT id, name, email FROM users WHERE name LIKE @1", [%Tds.Parameter{name: "@1", value: name, type: :string}]) do
     {:ok, %{rows: rows}} ->
       results = Enum.map(rows, fn row ->
         [id, name, email] = row

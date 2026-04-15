@@ -126,7 +126,24 @@ impl CodegenBackend for ElixirTdsBackend {
                 "[{}]",
                 params
                     .iter()
-                    .map(|p| p.field_name.clone())
+                    .enumerate()
+                    .map(|(i, p)| {
+                        let tds_type = match p.neutral_type.as_str() {
+                            "bool" => ":boolean",
+                            "int16" | "int32" | "int64" => ":integer",
+                            "float32" | "float64" | "decimal" => ":decimal",
+                            "string" | "text" => ":string",
+                            "datetime" | "datetime_tz" | "date" => ":datetime",
+                            "uuid" => ":uuid",
+                            _ => ":string",
+                        };
+                        format!(
+                            "%Tds.Parameter{{name: \"@{}\", value: {}, type: {}}}",
+                            i + 1,
+                            p.field_name,
+                            tds_type
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join(", ")
             )

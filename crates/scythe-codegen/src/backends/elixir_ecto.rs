@@ -158,7 +158,7 @@ impl CodegenBackend for ElixirEctoBackend {
             QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
-                    "@spec {}(Ecto.Repo.t(){}) :: {{:ok, %{}{{}} | nil}} | {{:error, term()}}",
+                    "@spec {}(Ecto.Repo.t(){}) :: {{:ok, %{}{{}}}} | {{:error, :not_found}} | {{:error, term()}}",
                     func_name, param_specs, struct_name
                 );
             }
@@ -258,7 +258,7 @@ impl CodegenBackend for ElixirEctoBackend {
                     .collect::<Vec<_>>()
                     .join(", ");
                 let _ = writeln!(out, "      {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
-                let _ = writeln!(out, "    {{:ok, %{{rows: []}}}} -> {{:ok, nil}}");
+                let _ = writeln!(out, "    {{:ok, %{{rows: []}}}} -> {{:error, :not_found}}");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
