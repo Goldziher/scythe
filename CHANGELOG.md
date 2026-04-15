@@ -35,8 +35,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Known Limitations
 
-- MSSQL Elixir TDS: `tds` lib parameter type encoding limitations
-- MSSQL PHP: requires `pdo_sqlsrv` PHP extension
+- MSSQL Elixir TDS: `tds` lib parameter type encoding limitations (marked not working)
 - Snowflake: emulator only supports Go (gosnowflake) driver; Python uses fakesnow
 
 ## [0.6.7] - 2026-04-12
