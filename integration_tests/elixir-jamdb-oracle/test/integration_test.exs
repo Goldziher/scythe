@@ -38,7 +38,7 @@ for seq <- ["tags_seq", "orders_seq", "users_seq"] do
   run_sql.(conn, "DROP SEQUENCE #{seq}")
 end
 
-schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "oracle", "schema.sql"]))
+schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "oracle", "schema_full.sql"]))
 
 schema_sql
 |> String.split("/\n")

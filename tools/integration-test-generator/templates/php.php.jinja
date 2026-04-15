@@ -70,7 +70,8 @@ function create_connection(string $url): \Amp\Postgres\PostgresLink
         $params['host'], $params['port'], $params['dbname'],
         $params['user'], $params['password']
     );
-    return \Amp\Postgres\connect(\Amp\Postgres\PostgresConfig::fromString($dsn));
+    $config = \Amp\Postgres\PostgresConfig::fromString($dsn);
+    return (new \Amp\Postgres\PostgresConnectionPool($config))->getConnection();
 }
 {%- endif %}
 {%- elif engine == "mysql" -%}

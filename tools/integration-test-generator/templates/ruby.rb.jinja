@@ -140,8 +140,11 @@ def test_create_user(conn)
   user = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 {%- elif engine == "mssql" %}
   user = Queries.create_user(conn, 1, "Alice", "alice@example.com", true)
+{%- elif engine == "sqlite" %}
+  Queries.create_user(conn, "Alice", "alice@example.com", "active")
+  user = Queries.get_user_by_id(conn, 1)
 {%- else %}
-  user = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" or engine == "redshift" or engine == "sqlite" %}, "active"{% elif engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
+  user = Queries.create_user(conn, "Alice", "alice@example.com"{% if engine == "postgresql" or engine == "redshift" %}, "active"{% elif engine == "mariadb" %}, Queries::UsersStatus::ACTIVE{% endif %})
 {%- endif %}
   assert_not_nil(user, "create_user returned nil")
   assert_equal("Alice", user.name, "create_user name")

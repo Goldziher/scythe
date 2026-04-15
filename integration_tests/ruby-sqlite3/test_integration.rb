@@ -44,7 +44,8 @@ def assert_true(value, message)
 end
 
 def test_create_user(conn)
-  user = Queries.create_user(conn, "Alice", "alice@example.com", "active")
+  Queries.create_user(conn, "Alice", "alice@example.com", "active")
+  user = Queries.get_user_by_id(conn, 1)
   assert_not_nil(user, "create_user returned nil")
   assert_equal("Alice", user.name, "create_user name")
   assert_equal("alice@example.com", user.email, "create_user email")
