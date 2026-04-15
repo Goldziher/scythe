@@ -25,7 +25,11 @@ import {
 	deleteOrdersByUser,
 	deleteUser,
 {%- if engine == "postgresql" and engine != "redshift" %}
+{%- if driver == "pg" %}
+	UserStatusValues,
+{%- else %}
 	UserStatus,
+{%- endif %}
 {%- elif engine == "mysql" %}
 	UsersStatus,
 	getLastInsertUser,
@@ -134,7 +138,7 @@ async function main(): Promise<void> {
 			"Alice",
 			"alice@example.com",
 {%- if engine == "postgresql" and engine != "redshift" %}
-			UserStatus.Active,
+			UserStatusValues.Active,
 {%- elif engine == "redshift" %}
 			"active",
 {%- endif %}
@@ -186,7 +190,7 @@ async function main(): Promise<void> {
 		console.log("PASS: GetUserById");
 
 		// Test: ListActiveUsers
-		const activeUsers = await listActiveUsers(client{% if engine == "postgresql" and engine != "redshift" %}, UserStatus.Active{% elif engine == "redshift" %}, "active"{% endif %});
+		const activeUsers = await listActiveUsers(client{% if engine == "postgresql" and engine != "redshift" %}, UserStatusValues.Active{% elif engine == "redshift" %}, "active"{% endif %});
 		assert(
 			activeUsers.length > 0,
 			"ListActiveUsers",

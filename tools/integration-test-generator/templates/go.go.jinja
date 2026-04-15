@@ -11,6 +11,7 @@ import (
 	"github.com/shopspring/decimal"
 {%- elif driver == "database-sql" and (engine == "mysql" or engine == "mariadb") %}
 	"database/sql"
+	"net/url"
 
 	_ "github.com/go-sql-driver/mysql"
 {%- elif driver == "database-sql" and engine == "sqlite" %}
@@ -105,7 +106,15 @@ func main() {
 	testDeleteUser(ctx, pool)
 {%- elif driver == "database-sql" %}
 {%- if engine == "mysql" or engine == "mariadb" %}
-	db, err := sql.Open("mysql", databaseURL)
+	// Convert mysql://user:pass@host:port/db to user:pass@tcp(host:port)/db
+	mysqlURL, err := url.Parse(databaseURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to parse database URL: %v\n", err)
+		os.Exit(1)
+	}
+	mysqlPass, _ := mysqlURL.User.Password()
+	mysqlDSN := fmt.Sprintf("%s:%s@tcp(%s)%s", mysqlURL.User.Username(), mysqlPass, mysqlURL.Host, mysqlURL.Path)
+	db, err := sql.Open("mysql", mysqlDSN)
 {%- elif engine == "sqlite" %}
 	db, err := sql.Open("sqlite3", databasePath)
 {%- elif engine == "mssql" %}

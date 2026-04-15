@@ -8,6 +8,7 @@ import (
 	"runtime"
 
 	"database/sql"
+	"net/url"
 
 	_ "github.com/go-sql-driver/mysql"
 
@@ -44,7 +45,15 @@ func main() {
 
 	ctx := context.Background()
 
-	db, err := sql.Open("mysql", databaseURL)
+	// Convert mysql://user:pass@host:port/db to user:pass@tcp(host:port)/db
+	mysqlURL, err := url.Parse(databaseURL)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "failed to parse database URL: %v\n", err)
+		os.Exit(1)
+	}
+	mysqlPass, _ := mysqlURL.User.Password()
+	mysqlDSN := fmt.Sprintf("%s:%s@tcp(%s)%s", mysqlURL.User.Username(), mysqlPass, mysqlURL.Host, mysqlURL.Path)
+	db, err := sql.Open("mysql", mysqlDSN)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "failed to connect to database: %v\n", err)
 		os.Exit(1)
