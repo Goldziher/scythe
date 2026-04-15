@@ -459,6 +459,9 @@ function test_create_user({% if driver == "pdo" or driver == "pdo-mysql" or driv
     {%- elif engine == "snowflake" %}
     Queries::createUser($pdo, "Alice", "alice@example.com");
     $user = Queries::getUserById($pdo, 1);
+    {%- elif engine == "sqlite" %}
+    Queries::createUser($pdo, "Alice", "alice@example.com", "active");
+    $user = Queries::getUserById($pdo, 1);
     {%- else %}
     $user = Queries::createUser($pdo, "Alice", "alice@example.com");
     {%- endif %}

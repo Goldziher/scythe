@@ -468,8 +468,10 @@ jobs:
           sudo ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1 || true
           wget -q https://download.oracle.com/otn_software/linux/instantclient/2340000/oracle-instantclient-basic-23.4.0.24.05-1.el9.x86_64.rpm
           wget -q https://download.oracle.com/otn_software/linux/instantclient/2340000/oracle-instantclient-sqlplus-23.4.0.24.05-1.el9.x86_64.rpm
+          wget -q https://download.oracle.com/otn_software/linux/instantclient/2340000/oracle-instantclient-devel-23.4.0.24.05-1.el9.x86_64.rpm
           sudo alien -i oracle-instantclient-basic-*.rpm
           sudo alien -i oracle-instantclient-sqlplus-*.rpm
+          sudo alien -i oracle-instantclient-devel-*.rpm
           echo "/usr/lib/oracle/23/client64/lib" | sudo tee /etc/ld.so.conf.d/oracle.conf
           sudo ldconfig
           export LD_LIBRARY_PATH="/usr/lib/oracle/23/client64/lib:${LD_LIBRARY_PATH:-}"

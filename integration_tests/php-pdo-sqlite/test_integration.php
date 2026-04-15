@@ -78,7 +78,8 @@ function assert_true(bool $value, string $message): void
 
 function test_create_user(PDO $pdo): int
 {
-    $user = Queries::createUser($pdo, "Alice", "alice@example.com");
+    Queries::createUser($pdo, "Alice", "alice@example.com", "active");
+    $user = Queries::getUserById($pdo, 1);
     assert_not_null($user, "CreateUser returned null");
     assert_equal("Alice", $user->name, "CreateUser name");
     assert_equal("alice@example.com", $user->email, "CreateUser email");
