@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.9] - 2026-04-15
+
+### Fixed
+
+- `scythe fmt` and `scythe lint` now auto-detect SQL dialect from `scythe.toml` when files are passed directly (e.g. by pre-commit hooks)
+- PHP amphp: autoload vendor deps, use `query()` instead of `exec()`
+- Ruby SQLite: handle `:exec` CreateUser/CreateOrder with post-insert fetch
+- PHP SQLite: pass `status` param to `createUser`
+- Oracle CI: install Instant Client SDK headers for ruby-oci8
+- Snowflake CI: simplified to Python fakesnow only (no Docker emulator)
+- Kotlin SQLite: Float literal types for total values
+- Elixir jamdb Oracle: use `DBConnection.execute` and `schema_full.sql`
+- Elixir Ecto: use Postgrex directly, fix `:one` empty result handling
+- MariaDB C#: `GetValue().ToString()` for UUID columns (was `GetString()`)
+- Oracle Go: EZ Connect format (`//host:port/service`) for godror
+
 ## [0.6.8] - 2026-04-15
 
 ### Added

@@ -1,6 +1,6 @@
 use scythe_lint::sqruff_adapter;
 
-use super::shared::engine_to_sqruff_dialect;
+use super::shared::{dialect_from_config, engine_to_sqruff_dialect};
 
 /// Run the `fmt` command: format SQL files using sqruff.
 ///
@@ -20,7 +20,9 @@ pub fn run_fmt(
         let resolved = resolve_files_from_config(config_path)?;
         (resolved.files, resolved.dialect)
     } else {
-        (files.to_vec(), None)
+        // Even with explicit files, try to read dialect from config
+        let config_dialect = dialect_from_config(config_path);
+        (files.to_vec(), config_dialect)
     };
 
     // CLI --dialect flag takes precedence, then config engine, then "ansi"

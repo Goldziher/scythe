@@ -32,8 +32,13 @@ pub fn run_lint(
     let has_config = Path::new(config_path).exists();
 
     if !files.is_empty() {
-        // Files explicitly provided: use CLI dialect or default to ansi
-        let d = dialect.unwrap_or("ansi");
+        // Files explicitly provided: try config dialect, CLI flag overrides
+        let config_dialect = if has_config {
+            super::shared::dialect_from_config(config_path)
+        } else {
+            None
+        };
+        let d = dialect.unwrap_or_else(|| config_dialect.as_deref().unwrap_or("ansi"));
         return lint_files(files, d, fix);
     }
 
