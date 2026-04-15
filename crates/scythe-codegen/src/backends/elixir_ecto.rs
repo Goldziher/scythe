@@ -122,7 +122,7 @@ impl CodegenBackend for ElixirEctoBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Build the params array for Ecto.Adapters.SQL.query
+        // Build the params array for Postgrex.query
         let param_args = if params.is_empty() {
             "[]".to_string()
         } else {
@@ -158,14 +158,14 @@ impl CodegenBackend for ElixirEctoBackend {
             QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
-                    "@spec {}(Ecto.Repo.t(){}) :: {{:ok, %{}{{}}}} | {{:error, :not_found}} | {{:error, term()}}",
+                    "@spec {}(Postgrex.conn(){}) :: {{:ok, %{}{{}}}} | {{:error, :not_found}} | {{:error, term()}}",
                     func_name, param_specs, struct_name
                 );
             }
             QueryCommand::Many => {
                 let _ = writeln!(
                     out,
-                    "@spec {}(Ecto.Repo.t(){}) :: {{:ok, [%{}{{}}]}} | {{:error, term()}}",
+                    "@spec {}(Postgrex.conn(){}) :: {{:ok, [%{}{{}}]}} | {{:error, term()}}",
                     func_name, param_specs, struct_name
                 );
             }
@@ -173,55 +173,53 @@ impl CodegenBackend for ElixirEctoBackend {
                 let batch_fn_name = format!("{}_batch", func_name);
                 let _ = writeln!(
                     out,
-                    "@spec {}(Ecto.Repo.t(), list()) :: :ok | {{:error, term()}}",
+                    "@spec {}(Postgrex.conn(), list()) :: :ok | {{:error, term()}}",
                     batch_fn_name
                 );
-                let _ = writeln!(out, "def {}(repo, items) do", batch_fn_name);
-                let _ = writeln!(out, "  Ecto.Multi.new()");
-                let _ = writeln!(out, "  |> then(fn multi ->");
-                let _ = writeln!(out, "    items");
-                let _ = writeln!(out, "    |> Enum.with_index()");
-                let _ = writeln!(out, "    |> Enum.reduce(multi, fn {{item, idx}}, acc ->");
+                let _ = writeln!(out, "def {}(conn, items) do", batch_fn_name);
+                let _ = writeln!(out, "  Postgrex.transaction(conn, fn tx_conn ->");
+                let _ = writeln!(out, "    Enum.each(items, fn item ->");
                 if params.len() > 1 {
                     let _ = writeln!(
                         out,
-                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", Tuple.to_list(item)) end)",
+                        "      case Postgrex.query(tx_conn, \"{}\", Tuple.to_list(item)) do",
                         sql
                     );
                 } else if params.len() == 1 {
                     let _ = writeln!(
                         out,
-                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", [item]) end)",
+                        "      case Postgrex.query(tx_conn, \"{}\", [item]) do",
                         sql
                     );
                 } else {
                     let _ = writeln!(
                         out,
-                        "      Ecto.Multi.run(acc, {{:batch, idx}}, fn repo, _changes -> Ecto.Adapters.SQL.query(repo, \"{}\", []) end)",
+                        "      case Postgrex.query(tx_conn, \"{}\", []) do",
                         sql
                     );
                 }
+                let _ = writeln!(out, "        {{:ok, _}} -> :ok");
+                let _ = writeln!(
+                    out,
+                    "        {{:error, err}} -> DBConnection.rollback(tx_conn, err)"
+                );
+                let _ = writeln!(out, "      end");
                 let _ = writeln!(out, "    end)");
                 let _ = writeln!(out, "  end)");
-                let _ = writeln!(out, "  |> repo.transaction()");
-                let _ = writeln!(out, "  |> case do");
-                let _ = writeln!(out, "    {{:ok, _}} -> :ok");
-                let _ = writeln!(out, "    {{:error, _, reason, _}} -> {{:error, reason}}");
-                let _ = writeln!(out, "  end");
                 let _ = write!(out, "end");
                 return Ok(out);
             }
             QueryCommand::Exec => {
                 let _ = writeln!(
                     out,
-                    "@spec {}(Ecto.Repo.t(){}) :: :ok | {{:error, term()}}",
+                    "@spec {}(Postgrex.conn(){}) :: :ok | {{:error, term()}}",
                     func_name, param_specs
                 );
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(
                     out,
-                    "@spec {}(Ecto.Repo.t(){}) :: {{:ok, non_neg_integer()}} | {{:error, term()}}",
+                    "@spec {}(Postgrex.conn(){}) :: {{:ok, non_neg_integer()}} | {{:error, term()}}",
                     func_name, param_specs
                 );
             }
@@ -232,13 +230,13 @@ impl CodegenBackend for ElixirEctoBackend {
                 ));
             }
         }
-        let _ = writeln!(out, "def {}(repo{}{}) do", func_name, sep, param_list);
+        let _ = writeln!(out, "def {}(conn{}{}) do", func_name, sep, param_list);
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(
                     out,
-                    "  case Ecto.Adapters.SQL.query(repo, \"{}\", {}) do",
+                    "  case Postgrex.query(conn, \"{}\", {}) do",
                     sql, param_args
                 );
                 let _ = writeln!(out, "    {{:ok, %{{rows: [row | _]}}}} ->");
@@ -265,7 +263,7 @@ impl CodegenBackend for ElixirEctoBackend {
             QueryCommand::Many => {
                 let _ = writeln!(
                     out,
-                    "  case Ecto.Adapters.SQL.query(repo, \"{}\", {}) do",
+                    "  case Postgrex.query(conn, \"{}\", {}) do",
                     sql, param_args
                 );
                 let _ = writeln!(out, "    {{:ok, %{{rows: rows}}}} ->");
@@ -292,7 +290,7 @@ impl CodegenBackend for ElixirEctoBackend {
             QueryCommand::Exec => {
                 let _ = writeln!(
                     out,
-                    "  case Ecto.Adapters.SQL.query(repo, \"{}\", {}) do",
+                    "  case Postgrex.query(conn, \"{}\", {}) do",
                     sql, param_args
                 );
                 let _ = writeln!(out, "    {{:ok, _}} -> :ok");
@@ -302,7 +300,7 @@ impl CodegenBackend for ElixirEctoBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(
                     out,
-                    "  case Ecto.Adapters.SQL.query(repo, \"{}\", {}) do",
+                    "  case Postgrex.query(conn, \"{}\", {}) do",
                     sql, param_args
                 );
                 let _ = writeln!(out, "    {{:ok, %{{num_rows: n}}}} -> {{:ok, n}}");
