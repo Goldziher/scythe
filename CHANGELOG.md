@@ -30,6 +30,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Ruby TinyTds codegen: type-aware param escaping (integers/booleans not escaped)
 - TypeScript mssql codegen: explicit `sql.*` type bindings for params
 - Template fixes for Redshift (no enums, `schema_pg_compat.sql`, status as string)
+- Elixir: `elixirc_paths` includes `generated/` for all backends
+- TypeScript: `String()` coercion for decimal total comparisons
+
+### Known Limitations
+
+- MSSQL Elixir TDS: `@pN` placeholders not supported by TDS lib (needs `?`)
+- MSSQL Ruby TinyTds: integer param escaping in codegen
+- MSSQL PHP: requires `pdo_sqlsrv` PHP extension
+- Snowflake: emulator only supports Go (gosnowflake) driver; Python uses fakesnow
 
 ## [0.6.7] - 2026-04-12
 
