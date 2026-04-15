@@ -8,7 +8,7 @@ import {
 	getOrdersByUser,
 	deleteOrdersByUser,
 	deleteUser,
-	UserStatusValues,
+	UserStatus,
 	CreateUserRowSchema,
 	GetUserByIdRowSchema,
 	ListActiveUsersRowSchema,
@@ -101,7 +101,7 @@ async function main(): Promise<void> {
 			client,
 			"Alice",
 			"alice@example.com",
-			UserStatusValues.Active,
+			UserStatus.Active,
 		);
 		assert(user !== null, "CreateUser", "user should not be null");
 		// Validate through Zod schema
@@ -132,7 +132,7 @@ async function main(): Promise<void> {
 		console.log("PASS: GetUserById");
 
 		// Test: ListActiveUsers
-		const activeUsers = await listActiveUsers(client, UserStatusValues.Active);
+		const activeUsers = await listActiveUsers(client, UserStatus.Active);
 		assert(
 			activeUsers.length > 0,
 			"ListActiveUsers",

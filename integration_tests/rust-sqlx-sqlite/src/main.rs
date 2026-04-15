@@ -54,13 +54,15 @@ let connect_options = database_url.parse::<SqliteConnectOptions>()?
     sqlx::raw_sql(&schema_sql).execute(&pool).await?;
 
     // Test: CreateUser
-sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
+let insert_result = sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")
         .bind("Alice")
         .bind("alice@example.com")
         .bind("active")
         .execute(&pool)
         .await?;
-    let user: GetUserByIdRow = sqlx::query_as("SELECT id, name, email, status, created_at FROM users WHERE id = last_insert_rowid()")
+    let user_id_sqlite = insert_result.last_insert_rowid() as i64;
+    let user: GetUserByIdRow = sqlx::query_as("SELECT id, name, email, created_at FROM users WHERE id = ?")
+        .bind(user_id_sqlite)
         .fetch_one(&pool)
         .await?;
     assert_test!(user.name == "Alice", "CreateUser");
