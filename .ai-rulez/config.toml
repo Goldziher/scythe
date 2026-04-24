@@ -6,7 +6,7 @@ name = 'scythe'
 description = 'SQL compilation and code generation framework — compiles annotated SQL into type-safe database access code for 10 languages'
 gitignore = true
 presets = ['claude', 'gemini', 'codex']
-builtins = ['rust', 'python', 'typescript', 'ruby', 'php', 'elixir', 'go', 'java', 'csharp', 'pyo3', 'napi-rs', 'security', 'git-workflow', 'code-quality', 'testing', 'token-efficiency', 'default-commands']
+builtins = ['rust', 'python', 'typescript', 'ruby', 'php', 'elixir', 'go', 'java', 'csharp', 'pyo3', 'napi-rs', 'default-commands']
 
 [header]
 style = 'minimal'
