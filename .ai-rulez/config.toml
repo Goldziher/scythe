@@ -16,18 +16,15 @@ name = 'kreuzberg-core'
 source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
 path = 'modules/core'
 merge_strategy = 'local-override'
-local_override = '../kreuzberg-dev/ai-rulez'
 
 [[includes]]
 name = 'kreuzberg-cicd'
 source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
 path = 'modules/cicd'
 merge_strategy = 'local-override'
-local_override = '../kreuzberg-dev/ai-rulez'
 
 [[includes]]
 name = 'kreuzberg-e2e-generator'
 source = 'https://github.com/kreuzberg-dev/ai-rulez.git'
 path = 'modules/e2e-generator'
 merge_strategy = 'local-override'
-local_override = '../kreuzberg-dev/ai-rulez'
