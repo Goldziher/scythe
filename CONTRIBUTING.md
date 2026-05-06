@@ -46,7 +46,7 @@ Key directories:
 | `crates/scythe-codegen/manifests/` | Backend manifest TOML files (type mappings per backend/engine) |
 | `crates/scythe-codegen/src/backends/` | Backend implementations |
 | `crates/scythe-lint/src/rules/` | Lint rule implementations (performance, safety, style, naming, antipattern, codegen) |
-| `testing_data/` | 275+ JSON test fixtures for snapshot testing |
+| `testing_data/` | 275+ JSON test fixtures for snapshot testing (see [Fixture Conventions](#fixture-conventions)) |
 | `integration_tests/` | Per-backend integration tests with Docker database containers |
 | `tools/test-generator/` | Generates Rust tests from JSON fixtures |
 | `tools/snippet-runner/` | Validates documentation code snippets |
@@ -105,6 +105,17 @@ All 275+ existing fixtures will automatically test the new backend through snaps
 | `task check` | Lint + test combined |
 | `task snippets:validate` | Validate documentation code snippets at syntax level |
 | `task snippets:validate:compile` | Validate documentation code snippets at compile level |
+
+## Fixture Conventions
+
+All JSON test fixtures live under `testing_data/`. Do not create fixture directories at the repo root.
+
+| Subdirectory | Contents |
+|---|---|
+| `testing_data/{category}/` | Fixtures for a specific SQL feature (select, joins, types, lint, etc.) |
+| `testing_data/engines_pending/` | Type mapping fixtures for engines not yet fully implemented (mssql, oracle, redshift, snowflake). Add fixtures here when speccing out new engine support before the implementation lands. |
+
+Fixture IDs must be unique across all files and are used as test function names — use `snake_case`. See `testing_data/00-FIXTURE-SCHEMA.json` for the full fixture schema.
 
 Fixture-generated tests: tests are generated from JSON fixtures in `testing_data/` by the `test-generator` tool. CI runs this automatically. To regenerate locally:
 

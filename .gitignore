@@ -29,6 +29,7 @@ __pycache__/
 # Generated output (except integration test fixtures)
 **/generated/
 generated/
+output/
 !integration_tests/**/generated/
 
 # Environment
