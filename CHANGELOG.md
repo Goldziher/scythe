@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.10] - 2026-05-06
+
+### Fixed
+
+- Clippy warnings in `scythe-lint` style rules (`collapsible_match`) and `typescript-postgres` backend (`unnecessary_sort_by`)
+
+### Changed
+
+- Fixture data for pending engines (MSSQL, Oracle, Redshift, Snowflake) moved from `engines_pending/` to `testing_data/engines_pending/` — all fixtures now under one directory
+- Updated pre-commit hooks: ai-rulez v4.1.6, rumdl v0.1.88, cargo-sort v2.1.4
+- Bumped integration test dependencies: `rand` 0.8.5 → 0.8.6, `pgx/v5` 5.7.4 → 5.9.2, `gosnowflake` 1.10.1 → 1.13.3, `snowflake-sdk` 1.15.0 → 2.0.4, `snowflake-jdbc` 3.16.1 → 4.0.2
+
 ## [0.6.9] - 2026-04-15
 
 ### Fixed
