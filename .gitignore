@@ -1,7 +1,10 @@
 # Rust build artifacts
 /target/
 **/*.rs.bk
-
+site/
+.playwright-mcp/
+.ruff_cache/
+.mcp.json
 # IDE
 .idea/
 .claude/
@@ -33,18 +36,11 @@ generated/
 .env.*
 !.env.example
 
-# AI Rules generated files
-.mcp.json
-CLAUDE.md
-
-# Playwright MCP
-.playwright-mcp/
-
-# Docs build output
-/site/
-
-# AI Rules generated files
-.gemini/
+# BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
+.agents/
 .codex/
-GEMINI.md
+.gemini/
 AGENTS.md
+CLAUDE.md
+GEMINI.md
+# END ai-rulez

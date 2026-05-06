@@ -6,45 +6,41 @@ A 5-minute walkthrough from zero to generated code.
 
 Create `sql/schema.sql`:
 
-```sql
-CREATE TABLE users (
-    id    SERIAL PRIMARY KEY,
-    name  TEXT NOT NULL,
-    email TEXT NOT NULL UNIQUE,
-    status TEXT NOT NULL DEFAULT 'active'
-);
+    CREATE TABLE users (
+        id    SERIAL PRIMARY KEY,
+        name  TEXT NOT NULL,
+        email TEXT NOT NULL UNIQUE,
+        status TEXT NOT NULL DEFAULT 'active'
+    );
 
-CREATE TABLE orders (
-    id      SERIAL PRIMARY KEY,
-    user_id INTEGER NOT NULL REFERENCES users(id),
-    total   NUMERIC(10, 2) NOT NULL,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
-```
+    CREATE TABLE orders (
+        id      SERIAL PRIMARY KEY,
+        user_id INTEGER NOT NULL REFERENCES users(id),
+        total   NUMERIC(10, 2) NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
 
 ## 2. Write Annotated Queries
 
 Create `sql/queries.sql`:
 
-```sql
--- @name GetUser
--- @returns :one
-SELECT id, name, email, status
-FROM users
-WHERE id = $1;
+    -- @name GetUser
+    -- @returns :one
+    SELECT id, name, email, status
+    FROM users
+    WHERE id = $1;
 
--- @name ListUsers
--- @returns :many
-SELECT id, name, email, status
-FROM users
-WHERE status = $1
-ORDER BY name;
+    -- @name ListUsers
+    -- @returns :many
+    SELECT id, name, email, status
+    FROM users
+    WHERE status = $1
+    ORDER BY name;
 
--- @name CreateUser
--- @returns :exec
-INSERT INTO users (name, email)
-VALUES ($1, $2);
-```
+    -- @name CreateUser
+    -- @returns :exec
+    INSERT INTO users (name, email)
+    VALUES ($1, $2);
 
 ## 3. Create scythe.toml
 
@@ -222,29 +218,23 @@ Configure your target language and database driver:
 
 **Optional:** Add `row_type` to customize the generated row type style. For Python backends, use `"pydantic"` or `"msgspec"` instead of the default `"dataclass"`. For TypeScript, use `"zod"` instead of the default `"interface"`. For example:
 
-```toml
-[[sql.gen]]
-backend = "python-psycopg3"
-output = "src/generated"
-row_type = "pydantic"
-```
+    [[sql.gen]]
+    backend = "python-psycopg3"
+    output = "src/generated"
+    row_type = "pydantic"
 
 See the [Configuration guide](../guide/configuration.md) for all `row_type` options.
 
 ## 4. Generate Code
 
-```bash
-scythe generate
-```
+    scythe generate
 
 Output:
 
-```text
-[main] Parsing schema...
-[main] Analyzing 3 queries...
-[main] Writing output to src/generated/queries.*
-Done.
-```
+    [main] Parsing schema...
+    [main] Analyzing 3 queries...
+    [main] Writing output to src/generated/queries.*
+    Done.
 
 ## 5. Generated Code
 
@@ -1017,13 +1007,11 @@ Scythe produces idiomatic, type-safe code for your target language. Each snippet
 
 ## 6. Validate and Lint
 
-```bash
-# Validate SQL parses and types resolve correctly
-scythe check
+    # Validate SQL parses and types resolve correctly
+    scythe check
 
-# Lint SQL for correctness, performance, and style
-scythe lint
-```
+    # Lint SQL for correctness, performance, and style
+    scythe lint
 
 ## Next Steps
 

@@ -16,22 +16,18 @@ Write SQL. Get type-safe code. In any language.
 
 ## Quick Install
 
-```bash
-cargo install scythe-cli
-# or
-brew install Goldziher/tap/scythe
-```
+    cargo install scythe-cli
+    # or
+    brew install Goldziher/tap/scythe
 
 ## 30-Second Example
 
-```sql
--- @name GetUserOrders
--- @returns :many
-SELECT u.id, u.name, o.total, o.notes
-FROM users u
-LEFT JOIN orders o ON u.id = o.user_id
-WHERE u.status = $1;
-```
+    -- @name GetUserOrders
+    -- @returns :many
+    SELECT u.id, u.name, o.total, o.notes
+    FROM users u
+    LEFT JOIN orders o ON u.id = o.user_id
+    WHERE u.status = $1;
 
 Scythe knows `o.total` and `o.notes` are nullable (right side of LEFT JOIN) and generates type-safe code:
 

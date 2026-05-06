@@ -43,16 +43,15 @@ fn walk_set_expr_for_implicit_join(
     rule_id: &'static str,
 ) {
     match set_expr {
-        SetExpr::Select(select) => {
+        SetExpr::Select(select)
             // Multiple tables in FROM with no JOINs = implicit join
-            if select.from.len() > 1 && select.from.iter().all(|twj| twj.joins.is_empty()) {
+            if select.from.len() > 1 && select.from.iter().all(|twj| twj.joins.is_empty()) => {
                 violations.push(Violation {
                     rule_id: Cow::Borrowed(rule_id),
                     message: "implicit join (comma-separated tables) — prefer explicit JOIN".into(),
                     fix: None,
                 });
             }
-        }
         SetExpr::Query(query) => {
             walk_set_expr_for_implicit_join(&query.body, violations, rule_id);
         }

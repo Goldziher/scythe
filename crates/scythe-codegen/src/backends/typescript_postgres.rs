@@ -205,7 +205,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                             .zip(params.iter())
                             .map(|(ap, rp)| (ap.position, rp.field_name.as_str()))
                             .collect();
-                        indexed.sort_by(|a, b| b.0.cmp(&a.0));
+                        indexed.sort_by_key(|b| std::cmp::Reverse(b.0));
                         for (pos, field_name) in indexed {
                             let placeholder = format!("${}", pos);
                             let replacement = format!("${{item.{}}}", field_name);
