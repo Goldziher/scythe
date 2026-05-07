@@ -209,9 +209,12 @@ pub fn parse_query_with_dialect(
     }
 
     // Preprocess dialect-specific syntax before parsing:
-    // - Oracle: strip `RETURNING ... INTO` output binds, convert `:N` → `?`
-    // - MSSQL: convert `OUTPUT INSERTED.*` → `RETURNING` for parsing,
-    //          convert `@pN` → `?` for parsing; keep original SQL for codegen
+    //   * Oracle: strip `RETURNING ... INTO` output binds, convert `:N` → `?`.
+    //   * MSSQL: convert `OUTPUT INSERTED.*` → `RETURNING` for parsing,
+    //     convert `@pN` → `?` for parsing; keep original SQL for codegen.
+    //   * PostgreSQL: strip `WHERE …` between `ON CONFLICT (cols)` and `DO …`
+    //     for parsing (sqlparser-rs <= 0.61 doesn't recognise the
+    //     partial-index inference form); keep original SQL for codegen.
     let (sql, parse_sql) = if *dialect == SqlDialect::Oracle {
         let processed = preprocess_oracle_sql(&sql);
         (processed.clone(), processed)
@@ -221,6 +224,9 @@ pub fn parse_query_with_dialect(
         // For parsing: also convert OUTPUT INSERTED → RETURNING
         let parse_sql = preprocess_mssql_sql(&sql);
         (codegen_sql, parse_sql)
+    } else if *dialect == SqlDialect::PostgreSQL {
+        let parse_sql = preprocess_postgres_sql(&sql);
+        (sql.clone(), parse_sql)
     } else {
         (sql.clone(), sql)
     };
@@ -291,9 +297,102 @@ pub fn parse_query_with_dialect(
     })
 }
 
+/// Strip the `WHERE …` predicate that PostgreSQL allows between
+/// `ON CONFLICT (cols)` and `DO …` (the index-inference form for partial
+/// unique indexes). sqlparser-rs through 0.61 does not parse this construct;
+/// we lift it out for the parser and let the caller keep the original SQL
+/// for codegen + runtime, where Postgres validates it.
+fn preprocess_postgres_sql(sql: &str) -> String {
+    // Find a case-insensitive token sequence: ON CONFLICT ( ... ) WHERE ... DO
+    // We only touch the `WHERE ... DO` slice between the matching parenthesis
+    // close and the `DO` keyword, leaving the rest of the SQL untouched.
+    let upper = sql.to_uppercase();
+    let mut search_from = 0;
+    let mut result = String::with_capacity(sql.len());
+    let mut last = 0;
+    while let Some(rel) = upper[search_from..].find("ON CONFLICT") {
+        let on_conflict_pos = search_from + rel;
+        // Locate the column list `(...)` that follows ON CONFLICT.
+        let after_on_conflict = on_conflict_pos + "ON CONFLICT".len();
+        let bytes = sql.as_bytes();
+        let mut idx = after_on_conflict;
+        while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+            idx += 1;
+        }
+        if idx >= bytes.len() || bytes[idx] != b'(' {
+            // ON CONFLICT ON CONSTRAINT … or bare ON CONFLICT — nothing to strip.
+            search_from = after_on_conflict;
+            continue;
+        }
+        // Find matching close paren.
+        let mut depth = 0i32;
+        let mut close = idx;
+        while close < bytes.len() {
+            match bytes[close] {
+                b'(' => depth += 1,
+                b')' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+            close += 1;
+        }
+        if depth != 0 {
+            // Unbalanced parens — bail and let sqlparser report the error.
+            return sql.to_string();
+        }
+        // Skip whitespace after the column list.
+        let mut after_cols = close + 1;
+        while after_cols < bytes.len() && bytes[after_cols].is_ascii_whitespace() {
+            after_cols += 1;
+        }
+        // Check for the WHERE keyword.
+        if upper[after_cols..].starts_with("WHERE") {
+            // Find the next DO keyword (must be word-bounded).
+            let where_start = after_cols;
+            let after_where = where_start + "WHERE".len();
+            if let Some(do_rel) = find_keyword(&upper[after_where..], "DO") {
+                let do_abs = after_where + do_rel;
+                // Emit everything up to (and including) the close paren + space,
+                // then skip the WHERE … and continue from `DO`.
+                result.push_str(&sql[last..after_cols]);
+                last = do_abs;
+                search_from = do_abs;
+                continue;
+            }
+        }
+        search_from = close + 1;
+    }
+    result.push_str(&sql[last..]);
+    result
+}
+
+/// Locate a whitespace-separated keyword in an uppercase haystack. Returns the
+/// byte offset of the keyword's start, or None if not found.
+fn find_keyword(haystack: &str, keyword: &str) -> Option<usize> {
+    let bytes = haystack.as_bytes();
+    let key = keyword.as_bytes();
+    let mut i = 0;
+    while i + key.len() <= bytes.len() {
+        if &bytes[i..i + key.len()] == key {
+            let prev_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric();
+            let next = i + key.len();
+            let next_ok = next >= bytes.len() || !bytes[next].is_ascii_alphanumeric();
+            if prev_ok && next_ok {
+                return Some(i);
+            }
+        }
+        i += 1;
+    }
+    None
+}
+
 /// Preprocess Oracle SQL before parsing:
-/// 1. Strip `INTO :N, :N, ...` suffix from `RETURNING ... INTO` clauses
-/// 2. Convert `:N` positional placeholders to `?` (universally supported)
+/// 1. Strip `INTO :N, :N, ...` suffix from `RETURNING ... INTO` clauses.
+/// 2. Convert `:N` positional placeholders to `?` (universally supported).
 fn preprocess_oracle_sql(sql: &str) -> String {
     // Strip Oracle RETURNING ... INTO clause (output bind variables)
     // e.g. "INSERT ... RETURNING id, name INTO :4, :5" → "INSERT ... RETURNING id, name"
@@ -694,6 +793,61 @@ mod tests {
         let q = parse(input).unwrap();
         assert_eq!(q.command, QueryCommand::Many);
         assert_eq!(q.annotations.group_by, Some("users.id".to_string()));
+    }
+
+    #[test]
+    fn test_preprocess_postgres_strips_partial_index_where() {
+        let sql = "INSERT INTO billing_events (project_id, stripe_event_id) \
+                   VALUES ($1, $2) \
+                   ON CONFLICT (stripe_event_id) WHERE stripe_event_id IS NOT NULL DO NOTHING";
+        let cleaned = preprocess_postgres_sql(sql);
+        assert!(
+            !cleaned
+                .to_uppercase()
+                .contains("WHERE STRIPE_EVENT_ID IS NOT NULL"),
+            "WHERE clause must be stripped between ON CONFLICT cols and DO; got: {cleaned}"
+        );
+        assert!(
+            cleaned
+                .to_uppercase()
+                .contains("ON CONFLICT (STRIPE_EVENT_ID) DO NOTHING")
+        );
+        // sqlparser must accept the cleaned form.
+        sqlparser::parser::Parser::parse_sql(&sqlparser::dialect::PostgreSqlDialect {}, &cleaned)
+            .expect("cleaned SQL should parse");
+    }
+
+    #[test]
+    fn test_preprocess_postgres_no_op_when_no_partial_clause() {
+        let sql = "INSERT INTO t (a) VALUES ($1) ON CONFLICT (a) DO UPDATE SET a = EXCLUDED.a";
+        assert_eq!(preprocess_postgres_sql(sql), sql);
+    }
+
+    #[test]
+    fn test_preprocess_postgres_leaves_on_conflict_on_constraint_alone() {
+        let sql = "INSERT INTO t (a) VALUES ($1) ON CONFLICT ON CONSTRAINT t_a_uidx DO NOTHING";
+        assert_eq!(preprocess_postgres_sql(sql), sql);
+    }
+
+    #[test]
+    fn test_preprocess_postgres_handles_compound_index_cols() {
+        let sql = "INSERT INTO t (a, b) VALUES ($1, $2) \
+                   ON CONFLICT (a, b) WHERE a IS NOT NULL AND b > 0 DO UPDATE SET b = EXCLUDED.b";
+        let cleaned = preprocess_postgres_sql(sql);
+        assert!(
+            cleaned
+                .to_uppercase()
+                .contains("ON CONFLICT (A, B) DO UPDATE")
+        );
+        assert!(!cleaned.to_uppercase().contains("WHERE A IS NOT NULL"));
+    }
+
+    #[test]
+    fn test_preprocess_postgres_preserves_unrelated_where() {
+        // The DELETE's WHERE is its own clause, not an ON-CONFLICT predicate;
+        // it must survive untouched.
+        let sql = "DELETE FROM t WHERE id = $1";
+        assert_eq!(preprocess_postgres_sql(sql), sql);
     }
 
     #[test]

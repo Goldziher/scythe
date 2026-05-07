@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.6.11] - 2026-05-07
+
+### Fixed
+
+- PostgreSQL: accept `INSERT … ON CONFLICT (cols) WHERE … DO …` (the index-inference form for partial unique indexes). sqlparser-rs through 0.61 doesn't recognise the predicate, so scythe now strips it for the parser pass while keeping the original SQL for codegen and runtime, where Postgres validates and uses the predicate to pick the matching partial index. Mirrors the existing dialect-preprocess pattern used for Oracle and MSSQL.
+
 ## [0.6.10] - 2026-05-06
 
 ### Fixed
