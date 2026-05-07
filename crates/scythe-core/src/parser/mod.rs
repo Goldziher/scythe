@@ -303,32 +303,30 @@ pub fn parse_query_with_dialect(
 /// we lift it out for the parser and let the caller keep the original SQL
 /// for codegen + runtime, where Postgres validates it.
 fn preprocess_postgres_sql(sql: &str) -> String {
-    // Find a case-insensitive token sequence: ON CONFLICT ( ... ) WHERE ... DO
-    // We only touch the `WHERE ... DO` slice between the matching parenthesis
-    // close and the `DO` keyword, leaving the rest of the SQL untouched.
-    let upper = sql.to_uppercase();
+    // Strip line comments + string literals first so we only scan structural SQL.
+    // (We still emit the original `sql` slice byte-for-byte; the upper-mask is
+    //  only used to decide *where* to cut.)
+    let mask = mask_postgres_for_scan(sql);
+    let mask_bytes = mask.as_bytes();
+    let bytes = sql.as_bytes();
     let mut search_from = 0;
     let mut result = String::with_capacity(sql.len());
     let mut last = 0;
-    while let Some(rel) = upper[search_from..].find("ON CONFLICT") {
+    while let Some(rel) = find_keyword(&mask[search_from..], "ON CONFLICT") {
         let on_conflict_pos = search_from + rel;
-        // Locate the column list `(...)` that follows ON CONFLICT.
         let after_on_conflict = on_conflict_pos + "ON CONFLICT".len();
-        let bytes = sql.as_bytes();
         let mut idx = after_on_conflict;
-        while idx < bytes.len() && bytes[idx].is_ascii_whitespace() {
+        while idx < mask_bytes.len() && mask_bytes[idx].is_ascii_whitespace() {
             idx += 1;
         }
-        if idx >= bytes.len() || bytes[idx] != b'(' {
-            // ON CONFLICT ON CONSTRAINT … or bare ON CONFLICT — nothing to strip.
+        if idx >= mask_bytes.len() || mask_bytes[idx] != b'(' {
             search_from = after_on_conflict;
             continue;
         }
-        // Find matching close paren.
         let mut depth = 0i32;
         let mut close = idx;
-        while close < bytes.len() {
-            match bytes[close] {
+        while close < mask_bytes.len() {
+            match mask_bytes[close] {
                 b'(' => depth += 1,
                 b')' => {
                     depth -= 1;
@@ -341,33 +339,93 @@ fn preprocess_postgres_sql(sql: &str) -> String {
             close += 1;
         }
         if depth != 0 {
-            // Unbalanced parens — bail and let sqlparser report the error.
             return sql.to_string();
         }
-        // Skip whitespace after the column list.
         let mut after_cols = close + 1;
-        while after_cols < bytes.len() && bytes[after_cols].is_ascii_whitespace() {
+        while after_cols < mask_bytes.len() && mask_bytes[after_cols].is_ascii_whitespace() {
             after_cols += 1;
         }
-        // Check for the WHERE keyword.
-        if upper[after_cols..].starts_with("WHERE") {
-            // Find the next DO keyword (must be word-bounded).
-            let where_start = after_cols;
-            let after_where = where_start + "WHERE".len();
-            if let Some(do_rel) = find_keyword(&upper[after_where..], "DO") {
-                let do_abs = after_where + do_rel;
-                // Emit everything up to (and including) the close paren + space,
-                // then skip the WHERE … and continue from `DO`.
-                result.push_str(&sql[last..after_cols]);
-                last = do_abs;
-                search_from = do_abs;
-                continue;
-            }
+        if mask[after_cols..].starts_with("WHERE")
+            && let Some(do_rel) = find_keyword(&mask[after_cols + "WHERE".len()..], "DO")
+        {
+            let do_abs = after_cols + "WHERE".len() + do_rel;
+            // Slice from the original SQL (preserves casing + UTF-8) up to
+            // the byte before WHERE; skip ahead to DO.
+            result.push_str(std::str::from_utf8(&bytes[last..after_cols]).unwrap_or(""));
+            last = do_abs;
+            search_from = do_abs;
+            continue;
         }
         search_from = close + 1;
     }
-    result.push_str(&sql[last..]);
+    result.push_str(std::str::from_utf8(&bytes[last..]).unwrap_or(""));
     result
+}
+
+/// Build an ASCII-uppercase, fixed-byte-offset mask of `sql` where `--` line
+/// comments, `/* … */` block comments, and `'…'` / `$$…$$` string literals are
+/// replaced with spaces. Multi-byte UTF-8 is collapsed to ASCII spaces of the
+/// same byte length so positions in the mask line up with the original `sql`.
+fn mask_postgres_for_scan(sql: &str) -> String {
+    let bytes = sql.as_bytes();
+    let mut out = vec![b' '; bytes.len()];
+    let mut i = 0;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if b == b'-' && i + 1 < bytes.len() && bytes[i + 1] == b'-' {
+            // Line comment — replace through end-of-line with spaces.
+            while i < bytes.len() && bytes[i] != b'\n' {
+                out[i] = b' ';
+                i += 1;
+            }
+            continue;
+        }
+        if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
+            // Block comment — replace through `*/`.
+            out[i] = b' ';
+            out[i + 1] = b' ';
+            i += 2;
+            while i + 1 < bytes.len() && !(bytes[i] == b'*' && bytes[i + 1] == b'/') {
+                out[i] = b' ';
+                i += 1;
+            }
+            if i + 1 < bytes.len() {
+                out[i] = b' ';
+                out[i + 1] = b' ';
+                i += 2;
+            }
+            continue;
+        }
+        if b == b'\'' {
+            out[i] = b' ';
+            i += 1;
+            while i < bytes.len() {
+                if bytes[i] == b'\'' {
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                        out[i] = b' ';
+                        out[i + 1] = b' ';
+                        i += 2;
+                        continue;
+                    }
+                    out[i] = b' ';
+                    i += 1;
+                    break;
+                }
+                out[i] = b' ';
+                i += 1;
+            }
+            continue;
+        }
+        // ASCII goes through as-uppercase; non-ASCII bytes become spaces so the
+        // mask stays single-byte-per-position and positions line up.
+        if b.is_ascii() {
+            out[i] = b.to_ascii_uppercase();
+        } else {
+            out[i] = b' ';
+        }
+        i += 1;
+    }
+    String::from_utf8(out).expect("mask is ASCII by construction")
 }
 
 /// Locate a whitespace-separated keyword in an uppercase haystack. Returns the
@@ -847,6 +905,28 @@ mod tests {
         // The DELETE's WHERE is its own clause, not an ON-CONFLICT predicate;
         // it must survive untouched.
         let sql = "DELETE FROM t WHERE id = $1";
+        assert_eq!(preprocess_postgres_sql(sql), sql);
+    }
+
+    #[test]
+    fn test_preprocess_postgres_ignores_text_inside_line_comments() {
+        // Earlier scans treated this as a real `ON CONFLICT (col) WHERE … DO`
+        // and excised the entire comment + INSERT body up to the next `DO`.
+        // Comments must be opaque to the predicate-stripping pass.
+        let sql = "-- inline doc: `ON CONFLICT (col) WHERE …` is the partial form\n\
+                   INSERT INTO t (a) VALUES ($1) \
+                   ON CONFLICT (a) WHERE a IS NOT NULL DO NOTHING";
+        let cleaned = preprocess_postgres_sql(sql);
+        assert!(
+            cleaned.contains("-- inline doc"),
+            "comment must survive the pass; got: {cleaned}"
+        );
+        assert!(cleaned.contains("ON CONFLICT (a) DO NOTHING"));
+    }
+
+    #[test]
+    fn test_preprocess_postgres_ignores_text_inside_string_literals() {
+        let sql = "SELECT 'ON CONFLICT (a) WHERE a IS NOT NULL DO NOTHING' AS s";
         assert_eq!(preprocess_postgres_sql(sql), sql);
     }
 
