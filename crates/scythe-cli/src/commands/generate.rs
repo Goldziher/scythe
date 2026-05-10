@@ -416,11 +416,16 @@ fn generate_for_backend(
         .map_err(|e| format!("failed to create output dir '{}': {}", output_dir, e))?;
 
     let output_file = out_path.join(&filename);
-    let output_content = if output_parts.is_empty() {
+    let mut output_content = if output_parts.is_empty() {
         "// No queries generated.\n".to_string()
     } else {
         output_parts.join("\n\n") + "\n"
     };
+
+    // Format Rust code to be rustfmt-compliant
+    if ext == "rs" {
+        output_content = format_rust_code_if_possible(&output_content);
+    }
 
     std::fs::write(&output_file, &output_content).map_err(|e| {
         format!(
@@ -698,6 +703,44 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
 
     eprintln!("Check passed.");
     Ok(())
+}
+
+/// Format Rust code using rustfmt if available.
+/// If rustfmt is not found or fails, returns the original code unchanged.
+/// This ensures that generated code is rustfmt-compliant without requiring
+/// downstream users to run `cargo fmt` and create unnecessary diffs.
+fn format_rust_code_if_possible(code: &str) -> String {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+
+    // Try to find rustfmt on PATH
+    let Ok(mut child) = Command::new("rustfmt")
+        .arg("--edition=2024")
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        // rustfmt not available, return original code
+        return code.to_string();
+    };
+
+    // Write code to rustfmt's stdin
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(code.as_bytes());
+    }
+
+    // Read formatted output
+    match child.wait_with_output() {
+        Ok(output) if output.status.success() => match String::from_utf8(output.stdout) {
+            Ok(formatted) => formatted,
+            Err(_) => code.to_string(),
+        },
+        _ => {
+            // rustfmt failed, return original code
+            code.to_string()
+        }
+    }
 }
 
 #[cfg(test)]

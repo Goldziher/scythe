@@ -535,4 +535,80 @@ mod tests {
         // Should NOT contain sqlx
         assert!(!def.contains("sqlx"));
     }
+
+    #[test]
+    fn test_sql_with_least_coalesce_sum_preserved() {
+        let backend = get_backend("tokio-postgres", "postgresql").unwrap();
+
+        let query = make_query(
+            "GetBillingAggregates",
+            QueryCommand::One,
+            "SELECT LEAST(COALESCE(SUM(ba.free_pages_remaining), 0), 10000) as aggregated_free_pages FROM billing_aggregates ba WHERE ba.customer_id = $1",
+            vec![AnalyzedColumn {
+                name: "aggregated_free_pages".to_string(),
+                neutral_type: "int64".to_string(),
+                nullable: false,
+            }],
+            vec![AnalyzedParam {
+                name: "customer_id".to_string(),
+                neutral_type: "uuid".to_string(),
+                nullable: false,
+                position: 1,
+            }],
+        );
+
+        let result = generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.unwrap();
+
+        // The SQL should preserve the original casing of function names (LEAST, COALESCE, SUM)
+        // and the alias keyword (as)
+        assert!(
+            query_fn.contains("LEAST(COALESCE(SUM(ba.free_pages_remaining), 0), 10000)"),
+            "SQL should preserve original LEAST/COALESCE/SUM function names and casing"
+        );
+        assert!(
+            query_fn.contains("as aggregated_free_pages"),
+            "SQL should preserve alias keyword (as)"
+        );
+    }
+
+    #[test]
+    fn test_generated_rust_code_structure() {
+        let backend = get_backend("tokio-postgres", "postgresql").unwrap();
+
+        let query = make_query(
+            "GetUser",
+            QueryCommand::One,
+            "SELECT id, name FROM users WHERE id = $1",
+            vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                },
+                AnalyzedColumn {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                },
+            ],
+            vec![AnalyzedParam {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                position: 1,
+            }],
+        );
+
+        let result = generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.unwrap();
+
+        // Verify basic structure is present
+        assert!(query_fn.contains("pub async fn get_user("));
+        assert!(query_fn.contains("tokio_postgres::GenericClient"));
+        assert!(query_fn.contains("GetUserRow"));
+
+        // Verify SQL is preserved in the code
+        assert!(query_fn.contains("SELECT id, name FROM users"));
+    }
 }
