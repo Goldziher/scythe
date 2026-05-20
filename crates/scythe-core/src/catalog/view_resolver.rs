@@ -112,6 +112,18 @@ impl Catalog {
                             primary_key: false,
                         });
                     }
+                    SelectItem::ExprWithAliases { expr, aliases } => {
+                        let (_, sql_type, nullable) = self.resolve_view_expr(expr, &source_cols);
+                        for alias in aliases {
+                            result.push(Column {
+                                name: ident_to_lower(alias),
+                                sql_type: sql_type.clone(),
+                                nullable,
+                                default: None,
+                                primary_key: false,
+                            });
+                        }
+                    }
                     SelectItem::Wildcard(_) => {
                         for (_, _, cols) in &source_cols {
                             for col in cols {

@@ -222,6 +222,17 @@ impl<'a> Analyzer<'a> {
                         nullable: ti.nullable,
                     });
                 }
+                SelectItem::ExprWithAliases { expr, aliases } => {
+                    self.collect_params_from_where(expr, &scope);
+                    let ti = self.infer_expr_type(expr, &scope);
+                    for alias in aliases {
+                        columns.push(AnalyzedColumn {
+                            name: alias.value.to_lowercase(),
+                            neutral_type: ti.neutral_type.clone(),
+                            nullable: ti.nullable,
+                        });
+                    }
+                }
                 SelectItem::Wildcard(_) => {
                     for source in &scope.sources {
                         for col in &source.columns {
@@ -294,12 +305,17 @@ impl<'a> Analyzer<'a> {
             ast::TableObject::TableFunction(func) => {
                 object_name_to_string(&func.name).to_lowercase()
             }
+            ast::TableObject::TableQuery(_) => {
+                return Err(ScytheError::syntax(
+                    "INSERT target must be a table name or table function",
+                ));
+            }
         };
 
         let target_cols: Vec<String> = insert
             .columns
             .iter()
-            .map(|ident| ident.value.to_lowercase())
+            .map(|name| object_name_to_string(name).to_lowercase())
             .collect();
 
         // Collect params from the source (VALUES or subquery)
@@ -485,6 +501,16 @@ impl<'a> Analyzer<'a> {
                         neutral_type: ti.neutral_type,
                         nullable: ti.nullable,
                     });
+                }
+                SelectItem::ExprWithAliases { expr, aliases } => {
+                    let ti = self.infer_expr_type(expr, &scope);
+                    for alias in aliases {
+                        columns.push(AnalyzedColumn {
+                            name: alias.value.to_lowercase(),
+                            neutral_type: ti.neutral_type.clone(),
+                            nullable: ti.nullable,
+                        });
+                    }
                 }
                 SelectItem::Wildcard(_) => {
                     for source in &scope.sources {
