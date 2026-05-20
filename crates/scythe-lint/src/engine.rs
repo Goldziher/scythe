@@ -257,6 +257,7 @@ mod tests {
             enums: vec![],
             optional_params: vec![],
             group_by: None,
+            custom: vec![],
         }
     }
 
@@ -271,6 +272,7 @@ mod tests {
             deprecated: None,
             optional_params: vec![],
             group_by: None,
+            custom: vec![],
         }
     }
 

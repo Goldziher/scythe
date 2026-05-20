@@ -140,6 +140,13 @@ impl Catalog {
         self.tables.keys()
     }
 
+    /// Iterate over all `(name, table)` pairs in the catalog. Useful for
+    /// consumers that need to walk every table's schema (e.g. auto-CRUD
+    /// generators).
+    pub fn tables_iter(&self) -> impl Iterator<Item = (&String, &Table)> {
+        self.tables.iter()
+    }
+
     /// Iterate over all enum names in the catalog.
     pub fn enums_iter(&self) -> impl Iterator<Item = (&String, &EnumType)> {
         self.enums.iter()

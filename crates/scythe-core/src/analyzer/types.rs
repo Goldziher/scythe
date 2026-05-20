@@ -1,10 +1,11 @@
-use crate::parser::QueryCommand;
+use crate::parser::{CustomAnnotation, QueryCommand};
 
 // ---------------------------------------------------------------------------
 // Public output types
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnalyzedQuery {
     pub name: String,
     pub command: QueryCommand,
@@ -22,9 +23,13 @@ pub struct AnalyzedQuery {
     pub optional_params: Vec<String>,
     /// Grouping configuration for :grouped queries
     pub group_by: Option<GroupByConfig>,
+    /// Custom (non-native) annotations from the SQL source, in source order.
+    /// See [`CustomAnnotation`] for usage.
+    pub custom: Vec<CustomAnnotation>,
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct GroupByConfig {
     /// The table (or alias) used as the grouping parent, e.g. "users"
     pub table: String,
@@ -37,24 +42,28 @@ pub struct GroupByConfig {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CompositeInfo {
     pub sql_name: String,
     pub fields: Vec<CompositeFieldInfo>,
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct CompositeFieldInfo {
     pub name: String,
     pub neutral_type: String,
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct EnumInfo {
     pub sql_name: String,
     pub values: Vec<String>,
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnalyzedColumn {
     pub name: String,
     pub neutral_type: String,
@@ -62,6 +71,7 @@ pub struct AnalyzedColumn {
 }
 
 #[derive(Debug, Clone)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnalyzedParam {
     pub name: String,
     pub neutral_type: String,

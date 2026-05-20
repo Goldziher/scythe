@@ -1,6 +1,6 @@
 [package]
 name = "scythe-core"
-version = "0.6.13"
+version = "0.6.14"
 edition = "2024"
 license = "MIT"
 description = "Core SQL parsing, catalog building, and type inference for scythe"
@@ -13,4 +13,16 @@ categories = ["database", "parser-implementations"]
 
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }
+serde = { version = "1", features = ["derive"], optional = true }
 sqlparser = { version = "0.61", features = ["visitor"] }
+
+[features]
+default = []
+# Adds `Serialize` / `Deserialize` derives to the public IR types
+# (`AnalyzedQuery`, `Annotations`, `CustomAnnotation`, etc.). Off by default so
+# scythe-core's footprint stays minimal; crate consumers that need IR
+# serialization opt in.
+serde = ["dep:serde"]
+
+[dev-dependencies]
+serde_json = "1"

@@ -155,6 +155,7 @@ pub fn generate_with_backend_and_overrides(
             enums: analyzed.enums.clone(),
             optional_params: analyzed.optional_params.clone(),
             group_by: analyzed.group_by.clone(),
+            custom: analyzed.custom.clone(),
         };
         result.query_fn =
             Some(backend.generate_query_fn(&many_proxy, &struct_name, &columns, &params)?);
@@ -295,6 +296,7 @@ mod tests {
             enums: Vec::new(),
             optional_params: Vec::new(),
             group_by: None,
+            custom: Vec::new(),
         }
     }
 

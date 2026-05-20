@@ -234,6 +234,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         enums,
         optional_params: query.annotations.optional_params.clone(),
         group_by,
+        custom: query.annotations.custom.clone(),
     })
 }
 

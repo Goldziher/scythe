@@ -4,6 +4,7 @@ use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum QueryCommand {
     One,
     Opt,
@@ -49,18 +50,39 @@ impl QueryCommand {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct ParamDoc {
     pub name: String,
     pub description: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct JsonMapping {
     pub column: String,
     pub rust_type: String,
 }
 
+/// A custom (non-native) annotation captured verbatim from the SQL source.
+///
+/// Scythe parses its known annotations (`@name`, `@returns`, `@param`, `@nullable`,
+/// `@nonnull`, `@json`, `@optional`, `@group_by`, `@deprecated`) into typed fields.
+/// Any other `-- @<name> <value>` line is captured here as an opaque triple and
+/// exposed to crate consumers, who can layer their own annotation vocabulary on
+/// top of scythe without coupling scythe to their domain.
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct CustomAnnotation {
+    /// Annotation name, lowercased, without the leading `@` (e.g. `http`, `http_param`).
+    pub name: String,
+    /// Everything after the name on the line, trimmed. Empty if the annotation had no value.
+    pub value: String,
+    /// 1-based line number within the query SQL, for diagnostics.
+    pub line: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Annotations {
     pub name: String,
     pub command: QueryCommand,
@@ -71,6 +93,9 @@ pub struct Annotations {
     pub deprecated: Option<String>,
     pub optional_params: Vec<String>,
     pub group_by: Option<String>,
+    /// Annotations scythe does not natively recognise, preserved in source order
+    /// for crate consumers to interpret.
+    pub custom: Vec<CustomAnnotation>,
 }
 
 #[derive(Debug)]
@@ -101,10 +126,12 @@ pub fn parse_query_with_dialect(
     let mut deprecated: Option<String> = None;
     let mut optional_params = Vec::new();
     let mut group_by: Option<String> = None;
+    let mut custom: Vec<CustomAnnotation> = Vec::new();
 
     let mut sql_lines = Vec::new();
 
-    for line in query_sql.lines() {
+    for (line_idx, line) in query_sql.lines().enumerate() {
+        let line_no = line_idx + 1;
         let trimmed = line.trim();
 
         // Check for annotation: "-- @..." or "--@..."
@@ -184,8 +211,13 @@ pub fn parse_query_with_dialect(
                         }
                     }
                 }
-                _ => {
-                    // Unknown annotation — ignore or could error
+                other => {
+                    // Unknown annotation — capture verbatim for crate consumers.
+                    custom.push(CustomAnnotation {
+                        name: other.to_string(),
+                        value: value.to_string(),
+                        line: line_no,
+                    });
                 }
             }
         } else {
@@ -261,6 +293,7 @@ pub fn parse_query_with_dialect(
             deprecated,
             optional_params,
             group_by: group_by.clone(),
+            custom,
         };
         return Ok(Query {
             name,
@@ -286,6 +319,7 @@ pub fn parse_query_with_dialect(
         deprecated,
         optional_params,
         group_by,
+        custom,
     };
 
     Ok(Query {
@@ -778,6 +812,66 @@ mod tests {
         assert_eq!(q.annotations.json_mappings.len(), 1);
         assert_eq!(q.annotations.json_mappings[0].column, "data");
         assert_eq!(q.annotations.json_mappings[0].rust_type, "EventData");
+    }
+
+    #[test]
+    fn test_custom_annotations_captured() {
+        // Unknown @xxx lines are captured verbatim as CustomAnnotation triples;
+        // native annotations remain in their typed fields.
+        let input = "-- @name GetUser
+-- @returns :one
+-- @http GET /users/{id}
+-- @http_auth bearer:jwt
+-- @http_status 200,404
+SELECT id FROM users WHERE id = $1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.custom.len(), 3);
+        assert_eq!(q.annotations.custom[0].name, "http");
+        assert_eq!(q.annotations.custom[0].value, "GET /users/{id}");
+        assert_eq!(q.annotations.custom[0].line, 3);
+        assert_eq!(q.annotations.custom[1].name, "http_auth");
+        assert_eq!(q.annotations.custom[1].value, "bearer:jwt");
+        assert_eq!(q.annotations.custom[1].line, 4);
+        assert_eq!(q.annotations.custom[2].name, "http_status");
+        assert_eq!(q.annotations.custom[2].value, "200,404");
+        assert_eq!(q.annotations.custom[2].line, 5);
+    }
+
+    #[test]
+    fn test_custom_annotation_without_value() {
+        let input = "-- @name GetUser
+-- @returns :one
+-- @http_internal
+SELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.custom.len(), 1);
+        assert_eq!(q.annotations.custom[0].name, "http_internal");
+        assert_eq!(q.annotations.custom[0].value, "");
+    }
+
+    #[cfg(feature = "serde")]
+    #[test]
+    fn test_custom_annotation_serde_round_trip() {
+        let original = CustomAnnotation {
+            name: "http".to_string(),
+            value: "GET /users/{id}".to_string(),
+            line: 7,
+        };
+        let json = serde_json::to_string(&original).unwrap();
+        let back: CustomAnnotation = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, original);
+    }
+
+    #[test]
+    fn test_custom_annotation_name_lowercased() {
+        let input = "-- @name GetUser
+-- @returns :one
+-- @HTTP_Auth Bearer
+SELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.custom.len(), 1);
+        assert_eq!(q.annotations.custom[0].name, "http_auth");
+        assert_eq!(q.annotations.custom[0].value, "Bearer");
     }
 
     #[test]
