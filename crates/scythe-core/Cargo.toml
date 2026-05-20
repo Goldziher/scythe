@@ -11,11 +11,6 @@ authors = ["Na'aman Hirschfeld"]
 keywords = ["sql", "parser", "type-inference", "catalog", "analyzer"]
 categories = ["database", "parser-implementations"]
 
-[dependencies]
-ahash = { version = "0.8", features = ["serde"] }
-serde = { version = "1", features = ["derive"], optional = true }
-sqlparser = { version = "0.61", features = ["visitor"] }
-
 [features]
 default = []
 # Adds `Serialize` / `Deserialize` derives to the public IR types
@@ -23,6 +18,11 @@ default = []
 # scythe-core's footprint stays minimal; crate consumers that need IR
 # serialization opt in.
 serde = ["dep:serde"]
+
+[dependencies]
+ahash = { version = "0.8", features = ["serde"] }
+serde = { version = "1", features = ["derive"], optional = true }
+sqlparser = { version = "0.62", features = ["visitor"] }
 
 [dev-dependencies]
 serde_json = "1"

@@ -42,7 +42,7 @@ repos:
 
   # Markdown: linting
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: "v0.1.88"
+    rev: "v0.1.95"
     hooks:
       - id: rumdl-fmt
         exclude: "docs/snippets/"
@@ -79,7 +79,7 @@ repos:
       - id: cargo-machete
 
   - repo: https://github.com/EmbarkStudios/cargo-deny
-    rev: 0.19.4
+    rev: 0.19.6
     hooks:
       - id: cargo-deny
         args: ["check"]
@@ -93,15 +93,21 @@ repos:
 
   # JavaScript/TypeScript/JSON/CSS: biome (formatting + linting with autofixes)
   - repo: https://github.com/biomejs/pre-commit
-    rev: v2.4.14
+    rev: v2.4.15
     hooks:
       - id: biome-format
 
-  # GitHub Actions: linting
+  # GitHub Actions linting
   - repo: https://github.com/rhysd/actionlint
     rev: v1.7.12
     hooks:
       - id: actionlint
+
+  # GitHub Actions pin maintenance
+  - repo: https://github.com/Goldziher/gh-actions-updater
+    rev: v0.1.2
+    hooks:
+      - id: gh-actions-updater
 
   # Local hooks
   - repo: local

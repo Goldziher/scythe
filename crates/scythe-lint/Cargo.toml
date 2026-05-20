@@ -15,7 +15,7 @@ categories = ["development-tools"]
 ahash = { version = "0.8", features = ["serde"] }
 scythe-core = { path = "../scythe-core", version = "0.6.14" }
 serde = { version = "1", features = ["derive"] }
-sqlparser = { version = "0.61", features = ["visitor"] }
+sqlparser = { version = "0.62", features = ["visitor"] }
 sqruff-lib = "0.38"
 
 [dev-dependencies]
