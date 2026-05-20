@@ -22,11 +22,11 @@ jobs:
     name: Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: clippy
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.1
       - name: Generate integration tests from fixtures
         run: |
           cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
@@ -40,9 +40,9 @@ jobs:
     name: Test
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.1
       - name: Generate integration tests from fixtures
         run: cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
       - name: Run tests
@@ -52,9 +52,9 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@v2.9.1
       - name: Generate integration tests from fixtures
         run: cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
       - name: Build
@@ -65,30 +65,30 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v6.0.2
       - uses: dtolnay/rust-toolchain@stable
-      - uses: Swatinem/rust-cache@v2
-      - uses: actions/setup-python@v5
+      - uses: Swatinem/rust-cache@v2.9.1
+      - uses: actions/setup-python@v5.6.0
         with:
           python-version: "3.13"
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@v5.6.0
         with:
           go-version: "stable"
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v4.8.0
         with:
           distribution: "temurin"
           java-version: "21"
-      - uses: actions/setup-dotnet@v4
+      - uses: actions/setup-dotnet@v4.3.1
         with:
           dotnet-version: "10.0"
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
-      - uses: erlef/setup-beam@v1
+      - uses: erlef/setup-beam@v1.24
         with:
           elixir-version: "1.17"
           otp-version: "27"
-      - uses: shivammathur/setup-php@v2
+      - uses: shivammathur/setup-php@2.37.1
         with:
           php-version: "8.4"
       - name: Install Kotlin
