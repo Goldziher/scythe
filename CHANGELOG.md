@@ -5,13 +5,17 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [0.6.14] - 2026-05-20
+## [0.7.0] - 2026-05-20
 
 ### Added
 
 - `scythe-core` now captures unknown `-- @<name> <value>` annotation lines as `CustomAnnotation { name, value, line }` triples on `Annotations.custom` and `AnalyzedQuery.custom`. Lets crate consumers layer their own annotation vocabularies (e.g. HTTP routing metadata) on top of scythe without coupling the SQL compiler to any one domain. Native annotations (`@name`, `@returns`, `@param`, `@nullable`, `@nonnull`, `@json`, `@optional`, `@group_by`, `@deprecated`) are unaffected — only previously-ignored unknowns are captured.
 - `scythe-core` gained an optional `serde` feature that adds `Serialize` / `Deserialize` derives to the public IR types (`AnalyzedQuery`, `AnalyzedColumn`, `AnalyzedParam`, `EnumInfo`, `CompositeInfo`, `CompositeFieldInfo`, `GroupByConfig`, `QueryCommand`, `Annotations`, `ParamDoc`, `JsonMapping`, `CustomAnnotation`). Off by default.
 - `Catalog::tables_iter()` accessor returning `(&String, &Table)` pairs, complementing the existing `tables()` (which returns names only).
+
+### Fixed
+
+- sqlparser 0.62 compatibility: handle multi-alias select items, object-name insert targets, and unsupported table-query insert targets so `cargo clippy --workspace -- -D warnings` is clean.
 
 ## [0.6.13] - 2026-05-10
 
