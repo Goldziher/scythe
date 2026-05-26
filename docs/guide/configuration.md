@@ -104,6 +104,7 @@ output = "src/generated/kotlin-exposed"
 | `backend` | string | yes | Full backend name (e.g. `rust-sqlx`, `typescript-pg`, `python-aiomysql`). |
 | `output` | string | yes | Output directory for this backend's generated code. |
 | `row_type` | string | no | Row type style for generated code. See below. |
+| `namespace` | string | no | PHP namespace for generated code. PHP backends only. See below. |
 
 ### `row_type`
 
@@ -139,6 +140,25 @@ row_type = "zod"
 ```
 
 Other languages use their standard row type and do not currently support `row_type` configuration.
+
+### `namespace`
+
+Controls the PHP namespace declaration emitted at the top of every generated file. Applies to `php-pdo` and `php-amphp` backends.
+
+| Value | Description |
+|-------|-------------|
+| `"App\\Generated"` | (default) |
+| any valid PHP namespace | Emits `namespace <value>;` |
+| `""` (empty string) | Omits the `namespace` declaration entirely |
+
+```toml
+[[sql.gen]]
+backend = "php-pdo"
+output = "src/generated"
+namespace = "App\\Database\\Generated"
+```
+
+Set `namespace = ""` for scripts or frameworks that do not use namespaces.
 
 ### `[sql.gen.rust]` (legacy)
 
