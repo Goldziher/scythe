@@ -1,3 +1,4 @@
+use scythe_backend::manifest::BackendManifest;
 use scythe_core::errors::{ErrorCode, ScytheError};
 
 /// Supported Python row type styles for generated code.
@@ -82,4 +83,24 @@ impl PythonRowType {
             Self::Msgspec => format!("class {}(msgspec.Struct):", class_name),
         }
     }
+}
+
+/// Returns `(needs_uuid, needs_any)`: whether the manifest's scalar type mappings reference
+/// `uuid.UUID` or `Any` (i.e. `dict[str, Any]`), indicating which stdlib imports the generated
+/// file header must emit to avoid a `NameError` at import time.
+///
+/// Mirrors the always-present `datetime`/`decimal` imports but emits only when actually needed,
+/// following the kotlin-jdbc uuid-import precedent.
+pub fn type_support_imports(manifest: &BackendManifest) -> (bool, bool) {
+    let mut needs_uuid = false;
+    let mut needs_any = false;
+    for value in manifest.types.scalars.values() {
+        if value.contains("uuid.UUID") {
+            needs_uuid = true;
+        }
+        if value.contains("Any") {
+            needs_any = true;
+        }
+    }
+    (needs_uuid, needs_any)
 }

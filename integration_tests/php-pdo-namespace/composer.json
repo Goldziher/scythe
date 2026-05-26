@@ -1,0 +1,8 @@
+{
+	"name": "scythe/integration-php-pdo-namespace",
+	"description": "Scythe integration tests for php-pdo backend with custom namespace",
+	"type": "project",
+	"require": {
+		"php": ">=8.2"
+	}
+}

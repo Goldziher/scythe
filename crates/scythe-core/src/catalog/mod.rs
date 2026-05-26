@@ -85,9 +85,12 @@ impl Catalog {
         let parser_dialect = dialect.to_sqlparser_dialect();
 
         for sql in schema_sql {
-            // Pre-process: extract statements that sqlparser cannot handle,
-            // then feed the remainder to sqlparser.
-            let cleaned = catalog.extract_unsupported_statements(sql, dialect);
+            // Pre-process: strip psql client meta-commands (e.g. \restrict /
+            // \unrestrict emitted by pg_dump 18+ and dbmate), then extract
+            // statements that sqlparser cannot handle, and feed the remainder
+            // to sqlparser.
+            let filtered = Self::strip_psql_meta_commands(sql);
+            let cleaned = catalog.extract_unsupported_statements(&filtered, dialect);
 
             let trimmed = cleaned.trim();
             if trimmed.is_empty() {
@@ -422,6 +425,36 @@ impl Catalog {
             }
         }
         statements
+    }
+
+    /// Remove psql client meta-command lines from a SQL string.
+    ///
+    /// `pg_dump 18+` and tools such as `dbmate` emit lines like
+    /// `\restrict <token>` and `\unrestrict <token>` that are psql client
+    /// directives, not SQL.  `sqlparser` rejects any token starting with `\`,
+    /// so we strip those lines before handing the text to the parser.
+    ///
+    /// Only lines whose **first non-whitespace character** is `\` are removed.
+    /// Each dropped line is replaced with an empty line so that error
+    /// line-number offsets remain meaningful.  No `\connect`, `\i`, `\copy`,
+    /// or `\set` semantics are interpreted — the lines are simply discarded.
+    fn strip_psql_meta_commands(sql: &str) -> String {
+        let mut out = String::with_capacity(sql.len());
+        for line in sql.split('\n') {
+            if line.trim_start().starts_with('\\') {
+                // Replace with empty line to keep line numbers stable
+                out.push('\n');
+            } else {
+                out.push_str(line);
+                out.push('\n');
+            }
+        }
+        // Remove the single trailing newline we always append so callers get
+        // back a string with the same trailing-newline behaviour as the input.
+        if !sql.ends_with('\n') && out.ends_with('\n') {
+            out.pop();
+        }
+        out
     }
 
     /// Strip leading SQL comments (-- and /* */) from a string.
@@ -1331,5 +1364,93 @@ mod tests {
         let table = catalog.get_table("test").unwrap();
         assert_eq!(table.columns.len(), 1);
         assert_eq!(table.columns[0].name, "id");
+    }
+
+    // -----------------------------------------------------------------------
+    // psql meta-command stripping (issue #49)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_skips_psql_restrict_meta_command() {
+        // Full pg_dump-18 / dbmate repro: leading comment block, \restrict token,
+        // SET statements, CREATE TABLE, ALTER TABLE, trailing \unrestrict token.
+        let schema = "\
+-- PostgreSQL database dump\n\
+-- Dumped from database version 18.0\n\
+\n\
+\\restrict pq7iUOIh6kaSGp222hdriGzvRgqMRbZgU76Lw2XJsigT6TAJ0gcLqz6yTyHGDMO\n\
+\n\
+SET statement_timeout = 0;\n\
+SET lock_timeout = 0;\n\
+SET standard_conforming_strings = on;\n\
+\n\
+CREATE TABLE public.t (\n\
+    id uuid NOT NULL,\n\
+    meta jsonb\n\
+);\n\
+\n\
+ALTER TABLE ONLY public.t\n\
+    ADD CONSTRAINT t_pkey PRIMARY KEY (id);\n\
+\n\
+\\unrestrict pq7iUOIh6kaSGp222hdriGzvRgqMRbZgU76Lw2XJsigT6TAJ0gcLqz6yTyHGDMO\n\
+";
+        let catalog = Catalog::from_ddl(&[schema]).expect("parse must succeed");
+
+        let table = catalog.get_table("t").expect("table t must exist");
+        assert_eq!(table.columns.len(), 2);
+
+        let id_col = &table.columns[0];
+        assert_eq!(id_col.name, "id");
+        assert_eq!(id_col.sql_type, "uuid");
+        assert!(!id_col.nullable);
+        assert!(id_col.primary_key);
+
+        let meta_col = &table.columns[1];
+        assert_eq!(meta_col.name, "meta");
+        assert_eq!(meta_col.sql_type, "jsonb");
+        assert!(meta_col.nullable);
+    }
+
+    #[test]
+    fn test_skips_leading_backslash_line() {
+        // A file whose very first line is a psql meta-command followed by a
+        // normal CREATE TABLE must parse without error.
+        let schema =
+            "\\restrict dbmate\nCREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT NOT NULL);";
+        let catalog = Catalog::from_ddl(&[schema]).expect("parse must succeed");
+
+        let table = catalog.get_table("items").expect("table items must exist");
+        assert_eq!(table.columns.len(), 2);
+        assert_eq!(table.columns[0].name, "id");
+        assert_eq!(table.columns[0].sql_type, "integer");
+        assert!(!table.columns[0].nullable);
+        assert!(table.columns[0].primary_key);
+        assert_eq!(table.columns[1].name, "name");
+        assert!(!table.columns[1].nullable);
+    }
+
+    #[test]
+    fn test_normal_ddl_without_backslash_unaffected() {
+        // A plain CREATE TABLE with no backslash lines must continue to parse
+        // identically before and after the psql-strip pre-filter.
+        let schema =
+            "CREATE TABLE products (id INTEGER PRIMARY KEY, price NUMERIC(10,2) NOT NULL);";
+        let catalog = Catalog::from_ddl(&[schema]).expect("parse must succeed");
+
+        let table = catalog
+            .get_table("products")
+            .expect("table products must exist");
+        assert_eq!(table.columns.len(), 2);
+
+        let id_col = &table.columns[0];
+        assert_eq!(id_col.name, "id");
+        assert_eq!(id_col.sql_type, "integer");
+        assert!(!id_col.nullable);
+        assert!(id_col.primary_key);
+
+        let price_col = &table.columns[1];
+        assert_eq!(price_col.name, "price");
+        assert_eq!(price_col.sql_type, "numeric(10,2)");
+        assert!(!price_col.nullable);
     }
 }

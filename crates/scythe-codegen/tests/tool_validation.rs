@@ -345,3 +345,310 @@ backend_test_with_options!(test_python_psycopg3_msgspec, "python-psycopg3", "row
 backend_test_with_options!(test_python_asyncpg_pydantic, "python-asyncpg", "row_type" => "pydantic");
 backend_test_with_options!(test_typescript_pg_zod, "typescript-pg", "row_type" => "zod");
 backend_test_with_options!(test_typescript_postgres_zod, "typescript-postgres", "row_type" => "zod");
+
+// --- Issue #48: uuid / Any import tests ---
+// Schema with uuid PK + jsonb column to force both uuid.UUID and dict[str, Any] in the output.
+const SCHEMA_UUID_JSONB: &str = "CREATE TABLE items (\
+    id UUID PRIMARY KEY, \
+    name TEXT NOT NULL, \
+    metadata JSONB\
+);";
+
+const QUERY_UUID: &str = "-- @name GetItem\n-- @returns :one\n\
+    SELECT id, name, metadata FROM items WHERE id = $1;";
+
+fn generate_header_for_uuid_jsonb_schema(backend_name: &str) -> String {
+    let backend = get_backend(backend_name, "postgresql").unwrap();
+    let catalog =
+        Catalog::from_ddl_with_dialect(&[SCHEMA_UUID_JSONB], &SqlDialect::PostgreSQL).unwrap();
+    let parsed = parse_query_with_dialect(QUERY_UUID, &SqlDialect::PostgreSQL).unwrap();
+    let analyzed = analyze(&catalog, &parsed).unwrap();
+    let _ = generate_with_backend(&analyzed, &*backend).unwrap();
+    backend.file_header()
+}
+
+fn generate_header_for_uuid_jsonb_schema_mysql(backend_name: &str) -> String {
+    let backend = get_backend(backend_name, "mysql").unwrap();
+    backend.file_header()
+}
+
+#[test]
+fn test_python_psycopg3_header_contains_uuid_and_any_imports() {
+    let header = generate_header_for_uuid_jsonb_schema("python-psycopg3");
+    eprintln!("psycopg3 header:\n{}", header);
+    assert!(
+        header.contains("import uuid  # noqa: F401"),
+        "psycopg3 header missing `import uuid  # noqa: F401`\nHeader:\n{}",
+        header
+    );
+    assert!(
+        header.contains("from typing import Any  # noqa: F401"),
+        "psycopg3 header missing `from typing import Any  # noqa: F401`\nHeader:\n{}",
+        header
+    );
+}
+
+#[test]
+fn test_python_asyncpg_header_contains_uuid_and_any_imports() {
+    let header = generate_header_for_uuid_jsonb_schema("python-asyncpg");
+    eprintln!("asyncpg header:\n{}", header);
+    assert!(
+        header.contains("import uuid  # noqa: F401"),
+        "asyncpg header missing `import uuid  # noqa: F401`\nHeader:\n{}",
+        header
+    );
+    assert!(
+        header.contains("from typing import Any  # noqa: F401"),
+        "asyncpg header missing `from typing import Any  # noqa: F401`\nHeader:\n{}",
+        header
+    );
+}
+
+#[test]
+fn test_python_aiomysql_header_contains_any_but_not_uuid_import() {
+    // aiomysql maps uuid to str, so import uuid is not needed; jsonb maps to dict[str, Any].
+    let header = generate_header_for_uuid_jsonb_schema_mysql("python-aiomysql");
+    eprintln!("aiomysql header:\n{}", header);
+    assert!(
+        header.contains("from typing import Any  # noqa: F401"),
+        "aiomysql header missing `from typing import Any  # noqa: F401`\nHeader:\n{}",
+        header
+    );
+    assert!(
+        !header.contains("import uuid"),
+        "aiomysql header should NOT contain `import uuid` (uuid maps to str)\nHeader:\n{}",
+        header
+    );
+}
+
+// --- PHP namespace option tests ---
+
+#[test]
+fn test_php_pdo_default_namespace() {
+    let code = generate_full_file("php-pdo");
+    assert!(
+        code.contains("namespace App\\Generated;"),
+        "php-pdo default header must contain 'namespace App\\Generated;', got:\n{}",
+        &code[..code.len().min(300)]
+    );
+}
+
+#[test]
+fn test_php_pdo_custom_namespace() {
+    let mut options = std::collections::HashMap::new();
+    options.insert(
+        "namespace".to_string(),
+        "App\\Database\\Generated".to_string(),
+    );
+    let code = generate_full_file_with_options("php-pdo", &options);
+    assert!(
+        code.contains("namespace App\\Database\\Generated;"),
+        "php-pdo custom namespace header must contain 'namespace App\\Database\\Generated;', got:\n{}",
+        &code[..code.len().min(300)]
+    );
+    assert!(
+        !code.contains("namespace App\\Generated;"),
+        "php-pdo custom namespace header must not contain the default 'namespace App\\Generated;'"
+    );
+}
+
+#[test]
+fn test_php_pdo_empty_namespace() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("namespace".to_string(), String::new());
+    let code = generate_full_file_with_options("php-pdo", &options);
+    assert!(
+        !code.contains("namespace "),
+        "php-pdo empty namespace header must not contain any 'namespace ' line, got:\n{}",
+        &code[..code.len().min(300)]
+    );
+    assert!(
+        code.contains("<?php"),
+        "php-pdo empty namespace header must still contain '<?php'"
+    );
+    assert!(
+        code.contains("declare(strict_types=1);"),
+        "php-pdo empty namespace header must still contain 'declare(strict_types=1);'"
+    );
+    assert!(
+        code.contains("// Auto-generated by scythe. Do not edit."),
+        "php-pdo empty namespace header must still contain the auto-generated comment"
+    );
+}
+
+#[test]
+fn test_php_amphp_default_namespace() {
+    let code = generate_full_file("php-amphp");
+    assert!(
+        code.contains("namespace App\\Generated;"),
+        "php-amphp default header must contain 'namespace App\\Generated;', got:\n{}",
+        &code[..code.len().min(300)]
+    );
+}
+
+#[test]
+fn test_php_amphp_custom_namespace() {
+    let mut options = std::collections::HashMap::new();
+    options.insert(
+        "namespace".to_string(),
+        "App\\Database\\Generated".to_string(),
+    );
+    let code = generate_full_file_with_options("php-amphp", &options);
+    assert!(
+        code.contains("namespace App\\Database\\Generated;"),
+        "php-amphp custom namespace header must contain 'namespace App\\Database\\Generated;', got:\n{}",
+        &code[..code.len().min(300)]
+    );
+    assert!(
+        !code.contains("namespace App\\Generated;"),
+        "php-amphp custom namespace header must not contain the default 'namespace App\\Generated;'"
+    );
+}
+
+#[test]
+fn test_php_amphp_empty_namespace() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("namespace".to_string(), String::new());
+    let code = generate_full_file_with_options("php-amphp", &options);
+    assert!(
+        !code.contains("namespace "),
+        "php-amphp empty namespace header must not contain any 'namespace ' line, got:\n{}",
+        &code[..code.len().min(300)]
+    );
+    assert!(
+        code.contains("<?php"),
+        "php-amphp empty namespace header must still contain '<?php'"
+    );
+    assert!(
+        code.contains("declare(strict_types=1);"),
+        "php-amphp empty namespace header must still contain 'declare(strict_types=1);'"
+    );
+    assert!(
+        code.contains("// Auto-generated by scythe. Do not edit."),
+        "php-amphp empty namespace header must still contain the auto-generated comment"
+    );
+}
+
+// --- Kotlin extension function tests ---
+#[test]
+fn test_kotlin_jdbc_extension_functions_signature() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("extension_functions".to_string(), "true".to_string());
+    let code = generate_full_file_with_options("kotlin-jdbc", &options);
+
+    // Extension function syntax: receiver is Connection, no conn param
+    assert!(
+        code.contains("fun Connection."),
+        "kotlin-jdbc ext: expected 'fun Connection.' in output\n\nGenerated:\n{code}"
+    );
+    // No `conn: Connection` param in function signatures
+    assert!(
+        !code.contains("conn: Connection"),
+        "kotlin-jdbc ext: unexpected 'conn: Connection' param\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_jdbc_extension_functions_expression_body() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("extension_functions".to_string(), "true".to_string());
+    let code = generate_full_file_with_options("kotlin-jdbc", &options);
+
+    // :many function uses expression body: `): List<...> =\n    this.prepareStatement`
+    // (return type between `)` and `=`, so we check for "> =\n    this.prepareStatement")
+    assert!(
+        code.contains("): List<") && code.contains("> =\n    this.prepareStatement"),
+        "kotlin-jdbc ext: expected expression body for :many with 'this.prepareStatement'\n\nGenerated:\n{code}"
+    );
+    // :one also uses expression body: return type ends with `?` then ` =`
+    assert!(
+        code.contains("? =\n    this.prepareStatement"),
+        "kotlin-jdbc ext: expected expression body for :one with 'this.prepareStatement'\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_jdbc_extension_functions_exec_block_body() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("extension_functions".to_string(), "true".to_string());
+    let code = generate_full_file_with_options("kotlin-jdbc", &options);
+
+    // :exec (Unit-returning) keeps a block body — look for the deleteUser block form
+    // The Exec function should have `fun Connection.deleteUser(` with a block body `{`
+    assert!(
+        code.contains(") {\n    this.prepareStatement"),
+        "kotlin-jdbc ext: expected block body for :exec with 'this.prepareStatement'\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_jdbc_extension_functions_default_off() {
+    // With the flag OFF (default), output must be unchanged — no `fun Connection.`
+    let code = generate_full_file("kotlin-jdbc");
+    assert!(
+        !code.contains("fun Connection."),
+        "kotlin-jdbc default: unexpected 'fun Connection.' when extension_functions=false\n\nGenerated:\n{code}"
+    );
+    assert!(
+        code.contains("conn: Connection"),
+        "kotlin-jdbc default: expected 'conn: Connection' param\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_r2dbc_extension_functions_signature() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("extension_functions".to_string(), "true".to_string());
+    let code = generate_full_file_with_options("kotlin-r2dbc", &options);
+
+    // Suspend extension functions on Connection
+    assert!(
+        code.contains("suspend fun Connection.") || code.contains("fun Connection."),
+        "kotlin-r2dbc ext: expected 'fun Connection.' or 'suspend fun Connection.' in output\n\nGenerated:\n{code}"
+    );
+    // No ConnectionFactory param
+    assert!(
+        !code.contains("cf: ConnectionFactory"),
+        "kotlin-r2dbc ext: unexpected 'cf: ConnectionFactory' param\n\nGenerated:\n{code}"
+    );
+    // No cf.create() acquire call
+    assert!(
+        !code.contains("cf.create()"),
+        "kotlin-r2dbc ext: unexpected 'cf.create()' in body\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_r2dbc_extension_functions_header() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("extension_functions".to_string(), "true".to_string());
+    let code = generate_full_file_with_options("kotlin-r2dbc", &options);
+
+    // Header imports Connection, not ConnectionFactory
+    assert!(
+        code.contains("import io.r2dbc.spi.Connection\n"),
+        "kotlin-r2dbc ext: expected 'import io.r2dbc.spi.Connection' in header\n\nGenerated:\n{code}"
+    );
+    assert!(
+        !code.contains("import io.r2dbc.spi.ConnectionFactory"),
+        "kotlin-r2dbc ext: unexpected 'ConnectionFactory' import in header\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_r2dbc_extension_functions_default_off() {
+    // With the flag OFF (default), output must be unchanged — ConnectionFactory path
+    let code = generate_full_file("kotlin-r2dbc");
+    assert!(
+        code.contains("cf: ConnectionFactory"),
+        "kotlin-r2dbc default: expected 'cf: ConnectionFactory' param\n\nGenerated:\n{code}"
+    );
+    assert!(
+        !code.contains("fun Connection."),
+        "kotlin-r2dbc default: unexpected 'fun Connection.' when extension_functions=false\n\nGenerated:\n{code}"
+    );
+    assert!(
+        code.contains("cf.create()"),
+        "kotlin-r2dbc default: expected 'cf.create()' in body\n\nGenerated:\n{code}"
+    );
+}
