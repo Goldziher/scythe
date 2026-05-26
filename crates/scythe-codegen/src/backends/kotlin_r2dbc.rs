@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
@@ -20,6 +21,7 @@ const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/kotlin-r2db
 pub struct KotlinR2dbcBackend {
     manifest: BackendManifest,
     is_pg: bool,
+    extension_functions: bool,
 }
 
 impl KotlinR2dbcBackend {
@@ -39,7 +41,11 @@ impl KotlinR2dbcBackend {
         let manifest =
             super::load_or_default_manifest("backends/kotlin-r2dbc/manifest.toml", default_toml)?;
         let is_pg = matches!(engine, "postgresql" | "postgres" | "pg");
-        Ok(Self { manifest, is_pg })
+        Ok(Self {
+            manifest,
+            is_pg,
+            extension_functions: false,
+        })
     }
 }
 
@@ -75,27 +81,65 @@ impl CodegenBackend for KotlinR2dbcBackend {
         &self.manifest
     }
 
+    fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
+        if let Some(v) = options.get("extension_functions") {
+            self.extension_functions = match v.as_str() {
+                "true" => true,
+                "false" => false,
+                other => {
+                    return Err(ScytheError::new(
+                        ErrorCode::InternalError,
+                        format!(
+                            "kotlin-r2dbc: invalid value '{other}' for extension_functions (expected 'true' or 'false')"
+                        ),
+                    ));
+                }
+            };
+        }
+        Ok(())
+    }
+
     fn supported_engines(&self) -> &[&str] {
         &["postgresql", "mysql", "mariadb", "sqlite"]
     }
 
     fn file_header(&self) -> String {
         // ktlint requires lexicographic order with java.* imports at the end.
-        "import io.r2dbc.spi.ConnectionFactory\n\
-         import kotlinx.coroutines.flow.Flow\n\
-         import kotlinx.coroutines.reactive.asFlow\n\
-         import kotlinx.coroutines.reactive.awaitFirst\n\
-         import kotlinx.coroutines.reactive.awaitFirstOrNull\n\
-         import reactor.core.publisher.Flux\n\
-         import reactor.core.publisher.Mono\n\
-         import java.math.BigDecimal\n\
-         import java.time.LocalDate\n\
-         import java.time.LocalDateTime\n\
-         import java.time.LocalTime\n\
-         import java.time.OffsetDateTime\n\
-         import java.time.OffsetTime\n\
-         import java.util.UUID\n"
-            .to_string()
+        // When extension_functions is true, the caller owns the Connection, so we
+        // import io.r2dbc.spi.Connection instead of ConnectionFactory.
+        if self.extension_functions {
+            "import io.r2dbc.spi.Connection\n\
+             import kotlinx.coroutines.flow.Flow\n\
+             import kotlinx.coroutines.reactive.asFlow\n\
+             import kotlinx.coroutines.reactive.awaitFirst\n\
+             import kotlinx.coroutines.reactive.awaitFirstOrNull\n\
+             import reactor.core.publisher.Flux\n\
+             import reactor.core.publisher.Mono\n\
+             import java.math.BigDecimal\n\
+             import java.time.LocalDate\n\
+             import java.time.LocalDateTime\n\
+             import java.time.LocalTime\n\
+             import java.time.OffsetDateTime\n\
+             import java.time.OffsetTime\n\
+             import java.util.UUID\n"
+                .to_string()
+        } else {
+            "import io.r2dbc.spi.ConnectionFactory\n\
+             import kotlinx.coroutines.flow.Flow\n\
+             import kotlinx.coroutines.reactive.asFlow\n\
+             import kotlinx.coroutines.reactive.awaitFirst\n\
+             import kotlinx.coroutines.reactive.awaitFirstOrNull\n\
+             import reactor.core.publisher.Flux\n\
+             import reactor.core.publisher.Mono\n\
+             import java.math.BigDecimal\n\
+             import java.time.LocalDate\n\
+             import java.time.LocalDateTime\n\
+             import java.time.LocalTime\n\
+             import java.time.OffsetDateTime\n\
+             import java.time.OffsetTime\n\
+             import java.util.UUID\n"
+                .to_string()
+        }
     }
 
     fn generate_row_struct(
@@ -142,6 +186,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
         };
 
         let use_multiline_params = !params.is_empty();
+        let ext = self.extension_functions;
 
         let mut out = String::new();
 
@@ -166,10 +211,22 @@ impl CodegenBackend for KotlinR2dbcBackend {
             let _ = write!(out, "{})", indent);
         };
 
-        // Helper: write suspend function signature
+        // Helper: write suspend function signature.
+        // When ext=true:  `suspend fun Connection.name(params...) { `
+        // When ext=false: `suspend fun name(cf: ConnectionFactory, params...) { `
         let write_suspend_fn_sig =
             |out: &mut String, name: &str, ret: &str, multiline: bool, params: &[ResolvedParam]| {
-                if multiline {
+                if ext {
+                    if multiline {
+                        let _ = writeln!(out, "suspend fun Connection.{}(", name);
+                        for p in params {
+                            let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
+                        }
+                        let _ = writeln!(out, "){} {{", ret);
+                    } else {
+                        let _ = writeln!(out, "suspend fun Connection.{}(){} {{", name, ret);
+                    }
+                } else if multiline {
                     let _ = writeln!(out, "suspend fun {}(", name);
                     let _ = writeln!(out, "    cf: ConnectionFactory,");
                     for p in params {
@@ -184,93 +241,160 @@ impl CodegenBackend for KotlinR2dbcBackend {
         match &analyzed.command {
             QueryCommand::Exec => {
                 write_suspend_fn_sig(&mut out, &func_name, "", use_multiline_params, params);
-                let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
-                let _ = writeln!(out, "    try {{");
-                let _ = writeln!(out, "        val stmt = conn.createStatement(\"{}\")", sql);
-                write_binds(&mut out, "        stmt");
-                let _ = writeln!(
-                    out,
-                    "        Mono.from(stmt.execute()).flatMap {{ result -> Mono.from(result.rowsUpdated) }}.awaitFirstOrNull()"
-                );
-                let _ = writeln!(out, "    }} finally {{");
-                let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
-                let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "}}");
+                if ext {
+                    // Caller owns the connection; operate on `this` directly.
+                    let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
+                    write_binds(&mut out, "    stmt");
+                    let _ = writeln!(
+                        out,
+                        "    Mono.from(stmt.execute()).flatMap {{ result -> Mono.from(result.rowsUpdated) }}.awaitFirstOrNull()"
+                    );
+                    let _ = writeln!(out, "}}");
+                } else {
+                    let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
+                    let _ = writeln!(out, "    try {{");
+                    let _ = writeln!(out, "        val stmt = conn.createStatement(\"{sql}\")");
+                    write_binds(&mut out, "        stmt");
+                    let _ = writeln!(
+                        out,
+                        "        Mono.from(stmt.execute()).flatMap {{ result -> Mono.from(result.rowsUpdated) }}.awaitFirstOrNull()"
+                    );
+                    let _ = writeln!(out, "    }} finally {{");
+                    let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                }
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 write_suspend_fn_sig(&mut out, &func_name, ": Long", use_multiline_params, params);
-                let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
-                let _ = writeln!(out, "    try {{");
-                let _ = writeln!(out, "        val stmt = conn.createStatement(\"{}\")", sql);
-                write_binds(&mut out, "        stmt");
-                let _ = writeln!(out, "        return Mono");
-                let _ = writeln!(out, "            .from(stmt.execute())");
-                let _ = writeln!(
-                    out,
-                    "            .flatMap {{ result -> Mono.from(result.rowsUpdated) }}"
-                );
-                let _ = writeln!(out, "            .awaitFirst()");
-                let _ = writeln!(out, "    }} finally {{");
-                let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
-                let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "}}");
+                if ext {
+                    let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
+                    write_binds(&mut out, "    stmt");
+                    let _ = writeln!(out, "    return Mono");
+                    let _ = writeln!(out, "        .from(stmt.execute())");
+                    let _ = writeln!(
+                        out,
+                        "        .flatMap {{ result -> Mono.from(result.rowsUpdated) }}"
+                    );
+                    let _ = writeln!(out, "        .awaitFirst()");
+                    let _ = writeln!(out, "}}");
+                } else {
+                    let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
+                    let _ = writeln!(out, "    try {{");
+                    let _ = writeln!(out, "        val stmt = conn.createStatement(\"{sql}\")");
+                    write_binds(&mut out, "        stmt");
+                    let _ = writeln!(out, "        return Mono");
+                    let _ = writeln!(out, "            .from(stmt.execute())");
+                    let _ = writeln!(
+                        out,
+                        "            .flatMap {{ result -> Mono.from(result.rowsUpdated) }}"
+                    );
+                    let _ = writeln!(out, "            .awaitFirst()");
+                    let _ = writeln!(out, "    }} finally {{");
+                    let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                }
             }
             QueryCommand::One | QueryCommand::Opt => {
                 let ret = format!(": {}?", struct_name);
                 write_suspend_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
-                let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
-                let _ = writeln!(out, "    try {{");
-                let _ = writeln!(out, "        val stmt = conn.createStatement(\"{}\")", sql);
-                write_binds(&mut out, "        stmt");
-                let _ = writeln!(out, "        return Mono");
-                let _ = writeln!(out, "            .from(stmt.execute())");
-                let _ = writeln!(out, "            .flatMap {{ result ->");
-                let _ = writeln!(out, "                Mono.from(");
-                let _ = writeln!(out, "                    result.map {{ row, _ ->");
-                write_row_map(&mut out, "                        ");
-                let _ = writeln!(out);
-                let _ = writeln!(out, "                    }},");
-                let _ = writeln!(out, "                )");
-                let _ = writeln!(out, "            }}.awaitFirstOrNull()");
-                let _ = writeln!(out, "    }} finally {{");
-                let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
-                let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "}}");
+                if ext {
+                    let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
+                    write_binds(&mut out, "    stmt");
+                    let _ = writeln!(out, "    return Mono");
+                    let _ = writeln!(out, "        .from(stmt.execute())");
+                    let _ = writeln!(out, "        .flatMap {{ result ->");
+                    let _ = writeln!(out, "            Mono.from(");
+                    let _ = writeln!(out, "                result.map {{ row, _ ->");
+                    write_row_map(&mut out, "                    ");
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "                }},");
+                    let _ = writeln!(out, "            )");
+                    let _ = writeln!(out, "        }}.awaitFirstOrNull()");
+                    let _ = writeln!(out, "}}");
+                } else {
+                    let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
+                    let _ = writeln!(out, "    try {{");
+                    let _ = writeln!(out, "        val stmt = conn.createStatement(\"{sql}\")");
+                    write_binds(&mut out, "        stmt");
+                    let _ = writeln!(out, "        return Mono");
+                    let _ = writeln!(out, "            .from(stmt.execute())");
+                    let _ = writeln!(out, "            .flatMap {{ result ->");
+                    let _ = writeln!(out, "                Mono.from(");
+                    let _ = writeln!(out, "                    result.map {{ row, _ ->");
+                    write_row_map(&mut out, "                        ");
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "                    }},");
+                    let _ = writeln!(out, "                )");
+                    let _ = writeln!(out, "            }}.awaitFirstOrNull()");
+                    let _ = writeln!(out, "    }} finally {{");
+                    let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                }
             }
             QueryCommand::Many => {
                 // :many returns Flow<T> (non-suspend function, expression body)
                 let ret = format!(": Flow<{}>", struct_name);
-                if use_multiline_params {
-                    let _ = writeln!(out, "fun {}(", func_name);
-                    let _ = writeln!(out, "    cf: ConnectionFactory,");
-                    for p in params {
-                        let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
+                if ext {
+                    // Extension: caller owns the connection; no ConnectionFactory needed.
+                    // Emit `fun Connection.name(params...): Flow<T> =` expression body.
+                    if use_multiline_params {
+                        let _ = writeln!(out, "fun Connection.{}(", func_name);
+                        for p in params {
+                            let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
+                        }
+                        let _ = writeln!(out, "){ret} =");
+                    } else {
+                        let _ = writeln!(out, "fun Connection.{}(){ret} =", func_name);
                     }
-                    let _ = writeln!(out, "){} =", ret);
+                    let _ = writeln!(out, "    Flux");
+                    let _ = writeln!(
+                        out,
+                        "        .from(createStatement(\"{sql}\").also {{ stmt ->"
+                    );
+                    write_binds(&mut out, "            stmt");
+                    let _ = writeln!(out, "        }}.execute())");
+                    let _ = writeln!(out, "        .flatMap {{ result ->");
+                    let _ = writeln!(out, "            result.map {{ row, _ ->");
+                    write_row_map(&mut out, "                ");
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "            }}");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        .asFlow()");
                 } else {
-                    let _ = writeln!(out, "fun {}(cf: ConnectionFactory){} =", func_name, ret);
+                    if use_multiline_params {
+                        let _ = writeln!(out, "fun {}(", func_name);
+                        let _ = writeln!(out, "    cf: ConnectionFactory,");
+                        for p in params {
+                            let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
+                        }
+                        let _ = writeln!(out, "){} =", ret);
+                    } else {
+                        let _ = writeln!(out, "fun {}(cf: ConnectionFactory){} =", func_name, ret);
+                    }
+                    let _ = writeln!(out, "    Flux");
+                    let _ = writeln!(out, "        .usingWhen(");
+                    let _ = writeln!(out, "            cf.create(),");
+                    let _ = writeln!(out, "            {{ conn ->");
+                    let _ = writeln!(
+                        out,
+                        "                val stmt = conn.createStatement(\"{sql}\")"
+                    );
+                    write_binds(&mut out, "                stmt");
+                    let _ = writeln!(out, "                Flux");
+                    let _ = writeln!(out, "                    .from(stmt.execute())");
+                    let _ = writeln!(out, "                    .flatMap {{ result ->");
+                    let _ = writeln!(out, "                        result.map {{ row, _ ->");
+                    write_row_map(&mut out, "                            ");
+                    let _ = writeln!(out);
+                    let _ = writeln!(out, "                        }}");
+                    let _ = writeln!(out, "                    }}");
+                    let _ = writeln!(out, "            }},");
+                    let _ = writeln!(out, "            {{ conn -> Mono.from(conn.close()) }},");
+                    let _ = writeln!(out, "        ).asFlow()");
                 }
-                let _ = writeln!(out, "    Flux");
-                let _ = writeln!(out, "        .usingWhen(");
-                let _ = writeln!(out, "            cf.create(),");
-                let _ = writeln!(out, "            {{ conn ->");
-                let _ = writeln!(
-                    out,
-                    "                val stmt = conn.createStatement(\"{}\")",
-                    sql
-                );
-                write_binds(&mut out, "                stmt");
-                let _ = writeln!(out, "                Flux");
-                let _ = writeln!(out, "                    .from(stmt.execute())");
-                let _ = writeln!(out, "                    .flatMap {{ result ->");
-                let _ = writeln!(out, "                        result.map {{ row, _ ->");
-                write_row_map(&mut out, "                            ");
-                let _ = writeln!(out);
-                let _ = writeln!(out, "                        }}");
-                let _ = writeln!(out, "                    }}");
-                let _ = writeln!(out, "            }},");
-                let _ = writeln!(out, "            {{ conn -> Mono.from(conn.close()) }},");
-                let _ = writeln!(out, "        ).asFlow()");
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
@@ -283,82 +407,154 @@ impl CodegenBackend for KotlinR2dbcBackend {
                     }
                     let _ = writeln!(out, ")");
                     let _ = writeln!(out);
-                    let _ = writeln!(out, "suspend fun {}(", batch_fn_name);
-                    let _ = writeln!(out, "    cf: ConnectionFactory,");
-                    let _ = writeln!(out, "    items: List<{}>,", params_class_name);
+                    if ext {
+                        let _ = writeln!(out, "suspend fun Connection.{}(", batch_fn_name);
+                        let _ = writeln!(out, "    items: List<{}>,", params_class_name);
+                    } else {
+                        let _ = writeln!(out, "suspend fun {}(", batch_fn_name);
+                        let _ = writeln!(out, "    cf: ConnectionFactory,");
+                        let _ = writeln!(out, "    items: List<{}>,", params_class_name);
+                    }
                     let _ = writeln!(out, ") {{");
-                    let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
-                    let _ = writeln!(out, "    try {{");
-                    let _ = writeln!(
-                        out,
-                        "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
-                    );
-                    let _ = writeln!(out, "        val stmt = conn.createStatement(\"{}\")", sql);
-                    let _ = writeln!(out, "        var first = true");
-                    let _ = writeln!(out, "        for (item in items) {{");
-                    let _ = writeln!(out, "            if (!first) stmt.add()");
-                    for (i, param) in params.iter().enumerate() {
+                    if ext {
+                        // Caller owns the connection; no acquire/close.
+                        let _ =
+                            writeln!(out, "    Mono.from(beginTransaction()).awaitFirstOrNull()");
+                        let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
+                        let _ = writeln!(out, "    var first = true");
+                        let _ = writeln!(out, "    for (item in items) {{");
+                        let _ = writeln!(out, "        if (!first) stmt.add()");
+                        for (i, param) in params.iter().enumerate() {
+                            let _ = writeln!(
+                                out,
+                                "        stmt.bind({}, item.{})",
+                                i, param.field_name
+                            );
+                        }
+                        let _ = writeln!(out, "        first = false");
+                        let _ = writeln!(out, "    }}");
                         let _ = writeln!(
                             out,
-                            "            stmt.bind({}, item.{})",
-                            i, param.field_name
+                            "    Flux.from(stmt.execute()).then().awaitFirstOrNull()"
                         );
+                        let _ =
+                            writeln!(out, "    Mono.from(commitTransaction()).awaitFirstOrNull()");
+                        let _ = writeln!(out, "}}");
+                    } else {
+                        let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
+                        let _ = writeln!(out, "    try {{");
+                        let _ = writeln!(
+                            out,
+                            "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
+                        );
+                        let _ = writeln!(out, "        val stmt = conn.createStatement(\"{sql}\")");
+                        let _ = writeln!(out, "        var first = true");
+                        let _ = writeln!(out, "        for (item in items) {{");
+                        let _ = writeln!(out, "            if (!first) stmt.add()");
+                        for (i, param) in params.iter().enumerate() {
+                            let _ = writeln!(
+                                out,
+                                "            stmt.bind({}, item.{})",
+                                i, param.field_name
+                            );
+                        }
+                        let _ = writeln!(out, "            first = false");
+                        let _ = writeln!(out, "        }}");
+                        let _ = writeln!(
+                            out,
+                            "        Flux.from(stmt.execute()).then().awaitFirstOrNull()"
+                        );
+                        let _ = writeln!(
+                            out,
+                            "        Mono.from(conn.commitTransaction()).awaitFirstOrNull()"
+                        );
+                        let _ = writeln!(out, "    }} catch (e: Exception) {{");
+                        let _ = writeln!(
+                            out,
+                            "        Mono.from(conn.rollbackTransaction()).awaitFirstOrNull()"
+                        );
+                        let _ = writeln!(out, "        throw e");
+                        let _ = writeln!(out, "    }} finally {{");
+                        let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
+                        let _ = writeln!(out, "    }}");
+                        let _ = writeln!(out, "}}");
                     }
-                    let _ = writeln!(out, "            first = false");
-                    let _ = writeln!(out, "        }}");
-                    let _ = writeln!(
-                        out,
-                        "        Flux.from(stmt.execute()).then().awaitFirstOrNull()"
-                    );
-                    let _ = writeln!(
-                        out,
-                        "        Mono.from(conn.commitTransaction()).awaitFirstOrNull()"
-                    );
-                    let _ = writeln!(out, "    }} catch (e: Exception) {{");
-                    let _ = writeln!(
-                        out,
-                        "        Mono.from(conn.rollbackTransaction()).awaitFirstOrNull()"
-                    );
-                    let _ = writeln!(out, "        throw e");
-                    let _ = writeln!(out, "    }} finally {{");
-                    let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
-                    let _ = writeln!(out, "    }}");
-                    let _ = writeln!(out, "}}");
                 } else if params.len() == 1 {
-                    let _ = writeln!(out, "suspend fun {}(", batch_fn_name);
-                    let _ = writeln!(out, "    cf: ConnectionFactory,");
-                    let _ = writeln!(out, "    items: List<{}>,", params[0].full_type);
+                    if ext {
+                        let _ = writeln!(out, "suspend fun Connection.{}(", batch_fn_name);
+                        let _ = writeln!(out, "    items: List<{}>,", params[0].full_type);
+                    } else {
+                        let _ = writeln!(out, "suspend fun {}(", batch_fn_name);
+                        let _ = writeln!(out, "    cf: ConnectionFactory,");
+                        let _ = writeln!(out, "    items: List<{}>,", params[0].full_type);
+                    }
                     let _ = writeln!(out, ") {{");
-                    let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
-                    let _ = writeln!(out, "    try {{");
+                    if ext {
+                        let _ =
+                            writeln!(out, "    Mono.from(beginTransaction()).awaitFirstOrNull()");
+                        let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
+                        let _ = writeln!(out, "    var first = true");
+                        let _ = writeln!(out, "    for (item in items) {{");
+                        let _ = writeln!(out, "        if (!first) stmt.add()");
+                        let _ = writeln!(out, "        stmt.bind(0, item)");
+                        let _ = writeln!(out, "        first = false");
+                        let _ = writeln!(out, "    }}");
+                        let _ = writeln!(
+                            out,
+                            "    Flux.from(stmt.execute()).then().awaitFirstOrNull()"
+                        );
+                        let _ =
+                            writeln!(out, "    Mono.from(commitTransaction()).awaitFirstOrNull()");
+                        let _ = writeln!(out, "}}");
+                    } else {
+                        let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
+                        let _ = writeln!(out, "    try {{");
+                        let _ = writeln!(
+                            out,
+                            "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
+                        );
+                        let _ = writeln!(out, "        val stmt = conn.createStatement(\"{sql}\")");
+                        let _ = writeln!(out, "        var first = true");
+                        let _ = writeln!(out, "        for (item in items) {{");
+                        let _ = writeln!(out, "            if (!first) stmt.add()");
+                        let _ = writeln!(out, "            stmt.bind(0, item)");
+                        let _ = writeln!(out, "            first = false");
+                        let _ = writeln!(out, "        }}");
+                        let _ = writeln!(
+                            out,
+                            "        Flux.from(stmt.execute()).then().awaitFirstOrNull()"
+                        );
+                        let _ = writeln!(
+                            out,
+                            "        Mono.from(conn.commitTransaction()).awaitFirstOrNull()"
+                        );
+                        let _ = writeln!(out, "    }} catch (e: Exception) {{");
+                        let _ = writeln!(
+                            out,
+                            "        Mono.from(conn.rollbackTransaction()).awaitFirstOrNull()"
+                        );
+                        let _ = writeln!(out, "        throw e");
+                        let _ = writeln!(out, "    }} finally {{");
+                        let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
+                        let _ = writeln!(out, "    }}");
+                        let _ = writeln!(out, "}}");
+                    }
+                } else if ext {
                     let _ = writeln!(
                         out,
-                        "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
+                        "suspend fun Connection.{}(count: Int) {{",
+                        batch_fn_name
                     );
-                    let _ = writeln!(out, "        val stmt = conn.createStatement(\"{}\")", sql);
-                    let _ = writeln!(out, "        var first = true");
-                    let _ = writeln!(out, "        for (item in items) {{");
-                    let _ = writeln!(out, "            if (!first) stmt.add()");
-                    let _ = writeln!(out, "            stmt.bind(0, item)");
-                    let _ = writeln!(out, "            first = false");
-                    let _ = writeln!(out, "        }}");
-                    let _ = writeln!(
-                        out,
-                        "        Flux.from(stmt.execute()).then().awaitFirstOrNull()"
-                    );
-                    let _ = writeln!(
-                        out,
-                        "        Mono.from(conn.commitTransaction()).awaitFirstOrNull()"
-                    );
-                    let _ = writeln!(out, "    }} catch (e: Exception) {{");
-                    let _ = writeln!(
-                        out,
-                        "        Mono.from(conn.rollbackTransaction()).awaitFirstOrNull()"
-                    );
-                    let _ = writeln!(out, "        throw e");
-                    let _ = writeln!(out, "    }} finally {{");
-                    let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
+                    let _ = writeln!(out, "    Mono.from(beginTransaction()).awaitFirstOrNull()");
+                    let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
+                    let _ = writeln!(out, "    repeat(count - 1) {{");
+                    let _ = writeln!(out, "        stmt.add()");
                     let _ = writeln!(out, "    }}");
+                    let _ = writeln!(
+                        out,
+                        "    Flux.from(stmt.execute()).then().awaitFirstOrNull()"
+                    );
+                    let _ = writeln!(out, "    Mono.from(commitTransaction()).awaitFirstOrNull()");
                     let _ = writeln!(out, "}}");
                 } else {
                     let _ = writeln!(
@@ -372,7 +568,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         out,
                         "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
                     );
-                    let _ = writeln!(out, "        val stmt = conn.createStatement(\"{}\")", sql);
+                    let _ = writeln!(out, "        val stmt = conn.createStatement(\"{sql}\")");
                     let _ = writeln!(out, "        repeat(count - 1) {{");
                     let _ = writeln!(out, "            stmt.add()");
                     let _ = writeln!(out, "        }}");

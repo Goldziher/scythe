@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
@@ -25,6 +26,7 @@ const DEFAULT_MANIFEST_ORACLE: &str = include_str!("../../manifests/kotlin-jdbc.
 pub struct KotlinJdbcBackend {
     manifest: BackendManifest,
     engine: String,
+    extension_functions: bool,
 }
 
 impl KotlinJdbcBackend {
@@ -51,6 +53,7 @@ impl KotlinJdbcBackend {
         Ok(Self {
             manifest,
             engine: engine.to_string(),
+            extension_functions: false,
         })
     }
 }
@@ -148,6 +151,24 @@ impl CodegenBackend for KotlinJdbcBackend {
         &self.manifest
     }
 
+    fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
+        if let Some(v) = options.get("extension_functions") {
+            self.extension_functions = match v.as_str() {
+                "true" => true,
+                "false" => false,
+                other => {
+                    return Err(ScytheError::new(
+                        ErrorCode::InternalError,
+                        format!(
+                            "kotlin-jdbc: invalid value '{other}' for extension_functions (expected 'true' or 'false')"
+                        ),
+                    ));
+                }
+            };
+        }
+        Ok(())
+    }
+
     fn supported_engines(&self) -> &[&str] {
         &[
             "postgresql",
@@ -232,12 +253,15 @@ impl CodegenBackend for KotlinJdbcBackend {
             |_| "?".to_string(),
         );
 
-        // Build function params: inline for single param (conn only), multi-line for 2+
         let use_multiline_params = !params.is_empty();
+        let ext = self.extension_functions;
+        // When using extension functions, `this` is the implicit Connection receiver.
+        // When not, `conn` is the explicit Connection parameter.
+        let receiver = if ext { "this" } else { "conn" };
 
         let mut out = String::new();
 
-        // Helper: write param setters
+        // Helper: write param setters (ps must already be in scope)
         let engine = &self.engine;
         let write_setters = |out: &mut String, params: &[ResolvedParam]| {
             for (i, param) in params.iter().enumerate() {
@@ -270,41 +294,104 @@ impl CodegenBackend for KotlinJdbcBackend {
             }
         };
 
-        // Helper: write function signature
-        let write_fn_sig =
-            |out: &mut String, name: &str, ret: &str, multiline: bool, params: &[ResolvedParam]| {
+        // Helper: write function signature.
+        //
+        // When `ext` is true:
+        //   `fun Connection.name(params...): Ret {` (block body)
+        //   `fun Connection.name(params...): Ret =` (expression body, when `expr` is true)
+        // When `ext` is false:
+        //   `fun name(conn: Connection, params...): Ret {`
+        let write_fn_sig = |out: &mut String,
+                            name: &str,
+                            ret: &str,
+                            multiline: bool,
+                            params: &[ResolvedParam],
+                            expr: bool| {
+            if ext {
                 if multiline {
-                    let _ = writeln!(out, "fun {}(", name);
-                    let _ = writeln!(out, "    conn: Connection,");
+                    let _ = writeln!(out, "fun Connection.{}(", name);
                     for p in params {
                         let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
                     }
-                    let _ = writeln!(out, "){} {{", ret);
+                    if expr {
+                        let _ = writeln!(out, "){} =", ret);
+                    } else {
+                        let _ = writeln!(out, "){} {{", ret);
+                    }
+                } else if expr {
+                    let _ = writeln!(out, "fun Connection.{}(){} =", name, ret);
                 } else {
-                    let _ = writeln!(out, "fun {}(conn: Connection){} {{", name, ret);
+                    let _ = writeln!(out, "fun Connection.{}(){} {{", name, ret);
                 }
-            };
+            } else if multiline {
+                let _ = writeln!(out, "fun {}(", name);
+                let _ = writeln!(out, "    conn: Connection,");
+                for p in params {
+                    let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
+                }
+                let _ = writeln!(out, "){} {{", ret);
+            } else {
+                let _ = writeln!(out, "fun {}(conn: Connection){} {{", name, ret);
+            }
+        };
 
         match &analyzed.command {
             QueryCommand::Exec => {
-                write_fn_sig(&mut out, &func_name, "", use_multiline_params, params);
-                let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
+                // :exec is Unit-returning: always block body (expression body would
+                // infer Int/Long from executeUpdate(), not Unit).
+                write_fn_sig(
+                    &mut out,
+                    &func_name,
+                    "",
+                    use_multiline_params,
+                    params,
+                    false,
+                );
+                let _ = writeln!(
+                    out,
+                    "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
+                );
                 write_setters(&mut out, params);
                 let _ = writeln!(out, "        ps.executeUpdate()");
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "}}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                write_fn_sig(&mut out, &func_name, ": Int", use_multiline_params, params);
-                let _ = writeln!(
-                    out,
-                    "    return conn.prepareStatement(\"{}\").use {{ ps ->",
-                    sql
-                );
-                write_setters(&mut out, params);
-                let _ = writeln!(out, "        ps.executeUpdate()");
-                let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "}}");
+                if ext {
+                    // Expression body: `): Int = this.prepareStatement(...).use { ps -> ... }`
+                    write_fn_sig(
+                        &mut out,
+                        &func_name,
+                        ": Int",
+                        use_multiline_params,
+                        params,
+                        true,
+                    );
+                    let _ = writeln!(
+                        out,
+                        "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
+                    );
+                    write_setters(&mut out, params);
+                    let _ = writeln!(out, "        ps.executeUpdate()");
+                    let _ = writeln!(out, "    }}");
+                } else {
+                    write_fn_sig(
+                        &mut out,
+                        &func_name,
+                        ": Int",
+                        use_multiline_params,
+                        params,
+                        false,
+                    );
+                    let _ = writeln!(
+                        out,
+                        "    return conn.prepareStatement(\"{sql}\").use {{ ps ->",
+                    );
+                    write_setters(&mut out, params);
+                    let _ = writeln!(out, "        ps.executeUpdate()");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                }
             }
             QueryCommand::One | QueryCommand::Opt => {
                 let ret = format!(": {}?", struct_name);
@@ -315,8 +402,19 @@ impl CodegenBackend for KotlinJdbcBackend {
                 if is_mariadb_returning {
                     // MySQL Connector/J rejects executeQuery() for DML statements.
                     // MariaDB RETURNING works via execute() + getResultSet() instead.
-                    write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
-                    let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
+                    // Expression body not applicable here (multi-statement body).
+                    write_fn_sig(
+                        &mut out,
+                        &func_name,
+                        &ret,
+                        use_multiline_params,
+                        params,
+                        false,
+                    );
+                    let _ = writeln!(
+                        out,
+                        "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
+                    );
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.execute()");
                     let _ = writeln!(out, "        val rs = ps.resultSet");
@@ -355,10 +453,14 @@ impl CodegenBackend for KotlinJdbcBackend {
                     // Plain prepareCall on a bare DML RETURNING INTO raises ORA-17173.
                     let into_placeholders =
                         columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
-                    let full_sql = format!("BEGIN {} INTO {}; END;", sql, into_placeholders);
+                    let full_sql = format!("BEGIN {sql} INTO {into_placeholders}; END;");
                     let use_multiline = !params.is_empty();
-                    write_fn_sig(&mut out, &func_name, &ret, use_multiline, params);
-                    let _ = writeln!(out, "    conn.prepareCall(\"{}\").use {{ cs ->", full_sql);
+                    // Oracle RETURNING has multi-statement body; no expression body here.
+                    write_fn_sig(&mut out, &func_name, &ret, use_multiline, params, false);
+                    let _ = writeln!(
+                        out,
+                        "    {receiver}.prepareCall(\"{full_sql}\").use {{ cs ->"
+                    );
                     // Write setters using cs (not ps) for CallableStatement
                     for (i, param) in params.iter().enumerate() {
                         let setter = ps_setter(&param.lang_type);
@@ -390,9 +492,95 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "        )");
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
+                } else if ext {
+                    // Extension + expression body: `): Ret = this.prepareStatement(...).use { ... }`
+                    write_fn_sig(
+                        &mut out,
+                        &func_name,
+                        &ret,
+                        use_multiline_params,
+                        params,
+                        true,
+                    );
+                    let _ = writeln!(
+                        out,
+                        "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
+                    );
+                    write_setters(&mut out, params);
+                    let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
+                    let _ = writeln!(out, "            if (rs.next()) {{");
+                    for col in columns.iter() {
+                        if col.nullable {
+                            if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                                let _ = writeln!(
+                                    out,
+                                    "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
+                                    field = col.field_name,
+                                    name = col.name,
+                                    class_lit = class_lit,
+                                );
+                            } else {
+                                let getter = rs_getter(&col.lang_type);
+                                let _ = writeln!(
+                                    out,
+                                    "                val {field}Value = rs.{getter}(\"{name}\")",
+                                    field = col.field_name,
+                                    getter = getter,
+                                    name = col.name,
+                                );
+                            }
+                            let _ = writeln!(
+                                out,
+                                "                val {field} = if (rs.wasNull()) null else {field}Value",
+                                field = col.field_name,
+                            );
+                        }
+                    }
+                    let _ = writeln!(out, "                {}(", struct_name);
+                    for col in columns.iter() {
+                        if col.nullable {
+                            let _ = writeln!(
+                                out,
+                                "                    {} = {},",
+                                col.field_name, col.field_name
+                            );
+                        } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                            let _ = writeln!(
+                                out,
+                                "                    {} = rs.getObject(\"{}\", {}),",
+                                col.field_name, col.name, class_lit
+                            );
+                        } else if col.neutral_type.starts_with("enum::") {
+                            let _ = writeln!(
+                                out,
+                                "                    {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
+                                col.field_name, col.lang_type, col.name
+                            );
+                        } else {
+                            let getter = rs_getter(&col.lang_type);
+                            let _ = writeln!(
+                                out,
+                                "                    {} = rs.{}(\"{}\"),",
+                                col.field_name, getter, col.name
+                            );
+                        }
+                    }
+                    let _ = writeln!(out, "                )");
+                    let _ = writeln!(out, "            }} else {{");
+                    let _ = writeln!(out, "                null");
+                    let _ = writeln!(out, "            }}");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "    }}");
                 } else {
-                    write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
-                    let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
+                    write_fn_sig(
+                        &mut out,
+                        &func_name,
+                        &ret,
+                        use_multiline_params,
+                        params,
+                        false,
+                    );
+                    let _ = writeln!(out, "    conn.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                     let _ = writeln!(out, "            return if (rs.next()) {{");
@@ -463,6 +651,9 @@ impl CodegenBackend for KotlinJdbcBackend {
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
+                // Batch uses the connection (receiver or conn) directly for autoCommit etc.
+                // Extension form: `fun Connection.fooBarBatch(items: ...)`.
+                // Block body only — multi-statement body with try/finally.
                 if params.len() > 1 {
                     let params_class_name =
                         format!("{}BatchParams", to_pascal_case(&analyzed.name));
@@ -472,16 +663,20 @@ impl CodegenBackend for KotlinJdbcBackend {
                     }
                     let _ = writeln!(out, ")");
                     let _ = writeln!(out);
-                    let _ = writeln!(out, "fun {}(", batch_fn_name);
-                    let _ = writeln!(out, "    conn: Connection,");
-                    let _ = writeln!(out, "    items: List<{}>,", params_class_name);
+                    if ext {
+                        let _ = writeln!(out, "fun Connection.{}(", batch_fn_name);
+                        let _ = writeln!(out, "    items: List<{}>,", params_class_name);
+                    } else {
+                        let _ = writeln!(out, "fun {}(", batch_fn_name);
+                        let _ = writeln!(out, "    conn: Connection,");
+                        let _ = writeln!(out, "    items: List<{}>,", params_class_name);
+                    }
                     let _ = writeln!(out, ") {{");
-                    let _ = writeln!(out, "    conn.autoCommit = false");
+                    let _ = writeln!(out, "    {receiver}.autoCommit = false");
                     let _ = writeln!(out, "    try {{");
                     let _ = writeln!(
                         out,
-                        "        conn.prepareStatement(\"{}\").use {{ ps ->",
-                        sql
+                        "        {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
                     );
                     let _ = writeln!(out, "            for (item in items) {{");
                     for (i, param) in params.iter().enumerate() {
@@ -498,25 +693,29 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "            }}");
                     let _ = writeln!(out, "            ps.executeBatch()");
                     let _ = writeln!(out, "        }}");
-                    let _ = writeln!(out, "        conn.commit()");
+                    let _ = writeln!(out, "        {receiver}.commit()");
                     let _ = writeln!(out, "    }} catch (e: Exception) {{");
-                    let _ = writeln!(out, "        conn.rollback()");
+                    let _ = writeln!(out, "        {receiver}.rollback()");
                     let _ = writeln!(out, "        throw e");
                     let _ = writeln!(out, "    }} finally {{");
-                    let _ = writeln!(out, "        conn.autoCommit = true");
+                    let _ = writeln!(out, "        {receiver}.autoCommit = true");
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                 } else if params.len() == 1 {
-                    let _ = writeln!(out, "fun {}(", batch_fn_name);
-                    let _ = writeln!(out, "    conn: Connection,");
-                    let _ = writeln!(out, "    items: List<{}>,", params[0].full_type);
+                    if ext {
+                        let _ = writeln!(out, "fun Connection.{}(", batch_fn_name);
+                        let _ = writeln!(out, "    items: List<{}>,", params[0].full_type);
+                    } else {
+                        let _ = writeln!(out, "fun {}(", batch_fn_name);
+                        let _ = writeln!(out, "    conn: Connection,");
+                        let _ = writeln!(out, "    items: List<{}>,", params[0].full_type);
+                    }
                     let _ = writeln!(out, ") {{");
-                    let _ = writeln!(out, "    conn.autoCommit = false");
+                    let _ = writeln!(out, "    {receiver}.autoCommit = false");
                     let _ = writeln!(out, "    try {{");
                     let _ = writeln!(
                         out,
-                        "        conn.prepareStatement(\"{}\").use {{ ps ->",
-                        sql
+                        "        {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
                     );
                     let _ = writeln!(out, "            for (item in items) {{");
                     let setter = ps_setter(&params[0].lang_type);
@@ -525,12 +724,33 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "            }}");
                     let _ = writeln!(out, "            ps.executeBatch()");
                     let _ = writeln!(out, "        }}");
-                    let _ = writeln!(out, "        conn.commit()");
+                    let _ = writeln!(out, "        {receiver}.commit()");
                     let _ = writeln!(out, "    }} catch (e: Exception) {{");
-                    let _ = writeln!(out, "        conn.rollback()");
+                    let _ = writeln!(out, "        {receiver}.rollback()");
                     let _ = writeln!(out, "        throw e");
                     let _ = writeln!(out, "    }} finally {{");
-                    let _ = writeln!(out, "        conn.autoCommit = true");
+                    let _ = writeln!(out, "        {receiver}.autoCommit = true");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
+                } else if ext {
+                    let _ = writeln!(out, "fun Connection.{}(count: Int) {{", batch_fn_name);
+                    let _ = writeln!(out, "    {receiver}.autoCommit = false");
+                    let _ = writeln!(out, "    try {{");
+                    let _ = writeln!(
+                        out,
+                        "        {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
+                    );
+                    let _ = writeln!(out, "            repeat(count) {{");
+                    let _ = writeln!(out, "                ps.addBatch()");
+                    let _ = writeln!(out, "            }}");
+                    let _ = writeln!(out, "            ps.executeBatch()");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "        {receiver}.commit()");
+                    let _ = writeln!(out, "    }} catch (e: Exception) {{");
+                    let _ = writeln!(out, "        {receiver}.rollback()");
+                    let _ = writeln!(out, "        throw e");
+                    let _ = writeln!(out, "    }} finally {{");
+                    let _ = writeln!(out, "        {receiver}.autoCommit = true");
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                 } else {
@@ -541,11 +761,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                     );
                     let _ = writeln!(out, "    conn.autoCommit = false");
                     let _ = writeln!(out, "    try {{");
-                    let _ = writeln!(
-                        out,
-                        "        conn.prepareStatement(\"{}\").use {{ ps ->",
-                        sql
-                    );
+                    let _ = writeln!(out, "        conn.prepareStatement(\"{sql}\").use {{ ps ->",);
                     let _ = writeln!(out, "            repeat(count) {{");
                     let _ = writeln!(out, "                ps.addBatch()");
                     let _ = writeln!(out, "            }}");
@@ -563,80 +779,172 @@ impl CodegenBackend for KotlinJdbcBackend {
             }
             QueryCommand::Many => {
                 let ret = format!(": List<{}>", struct_name);
-                write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
-                let _ = writeln!(out, "    conn.prepareStatement(\"{}\").use {{ ps ->", sql);
-                write_setters(&mut out, params);
-                let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
-                let _ = writeln!(
-                    out,
-                    "            val result = mutableListOf<{}>()",
-                    struct_name
-                );
-                let _ = writeln!(out, "            while (rs.next()) {{");
-                for col in columns.iter() {
-                    if col.nullable {
-                        if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                if ext {
+                    // Expression body for :many
+                    write_fn_sig(
+                        &mut out,
+                        &func_name,
+                        &ret,
+                        use_multiline_params,
+                        params,
+                        true,
+                    );
+                    let _ = writeln!(
+                        out,
+                        "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
+                    );
+                    write_setters(&mut out, params);
+                    let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
+                    let _ = writeln!(
+                        out,
+                        "            val result = mutableListOf<{struct_name}>()",
+                    );
+                    let _ = writeln!(out, "            while (rs.next()) {{");
+                    for col in columns.iter() {
+                        if col.nullable {
+                            if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                                let _ = writeln!(
+                                    out,
+                                    "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
+                                    field = col.field_name,
+                                    name = col.name,
+                                    class_lit = class_lit,
+                                );
+                            } else {
+                                let getter = rs_getter(&col.lang_type);
+                                let _ = writeln!(
+                                    out,
+                                    "                val {field}Value = rs.{getter}(\"{name}\")",
+                                    field = col.field_name,
+                                    getter = getter,
+                                    name = col.name,
+                                );
+                            }
                             let _ = writeln!(
                                 out,
-                                "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
+                                "                val {field} = if (rs.wasNull()) null else {field}Value",
                                 field = col.field_name,
-                                name = col.name,
-                                class_lit = class_lit,
+                            );
+                        }
+                    }
+                    let _ = writeln!(out, "                result.add(");
+                    let _ = writeln!(out, "                    {}(", struct_name);
+                    for col in columns.iter() {
+                        if col.nullable {
+                            let _ = writeln!(
+                                out,
+                                "                        {} = {},",
+                                col.field_name, col.field_name
+                            );
+                        } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                            let _ = writeln!(
+                                out,
+                                "                        {} = rs.getObject(\"{}\", {}),",
+                                col.field_name, col.name, class_lit
+                            );
+                        } else if col.neutral_type.starts_with("enum::") {
+                            let _ = writeln!(
+                                out,
+                                "                        {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
+                                col.field_name, col.lang_type, col.name
                             );
                         } else {
                             let getter = rs_getter(&col.lang_type);
                             let _ = writeln!(
                                 out,
-                                "                val {field}Value = rs.{getter}(\"{name}\")",
-                                field = col.field_name,
-                                getter = getter,
-                                name = col.name,
+                                "                        {} = rs.{}(\"{}\"),",
+                                col.field_name, getter, col.name
                             );
                         }
-                        let _ = writeln!(
-                            out,
-                            "                val {field} = if (rs.wasNull()) null else {field}Value",
-                            field = col.field_name,
-                        );
                     }
-                }
-                let _ = writeln!(out, "                result.add(");
-                let _ = writeln!(out, "                    {}(", struct_name);
-                for col in columns.iter() {
-                    if col.nullable {
-                        let _ = writeln!(
-                            out,
-                            "                        {} = {},",
-                            col.field_name, col.field_name
-                        );
-                    } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                        let _ = writeln!(
-                            out,
-                            "                        {} = rs.getObject(\"{}\", {}),",
-                            col.field_name, col.name, class_lit
-                        );
-                    } else if col.neutral_type.starts_with("enum::") {
-                        let _ = writeln!(
-                            out,
-                            "                        {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
-                            col.field_name, col.lang_type, col.name
-                        );
-                    } else {
-                        let getter = rs_getter(&col.lang_type);
-                        let _ = writeln!(
-                            out,
-                            "                        {} = rs.{}(\"{}\"),",
-                            col.field_name, getter, col.name
-                        );
+                    let _ = writeln!(out, "                    ),");
+                    let _ = writeln!(out, "                )");
+                    let _ = writeln!(out, "            }}");
+                    let _ = writeln!(out, "            result");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "    }}");
+                } else {
+                    write_fn_sig(
+                        &mut out,
+                        &func_name,
+                        &ret,
+                        use_multiline_params,
+                        params,
+                        false,
+                    );
+                    let _ = writeln!(out, "    conn.prepareStatement(\"{sql}\").use {{ ps ->",);
+                    write_setters(&mut out, params);
+                    let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
+                    let _ = writeln!(
+                        out,
+                        "            val result = mutableListOf<{struct_name}>()",
+                    );
+                    let _ = writeln!(out, "            while (rs.next()) {{");
+                    for col in columns.iter() {
+                        if col.nullable {
+                            if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                                let _ = writeln!(
+                                    out,
+                                    "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
+                                    field = col.field_name,
+                                    name = col.name,
+                                    class_lit = class_lit,
+                                );
+                            } else {
+                                let getter = rs_getter(&col.lang_type);
+                                let _ = writeln!(
+                                    out,
+                                    "                val {field}Value = rs.{getter}(\"{name}\")",
+                                    field = col.field_name,
+                                    getter = getter,
+                                    name = col.name,
+                                );
+                            }
+                            let _ = writeln!(
+                                out,
+                                "                val {field} = if (rs.wasNull()) null else {field}Value",
+                                field = col.field_name,
+                            );
+                        }
                     }
+                    let _ = writeln!(out, "                result.add(");
+                    let _ = writeln!(out, "                    {}(", struct_name);
+                    for col in columns.iter() {
+                        if col.nullable {
+                            let _ = writeln!(
+                                out,
+                                "                        {} = {},",
+                                col.field_name, col.field_name
+                            );
+                        } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+                            let _ = writeln!(
+                                out,
+                                "                        {} = rs.getObject(\"{}\", {}),",
+                                col.field_name, col.name, class_lit
+                            );
+                        } else if col.neutral_type.starts_with("enum::") {
+                            let _ = writeln!(
+                                out,
+                                "                        {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
+                                col.field_name, col.lang_type, col.name
+                            );
+                        } else {
+                            let getter = rs_getter(&col.lang_type);
+                            let _ = writeln!(
+                                out,
+                                "                        {} = rs.{}(\"{}\"),",
+                                col.field_name, getter, col.name
+                            );
+                        }
+                    }
+                    let _ = writeln!(out, "                    ),");
+                    let _ = writeln!(out, "                )");
+                    let _ = writeln!(out, "            }}");
+                    let _ = writeln!(out, "            return result");
+                    let _ = writeln!(out, "        }}");
+                    let _ = writeln!(out, "    }}");
+                    let _ = writeln!(out, "}}");
                 }
-                let _ = writeln!(out, "                    ),");
-                let _ = writeln!(out, "                )");
-                let _ = writeln!(out, "            }}");
-                let _ = writeln!(out, "            return result");
-                let _ = writeln!(out, "        }}");
-                let _ = writeln!(out, "    }}");
-                let _ = writeln!(out, "}}");
             }
             QueryCommand::Grouped => {
                 return Err(ScytheError::new(

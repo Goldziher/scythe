@@ -528,3 +528,127 @@ fn test_php_amphp_empty_namespace() {
         "php-amphp empty namespace header must still contain the auto-generated comment"
     );
 }
+
+// --- Kotlin extension function tests ---
+#[test]
+fn test_kotlin_jdbc_extension_functions_signature() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("extension_functions".to_string(), "true".to_string());
+    let code = generate_full_file_with_options("kotlin-jdbc", &options);
+
+    // Extension function syntax: receiver is Connection, no conn param
+    assert!(
+        code.contains("fun Connection."),
+        "kotlin-jdbc ext: expected 'fun Connection.' in output\n\nGenerated:\n{code}"
+    );
+    // No `conn: Connection` param in function signatures
+    assert!(
+        !code.contains("conn: Connection"),
+        "kotlin-jdbc ext: unexpected 'conn: Connection' param\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_jdbc_extension_functions_expression_body() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("extension_functions".to_string(), "true".to_string());
+    let code = generate_full_file_with_options("kotlin-jdbc", &options);
+
+    // :many function uses expression body: `): List<...> =\n    this.prepareStatement`
+    // (return type between `)` and `=`, so we check for "> =\n    this.prepareStatement")
+    assert!(
+        code.contains("): List<") && code.contains("> =\n    this.prepareStatement"),
+        "kotlin-jdbc ext: expected expression body for :many with 'this.prepareStatement'\n\nGenerated:\n{code}"
+    );
+    // :one also uses expression body: return type ends with `?` then ` =`
+    assert!(
+        code.contains("? =\n    this.prepareStatement"),
+        "kotlin-jdbc ext: expected expression body for :one with 'this.prepareStatement'\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_jdbc_extension_functions_exec_block_body() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("extension_functions".to_string(), "true".to_string());
+    let code = generate_full_file_with_options("kotlin-jdbc", &options);
+
+    // :exec (Unit-returning) keeps a block body — look for the deleteUser block form
+    // The Exec function should have `fun Connection.deleteUser(` with a block body `{`
+    assert!(
+        code.contains(") {\n    this.prepareStatement"),
+        "kotlin-jdbc ext: expected block body for :exec with 'this.prepareStatement'\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_jdbc_extension_functions_default_off() {
+    // With the flag OFF (default), output must be unchanged — no `fun Connection.`
+    let code = generate_full_file("kotlin-jdbc");
+    assert!(
+        !code.contains("fun Connection."),
+        "kotlin-jdbc default: unexpected 'fun Connection.' when extension_functions=false\n\nGenerated:\n{code}"
+    );
+    assert!(
+        code.contains("conn: Connection"),
+        "kotlin-jdbc default: expected 'conn: Connection' param\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_r2dbc_extension_functions_signature() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("extension_functions".to_string(), "true".to_string());
+    let code = generate_full_file_with_options("kotlin-r2dbc", &options);
+
+    // Suspend extension functions on Connection
+    assert!(
+        code.contains("suspend fun Connection.") || code.contains("fun Connection."),
+        "kotlin-r2dbc ext: expected 'fun Connection.' or 'suspend fun Connection.' in output\n\nGenerated:\n{code}"
+    );
+    // No ConnectionFactory param
+    assert!(
+        !code.contains("cf: ConnectionFactory"),
+        "kotlin-r2dbc ext: unexpected 'cf: ConnectionFactory' param\n\nGenerated:\n{code}"
+    );
+    // No cf.create() acquire call
+    assert!(
+        !code.contains("cf.create()"),
+        "kotlin-r2dbc ext: unexpected 'cf.create()' in body\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_r2dbc_extension_functions_header() {
+    let mut options = std::collections::HashMap::new();
+    options.insert("extension_functions".to_string(), "true".to_string());
+    let code = generate_full_file_with_options("kotlin-r2dbc", &options);
+
+    // Header imports Connection, not ConnectionFactory
+    assert!(
+        code.contains("import io.r2dbc.spi.Connection\n"),
+        "kotlin-r2dbc ext: expected 'import io.r2dbc.spi.Connection' in header\n\nGenerated:\n{code}"
+    );
+    assert!(
+        !code.contains("import io.r2dbc.spi.ConnectionFactory"),
+        "kotlin-r2dbc ext: unexpected 'ConnectionFactory' import in header\n\nGenerated:\n{code}"
+    );
+}
+
+#[test]
+fn test_kotlin_r2dbc_extension_functions_default_off() {
+    // With the flag OFF (default), output must be unchanged — ConnectionFactory path
+    let code = generate_full_file("kotlin-r2dbc");
+    assert!(
+        code.contains("cf: ConnectionFactory"),
+        "kotlin-r2dbc default: expected 'cf: ConnectionFactory' param\n\nGenerated:\n{code}"
+    );
+    assert!(
+        !code.contains("fun Connection."),
+        "kotlin-r2dbc default: unexpected 'fun Connection.' when extension_functions=false\n\nGenerated:\n{code}"
+    );
+    assert!(
+        code.contains("cf.create()"),
+        "kotlin-r2dbc default: expected 'cf.create()' in body\n\nGenerated:\n{code}"
+    );
+}
