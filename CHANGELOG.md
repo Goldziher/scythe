@@ -5,6 +5,18 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-05-26
+
+### Added
+
+- Kotlin `extension_functions` backend option (opt-in, default off) for `kotlin-jdbc` and `kotlin-r2dbc`. When enabled, query functions are generated as idiomatic Kotlin extension functions on the connection receiver (`fun Connection.getUser(id: Int)` called as `connection.getUser(id)`) with expression bodies for value-returning queries. `kotlin-r2dbc` is reworked into a `suspend` extension on `io.r2dbc.spi.Connection`, moving the connection lifecycle to the caller. (#43)
+- PHP `namespace` backend option for `php-pdo` and `php-amphp`. Any value emits `namespace <value>;`; an empty string omits the declaration. Default remains `App\Generated`, so existing output is unchanged. Enables PSR-4 framework integration (Laravel, Symfony, etc.). (#46)
+
+### Fixed
+
+- Schema parser no longer crashes on psql client meta-commands. `pg_dump 18+` and `dbmate` emit `\restrict` / `\unrestrict` lines that are not SQL; scythe now strips any line whose first non-whitespace character is `\` before parsing, so plain-format Postgres 18 dumps are consumed as-is. (#49)
+- `python-psycopg3`, `python-asyncpg`, and `python-aiomysql` now emit `import uuid` and `from typing import Any` when their type mappings use `uuid.UUID` / `dict[str, Any]`. Generated modules previously raised `NameError` on import. (#48)
+
 ## [0.7.0] - 2026-05-20
 
 ### Added

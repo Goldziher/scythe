@@ -105,6 +105,7 @@ output = "src/generated/kotlin-exposed"
 | `output` | string | yes | Output directory for this backend's generated code. |
 | `row_type` | string | no | Row type style for generated code. See below. |
 | `namespace` | string | no | PHP namespace for generated code. PHP backends only. See below. |
+| `extension_functions` | bool | no | Generate idiomatic Kotlin extension functions. Kotlin backends only. See below. |
 
 ### `row_type`
 
@@ -159,6 +160,24 @@ namespace = "App\\Database\\Generated"
 ```
 
 Set `namespace = ""` for scripts or frameworks that do not use namespaces.
+
+### `extension_functions`
+
+Generates query functions as idiomatic Kotlin [extension functions](https://kotlinlang.org/docs/extensions.html) on the connection receiver, instead of taking the connection as the first parameter. Applies to `kotlin-jdbc` and `kotlin-r2dbc`. Default `false` (non-breaking).
+
+| Value | Description |
+|-------|-------------|
+| `false` | (default) `fun getUser(conn: Connection, id: Int): UserRow?` |
+| `true` | `fun Connection.getUser(id: Int): UserRow?`, called as `connection.getUser(id)` |
+
+```toml
+[[sql.gen]]
+backend = "kotlin-jdbc"
+output = "src/generated"
+extension_functions = true
+```
+
+When enabled, value-returning functions use expression bodies, and `kotlin-r2dbc` becomes a `suspend` extension on `io.r2dbc.spi.Connection` (the caller owns the connection lifecycle).
 
 ### `[sql.gen.rust]` (legacy)
 
