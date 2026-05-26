@@ -2,7 +2,9 @@
 
 import datetime  # noqa: F401
 import decimal  # noqa: F401
+import uuid  # noqa: F401
 from enum import Enum  # noqa: F401
+from typing import Any  # noqa: F401
 
 import msgspec
 from psycopg import AsyncConnection  # noqa: F401

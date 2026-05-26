@@ -345,3 +345,78 @@ backend_test_with_options!(test_python_psycopg3_msgspec, "python-psycopg3", "row
 backend_test_with_options!(test_python_asyncpg_pydantic, "python-asyncpg", "row_type" => "pydantic");
 backend_test_with_options!(test_typescript_pg_zod, "typescript-pg", "row_type" => "zod");
 backend_test_with_options!(test_typescript_postgres_zod, "typescript-postgres", "row_type" => "zod");
+
+// --- Issue #48: uuid / Any import tests ---
+// Schema with uuid PK + jsonb column to force both uuid.UUID and dict[str, Any] in the output.
+const SCHEMA_UUID_JSONB: &str = "CREATE TABLE items (\
+    id UUID PRIMARY KEY, \
+    name TEXT NOT NULL, \
+    metadata JSONB\
+);";
+
+const QUERY_UUID: &str = "-- @name GetItem\n-- @returns :one\n\
+    SELECT id, name, metadata FROM items WHERE id = $1;";
+
+fn generate_header_for_uuid_jsonb_schema(backend_name: &str) -> String {
+    let backend = get_backend(backend_name, "postgresql").unwrap();
+    let catalog =
+        Catalog::from_ddl_with_dialect(&[SCHEMA_UUID_JSONB], &SqlDialect::PostgreSQL).unwrap();
+    let parsed = parse_query_with_dialect(QUERY_UUID, &SqlDialect::PostgreSQL).unwrap();
+    let analyzed = analyze(&catalog, &parsed).unwrap();
+    let _ = generate_with_backend(&analyzed, &*backend).unwrap();
+    backend.file_header()
+}
+
+fn generate_header_for_uuid_jsonb_schema_mysql(backend_name: &str) -> String {
+    let backend = get_backend(backend_name, "mysql").unwrap();
+    backend.file_header()
+}
+
+#[test]
+fn test_python_psycopg3_header_contains_uuid_and_any_imports() {
+    let header = generate_header_for_uuid_jsonb_schema("python-psycopg3");
+    eprintln!("psycopg3 header:\n{}", header);
+    assert!(
+        header.contains("import uuid  # noqa: F401"),
+        "psycopg3 header missing `import uuid  # noqa: F401`\nHeader:\n{}",
+        header
+    );
+    assert!(
+        header.contains("from typing import Any  # noqa: F401"),
+        "psycopg3 header missing `from typing import Any  # noqa: F401`\nHeader:\n{}",
+        header
+    );
+}
+
+#[test]
+fn test_python_asyncpg_header_contains_uuid_and_any_imports() {
+    let header = generate_header_for_uuid_jsonb_schema("python-asyncpg");
+    eprintln!("asyncpg header:\n{}", header);
+    assert!(
+        header.contains("import uuid  # noqa: F401"),
+        "asyncpg header missing `import uuid  # noqa: F401`\nHeader:\n{}",
+        header
+    );
+    assert!(
+        header.contains("from typing import Any  # noqa: F401"),
+        "asyncpg header missing `from typing import Any  # noqa: F401`\nHeader:\n{}",
+        header
+    );
+}
+
+#[test]
+fn test_python_aiomysql_header_contains_any_but_not_uuid_import() {
+    // aiomysql maps uuid to str, so import uuid is not needed; jsonb maps to dict[str, Any].
+    let header = generate_header_for_uuid_jsonb_schema_mysql("python-aiomysql");
+    eprintln!("aiomysql header:\n{}", header);
+    assert!(
+        header.contains("from typing import Any  # noqa: F401"),
+        "aiomysql header missing `from typing import Any  # noqa: F401`\nHeader:\n{}",
+        header
+    );
+    assert!(
+        !header.contains("import uuid"),
+        "aiomysql header should NOT contain `import uuid` (uuid maps to str)\nHeader:\n{}",
+        header
+    );
+}
