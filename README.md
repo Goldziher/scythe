@@ -335,6 +335,7 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 - **10 databases** -- PostgreSQL, MySQL, SQLite, DuckDB, CockroachDB, MSSQL, Oracle, MariaDB, Redshift, Snowflake
 - **70+ backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, pgx, JDBC, R2DBC, Exposed, Npgsql, PDO, tiberius, oracledb, pyodbc, and more
 - **93 lint rules** -- UPDATE without WHERE, SELECT *, NULL comparisons, leading wildcard LIKE, plus 71 sqruff rules
+- **`scythe audit`** -- security scanner for SQL: dangerous functions, GRANT ALL, GRANT to PUBLIC, cartesian joins, unbounded LIKE, SECURITY DEFINER without pinned `search_path`, role privilege escalation, literal passwords, weak hashes over credential columns, SELECT * over PII, session-state mutation. Emits human / SARIF / JSON for CI integration
 - **SQL formatting** -- consistent style via sqruff integration
 - **Smart type inference** -- nullability from JOINs, COALESCE, window functions, CASE WHEN, aggregates
 - **`@optional` parameters** -- SQL rewriting for conditional filters (`WHERE ($1 IS NULL OR col = $1)`)
@@ -373,6 +374,7 @@ Full documentation at [goldziher.github.io/scythe](https://goldziher.github.io/s
 - [Configuration](https://goldziher.github.io/scythe/guide/configuration/) -- full scythe.toml reference
 - [Annotations](https://goldziher.github.io/scythe/guide/annotations/) -- @name, @returns, @optional, @nullable, @json, and more
 - [Lint Rules](https://goldziher.github.io/scythe/reference/lint-rules/) -- all 93 rules with codes and examples
+- [Audit (security)](https://goldziher.github.io/scythe/guide/audit/) -- the `scythe audit` subcommand, suppressions, user-defined rules, and CI integration
 
 ## Contributing
 

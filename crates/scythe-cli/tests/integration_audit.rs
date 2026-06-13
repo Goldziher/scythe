@@ -8,6 +8,8 @@
 //! the relevant logic using the public scythe-lint API so the tests remain
 //! self-contained.
 
+use std::io::Write;
+
 use scythe_core::analyzer::AnalyzedQuery;
 use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
@@ -16,7 +18,7 @@ use scythe_lint::reporters::Finding;
 use scythe_lint::types::RuleCategory;
 use scythe_lint::{
     AuditConfigError, LintContext, MatcherRegistry, RuleRegistry, RuleSpec, Severity,
-    SuppressionSet, default_registry, extract_cwe, register_user_rules,
+    SuppressionSet, default_registry, extract_cwe, load_rules_from_file, register_user_rules,
 };
 
 // ---------------------------------------------------------------------------
@@ -278,5 +280,169 @@ fn user_rule_without_user_prefix_returns_error() {
     assert!(
         err_msg.contains("USER-") || err_msg.contains("NOPRE-001"),
         "error message should mention the prefix requirement or the bad id: {err_msg}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 5: a single inline suppression covering multiple rule IDs silences all
+// of them on the next statement.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn multi_rule_suppression_silences_every_listed_id() {
+    let dialect = SqlDialect::PostgreSQL;
+    let catalog = Catalog::from_ddl_with_dialect(&[], &dialect).expect("empty catalog");
+    let registry = default_registry();
+
+    // Both GRANT ALL (SC-SEC02) and GRANT TO PUBLIC (SC-SEC03) would fire on
+    // this statement. The annotation lists both — both must be silenced.
+    let sql = concat!(
+        "-- scythe-audit: ignore[SC-SEC02,SC-SEC03]\n",
+        "GRANT ALL ON users TO PUBLIC;\n",
+    );
+
+    let findings = run_rules("multi.sql", sql, &dialect, &catalog, &registry);
+
+    let sec02_03: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id == "SC-SEC02" || f.rule_id == "SC-SEC03")
+        .collect();
+    assert!(
+        sec02_03.is_empty(),
+        "expected both SC-SEC02 and SC-SEC03 silenced; got {:#?}",
+        sec02_03
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 6: load_rules_from_file reads a separate TOML file referenced by the
+// `extra_rules` mechanism; loaded specs can be registered as USER- rules.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn extra_rules_file_loads_and_registers() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let extra_path = tmp.path().join("extra.toml");
+    let mut f = std::fs::File::create(&extra_path).unwrap();
+    writeln!(
+        f,
+        r#"schema_version = 1
+
+[[rule]]
+id = "USER-EXTRA-001"
+name = "no-extra-fn"
+category = "security"
+severity = "error"
+description = "extra_rules test"
+message = "call to {{func}}"
+matcher = "function_name_in_set"
+
+[rule.matcher_args]
+functions = ["extra_fn"]
+"#
+    )
+    .unwrap();
+    drop(f);
+
+    let specs = load_rules_from_file(&extra_path).expect("load_rules_from_file");
+    assert_eq!(specs.len(), 1);
+    assert_eq!(specs[0].id, "USER-EXTRA-001");
+
+    let mut registry = default_registry();
+    let matcher_registry = MatcherRegistry::canonical();
+    register_user_rules(
+        &mut registry,
+        &matcher_registry,
+        &[(
+            specs.into_iter().next().unwrap(),
+            extra_path.display().to_string(),
+        )],
+    )
+    .expect("register_user_rules");
+
+    let dialect = SqlDialect::PostgreSQL;
+    let catalog = Catalog::from_ddl_with_dialect(&[], &dialect).expect("empty catalog");
+    let findings = run_rules("q.sql", "SELECT extra_fn();", &dialect, &catalog, &registry);
+    assert!(
+        findings.iter().any(|f| f.rule_id == "USER-EXTRA-001"),
+        "expected USER-EXTRA-001 to fire; got: {:#?}",
+        findings
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 7: malformed TOML rule file produces a clear error containing the
+// offending path.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn malformed_extra_rules_file_returns_error_with_path() {
+    let tmp = tempfile::TempDir::new().unwrap();
+    let bad_path = tmp.path().join("bad.toml");
+    std::fs::write(&bad_path, "schema_version = \"not a number\"\n[[rule\n").unwrap();
+
+    let err = load_rules_from_file(&bad_path).expect_err("malformed TOML must error");
+    let msg = err.to_string();
+    assert!(
+        msg.contains("bad.toml") || msg.contains(bad_path.to_str().unwrap()),
+        "error message should reference the offending path; got: {msg}"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// Test 8: a Postgres-only rule (SC-SEC10) does not fire when the dialect is
+// SQLite.
+// ---------------------------------------------------------------------------
+
+#[test]
+fn pg_only_rule_skipped_on_non_pg_dialect() {
+    let catalog_pg =
+        Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog");
+
+    // CREATE FUNCTION … SECURITY DEFINER trips SC-SEC10 on Postgres.
+    let sql = "CREATE FUNCTION elevate() RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN END $$;";
+
+    let registry = default_registry();
+    let pg_findings = run_rules(
+        "pg.sql",
+        sql,
+        &SqlDialect::PostgreSQL,
+        &catalog_pg,
+        &registry,
+    );
+    assert!(
+        pg_findings.iter().any(|f| f.rule_id == "SC-SEC10"),
+        "expected SC-SEC10 on Postgres; got: {:#?}",
+        pg_findings
+    );
+
+    // The same CREATE FUNCTION won't even parse under SQLite, so we use a
+    // statement that *would* fire SC-SEC11 (SET ROLE) on Postgres but is
+    // skipped under SQLite because the rule declares dialects = ["postgres"].
+    let set_role_sql = "SET ROLE admin;";
+    let pg_set = run_rules(
+        "pg2.sql",
+        set_role_sql,
+        &SqlDialect::PostgreSQL,
+        &catalog_pg,
+        &registry,
+    );
+    assert!(
+        pg_set.iter().any(|f| f.rule_id == "SC-SEC11"),
+        "expected SC-SEC11 on Postgres for SET ROLE; got: {:#?}",
+        pg_set
+    );
+
+    let sqlite_set = run_rules(
+        "sqlite.sql",
+        set_role_sql,
+        &SqlDialect::SQLite,
+        &catalog_pg,
+        &registry,
+    );
+    assert!(
+        !sqlite_set.iter().any(|f| f.rule_id == "SC-SEC11"),
+        "SC-SEC11 must not fire on SQLite (PG-only); got: {:#?}",
+        sqlite_set
     );
 }

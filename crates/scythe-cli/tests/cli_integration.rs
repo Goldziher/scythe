@@ -240,3 +240,217 @@ fn test_no_subcommand_exits_nonzero() {
         "scythe with no subcommand should fail"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Audit subcommand: discovery flags + filters + exit-code controls
+// ---------------------------------------------------------------------------
+
+/// Write a small SQL file that fires SC-SEC02 (GRANT ALL) and returns its path.
+fn write_grant_all_sql(temp: &tempfile::TempDir) -> PathBuf {
+    let sql_path = temp.path().join("grant_all.sql");
+    std::fs::write(&sql_path, "GRANT ALL ON users TO bob;\n").unwrap();
+    sql_path
+}
+
+#[test]
+fn test_audit_list_rules_exits_zero_and_shows_sec01() {
+    let output = scythe_bin()
+        .args(["audit", "--list-rules"])
+        .output()
+        .expect("failed to run scythe audit --list-rules");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "audit --list-rules should exit 0; stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("SC-SEC01") && stdout.contains("SC-SEC11"),
+        "rule catalog must include SC-SEC01..11; got: {stdout}"
+    );
+    assert!(
+        stdout.contains("[security]"),
+        "rule catalog must be grouped by category; got: {stdout}"
+    );
+}
+
+#[test]
+fn test_audit_explain_unknown_rule_returns_error() {
+    let output = scythe_bin()
+        .args(["audit", "--explain", "DOES-NOT-EXIST"])
+        .output()
+        .expect("failed to run scythe audit --explain");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "unknown rule id must exit non-zero; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("DOES-NOT-EXIST") && stderr.contains("--list-rules"),
+        "error must name the offending id and hint --list-rules; got: {stderr}"
+    );
+}
+
+#[test]
+fn test_audit_exit_zero_overrides_error_exit_code() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let sql_path = write_grant_all_sql(&temp);
+
+    // Sanity: without --exit-zero the SC-SEC02 finding should exit 2.
+    let base = scythe_bin()
+        .args(["audit", sql_path.to_str().unwrap()])
+        .output()
+        .expect("audit run");
+    assert_eq!(
+        base.status.code(),
+        Some(2),
+        "GRANT ALL must yield audit exit code 2; stderr: {}",
+        String::from_utf8_lossy(&base.stderr)
+    );
+
+    // With --exit-zero we still see the finding but the process exits 0.
+    let lenient = scythe_bin()
+        .args(["audit", "--exit-zero", sql_path.to_str().unwrap()])
+        .output()
+        .expect("audit run with --exit-zero");
+    assert!(
+        lenient.status.success(),
+        "--exit-zero must produce exit 0 even with errors; stderr: {}",
+        String::from_utf8_lossy(&lenient.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&lenient.stdout);
+    assert!(
+        stdout.contains("SC-SEC02"),
+        "finding must still be emitted under --exit-zero; got: {stdout}"
+    );
+}
+
+#[test]
+fn test_audit_output_file_writes_sarif() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let sql_path = write_grant_all_sql(&temp);
+    let out_path = temp.path().join("audit.sarif");
+
+    let output = scythe_bin()
+        .args([
+            "audit",
+            "--format",
+            "sarif",
+            "-o",
+            out_path.to_str().unwrap(),
+            "--exit-zero",
+            sql_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("audit run with -o");
+    assert!(
+        output.status.success(),
+        "audit with -o + --exit-zero should exit 0; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let sarif = std::fs::read_to_string(&out_path).expect("read sarif output");
+    assert!(
+        sarif.contains("\"$schema\"") && sarif.contains("\"2.1.0\""),
+        "output file must contain SARIF 2.1.0 envelope; got: {sarif}"
+    );
+}
+
+#[test]
+fn test_audit_ignore_suppressions_resurfaces_finding() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let sql_path = temp.path().join("suppressed.sql");
+    std::fs::write(
+        &sql_path,
+        "-- scythe-audit: ignore[SC-SEC02]\nGRANT ALL ON users TO bob;\n",
+    )
+    .unwrap();
+
+    // Default: suppression honoured → no SC-SEC02 finding, exit 0.
+    let suppressed = scythe_bin()
+        .args(["audit", sql_path.to_str().unwrap()])
+        .output()
+        .expect("audit run");
+    assert!(
+        suppressed.status.success(),
+        "suppressed run should exit 0; stderr: {}",
+        String::from_utf8_lossy(&suppressed.stderr)
+    );
+
+    // With --ignore-suppressions: finding resurfaces, exit 2.
+    let strict = scythe_bin()
+        .args(["audit", "--ignore-suppressions", sql_path.to_str().unwrap()])
+        .output()
+        .expect("audit run with --ignore-suppressions");
+    assert_eq!(
+        strict.status.code(),
+        Some(2),
+        "strict run must surface the finding and exit 2; stderr: {}",
+        String::from_utf8_lossy(&strict.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&strict.stdout);
+    assert!(
+        stdout.contains("SC-SEC02"),
+        "strict run must emit SC-SEC02; got: {stdout}"
+    );
+}
+
+#[test]
+fn test_audit_severity_filter_drops_warnings() {
+    let temp = tempfile::TempDir::new().unwrap();
+    // SC-SEC09 unbounded-like is warn. SC-SEC02 grant-all is error. Both fire.
+    let sql_path = temp.path().join("mixed.sql");
+    std::fs::write(
+        &sql_path,
+        "GRANT ALL ON users TO bob;\nSELECT * FROM users WHERE name LIKE '%abc%';\n",
+    )
+    .unwrap();
+
+    // --severity error drops the warn-level SC-SEC09 finding.
+    let output = scythe_bin()
+        .args([
+            "audit",
+            "--severity",
+            "error",
+            "--exit-zero",
+            sql_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("audit run");
+    assert!(output.status.success(), "--exit-zero forces success");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("SC-SEC02"),
+        "error-level finding must remain; got: {stdout}"
+    );
+    assert!(
+        !stdout.contains("SC-SEC09"),
+        "warn-level finding must be filtered out; got: {stdout}"
+    );
+}
+
+#[test]
+fn test_audit_dialect_flag_skips_pg_only_rule_on_sqlite() {
+    let temp = tempfile::TempDir::new().unwrap();
+    // SET ROLE trips SC-SEC11 on Postgres but the rule is tagged dialects=["postgres"]
+    // and must no-op on SQLite.
+    let sql_path = temp.path().join("set_role.sql");
+    std::fs::write(&sql_path, "SET ROLE admin;\n").unwrap();
+
+    let output = scythe_bin()
+        .args([
+            "audit",
+            "--dialect",
+            "sqlite",
+            "--exit-zero",
+            sql_path.to_str().unwrap(),
+        ])
+        .output()
+        .expect("audit run");
+    assert!(output.status.success(), "audit must exit 0");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        !stdout.contains("SC-SEC11"),
+        "SC-SEC11 must not fire under --dialect sqlite; got: {stdout}"
+    );
+}

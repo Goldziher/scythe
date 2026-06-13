@@ -7,12 +7,29 @@ use serde::Deserialize;
 // Severity
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
+/// Severity of a lint/audit finding.
+///
+/// Variants are declared in increasing order of seriousness so the derived
+/// `PartialOrd`/`Ord` impls give the expected ranking (`Off < Warn < Error`).
+/// Callers can filter findings by a minimum severity with `severity >= min`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Severity {
     Off,
     Warn,
     Error,
+}
+
+impl Severity {
+    /// Parse a CLI string into a Severity. Accepts lowercase variants.
+    pub fn parse_cli(s: &str) -> Option<Self> {
+        match s.to_ascii_lowercase().as_str() {
+            "off" => Some(Self::Off),
+            "warn" | "warning" => Some(Self::Warn),
+            "error" => Some(Self::Error),
+            _ => None,
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

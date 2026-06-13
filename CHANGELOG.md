@@ -10,12 +10,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - `scythe audit` subcommand — static security analyzer for SQL. Reads `.sql` files, runs a built-in security rule pack, and emits findings as human-readable text, SARIF 2.1.0 (with CWE tags for code-scanning ingest), or JSON. Exits non-zero when any rule fires, so it slots into CI gates.
+- `scythe audit --list-rules` — print the rule catalog (id, name, severity, category, description) grouped by category, then exit 0. Reflects user-loaded rules from `scythe.toml` so the catalog is honest.
+- `scythe audit --explain <RULE_ID>` — print the description and CWE references for a rule by id, then exit 0. Useful for figuring out why a rule fired without going to the docs.
+- `scythe audit --severity <off|warn|error>` — drop findings below the given level so CI gates can graduate from warnings to errors.
+- `scythe audit --exit-zero` — always exit 0 after emitting findings, for advisory CI integrations that publish findings but don't gate the build.
+- `scythe audit -o, --output <PATH>` — write reporter output to a file instead of stdout. Useful for SARIF/JSON artifacts in CI.
+- `scythe audit --ignore-suppressions` — disable inline `-- scythe-audit: ignore[...]` annotations for periodic strict scans.
+- `scythe audit --dialect <postgres|mysql|sqlite|mssql|oracle|snowflake>` — set the SQL dialect for explicit-file mode (config mode already inherits the dialect from `[[sql]].engine`).
+- New docs page `docs/guide/audit.md` covering quick-start, rule catalog, suppression syntax, user-defined rules, available matchers, and CI integration recipes (GitHub Actions SARIF, GitLab SAST, pre-commit). `docs/guide/cli-reference.md` extended with the `audit` subcommand and every flag.
+- `Severity` now derives `PartialOrd`/`Ord` and gains a `Severity::parse_cli` helper so CLI consumers can resolve `off`/`warn`/`error` to a typed minimum.
 - Eleven canonical security rules ship in `scythe-lint`'s `audit` module: SC-SEC01 dangerous-function (CWE-78), SC-SEC02 grant-all (CWE-269), SC-SEC03 grant-to-public (CWE-269), SC-SEC04 superuser-role (CWE-269) covering SUPERUSER/CREATEDB/CREATEROLE/REPLICATION/BYPASSRLS, SC-SEC05 literal-password (CWE-798), SC-SEC06 weak-hash-in-auth (CWE-327, CWE-916), SC-SEC07 select-star-pii (CWE-200), SC-SEC08 cartesian-join (CWE-400), SC-SEC09 unbounded-like (CWE-1333), SC-SEC10 security-definer-no-search-path (CWE-426), and SC-SEC11 session-mutation (CWE-269) covering SET ROLE / SET SESSION AUTHORIZATION / RESET ROLE.
 - Hybrid matcher framework: rule metadata lives in TOML, AST-matching logic lives in named Rust functions registered against a `MatcherRegistry`. Adding a rule that reuses an existing matcher is now a TOML stanza, not a Rust file. Canonical rules ship in-tree via `include_str!` so the default registry has zero runtime config dependencies.
 - User-defined audit rules via `scythe.toml`: `[[audit.rule]]` for inline rules and `extra_rules = ["./path.toml"]` to load separate files. IDs must start with `USER-`; collisions with canonical `SC-SEC*` IDs are rejected at load time with the offending ID and source path.
 - Inline suppressions: `-- scythe-audit: ignore[SC-SEC02,SC-SEC09] reason="vetted"` attaches to the next statement and suppresses the listed rule IDs for every line of that statement (terminated by a blank line or `;`). Reason clauses are parsed and discarded. Malformed annotations are silently ignored.
 - `LintContext.dialect: SqlDialect` field, threaded through every rule call site, so matchers can dialect-filter via `dialects = [...]` in the rule spec.
 - `RuleFile` TOML schema with `schema_version = 1` for forward-compatible rule files.
+
+### Changed
+
+- The four Postgres-specific audit rules (SC-SEC04 superuser-role, SC-SEC05 literal-password, SC-SEC10 security-definer-no-search-path, SC-SEC11 session-mutation) now declare `dialects = ["postgres"]` and no-op on non-PostgreSQL dialects instead of producing false positives. Behaviour is unchanged for the default PostgreSQL workflow.
 
 ## [0.8.0] - 2026-05-26
 

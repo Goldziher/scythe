@@ -84,12 +84,36 @@ scythe migrate [sqlc_config]
 
 Reads the sqlc config, converts query annotations from sqlc format to scythe format, and generates a `scythe.toml`.
 
+### audit
+
+Run security rules over SQL schema and queries. Emits findings in human, SARIF, or JSON format. See the [Audit guide](audit.md) for the full rule catalog and CI integration recipes.
+
+```bash
+scythe audit [OPTIONS] [files...]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-c, --config` | `scythe.toml` | Path to config file |
+| `--format` | `human` | Output format: `human`, `sarif`, `json` |
+| `--list-rules` | false | Print the rule catalog (id, name, severity, category) and exit 0 |
+| `--explain <RULE_ID>` | -- | Print the description and CWE refs for a rule by id, then exit 0 |
+| `--severity <LEVEL>` | -- | Drop findings below this severity (`off`, `warn`, `error`) |
+| `--exit-zero` | false | Exit 0 even if error-severity findings are present (advisory CI gate) |
+| `-o, --output <PATH>` | (stdout) | Write reporter output to a file instead of stdout |
+| `--ignore-suppressions` | false | Disable inline `-- scythe-audit: ignore[...]` annotations |
+| `--dialect <DIALECT>` | `postgres` | SQL dialect for explicit-file mode (`postgres`, `mysql`, `sqlite`, `mssql`, `oracle`, `snowflake`) |
+| `files...` | (from config) | SQL files to audit directly |
+
+Exits with code 2 when any error-severity finding is present (unless `--exit-zero` is set). This is distinct from `scythe lint` exit code 1 so CI can tell apart lint failures from security failures.
+
 ## Exit Codes
 
 | Code | Meaning |
 |------|---------|
 | 0 | Success |
 | 1 | Error (lint failures, parse errors, etc.) |
+| 2 | Audit failure (error-severity finding from `scythe audit`) |
 
 ## Examples
 
@@ -117,4 +141,22 @@ scythe fmt --diff
 
 # Migrate from sqlc
 scythe migrate sqlc.yaml
+
+# Audit a project for security issues
+scythe audit
+
+# List every audit rule
+scythe audit --list-rules
+
+# Explain a specific rule
+scythe audit --explain SC-SEC10
+
+# CI: emit SARIF for GitHub code scanning
+scythe audit --format sarif -o audit.sarif
+
+# Advisory mode (don't fail the build)
+scythe audit --exit-zero
+
+# Audit explicit files with a non-default dialect
+scythe audit --dialect mysql sql/migrations/*.sql
 ```

@@ -61,7 +61,7 @@ enum Commands {
     },
     /// Audit SQL files for security issues (privilege grants, dangerous
     /// functions, cartesian joins, unbounded LIKE, SECURITY DEFINER misuse).
-    /// Exits with code 2 on any error-severity finding.
+    /// Exits with code 2 on any error-severity finding (unless --exit-zero).
     Audit {
         /// Path to config file
         #[arg(short, long, default_value = "scythe.toml")]
@@ -69,6 +69,27 @@ enum Commands {
         /// Output format: human (default), sarif, json
         #[arg(long, default_value = "human")]
         format: String,
+        /// Print the rule catalog (id, name, severity, category) and exit 0
+        #[arg(long)]
+        list_rules: bool,
+        /// Print the description and CWE refs for a rule by id, then exit 0
+        #[arg(long, value_name = "RULE_ID")]
+        explain: Option<String>,
+        /// Drop findings below this severity (off|warn|error)
+        #[arg(long, value_name = "LEVEL")]
+        severity: Option<String>,
+        /// Exit 0 even if error-severity findings are present
+        #[arg(long)]
+        exit_zero: bool,
+        /// Write reporter output to file instead of stdout
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<String>,
+        /// Disable inline `-- scythe-audit: ignore[...]` annotations
+        #[arg(long)]
+        ignore_suppressions: bool,
+        /// SQL dialect for explicit-file mode (postgres|mysql|sqlite|mssql|oracle|snowflake)
+        #[arg(long)]
+        dialect: Option<String>,
         /// SQL files to audit (if empty, uses config schema + queries)
         files: Vec<String>,
     },
@@ -100,8 +121,26 @@ fn main() {
         Commands::Audit {
             config,
             format,
+            list_rules,
+            explain,
+            severity,
+            exit_zero,
+            output,
+            ignore_suppressions,
+            dialect,
             files,
-        } => commands::audit::run_audit(&config, &format, &files),
+        } => commands::audit::run_audit(commands::audit::RunAuditOpts {
+            config_path: config,
+            format,
+            list_rules,
+            explain,
+            severity,
+            exit_zero,
+            output,
+            ignore_suppressions,
+            dialect,
+            files,
+        }),
     };
 
     if let Err(e) = result {
