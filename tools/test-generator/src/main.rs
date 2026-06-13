@@ -7,6 +7,17 @@ use std::fmt::Write;
 use std::fs;
 use std::path::PathBuf;
 
+/// Emit a bool assertion that satisfies clippy's `bool_assert_comparison` lint.
+///
+/// `assert_eq!(expr, true/false, msg)` triggers the lint; use `assert!` instead.
+fn bool_assert(expr: &str, value: bool, msg: &str) -> String {
+    if value {
+        format!("    assert!({expr}, \"{msg}\");\n")
+    } else {
+        format!("    assert!(!{expr}, \"{msg}\");\n")
+    }
+}
+
 /// Scythe test generator -- turns JSON fixture files into Rust integration tests.
 #[derive(Parser, Debug)]
 #[command(name = "test-generator", version, about)]
@@ -144,12 +155,22 @@ fn generate_catalog_test(fixture: &Fixture, file_path: &str) -> String {
     let _ = writeln!(out, "    // {:?}", fixture.description);
 
     out.push_str(&format_schema_sql(&fixture.schema_sql));
-    out.push_str(
-        "    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n\n",
-    );
 
-    if let Some(ref catalog) = fixture.expected.catalog {
+    if let Some(ref catalog) = fixture.expected.catalog
+        && (!catalog.tables.is_empty()
+            || !catalog.enums.is_empty()
+            || !catalog.composites.is_empty())
+    {
+        out.push_str(
+            "    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n\n",
+        );
         out.push_str(&generate_catalog_assertions(catalog));
+    } else {
+        // No catalog assertions — use a let binding that suppresses the unused
+        // variable lint while still verifying that DDL parses without error.
+        out.push_str(
+            "    let _catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n\n",
+        );
     }
 
     out.push_str("}\n");
@@ -309,21 +330,22 @@ fn generate_lint_test(fixture: &Fixture, file_path: &str) -> String {
 
     if let Some(ref query_sql) = fixture.query_sql {
         let _ = writeln!(out, "    let query_sql = {:?};", query_sql);
-        // Lint tests may have multiple queries — try to parse single query
-        out.push_str("    if let Ok(query) = scythe_core::parser::parse_query(query_sql) {\n");
+        // Lint tests may have multiple queries — try to parse single query.
+        // Use let-chain syntax (Rust 2024) to avoid collapsible-if lint.
+        out.push_str("    if let Ok(query) = scythe_core::parser::parse_query(query_sql)\n");
         out.push_str(
-            "        if let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query) {\n",
+            "        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query) {\n",
         );
-        out.push_str("            let ctx = scythe_lint::LintContext {\n");
-        out.push_str("                sql: &query.sql,\n");
-        out.push_str("                stmt: &query.stmt,\n");
-        out.push_str("                analyzed: &analyzed,\n");
-        out.push_str("                catalog: &catalog,\n");
-        out.push_str("                annotations: &query.annotations,\n");
-        out.push_str("            };\n");
-        out.push_str("            _violations.extend(engine.check_query(&ctx));\n");
+        out.push_str("        let ctx = scythe_lint::LintContext {\n");
+        out.push_str("            sql: &query.sql,\n");
+        out.push_str("            stmt: &query.stmt,\n");
+        out.push_str("            analyzed: &analyzed,\n");
+        out.push_str("            catalog: &catalog,\n");
+        out.push_str("            annotations: &query.annotations,\n");
+        out.push_str("            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,\n");
+        out.push_str("        };\n");
+        out.push_str("        _violations.extend(engine.check_query(&ctx));\n");
 
-        out.push_str("        }\n");
         out.push_str("    }\n");
     }
 
@@ -457,14 +479,11 @@ fn generate_catalog_assertions(catalog: &ExpectedCatalog) -> String {
                 sql_type = col.sql_type,
                 col_name = col.name,
             );
-            let _ = writeln!(
-                out,
-                "    assert_eq!(table_{tvar}.columns[{i}].nullable, {nullable}, \"column nullable for {col_name}\");",
-                tvar = tvar,
-                i = i,
-                nullable = col.nullable,
-                col_name = col.name,
-            );
+            out.push_str(&bool_assert(
+                &format!("table_{tvar}.columns[{i}].nullable", tvar = tvar, i = i),
+                col.nullable,
+                &format!("column nullable for {}", col.name),
+            ));
 
             if let Some(ref default) = col.default {
                 let _ = writeln!(
@@ -478,14 +497,15 @@ fn generate_catalog_assertions(catalog: &ExpectedCatalog) -> String {
             }
 
             if let Some(pk) = col.primary_key {
-                let _ = writeln!(
-                    out,
-                    "    assert_eq!(table_{tvar}.columns[{i}].primary_key, {pk}, \"column primary_key for {col_name}\");",
-                    tvar = tvar,
-                    i = i,
-                    pk = pk,
-                    col_name = col.name,
-                );
+                out.push_str(&bool_assert(
+                    &format!(
+                        "table_{tvar}.columns[{i}].primary_key.unwrap_or(false)",
+                        tvar = tvar,
+                        i = i
+                    ),
+                    pk,
+                    &format!("column primary_key for {}", col.name),
+                ));
             }
         }
         out.push('\n');
@@ -590,13 +610,11 @@ fn generate_query_assertions(query: &ExpectedQuery) -> String {
                 neutral_type = param.neutral_type,
                 pname = param.name,
             );
-            let _ = writeln!(
-                out,
-                "    assert_eq!(analyzed.params[{i}].nullable, {nullable}, \"param nullable for {pname}\");",
-                i = i,
-                nullable = param.nullable,
-                pname = param.name,
-            );
+            out.push_str(&bool_assert(
+                &format!("analyzed.params[{i}].nullable", i = i),
+                param.nullable,
+                &format!("param nullable for {}", param.name),
+            ));
             if let Some(position) = param.position {
                 let _ = writeln!(
                     out,
@@ -629,13 +647,11 @@ fn generate_query_assertions(query: &ExpectedQuery) -> String {
                 neutral_type = col.neutral_type,
                 cname = col.name,
             );
-            let _ = writeln!(
-                out,
-                "    assert_eq!(analyzed.columns[{i}].nullable, {nullable}, \"column nullable for {cname}\");",
-                i = i,
-                nullable = col.nullable,
-                cname = col.name,
-            );
+            out.push_str(&bool_assert(
+                &format!("analyzed.columns[{i}].nullable", i = i),
+                col.nullable,
+                &format!("column nullable for {}", col.name),
+            ));
         }
     }
 

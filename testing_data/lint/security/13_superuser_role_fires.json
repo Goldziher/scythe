@@ -1,0 +1,20 @@
+{
+	"name": "superuser_role_fires",
+	"description": "CREATE ROLE with SUPERUSER should trigger SC-SEC04",
+	"category": "lint/security",
+	"tags": ["lint", "security", "superuser-role"],
+	"schema_sql": [],
+	"query_sql": "-- @name CreateSuperRole\n-- @returns :exec\nCREATE ROLE dba SUPERUSER",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-SEC04",
+					"message_contains": "is granted superuser"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

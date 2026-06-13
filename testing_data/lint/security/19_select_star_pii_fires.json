@@ -1,0 +1,22 @@
+{
+	"name": "select_star_pii_fires",
+	"description": "SELECT * from a table with a password column should trigger SC-SEC07",
+	"category": "lint/security",
+	"tags": ["lint", "security", "select-star-pii"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT NOT NULL, password TEXT NOT NULL, email TEXT);"
+	],
+	"query_sql": "-- @name GetAllUsers\n-- @returns :many\nSELECT * FROM users",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-SEC07",
+					"message_contains": "includes sensitive column"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

@@ -244,6 +244,7 @@ fn lint_from_config(
                     analyzed: &analyzed,
                     catalog: &catalog,
                     annotations: &parsed.annotations,
+                    dialect: sql_dialect,
                 };
 
                 let violations = engine.check_query(&ctx);

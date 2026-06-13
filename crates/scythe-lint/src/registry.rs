@@ -1,5 +1,6 @@
 use ahash::AHashMap;
 
+use super::audit;
 use super::rule::LintRule;
 use super::rules;
 use super::types::{LintConfig, RuleCategory, Severity};
@@ -114,6 +115,18 @@ pub fn default_registry() -> RuleRegistry {
     reg.register(Box::new(rules::style::PreferCoalesceOverCase));
     reg.register(Box::new(rules::style::PreferCountStar));
 
+    // Security rules — loaded from embedded TOML via the matcher registry.
+    let matcher_reg = audit::MatcherRegistry::canonical();
+    for spec in audit::canonical_specs() {
+        let matcher_fn = matcher_reg.get(&spec.matcher).unwrap_or_else(|| {
+            panic!(
+                "canonical rule {} references unknown matcher {}",
+                spec.id, spec.matcher
+            )
+        });
+        reg.register(Box::new(audit::MatcherRule::new(spec, matcher_fn)));
+    }
+
     reg
 }
 
@@ -179,9 +192,9 @@ mod tests {
     }
 
     #[test]
-    fn default_registry_has_22_rules() {
+    fn default_registry_has_33_rules() {
         let reg = default_registry();
-        assert_eq!(reg.rules.len(), 22);
+        assert_eq!(reg.rules.len(), 33);
     }
 
     #[test]

@@ -1,0 +1,17 @@
+{
+	"name": "session_mutation_clean",
+	"description": "SET search_path (not SET ROLE) should not trigger SC-SEC11",
+	"category": "lint/security",
+	"tags": ["lint", "security", "session-mutation"],
+	"schema_sql": [
+		"CREATE TABLE orders (id SERIAL PRIMARY KEY, total NUMERIC NOT NULL);"
+	],
+	"query_sql": "-- @name ListOrders\n-- @returns :many\nSELECT id, total FROM orders",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

@@ -1,0 +1,22 @@
+{
+	"name": "weak_hash_fires",
+	"description": "md5() applied to a password column should trigger SC-SEC06",
+	"category": "lint/security",
+	"tags": ["lint", "security", "weak-hash-in-auth"],
+	"schema_sql": [
+		"CREATE TABLE users (id SERIAL PRIMARY KEY, username TEXT NOT NULL, password TEXT NOT NULL);"
+	],
+	"query_sql": "-- @name CheckUserPassword\n-- @returns :one\nSELECT id FROM users WHERE password_hash = md5(password)",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-SEC06",
+					"message_contains": "cryptographically weak"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

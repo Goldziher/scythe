@@ -3,12 +3,13 @@ use sqlparser::parser::Parser;
 use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub enum QueryCommand {
     One,
     Opt,
     Many,
+    #[default]
     Exec,
     ExecResult,
     ExecRows,
@@ -81,7 +82,7 @@ pub struct CustomAnnotation {
     pub line: usize,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct Annotations {
     pub name: String,

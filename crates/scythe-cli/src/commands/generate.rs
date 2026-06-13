@@ -628,6 +628,7 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
                 analyzed: &analyzed,
                 catalog: &catalog,
                 annotations: &parsed.annotations,
+                dialect,
             };
             let violations = engine.check_query(&ctx);
             for (v, sev) in violations {

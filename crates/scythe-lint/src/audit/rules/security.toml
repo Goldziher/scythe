@@ -1,0 +1,209 @@
+schema_version = 1
+
+# SC-SEC01 — dangerous-function
+# Detects calls to functions that grant filesystem, network, or shell access.
+# CWE-78 (OS Command Injection), CWE-732 (Permissions).
+[[rule]]
+id = "SC-SEC01"
+name = "dangerous-function"
+category = "security"
+severity = "error"
+cwe = ["CWE-78"]
+description = "call to a function that grants filesystem, network, or shell access (CWE-78)"
+message = "call to dangerous function `{func}` — restrict via DB-side privileges or remove"
+matcher = "function_name_in_set"
+
+[rule.matcher_args]
+functions = [
+  "pg_read_file",
+  "pg_read_binary_file",
+  "pg_ls_dir",
+  "pg_stat_file",
+  "dblink",
+  "dblink_connect",
+  "dblink_exec",
+  "lo_import",
+  "lo_export",
+  "load_file",
+  "sys_exec",
+  "sys_eval",
+  "xp_cmdshell",
+  "xp_dirtree",
+  "xp_fileexist",
+  "openrowset",
+  "opendatasource",
+  "sp_oacreate",
+  "sp_oamethod",
+  "load_extension",
+]
+
+# SC-SEC02 — grant-all
+# GRANT ALL widens privilege blast radius.
+# CWE-269 (Improper Privilege Management).
+[[rule]]
+id = "SC-SEC02"
+name = "grant-all"
+category = "security"
+severity = "error"
+cwe = ["CWE-269"]
+description = "GRANT ALL widens privilege blast radius beyond what the role needs (CWE-269)"
+message = "GRANT ALL — enumerate exactly the privileges this role needs (SELECT, INSERT, etc.)"
+matcher = "grant_kind"
+
+[rule.matcher_args]
+kind = "all"
+
+# SC-SEC03 — grant-to-public
+# GRANT to PUBLIC exposes the privilege to every role.
+# CWE-269 (Improper Privilege Management).
+[[rule]]
+id = "SC-SEC03"
+name = "grant-to-public"
+category = "security"
+severity = "error"
+cwe = ["CWE-269"]
+description = "GRANT … TO PUBLIC exposes the privilege to every role in the cluster (CWE-269)"
+message = "GRANT … TO PUBLIC — restrict to a specific role; PUBLIC includes every login"
+matcher = "grantee_includes"
+
+[rule.matcher_args]
+grantee = "public"
+
+# SC-SEC08 — cartesian-join
+# Unconstrained join produces a cartesian product.
+# CWE-400 (Uncontrolled Resource Consumption).
+[[rule]]
+id = "SC-SEC08"
+name = "cartesian-join"
+category = "security"
+severity = "error"
+cwe = ["CWE-400"]
+description = "unconstrained join produces a cartesian product (CWE-400)"
+message = "{msg}"
+matcher = "cartesian_join"
+
+# SC-SEC09 — unbounded-like
+# LIKE pattern wildcarded on both sides — full scan, DoS-prone.
+# CWE-1333, CWE-400.
+[[rule]]
+id = "SC-SEC09"
+name = "unbounded-like"
+category = "security"
+severity = "warn"
+cwe = ["CWE-1333"]
+description = "LIKE pattern wildcarded on both sides — full scan, DoS-prone (CWE-1333)"
+message = "LIKE pattern \"{pattern}\" is wildcarded on both sides — use a trigram index or full-text search"
+matcher = "unbounded_pattern"
+
+# SC-SEC10 — security-definer-no-search-path
+# SECURITY DEFINER function without pinned search_path.
+# CWE-426 (Untrusted Search Path), CWE-269.
+[[rule]]
+id = "SC-SEC10"
+name = "security-definer-no-search-path"
+category = "security"
+severity = "error"
+cwe = ["CWE-426"]
+description = "SECURITY DEFINER function without pinned search_path (CWE-426)"
+message = "SECURITY DEFINER function `{function_name}` does not pin search_path — add `SET search_path = pg_catalog, public` (or similar)"
+matcher = "security_definer_no_search_path"
+
+# SC-SEC04 — superuser-role
+# CREATE/ALTER ROLE with SUPERUSER or other high-privilege attribute.
+# CWE-269 (Improper Privilege Management).
+[[rule]]
+id = "SC-SEC04"
+name = "superuser-role"
+category = "security"
+severity = "error"
+cwe = ["CWE-269"]
+description = "role granted SUPERUSER / CREATEROLE / similar high-privilege attribute (CWE-269)"
+message = "role `{role}` is granted {attribute} — restrict to least-privilege"
+matcher = "role_with_attribute"
+
+[rule.matcher_args]
+attributes = ["superuser", "createdb", "createrole", "replication", "bypassrls"]
+
+# SC-SEC05 — literal-password
+# Hard-coded literal password in CREATE/ALTER ROLE.
+# CWE-798 (Use of Hard-coded Credentials).
+[[rule]]
+id = "SC-SEC05"
+name = "literal-password"
+category = "security"
+severity = "error"
+cwe = ["CWE-798"]
+description = "hard-coded literal password in CREATE/ALTER ROLE (CWE-798)"
+message = "role `{role}` has a literal password in SQL — load it from a secret manager and pass via parameter or environment"
+matcher = "role_password_literal"
+
+# SC-SEC06 — weak-hash-in-auth
+# Weak hash function (md5, sha1) applied to credential-like column.
+# CWE-327 (Use of Broken Algorithm), CWE-916.
+[[rule]]
+id = "SC-SEC06"
+name = "weak-hash-in-auth"
+category = "security"
+severity = "error"
+cwe = ["CWE-327", "CWE-916"]
+description = "weak hash function (md5/sha1) applied to credential-like column (CWE-327, CWE-916)"
+message = "{func}() over column `{column}` is cryptographically weak — use bcrypt/scrypt/argon2 via the application, not SQL"
+matcher = "weak_hash_over_sensitive_column"
+
+[rule.matcher_args]
+functions = ["md5", "sha1"]
+column_patterns = [
+  "password",
+  "passwd",
+  "pwd",
+  "secret",
+  "token",
+  "api_key",
+  "auth_token",
+]
+
+# SC-SEC07 — select-star-pii
+# SELECT * against a table whose schema contains PII or credential columns.
+# CWE-200 (Information Exposure).
+[[rule]]
+id = "SC-SEC07"
+name = "select-star-pii"
+category = "security"
+severity = "warn"
+cwe = ["CWE-200"]
+description = "SELECT * against a table whose schema contains credential or PII columns (CWE-200)"
+message = "SELECT * from `{table}` includes sensitive column `{column}` (matches pattern `{pattern}`) — list columns explicitly to avoid leaking PII"
+matcher = "select_star_over_pii_columns"
+
+[rule.matcher_args]
+column_patterns = [
+  "password",
+  "passwd",
+  "ssn",
+  "social_security",
+  "credit_card",
+  "cc_number",
+  "email",
+  "phone",
+  "dob",
+  "date_of_birth",
+  "secret",
+  "token",
+  "api_key",
+]
+
+# SC-SEC11 — session-mutation
+# SET ROLE / SET SESSION AUTHORIZATION inside application SQL.
+# CWE-269 (Improper Privilege Management).
+[[rule]]
+id = "SC-SEC11"
+name = "session-mutation"
+category = "security"
+severity = "error"
+cwe = ["CWE-269"]
+description = "session-state mutation that changes the effective security principal (CWE-269)"
+message = "{op} {target} inside application SQL — privilege escalation risk; route via dedicated connection or stored procedure"
+matcher = "session_mutation"
+
+[rule.matcher_args]
+kinds = ["set_role", "set_session_authorization", "reset_role"]

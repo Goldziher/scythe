@@ -4,7 +4,7 @@ use crate::parser::{CustomAnnotation, QueryCommand};
 // Public output types
 // ---------------------------------------------------------------------------
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnalyzedQuery {
     pub name: String,

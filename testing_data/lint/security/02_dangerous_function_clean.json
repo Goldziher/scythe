@@ -1,0 +1,17 @@
+{
+	"name": "dangerous_function_clean",
+	"description": "Ordinary function calls should not trigger SC-SEC01",
+	"category": "lint/security",
+	"tags": ["lint", "security", "dangerous-function"],
+	"schema_sql": [
+		"CREATE TABLE files (id SERIAL PRIMARY KEY, path TEXT NOT NULL);"
+	],
+	"query_sql": "-- @name CountFiles\n-- @returns :one\nSELECT count(*) AS total FROM files;",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

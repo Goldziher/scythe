@@ -781,6 +781,7 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "sqlparser",
  "syn",
  "tempfile",
  "toml",
@@ -816,6 +817,8 @@ dependencies = [
  "serde_json",
  "sqlparser",
  "sqruff-lib",
+ "thiserror",
+ "toml",
 ]
 
 [[package]]

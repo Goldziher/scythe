@@ -59,6 +59,19 @@ enum Commands {
         /// SQL files to lint (if empty, uses config)
         files: Vec<String>,
     },
+    /// Audit SQL files for security issues (privilege grants, dangerous
+    /// functions, cartesian joins, unbounded LIKE, SECURITY DEFINER misuse).
+    /// Exits with code 2 on any error-severity finding.
+    Audit {
+        /// Path to config file
+        #[arg(short, long, default_value = "scythe.toml")]
+        config: String,
+        /// Output format: human (default), sarif, json
+        #[arg(long, default_value = "human")]
+        format: String,
+        /// SQL files to audit (if empty, uses config schema + queries)
+        files: Vec<String>,
+    },
 }
 
 fn main() {
@@ -84,6 +97,11 @@ fn main() {
             dialect,
             files,
         } => commands::lint_cmd::run_lint(&config, fix, dialect.as_deref(), &files),
+        Commands::Audit {
+            config,
+            format,
+            files,
+        } => commands::audit::run_audit(&config, &format, &files),
     };
 
     if let Err(e) = result {

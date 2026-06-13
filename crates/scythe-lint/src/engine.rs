@@ -289,6 +289,7 @@ mod tests {
             analyzed,
             catalog,
             annotations,
+            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
         }
     }
 

@@ -1,3 +1,4 @@
+pub mod audit;
 pub mod fmt;
 pub mod generate;
 pub mod lint_cmd;

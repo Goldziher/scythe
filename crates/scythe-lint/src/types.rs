@@ -1,5 +1,6 @@
 use std::borrow::Cow;
 
+use scythe_core::dialect::SqlDialect;
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
@@ -27,6 +28,7 @@ pub enum RuleCategory {
     Performance,
     Antipattern,
     Codegen,
+    Security,
 }
 
 impl std::fmt::Display for RuleCategory {
@@ -38,6 +40,7 @@ impl std::fmt::Display for RuleCategory {
             RuleCategory::Performance => write!(f, "performance"),
             RuleCategory::Antipattern => write!(f, "antipattern"),
             RuleCategory::Codegen => write!(f, "codegen"),
+            RuleCategory::Security => write!(f, "security"),
         }
     }
 }
@@ -69,6 +72,7 @@ pub struct LintContext<'a> {
     pub analyzed: &'a scythe_core::analyzer::AnalyzedQuery,
     pub catalog: &'a scythe_core::catalog::Catalog,
     pub annotations: &'a scythe_core::parser::Annotations,
+    pub dialect: SqlDialect,
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +141,7 @@ mod tests {
 
     #[test]
     fn rule_category_variants_exist() {
-        // Ensure all six categories are distinct
+        // Ensure all seven categories are distinct
         let cats = [
             RuleCategory::Naming,
             RuleCategory::Safety,
@@ -145,6 +149,7 @@ mod tests {
             RuleCategory::Performance,
             RuleCategory::Antipattern,
             RuleCategory::Codegen,
+            RuleCategory::Security,
         ];
         for (i, a) in cats.iter().enumerate() {
             for (j, b) in cats.iter().enumerate() {
@@ -165,6 +170,14 @@ mod tests {
         assert_eq!(RuleCategory::Performance.to_string(), "performance");
         assert_eq!(RuleCategory::Antipattern.to_string(), "antipattern");
         assert_eq!(RuleCategory::Codegen.to_string(), "codegen");
+        assert_eq!(RuleCategory::Security.to_string(), "security");
+    }
+
+    #[test]
+    fn rule_category_security_serde() {
+        let json = r#""security""#;
+        let cat: RuleCategory = serde_json::from_str(json).unwrap();
+        assert_eq!(cat, RuleCategory::Security);
     }
 
     #[test]

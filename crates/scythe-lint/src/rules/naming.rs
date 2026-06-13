@@ -339,6 +339,7 @@ mod tests {
             analyzed,
             catalog,
             annotations: &query.annotations,
+            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
         }
     }
 
