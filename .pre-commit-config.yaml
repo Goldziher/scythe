@@ -103,12 +103,6 @@ repos:
     hooks:
       - id: actionlint
 
-  # GitHub Actions pin maintenance
-  - repo: https://github.com/Goldziher/gh-actions-updater
-    rev: v0.1.2
-    hooks:
-      - id: gh-actions-updater
-
   # Local hooks
   - repo: local
     hooks:
