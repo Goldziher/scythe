@@ -1,0 +1,20 @@
+{
+	"name": "ban_drop_table_fires",
+	"description": "DROP TABLE should trigger SC-MIG01",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "ban-drop-table"],
+	"schema_sql": [],
+	"query_sql": "-- @name DeleteUsersTable\n-- @returns :exec\nDROP TABLE users",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-MIG01",
+					"message_contains": "irreversible"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

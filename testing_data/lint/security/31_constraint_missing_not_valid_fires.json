@@ -1,0 +1,20 @@
+{
+	"name": "constraint_missing_not_valid_fires",
+	"description": "ADD FOREIGN KEY without NOT VALID should trigger SC-MIG05",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "constraint-missing-not-valid"],
+	"schema_sql": [],
+	"query_sql": "-- @name CreateOrdersUserFk\n-- @returns :exec\nALTER TABLE orders ADD CONSTRAINT orders_user_fk FOREIGN KEY (user_id) REFERENCES users (id)",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-MIG05",
+					"message_contains": "NOT VALID"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

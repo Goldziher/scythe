@@ -3,7 +3,11 @@
 //! Each submodule exports a single `match_*` function that implements the
 //! `MatcherFn` signature: `fn(&LintContext, &toml::Table) -> Vec<MatcherHit>`.
 
+pub mod alter_table_rename;
 pub mod cartesian_join;
+pub mod constraint_missing_not_valid;
+pub mod create_index_concurrency;
+pub mod drop_statement;
 pub mod function_name_in_set;
 pub mod grant_kind;
 pub mod grantee_includes;
@@ -17,8 +21,9 @@ pub mod weak_hash_over_sensitive_column;
 
 use super::registry::MatcherRegistry;
 
-/// Register all eleven canonical built-in matchers into `reg`.
+/// Register all canonical built-in matchers into `reg`.
 pub fn register_canonical(reg: &mut MatcherRegistry) {
+    // Security matchers (SC-SEC*)
     reg.register(
         "function_name_in_set",
         function_name_in_set::match_function_name_in_set,
@@ -51,4 +56,19 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
         select_star_over_pii_columns::match_select_star_over_pii_columns,
     );
     reg.register("session_mutation", session_mutation::match_session_mutation);
+
+    // Migration matchers (SC-MIG*)
+    reg.register("drop_statement", drop_statement::match_drop_statement);
+    reg.register(
+        "create_index_concurrency",
+        create_index_concurrency::match_create_index_concurrency,
+    );
+    reg.register(
+        "alter_table_rename_column",
+        alter_table_rename::match_alter_table_rename_column,
+    );
+    reg.register(
+        "constraint_missing_not_valid",
+        constraint_missing_not_valid::match_constraint_missing_not_valid,
+    );
 }

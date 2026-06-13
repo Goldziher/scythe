@@ -111,9 +111,10 @@ mod tests {
     }
 
     #[test]
-    fn canonical_registry_has_eleven_matchers() {
+    fn canonical_registry_has_all_matchers() {
         let reg = MatcherRegistry::canonical();
         let expected = [
+            // Security
             "function_name_in_set",
             "grant_kind",
             "grantee_includes",
@@ -125,6 +126,11 @@ mod tests {
             "weak_hash_over_sensitive_column",
             "select_star_over_pii_columns",
             "session_mutation",
+            // Migration
+            "drop_statement",
+            "create_index_concurrency",
+            "alter_table_rename_column",
+            "constraint_missing_not_valid",
         ];
         for name in &expected {
             assert!(

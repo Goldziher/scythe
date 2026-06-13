@@ -1,0 +1,15 @@
+{
+	"name": "ban_drop_table_clean",
+	"description": "DROP VIEW should not trigger SC-MIG01",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "ban-drop-table"],
+	"schema_sql": [],
+	"query_sql": "-- @name DeleteUserSummaryView\n-- @returns :exec\nDROP VIEW user_summary",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

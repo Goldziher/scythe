@@ -481,7 +481,10 @@ pub(crate) fn run_security_rules_over_sql(
         };
 
         for (rule, severity) in rules {
-            if !matches!(rule.category(), RuleCategory::Security) {
+            if !matches!(
+                rule.category(),
+                RuleCategory::Security | RuleCategory::Migration
+            ) {
                 continue;
             }
             for violation in rule.check_query(&ctx) {

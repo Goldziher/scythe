@@ -1,0 +1,20 @@
+{
+	"name": "renaming_column_fires",
+	"description": "ALTER TABLE … RENAME COLUMN should trigger SC-MIG04",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "renaming-column"],
+	"schema_sql": [],
+	"query_sql": "-- @name UpdateUserNickToUsername\n-- @returns :exec\nALTER TABLE users RENAME COLUMN nick TO username",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-MIG04",
+					"message_contains": "rename"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

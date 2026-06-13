@@ -1,0 +1,20 @@
+{
+	"name": "ban_drop_column_fires",
+	"description": "ALTER TABLE … DROP COLUMN should trigger SC-MIG02",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "ban-drop-column"],
+	"schema_sql": [],
+	"query_sql": "-- @name DeleteLegacyColumn\n-- @returns :exec\nALTER TABLE users DROP COLUMN legacy_id",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-MIG02",
+					"message_contains": "DROP COLUMN"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

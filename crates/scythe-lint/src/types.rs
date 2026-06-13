@@ -46,6 +46,8 @@ pub enum RuleCategory {
     Antipattern,
     Codegen,
     Security,
+    /// Schema-migration safety: irreversible or lock-prone DDL operations.
+    Migration,
 }
 
 impl std::fmt::Display for RuleCategory {
@@ -58,6 +60,7 @@ impl std::fmt::Display for RuleCategory {
             RuleCategory::Antipattern => write!(f, "antipattern"),
             RuleCategory::Codegen => write!(f, "codegen"),
             RuleCategory::Security => write!(f, "security"),
+            RuleCategory::Migration => write!(f, "migration"),
         }
     }
 }

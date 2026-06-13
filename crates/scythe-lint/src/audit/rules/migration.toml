@@ -1,0 +1,74 @@
+schema_version = 1
+
+# SC-MIG01 — ban-drop-table
+# DROP TABLE is irreversible and breaks any deployed application version
+# still reading from the table.
+[[rule]]
+id = "SC-MIG01"
+name = "ban-drop-table"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "DROP TABLE is irreversible and breaks any deployed application version still reading from the table"
+message = "DROP TABLE `{table}` is irreversible — stage as rename → backfill → drop in separate releases"
+matcher = "drop_statement"
+
+[rule.matcher_args]
+kinds = ["table"]
+
+# SC-MIG02 — ban-drop-column
+# Dropping a column breaks any application version still reading from it.
+[[rule]]
+id = "SC-MIG02"
+name = "ban-drop-column"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "ALTER TABLE … DROP COLUMN breaks any deployed application version still reading from the column"
+message = "ALTER TABLE `{table}` DROP COLUMN `{column}` — stop reading from `{column}` in the application first; drop in a later release"
+matcher = "drop_statement"
+
+[rule.matcher_args]
+kinds = ["column"]
+
+# SC-MIG03 — require-concurrent-index-creation
+# Non-concurrent index creation takes ACCESS EXCLUSIVE on the table.
+[[rule]]
+id = "SC-MIG03"
+name = "require-concurrent-index-creation"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "CREATE INDEX without CONCURRENTLY takes ACCESS EXCLUSIVE on the table — blocks reads and writes for the duration of the build"
+message = "CREATE INDEX `{index}` on `{table}` is not CONCURRENT — use CREATE INDEX CONCURRENTLY to avoid table lock"
+matcher = "create_index_concurrency"
+
+# SC-MIG04 — renaming-column
+# Renaming a column breaks any application version still reading it.
+[[rule]]
+id = "SC-MIG04"
+name = "renaming-column"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "ALTER TABLE … RENAME COLUMN breaks any deployed application version still reading from the old name"
+message = "rename of `{table}.{old_column}` to `{new_column}` — stage as add-new → backfill → drop-old across releases"
+matcher = "alter_table_rename_column"
+
+# SC-MIG05 — constraint-missing-not-valid
+# Adding a FK or CHECK constraint without NOT VALID validates every existing
+# row under an ACCESS EXCLUSIVE lock.
+[[rule]]
+id = "SC-MIG05"
+name = "constraint-missing-not-valid"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "ALTER TABLE … ADD CONSTRAINT without NOT VALID validates every existing row under ACCESS EXCLUSIVE — write-blocking on large tables"
+message = "ADD {constraint_kind} on `{table}` is missing NOT VALID — split into `ADD CONSTRAINT … NOT VALID;` plus a follow-up `VALIDATE CONSTRAINT` to avoid long write locks"
+matcher = "constraint_missing_not_valid"
