@@ -138,3 +138,769 @@ async fn sc_ins03_fires_on_duplicate_index() {
         .await
         .ok();
 }
+
+// ---------------------------------------------------------------------------
+// SC-INS04 — Tables without a PRIMARY KEY
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn sc_ins04_fires_when_violation_present() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins04_positive CASCADE;
+        CREATE SCHEMA sc_ins04_positive;
+        CREATE TABLE sc_ins04_positive.nopk (name text, value int);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id == "SC-INS04" && f.message.contains("sc_ins04_positive.nopk"))
+        .collect();
+    assert!(!hits.is_empty(), "expected SC-INS04 to fire on nopk table");
+    assert_eq!(hits[0].severity, Severity::Warn);
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins04_positive CASCADE")
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn sc_ins04_skips_when_violation_absent() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins04_negative CASCADE;
+        CREATE SCHEMA sc_ins04_negative;
+        CREATE TABLE sc_ins04_negative.haspk (id bigint PRIMARY KEY, name text);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id == "SC-INS04" && f.message.contains("sc_ins04_negative.haspk"))
+        .collect();
+    assert!(hits.is_empty(), "expected no SC-INS04 for table with PK");
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins04_negative CASCADE")
+        .await
+        .ok();
+}
+
+// ---------------------------------------------------------------------------
+// SC-INS05 — RLS enabled but no policies defined
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn sc_ins05_fires_when_violation_present() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins05_positive CASCADE;
+        CREATE SCHEMA sc_ins05_positive;
+        CREATE TABLE sc_ins05_positive.guarded (id bigint PRIMARY KEY);
+        ALTER TABLE sc_ins05_positive.guarded ENABLE ROW LEVEL SECURITY;
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id == "SC-INS05" && f.message.contains("sc_ins05_positive.guarded"))
+        .collect();
+    assert!(
+        !hits.is_empty(),
+        "expected SC-INS05 to fire: RLS on, no policies"
+    );
+    assert_eq!(hits[0].severity, Severity::Warn);
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins05_positive CASCADE")
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn sc_ins05_skips_when_violation_absent() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins05_negative CASCADE;
+        CREATE SCHEMA sc_ins05_negative;
+        CREATE TABLE sc_ins05_negative.guarded (id bigint PRIMARY KEY);
+        ALTER TABLE sc_ins05_negative.guarded ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY allow_all ON sc_ins05_negative.guarded USING (true);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id == "SC-INS05" && f.message.contains("sc_ins05_negative.guarded"))
+        .collect();
+    assert!(hits.is_empty(), "expected no SC-INS05: policy is defined");
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins05_negative CASCADE")
+        .await
+        .ok();
+}
+
+// ---------------------------------------------------------------------------
+// SC-INS06 — Multiple PERMISSIVE policies for the same (table, role, command)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn sc_ins06_fires_when_violation_present() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins06_positive CASCADE;
+        CREATE SCHEMA sc_ins06_positive;
+        CREATE TABLE sc_ins06_positive.docs (id bigint PRIMARY KEY, owner text);
+        ALTER TABLE sc_ins06_positive.docs ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY pol_a ON sc_ins06_positive.docs FOR SELECT USING (owner = current_user);
+        CREATE POLICY pol_b ON sc_ins06_positive.docs FOR SELECT USING (true);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id == "SC-INS06" && f.message.contains("sc_ins06_positive.docs"))
+        .collect();
+    assert!(
+        !hits.is_empty(),
+        "expected SC-INS06 to fire: 2 permissive SELECT policies for public"
+    );
+    assert_eq!(hits[0].severity, Severity::Warn);
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins06_positive CASCADE")
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn sc_ins06_skips_when_violation_absent() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins06_negative CASCADE;
+        CREATE SCHEMA sc_ins06_negative;
+        CREATE TABLE sc_ins06_negative.docs (id bigint PRIMARY KEY, owner text);
+        ALTER TABLE sc_ins06_negative.docs ENABLE ROW LEVEL SECURITY;
+        CREATE POLICY pol_single ON sc_ins06_negative.docs FOR SELECT USING (owner = current_user);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id == "SC-INS06" && f.message.contains("sc_ins06_negative.docs"))
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "expected no SC-INS06: only one policy per role/command"
+    );
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins06_negative CASCADE")
+        .await
+        .ok();
+}
+
+// ---------------------------------------------------------------------------
+// SC-INS07 — Security-definer view (PG 15+ only)
+// ---------------------------------------------------------------------------
+
+/// Query the server version number as an integer (e.g. 150003 → 15).
+async fn pg_major_version(client: &tokio_postgres::Client) -> u32 {
+    let row = client
+        .query_one(
+            "SELECT current_setting('server_version_num')::int AS v",
+            &[],
+        )
+        .await
+        .expect("version query");
+    let num: i32 = row.get("v");
+    (num / 10000) as u32
+}
+
+#[tokio::test]
+async fn sc_ins07_fires_when_violation_present() {
+    let client = raw_client().await;
+    if pg_major_version(&client).await < 15 {
+        println!("skipping sc_ins07_fires_when_violation_present: requires PG 15+");
+        return;
+    }
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins07_positive CASCADE;
+        CREATE SCHEMA sc_ins07_positive;
+        CREATE TABLE sc_ins07_positive.base (id bigint PRIMARY KEY, secret text);
+        CREATE VIEW sc_ins07_positive.exposed AS SELECT id FROM sc_ins07_positive.base;
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id == "SC-INS07" && f.message.contains("sc_ins07_positive.exposed"))
+        .collect();
+    assert!(
+        !hits.is_empty(),
+        "expected SC-INS07 to fire: view lacks security_invoker=true"
+    );
+    assert_eq!(hits[0].severity, Severity::Error);
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins07_positive CASCADE")
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn sc_ins07_skips_when_violation_absent() {
+    let client = raw_client().await;
+    if pg_major_version(&client).await < 15 {
+        println!("skipping sc_ins07_skips_when_violation_absent: requires PG 15+");
+        return;
+    }
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins07_negative CASCADE;
+        CREATE SCHEMA sc_ins07_negative;
+        CREATE TABLE sc_ins07_negative.base (id bigint PRIMARY KEY, secret text);
+        CREATE VIEW sc_ins07_negative.safe
+            WITH (security_invoker=true)
+            AS SELECT id FROM sc_ins07_negative.base;
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id == "SC-INS07" && f.message.contains("sc_ins07_negative.safe"))
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "expected no SC-INS07 for view with security_invoker=true"
+    );
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins07_negative CASCADE")
+        .await
+        .ok();
+}
+
+// ---------------------------------------------------------------------------
+// SC-INS08 — SECURITY DEFINER function without fixed search_path
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn sc_ins08_fires_when_violation_present() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins08_positive CASCADE;
+        CREATE SCHEMA sc_ins08_positive;
+        CREATE OR REPLACE FUNCTION sc_ins08_positive.risky()
+        RETURNS void
+        LANGUAGE plpgsql
+        SECURITY DEFINER
+        AS $$ BEGIN NULL; END; $$;
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| {
+            f.rule_id == "SC-INS08"
+                && f.message.contains("sc_ins08_positive")
+                && f.message.contains("risky")
+        })
+        .collect();
+    assert!(
+        !hits.is_empty(),
+        "expected SC-INS08 to fire: SECURITY DEFINER without search_path"
+    );
+    assert_eq!(hits[0].severity, Severity::Error);
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins08_positive CASCADE")
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn sc_ins08_skips_when_violation_absent() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins08_negative CASCADE;
+        CREATE SCHEMA sc_ins08_negative;
+        CREATE OR REPLACE FUNCTION sc_ins08_negative.safe()
+        RETURNS void
+        LANGUAGE plpgsql
+        SECURITY DEFINER
+        SET search_path = pg_catalog, public
+        AS $$ BEGIN NULL; END; $$;
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| {
+            f.rule_id == "SC-INS08"
+                && f.message.contains("sc_ins08_negative")
+                && f.message.contains("safe")
+        })
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "expected no SC-INS08: function pins search_path"
+    );
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins08_negative CASCADE")
+        .await
+        .ok();
+}
+
+// ---------------------------------------------------------------------------
+// SC-INS09 — Extension installed in the public schema
+// ---------------------------------------------------------------------------
+
+/// Pick the first available test extension and install it in the requested
+/// schema. Returns the extension name on success, `None` if no benign
+/// extension is available (CI build without contrib modules).
+async fn install_test_extension_in_schema(
+    client: &tokio_postgres::Client,
+    schema: &str,
+) -> Option<&'static str> {
+    for ext in ["pgcrypto", "btree_gin", "btree_gist"] {
+        let stmt = format!("CREATE EXTENSION IF NOT EXISTS {ext} SCHEMA {schema}");
+        if client.batch_execute(&stmt).await.is_ok() {
+            return Some(ext);
+        }
+    }
+    None
+}
+
+#[tokio::test]
+async fn sc_ins09_fires_when_violation_present() {
+    let client = raw_client().await;
+
+    // Install a benign extension in public. Findings are filtered by extension
+    // name so any pre-existing public-schema extensions don't pollute the
+    // assertion.
+    let Some(ext) = install_test_extension_in_schema(&client, "public").await else {
+        println!(
+            "skipping sc_ins09_fires_when_violation_present: \
+             no benign extension available to install in public"
+        );
+        return;
+    };
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| f.rule_id == "SC-INS09" && f.message.contains(ext))
+        .collect();
+    assert!(
+        !hits.is_empty(),
+        "expected SC-INS09 to fire for extension `{ext}` in public, got: {:?}",
+        findings
+            .iter()
+            .filter(|f| f.rule_id == "SC-INS09")
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(hits[0].severity, Severity::Warn);
+
+    client
+        .batch_execute(&format!("DROP EXTENSION IF EXISTS {ext}"))
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn sc_ins09_skips_when_violation_absent() {
+    let client = raw_client().await;
+
+    // Install the extension in a non-public schema. Use a unique schema name
+    // so the test does not collide with the positive test running in parallel.
+    let schema = "sc_ins09_neg_ext_schema";
+    client
+        .batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"))
+        .await
+        .expect("create non-public schema");
+    let Some(ext) = install_test_extension_in_schema(&client, schema).await else {
+        // No benign extension available — negative assertion is still
+        // meaningful: confirm no SC-INS09 finding mentions our schema.
+        let findings = run_all_findings().await;
+        let leaked: Vec<_> = findings
+            .iter()
+            .filter(|f| f.rule_id == "SC-INS09" && f.message.contains(schema))
+            .collect();
+        assert!(
+            leaked.is_empty(),
+            "schema `{schema}` should not appear in SC-INS09 findings"
+        );
+        client
+            .batch_execute(&format!("DROP SCHEMA IF EXISTS {schema} CASCADE"))
+            .await
+            .ok();
+        return;
+    };
+
+    let findings = run_all_findings().await;
+    // Scope the assertion to the extension we installed — pre-existing
+    // public-schema extensions (e.g. pg_stat_statements on managed PG) must
+    // not cause a false negative.
+    let leaked: Vec<_> = findings
+        .iter()
+        .filter(|f| {
+            f.rule_id == "SC-INS09" && f.message.contains(ext) && f.message.contains("public")
+        })
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "extension `{ext}` was installed in `{schema}`, not `public`, but SC-INS09 fired for it: {:?}",
+        leaked
+    );
+
+    client
+        .batch_execute(&format!(
+            "DROP EXTENSION IF EXISTS {ext}; DROP SCHEMA IF EXISTS {schema} CASCADE"
+        ))
+        .await
+        .ok();
+}
+
+// ---------------------------------------------------------------------------
+// SC-INS10 — Tables in the public schema with RLS disabled
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn sc_ins10_fires_when_violation_present() {
+    let client = raw_client().await;
+    // Create a uniquely named table in public with RLS off (the default).
+    client
+        .batch_execute(
+            "
+        DROP TABLE IF EXISTS public.sc_ins10_positive_sentinel CASCADE;
+        CREATE TABLE public.sc_ins10_positive_sentinel (id bigint PRIMARY KEY);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| {
+            f.rule_id == "SC-INS10" && f.message.contains("public.sc_ins10_positive_sentinel")
+        })
+        .collect();
+    assert!(
+        !hits.is_empty(),
+        "expected SC-INS10 to fire: table in public with RLS off"
+    );
+    assert_eq!(hits[0].severity, Severity::Warn);
+
+    client
+        .batch_execute("DROP TABLE IF EXISTS public.sc_ins10_positive_sentinel CASCADE")
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn sc_ins10_skips_when_violation_absent() {
+    let client = raw_client().await;
+    // Create a table in public WITH RLS enabled — should not fire.
+    client
+        .batch_execute(
+            "
+        DROP TABLE IF EXISTS public.sc_ins10_negative_sentinel CASCADE;
+        CREATE TABLE public.sc_ins10_negative_sentinel (id bigint PRIMARY KEY);
+        ALTER TABLE public.sc_ins10_negative_sentinel ENABLE ROW LEVEL SECURITY;
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hits: Vec<_> = findings
+        .iter()
+        .filter(|f| {
+            f.rule_id == "SC-INS10" && f.message.contains("public.sc_ins10_negative_sentinel")
+        })
+        .collect();
+    assert!(
+        hits.is_empty(),
+        "expected no SC-INS10 for table with RLS enabled"
+    );
+
+    client
+        .batch_execute("DROP TABLE IF EXISTS public.sc_ins10_negative_sentinel CASCADE")
+        .await
+        .ok();
+}
+
+// ---------------------------------------------------------------------------
+// SC-INS11 — UNLOGGED table in user schema
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn sc_ins11_fires_on_unlogged_table() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins11_pos CASCADE;
+        CREATE SCHEMA sc_ins11_pos;
+        CREATE UNLOGGED TABLE sc_ins11_pos.t (id int);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hit = findings.iter().find(|f| {
+        f.rule_id == "SC-INS11"
+            && f.message.contains("sc_ins11_pos")
+            && f.message.contains("sc_ins11_pos.t")
+    });
+    assert!(
+        hit.is_some(),
+        "expected SC-INS11 finding for sc_ins11_pos.t, got {:?}",
+        findings
+            .iter()
+            .filter(|f| f.rule_id == "SC-INS11")
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(hit.unwrap().severity, Severity::Warn);
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins11_pos CASCADE")
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn sc_ins11_silent_on_logged_table() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins11_neg CASCADE;
+        CREATE SCHEMA sc_ins11_neg;
+        CREATE TABLE sc_ins11_neg.t (id int);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hit = findings
+        .iter()
+        .find(|f| f.rule_id == "SC-INS11" && f.message.contains("sc_ins11_neg.t"));
+    assert!(
+        hit.is_none(),
+        "expected no SC-INS11 finding for logged sc_ins11_neg.t, got {:?}",
+        hit
+    );
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins11_neg CASCADE")
+        .await
+        .ok();
+}
+
+// ---------------------------------------------------------------------------
+// SC-INS12 — Partitioned table without a DEFAULT partition
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn sc_ins12_fires_on_partition_without_default() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins12_pos CASCADE;
+        CREATE SCHEMA sc_ins12_pos;
+        CREATE TABLE sc_ins12_pos.parent (id int) PARTITION BY RANGE (id);
+        CREATE TABLE sc_ins12_pos.parent_one
+            PARTITION OF sc_ins12_pos.parent FOR VALUES FROM (0) TO (100);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hit = findings
+        .iter()
+        .find(|f| f.rule_id == "SC-INS12" && f.message.contains("sc_ins12_pos.parent"));
+    assert!(
+        hit.is_some(),
+        "expected SC-INS12 finding for sc_ins12_pos.parent (no default partition), got {:?}",
+        findings
+            .iter()
+            .filter(|f| f.rule_id == "SC-INS12")
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(hit.unwrap().severity, Severity::Warn);
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins12_pos CASCADE")
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn sc_ins12_silent_when_default_partition_exists() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins12_neg CASCADE;
+        CREATE SCHEMA sc_ins12_neg;
+        CREATE TABLE sc_ins12_neg.parent (id int) PARTITION BY RANGE (id);
+        CREATE TABLE sc_ins12_neg.parent_one
+            PARTITION OF sc_ins12_neg.parent FOR VALUES FROM (0) TO (100);
+        CREATE TABLE sc_ins12_neg.parent_default
+            PARTITION OF sc_ins12_neg.parent DEFAULT;
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hit = findings
+        .iter()
+        .find(|f| f.rule_id == "SC-INS12" && f.message.contains("sc_ins12_neg.parent"));
+    assert!(
+        hit.is_none(),
+        "expected no SC-INS12 finding when DEFAULT partition exists, got {:?}",
+        hit
+    );
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins12_neg CASCADE")
+        .await
+        .ok();
+}
+
+// ---------------------------------------------------------------------------
+// SC-INS13 — Sequence overflow risk (>70 % consumed)
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn sc_ins13_fires_on_sequence_over_70_percent() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins13_pos CASCADE;
+        CREATE SCHEMA sc_ins13_pos;
+        CREATE SEQUENCE sc_ins13_pos.seq MAXVALUE 100;
+        SELECT setval('sc_ins13_pos.seq', 80);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hit = findings
+        .iter()
+        .find(|f| f.rule_id == "SC-INS13" && f.message.contains("sc_ins13_pos.seq"));
+    assert!(
+        hit.is_some(),
+        "expected SC-INS13 finding for sc_ins13_pos.seq at 80%, got {:?}",
+        findings
+            .iter()
+            .filter(|f| f.rule_id == "SC-INS13")
+            .collect::<Vec<_>>()
+    );
+    assert_eq!(hit.unwrap().severity, Severity::Warn);
+    // The message must carry the percent_used value
+    assert!(
+        hit.unwrap().message.contains("80"),
+        "expected percent_used=80 in message, got: {}",
+        hit.unwrap().message
+    );
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins13_pos CASCADE")
+        .await
+        .ok();
+}
+
+#[tokio::test]
+async fn sc_ins13_silent_on_sequence_under_70_percent() {
+    let client = raw_client().await;
+    client
+        .batch_execute(
+            "
+        DROP SCHEMA IF EXISTS sc_ins13_neg CASCADE;
+        CREATE SCHEMA sc_ins13_neg;
+        CREATE SEQUENCE sc_ins13_neg.seq MAXVALUE 100;
+        SELECT setval('sc_ins13_neg.seq', 50);
+        ",
+        )
+        .await
+        .expect("setup");
+
+    let findings = run_all_findings().await;
+    let hit = findings
+        .iter()
+        .find(|f| f.rule_id == "SC-INS13" && f.message.contains("sc_ins13_neg.seq"));
+    assert!(
+        hit.is_none(),
+        "expected no SC-INS13 finding for sc_ins13_neg.seq at 50%, got {:?}",
+        hit
+    );
+
+    client
+        .batch_execute("DROP SCHEMA sc_ins13_neg CASCADE")
+        .await
+        .ok();
+}

@@ -42,7 +42,7 @@ ORDER BY n.nspname, cl.relname, c.conname
 # ---------------------------------------------------------------------------
 # SC-INS02 — Tables with CREATE POLICY but RLS disabled
 # ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0006
+# Detection pattern inspired by supabase/splinter lint 0007
 # (policy_exists_rls_disabled). See ATTRIBUTIONS.md.
 [[check]]
 id = "SC-INS02"
@@ -94,4 +94,335 @@ GROUP BY schemaname, tablename,
          regexp_replace(indexdef, ' INDEX [^ ]+ ON ', ' INDEX <name> ON ')
 HAVING count(*) > 1
 ORDER BY schemaname, tablename
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS04 — Tables without a PRIMARY KEY
+# ---------------------------------------------------------------------------
+# Detection pattern inspired by supabase/splinter lint 0004
+# (no_primary_key). See ATTRIBUTIONS.md.
+[[check]]
+id = "SC-INS04"
+name = "no-primary-key"
+category = "reliability"
+severity = "warn"
+engines = ["postgres"]
+min_pg_version = 12
+description = "ordinary tables without a PRIMARY KEY — harms replication, planner choices, and join performance"
+message = "`{schema_name}.{table_name}` has no PRIMARY KEY — add one for replication safety, planner choices, and joinability"
+explanation = "Logical replication requires a PRIMARY KEY (or REPLICA IDENTITY FULL) to identify rows for UPDATE and DELETE. Without one, the planner cannot use index-based join strategies, and ORMs often behave incorrectly. Tables in public schemas visible to PostgREST or similar tools are especially vulnerable."
+remediation = "Add a surrogate key: `ALTER TABLE {schema_name}.{table_name} ADD COLUMN id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY;` or designate an existing unique NOT NULL column: `ALTER TABLE {schema_name}.{table_name} ADD PRIMARY KEY (column_name);`."
+sql = """
+SELECT n.nspname  AS schema_name,
+       c.relname  AS table_name
+FROM   pg_class c
+JOIN   pg_namespace n ON n.oid = c.relnamespace
+WHERE  c.relkind = 'r'
+  AND  n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+  AND  NOT EXISTS (
+         SELECT 1
+         FROM   pg_index i
+         WHERE  i.indrelid      = c.oid
+           AND  i.indisprimary  = true
+       )
+  AND  NOT EXISTS (
+         SELECT 1
+         FROM   pg_inherits in
+         WHERE  in.inhrelid = c.oid
+       )
+ORDER BY n.nspname, c.relname
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS05 — RLS enabled but no policies defined
+# ---------------------------------------------------------------------------
+# Detection pattern inspired by supabase/splinter lint 0008
+# (rls_enabled_no_policy). See ATTRIBUTIONS.md.
+[[check]]
+id = "SC-INS05"
+name = "rls-enabled-no-policy"
+category = "security"
+severity = "warn"
+engines = ["postgres"]
+min_pg_version = 12
+description = "table has ROW LEVEL SECURITY enabled but no policies — table is unreadable to non-owners"
+message = "`{schema_name}.{table_name}` has ROW LEVEL SECURITY enabled but no policies — table is effectively unreadable to non-owners; add a CREATE POLICY or disable RLS"
+explanation = "When RLS is enabled and no policies are defined, PostgreSQL uses the default-deny model: no row is visible to any non-owner role. This silently blocks application queries without a clear error. It is the complement of SC-INS02 (policies with RLS off) — both states are almost always mistakes."
+remediation = "Either add a permissive policy: `CREATE POLICY allow_all ON {schema_name}.{table_name} USING (true);` or, if RLS was enabled by mistake, disable it: `ALTER TABLE {schema_name}.{table_name} DISABLE ROW LEVEL SECURITY;`."
+sql = """
+SELECT n.nspname AS schema_name,
+       c.relname AS table_name
+FROM   pg_class c
+JOIN   pg_namespace n ON n.oid = c.relnamespace
+WHERE  c.relkind         = 'r'
+  AND  c.relrowsecurity  = true
+  AND  n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+  AND  NOT EXISTS (
+         SELECT 1
+         FROM   pg_policy p
+         WHERE  p.polrelid = c.oid
+       )
+ORDER BY n.nspname, c.relname
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS06 — Multiple PERMISSIVE policies for the same (table, role, command)
+# ---------------------------------------------------------------------------
+# Detection pattern inspired by supabase/splinter lint 0006
+# (multiple_permissive_policies). See ATTRIBUTIONS.md.
+[[check]]
+id = "SC-INS06"
+name = "multiple-permissive-policies"
+category = "performance"
+severity = "warn"
+engines = ["postgres"]
+min_pg_version = 12
+description = "multiple PERMISSIVE policies on the same table for the same role and command — each adds an OR to every row filter"
+message = "{policy_count} PERMISSIVE policies on `{schema_name}.{table_name}` for role `{role_name}` command `{command}` ({policy_names}) — each policy adds an OR to the row qualifier, slowing every query"
+explanation = "PostgreSQL evaluates PERMISSIVE policies with OR semantics: if any policy passes, the row is visible. Two PERMISSIVE policies for the same (table, role, command) are functionally equivalent to one combined policy, but the planner must evaluate both conditions on every row scan. Consolidate them into a single policy using OR in the USING clause."
+remediation = "Merge the policies: `DROP POLICY <one_name> ON {schema_name}.{table_name}; ALTER POLICY <other_name> ON {schema_name}.{table_name} USING (<combined_condition>);`."
+sql = """
+SELECT n.nspname                               AS schema_name,
+       c.relname                               AS table_name,
+       COALESCE(r.rolname, 'public')           AS role_name,
+       CASE p.polcmd
+           WHEN 'r' THEN 'SELECT'
+           WHEN 'a' THEN 'INSERT'
+           WHEN 'w' THEN 'UPDATE'
+           WHEN 'd' THEN 'DELETE'
+           WHEN '*' THEN 'ALL'
+           ELSE p.polcmd::text
+       END                                     AS command,
+       count(*)::bigint                        AS policy_count,
+       array_agg(p.polname ORDER BY p.polname) AS policy_names
+FROM   pg_policy p
+JOIN   pg_class c     ON c.oid = p.polrelid
+JOIN   pg_namespace n ON n.oid = c.relnamespace
+JOIN   unnest(
+         CASE WHEN p.polroles = '{0}'::oid[]
+              THEN ARRAY[0::oid]
+              ELSE p.polroles
+         END
+       ) AS role_oid ON true
+LEFT JOIN pg_roles r  ON r.oid = role_oid AND role_oid <> 0
+WHERE  p.polpermissive = true
+  AND  n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+GROUP BY n.nspname, c.relname, r.rolname, p.polcmd
+HAVING count(*) > 1
+ORDER BY n.nspname, c.relname, r.rolname, p.polcmd
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS07 — Views without security_invoker=true (security-definer semantics)
+# ---------------------------------------------------------------------------
+# Detection pattern inspired by supabase/splinter lint 0010
+# (security_definer_view). See ATTRIBUTIONS.md.
+# Requires PG 15+ for reloptions security_invoker check.
+[[check]]
+id = "SC-INS07"
+name = "security-definer-view"
+category = "security"
+severity = "error"
+engines = ["postgres"]
+min_pg_version = 15
+description = "view was not created with security_invoker=true — queries run with the view owner's permissions, bypassing RLS"
+message = "view `{schema_name}.{view_name}` was not created with `security_invoker=true` — queries run with the view owner's permissions, bypassing RLS on underlying tables"
+explanation = "In PostgreSQL 15+, views can be created with SECURITY INVOKER to run with the calling user's permissions, which allows RLS policies on underlying tables to apply correctly. Without this option (the default), the view executes with the view owner's permissions, bypassing any RLS policies on the underlying tables for the querying user."
+remediation = "Recreate the view with `CREATE OR REPLACE VIEW {schema_name}.{view_name} WITH (security_invoker=true) AS <original_query>;` to ensure RLS on underlying tables applies to the caller's identity."
+sql = """
+SELECT v.schemaname AS schema_name,
+       v.viewname   AS view_name
+FROM   pg_views v
+JOIN   pg_class c     ON c.relname = v.viewname
+JOIN   pg_namespace n ON n.oid     = c.relnamespace
+                     AND n.nspname = v.schemaname
+WHERE  v.schemaname NOT IN ('pg_catalog', 'information_schema')
+  AND  c.relkind = 'v'
+  AND  NOT (
+         c.reloptions IS NOT NULL
+         AND 'security_invoker=true' = ANY (c.reloptions)
+       )
+ORDER BY v.schemaname, v.viewname
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS08 — SECURITY DEFINER functions without a fixed search_path
+# ---------------------------------------------------------------------------
+# Detection pattern inspired by supabase/splinter lint 0011
+# (function_search_path_mutable). Live counterpart of static SC-SEC12.
+# See ATTRIBUTIONS.md.
+[[check]]
+id = "SC-INS08"
+name = "function-search-path-mutable-live"
+category = "security"
+severity = "error"
+engines = ["postgres"]
+min_pg_version = 12
+description = "SECURITY DEFINER function without a fixed search_path — vulnerable to search-path hijacking"
+message = "SECURITY DEFINER function `{schema_name}.{function_name}({argument_types})` does not set a fixed `search_path` — a privileged caller's resolver search can be hijacked by a planted schema"
+explanation = "A SECURITY DEFINER function runs with the privileges of its owner. If search_path is not pinned via SET search_path in the function definition or proconfig, a malicious role can create an object in a schema that appears before the intended schema in the caller's search_path, causing the function to resolve objects from the attacker's schema instead."
+remediation = "Alter the function to pin its search_path: `ALTER FUNCTION {schema_name}.{function_name}({argument_types}) SET search_path = pg_catalog, public;` — or recreate it with SET search_path in the function body."
+sql = """
+SELECT n.nspname                                AS schema_name,
+       p.proname                                AS function_name,
+       pg_get_function_arguments(p.oid)         AS argument_types
+FROM   pg_proc p
+JOIN   pg_namespace n ON n.oid = p.pronamespace
+WHERE  p.prosecdef = true
+  AND  n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+  AND  NOT (
+         p.proconfig IS NOT NULL
+         AND EXISTS (
+               SELECT 1
+               FROM   unnest(p.proconfig) AS cfg
+               WHERE  cfg LIKE 'search_path=%'
+             )
+       )
+ORDER BY n.nspname, p.proname
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS09 — Extensions installed in the public schema
+# ---------------------------------------------------------------------------
+# Detection pattern inspired by supabase/splinter lint 0014
+# (extension_in_public). See ATTRIBUTIONS.md.
+[[check]]
+id = "SC-INS09"
+name = "extension-in-public"
+category = "security"
+severity = "warn"
+engines = ["postgres"]
+min_pg_version = 12
+description = "extension installed in the public schema — reduces search_path security and clutters the default API namespace"
+message = "extension `{extension_name}` v{extension_version} is installed in the `public` schema — relocate it to a dedicated schema (e.g. `extensions`) to keep `public` clean and reduce search_path attack surface"
+explanation = "Extensions installed in `public` expose their functions and types in the default search_path schema, making them accessible to all roles that have USAGE on public. This increases the attack surface for search_path-based privilege escalation and pollutes the namespace visible to tools like PostgREST. A dedicated `extensions` schema isolates extension objects while keeping them accessible."
+remediation = "Create a dedicated schema and reinstall: `CREATE SCHEMA IF NOT EXISTS extensions; DROP EXTENSION {extension_name}; CREATE EXTENSION {extension_name} SCHEMA extensions;`. Update search_path if needed: `ALTER ROLE app_user SET search_path = public, extensions;`."
+sql = """
+SELECT e.extname       AS extension_name,
+       e.extversion    AS extension_version
+FROM   pg_extension e
+JOIN   pg_namespace n ON n.oid = e.extnamespace
+WHERE  n.nspname = 'public'
+ORDER BY e.extname
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS10 — Tables in the public schema with RLS disabled
+# ---------------------------------------------------------------------------
+# Detection pattern inspired by supabase/splinter lint 0013
+# (rls_disabled_in_public). See ATTRIBUTIONS.md.
+[[check]]
+id = "SC-INS10"
+name = "rls-disabled-in-public"
+category = "security"
+severity = "warn"
+engines = ["postgres"]
+min_pg_version = 12
+description = "table in the public schema (default API exposure) with ROW LEVEL SECURITY disabled — any role with SELECT can read every row"
+message = "`{schema_name}.{table_name}` is in the `public` schema (default API exposure) with ROW LEVEL SECURITY disabled — any role with table SELECT can read every row"
+explanation = "Tables in `public` are accessible to all roles granted the public schema privilege, which is the default in PostgreSQL. Without RLS, any authenticated application role that has been granted SELECT can see every row, bypassing any intended per-row access control. This is especially risky for tables exposed through PostgREST, Hasura, or similar API layers."
+remediation = "Enable RLS and define appropriate policies: `ALTER TABLE {schema_name}.{table_name} ENABLE ROW LEVEL SECURITY; CREATE POLICY allow_owner ON {schema_name}.{table_name} USING (owner_id = current_user_id());`. Use FORCE ROW LEVEL SECURITY if the table owner's queries also need to be filtered."
+sql = """
+SELECT n.nspname AS schema_name,
+       c.relname AS table_name
+FROM   pg_class c
+JOIN   pg_namespace n ON n.oid = c.relnamespace
+WHERE  n.nspname        = 'public'
+  AND  c.relkind        = 'r'
+  AND  c.relrowsecurity = false
+  AND  NOT EXISTS (
+         SELECT 1
+         FROM   pg_inherits in
+         WHERE  in.inhrelid = c.oid
+       )
+ORDER BY c.relname
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS11 — UNLOGGED tables in user schemas
+# ---------------------------------------------------------------------------
+# Scythe-original check — no prior art. Derived from pg_class.relpersistence.
+[[check]]
+id = "SC-INS11"
+name = "unlogged-table-in-prod"
+category = "reliability"
+severity = "warn"
+engines = ["postgres"]
+min_pg_version = 12
+description = "UNLOGGED table — all data is discarded on server crash or unclean shutdown"
+message = "unlogged table `{schema_name}.{table_name}` — data is dropped on crash; convert to LOGGED with `ALTER TABLE {schema_name}.{table_name} SET LOGGED`, or relocate to a temp schema if discardable"
+explanation = "UNLOGGED tables skip write-ahead logging, which makes writes faster but means every row is silently discarded when PostgreSQL performs crash recovery. This is appropriate for ephemeral staging data but catastrophic for anything user-facing or durable; the data loss is silent and complete, with no recovery path."
+remediation = "Run `ALTER TABLE {schema_name}.{table_name} SET LOGGED` to promote the table to a fully durable, WAL-backed relation. If the data is genuinely ephemeral, move it to a `pg_temp_*` schema or use a regular temporary table instead so the intent is explicit."
+sql = """
+SELECT n.nspname  AS schema_name,
+       c.relname  AS table_name
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relpersistence = 'u'
+  AND c.relkind = 'r'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema', 'pg_toast')
+  AND n.nspname NOT LIKE 'pg_temp_%'
+  AND n.nspname NOT LIKE 'pg_toast_temp_%'
+ORDER BY n.nspname, c.relname
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS12 — Partitioned tables with no DEFAULT partition
+# ---------------------------------------------------------------------------
+# Scythe-original check — no prior art. Derived from pg_inherits + pg_get_expr.
+[[check]]
+id = "SC-INS12"
+name = "partition-without-default"
+category = "reliability"
+severity = "warn"
+engines = ["postgres"]
+min_pg_version = 12
+description = "partitioned table lacks a DEFAULT partition — out-of-range inserts will raise an error instead of routing safely"
+message = "partitioned table `{schema_name}.{parent_table}` has no DEFAULT partition — out-of-range inserts will fail with \"no partition of relation found for row\"; create one with `CREATE TABLE {schema_name}.{parent_table}_default PARTITION OF {schema_name}.{parent_table} DEFAULT`"
+explanation = "A partitioned table without a DEFAULT partition rejects any INSERT whose key value does not match an existing partition bound. This turns routine data — such as a future date or an unknown category value — into a hard error that surfaces only at runtime, often in production under load. A DEFAULT partition provides a safe catch-all that absorbs the overflow without data loss."
+remediation = "Create a DEFAULT partition with `CREATE TABLE {schema_name}.{parent_table}_default PARTITION OF {schema_name}.{parent_table} DEFAULT`. Existing rows that fall outside all current partition bounds will not be automatically moved; run `INSERT INTO ... SELECT` to backfill if needed."
+sql = """
+SELECT n.nspname    AS schema_name,
+       parent.relname AS parent_table
+FROM pg_class parent
+JOIN pg_namespace n ON n.oid = parent.relnamespace
+WHERE parent.relkind = 'p'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND NOT EXISTS (
+        SELECT 1
+        FROM pg_inherits i
+        JOIN pg_class child ON child.oid = i.inhrelid
+        WHERE i.inhparent = parent.oid
+          AND pg_get_expr(child.relpartbound, child.oid) = 'DEFAULT'
+      )
+ORDER BY n.nspname, parent.relname
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS13 — Sequences approaching overflow (>70 % consumed)
+# ---------------------------------------------------------------------------
+# Scythe-original check — no prior art. Derived from pg_sequences catalog view
+# (available since PG 10).
+[[check]]
+id = "SC-INS13"
+name = "sequence-overflow-risk"
+category = "reliability"
+severity = "warn"
+engines = ["postgres"]
+min_pg_version = 10
+description = "sequence has consumed more than 70% of its range — approaching overflow will break inserts and corrupt replication"
+message = "sequence `{schema_name}.{sequence_name}` is {percent_used}% consumed ({last_value}/{max_value}) — plan a sequence cycle, type widening to `bigint`, or reseed"
+explanation = "When a sequence exhausts its range every subsequent NEXTVAL raises an error, making inserts impossible without downtime. Integer sequences on high-throughput tables can overflow within months. Replication slots that carry sequence state may also desync silently if overflow is handled inconsistently across nodes. The 70% threshold gives teams time to widen the type or reseed before it becomes an incident."
+remediation = "Options in increasing disruption order: (1) widen the column and sequence to `bigint` with `ALTER SEQUENCE {schema_name}.{sequence_name} AS bigint`; (2) reseed with `ALTER SEQUENCE {schema_name}.{sequence_name} RESTART WITH 1` after ensuring no live rows use the vacated IDs; (3) enable cycling with `ALTER SEQUENCE {schema_name}.{sequence_name} CYCLE` only if duplicate IDs are safe for the workload."
+sql = """
+SELECT schemaname                                                         AS schema_name,
+       sequencename                                                        AS sequence_name,
+       last_value,
+       max_value,
+       round((last_value::float8 / max_value::float8) * 100, 1)::text    AS percent_used
+FROM pg_sequences
+WHERE last_value IS NOT NULL
+  AND last_value::float8 / max_value::float8 > 0.7
+  AND schemaname NOT IN ('pg_catalog', 'information_schema')
+ORDER BY last_value::float8 / max_value::float8 DESC
 """

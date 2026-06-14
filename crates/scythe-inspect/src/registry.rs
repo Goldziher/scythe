@@ -105,13 +105,18 @@ mod tests {
     use super::*;
 
     #[test]
-    fn canonical_registry_has_three_postgres_checks() {
+    fn canonical_registry_has_canonical_postgres_checks() {
+        use crate::spec::CANONICAL_CHECK_IDS;
         let reg = CheckRegistry::canonical();
-        assert_eq!(reg.for_engine("postgres").count(), 3);
+        assert_eq!(
+            reg.for_engine("postgres").count(),
+            CANONICAL_CHECK_IDS.len()
+        );
     }
 
     #[test]
     fn for_engine_filters_by_engine() {
+        use crate::spec::CANONICAL_CHECK_IDS;
         // Build a registry with a synthetic MySQL-only spec appended.
         let mut reg = CheckRegistry::canonical();
         reg.checks.push(CheckSpec {
@@ -129,8 +134,11 @@ mod tests {
             min_pg_version: None,
         });
 
-        // postgres engine should still only see the 3 canonical checks
-        assert_eq!(reg.for_engine("postgres").count(), 3);
+        // postgres engine should still only see the canonical checks
+        assert_eq!(
+            reg.for_engine("postgres").count(),
+            CANONICAL_CHECK_IDS.len()
+        );
         // mysql engine should see only the synthetic one
         assert_eq!(reg.for_engine("mysql").count(), 1);
     }

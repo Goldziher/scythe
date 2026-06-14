@@ -19,7 +19,10 @@ use sqlparser::parser::Parser;
 pub const SCHEMA_VERSION: u32 = 1;
 
 /// The canonical built-in check IDs that users cannot override or reuse.
-pub const CANONICAL_CHECK_IDS: &[&str] = &["SC-INS01", "SC-INS02", "SC-INS03"];
+pub const CANONICAL_CHECK_IDS: &[&str] = &[
+    "SC-INS01", "SC-INS02", "SC-INS03", "SC-INS04", "SC-INS05", "SC-INS06", "SC-INS07", "SC-INS08",
+    "SC-INS09", "SC-INS10", "SC-INS11", "SC-INS12", "SC-INS13",
+];
 
 // ---------------------------------------------------------------------------
 // CheckCategory
@@ -378,7 +381,8 @@ mod tests {
     }
 
     #[test]
-    fn canonical_checks_count_is_three() {
+    fn canonical_checks_count_matches_canonical_ids() {
+        use crate::spec::CANONICAL_CHECK_IDS;
         let content = include_str!("postgres/checks.toml");
         let file: CheckFile = toml::from_str(content).expect("canonical TOML parses");
         let sc_ins: Vec<_> = file
@@ -388,9 +392,10 @@ mod tests {
             .collect();
         assert_eq!(
             sc_ins.len(),
-            3,
-            "expected exactly 3 SC-INS* checks, got {}",
-            sc_ins.len()
+            CANONICAL_CHECK_IDS.len(),
+            "TOML SC-INS* count ({}) must match CANONICAL_CHECK_IDS length ({})",
+            sc_ins.len(),
+            CANONICAL_CHECK_IDS.len(),
         );
     }
 

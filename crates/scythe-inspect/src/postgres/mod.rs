@@ -150,10 +150,12 @@ mod tests {
     }
 
     #[test]
-    fn catalog_lists_three_checks() {
+    fn catalog_lists_canonical_checks() {
+        use crate::spec::CANONICAL_CHECK_IDS;
         let d = PostgresDriver::new();
         let catalog = d.checks();
-        assert_eq!(catalog.len(), 3);
+        assert_eq!(catalog.len(), CANONICAL_CHECK_IDS.len());
+        // Verify the first three canonical IDs are present in order.
         assert_eq!(catalog[0].id, "SC-INS01");
         assert_eq!(catalog[1].id, "SC-INS02");
         assert_eq!(catalog[2].id, "SC-INS03");
