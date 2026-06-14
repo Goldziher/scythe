@@ -16,6 +16,7 @@ pub mod create_domain_with_constraint;
 pub mod create_index_concurrency;
 pub mod drop_statement;
 pub mod function_name_in_set;
+pub mod function_search_path_mutable;
 pub mod grant_kind;
 pub mod grantee_includes;
 pub mod role_password_literal;
@@ -64,6 +65,10 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
         select_star_over_pii_columns::match_select_star_over_pii_columns,
     );
     reg.register("session_mutation", session_mutation::match_session_mutation);
+    reg.register(
+        "function_search_path_mutable",
+        function_search_path_mutable::match_function_search_path_mutable,
+    );
 
     // Migration matchers (SC-MIG*)
     reg.register("drop_statement", drop_statement::match_drop_statement);

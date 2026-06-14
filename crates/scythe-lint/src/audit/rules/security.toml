@@ -211,3 +211,22 @@ matcher = "session_mutation"
 
 [rule.matcher_args]
 kinds = ["set_role", "set_session_authorization", "reset_role"]
+
+# SC-SEC12 — function-search-path-mutable
+# CREATE FUNCTION without a SET search_path option leaves the resolution of
+# unqualified identifiers up to the caller's session; an attacker with
+# CREATE on a schema earlier in the caller's search_path can shadow built-in
+# objects. SC-SEC10 owns the escalating SECURITY DEFINER case at `error`;
+# SC-SEC12 covers the general invoker case at `warn` for hygiene.
+# CWE-426 (Untrusted Search Path). Detection inspired by supabase/splinter
+# lint `0011_function_search_path_mutable` (see ATTRIBUTIONS.md).
+[[rule]]
+id = "SC-SEC12"
+name = "function-search-path-mutable"
+category = "security"
+severity = "warn"
+dialects = ["postgres"]
+cwe = ["CWE-426"]
+description = "CREATE FUNCTION without an explicit SET search_path leaves identifier resolution to the caller's session — schema-shadowing risk (CWE-426)"
+message = "function `{function_name}` has no SET search_path — pin it (e.g. `SET search_path = pg_catalog, public`) so unqualified identifiers can't be shadowed by a caller-controlled schema"
+matcher = "function_search_path_mutable"

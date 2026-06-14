@@ -278,3 +278,36 @@ cwe = []
 description = "ALTER TABLE … ADD COLUMN … NOT NULL without a DEFAULT rewrites every existing row on PG < 11 and breaks deployed application versions that insert without the new column"
 message = "ADD COLUMN `{table}.{column}` is NOT NULL without a DEFAULT — provide a constant DEFAULT (catalog-only on PG 11+) and backfill before deploying code that requires the new column"
 matcher = "add_column_not_null_no_default"
+
+# SC-MIG19 — unsupported-reg-types
+# Columns declared as regnamespace/regproc/etc. embed OIDs that do not
+# survive pg_dump/pg_restore or pg_upgrade — Postgres outright refuses
+# pg_upgrade when these types are present. regclass is exempted because
+# its OID semantics are stable across major-version upgrades.
+# Reuses the existing `column_type_disallowed` matcher with no `suggested`
+# replacement (the migration is to a manual lookup, not another type).
+# Detection inspired by supabase/splinter lint
+# `0018_unsupported_reg_types` (see ATTRIBUTIONS.md).
+[[rule]]
+id = "SC-MIG19"
+name = "unsupported-reg-types"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "column declared as a reg* OID type other than regclass — blocks pg_upgrade and does not survive logical dump/restore"
+message = "`{table}.{column}` is `{actual_type}` — reg* OID types (other than regclass) block pg_upgrade; store the underlying name as text and resolve at query time"
+matcher = "column_type_disallowed"
+
+[rule.matcher_args]
+disallowed = [
+  "regcollation",
+  "regconfig",
+  "regdictionary",
+  "regnamespace",
+  "regoper",
+  "regoperator",
+  "regproc",
+  "regprocedure",
+]
+suggested = ""

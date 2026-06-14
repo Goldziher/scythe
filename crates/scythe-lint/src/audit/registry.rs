@@ -126,6 +126,7 @@ mod tests {
             "weak_hash_over_sensitive_column",
             "select_star_over_pii_columns",
             "session_mutation",
+            "function_search_path_mutable",
             // Migration
             "drop_statement",
             "create_index_concurrency",

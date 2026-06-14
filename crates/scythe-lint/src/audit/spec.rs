@@ -19,10 +19,10 @@ pub const SCHEMA_VERSION: u32 = 1;
 pub const CANONICAL_RULE_IDS: &[&str] = &[
     // Security
     "SC-SEC01", "SC-SEC02", "SC-SEC03", "SC-SEC04", "SC-SEC05", "SC-SEC06", "SC-SEC07", "SC-SEC08",
-    "SC-SEC09", "SC-SEC10", "SC-SEC11", // Migration
+    "SC-SEC09", "SC-SEC10", "SC-SEC11", "SC-SEC12", // Migration
     "SC-MIG01", "SC-MIG02", "SC-MIG03", "SC-MIG04", "SC-MIG05", "SC-MIG06", "SC-MIG07", "SC-MIG08",
     "SC-MIG09", "SC-MIG10", "SC-MIG11", "SC-MIG12", "SC-MIG13", "SC-MIG14", "SC-MIG15", "SC-MIG16",
-    "SC-MIG17", "SC-MIG18",
+    "SC-MIG17", "SC-MIG18", "SC-MIG19",
 ];
 
 // ---------------------------------------------------------------------------
@@ -246,15 +246,14 @@ functions = ["pg_read_file"]
 
     #[test]
     fn canonical_rule_ids_count() {
-        assert_eq!(CANONICAL_RULE_IDS.len(), 29);
+        assert_eq!(CANONICAL_RULE_IDS.len(), 31);
         assert!(CANONICAL_RULE_IDS.contains(&"SC-SEC01"));
-        assert!(CANONICAL_RULE_IDS.contains(&"SC-SEC11"));
+        assert!(CANONICAL_RULE_IDS.contains(&"SC-SEC12"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG01"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG09"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG13"));
-        assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG16"));
-        assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG17"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG18"));
+        assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG19"));
     }
 
     #[test]
