@@ -43,3 +43,6 @@ CHECKs = "CHECKs"
 SELECTs = "SELECTs"
 # Intentional misspelling in a fixture that exercises syntax-error detection.
 SELCT = "SELCT"
+# `inh` is the canonical scythe-inspect alias for `pg_inherits` in SQL queries,
+# chosen because `in` (the natural alias) is a reserved SQL keyword.
+inh = "inh"

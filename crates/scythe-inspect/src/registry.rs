@@ -4,7 +4,10 @@
 //! `postgres/checks.toml` via `include_str!` at compile time. User-supplied
 //! checks layer on top via [`CheckRegistry::with_user_checks`].
 
+use std::collections::HashMap;
 use std::path::Path;
+
+use scythe_lint::types::Severity;
 
 use crate::spec::{CheckSpec, ConfigError, validate_message_bindings};
 
@@ -93,6 +96,46 @@ impl CheckRegistry {
     /// Return all checks in the registry, in load order.
     pub fn all(&self) -> &[CheckSpec] {
         &self.checks
+    }
+
+    /// Apply per-check severity overrides from `[inspect.severity_overrides]`.
+    ///
+    /// For each entry in `overrides`:
+    /// - If the new severity is [`Severity::Off`], the check is **removed**
+    ///   from the registry so it does not appear in `--list-checks` output
+    ///   and is never executed.
+    /// - Otherwise, the check's severity is updated in-place.
+    ///
+    /// Unknown IDs in `overrides` are silently ignored (the rule may have been
+    /// introduced in a newer version of scythe-inspect).
+    pub fn apply_severity_overrides(&mut self, overrides: &HashMap<String, Severity>) {
+        if overrides.is_empty() {
+            return;
+        }
+
+        // Remove checks that are overridden to `off`.
+        self.checks
+            .retain(|c| overrides.get(&c.id) != Some(&Severity::Off));
+
+        // Update severities for surviving checks.
+        for spec in &mut self.checks {
+            if let Some(&new_sev) = overrides.get(&spec.id) {
+                spec.severity = new_sev;
+            }
+        }
+    }
+
+    /// Add inline user-defined checks (from `[[inspect.check]]` in
+    /// `scythe.toml`).
+    ///
+    /// Each spec must already have been validated by the caller (use
+    /// [`parse_inspect_section`](crate::config::parse_inspect_section) which
+    /// runs `validate_user_check` and `validate_message_bindings` before
+    /// returning).  This method appends them to the registry without
+    /// re-validating.
+    pub fn with_inline_checks(mut self, checks: Vec<CheckSpec>) -> Self {
+        self.checks.extend(checks);
+        self
     }
 }
 

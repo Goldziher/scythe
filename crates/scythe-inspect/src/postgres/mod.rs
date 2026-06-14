@@ -8,8 +8,18 @@ use tokio_postgres::{Client, NoTls};
 use crate::driver::{CheckCatalogEntry, DbDriver};
 use crate::error::InspectError;
 use crate::registry::CheckRegistry;
+use crate::suppression::SuppressionEngine;
 
 pub mod runner;
+
+/// The check ID for SC-INS10 (rls-disabled-in-public). When `api_schemas` is
+/// configured, the post-run filter restricts SC-INS10 findings to schemas in
+/// that list.  When `api_schemas` is empty the filter defaults to `["public"]`.
+///
+/// SC-INS10's SQL reports tables without RLS across ALL user schemas so the
+/// filter (not the SQL) determines scope.  This keeps the SQL simple while
+/// making the scope configurable without SQL parameterisation.
+const SC_INS10_ID: &str = "SC-INS10";
 
 /// PostgreSQL driver. Holds a `tokio_postgres::Client` after `connect()`
 /// succeeds; methods that need the client return
@@ -31,6 +41,15 @@ pub struct PostgresDriver {
     /// `None` until `connect()` succeeds and `SHOW server_version_num` is
     /// queried; used to gate `min_pg_version` checks.
     pg_version: Option<u32>,
+    /// Suppression engine built from `[[inspect.suppression]]` rules.
+    ///
+    /// `None` means no suppression rules are configured.
+    suppression: Option<SuppressionEngine>,
+    /// Schemas to apply for SC-INS10 (rls-disabled-in-public).
+    ///
+    /// SC-INS10 findings whose `schema_name` binding is NOT in this list are
+    /// dropped.  Defaults to `["public"]` when the list is empty.
+    api_schemas: Vec<String>,
 }
 
 impl PostgresDriver {
@@ -52,7 +71,44 @@ impl PostgresDriver {
             registry,
             catalog,
             pg_version: None,
+            suppression: None,
+            api_schemas: Vec::new(),
         }
+    }
+
+    /// Build a driver with a pre-configured registry (e.g. after applying
+    /// severity overrides and user checks from `[inspect]` config).
+    ///
+    /// The catalog is derived from the provided registry.
+    pub fn with_registry(registry: CheckRegistry) -> Self {
+        let catalog = registry
+            .for_engine("postgres")
+            .map(|spec| CheckCatalogEntry {
+                id: spec.id.clone(),
+                name: spec.name.clone(),
+                severity: spec.severity,
+                description: spec.description.clone(),
+            })
+            .collect();
+        Self {
+            client: None,
+            registry,
+            catalog,
+            pg_version: None,
+            suppression: None,
+            api_schemas: Vec::new(),
+        }
+    }
+
+    /// Set the suppression engine.  Call before `connect()` / `run_all()`.
+    pub fn set_suppression(&mut self, engine: SuppressionEngine) {
+        self.suppression = Some(engine);
+    }
+
+    /// Set the api_schemas list for SC-INS10 filtering.  An empty list
+    /// falls back to `["public"]`.
+    pub fn set_api_schemas(&mut self, schemas: Vec<String>) {
+        self.api_schemas = schemas;
     }
 
     /// Borrow the underlying client (test/inspection helper).
@@ -124,7 +180,15 @@ impl DbDriver for PostgresDriver {
 
         let pg_version = self.pg_version.unwrap_or(u32::MAX);
 
-        let mut findings = Vec::new();
+        // Effective api_schemas: fall back to ["public"] when not configured.
+        let effective_api_schemas: Vec<&str> = if self.api_schemas.is_empty() {
+            vec!["public"]
+        } else {
+            self.api_schemas.iter().map(|s| s.as_str()).collect()
+        };
+
+        let mut all_pairs = Vec::new();
+
         for spec in self.registry.for_engine("postgres") {
             // Skip checks that require a newer PG than what's connected.
             // `min_pg_version` is a major version (12, 14, 15, 16); convert
@@ -134,8 +198,34 @@ impl DbDriver for PostgresDriver {
             {
                 continue;
             }
-            findings.extend(runner::run_check(client, spec).await?);
+
+            let pairs = runner::run_check_with_bindings(client, spec).await?;
+
+            for (finding, bindings) in pairs {
+                // SC-INS10 post-filter: only keep findings for schemas in the
+                // api_schemas list.  The SQL reports all user schemas; we narrow
+                // to the configured scope here.
+                if finding.rule_id == SC_INS10_ID
+                    && let Some(schema) = bindings
+                        .iter()
+                        .find(|(k, _)| k.contains("schema"))
+                        .map(|(_, v)| v.as_str())
+                    && !effective_api_schemas.contains(&schema)
+                {
+                    continue;
+                }
+
+                all_pairs.push((finding, bindings));
+            }
         }
+
+        // Apply suppression rules if configured.
+        let findings = if let Some(sup) = &self.suppression {
+            sup.filter(all_pairs)
+        } else {
+            all_pairs.into_iter().map(|(f, _)| f).collect()
+        };
+
         Ok(findings)
     }
 }
@@ -183,5 +273,13 @@ mod tests {
         let pg_16: u32 = 160007;
         assert!(pg_14 < min_major.saturating_mul(10_000));
         assert!(pg_16 >= min_major.saturating_mul(10_000));
+    }
+
+    #[test]
+    fn with_registry_builds_catalog_correctly() {
+        use crate::spec::CANONICAL_CHECK_IDS;
+        let reg = CheckRegistry::canonical();
+        let d = PostgresDriver::with_registry(reg);
+        assert_eq!(d.checks().len(), CANONICAL_CHECK_IDS.len());
     }
 }

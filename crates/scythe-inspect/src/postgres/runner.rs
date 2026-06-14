@@ -120,11 +120,15 @@ fn render_message(
 }
 
 // ---------------------------------------------------------------------------
-// Public runner entry point
+// Public runner entry points
 // ---------------------------------------------------------------------------
 
-/// Execute `spec.sql` against `client` and return one [`Finding`] per result
-/// row.
+/// Execute `spec.sql` against `client` and return one `(Finding, bindings)`
+/// pair per result row.
+///
+/// The `bindings` map (`column_name → value`) is kept alongside the finding so
+/// the caller (e.g. the suppression engine) can match against individual column
+/// values without re-parsing the rendered message string.
 ///
 /// # Errors
 ///
@@ -133,7 +137,10 @@ fn render_message(
 ///   `spec.message` has no matching column in the result set (should be caught
 ///   at registry-load time by `validate_message_bindings`, but guarded here as
 ///   a defence-in-depth measure).
-pub async fn run_check(client: &Client, spec: &CheckSpec) -> Result<Vec<Finding>, InspectError> {
+pub async fn run_check_with_bindings(
+    client: &Client,
+    spec: &CheckSpec,
+) -> Result<Vec<(Finding, HashMap<String, String>)>, InspectError> {
     let rows = client
         .query(spec.sql.as_str(), &[])
         .await
@@ -143,13 +150,13 @@ pub async fn run_check(client: &Client, spec: &CheckSpec) -> Result<Vec<Finding>
             source: Box::new(e),
         })?;
 
-    let mut findings = Vec::with_capacity(rows.len());
+    let mut pairs = Vec::with_capacity(rows.len());
 
     for row in rows {
         let bindings = row_to_map(&row);
         let message = render_message(&spec.message, &bindings, &spec.id)?;
 
-        findings.push(Finding {
+        let finding = Finding {
             file: String::new(),
             query_name: None,
             rule_id: spec.id.clone(),
@@ -160,10 +167,27 @@ pub async fn run_check(client: &Client, spec: &CheckSpec) -> Result<Vec<Finding>
             line: None,
             column: None,
             cwe: spec.cwe.clone(),
-        });
+        };
+
+        pairs.push((finding, bindings));
     }
 
-    Ok(findings)
+    Ok(pairs)
+}
+
+/// Execute `spec.sql` against `client` and return one [`Finding`] per result
+/// row.
+///
+/// This is a thin wrapper around [`run_check_with_bindings`] that drops the
+/// bindings after the findings are constructed.  Use it when suppression is not
+/// needed (e.g. unit tests, callers that have already applied suppression).
+///
+/// # Errors
+///
+/// See [`run_check_with_bindings`].
+pub async fn run_check(client: &Client, spec: &CheckSpec) -> Result<Vec<Finding>, InspectError> {
+    let pairs = run_check_with_bindings(client, spec).await?;
+    Ok(pairs.into_iter().map(|(f, _)| f).collect())
 }
 
 // ---------------------------------------------------------------------------

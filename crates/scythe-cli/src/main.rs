@@ -98,7 +98,8 @@ enum Commands {
     /// tokio-postgres. Exits 2 on error-severity findings unless --exit-zero.
     ///
     /// Connection URL is resolved in order: positional argument, then
-    /// $DATABASE_URL, then $SCYTHE_DATABASE_URL.
+    /// $DATABASE_URL, then $SCYTHE_DATABASE_URL, then [inspect].database_url
+    /// in scythe.toml.
     Inspect {
         /// Database URL (e.g. postgres://user:pass@host/db)
         database_url: Option<String>,
@@ -108,6 +109,9 @@ enum Commands {
         /// Print the check catalog (id, name, severity, description) and exit 0
         #[arg(long)]
         list_checks: bool,
+        /// Print full rationale and remediation for a single check ID, then exit 0
+        #[arg(long, value_name = "CHECK_ID")]
+        explain: Option<String>,
         /// Drop findings below this severity (off|warn|error)
         #[arg(long, value_name = "LEVEL")]
         severity: Option<String>,
@@ -121,6 +125,9 @@ enum Commands {
         /// Default: parsed from URL scheme.
         #[arg(long)]
         dialect: Option<String>,
+        /// Path to config file (default: scythe.toml)
+        #[arg(short, long, default_value = "scythe.toml")]
+        config: String,
     },
 }
 
@@ -174,18 +181,22 @@ fn main() {
             database_url,
             format,
             list_checks,
+            explain,
             severity,
             exit_zero,
             output,
             dialect,
+            config,
         } => commands::inspect::run_inspect(commands::inspect::RunInspectOpts {
             database_url,
             format,
             list_checks,
+            explain,
             severity,
             exit_zero,
             output,
             dialect,
+            config_path: config,
         }),
     };
 

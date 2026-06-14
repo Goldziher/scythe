@@ -16,16 +16,20 @@
 //!
 //! Other engines (MSSQL, Snowflake, Oracle) are not yet wired.
 
+pub mod config;
 pub mod driver;
 pub mod error;
 pub mod mysql;
 pub mod postgres;
 pub mod registry;
 pub mod spec;
+pub mod suppression;
 
+pub use config::{InspectConfig, SuppressionRule, parse_inspect_section};
 pub use driver::{CheckCatalogEntry, DbDriver};
 pub use error::InspectError;
 pub use mysql::MysqlDriver;
 pub use postgres::PostgresDriver;
 pub use registry::CheckRegistry;
 pub use spec::{CheckCategory, CheckSpec, ConfigError, load_checks_from_file, parse_check_file};
+pub use suppression::SuppressionEngine;
