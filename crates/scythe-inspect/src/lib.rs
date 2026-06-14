@@ -7,9 +7,9 @@
 //!
 //! ## Engines
 //!
-//! - **PostgreSQL**: full Phase 0 support via [`PostgresDriver`] backed by
-//!   `tokio-postgres`. Three checks ship: SC-INS01 (missing FK index),
-//!   SC-INS02 (policy exists with RLS disabled), SC-INS03 (duplicate index).
+//! - **PostgreSQL**: full support via [`PostgresDriver`] backed by
+//!   `tokio-postgres`. Checks are defined in TOML and driven by
+//!   [`CheckRegistry::canonical`].
 //! - **MySQL**: stub only ([`MysqlDriver`] returns
 //!   [`InspectError::Unsupported`]). The stub exists to keep the
 //!   [`DbDriver`] trait shape engine-agnostic; a real driver lands in Phase 3.
@@ -20,8 +20,12 @@ pub mod driver;
 pub mod error;
 pub mod mysql;
 pub mod postgres;
+pub mod registry;
+pub mod spec;
 
 pub use driver::{CheckCatalogEntry, DbDriver};
 pub use error::InspectError;
 pub use mysql::MysqlDriver;
 pub use postgres::PostgresDriver;
+pub use registry::CheckRegistry;
+pub use spec::{CheckCategory, CheckSpec, ConfigError, load_checks_from_file, parse_check_file};

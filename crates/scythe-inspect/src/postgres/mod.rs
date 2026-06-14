@@ -1,49 +1,58 @@
-//! PostgreSQL driver — connects via `tokio-postgres` and runs Phase 0 checks.
+//! PostgreSQL driver — connects via `tokio-postgres` and runs checks from the
+//! TOML-driven registry.
 
 use async_trait::async_trait;
 use scythe_lint::reporters::Finding;
-use scythe_lint::types::Severity;
 use tokio_postgres::{Client, NoTls};
 
 use crate::driver::{CheckCatalogEntry, DbDriver};
 use crate::error::InspectError;
+use crate::registry::CheckRegistry;
 
-pub mod checks;
-
-/// Static catalog for `--list-checks` and `checks()` — order is stable.
-const CHECK_CATALOG: &[CheckCatalogEntry] = &[
-    CheckCatalogEntry {
-        id: "SC-INS01",
-        name: "missing-fk-index",
-        severity: Severity::Warn,
-        description: checks::SC_INS01_DESC,
-    },
-    CheckCatalogEntry {
-        id: "SC-INS02",
-        name: "policy-exists-rls-disabled",
-        severity: Severity::Error,
-        description: checks::SC_INS02_DESC,
-    },
-    CheckCatalogEntry {
-        id: "SC-INS03",
-        name: "duplicate-index",
-        severity: Severity::Warn,
-        description: checks::SC_INS03_DESC,
-    },
-];
+pub mod runner;
 
 /// PostgreSQL driver. Holds a `tokio_postgres::Client` after `connect()`
 /// succeeds; methods that need the client return
 /// [`InspectError::NotConnected`] otherwise.
+///
+/// The check registry is built once at construction time from the embedded
+/// canonical TOML; it is stored on the driver so `checks()` can return
+/// a borrowed slice backed by the registry.
 pub struct PostgresDriver {
     client: Option<Client>,
+    /// Canonical check registry, built at `new()`.
+    registry: CheckRegistry,
+    /// Catalog entries derived from `registry` at construction, stored so
+    /// `checks()` can return a `&[CheckCatalogEntry]` without lifetime
+    /// gymnastics.
+    catalog: Vec<CheckCatalogEntry>,
+    /// Postgres server version number (e.g. `160004` for PG 16.4).
+    ///
+    /// `None` until `connect()` succeeds and `SHOW server_version_num` is
+    /// queried; used to gate `min_pg_version` checks.
+    pg_version: Option<u32>,
 }
 
 impl PostgresDriver {
-    /// Construct an unconnected driver. Call [`DbDriver::connect`] before
-    /// [`DbDriver::run_all`].
+    /// Construct an unconnected driver and load the canonical check registry.
+    /// Call [`DbDriver::connect`] before [`DbDriver::run_all`].
     pub fn new() -> Self {
-        Self { client: None }
+        let registry = CheckRegistry::canonical();
+        let catalog = registry
+            .for_engine("postgres")
+            .map(|spec| CheckCatalogEntry {
+                id: spec.id.clone(),
+                name: spec.name.clone(),
+                severity: spec.severity,
+                description: spec.description.clone(),
+            })
+            .collect();
+        Self {
+            client: None,
+            registry,
+            catalog,
+            pg_version: None,
+        }
     }
 
     /// Borrow the underlying client (test/inspection helper).
@@ -82,12 +91,29 @@ impl DbDriver for PostgresDriver {
             }
         });
 
+        // Detect server version for min_pg_version gating.
+        let version_row = client
+            .query_one("SHOW server_version_num", &[])
+            .await
+            .map_err(|e| InspectError::Connect {
+                engine: "postgres",
+                source: Box::new(e),
+            })?;
+        let version_str: &str = version_row.get(0);
+        let pg_version: u32 = version_str.parse().map_err(|e| InspectError::Connect {
+            engine: "postgres",
+            source: Box::<dyn std::error::Error + Send + Sync>::from(format!(
+                "failed to parse server_version_num {version_str:?}: {e}"
+            )),
+        })?;
+
         self.client = Some(client);
+        self.pg_version = Some(pg_version);
         Ok(())
     }
 
-    fn checks(&self) -> &'static [CheckCatalogEntry] {
-        CHECK_CATALOG
+    fn checks(&self) -> &[CheckCatalogEntry] {
+        &self.catalog
     }
 
     async fn run_all(&self) -> Result<Vec<Finding>, InspectError> {
@@ -96,12 +122,20 @@ impl DbDriver for PostgresDriver {
             .as_ref()
             .ok_or(InspectError::NotConnected { engine: "postgres" })?;
 
-        // Run checks sequentially — three pg_catalog queries finish in
-        // milliseconds; concurrency would be premature.
+        let pg_version = self.pg_version.unwrap_or(u32::MAX);
+
         let mut findings = Vec::new();
-        findings.extend(checks::check_missing_fk_index(client).await?);
-        findings.extend(checks::check_policy_rls_disabled(client).await?);
-        findings.extend(checks::check_duplicate_index(client).await?);
+        for spec in self.registry.for_engine("postgres") {
+            // Skip checks that require a newer PG than what's connected.
+            // `min_pg_version` is a major version (12, 14, 15, 16); convert
+            // to `server_version_num` form for comparison.
+            if let Some(min_major) = spec.min_pg_version
+                && pg_version < min_major.saturating_mul(10_000)
+            {
+                continue;
+            }
+            findings.extend(runner::run_check(client, spec).await?);
+        }
         Ok(findings)
     }
 }
@@ -133,5 +167,19 @@ mod tests {
             err,
             InspectError::NotConnected { engine: "postgres" }
         ));
+    }
+
+    /// Sanity-check the major-version × 10_000 conversion used to gate
+    /// `min_pg_version`. PG 12 = 120000, PG 16 = 160000, PG 17 = 170000.
+    /// Regression guard: a check with `min_pg_version = 15` must NOT fire
+    /// against a server reporting `server_version_num = 140004`, but MUST fire
+    /// against one reporting `160007`.
+    #[test]
+    fn min_pg_version_gates_against_server_version_num_form() {
+        let min_major: u32 = 15;
+        let pg_14: u32 = 140004;
+        let pg_16: u32 = 160007;
+        assert!(pg_14 < min_major.saturating_mul(10_000));
+        assert!(pg_16 >= min_major.saturating_mul(10_000));
     }
 }

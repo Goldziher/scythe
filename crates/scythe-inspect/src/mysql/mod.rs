@@ -35,7 +35,7 @@ impl DbDriver for MysqlDriver {
         Err(InspectError::Unsupported("mysql"))
     }
 
-    fn checks(&self) -> &'static [CheckCatalogEntry] {
+    fn checks(&self) -> &[CheckCatalogEntry] {
         &[]
     }
 

@@ -1,0 +1,97 @@
+schema_version = 1
+
+# ---------------------------------------------------------------------------
+# SC-INS01 — Foreign-key columns without a covering index
+# ---------------------------------------------------------------------------
+# Detection pattern inspired by supabase/splinter lint 0001
+# (unindexed_foreign_keys). See ATTRIBUTIONS.md.
+[[check]]
+id = "SC-INS01"
+name = "missing-fk-index"
+category = "performance"
+severity = "warn"
+engines = ["postgres"]
+min_pg_version = 12
+description = "foreign-key columns without a covering index — every join through the constraint forces a sequential scan"
+message = "foreign-key `{schema_name}.{table_name}.{constraint_name}` on columns ({columns}) has no covering index — add `CREATE INDEX CONCURRENTLY` on the same column set"
+explanation = "PostgreSQL does not automatically create an index on the referencing side of a foreign key. Without a covering index every DELETE or UPDATE on the referenced table requires a sequential scan of the referencing table to check for dependent rows, which degrades badly at scale."
+remediation = "Run `CREATE INDEX CONCURRENTLY ON {schema_name}.{table_name} ({columns})` during a low-traffic window. Use CONCURRENTLY to avoid an exclusive lock on the table."
+sql = """
+SELECT n.nspname            AS schema_name,
+       cl.relname           AS table_name,
+       c.conname            AS constraint_name,
+       array_agg(att.attname ORDER BY u.ord) AS columns
+FROM pg_constraint c
+JOIN pg_class cl    ON cl.oid = c.conrelid
+JOIN pg_namespace n ON n.oid  = cl.relnamespace
+JOIN unnest(c.conkey) WITH ORDINALITY AS u(attnum, ord) ON TRUE
+JOIN pg_attribute att
+       ON att.attrelid = c.conrelid
+      AND att.attnum   = u.attnum
+WHERE c.contype = 'f'
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+  AND NOT EXISTS (
+        SELECT 1 FROM pg_index i
+        WHERE i.indrelid = c.conrelid
+          AND (i.indkey::int2[])[0:array_length(c.conkey, 1) - 1] = c.conkey
+      )
+GROUP BY n.nspname, cl.relname, c.conname
+ORDER BY n.nspname, cl.relname, c.conname
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS02 — Tables with CREATE POLICY but RLS disabled
+# ---------------------------------------------------------------------------
+# Detection pattern inspired by supabase/splinter lint 0006
+# (policy_exists_rls_disabled). See ATTRIBUTIONS.md.
+[[check]]
+id = "SC-INS02"
+name = "policy-exists-rls-disabled"
+category = "security"
+severity = "error"
+engines = ["postgres"]
+min_pg_version = 12
+description = "table has CREATE POLICY definitions but ROW LEVEL SECURITY is disabled — policies never apply"
+message = "`{schema_name}.{table_name}` has {policy_count} CREATE POLICY definition(s) but ROW LEVEL SECURITY is disabled — run `ALTER TABLE {schema_name}.{table_name} ENABLE ROW LEVEL SECURITY` or drop the policies"
+explanation = "PostgreSQL allows CREATE POLICY to succeed even when row-level security is off for the table. The policies are stored but never enforced, creating a false sense of data isolation. Any query can see all rows regardless of the policy conditions."
+remediation = "Either enable RLS with `ALTER TABLE {schema_name}.{table_name} ENABLE ROW LEVEL SECURITY` or remove the orphaned policies with `DROP POLICY`."
+sql = """
+SELECT n.nspname           AS schema_name,
+       c.relname           AS table_name,
+       count(p.polname)::bigint AS policy_count
+FROM pg_class c
+JOIN pg_namespace n ON n.oid = c.relnamespace
+JOIN pg_policy p    ON p.polrelid = c.oid
+WHERE c.relrowsecurity = false
+  AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+GROUP BY n.nspname, c.relname
+ORDER BY n.nspname, c.relname
+"""
+
+# ---------------------------------------------------------------------------
+# SC-INS03 — Indexes with identical definitions modulo name
+# ---------------------------------------------------------------------------
+# Detection pattern inspired by supabase/splinter lint 0009
+# (duplicate_index). See ATTRIBUTIONS.md.
+[[check]]
+id = "SC-INS03"
+name = "duplicate-index"
+category = "performance"
+severity = "warn"
+engines = ["postgres"]
+min_pg_version = 12
+description = "two or more indexes on the same table have identical definitions modulo name — wasted writes and storage"
+message = "`{schema_name}.{table_name}` has duplicate indexes with identical definitions: {duplicate_indexes} — drop all but one"
+explanation = "When two indexes share the same effective definition PostgreSQL maintains both on every write. The planner will only use one, so the duplicate provides no query benefit while doubling the write amplification and storage cost."
+remediation = "Identify which index name is referenced by constraints or used by the query planner (via `EXPLAIN`), keep that one, and `DROP INDEX CONCURRENTLY` the other."
+sql = """
+SELECT schemaname AS schema_name,
+       tablename  AS table_name,
+       array_agg(indexname ORDER BY indexname) AS duplicate_indexes
+FROM pg_indexes
+WHERE schemaname NOT IN ('pg_catalog', 'information_schema')
+GROUP BY schemaname, tablename,
+         regexp_replace(indexdef, ' INDEX [^ ]+ ON ', ' INDEX <name> ON ')
+HAVING count(*) > 1
+ORDER BY schemaname, tablename
+"""

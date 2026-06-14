@@ -9,16 +9,18 @@ use crate::error::InspectError;
 /// One row in the check catalog returned by [`DbDriver::checks`].
 ///
 /// Used by `--list-checks` to print a table without connecting to a database.
-#[derive(Debug, Clone, Copy)]
+/// Fields are owned `String`s so the catalog can be built from the TOML
+/// registry at runtime without requiring `'static` string literals.
+#[derive(Debug, Clone)]
 pub struct CheckCatalogEntry {
     /// Stable rule identifier (e.g. `"SC-INS01"`).
-    pub id: &'static str,
+    pub id: String,
     /// Short human-readable name (e.g. `"missing-fk-index"`).
-    pub name: &'static str,
+    pub name: String,
     /// Default severity emitted by the check.
     pub severity: Severity,
     /// One-line description suitable for a catalog table row.
-    pub description: &'static str,
+    pub description: String,
 }
 
 /// Engine-agnostic interface for live-database inspection.
@@ -40,7 +42,10 @@ pub trait DbDriver: Send + Sync {
 
     /// Static catalog of every check this driver implements, in stable order.
     /// Safe to call before `connect`.
-    fn checks(&self) -> &'static [CheckCatalogEntry];
+    ///
+    /// Returns a slice backed by a `Vec` stored on the driver — not `'static`
+    /// because the catalog is now built at runtime from the TOML registry.
+    fn checks(&self) -> &[CheckCatalogEntry];
 
     /// Run every check in [`checks`](Self::checks) and return their findings.
     ///

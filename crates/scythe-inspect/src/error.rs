@@ -22,7 +22,7 @@ pub enum InspectError {
         /// Engine that ran the query.
         engine: &'static str,
         /// Identifier of the check whose SQL failed.
-        check_id: &'static str,
+        check_id: String,
         /// Underlying driver error.
         #[source]
         source: Box<dyn std::error::Error + Send + Sync>,
@@ -43,5 +43,18 @@ pub enum InspectError {
     NotConnected {
         /// Engine whose method was called.
         engine: &'static str,
+    },
+
+    /// A message template `{var}` placeholder had no matching column in the
+    /// SQL row.  The canonical-time binding validation in
+    /// [`crate::spec::validate_message_bindings`] should make this unreachable
+    /// for built-in checks; this variant exists as a defence-in-depth guard
+    /// for user-defined checks.
+    #[error("check {check_id}: message placeholder '{{{binding}}}' not found in query result")]
+    MessageBindingMissing {
+        /// ID of the check whose message template is broken.
+        check_id: String,
+        /// The `{var}` name that was absent from the row.
+        binding: String,
     },
 }
