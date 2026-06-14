@@ -1,0 +1,20 @@
+{
+	"name": "prefer_bigint_over_int_fires",
+	"description": "CREATE TABLE with int column should trigger SC-MIG10",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "prefer-bigint-over-int"],
+	"schema_sql": [],
+	"query_sql": "-- @name CreateUsersTable\n-- @returns :exec\nCREATE TABLE users (id int PRIMARY KEY, name text)",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-MIG10",
+					"message_contains": "prefer `bigint`"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

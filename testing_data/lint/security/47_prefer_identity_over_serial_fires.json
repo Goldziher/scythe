@@ -1,0 +1,20 @@
+{
+	"name": "prefer_identity_over_serial_fires",
+	"description": "CREATE TABLE with serial column should trigger SC-MIG13",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "prefer-identity-over-serial"],
+	"schema_sql": [],
+	"query_sql": "-- @name CreateOrdersTable\n-- @returns :exec\nCREATE TABLE orders (id serial PRIMARY KEY, total bigint)",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-MIG13",
+					"message_contains": "prefer `identity`"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

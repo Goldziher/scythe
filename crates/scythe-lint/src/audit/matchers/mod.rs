@@ -7,6 +7,7 @@ pub mod alter_column_type;
 pub mod alter_table_rename;
 pub mod alter_table_rename_table;
 pub mod cartesian_join;
+pub mod column_type_disallowed;
 pub mod constraint_missing_not_valid;
 pub mod create_index_concurrency;
 pub mod drop_statement;
@@ -82,5 +83,9 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
     reg.register(
         "alter_column_type",
         alter_column_type::match_alter_column_type,
+    );
+    reg.register(
+        "column_type_disallowed",
+        column_type_disallowed::match_column_type_disallowed,
     );
 }

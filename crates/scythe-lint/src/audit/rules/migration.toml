@@ -131,3 +131,75 @@ cwe = []
 description = "ALTER COLUMN … TYPE rewrites the table under ACCESS EXCLUSIVE — blocks reads and writes for the duration"
 message = "ALTER `{table}.{column}` TYPE {target_type} rewrites the table under ACCESS EXCLUSIVE — stage as add-new-column → backfill → swap → drop-old"
 matcher = "alter_column_type"
+
+# SC-MIG10 — prefer-bigint-over-int
+# 32-bit surrogate keys silently overflow at 2^31 rows; the subsequent widen
+# is a write-blocking type change that requires a full table rewrite.
+[[rule]]
+id = "SC-MIG10"
+name = "prefer-bigint-over-int"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "Column declared as int/integer/int4/smallint/int2 — 32-bit keys overflow at 2^31 and widening later requires a write-blocking ALTER"
+message = "`{table}.{column}` uses `{actual_type}` — prefer `{suggested_type}` to avoid 32-bit overflow and a future write-blocking type change"
+matcher = "column_type_disallowed"
+
+[rule.matcher_args]
+disallowed = ["int", "integer", "int4", "smallint", "int2"]
+suggested = "bigint"
+
+# SC-MIG11 — prefer-text-over-varchar
+# Postgres stores text and length-limited varchar identically; a length bump
+# later is a write-blocking ALTER. Use text plus a CHECK constraint instead.
+[[rule]]
+id = "SC-MIG11"
+name = "prefer-text-over-varchar"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "Column declared as varchar(n)/character varying(n)/char(n) — Postgres stores these identically to text; a length increase is write-blocking"
+message = "`{table}.{column}` uses `{actual_type}` — prefer `{suggested_type}` with a CHECK constraint; a length increase on varchar is a write-blocking ALTER"
+matcher = "column_type_disallowed"
+
+[rule.matcher_args]
+disallowed = ["varchar", "character varying", "char"]
+suggested = "text"
+
+# SC-MIG12 — prefer-timestamptz
+# Naive timestamps shift silently when the session timezone changes.
+# timestamptz stores UTC and converts on read, which is always correct.
+[[rule]]
+id = "SC-MIG12"
+name = "prefer-timestamptz"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "Column declared as timestamp/timestamp without time zone — naive timestamps silently shift on session timezone changes"
+message = "`{table}.{column}` uses `{actual_type}` — prefer `{suggested_type}` to avoid silent timezone-dependent shifts"
+matcher = "column_type_disallowed"
+
+[rule.matcher_args]
+disallowed = ["timestamp", "timestamp without time zone"]
+suggested = "timestamptz"
+
+# SC-MIG13 — prefer-identity-over-serial
+# SERIAL is legacy implicit-sequence shorthand; GENERATED … AS IDENTITY is
+# the SQL-standard replacement with explicit ownership semantics.
+[[rule]]
+id = "SC-MIG13"
+name = "prefer-identity-over-serial"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "Column declared as serial/bigserial/smallserial — SERIAL is legacy shorthand; use GENERATED AS IDENTITY for explicit SQL-standard sequence ownership"
+message = "`{table}.{column}` uses `{actual_type}` — prefer `{suggested_type}` (`GENERATED ALWAYS AS IDENTITY`) for explicit SQL-standard sequence ownership"
+matcher = "column_type_disallowed"
+
+[rule.matcher_args]
+disallowed = ["serial", "bigserial", "smallserial"]
+suggested = "identity"

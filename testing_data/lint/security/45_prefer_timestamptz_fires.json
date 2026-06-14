@@ -1,0 +1,20 @@
+{
+	"name": "prefer_timestamptz_fires",
+	"description": "CREATE TABLE with timestamp column should trigger SC-MIG12",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "prefer-timestamptz"],
+	"schema_sql": [],
+	"query_sql": "-- @name CreateEventsTable\n-- @returns :exec\nCREATE TABLE events (id bigint PRIMARY KEY, occurred_at timestamp)",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-MIG12",
+					"message_contains": "prefer `timestamptz`"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

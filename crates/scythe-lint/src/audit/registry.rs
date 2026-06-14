@@ -134,6 +134,7 @@ mod tests {
             "alter_table_rename_table",
             "truncate_cascade",
             "alter_column_type",
+            "column_type_disallowed",
         ];
         for name in &expected {
             assert!(
