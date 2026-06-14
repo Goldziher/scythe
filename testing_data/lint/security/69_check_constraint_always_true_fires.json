@@ -1,0 +1,20 @@
+{
+	"name": "check_constraint_always_true_fires",
+	"description": "CREATE TABLE with a column-level CHECK (true) should trigger SC-CHK01",
+	"category": "lint/security",
+	"tags": ["lint", "antipattern", "check-constraint-always-true"],
+	"schema_sql": [],
+	"query_sql": "-- @name CreateAccountsTable\n-- @returns :exec\nCREATE TABLE accounts (id bigint PRIMARY KEY, balance numeric CHECK (true))",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-CHK01",
+					"message_contains": "tautology"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

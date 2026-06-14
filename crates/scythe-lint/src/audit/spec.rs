@@ -23,7 +23,8 @@ pub const CANONICAL_RULE_IDS: &[&str] = &[
     "SC-RLS01", "SC-RLS02", "SC-RLS03", // Migration
     "SC-MIG01", "SC-MIG02", "SC-MIG03", "SC-MIG04", "SC-MIG05", "SC-MIG06", "SC-MIG07", "SC-MIG08",
     "SC-MIG09", "SC-MIG10", "SC-MIG11", "SC-MIG12", "SC-MIG13", "SC-MIG14", "SC-MIG15", "SC-MIG16",
-    "SC-MIG17", "SC-MIG18", "SC-MIG19",
+    "SC-MIG17", "SC-MIG18", "SC-MIG19", // Quality / antipattern
+    "SC-CHK01",
 ];
 
 // ---------------------------------------------------------------------------
@@ -247,12 +248,13 @@ functions = ["pg_read_file"]
 
     #[test]
     fn canonical_rule_ids_count() {
-        assert_eq!(CANONICAL_RULE_IDS.len(), 34);
+        assert_eq!(CANONICAL_RULE_IDS.len(), 35);
         assert!(CANONICAL_RULE_IDS.contains(&"SC-SEC01"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-SEC12"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-RLS01"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-RLS03"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG19"));
+        assert!(CANONICAL_RULE_IDS.contains(&"SC-CHK01"));
     }
 
     #[test]

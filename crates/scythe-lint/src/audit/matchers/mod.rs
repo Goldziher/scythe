@@ -10,6 +10,7 @@ pub mod alter_column_type;
 pub mod alter_table_rename;
 pub mod alter_table_rename_table;
 pub mod cartesian_join;
+pub mod check_constraint_always_true;
 pub mod column_type_disallowed;
 pub mod constraint_missing_not_valid;
 pub mod create_domain_with_constraint;
@@ -127,5 +128,11 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
     reg.register(
         "add_column_not_null_no_default",
         add_column_not_null_no_default::match_add_column_not_null_no_default,
+    );
+
+    // Quality / antipattern matchers (SC-CHK*)
+    reg.register(
+        "check_constraint_always_true",
+        check_constraint_always_true::match_check_constraint_always_true,
     );
 }

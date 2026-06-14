@@ -69,13 +69,14 @@ pub fn register_user_rules(
 
 const SECURITY_TOML: &str = include_str!("rules/security.toml");
 const MIGRATION_TOML: &str = include_str!("rules/migration.toml");
+const QUALITY_TOML: &str = include_str!("rules/quality.toml");
 
-/// Load all built-in canonical rule specs (SC-SEC* + SC-MIG*) from the
-/// embedded TOML files.
+/// Load all built-in canonical rule specs (SC-SEC* + SC-RLS* + SC-MIG* +
+/// SC-CHK*) from the embedded TOML files.
 ///
 /// # Panics
 ///
-/// Panics if either embedded TOML file fails to parse.  These are build-time
+/// Panics if any embedded TOML file fails to parse.  These are build-time
 /// assets; a parse failure indicates a developer error, not a runtime
 /// condition.
 pub fn canonical_specs() -> Vec<RuleSpec> {
@@ -83,8 +84,11 @@ pub fn canonical_specs() -> Vec<RuleSpec> {
         .expect("canonical security.toml is invalid — fix the source TOML");
     let migration: RuleFile = toml::from_str(MIGRATION_TOML)
         .expect("canonical migration.toml is invalid — fix the source TOML");
+    let quality: RuleFile = toml::from_str(QUALITY_TOML)
+        .expect("canonical quality.toml is invalid — fix the source TOML");
     let mut all = security.rules;
     all.extend(migration.rules);
+    all.extend(quality.rules);
     all
 }
 
@@ -94,12 +98,12 @@ mod tests {
     use spec::CANONICAL_RULE_IDS;
 
     #[test]
-    fn canonical_specs_returns_thirty_four() {
+    fn canonical_specs_returns_thirty_five() {
         let specs = canonical_specs();
         assert_eq!(
             specs.len(),
-            34,
-            "expected exactly 34 canonical specs (12 SC-SEC* + 3 SC-RLS* + 19 SC-MIG*)"
+            35,
+            "expected exactly 35 canonical specs (12 SC-SEC* + 3 SC-RLS* + 19 SC-MIG* + 1 SC-CHK*)"
         );
     }
 

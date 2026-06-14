@@ -143,6 +143,8 @@ mod tests {
             "create_domain_with_constraint",
             "alter_column_drop_not_null",
             "add_column_not_null_no_default",
+            // Quality / antipattern
+            "check_constraint_always_true",
         ];
         for name in &expected {
             assert!(
