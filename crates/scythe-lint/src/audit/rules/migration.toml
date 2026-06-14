@@ -203,3 +203,49 @@ matcher = "column_type_disallowed"
 [rule.matcher_args]
 disallowed = ["serial", "bigserial", "smallserial"]
 suggested = "identity"
+
+# SC-MIG14 — disallowed-unique-constraint
+# Adding a UNIQUE constraint inline builds the index under ACCESS EXCLUSIVE.
+[[rule]]
+id = "SC-MIG14"
+name = "disallowed-unique-constraint"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "ALTER TABLE … ADD CONSTRAINT … UNIQUE (…) builds the index inline under ACCESS EXCLUSIVE — blocks reads and writes for the duration of the build"
+message = "ADD UNIQUE on `{table}` builds the index inline under ACCESS EXCLUSIVE — `CREATE UNIQUE INDEX CONCURRENTLY` first, then `ALTER TABLE … ADD CONSTRAINT … UNIQUE USING INDEX …`"
+matcher = "add_constraint_without_using_index"
+
+[rule.matcher_args]
+kinds = ["unique"]
+
+# SC-MIG15 — adding-primary-key-constraint
+# Adding a PRIMARY KEY inline builds the index under ACCESS EXCLUSIVE.
+[[rule]]
+id = "SC-MIG15"
+name = "adding-primary-key-constraint"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "ALTER TABLE … ADD CONSTRAINT … PRIMARY KEY (…) builds the index inline under ACCESS EXCLUSIVE — blocks reads and writes for the duration of the build"
+message = "ADD PRIMARY KEY on `{table}` builds the index inline under ACCESS EXCLUSIVE — `CREATE UNIQUE INDEX CONCURRENTLY` first, then `ALTER TABLE … ADD CONSTRAINT … PRIMARY KEY USING INDEX …`"
+matcher = "add_constraint_without_using_index"
+
+[rule.matcher_args]
+kinds = ["primary_key"]
+
+# SC-MIG16 — ban-create-domain-with-constraint
+# CHECK on a domain validates every row of every table using that domain
+# under ACCESS EXCLUSIVE; the constraint cannot be added incrementally.
+[[rule]]
+id = "SC-MIG16"
+name = "ban-create-domain-with-constraint"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "CREATE DOMAIN with a CHECK constraint validates every row of every table using the domain under ACCESS EXCLUSIVE and cannot be split into NOT VALID + VALIDATE"
+message = "CREATE DOMAIN `{domain}` with a CHECK constraint cannot be added incrementally — declare the domain without a constraint and enforce CHECK on each column with `NOT VALID` + `VALIDATE CONSTRAINT`"
+matcher = "create_domain_with_constraint"

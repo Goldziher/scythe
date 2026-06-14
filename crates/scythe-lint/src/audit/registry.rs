@@ -59,7 +59,7 @@ impl MatcherRegistry {
         self.matchers.get(name).copied()
     }
 
-    /// Build the canonical registry with all eleven built-in matchers wired.
+    /// Build the canonical registry with all built-in matchers wired.
     pub fn canonical() -> Self {
         let mut reg = Self::new();
         super::matchers::register_canonical(&mut reg);
@@ -135,6 +135,8 @@ mod tests {
             "truncate_cascade",
             "alter_column_type",
             "column_type_disallowed",
+            "add_constraint_without_using_index",
+            "create_domain_with_constraint",
         ];
         for name in &expected {
             assert!(

@@ -192,9 +192,9 @@ mod tests {
     }
 
     #[test]
-    fn default_registry_has_46_rules() {
+    fn default_registry_has_49_rules() {
         let reg = default_registry();
-        assert_eq!(reg.rules.len(), 46);
+        assert_eq!(reg.rules.len(), 49);
     }
 
     #[test]

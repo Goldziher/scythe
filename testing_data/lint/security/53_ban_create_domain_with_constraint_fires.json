@@ -1,0 +1,20 @@
+{
+	"name": "ban_create_domain_with_constraint_fires",
+	"description": "CREATE DOMAIN with a CHECK constraint should trigger SC-MIG16",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "ban-create-domain-with-constraint"],
+	"schema_sql": [],
+	"query_sql": "-- @name CreatePositiveIntDomain\n-- @returns :exec\nCREATE DOMAIN positive_int AS integer CHECK (VALUE > 0)",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-MIG16",
+					"message_contains": "CHECK"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

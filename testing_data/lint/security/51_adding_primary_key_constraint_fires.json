@@ -1,0 +1,20 @@
+{
+	"name": "adding_primary_key_constraint_fires",
+	"description": "ALTER TABLE ADD CONSTRAINT PRIMARY KEY without USING INDEX should trigger SC-MIG15",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "adding-primary-key-constraint"],
+	"schema_sql": ["CREATE TABLE accounts (id bigint NOT NULL, balance bigint)"],
+	"query_sql": "-- @name UpdateAccountsAddPrimaryKey\n-- @returns :exec\nALTER TABLE accounts ADD CONSTRAINT accounts_pk PRIMARY KEY (id)",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-MIG15",
+					"message_contains": "ACCESS EXCLUSIVE"
+				}
+			]
+		}
+	},
+	"source": "original"
+}

@@ -94,12 +94,12 @@ mod tests {
     use spec::CANONICAL_RULE_IDS;
 
     #[test]
-    fn canonical_specs_returns_twenty_four() {
+    fn canonical_specs_returns_twenty_seven() {
         let specs = canonical_specs();
         assert_eq!(
             specs.len(),
-            24,
-            "expected exactly 24 canonical specs (11 SC-SEC* + 13 SC-MIG*)"
+            27,
+            "expected exactly 27 canonical specs (11 SC-SEC* + 16 SC-MIG*)"
         );
     }
 

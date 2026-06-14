@@ -3,12 +3,14 @@
 //! Each submodule exports a single `match_*` function that implements the
 //! `MatcherFn` signature: `fn(&LintContext, &toml::Table) -> Vec<MatcherHit>`.
 
+pub mod add_constraint_without_using_index;
 pub mod alter_column_type;
 pub mod alter_table_rename;
 pub mod alter_table_rename_table;
 pub mod cartesian_join;
 pub mod column_type_disallowed;
 pub mod constraint_missing_not_valid;
+pub mod create_domain_with_constraint;
 pub mod create_index_concurrency;
 pub mod drop_statement;
 pub mod function_name_in_set;
@@ -87,5 +89,13 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
     reg.register(
         "column_type_disallowed",
         column_type_disallowed::match_column_type_disallowed,
+    );
+    reg.register(
+        "add_constraint_without_using_index",
+        add_constraint_without_using_index::match_add_constraint_without_using_index,
+    );
+    reg.register(
+        "create_domain_with_constraint",
+        create_domain_with_constraint::match_create_domain_with_constraint,
     );
 }
