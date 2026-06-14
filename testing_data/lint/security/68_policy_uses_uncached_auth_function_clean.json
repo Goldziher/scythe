@@ -1,0 +1,15 @@
+{
+	"name": "policy_uses_uncached_auth_function_clean",
+	"description": "Wrapped (select auth.uid()) in policy USING is the cached form; SC-RLS03 must not fire",
+	"category": "lint/security",
+	"tags": ["lint", "security", "rls", "policy-uses-uncached-auth-function"],
+	"schema_sql": ["CREATE TABLE tenants (id bigint PRIMARY KEY, user_id uuid)"],
+	"query_sql": "-- @name CreateTenantPolicy\n-- @returns :exec\nCREATE POLICY tenant ON tenants USING (user_id = (select auth.uid()))",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

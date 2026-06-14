@@ -230,3 +230,62 @@ cwe = ["CWE-426"]
 description = "CREATE FUNCTION without an explicit SET search_path leaves identifier resolution to the caller's session — schema-shadowing risk (CWE-426)"
 message = "function `{function_name}` has no SET search_path — pin it (e.g. `SET search_path = pg_catalog, public`) so unqualified identifiers can't be shadowed by a caller-controlled schema"
 matcher = "function_search_path_mutable"
+
+# SC-RLS01 — policy-references-user-metadata
+# Supabase JWT carries `user_metadata` (end-user-editable) and
+# `app_metadata` (server-only). Any RLS policy whose USING / WITH CHECK
+# expression reads from `user_metadata` lets a signed-in user rewrite
+# their own permissions.
+# CWE-639 (Authorization Bypass Through User-Controlled Key).
+# Detection inspired by supabase/splinter lint
+# `0015_rls_references_user_metadata` (see ATTRIBUTIONS.md).
+[[rule]]
+id = "SC-RLS01"
+name = "policy-references-user-metadata"
+category = "security"
+severity = "error"
+dialects = ["postgres"]
+cwe = ["CWE-639"]
+description = "RLS policy reads from `user_metadata` — an end-user-editable JWT claim that lets signed-in users grant themselves access (CWE-639)"
+message = "policy `{policy}` on `{table}` reads from `user_metadata` — use `app_metadata` (server-set) instead; `user_metadata` is end-user editable"
+matcher = "policy_references_user_metadata"
+
+# SC-RLS02 — policy-always-permissive
+# A permissive RLS policy with an always-true USING / WITH CHECK on
+# UPDATE / DELETE / INSERT / ALL grants unconditional write access to its
+# target roles. SELECT-only `USING (true)` is excluded — that's the common
+# everyone-can-read pattern. Restrictive policies are excluded — an
+# always-true restrictive policy is a no-op, not a security hole.
+# CWE-285 (Improper Authorization).
+# Detection inspired by supabase/splinter lint
+# `0024_rls_policy_always_true` (see ATTRIBUTIONS.md).
+[[rule]]
+id = "SC-RLS02"
+name = "policy-always-permissive"
+category = "security"
+severity = "error"
+dialects = ["postgres"]
+cwe = ["CWE-285"]
+description = "permissive RLS policy with always-true USING / WITH CHECK on a write command — grants unconditional access (CWE-285)"
+message = "policy `{policy}` on `{table}` has an always-true {clause} clause on a write command — replace the tautology with an actual predicate before deploying"
+matcher = "policy_always_permissive"
+
+# SC-RLS03 — policy-uses-uncached-auth-function
+# Bare auth.uid() / auth.jwt() / auth.role() / auth.email() /
+# current_setting(...) inside a policy expression are re-evaluated per
+# candidate row, costing per-row planner overhead. Wrapping the call in
+# `(select …)` lets Postgres cache the result as an InitPlan and evaluate
+# it once per query.
+# CWE-405 (Asymmetric Resource Consumption).
+# Detection inspired by supabase/splinter lint
+# `0003_auth_rls_initplan` (see ATTRIBUTIONS.md).
+[[rule]]
+id = "SC-RLS03"
+name = "policy-uses-uncached-auth-function"
+category = "security"
+severity = "warn"
+dialects = ["postgres"]
+cwe = ["CWE-405"]
+description = "RLS policy calls a per-request auth helper (`auth.uid()`, `auth.jwt()`, `current_setting`) without `(select …)` — re-evaluated per row (CWE-405)"
+message = "policy `{policy}` on `{table}` calls an auth helper directly in its {clause} clause — wrap it as `(select auth.uid())` so the optimiser caches the result as an InitPlan"
+matcher = "policy_uses_uncached_auth_function"

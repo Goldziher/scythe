@@ -19,6 +19,9 @@ pub mod function_name_in_set;
 pub mod function_search_path_mutable;
 pub mod grant_kind;
 pub mod grantee_includes;
+pub mod policy_always_permissive;
+pub mod policy_references_user_metadata;
+pub mod policy_uses_uncached_auth_function;
 pub mod role_password_literal;
 pub mod role_with_attribute;
 pub mod security_definer_no_search_path;
@@ -68,6 +71,18 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
     reg.register(
         "function_search_path_mutable",
         function_search_path_mutable::match_function_search_path_mutable,
+    );
+    reg.register(
+        "policy_references_user_metadata",
+        policy_references_user_metadata::match_policy_references_user_metadata,
+    );
+    reg.register(
+        "policy_always_permissive",
+        policy_always_permissive::match_policy_always_permissive,
+    );
+    reg.register(
+        "policy_uses_uncached_auth_function",
+        policy_uses_uncached_auth_function::match_policy_uses_uncached_auth_function,
     );
 
     // Migration matchers (SC-MIG*)

@@ -127,6 +127,9 @@ mod tests {
             "select_star_over_pii_columns",
             "session_mutation",
             "function_search_path_mutable",
+            "policy_references_user_metadata",
+            "policy_always_permissive",
+            "policy_uses_uncached_auth_function",
             // Migration
             "drop_statement",
             "create_index_concurrency",
