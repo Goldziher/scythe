@@ -117,7 +117,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 {%- endif %}
 
     let schema_sql = std::fs::read_to_string("{{ schema_dir }}/{% if engine == "redshift" %}schema_pg_compat.sql{% else %}schema.sql{% endif %}")?;
-    sqlx::raw_sql(&schema_sql).execute(&pool).await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(schema_sql)).execute(&pool).await?;
 {%- elif driver == "sqlx-mysql" -%}
     let pool = MySqlPoolOptions::new()
         .max_connections(5)
@@ -142,7 +142,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for stmt in schema_sql.split(';') {
         let stmt = stmt.trim();
         if !stmt.is_empty() {
-            sqlx::query(stmt).execute(&pool).await?;
+            sqlx::query(sqlx::AssertSqlSafe(stmt)).execute(&pool).await?;
         }
     }
 {%- elif driver == "sqlx-mariadb" -%}
@@ -169,7 +169,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     for stmt in schema_sql.split(';') {
         let stmt = stmt.trim();
         if !stmt.is_empty() {
-            sqlx::query(stmt).execute(&pool).await?;
+            sqlx::query(sqlx::AssertSqlSafe(stmt)).execute(&pool).await?;
         }
     }
 {%- elif driver == "sqlx-sqlite" -%}
@@ -195,7 +195,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     let schema_sql = std::fs::read_to_string("{{ schema_dir }}/schema.sql")?;
-    sqlx::raw_sql(&schema_sql).execute(&pool).await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(schema_sql)).execute(&pool).await?;
 {%- elif driver == "tokio-postgres" -%}
     let (client, connection) = tokio_postgres::connect(&database_url, NoTls).await?;
 

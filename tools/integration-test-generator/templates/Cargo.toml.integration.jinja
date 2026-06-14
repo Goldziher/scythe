@@ -7,11 +7,11 @@ edition = "2024"
 
 [dependencies]
 {% if driver == "sqlx" -%}
-sqlx = { version = "0.8", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal"] }
 {%- elif driver == "sqlx-mysql" or driver == "sqlx-mariadb" -%}
-sqlx = { version = "0.8", features = ["runtime-tokio", "mysql", "chrono", "rust_decimal"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "mysql", "chrono", "rust_decimal"] }
 {%- elif driver == "sqlx-sqlite" -%}
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
 {%- elif driver == "tokio-postgres" -%}
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 {%- elif driver == "tiberius" -%}

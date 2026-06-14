@@ -6,6 +6,6 @@ edition = "2024"
 [workspace]
 
 [dependencies]
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
 tokio = { version = "1", features = ["full"] }
 rust_decimal = "1"

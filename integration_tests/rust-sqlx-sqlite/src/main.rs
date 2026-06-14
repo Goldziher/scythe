@@ -51,7 +51,7 @@ let connect_options = database_url.parse::<SqliteConnectOptions>()?
         .await?;
 
     let schema_sql = std::fs::read_to_string("../sql/sqlite/schema.sql")?;
-    sqlx::raw_sql(&schema_sql).execute(&pool).await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(schema_sql)).execute(&pool).await?;
 
     // Test: CreateUser
 let insert_result = sqlx::query("INSERT INTO users (name, email, status) VALUES (?, ?, ?)")

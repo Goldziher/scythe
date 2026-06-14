@@ -52,7 +52,7 @@ let pool = MySqlPoolOptions::new()
     for stmt in schema_sql.split(';') {
         let stmt = stmt.trim();
         if !stmt.is_empty() {
-            sqlx::query(stmt).execute(&pool).await?;
+            sqlx::query(sqlx::AssertSqlSafe(stmt)).execute(&pool).await?;
         }
     }
 

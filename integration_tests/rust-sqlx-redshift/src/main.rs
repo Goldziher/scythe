@@ -49,7 +49,7 @@ let pool = PgPoolOptions::new()
         .await?;
 
     let schema_sql = std::fs::read_to_string("../sql/redshift/schema_pg_compat.sql")?;
-    sqlx::raw_sql(&schema_sql).execute(&pool).await?;
+    sqlx::raw_sql(sqlx::AssertSqlSafe(schema_sql)).execute(&pool).await?;
 
     // Test: CreateUser
 let user: CreateUserRow = sqlx::query_as(
