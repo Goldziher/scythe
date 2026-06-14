@@ -93,6 +93,35 @@ enum Commands {
         /// SQL files to audit (if empty, uses config schema + queries)
         files: Vec<String>,
     },
+    /// Inspect a live database for operational issues (missing FK indexes,
+    /// disabled RLS with policies, duplicate indexes). Connects via
+    /// tokio-postgres. Exits 2 on error-severity findings unless --exit-zero.
+    ///
+    /// Connection URL is resolved in order: positional argument, then
+    /// $DATABASE_URL, then $SCYTHE_DATABASE_URL.
+    Inspect {
+        /// Database URL (e.g. postgres://user:pass@host/db)
+        database_url: Option<String>,
+        /// Output format: human (default), sarif, json
+        #[arg(long, default_value = "human")]
+        format: String,
+        /// Print the check catalog (id, name, severity, description) and exit 0
+        #[arg(long)]
+        list_checks: bool,
+        /// Drop findings below this severity (off|warn|error)
+        #[arg(long, value_name = "LEVEL")]
+        severity: Option<String>,
+        /// Exit 0 even if error-severity findings are present
+        #[arg(long)]
+        exit_zero: bool,
+        /// Write reporter output to file instead of stdout
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<String>,
+        /// Engine to target (postgres only at Phase 0; mysql is stubbed).
+        /// Default: parsed from URL scheme.
+        #[arg(long)]
+        dialect: Option<String>,
+    },
 }
 
 fn main() {
@@ -140,6 +169,23 @@ fn main() {
             ignore_suppressions,
             dialect,
             files,
+        }),
+        Commands::Inspect {
+            database_url,
+            format,
+            list_checks,
+            severity,
+            exit_zero,
+            output,
+            dialect,
+        } => commands::inspect::run_inspect(commands::inspect::RunInspectOpts {
+            database_url,
+            format,
+            list_checks,
+            severity,
+            exit_zero,
+            output,
+            dialect,
         }),
     };
 

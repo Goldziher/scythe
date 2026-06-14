@@ -33,6 +33,7 @@ prek install
 | `scythe-fmt` | Format SQL files in-place | Yes | No |
 | `scythe-lint` | Lint SQL files with auto-fix (includes audit rules) | Yes | No |
 | `scythe-audit` | SC-SEC*/SC-RLS*/SC-MIG*/SC-CHK* security/migration audit | No | No |
+| `scythe-inspect` | Live-DB health checks (SC-INS*) — CI mode, requires `$DATABASE_URL` | No | No |
 | `scythe-generate` | Generate code from SQL schema and queries | Yes | Yes |
 | `scythe-check` | Validate SQL without generating code | No | Yes |
 
@@ -47,6 +48,10 @@ Lints SQL files and auto-fixes violations where possible. Runs `scythe lint --fi
 ### scythe-audit
 
 Static SQL audit — runs the canonical security, RLS, migration-safety, and CHECK-integrity rule packs over staged `.sql` files. No `scythe.toml` or database connection required. Defaults to the `postgres` dialect; override via `args: [--dialect, mysql]` (or any other supported engine). Exits 2 when any error-severity rule fires; pass `--exit-zero` for advisory CI integration that publishes findings without blocking the commit.
+
+### scythe-inspect
+
+**CI-mode hook.** Connects to a live Postgres database and runs the `SC-INS*` operational health checks (missing FK indexes, RLS misconfig with policies, duplicate indexes). Requires `$DATABASE_URL` (or `$SCYTHE_DATABASE_URL`) to be set in the hook's environment — local pre-commit runs without the variable fail loudly with the same error as the CLI. Designed for CI pre-merge gates and pre-deploy checks, not interactive commit blocking. Exits 2 on error-severity findings; pass `--exit-zero` via `args:` for advisory mode. Phase 1 (v0.11.0) will add `[inspect]` config sourcing so local pre-commit use becomes natural.
 
 ### scythe-generate
 

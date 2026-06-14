@@ -34,6 +34,21 @@
   types: [sql]
   pass_filenames: true
 
+- id: scythe-inspect
+  name: Inspect a live database (scythe inspect)
+  description: >-
+    CI-mode hook. Connects to a live Postgres database and runs the SC-INS*
+    operational health checks (missing FK indexes, RLS misconfig, duplicate
+    indexes). Requires $DATABASE_URL (or $SCYTHE_DATABASE_URL) in the hook
+    environment — local pre-commit runs without the variable fail loudly
+    with the same error as the CLI. Designed for CI pre-merge gates and
+    pre-deploy checks, not interactive commit blocking. Exits 2 on error-
+    severity findings; pass `--exit-zero` via `args:` for advisory mode.
+  entry: scythe inspect
+  language: rust
+  always_run: true
+  pass_filenames: false
+
 - id: scythe-generate
   name: Generate code from SQL (scythe generate)
   description: Regenerate code when SQL files or scythe.toml change.

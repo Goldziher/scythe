@@ -1,0 +1,52 @@
+name: Inspect (live PG)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/scythe-inspect/**"
+      - ".github/workflows/inspect-live.yml"
+  pull_request:
+    paths:
+      - "crates/scythe-inspect/**"
+      - ".github/workflows/inspect-live.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-pg:
+    name: Postgres live checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scythe
+          POSTGRES_PASSWORD: scythe
+          POSTGRES_DB: scythe_inspect_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          cache-on-failure: true
+
+      - name: Run scythe-inspect live tests
+        env:
+          SCYTHE_TEST_DATABASE_URL: postgres://scythe:scythe@localhost:5432/scythe_inspect_test
+        run: cargo test -p scythe-inspect --features live-tests -- --test-threads=1

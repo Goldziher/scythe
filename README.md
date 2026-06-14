@@ -50,11 +50,12 @@ Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.co
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.9.0
+    rev: v0.10.0
     hooks:
       - id: scythe-fmt       # Format SQL files
       - id: scythe-lint      # Lint SQL with auto-fix (includes audit rules when scythe.toml is present)
       - id: scythe-audit     # SC-SEC*/SC-RLS*/SC-MIG*/SC-CHK* on every staged .sql file
+      - id: scythe-inspect   # SC-INS* live-DB health checks (CI mode, needs $DATABASE_URL)
       - id: scythe-generate  # Regenerate code on SQL changes
       - id: scythe-check     # Validate SQL without generating
 ```
@@ -337,6 +338,7 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 - **70+ backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, pgx, JDBC, R2DBC, Exposed, Npgsql, PDO, tiberius, oracledb, pyodbc, and more
 - **93 lint rules** -- UPDATE without WHERE, SELECT *, NULL comparisons, leading wildcard LIKE, plus 71 sqruff rules
 - **`scythe audit`** -- security scanner for SQL: dangerous functions, GRANT ALL, GRANT to PUBLIC, cartesian joins, unbounded LIKE, SECURITY DEFINER without pinned `search_path`, role privilege escalation, literal passwords, weak hashes over credential columns, SELECT * over PII, session-state mutation. Emits human / SARIF / JSON for CI integration
+- **`scythe inspect`** -- live-database operational health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. Connects via `tokio-postgres`, emits the same human / SARIF / JSON reports as audit. (Postgres only at v0.10; MySQL in Phase 3.)
 - **SQL formatting** -- consistent style via sqruff integration
 - **Smart type inference** -- nullability from JOINs, COALESCE, window functions, CASE WHEN, aggregates
 - **`@optional` parameters** -- SQL rewriting for conditional filters (`WHERE ($1 IS NULL OR col = $1)`)
@@ -376,6 +378,7 @@ Full documentation at [goldziher.github.io/scythe](https://goldziher.github.io/s
 - [Annotations](https://goldziher.github.io/scythe/guide/annotations/) -- @name, @returns, @optional, @nullable, @json, and more
 - [Lint Rules](https://goldziher.github.io/scythe/reference/lint-rules/) -- all 93 rules with codes and examples
 - [Audit (security)](https://goldziher.github.io/scythe/guide/audit/) -- the `scythe audit` subcommand, suppressions, user-defined rules, and CI integration
+- [Inspect (live database)](https://goldziher.github.io/scythe/guide/inspect/) -- the `scythe inspect` subcommand, check catalog, CI integration, phased roadmap
 
 ## Contributing
 

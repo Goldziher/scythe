@@ -107,6 +107,26 @@ scythe audit [OPTIONS] [files...]
 
 Exits with code 2 when any error-severity finding is present (unless `--exit-zero` is set). This is distinct from `scythe lint` exit code 1 so CI can tell apart lint failures from security failures.
 
+### inspect
+
+Connect to a live database and run operational health checks — missing FK indexes, disabled RLS with policies, duplicate indexes. Emits findings in the same human/SARIF/JSON shape as `scythe audit`. See the [Inspect guide](inspect.md) for the full check catalog and CI integration recipes.
+
+```bash
+scythe inspect [OPTIONS] [DATABASE_URL]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `DATABASE_URL` | (from env) | Positional connection URL. Falls back to `$DATABASE_URL`, then `$SCYTHE_DATABASE_URL` |
+| `--format` | `human` | Output format: `human`, `sarif`, `json` |
+| `--list-checks` | false | Print the check catalog (id, name, severity, description) and exit 0 |
+| `--severity <LEVEL>` | -- | Drop findings below this severity (`off`, `warn`, `error`) |
+| `--exit-zero` | false | Exit 0 even if error-severity findings are present (advisory CI gate) |
+| `-o, --output <PATH>` | (stdout) | Write reporter output to a file instead of stdout |
+| `--dialect <DIALECT>` | (from URL scheme) | Engine override: `postgres` (full), `mysql` (stub) |
+
+Exits with code 2 when any error-severity finding is present (unless `--exit-zero` is set). Same convention as `scythe audit`.
+
 ## Exit Codes
 
 | Code | Meaning |

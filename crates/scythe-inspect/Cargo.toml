@@ -1,0 +1,29 @@
+[package]
+name = "scythe-inspect"
+version = "0.10.0"
+edition = "2024"
+license = "MIT"
+description = "Live-database health-check engine for scythe"
+repository = "https://github.com/Goldziher/scythe"
+homepage = "https://goldziher.github.io/scythe"
+documentation = "https://goldziher.github.io/scythe"
+authors = ["Na'aman Hirschfeld"]
+keywords = ["sql", "postgres", "lint", "audit", "database"]
+categories = ["development-tools", "database"]
+
+[features]
+default = []
+# Enable to run tests/pg_live.rs against a real Postgres at
+# $SCYTHE_TEST_DATABASE_URL. Off by default — `cargo test` stays DB-free.
+live-tests = []
+
+[dependencies]
+async-trait = "0.1"
+scythe-lint = { path = "../scythe-lint", version = "0.10.0" }
+thiserror = "2"
+tokio = { version = "1", features = ["rt"] }
+tokio-postgres = "0.7"
+
+[dev-dependencies]
+sqlparser = { version = "0.62", features = ["visitor"] }
+tokio = { version = "1", features = ["macros", "rt"] }

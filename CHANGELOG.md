@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.10.0] - 2026-06-14
+
+### Added
+
+- `scythe inspect <database-url>` subcommand — live-database operational health checks. Connects via `tokio-postgres` and runs a set of `pg_catalog` queries that detect issues only visible in a running database, then emits findings in the same human / SARIF 2.1.0 / JSON reporter shapes used by `scythe audit`. URL resolution: positional argument, then `$DATABASE_URL`, then `$SCYTHE_DATABASE_URL`. Builds a per-invocation `tokio::runtime::Builder::new_current_thread()` runtime so the rest of the CLI (`lint`, `audit`, `generate`) stays synchronous.
+- New `scythe-inspect` crate (`crates/scythe-inspect/`) carrying a `DbDriver` async trait, a `PostgresDriver` implementation backed by `tokio-postgres`, and a `MysqlDriver` stub that returns `InspectError::Unsupported("mysql")` from `connect` and `run_all`. The stub exists to keep the trait shape engine-agnostic; a real MySQL driver lands in Phase 3 (v0.13.0).
+- Three Postgres operational checks at Phase 0, clean-room reimplemented from the equivalent supabase/splinter lints (no source code copied; ATTRIBUTIONS.md updated): SC-INS01 missing-fk-index (warn — foreign-key columns with no covering index force a sequential scan on every join through the constraint; splinter 0001), SC-INS02 policy-exists-rls-disabled (error — table has `CREATE POLICY` definitions but `ROW LEVEL SECURITY` is disabled, so the policies never apply; splinter 0006), and SC-INS03 duplicate-index (warn — two or more indexes with identical definitions modulo name; splinter 0009).
+- `scythe inspect --list-checks` prints the check catalog (id, name, severity, description) without connecting, so users can discover the rule set offline.
+- `scythe inspect --format <human|sarif|json>`, `--severity <off|warn|error>`, `--exit-zero`, `--output <PATH>`, `--dialect <postgres|mysql>` — mirror the audit subcommand surface for consistency. Exit code 2 on remaining error-severity findings unless `--exit-zero` is set; exit 0 otherwise. Severity floor filtering applies before emission.
+- Public `scythe-inspect` pre-commit hook published via `.pre-commit-hooks.yaml`. CI-mode hook: `always_run: true`, `pass_filenames: false`, requires `$DATABASE_URL` (or `$SCYTHE_DATABASE_URL`) in the hook environment. Local pre-commit runs without the variable fail loudly with the same error as the CLI. Phase 1 (v0.11.0) will add `scythe.toml` `[inspect]` URL sourcing so local use becomes natural.
+- New documentation page `docs/guide/inspect.md` covering quick-start, check catalog, severity/exit-code semantics, GitHub Actions CI recipe with `services: postgres`, pre-commit usage, what `scythe inspect` does not do (yet), and the phased roadmap through v0.14.0.
+- `docs/guide/cli-reference.md` extended with the `inspect` subcommand and every flag; `docs/guide/pre-commit-hooks.md` adds the new `scythe-inspect` hook row and section; README adds `scythe inspect` to the feature list and a Documentation link.
+- New CI workflow `.github/workflows/inspect-live.yml` spins up `postgres:16-alpine` as a service and runs `cargo test -p scythe-inspect --features live-tests`. Triggered on PRs that touch `crates/scythe-inspect/**`. Default `cargo test` runs stay DB-free.
+- `ATTRIBUTIONS.md` extended with a "Live inspection rules inspired by splinter (scythe-inspect)" subsection citing splinter lints 0001, 0006, 0009 against SC-INS01, SC-INS02, SC-INS03 respectively.
+
+### Changed
+
+- Workspace crate versions bumped 0.9.0 → 0.10.0 across all six crates (the five existing crates plus the new `scythe-inspect`), with cross-crate path-dep version pins updated.
+- `scythe lint` and `scythe audit` are unaffected — Phase 0 adds the inspect surface without touching the static pipeline.
+
 ## [0.9.0] - 2026-06-14
 
 ### Added
