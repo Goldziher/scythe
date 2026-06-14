@@ -13,7 +13,7 @@ repos:
         stages: [commit-msg]
 
   - repo: https://github.com/Goldziher/ai-rulez
-    rev: v4.1.6
+    rev: v4.4.1
     hooks:
       - id: ai-rulez-validate
       - id: ai-rulez-generate
@@ -42,7 +42,7 @@ repos:
 
   # Markdown: linting
   - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: "v0.1.95"
+    rev: "v0.2.16"
     hooks:
       - id: rumdl-fmt
         exclude: "docs/snippets/"
@@ -79,7 +79,7 @@ repos:
       - id: cargo-machete
 
   - repo: https://github.com/EmbarkStudios/cargo-deny
-    rev: 0.19.6
+    rev: 0.19.8
     hooks:
       - id: cargo-deny
         args: ["check"]
@@ -93,7 +93,7 @@ repos:
 
   # JavaScript/TypeScript/JSON/CSS: biome (formatting + linting with autofixes)
   - repo: https://github.com/biomejs/pre-commit
-    rev: v2.4.15
+    rev: v2.5.0
     hooks:
       - id: biome-format
 
