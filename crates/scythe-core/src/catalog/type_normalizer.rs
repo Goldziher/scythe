@@ -11,7 +11,7 @@ pub(crate) fn normalize_data_type(
 ) -> (String, bool) {
     match dt {
         // Custom types (includes serial, timestamptz, and user-defined types)
-        DataType::Custom(name, _tokens) => {
+        DataType::Custom(name, tokens) => {
             let raw = object_name_to_key(name);
             match raw.as_str() {
                 "serial" | "serial4" => return ("integer".to_string(), true),
@@ -19,6 +19,10 @@ pub(crate) fn normalize_data_type(
                 "smallserial" | "serial2" => return ("smallint".to_string(), true),
                 "timestamptz" => return ("timestamptz".to_string(), false),
                 "timetz" => return ("timetz".to_string(), false),
+                // Oracle NUMBER(p,s) with a scale component maps to numeric (decimal).
+                // Oracle NUMBER(p) without scale stays as "number" (resolves to int64).
+                // Oracle NUMBER without any qualifier also stays as "number".
+                "number" if tokens.len() >= 2 => return ("numeric".to_string(), false),
                 _ => {}
             }
             // Check if it's a domain

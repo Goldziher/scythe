@@ -52,6 +52,7 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "timestamp" | "timestamp without time zone" => Cow::Borrowed("datetime"),
         "timestamp with time zone" | "timestamptz" => Cow::Borrowed("datetime_tz"),
         "datetime" | "datetime2" => Cow::Borrowed("datetime"),
+        "datetimeoffset" => Cow::Borrowed("datetime_tz"),
         "interval" => Cow::Borrowed("interval"),
         "year" => Cow::Borrowed("int16"),
         // -- Snowflake timestamp types --
@@ -60,7 +61,7 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "timestamp_tz" => Cow::Borrowed("datetime_tz"),
 
         // -- JSON types --
-        "json" | "jsonb" | "variant" => Cow::Borrowed("json"),
+        "json" | "jsonb" | "variant" | "super" => Cow::Borrowed("json"),
 
         // -- Network types (PostgreSQL) --
         "inet" | "cidr" | "macaddr" => Cow::Borrowed("inet"),
@@ -196,7 +197,7 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
             };
             format!("array<{}>", inner)
         }
-        DataType::Custom(name, _) => {
+        DataType::Custom(name, tokens) => {
             let raw = object_name_to_string(name).to_lowercase();
             match raw.as_str() {
                 "timestamptz" => "datetime_tz".to_string(),
@@ -209,6 +210,10 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
                 "timestamp_ltz" => "datetime_tz".to_string(),
                 "timestamp_tz" => "datetime_tz".to_string(),
                 "variant" => "json".to_string(),
+                // Oracle NUMBER(p,s) with a scale component maps to decimal;
+                // Oracle NUMBER(p) without scale falls through to sql_type_to_neutral
+                // which maps bare "number" to int64.
+                "number" if tokens.len() >= 2 => "decimal".to_string(),
                 _ => sql_type_to_neutral(&raw, catalog).into_owned(),
             }
         }

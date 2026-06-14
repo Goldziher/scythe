@@ -7,7 +7,7 @@
 			"name": "GetEvents",
 			"command": "many",
 			"columns": [
-				{ "name": "id", "nullable": false, "type": "int64" },
+				{ "name": "id", "nullable": false, "type": "int32" },
 				{ "name": "payload", "nullable": true, "type": "json" }
 			],
 			"params": []

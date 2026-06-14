@@ -7,7 +7,7 @@
 			"name": "GetAuditLog",
 			"command": "many",
 			"columns": [
-				{ "name": "id", "nullable": false, "type": "int64" },
+				{ "name": "id", "nullable": false, "type": "int32" },
 				{ "name": "created_at", "nullable": false, "type": "datetime" },
 				{ "name": "scheduled_at", "nullable": true, "type": "datetime_tz" }
 			],
