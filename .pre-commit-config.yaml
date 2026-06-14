@@ -1,114 +1,109 @@
 default_install_hook_types:
   - pre-commit
   - commit-msg
-exclude: vendor/|node_modules/|target/|dist/|artifacts/
+default_stages:
+  - pre-commit
+exclude: vendor/|node_modules/|target/|dist/|artifacts/|\.basemind/
 
 repos:
-  # Commit message linting
   - repo: https://github.com/Goldziher/gitfluff
     rev: v0.8.0
     hooks:
       - id: gitfluff-lint
-        args: ["--write"]
-        stages: [commit-msg]
+        args:
+          - --write
+        stages:
+          - commit-msg
 
-  - repo: https://github.com/Goldziher/ai-rulez
-    rev: v4.4.1
+  - repo: https://github.com/kreuzberg-dev/pre-commit-hooks
+    rev: v2.1.10
     hooks:
-      - id: ai-rulez-validate
-      - id: ai-rulez-generate
-
-  # General file checks
-  - repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v6.0.0
-    hooks:
+      # File safety
       - id: trailing-whitespace
       - id: end-of-file-fixer
       - id: check-merge-conflict
       - id: check-added-large-files
       - id: detect-private-key
+      - id: check-case-conflict
+      - id: check-executables-have-shebangs
+      - id: check-shebang-scripts-are-executable
+      - id: mixed-line-ending
+      - id: typos
+        args:
+          - --force-exclude
       - id: check-json
       - id: check-yaml
-        args: ["--allow-multiple-documents", "--unsafe"]
+        args:
+          - --allow-multiple-documents
+          - --unsafe
       - id: check-toml
-      - id: check-case-conflict
 
-  # TOML formatting
+      # AI rulez governance config
+      - id: ai-rulez-validate
+      - id: ai-rulez-generate
+
+      # Shell
+      - id: shfmt
+        args:
+          - -w
+          - -i
+          - "2"
+      - id: shellcheck
+
+      # Markdown
+      - id: rumdl-fmt
+        exclude: ^docs/snippets/
+      # TODO(docs): scythe's prose docs predate the 120-char strict rule;
+      # 35 files trip MD013 today. Re-enable after a docs-wide line-wrap pass.
+      # - id: markdownlint-rumdl-strict
+      #   exclude: ^docs/snippets/
+
+      # Rust
+      - id: cargo-fmt
+        args:
+          - --all
+      - id: cargo-clippy
+        args:
+          - --fix
+          - --allow-dirty
+          - --allow-staged
+          - --workspace
+          - --all-features
+          - --all-targets
+          - --
+          - -D
+          - warnings
+      - id: cargo-sort
+      - id: cargo-machete
+      - id: cargo-deny
+        args:
+          - check
+      # TODO(docs): rustdoc-lint enforces #![deny(missing_docs)] crate-wide; ~449
+      # public items in scythe-core/codegen/lint currently lack rustdoc. Re-enable
+      # after a documentation pass — track as a follow-up issue.
+      # - id: rustdoc-lint
+      # TODO(refactor): rust-max-lines caps files at 1,000 LOC. Four files
+      # exceed the cap today (catalog/mod.rs 1456, parser/mod.rs 1180, analyzer/
+      # expressions.rs 1101, integration-test-generator/main.rs 1130). Re-enable
+      # after splitting; the cap protects against single-file sprawl on new code.
+      # - id: rust-max-lines
+      #   args:
+      #     - --max=1000
+
+      # GitHub Actions
+      - id: actionlint
+      - id: gh-actions-updater
+
+  # TOML formatting (taplo is not bundled in the consolidated hook repo)
   - repo: https://github.com/ComPWA/taplo-pre-commit
     rev: v0.9.3
     hooks:
       - id: taplo-format
-        exclude: "pyproject.toml|Cargo.toml"
+        exclude: pyproject.toml|Cargo.toml
 
-  # Markdown: linting
-  - repo: https://github.com/rvben/rumdl-pre-commit
-    rev: "v0.2.16"
-    hooks:
-      - id: rumdl-fmt
-        exclude: "docs/snippets/"
-
-  # Rust: formatting, linting, and license checking
-  - repo: https://github.com/DevinR528/cargo-sort
-    rev: "v2.1.4"
-    hooks:
-      - id: cargo-sort
-        args: [-w]
-
-  - repo: https://github.com/AndrejOrsula/pre-commit-cargo
-    rev: 0.5.0
-    hooks:
-      - id: cargo-fmt
-        args: ["--all"]
-      - id: cargo-clippy
-        args:
-          [
-            "--fix",
-            "--allow-dirty",
-            "--allow-staged",
-            "--workspace",
-            "--all-features",
-            "--all-targets",
-            "--",
-            "-D",
-            "warnings",
-          ]
-
-  - repo: https://github.com/bnjbvr/cargo-machete
-    rev: v0.9.2
-    hooks:
-      - id: cargo-machete
-
-  - repo: https://github.com/EmbarkStudios/cargo-deny
-    rev: 0.19.8
-    hooks:
-      - id: cargo-deny
-        args: ["check"]
-
-  # Shell scripts: formatting and linting
-  - repo: https://github.com/scop/pre-commit-shfmt
-    rev: v3.13.1-1
-    hooks:
-      - id: shfmt
-        args: ["-w", "-i", "2"]
-
-  # JavaScript/TypeScript/JSON/CSS: biome (formatting + linting with autofixes)
+  # JS/TS/JSON formatting (biome covers JSON too; kept as a single source of
+  # truth so scythe-cli's TypeScript bindings and JSON fixtures stay aligned)
   - repo: https://github.com/biomejs/pre-commit
     rev: v2.5.0
     hooks:
       - id: biome-format
-
-  # GitHub Actions linting
-  - repo: https://github.com/rhysd/actionlint
-    rev: v1.7.12
-    hooks:
-      - id: actionlint
-
-  # Local hooks
-  - repo: local
-    hooks:
-      - id: shellcheck
-        name: Shell linting (shellcheck)
-        entry: shellcheck
-        language: system
-        types: [shell]
-        stages: [commit]

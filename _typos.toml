@@ -1,0 +1,45 @@
+# typos allowlist for scythe.
+#
+# Suppresses false positives where a candidate "typo" is the correct token in
+# context — chiefly SQL table aliases and singularize() test assertions.
+
+[default]
+extend-ignore-re = [
+  # SQL table aliases like `FROM billing_aggregates ba WHERE ba.column = …` —
+  # `ba` is a two-letter alias, not a misspelling of `by`/`be`.
+  "\\b(?i:billing_aggregates|customer_orders|order_items|user_tags)\\b\\s+\\w{1,3}\\b",
+]
+
+extend-ignore-words-re = [
+  # typos has prefix entries like CHEC→CHECK and SELEC→SELECT that fire on
+  # plurals of SQL keywords (CHECKs, SELECTs). Whitelist the prefix forms.
+  "^(?i)(CHEC|SELEC|CHECKs|SELECTs|SELCT)$",
+]
+
+[files]
+# go.sum and go.mod carry hex commit hashes that typos misreads as words
+# (e.g. `a6f4afe4910c` → typos "corrects" `afe` → `safe`). Skip them.
+extend-exclude = [
+  "go.sum",
+  "**/go.sum",
+  "**/go.mod",
+  "Cargo.lock",
+  "**/Cargo.lock",
+  "pnpm-lock.yaml",
+  "**/pnpm-lock.yaml",
+  "package-lock.json",
+  "**/package-lock.json",
+]
+
+[default.extend-words]
+# singularize("status") -> "statu" — naive stripper drops trailing "s".
+# Used in a unit test that asserts the documented limitation.
+statu = "statu"
+# Two-letter SQL aliases used in codegen tests.
+ba = "ba"
+# SQL keywords pluralised in prose. typos's default dictionary "corrects"
+# `CHECKs` → `CHECKKs`, `SELECTs` → `SELECTTs`. Keep the natural English.
+CHECKs = "CHECKs"
+SELECTs = "SELECTs"
+# Intentional misspelling in a fixture that exercises syntax-error detection.
+SELCT = "SELCT"
