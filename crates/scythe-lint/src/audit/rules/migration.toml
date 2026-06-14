@@ -249,3 +249,32 @@ cwe = []
 description = "CREATE DOMAIN with a CHECK constraint validates every row of every table using the domain under ACCESS EXCLUSIVE and cannot be split into NOT VALID + VALIDATE"
 message = "CREATE DOMAIN `{domain}` with a CHECK constraint cannot be added incrementally — declare the domain without a constraint and enforce CHECK on each column with `NOT VALID` + `VALIDATE CONSTRAINT`"
 matcher = "create_domain_with_constraint"
+
+# SC-MIG17 — ban-drop-not-null
+# Relaxing a NOT NULL contract breaks any deployed application version that
+# still treats the column as non-null (ORM mappings, validation layers).
+[[rule]]
+id = "SC-MIG17"
+name = "ban-drop-not-null"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "ALTER TABLE … ALTER COLUMN … DROP NOT NULL relaxes a column contract that deployed application versions may still rely on"
+message = "DROP NOT NULL on `{table}.{column}` weakens an existing contract — deploy code that tolerates NULL first; drop the constraint in a later release"
+matcher = "alter_column_drop_not_null"
+
+# SC-MIG18 — adding-not-nullable-field
+# Adding a NOT NULL column without a DEFAULT fails on any non-empty table on
+# PG < 11 and breaks any deployed application version that inserts without
+# supplying the new column.
+[[rule]]
+id = "SC-MIG18"
+name = "adding-not-nullable-field"
+category = "migration"
+severity = "warn"
+dialects = ["postgres"]
+cwe = []
+description = "ALTER TABLE … ADD COLUMN … NOT NULL without a DEFAULT rewrites every existing row on PG < 11 and breaks deployed application versions that insert without the new column"
+message = "ADD COLUMN `{table}.{column}` is NOT NULL without a DEFAULT — provide a constant DEFAULT (catalog-only on PG 11+) and backfill before deploying code that requires the new column"
+matcher = "add_column_not_null_no_default"

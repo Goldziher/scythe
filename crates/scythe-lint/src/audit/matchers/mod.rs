@@ -3,7 +3,9 @@
 //! Each submodule exports a single `match_*` function that implements the
 //! `MatcherFn` signature: `fn(&LintContext, &toml::Table) -> Vec<MatcherHit>`.
 
+pub mod add_column_not_null_no_default;
 pub mod add_constraint_without_using_index;
+pub mod alter_column_drop_not_null;
 pub mod alter_column_type;
 pub mod alter_table_rename;
 pub mod alter_table_rename_table;
@@ -97,5 +99,13 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
     reg.register(
         "create_domain_with_constraint",
         create_domain_with_constraint::match_create_domain_with_constraint,
+    );
+    reg.register(
+        "alter_column_drop_not_null",
+        alter_column_drop_not_null::match_alter_column_drop_not_null,
+    );
+    reg.register(
+        "add_column_not_null_no_default",
+        add_column_not_null_no_default::match_add_column_not_null_no_default,
     );
 }

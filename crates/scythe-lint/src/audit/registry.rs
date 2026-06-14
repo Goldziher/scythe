@@ -137,6 +137,8 @@ mod tests {
             "column_type_disallowed",
             "add_constraint_without_using_index",
             "create_domain_with_constraint",
+            "alter_column_drop_not_null",
+            "add_column_not_null_no_default",
         ];
         for name in &expected {
             assert!(

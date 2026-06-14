@@ -1,0 +1,15 @@
+{
+	"name": "ban_drop_not_null_clean",
+	"description": "ALTER COLUMN SET NOT NULL is the inverse and should not trigger SC-MIG17",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "ban-drop-not-null"],
+	"schema_sql": ["CREATE TABLE users (id bigint PRIMARY KEY, email text)"],
+	"query_sql": "-- @name UpdateUsersRequireEmail\n-- @returns :exec\nALTER TABLE users ALTER COLUMN email SET NOT NULL",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

@@ -1,0 +1,15 @@
+{
+	"name": "adding_not_nullable_field_clean",
+	"description": "ALTER TABLE ADD COLUMN NOT NULL with DEFAULT should not trigger SC-MIG18",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "adding-not-nullable-field"],
+	"schema_sql": ["CREATE TABLE users (id bigint PRIMARY KEY)"],
+	"query_sql": "-- @name UpdateUsersAddRequiredEmail\n-- @returns :exec\nALTER TABLE users ADD COLUMN email text NOT NULL DEFAULT ''",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

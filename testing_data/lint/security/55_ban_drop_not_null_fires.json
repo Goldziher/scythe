@@ -1,0 +1,22 @@
+{
+	"name": "ban_drop_not_null_fires",
+	"description": "ALTER COLUMN DROP NOT NULL should trigger SC-MIG17",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "ban-drop-not-null"],
+	"schema_sql": [
+		"CREATE TABLE users (id bigint PRIMARY KEY, email text NOT NULL)"
+	],
+	"query_sql": "-- @name UpdateUsersAllowNullEmail\n-- @returns :exec\nALTER TABLE users ALTER COLUMN email DROP NOT NULL",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": [
+				{
+					"rule_code": "SC-MIG17",
+					"message_contains": "DROP NOT NULL"
+				}
+			]
+		}
+	},
+	"source": "original"
+}
