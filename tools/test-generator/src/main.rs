@@ -446,7 +446,9 @@ fn generate_catalog_assertions(catalog: &ExpectedCatalog) -> String {
     let mut out = String::with_capacity(4096);
 
     // Table assertions
-    for (table_name, table) in &catalog.tables {
+    let mut tables: Vec<_> = catalog.tables.iter().collect();
+    tables.sort_unstable_by_key(|(name, _)| name.as_str());
+    for (table_name, table) in tables {
         let _ = writeln!(out, "    // Assert table: {}", table_name);
         let _ = writeln!(
             out,
@@ -512,7 +514,9 @@ fn generate_catalog_assertions(catalog: &ExpectedCatalog) -> String {
     }
 
     // Enum assertions
-    for (enum_name, enum_def) in &catalog.enums {
+    let mut enums: Vec<_> = catalog.enums.iter().collect();
+    enums.sort_unstable_by_key(|(name, _)| name.as_str());
+    for (enum_name, enum_def) in enums {
         let _ = writeln!(out, "    // Assert enum: {}", enum_name);
         let _ = writeln!(
             out,
@@ -536,7 +540,9 @@ fn generate_catalog_assertions(catalog: &ExpectedCatalog) -> String {
     }
 
     // Composite assertions
-    for (comp_name, comp) in &catalog.composites {
+    let mut composites: Vec<_> = catalog.composites.iter().collect();
+    composites.sort_unstable_by_key(|(name, _)| name.as_str());
+    for (comp_name, comp) in composites {
         let _ = writeln!(out, "    // Assert composite: {}", comp_name);
         let _ = writeln!(
             out,
