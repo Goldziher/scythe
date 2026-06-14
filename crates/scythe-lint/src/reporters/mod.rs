@@ -52,6 +52,10 @@ pub struct Finding {
     pub column: Option<usize>,
     /// CWE identifiers (e.g. `CWE-78`) extracted from the rule description.
     pub cwe: Vec<String>,
+    /// Which sub-tool produced this finding (`"lint"`, `"audit"`, or
+    /// `"inspect"`).  `None` keeps backward-compatible behaviour (treated as
+    /// `"lint"`).
+    pub source: Option<String>,
 }
 
 /// Emit findings in the chosen format.

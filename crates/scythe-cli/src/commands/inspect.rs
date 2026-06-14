@@ -151,7 +151,7 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
 /// 3. Extra rules from `extra_rules` paths (already resolved to absolute by
 ///    `parse_inspect_section`).
 /// 4. Severity overrides from `[inspect.severity_overrides]`.
-fn build_registry(
+pub(crate) fn build_registry(
     config_path: &str,
     _engine: &str,
     inspect_config: &Option<InspectConfig>,
@@ -189,7 +189,7 @@ fn build_registry(
 
 /// Build and configure the right driver for `engine`, wiring in the
 /// suppression engine and api_schemas from config.
-fn build_driver_with_config(
+pub(crate) fn build_driver_with_config(
     engine: &str,
     registry: CheckRegistry,
     inspect_config: &Option<InspectConfig>,
@@ -254,6 +254,25 @@ fn resolve_url(
     )
 }
 
+/// Resolve the database URL for use from lint — returns `Some(url)` when a
+/// URL is found via the full precedence chain, `None` when no URL is
+/// configured.
+///
+/// Precedence: `[inspect].database_url` in `config` <
+/// `$SCYTHE_DATABASE_URL` < `$DATABASE_URL`.  There is no CLI positional
+/// arg in the lint context.
+///
+/// This is intentionally infallible so the caller can silently skip
+/// inspection when no URL is found (the "no DB configured" path).
+pub fn resolve_inspect_url(config: &Option<InspectConfig>) -> Option<String> {
+    let config_url = config.as_ref().and_then(|c| c.database_url.as_deref());
+    resolve_url_inner_opt(
+        std::env::var("DATABASE_URL").ok().as_deref(),
+        std::env::var("SCYTHE_DATABASE_URL").ok().as_deref(),
+        config_url,
+    )
+}
+
 /// Pure-function precedence resolver — separated so tests can inject env
 /// values without racing on `std::env::set_var`.
 fn resolve_url_inner(
@@ -265,16 +284,27 @@ fn resolve_url_inner(
     if let Some(u) = positional {
         return Ok(u.to_string());
     }
+    resolve_url_inner_opt(env_database_url, env_scythe_database_url, config_url)
+        .ok_or_else(|| Box::new(InspectError::UrlMissing) as Box<dyn std::error::Error>)
+}
+
+/// Pure infallible URL resolver used by both [`resolve_url`] (which wraps
+/// it in `Result`) and [`resolve_inspect_url`] (which returns `Option`).
+///
+/// Precedence (highest → lowest): `$DATABASE_URL` > `$SCYTHE_DATABASE_URL`
+/// > config file.
+fn resolve_url_inner_opt(
+    env_database_url: Option<&str>,
+    env_scythe_database_url: Option<&str>,
+    config_url: Option<&str>,
+) -> Option<String> {
     if let Some(u) = env_database_url {
-        return Ok(u.to_string());
+        return Some(u.to_string());
     }
     if let Some(u) = env_scythe_database_url {
-        return Ok(u.to_string());
+        return Some(u.to_string());
     }
-    if let Some(u) = config_url {
-        return Ok(u.to_string());
-    }
-    Err(Box::new(InspectError::UrlMissing))
+    config_url.map(|u| u.to_string())
 }
 
 fn open_output(path: Option<&str>) -> Result<Box<dyn Write>, Box<dyn std::error::Error>> {
@@ -475,6 +505,68 @@ mod tests {
         let err = resolve_url_inner(None, None, None, None).unwrap_err();
         let s = err.to_string();
         assert!(s.contains("DATABASE_URL") || s.contains("no database URL"));
+    }
+
+    // -----------------------------------------------------------------------
+    // resolve_inspect_url (infallible Option-returning variant used by lint)
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn resolve_inspect_url_returns_none_when_no_url_configured() {
+        // With no env vars set (we use a fresh config with no database_url),
+        // the function should return None — the "silently skip" signal.
+        // We can't unset env vars safely in parallel tests, so we test the
+        // helper directly via resolve_url_inner_opt.
+        let result = resolve_url_inner_opt(None, None, None);
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_inspect_url_inner_opt_prefers_database_url_over_scythe_and_config() {
+        let result = resolve_url_inner_opt(
+            Some("postgres://env-db/db"),
+            Some("postgres://env-scythe/db"),
+            Some("postgres://config/db"),
+        );
+        assert_eq!(result.as_deref(), Some("postgres://env-db/db"));
+    }
+
+    #[test]
+    fn resolve_inspect_url_inner_opt_prefers_scythe_database_url_over_config() {
+        let result = resolve_url_inner_opt(
+            None,
+            Some("postgres://env-scythe/db"),
+            Some("postgres://config/db"),
+        );
+        assert_eq!(result.as_deref(), Some("postgres://env-scythe/db"));
+    }
+
+    #[test]
+    fn resolve_inspect_url_inner_opt_falls_back_to_config() {
+        let result = resolve_url_inner_opt(None, None, Some("postgres://config/db"));
+        assert_eq!(result.as_deref(), Some("postgres://config/db"));
+    }
+
+    #[test]
+    fn resolve_inspect_url_returns_none_from_empty_config() {
+        let config: Option<InspectConfig> = Some(InspectConfig::default());
+        // With no env vars (we control the inner function), this is None.
+        let result = resolve_url_inner_opt(
+            None,
+            None,
+            config.as_ref().and_then(|c| c.database_url.as_deref()),
+        );
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn resolve_inspect_url_returns_url_from_config_database_url() {
+        let config = InspectConfig {
+            database_url: Some("postgres://from-config/db".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_url_inner_opt(None, None, config.database_url.as_deref());
+        assert_eq!(result.as_deref(), Some("postgres://from-config/db"));
     }
 
     // -----------------------------------------------------------------------

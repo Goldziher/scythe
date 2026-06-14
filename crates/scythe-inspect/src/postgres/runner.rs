@@ -167,6 +167,7 @@ pub async fn run_check_with_bindings(
             line: None,
             column: None,
             cwe: spec.cwe.clone(),
+            source: Some("inspect".to_string()),
         };
 
         pairs.push((finding, bindings));

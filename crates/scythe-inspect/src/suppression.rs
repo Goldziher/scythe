@@ -121,6 +121,7 @@ mod tests {
             line: None,
             column: None,
             cwe: vec![],
+            source: Some("inspect".to_string()),
         }
     }
 

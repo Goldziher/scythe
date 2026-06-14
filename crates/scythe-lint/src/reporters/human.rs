@@ -37,13 +37,22 @@ pub fn emit(findings: &[Finding], out: &mut dyn Write) -> io::Result<()> {
             },
         };
 
+        let source_tag = match f.source.as_deref() {
+            Some(s) if !s.is_empty() => format!("[{}] ", s),
+            _ => String::new(),
+        };
+
         if location.is_empty() {
-            writeln!(out, "  {}: [{}] {}", severity_str, f.rule_id, f.message)?;
+            writeln!(
+                out,
+                "  {}{}: [{}] {}",
+                source_tag, severity_str, f.rule_id, f.message
+            )?;
         } else {
             writeln!(
                 out,
-                "  {} {}: [{}] {}",
-                location, severity_str, f.rule_id, f.message
+                "  {} {}{}: [{}] {}",
+                location, source_tag, severity_str, f.rule_id, f.message
             )?;
         }
     }
@@ -67,6 +76,7 @@ mod tests {
             line: None,
             column: None,
             cwe: vec!["CWE-269".into()],
+            source: None,
         }]
     }
 

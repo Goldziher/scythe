@@ -106,6 +106,8 @@ struct SarifRegion {
 struct SarifProperties<'a> {
     #[serde(skip_serializing_if = "Vec::is_empty")]
     cwe: Vec<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<&'a str>,
 }
 
 pub fn emit(
@@ -152,11 +154,13 @@ pub fn emit(
                 }]
             };
 
-            let properties = if f.cwe.is_empty() {
+            let cwe: Vec<&str> = f.cwe.iter().map(|s| s.as_str()).collect();
+            let properties = if cwe.is_empty() && f.source.is_none() {
                 None
             } else {
                 Some(SarifProperties {
-                    cwe: f.cwe.iter().map(|s| s.as_str()).collect(),
+                    cwe,
+                    source: f.source.as_deref(),
                 })
             };
 
@@ -212,6 +216,7 @@ mod tests {
             line: Some(3),
             column: Some(1),
             cwe: vec!["CWE-269".into()],
+            source: None,
         }];
         let mut buf = Vec::new();
         emit("scythe-audit", "0.0.0", &findings, &mut buf).unwrap();

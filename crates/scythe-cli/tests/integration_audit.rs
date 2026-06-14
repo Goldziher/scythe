@@ -108,6 +108,7 @@ fn run_rules(
                     line: None,
                     column: None,
                     cwe: extract_cwe(rule.description()),
+                    source: Some("audit".to_string()),
                 });
             }
         }

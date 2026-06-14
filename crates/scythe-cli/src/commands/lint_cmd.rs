@@ -1,12 +1,15 @@
 use std::borrow::Cow;
 use std::path::Path;
 
+use scythe_inspect::parse_inspect_section;
 use scythe_lint::sqruff_adapter;
 use scythe_lint::types::Severity;
 
+use super::inspect::{build_driver_with_config, build_registry, resolve_inspect_url};
 use super::shared::{engine_to_sqruff_dialect, resolve_globs, split_query_file};
 
-/// A combined lint violation that can come from either scythe rules or sqruff.
+/// A combined lint violation that can come from either scythe rules, sqruff,
+/// or live-DB inspect checks.
 struct FileViolation {
     file: String,
     query_name: Option<String>,
@@ -15,6 +18,8 @@ struct FileViolation {
     message: String,
     line_no: Option<usize>,
     line_pos: Option<usize>,
+    /// Source sub-tool (`"lint"`, `"audit"`, `"inspect"`).  `None` means lint.
+    source: Option<String>,
 }
 
 /// Run the `lint` command.
@@ -39,7 +44,10 @@ pub fn run_lint(
             None
         };
         let d = dialect.unwrap_or_else(|| config_dialect.as_deref().unwrap_or("ansi"));
-        return lint_files(files, d, fix);
+        // Even in files-only mode, auto-run inspect when a DB URL is configured
+        // via [inspect].database_url or env vars. Matches the plan's
+        // "lint always tries inspect when a URL is available" rule.
+        return lint_files(files, d, fix, config_path);
     }
 
     if !has_config {
@@ -56,10 +64,16 @@ pub fn run_lint(
 }
 
 /// Lint specific files using sqruff only (no scythe schema-aware rules).
+///
+/// Also auto-runs inspect when a DB URL is configured via
+/// `[inspect].database_url` (if scythe.toml exists at `config_path`),
+/// `$DATABASE_URL`, or `$SCYTHE_DATABASE_URL`. Silently skips if no URL
+/// resolves.
 fn lint_files(
     files: &[String],
     dialect: &str,
     fix: bool,
+    config_path: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let mut all_violations: Vec<FileViolation> = Vec::new();
 
@@ -78,6 +92,7 @@ fn lint_files(
                     message: sv.violation.message.clone(),
                     line_no: Some(sv.line_no),
                     line_pos: Some(sv.line_pos),
+                    source: None,
                 });
             }
             if fixed != sql {
@@ -96,15 +111,24 @@ fn lint_files(
                     message: sv.violation.message.clone(),
                     line_no: Some(sv.line_no),
                     line_pos: Some(sv.line_pos),
+                    source: None,
                 });
             }
         }
     }
 
+    // Auto-run inspect when a DB URL is configured. config_path may not exist
+    // (files-only mode without scythe.toml) — try_run_inspect handles that
+    // case and falls back to env-var URL resolution.
+    let inspect_violations = try_run_inspect(config_path);
+    all_violations.extend(inspect_violations);
+
     print_violations(&all_violations)
 }
 
-/// Lint from config: run both scythe rules and sqruff rules.
+/// Lint from config: run both scythe rules and sqruff rules, then auto-run
+/// inspect when a database URL is configured (via `[inspect].database_url`,
+/// `$DATABASE_URL`, or `$SCYTHE_DATABASE_URL`).
 fn lint_from_config(
     config_path: &str,
     cli_dialect: Option<&str>,
@@ -194,6 +218,7 @@ fn lint_from_config(
                         message: sv.violation.message.clone(),
                         line_no: Some(sv.line_no),
                         line_pos: Some(sv.line_pos),
+                        source: None,
                     });
                 }
                 if fixed != content {
@@ -213,6 +238,7 @@ fn lint_from_config(
                         message: sv.violation.message.clone(),
                         line_no: Some(sv.line_no),
                         line_pos: Some(sv.line_pos),
+                        source: None,
                     });
                 }
             }
@@ -257,6 +283,7 @@ fn lint_from_config(
                         message: v.message,
                         line_no: None,
                         line_pos: None,
+                        source: None,
                     });
                 }
             }
@@ -273,11 +300,112 @@ fn lint_from_config(
                 message: v.message,
                 line_no: None,
                 line_pos: None,
+                source: None,
             });
         }
     }
 
+    // ------------------------------------------------------------------
+    // Auto-run inspect when a database URL is configured.
+    // ------------------------------------------------------------------
+    let inspect_findings = try_run_inspect(config_path);
+    all_violations.extend(inspect_findings);
+
     print_violations(&all_violations)
+}
+
+/// Try to run live-DB inspect checks and return them as `FileViolation`s.
+///
+/// This function is intentionally infallible:
+/// - If no database URL is configured, emit one `tracing::debug!` line and
+///   return an empty vec.  Lint output is byte-identical to v0.10.
+/// - If a URL is found but the connection fails, emit one `tracing::warn!`
+///   line (host only — never the full URL) and return an empty vec.
+///   Lint exit code is unchanged.
+///
+/// Inspect findings that do come back carry `source: Some("inspect")` so
+/// mixed output is distinguishable.
+fn try_run_inspect(config_path: &str) -> Vec<FileViolation> {
+    // Load [inspect] config (best-effort; None if absent or unparsable).
+    let inspect_config = parse_inspect_section(Path::new(config_path)).unwrap_or_else(|e| {
+        tracing::debug!("scythe lint: could not parse [inspect] config: {e}");
+        None
+    });
+
+    // Resolve DB URL.  Returns None → silently skip.
+    let url = match resolve_inspect_url(&inspect_config) {
+        Some(u) => u,
+        None => {
+            tracing::debug!("scythe lint: no database URL configured — skipping live inspect");
+            return Vec::new();
+        }
+    };
+
+    // Only postgres is supported as a live engine right now.
+    let engine = "postgres";
+
+    // Build registry (user checks + severity overrides included).
+    let registry = match build_registry(config_path, engine, &inspect_config) {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("scythe lint: failed to build inspect registry: {e}");
+            return Vec::new();
+        }
+    };
+
+    let mut driver = build_driver_with_config(engine, registry, &inspect_config);
+
+    // Build a single-threaded Tokio runtime per invocation — keeps the lint
+    // command synchronous.
+    let rt = match tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+    {
+        Ok(r) => r,
+        Err(e) => {
+            tracing::warn!("scythe lint: failed to build tokio runtime for inspect: {e}");
+            return Vec::new();
+        }
+    };
+
+    let findings = rt.block_on(async {
+        if let Err(e) = driver.connect(&url).await {
+            // Extract just the host from the URL for the warning — never log
+            // credentials (which may appear in the userinfo or password
+            // position of the connection string).
+            let host = url
+                .split("://")
+                .nth(1)
+                .and_then(|rest| rest.split('/').next())
+                .and_then(|authority| authority.split('@').next_back())
+                .unwrap_or("<unknown>");
+            tracing::warn!(
+                "scythe lint: could not connect to inspect database (host: {host}): {e}"
+            );
+            return Vec::new();
+        }
+        match driver.run_all().await {
+            Ok(f) => f,
+            Err(e) => {
+                tracing::warn!("scythe lint: inspect checks failed: {e}");
+                Vec::new()
+            }
+        }
+    });
+
+    findings
+        .into_iter()
+        .map(|f| FileViolation {
+            file: f.file,
+            query_name: f.query_name,
+            rule_id: Cow::Owned(f.rule_id),
+            severity: f.severity,
+            message: f.message,
+            line_no: f.line,
+            line_pos: f.column,
+            source: f.source,
+        })
+        .collect()
 }
 
 /// Print violations grouped by file and return an error if there are errors.
@@ -313,6 +441,11 @@ fn print_violations(violations: &[FileViolation]) -> Result<(), Box<dyn std::err
             Severity::Off => continue,
         };
 
+        let source_tag = match v.source.as_deref() {
+            Some(s) if !s.is_empty() => format!("[{}] ", s),
+            _ => String::new(),
+        };
+
         let location = match (v.line_no, v.line_pos) {
             (Some(line), Some(pos)) => format!("{}:{}", line, pos),
             _ => match &v.query_name {
@@ -322,11 +455,14 @@ fn print_violations(violations: &[FileViolation]) -> Result<(), Box<dyn std::err
         };
 
         if location.is_empty() {
-            eprintln!("  {}: [{}] {}", severity_str, v.rule_id, v.message);
+            eprintln!(
+                "  {}{}: [{}] {}",
+                source_tag, severity_str, v.rule_id, v.message
+            );
         } else {
             eprintln!(
-                "  {} {}: [{}] {}",
-                location, severity_str, v.rule_id, v.message
+                "  {} {}{}: [{}] {}",
+                location, source_tag, severity_str, v.rule_id, v.message
             );
         }
     }

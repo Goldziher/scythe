@@ -22,6 +22,8 @@ struct JsonFinding<'a> {
     column: Option<usize>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     cwe: Vec<&'a str>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    source: Option<&'a str>,
 }
 
 pub fn emit(findings: &[Finding], out: &mut dyn Write) -> io::Result<()> {
@@ -41,6 +43,7 @@ pub fn emit(findings: &[Finding], out: &mut dyn Write) -> io::Result<()> {
             line: f.line,
             column: f.column,
             cwe: f.cwe.iter().map(|s| s.as_str()).collect(),
+            source: f.source.as_deref(),
         })
         .collect();
 
@@ -66,6 +69,7 @@ mod tests {
             line: None,
             column: None,
             cwe: vec!["CWE-269".into()],
+            source: None,
         }];
         let mut buf = Vec::new();
         emit(&findings, &mut buf).unwrap();
