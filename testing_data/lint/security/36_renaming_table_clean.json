@@ -1,0 +1,15 @@
+{
+	"name": "renaming_table_clean",
+	"description": "ALTER TABLE … ADD COLUMN should not trigger SC-MIG07",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "renaming-table"],
+	"schema_sql": [],
+	"query_sql": "-- @name CreateUsersEmailColumn\n-- @returns :exec\nALTER TABLE users ADD COLUMN email text",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}

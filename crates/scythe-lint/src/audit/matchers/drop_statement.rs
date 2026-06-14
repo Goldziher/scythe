@@ -1,15 +1,19 @@
-//! Matcher `"drop_statement"` — SC-MIG01 ban-drop-table and SC-MIG02
-//! ban-drop-column.
+//! Matcher `"drop_statement"` — SC-MIG01 ban-drop-table, SC-MIG02
+//! ban-drop-column, and SC-MIG06 ban-drop-database-or-schema.
 //!
 //! Reads `matcher_args.kinds` (array of strings). Recognized values:
-//! - `table`  — fires on `DROP TABLE …`. Emits one hit per dropped table.
-//!   Bindings: `table`.
-//! - `column` — fires on `ALTER TABLE … DROP COLUMN …`. Emits one hit per
-//!   dropped column. Bindings: `table`, `column`.
+//! - `table`    — fires on `DROP TABLE …`. Emits one hit per dropped
+//!   table. Bindings: `table`.
+//! - `column`   — fires on `ALTER TABLE … DROP COLUMN …`. Emits one hit
+//!   per dropped column. Bindings: `table`, `column`.
+//! - `database` — fires on `DROP DATABASE …`. Emits one hit per dropped
+//!   database. Bindings: `name`, `kind = "database"`.
+//! - `schema`   — fires on `DROP SCHEMA …`. Emits one hit per dropped
+//!   schema. Bindings: `name`, `kind = "schema"`.
 //!
-//! Migration-safety motivation: dropping a table or column is irreversible
-//! at the storage layer and breaks any concurrently deployed application
-//! version still reading from it.
+//! Migration-safety motivation: dropping a table, column, database, or
+//! schema is irreversible at the storage layer and breaks any concurrently
+//! deployed application version still reading from it.
 
 use sqlparser::ast::{AlterTableOperation, ObjectType, Statement};
 
@@ -32,6 +36,36 @@ pub fn match_drop_statement(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<Ma
             .map(|n| {
                 let mut hit = MatcherHit::empty();
                 hit.bindings.insert("table".to_string(), n.to_string());
+                hit
+            })
+            .collect(),
+
+        Statement::Drop {
+            object_type: ObjectType::Database,
+            names,
+            ..
+        } if kinds.iter().any(|k| k == "database") => names
+            .iter()
+            .map(|n| {
+                let mut hit = MatcherHit::empty();
+                hit.bindings.insert("name".to_string(), n.to_string());
+                hit.bindings
+                    .insert("kind".to_string(), "database".to_string());
+                hit
+            })
+            .collect(),
+
+        Statement::Drop {
+            object_type: ObjectType::Schema,
+            names,
+            ..
+        } if kinds.iter().any(|k| k == "schema") => names
+            .iter()
+            .map(|n| {
+                let mut hit = MatcherHit::empty();
+                hit.bindings.insert("name".to_string(), n.to_string());
+                hit.bindings
+                    .insert("kind".to_string(), "schema".to_string());
                 hit
             })
             .collect(),
@@ -211,6 +245,58 @@ mod tests {
     #[test]
     fn kinds_filter_table_only_skips_column_drop() {
         let sql = "ALTER TABLE users DROP COLUMN legacy_id;";
+        let (stmt, analyzed, catalog, annotations) = make_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        let hits = match_drop_statement(&ctx, &make_args(&["table"]));
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn fires_on_drop_database() {
+        let sql = "DROP DATABASE legacy_app;";
+        let (stmt, analyzed, catalog, annotations) = make_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        let hits = match_drop_statement(&ctx, &make_args(&["database", "schema"]));
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            hits[0].bindings.get("name").map(|s| s.as_str()),
+            Some("legacy_app")
+        );
+        assert_eq!(
+            hits[0].bindings.get("kind").map(|s| s.as_str()),
+            Some("database")
+        );
+    }
+
+    #[test]
+    fn fires_on_drop_schema() {
+        let sql = "DROP SCHEMA reporting CASCADE;";
+        let (stmt, analyzed, catalog, annotations) = make_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        let hits = match_drop_statement(&ctx, &make_args(&["database", "schema"]));
+        assert_eq!(hits.len(), 1);
+        assert_eq!(
+            hits[0].bindings.get("name").map(|s| s.as_str()),
+            Some("reporting")
+        );
+        assert_eq!(
+            hits[0].bindings.get("kind").map(|s| s.as_str()),
+            Some("schema")
+        );
+    }
+
+    #[test]
+    fn kinds_filter_database_only_skips_schema_drop() {
+        let sql = "DROP SCHEMA staging;";
+        let (stmt, analyzed, catalog, annotations) = make_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        let hits = match_drop_statement(&ctx, &make_args(&["database"]));
+        assert!(hits.is_empty());
+    }
+
+    #[test]
+    fn no_match_drop_database_with_only_table_kind() {
+        let sql = "DROP DATABASE legacy_app;";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_drop_statement(&ctx, &make_args(&["table"]));

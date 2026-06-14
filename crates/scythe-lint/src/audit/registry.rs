@@ -131,6 +131,9 @@ mod tests {
             "create_index_concurrency",
             "alter_table_rename_column",
             "constraint_missing_not_valid",
+            "alter_table_rename_table",
+            "truncate_cascade",
+            "alter_column_type",
         ];
         for name in &expected {
             assert!(

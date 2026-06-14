@@ -20,7 +20,8 @@ pub const CANONICAL_RULE_IDS: &[&str] = &[
     // Security
     "SC-SEC01", "SC-SEC02", "SC-SEC03", "SC-SEC04", "SC-SEC05", "SC-SEC06", "SC-SEC07", "SC-SEC08",
     "SC-SEC09", "SC-SEC10", "SC-SEC11", // Migration
-    "SC-MIG01", "SC-MIG02", "SC-MIG03", "SC-MIG04", "SC-MIG05",
+    "SC-MIG01", "SC-MIG02", "SC-MIG03", "SC-MIG04", "SC-MIG05", "SC-MIG06", "SC-MIG07", "SC-MIG08",
+    "SC-MIG09",
 ];
 
 // ---------------------------------------------------------------------------
@@ -244,11 +245,11 @@ functions = ["pg_read_file"]
 
     #[test]
     fn canonical_rule_ids_count() {
-        assert_eq!(CANONICAL_RULE_IDS.len(), 16);
+        assert_eq!(CANONICAL_RULE_IDS.len(), 20);
         assert!(CANONICAL_RULE_IDS.contains(&"SC-SEC01"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-SEC11"));
         assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG01"));
-        assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG05"));
+        assert!(CANONICAL_RULE_IDS.contains(&"SC-MIG09"));
     }
 
     #[test]

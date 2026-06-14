@@ -3,7 +3,9 @@
 //! Each submodule exports a single `match_*` function that implements the
 //! `MatcherFn` signature: `fn(&LintContext, &toml::Table) -> Vec<MatcherHit>`.
 
+pub mod alter_column_type;
 pub mod alter_table_rename;
+pub mod alter_table_rename_table;
 pub mod cartesian_join;
 pub mod constraint_missing_not_valid;
 pub mod create_index_concurrency;
@@ -16,6 +18,7 @@ pub mod role_with_attribute;
 pub mod security_definer_no_search_path;
 pub mod select_star_over_pii_columns;
 pub mod session_mutation;
+pub mod truncate_cascade;
 pub mod unbounded_pattern;
 pub mod weak_hash_over_sensitive_column;
 
@@ -70,5 +73,14 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
     reg.register(
         "constraint_missing_not_valid",
         constraint_missing_not_valid::match_constraint_missing_not_valid,
+    );
+    reg.register(
+        "alter_table_rename_table",
+        alter_table_rename_table::match_alter_table_rename_table,
+    );
+    reg.register("truncate_cascade", truncate_cascade::match_truncate_cascade);
+    reg.register(
+        "alter_column_type",
+        alter_column_type::match_alter_column_type,
     );
 }

@@ -72,3 +72,62 @@ cwe = []
 description = "ALTER TABLE … ADD CONSTRAINT without NOT VALID validates every existing row under ACCESS EXCLUSIVE — write-blocking on large tables"
 message = "ADD {constraint_kind} on `{table}` is missing NOT VALID — split into `ADD CONSTRAINT … NOT VALID;` plus a follow-up `VALIDATE CONSTRAINT` to avoid long write locks"
 matcher = "constraint_missing_not_valid"
+
+# SC-MIG06 — ban-drop-database-or-schema
+# Dropping a database or schema is irreversible and cascades destruction
+# across every contained object.
+[[rule]]
+id = "SC-MIG06"
+name = "ban-drop-database-or-schema"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "DROP DATABASE / DROP SCHEMA destroys every contained object — unrecoverable without backup"
+message = "DROP {kind} `{name}` is irreversible — confirm intent and back up first; consider RENAME for staged removal"
+matcher = "drop_statement"
+
+[rule.matcher_args]
+kinds = ["database", "schema"]
+
+# SC-MIG07 — renaming-table
+# Renaming a table breaks any application version still reading from the
+# old name.
+[[rule]]
+id = "SC-MIG07"
+name = "renaming-table"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "ALTER TABLE … RENAME TO breaks any deployed application version still reading from the old name"
+message = "rename of table `{old_table}` to `{new_table}` — stage as create-new → backfill → switch reads → drop-old across releases"
+matcher = "alter_table_rename_table"
+
+# SC-MIG08 — ban-truncate-cascade
+# TRUNCATE … CASCADE silently clears every table that references the
+# target via foreign key.
+[[rule]]
+id = "SC-MIG08"
+name = "ban-truncate-cascade"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "TRUNCATE … CASCADE clears every referencing table — blast radius is invisible from the statement alone"
+message = "TRUNCATE `{table}` CASCADE silently clears every referencing table — list the tables explicitly instead"
+matcher = "truncate_cascade"
+
+# SC-MIG09 — ban-alter-column-type
+# Changing a column type takes ACCESS EXCLUSIVE for the rewrite and may
+# rewrite the whole table.
+[[rule]]
+id = "SC-MIG09"
+name = "ban-alter-column-type"
+category = "migration"
+severity = "error"
+dialects = ["postgres"]
+cwe = []
+description = "ALTER COLUMN … TYPE rewrites the table under ACCESS EXCLUSIVE — blocks reads and writes for the duration"
+message = "ALTER `{table}.{column}` TYPE {target_type} rewrites the table under ACCESS EXCLUSIVE — stage as add-new-column → backfill → swap → drop-old"
+matcher = "alter_column_type"

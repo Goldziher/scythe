@@ -1,0 +1,15 @@
+{
+	"name": "ban_truncate_cascade_clean",
+	"description": "TRUNCATE without CASCADE should not trigger SC-MIG08",
+	"category": "lint/security",
+	"tags": ["lint", "migration", "ban-truncate-cascade"],
+	"schema_sql": [],
+	"query_sql": "-- @name DeleteAllUsers\n-- @returns :exec\nTRUNCATE TABLE users",
+	"expected": {
+		"success": true,
+		"lint": {
+			"violations": []
+		}
+	},
+	"source": "original"
+}
