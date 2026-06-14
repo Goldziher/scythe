@@ -9,10 +9,11 @@ Add scythe to your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.6.0  # use the latest release tag
+    rev: v0.9.0  # use the latest release tag
     hooks:
       - id: scythe-fmt
       - id: scythe-lint
+      - id: scythe-audit
 ```
 
 Then install the hooks:
@@ -30,7 +31,8 @@ prek install
 | Hook ID | Description | Modifies files | Requires config |
 |---------|-------------|:--------------:|:---------------:|
 | `scythe-fmt` | Format SQL files in-place | Yes | No |
-| `scythe-lint` | Lint SQL files with auto-fix | Yes | No |
+| `scythe-lint` | Lint SQL files with auto-fix (includes audit rules) | Yes | No |
+| `scythe-audit` | SC-SEC*/SC-RLS*/SC-MIG*/SC-CHK* security/migration audit | No | No |
 | `scythe-generate` | Generate code from SQL schema and queries | Yes | Yes |
 | `scythe-check` | Validate SQL without generating code | No | Yes |
 
@@ -40,7 +42,11 @@ Formats SQL files using sqruff integration. Runs on changed `.sql` files and mod
 
 ### scythe-lint
 
-Lints SQL files and auto-fixes violations where possible. Runs `scythe lint --fix` by default. When run without a `scythe.toml`, only sqruff rules apply. With a config, both scythe rules (schema-aware) and sqruff rules run.
+Lints SQL files and auto-fixes violations where possible. Runs `scythe lint --fix` by default. When run without a `scythe.toml`, only sqruff rules apply. With a config, both scythe rules (schema-aware) and sqruff rules run — and the canonical `SC-SEC*`, `SC-RLS*`, `SC-MIG*`, and `SC-CHK*` audit packs run too, dialect-gated by the `[[sql]].engine` field. A `mysql` project will not see postgres-only `SC-MIG*` findings; they're silently skipped.
+
+### scythe-audit
+
+Static SQL audit — runs the canonical security, RLS, migration-safety, and CHECK-integrity rule packs over staged `.sql` files. No `scythe.toml` or database connection required. Defaults to the `postgres` dialect; override via `args: [--dialect, mysql]` (or any other supported engine). Exits 2 when any error-severity rule fires; pass `--exit-zero` for advisory CI integration that publishes findings without blocking the commit.
 
 ### scythe-generate
 

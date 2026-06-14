@@ -138,15 +138,30 @@ audit:
 
 ### Pre-commit — block on errors
 
+Use the public hooks published by this repo:
+
 ```yaml
-- repo: local
+- repo: https://github.com/Goldziher/scythe
+  rev: v0.9.0              # pin to a released tag
   hooks:
-    - id: scythe-audit
-      name: scythe audit (security)
-      entry: scythe audit
-      language: system
-      types: [sql]
-      pass_filenames: false
+    - id: scythe-audit     # SC-SEC*/SC-RLS*/SC-MIG*/SC-CHK* on changed files
+    # - id: scythe-lint    # full pipeline: sqruff + scythe-lint + audit (needs scythe.toml)
 ```
 
+`scythe-audit` runs on every staged `.sql` file with the default postgres dialect.
+Override per-hook via the standard pre-commit `args:` block:
+
+```yaml
+- id: scythe-audit
+  args: [--dialect, mysql, --severity, warn]
+```
+
+`scythe lint` already invokes the audit rule pack with dialect gating —
+rules whose `dialects` list excludes the configured `[[sql]].engine` are
+silently skipped, so a `mysql` project will not see SC-MIG* (postgres-only)
+findings. The `scythe-lint` hook is the right choice when a `scythe.toml`
+is present at the repo root; `scythe-audit` covers projects that don't (yet)
+use scythe for codegen.
+
 By default `scythe audit` exits 2 on error findings, which pre-commit treats as a failed hook.
+For advisory CI integration that publishes findings without blocking, add `--exit-zero`.

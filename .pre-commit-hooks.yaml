@@ -8,8 +8,28 @@
 
 - id: scythe-lint
   name: Lint SQL files (scythe lint)
-  description: Lint SQL files and auto-fix violations where possible.
+  description: >-
+    Lint SQL files. With a scythe.toml in the repo root this runs the full
+    pipeline — sqruff style rules, scythe's schema-aware safety/codegen/
+    naming rules, and the canonical SC-SEC*, SC-RLS*, SC-MIG*, and SC-CHK*
+    audit packs (dialect-gated by the `[[sql]].engine` field — rules whose
+    `dialects` list excludes the configured engine are silently skipped).
+    Without a config, the hook falls back to sqruff-only file linting and
+    auto-fixes are applied.
   entry: scythe lint --fix
+  language: rust
+  types: [sql]
+  pass_filenames: true
+
+- id: scythe-audit
+  name: Audit SQL files (scythe audit)
+  description: >-
+    Run scythe's canonical SC-SEC*, SC-RLS*, SC-MIG*, and SC-CHK* audit
+    rules against changed .sql files. Pure static analysis — no scythe.toml,
+    no database connection required. Exits non-zero when any error-severity
+    rule fires; pass `--exit-zero` via `args:` for advisory CI integration.
+    Defaults to the postgres dialect; override with `--dialect <engine>`.
+  entry: scythe audit
   language: rust
   types: [sql]
   pass_filenames: true
