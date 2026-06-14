@@ -6,6 +6,7 @@ edition = "2024"
 [workspace]
 
 [dependencies]
-sibyl = { version = "0.6", features = ["tokio"] }
-url = "2"
+chrono = { version = "0.4", features = ["serde"] }
+sibyl = { version = "0.7", features = ["tokio", "nonblocking"] }
 tokio = { version = "1", features = ["full"] }
+url = "2"

@@ -5,7 +5,7 @@ use queries::{
     CreateOrderRow, CreateUserRow,
     GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
 };
-use sibyl::prelude::*;
+use sibyl::Environment;
 use std::str::FromStr;
 
 macro_rules! assert_test {
@@ -37,7 +37,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let oracle_service = url.path().trim_start_matches('/');
     let oracle_connect = format!("{}:{}/{}", oracle_host, oracle_port, oracle_service);
 
-    let oracle = Oracle::new().expect("Oracle environment");
+    let oracle = Environment::new().expect("Oracle environment");
     let session = oracle
         .connect(&oracle_connect, oracle_user, oracle_pass)
         .await?;
@@ -45,12 +45,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Clean slate: drop tables and sequences, ignore errors, then recreate
     for table in &["user_tags", "tags", "orders", "users"] {
         if let Ok(stmt) = session.prepare(&format!("DROP TABLE {}", table)).await {
-            let _ = stmt.execute("").await;
+            let _ = stmt.execute(()).await;
         }
     }
     for seq in &["tags_seq", "orders_seq", "users_seq"] {
         if let Ok(stmt) = session.prepare(&format!("DROP SEQUENCE {}", seq)).await {
-            let _ = stmt.execute("").await;
+            let _ = stmt.execute(()).await;
         }
     }
 
@@ -59,12 +59,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let block = block.trim();
         if !block.is_empty() {
             let stmt = session.prepare(block).await?;
-            stmt.execute("").await?;
+            stmt.execute(()).await?;
         }
     }
 
     // Test: CreateUser
-let user = queries::create_user(&session, "Alice", "alice@example.com", 1i32)
+let user = queries::create_user(&session, "Alice", Some("alice@example.com"), 1i64)
         .await?
         .expect("create_user returned None");
     assert_test!(user.name == "Alice", "CreateUser");
@@ -76,7 +76,7 @@ let user = queries::create_user(&session, "Alice", "alice@example.com", 1i32)
     pass!("CreateUser");
 
     // Test: GetUserById
-let fetched = generated::get_user_by_id(&session, user_id)
+let fetched = queries::get_user_by_id(&session, user_id)
         .await?
         .expect("get_user_by_id returned None");
     assert_test!(fetched.id == user_id, "GetUserById");
@@ -88,14 +88,14 @@ let fetched = generated::get_user_by_id(&session, user_id)
     pass!("GetUserById");
 
     // Test: ListActiveUsers
-let active_users = generated::list_active_users(&session).await?;
+let active_users = queries::list_active_users(&session).await?;
     assert_test!(!active_users.is_empty(), "ListActiveUsers");
     assert_test!(active_users[0].name == "Alice", "ListActiveUsers");
     pass!("ListActiveUsers");
 
     // Test: CreateOrder
-let order_total: i32 = 9999;
-    let order = generated::create_order(&session, user_id, order_total, "first order")
+let order_total: f64 = 9999.0;
+    let order = queries::create_order(&session, user_id, order_total, Some("first order"))
         .await?
         .expect("create_order returned None");
 
@@ -108,16 +108,16 @@ let order_total: i32 = 9999;
     pass!("CreateOrder");
 
     // Test: GetOrdersByUser
-let orders = generated::get_orders_by_user(&session, user_id).await?;
+let orders = queries::get_orders_by_user(&session, user_id).await?;
     assert_test!(orders.len() == 1, "GetOrdersByUser");
     assert_test!(orders[0].total == order_total, "GetOrdersByUser");
     pass!("GetOrdersByUser");
 
     // Test: DeleteUser (delete orders first due to FK)
-generated::delete_orders_by_user(&session, user_id).await?;
-    generated::delete_user(&session, user_id).await?;
+queries::delete_orders_by_user(&session, user_id).await?;
+    queries::delete_user(&session, user_id).await?;
     // Verify user is gone
-    let deleted = generated::get_user_by_id(&session, user_id).await?;
+    let deleted = queries::get_user_by_id(&session, user_id).await?;
     assert_test!(deleted.is_none(), "DeleteUser");
     pass!("DeleteUser");
 

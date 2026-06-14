@@ -35,9 +35,204 @@ impl RustSibylBackend {
         )?;
         Ok(Self { manifest })
     }
+
+    /// Build the sibyl 0.7 `execute`/`query` args expression for IN params.
+    /// Single param: `(":NAME", val)` — no outer tuple needed (it IS a (&str, T)).
+    /// Multiple params: `((":A", a), (":B", b))`.
+    /// Zero params: `()`.
+    fn build_in_args(params: &[ResolvedParam]) -> String {
+        match params.len() {
+            0 => "()".to_string(),
+            1 => format!(
+                "(\"{}\", {})",
+                Self::named_placeholder(&params[0].field_name),
+                params[0].field_name
+            ),
+            _ => {
+                let pairs: Vec<String> = params
+                    .iter()
+                    .map(|p| {
+                        format!(
+                            "(\"{}\", {})",
+                            Self::named_placeholder(&p.field_name),
+                            p.field_name
+                        )
+                    })
+                    .collect();
+                format!("({})", pairs.join(", "))
+            }
+        }
+    }
+
+    /// `:PARAM_NAME` — named placeholder used in SQL for IN params.
+    fn named_placeholder(field_name: &str) -> String {
+        format!(":{}", field_name.to_uppercase())
+    }
+
+    /// `:OUT_COL_NAME` — named placeholder used in SQL for RETURNING INTO OUT params.
+    fn out_named_placeholder(field_name: &str) -> String {
+        format!(":OUT_{}", field_name.to_uppercase())
+    }
+
+    /// Rewrite positional `:N` placeholders in SQL to named `:PARAM_NAME` form.
+    fn sql_with_named_params(sql: &str, params: &[ResolvedParam]) -> String {
+        let mut result = sql.to_string();
+        // Replace in reverse order so :10 is replaced before :1.
+        for (i, p) in params.iter().enumerate().rev() {
+            let positional = format!(":{}", i + 1);
+            let named = format!(":{}", p.field_name.to_uppercase());
+            result = result.replace(&positional, &named);
+        }
+        result
+    }
+
+    /// Build the RETURNING INTO clause and the full SQL for a RETURNING DML.
+    /// Returns the full SQL including RETURNING ... INTO :OUT_COL_NAME ...
+    fn sql_with_returning(base_sql: &str, columns: &[ResolvedColumn]) -> String {
+        let out_names: Vec<String> = columns
+            .iter()
+            .map(|c| format!(":OUT_{}", c.field_name.to_uppercase()))
+            .collect();
+        // Remove any existing RETURNING clause — we'll rebuild it with the INTO.
+        // The base SQL may already contain "RETURNING col1, col2" without "INTO".
+        let upper = base_sql.to_uppercase();
+        if let Some(ret_pos) = upper.find("RETURNING") {
+            let prefix = &base_sql[..ret_pos];
+            // Extract column list between RETURNING and end (or INTO)
+            let rest = &base_sql[ret_pos + "RETURNING".len()..];
+            let col_list = if let Some(into_pos) = rest.to_uppercase().find(" INTO ") {
+                rest[..into_pos].trim()
+            } else {
+                rest.trim()
+            };
+            format!(
+                "{}RETURNING {} INTO {}",
+                prefix,
+                col_list,
+                out_names.join(", ")
+            )
+        } else {
+            // No RETURNING in SQL — shouldn't happen, but handle gracefully
+            base_sql.to_string()
+        }
+    }
+
+    /// Emit the variable declaration for a RETURNING INTO out variable.
+    /// sibyl 0.7 accepts `&mut` primitive types (i64, f64, String) and sibyl types (Date, Number).
+    /// For dates: declare a `Date::new(session)` placeholder.
+    /// For int64: use i64 directly (Oracle NUMBER → SQLT_INT).
+    /// For float/decimal: use f64 (Oracle NUMBER → SQLT_BDOUBLE).
+    fn emit_out_var_decl_typed(col: &ResolvedColumn) -> String {
+        match col.neutral_type.as_str() {
+            "int16" | "int32" | "int64" => {
+                format!("    let mut out_{}: i64 = 0;", col.field_name)
+            }
+            "float32" | "float64" | "decimal" => {
+                format!("    let mut out_{}: f64 = 0.0;", col.field_name)
+            }
+            "date" | "datetime" | "datetime_tz" => {
+                // Use sibyl Date to receive the value, then convert to chrono.
+                format!("    let mut out_{} = Date::new(session);", col.field_name)
+            }
+            _ => {
+                // Both nullable and non-nullable strings use `String` as bind buffer.
+                // Nullable case: checked via stmt.is_null() after execute.
+                format!("    let mut out_{} = String::new();", col.field_name)
+            }
+        }
+    }
+
+    /// For RETURNING args, get the `&mut var` expression for the out column.
+    fn out_var_ref_for_returning(col: &ResolvedColumn) -> String {
+        format!("&mut out_{}", col.field_name)
+    }
+
+    /// Emit the post-execute conversion from the `out_*` var to the struct field type.
+    fn emit_out_var_conversion(col: &ResolvedColumn) -> String {
+        match col.neutral_type.as_str() {
+            "int16" => format!(
+                "    let {} = out_{} as i16;",
+                col.field_name, col.field_name
+            ),
+            "int32" => format!(
+                "    let {} = out_{} as i32;",
+                col.field_name, col.field_name
+            ),
+            "int64" => format!("    let {} = out_{};", col.field_name, col.field_name),
+            "float32" => format!(
+                "    let {} = out_{} as f32;",
+                col.field_name, col.field_name
+            ),
+            "float64" | "decimal" => {
+                format!("    let {} = out_{};", col.field_name, col.field_name)
+            }
+            "date" | "datetime" | "datetime_tz" => {
+                // Convert sibyl Date to chrono::NaiveDateTime via date_and_time().
+                format!(
+                    "    let {name} = {{ let (y, mo, d, h, mi, s) = out_{name}.date_and_time(); chrono::NaiveDate::from_ymd_opt(y as i32, mo as u32, d as u32).and_then(|dt| dt.and_hms_opt(h as u32, mi as u32, s as u32)).expect(\"invalid date from Oracle\") }};",
+                    name = col.field_name
+                )
+            }
+            _ => {
+                if col.nullable {
+                    // Nullable string: check is_null() on the named param to produce Option.
+                    format!(
+                        "    let {name} = if stmt.is_null(\"{placeholder}\")? {{ None }} else {{ Some(out_{name}) }};",
+                        name = col.field_name,
+                        placeholder = Self::out_named_placeholder(&col.field_name)
+                    )
+                } else {
+                    format!("    let {} = out_{};", col.field_name, col.field_name)
+                }
+            }
+        }
+    }
+
+    /// Emit the row.get() call for a SELECT column.
+    /// sibyl 0.7's FromSql supports: String, &str, integers (via Integer trait), f32, f64,
+    /// Date<'_>, Timestamp<'_>, etc. — but NOT chrono::NaiveDateTime.
+    /// For date/datetime: get as Date<'_> then convert via date_and_time().
+    /// decimal maps to f64 in the manifest (OCI NUMBER → SQLT_BDOUBLE), so it's handled as float.
+    fn emit_row_get(col: &ResolvedColumn, index: usize, indent: &str) -> String {
+        match col.neutral_type.as_str() {
+            "date" | "datetime" | "datetime_tz" => {
+                // Oracle DATE → sibyl Date<'_>, then chrono.
+                // For nullable dates: get Option<Date<'_>> then convert the inner value.
+                if col.nullable {
+                    format!(
+                        "{indent}let {name}: {ty} = row.get::<Option<Date<'_>>, _>({i})?.map(|d| {{ let (y, mo, d2, h, mi, s) = d.date_and_time(); chrono::NaiveDate::from_ymd_opt(y as i32, mo as u32, d2 as u32).and_then(|dt| dt.and_hms_opt(h as u32, mi as u32, s as u32)).expect(\"invalid date from Oracle\") }});",
+                        indent = indent,
+                        name = col.field_name,
+                        i = index,
+                        ty = col.full_type
+                    )
+                } else {
+                    format!(
+                        "{indent}let {name}_date: Date<'_> = row.get({i})?;\n\
+                         {indent}let {name}: {ty} = {{ let (y, mo, d, h, mi, s) = {name}_date.date_and_time(); chrono::NaiveDate::from_ymd_opt(y as i32, mo as u32, d as u32).and_then(|dt| dt.and_hms_opt(h as u32, mi as u32, s as u32)).expect(\"invalid date from Oracle\") }};",
+                        indent = indent,
+                        name = col.field_name,
+                        i = index,
+                        ty = col.full_type
+                    )
+                }
+            }
+            _ => {
+                // Integers, floats, strings — direct get with LHS type annotation.
+                // Use full_type (which includes Option<> wrapper for nullable columns).
+                format!(
+                    "{indent}let {name}: {ty} = row.get({i})?;",
+                    indent = indent,
+                    name = col.field_name,
+                    i = index,
+                    ty = col.full_type
+                )
+            }
+        }
+    }
 }
 
-/// Rewrite $1, $2, ... positional params to :1, :2, ... for Oracle.
+/// Rewrite $1, $2, ... positional params to :PARAM_NAME named params for Oracle sibyl 0.7.
 impl CodegenBackend for RustSibylBackend {
     fn name(&self) -> &str {
         "rust-sibyl"
@@ -53,7 +248,7 @@ impl CodegenBackend for RustSibylBackend {
 
     fn file_header(&self) -> String {
         "// Auto-generated by scythe. Do not edit.\n\
-         use sibyl::prelude::*;\n"
+         use sibyl::*;\n"
             .to_string()
     }
 
@@ -91,7 +286,8 @@ impl CodegenBackend for RustSibylBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        // Rewrite $N placeholders to :N (Oracle positional), then rewrite to named :PARAM_NAME.
+        let positional_sql = super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(
                 &analyzed.sql,
                 &analyzed.optional_params,
@@ -99,6 +295,7 @@ impl CodegenBackend for RustSibylBackend {
             ),
             |n| format!(":{n}"),
         );
+        let sql = Self::sql_with_named_params(&positional_sql, params);
 
         let param_list = params
             .iter()
@@ -121,69 +318,49 @@ impl CodegenBackend for RustSibylBackend {
                 );
 
                 if has_returning {
-                    // Oracle RETURNING INTO uses sibyl's returning_into() output binding.
-                    // Append INTO :N+1, :N+2, ... placeholders to SQL.
-                    let into_placeholders: Vec<String> = (0..columns.len())
-                        .map(|i| format!(":{}", params.len() + i + 1))
-                        .collect();
-                    let full_sql = format!("{} INTO {}", sql, into_placeholders.join(", "));
+                    // sibyl 0.7 RETURNING: SQL has RETURNING cols INTO :OUT_COL_NAME ...
+                    // execute() args tuple includes `(":OUT_COL_NAME", &mut out_col)`.
+                    let full_sql = Self::sql_with_returning(&sql, columns);
                     let _ = writeln!(
                         out,
                         "    let stmt = session.prepare(\"{}\").await?;",
                         full_sql
                     );
-                    for (i, param) in params.iter().enumerate() {
-                        let _ = writeln!(
-                            out,
-                            "    stmt.bind({}, &{}).await?;",
-                            i + 1,
-                            param.field_name
-                        );
-                    }
-                    for (i, col) in columns.iter().enumerate() {
-                        let slot = params.len() + i + 1;
-                        let sibyl_type = match col.neutral_type.as_str() {
-                            "int16" | "int32" | "int64" | "float32" | "float64" | "decimal" => {
-                                "sibyl::Number"
-                            }
-                            "date" | "datetime" | "datetime_tz" => "sibyl::Date",
-                            _ => "sibyl::Varchar",
-                        };
-                        let _ = writeln!(
-                            out,
-                            "    let out_{}: {} = stmt.returning_into({}).await?;",
-                            col.field_name, sibyl_type, slot
-                        );
-                    }
-                    let _ = writeln!(out, "    stmt.execute(\"\").await?;");
+                    // Declare out variables.
                     for col in columns {
-                        let extract = match col.neutral_type.as_str() {
-                            "int16" => format!(
-                                "    let {} = out_{}.to_int::<i16>()? as {};",
-                                col.field_name, col.field_name, col.lang_type
-                            ),
-                            "int32" => format!(
-                                "    let {} = out_{}.to_int::<i32>()? as {};",
-                                col.field_name, col.field_name, col.lang_type
-                            ),
-                            "int64" => format!(
-                                "    let {} = out_{}.to_int::<i64>()? as {};",
-                                col.field_name, col.field_name, col.lang_type
-                            ),
-                            "float32" | "float64" | "decimal" => format!(
-                                "    let {} = out_{}.to_float::<f64>()? as {};",
-                                col.field_name, col.field_name, col.lang_type
-                            ),
-                            "date" | "datetime" | "datetime_tz" => format!(
-                                "    let {} = out_{}.timestamp()? as {};",
-                                col.field_name, col.field_name, col.lang_type
-                            ),
-                            _ => format!(
-                                "    let {} = out_{}.as_str()?.to_string();",
-                                col.field_name, col.field_name
-                            ),
-                        };
-                        let _ = writeln!(out, "{}", extract);
+                        let _ = writeln!(out, "{}", Self::emit_out_var_decl_typed(col));
+                    }
+                    // Build execute args combining IN params and &mut OUT vars.
+                    let in_pairs: Vec<String> = params
+                        .iter()
+                        .map(|p| {
+                            format!(
+                                "(\"{}\", {})",
+                                Self::named_placeholder(&p.field_name),
+                                p.field_name
+                            )
+                        })
+                        .collect();
+                    let out_pairs: Vec<String> = columns
+                        .iter()
+                        .map(|col| {
+                            format!(
+                                "(\"{}\", {})",
+                                Self::out_named_placeholder(&col.field_name),
+                                Self::out_var_ref_for_returning(col)
+                            )
+                        })
+                        .collect();
+                    let all_pairs: Vec<String> = in_pairs.into_iter().chain(out_pairs).collect();
+                    let args_expr = if all_pairs.len() == 1 {
+                        all_pairs[0].clone()
+                    } else {
+                        format!("({})", all_pairs.join(", "))
+                    };
+                    let _ = writeln!(out, "    stmt.execute({}).await?;", args_expr);
+                    // Convert out vars to target types.
+                    for col in columns {
+                        let _ = writeln!(out, "{}", Self::emit_out_var_conversion(col));
                     }
                     let field_assigns: Vec<String> = columns
                         .iter()
@@ -198,22 +375,11 @@ impl CodegenBackend for RustSibylBackend {
                     let _ = write!(out, "}}");
                 } else {
                     let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
-                    for (i, param) in params.iter().enumerate() {
-                        let _ = writeln!(
-                            out,
-                            "    stmt.bind({}, &{}).await?;",
-                            i + 1,
-                            param.field_name
-                        );
-                    }
-                    let _ = writeln!(out, "    let rows = stmt.query(\"\").await?;");
+                    let args_expr = Self::build_in_args(params);
+                    let _ = writeln!(out, "    let rows = stmt.query({}).await?;", args_expr);
                     let _ = writeln!(out, "    if let Some(row) = rows.next().await? {{");
                     for (i, col) in columns.iter().enumerate() {
-                        let _ = writeln!(
-                            out,
-                            "        let {} = row.get::<{}>({})?;",
-                            col.field_name, col.lang_type, i
-                        );
+                        let _ = writeln!(out, "{}", Self::emit_row_get(col, i, "        "));
                     }
                     let field_assigns: Vec<String> = columns
                         .iter()
@@ -238,23 +404,12 @@ impl CodegenBackend for RustSibylBackend {
                     func_name, sep, param_list, struct_name
                 );
                 let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
-                for (i, param) in params.iter().enumerate() {
-                    let _ = writeln!(
-                        out,
-                        "    stmt.bind({}, &{}).await?;",
-                        i + 1,
-                        param.field_name
-                    );
-                }
-                let _ = writeln!(out, "    let rows = stmt.query(\"\").await?;");
+                let args_expr = Self::build_in_args(params);
+                let _ = writeln!(out, "    let rows = stmt.query({}).await?;", args_expr);
                 let _ = writeln!(out, "    let mut results = Vec::new();");
                 let _ = writeln!(out, "    while let Some(row) = rows.next().await? {{");
                 for (i, col) in columns.iter().enumerate() {
-                    let _ = writeln!(
-                        out,
-                        "        let {} = row.get::<{}>({})?;",
-                        col.field_name, col.lang_type, i
-                    );
+                    let _ = writeln!(out, "{}", Self::emit_row_get(col, i, "        "));
                 }
                 let field_assigns: Vec<String> = columns
                     .iter()
@@ -277,15 +432,8 @@ impl CodegenBackend for RustSibylBackend {
                     func_name, sep, param_list
                 );
                 let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
-                for (i, param) in params.iter().enumerate() {
-                    let _ = writeln!(
-                        out,
-                        "    stmt.bind({}, &{}).await?;",
-                        i + 1,
-                        param.field_name
-                    );
-                }
-                let _ = writeln!(out, "    stmt.execute(\"\").await?;");
+                let args_expr = Self::build_in_args(params);
+                let _ = writeln!(out, "    stmt.execute({}).await?;", args_expr);
                 let _ = writeln!(out, "    Ok(())");
                 let _ = write!(out, "}}");
             }
@@ -296,15 +444,12 @@ impl CodegenBackend for RustSibylBackend {
                     func_name, sep, param_list
                 );
                 let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
-                for (i, param) in params.iter().enumerate() {
-                    let _ = writeln!(
-                        out,
-                        "    stmt.bind({}, &{}).await?;",
-                        i + 1,
-                        param.field_name
-                    );
-                }
-                let _ = writeln!(out, "    let num_rows = stmt.execute(\"\").await?;");
+                let args_expr = Self::build_in_args(params);
+                let _ = writeln!(
+                    out,
+                    "    let num_rows = stmt.execute({}).await?;",
+                    args_expr
+                );
                 let _ = writeln!(out, "    Ok(num_rows)");
                 let _ = write!(out, "}}");
             }
@@ -322,10 +467,23 @@ impl CodegenBackend for RustSibylBackend {
                 );
                 let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
                 let _ = writeln!(out, "    for item in items {{");
-                for (i, _param) in params.iter().enumerate() {
-                    let _ = writeln!(out, "        stmt.bind({}, &item.{}).await?;", i + 1, i);
-                }
-                let _ = writeln!(out, "        stmt.execute(\"\").await?;");
+                let item_pairs: Vec<String> = params
+                    .iter()
+                    .enumerate()
+                    .map(|(i, p)| {
+                        format!(
+                            "(\"{}\", &item.{})",
+                            Self::named_placeholder(&p.field_name),
+                            i
+                        )
+                    })
+                    .collect();
+                let args_expr = if item_pairs.len() == 1 {
+                    item_pairs[0].clone()
+                } else {
+                    format!("({})", item_pairs.join(", "))
+                };
+                let _ = writeln!(out, "        stmt.execute({}).await?;", args_expr);
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "    Ok(())");
                 let _ = write!(out, "}}");
