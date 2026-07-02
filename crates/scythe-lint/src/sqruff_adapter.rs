@@ -57,11 +57,7 @@ fn make_linter(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<Li
 }
 
 /// Run sqruff's rules on SQL and return scythe Violations with position info.
-pub fn lint_sql(
-    sql: &str,
-    dialect: &str,
-    sqruff_config: Option<&SqruffConfig>,
-) -> Vec<SqruffViolation> {
+pub fn lint_sql(sql: &str, dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Vec<SqruffViolation> {
     let linter = match make_linter(dialect, sqruff_config) {
         Ok(l) => l,
         Err(_) => return Vec::new(),
@@ -130,11 +126,7 @@ pub fn lint_and_fix_sql(
 }
 
 /// Format SQL using sqruff (lint with fix, return the fixed string).
-pub fn format_sql(
-    sql: &str,
-    dialect: &str,
-    sqruff_config: Option<&SqruffConfig>,
-) -> Result<String, String> {
+pub fn format_sql(sql: &str, dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<String, String> {
     let linter = make_linter(dialect, sqruff_config)?;
 
     let result = linter.lint_string(sql, None, true).map_err(|e| e.value)?;

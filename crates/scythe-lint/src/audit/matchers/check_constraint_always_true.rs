@@ -56,10 +56,7 @@ fn make_hit(table: &str, name: Option<String>) -> MatcherHit {
     hit
 }
 
-pub fn match_check_constraint_always_true(
-    ctx: &LintContext<'_>,
-    _args: &toml::Table,
-) -> Vec<MatcherHit> {
+pub fn match_check_constraint_always_true(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec<MatcherHit> {
     match ctx.stmt {
         Statement::CreateTable(ct) => {
             let table = ct.name.to_string();
@@ -69,10 +66,7 @@ pub fn match_check_constraint_always_true(
                     if let ColumnOption::Check(check) = &opt.option
                         && is_tautology(&check.expr)
                     {
-                        hits.push(make_hit(
-                            &table,
-                            check.name.as_ref().map(|i| i.value.clone()),
-                        ));
+                        hits.push(make_hit(&table, check.name.as_ref().map(|i| i.value.clone())));
                     }
                 }
             }
@@ -80,10 +74,7 @@ pub fn match_check_constraint_always_true(
                 if let TableConstraint::Check(check) = c
                     && is_tautology(&check.expr)
                 {
-                    hits.push(make_hit(
-                        &table,
-                        check.name.as_ref().map(|i| i.value.clone()),
-                    ));
+                    hits.push(make_hit(&table, check.name.as_ref().map(|i| i.value.clone())));
                 }
             }
             hits
@@ -97,10 +88,9 @@ pub fn match_check_constraint_always_true(
                     AlterTableOperation::AddConstraint {
                         constraint: TableConstraint::Check(check),
                         ..
-                    } if is_tautology(&check.expr) => Some(make_hit(
-                        &table,
-                        check.name.as_ref().map(|i| i.value.clone()),
-                    )),
+                    } if is_tautology(&check.expr) => {
+                        Some(make_hit(&table, check.name.as_ref().map(|i| i.value.clone())))
+                    }
                     _ => None,
                 })
                 .collect()
@@ -119,17 +109,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,

@@ -1,22 +1,20 @@
 {
-	"name": "unbounded_like_fires",
-	"description": "LIKE '%foo%' should trigger SC-SEC09",
-	"category": "lint/security",
-	"tags": ["lint", "security", "like"],
-	"schema_sql": [
-		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
-	],
-	"query_sql": "-- @name SearchUsersByName\n-- @returns :many\nSELECT id FROM users WHERE name LIKE '%alice%';",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-SEC09",
-					"message_contains": "wildcarded on both sides"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "unbounded_like_fires",
+  "description": "LIKE '%foo%' should trigger SC-SEC09",
+  "category": "lint/security",
+  "tags": ["lint", "security", "like"],
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"],
+  "query_sql": "-- @name SearchUsersByName\n-- @returns :many\nSELECT id FROM users WHERE name LIKE '%alice%';",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-SEC09",
+          "message_contains": "wildcarded on both sides"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

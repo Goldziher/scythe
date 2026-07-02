@@ -68,11 +68,7 @@ fn map_rust_type(rust_type: &str, type_map: &AHashMap<&str, &str>) -> Option<Str
     None
 }
 
-fn migrate_params_or_columns(
-    arr: &mut [Value],
-    type_map: &AHashMap<&str, &str>,
-    unmapped: &mut Vec<String>,
-) {
+fn migrate_params_or_columns(arr: &mut [Value], type_map: &AHashMap<&str, &str>, unmapped: &mut Vec<String>) {
     for item in arr.iter_mut() {
         if let Some(obj) = item.as_object_mut()
             && let Some(rust_type_val) = obj.remove("rust_type")
@@ -115,11 +111,7 @@ fn main() {
     let entries: Vec<_> = glob(pattern)
         .expect("Failed to read glob pattern")
         .filter_map(Result::ok)
-        .filter(|path| {
-            path.file_name()
-                .map(|f| f != "00-FIXTURE-SCHEMA.json")
-                .unwrap_or(false)
-        })
+        .filter(|path| path.file_name().map(|f| f != "00-FIXTURE-SCHEMA.json").unwrap_or(false))
         .collect();
 
     println!("Found {} fixture files", entries.len());
@@ -167,10 +159,7 @@ fn main() {
             }
 
             // Migrate expected.generated_rust → expected.generated_code.rust-sqlx
-            if let Some(generated_rust) = expected
-                .as_object_mut()
-                .and_then(|o| o.remove("generated_rust"))
-            {
+            if let Some(generated_rust) = expected.as_object_mut().and_then(|o| o.remove("generated_rust")) {
                 let Some(expected_obj) = expected.as_object_mut() else {
                     continue;
                 };

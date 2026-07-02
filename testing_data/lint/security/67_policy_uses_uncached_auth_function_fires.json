@@ -1,20 +1,20 @@
 {
-	"name": "policy_uses_uncached_auth_function_fires",
-	"description": "Bare auth.uid() in policy USING should trigger SC-RLS03",
-	"category": "lint/security",
-	"tags": ["lint", "security", "rls", "policy-uses-uncached-auth-function"],
-	"schema_sql": ["CREATE TABLE tenants (id bigint PRIMARY KEY, user_id uuid)"],
-	"query_sql": "-- @name CreateTenantPolicy\n-- @returns :exec\nCREATE POLICY tenant ON tenants USING (user_id = auth.uid())",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-RLS03",
-					"message_contains": "InitPlan"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "policy_uses_uncached_auth_function_fires",
+  "description": "Bare auth.uid() in policy USING should trigger SC-RLS03",
+  "category": "lint/security",
+  "tags": ["lint", "security", "rls", "policy-uses-uncached-auth-function"],
+  "schema_sql": ["CREATE TABLE tenants (id bigint PRIMARY KEY, user_id uuid)"],
+  "query_sql": "-- @name CreateTenantPolicy\n-- @returns :exec\nCREATE POLICY tenant ON tenants USING (user_id = auth.uid())",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-RLS03",
+          "message_contains": "InitPlan"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

@@ -111,9 +111,7 @@ impl<'a> Analyzer<'a> {
                 }
             }
             Expr::InList {
-                expr: col_expr,
-                list,
-                ..
+                expr: col_expr, list, ..
             } => {
                 let col_ti = self.infer_expr_type(col_expr, scope);
                 let col_name = expr_to_name(col_expr);
@@ -122,12 +120,7 @@ impl<'a> Analyzer<'a> {
                         && let Some(p) = value_is_placeholder(vws)
                         && let Some(pos) = self.resolve_placeholder_position(p)
                     {
-                        self.register_param(
-                            pos,
-                            Some(col_name.clone()),
-                            Some(col_ti.neutral_type.clone()),
-                            false,
-                        );
+                        self.register_param(pos, Some(col_name.clone()), Some(col_ti.neutral_type.clone()), false);
                     }
                 }
             }
@@ -178,9 +171,7 @@ impl<'a> Analyzer<'a> {
                 }
             }
             Expr::Cast {
-                expr: inner,
-                data_type,
-                ..
+                expr: inner, data_type, ..
             } => {
                 let neutral = datatype_to_neutral(data_type, self.catalog);
                 self.collect_param_type_from_cast(inner, &neutral);
@@ -207,15 +198,12 @@ impl<'a> Analyzer<'a> {
                     let col_ti = self.infer_expr_type(col_side, scope);
                     let col_name = expr_to_name(col_side);
                     // Add prefix for aggregate comparisons in HAVING
-                    let param_name =
-                        derive_param_name_from_comparison(&col_name, col_side, param_side, op);
+                    let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
                     self.register_param(pos, Some(param_name), Some(col_ti.neutral_type), false);
                 }
             }
             Expr::Cast {
-                expr: inner,
-                data_type,
-                ..
+                expr: inner, data_type, ..
             } => {
                 if let Expr::Value(vws) = inner.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
@@ -223,8 +211,7 @@ impl<'a> Analyzer<'a> {
                 {
                     let neutral = datatype_to_neutral(data_type, self.catalog);
                     let col_name = expr_to_name(col_side);
-                    let param_name =
-                        derive_param_name_from_comparison(&col_name, col_side, param_side, op);
+                    let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
                     self.register_param(pos, Some(param_name), Some(neutral), false);
                 }
             }
@@ -237,17 +224,10 @@ impl<'a> Analyzer<'a> {
             if let Some(p) = value_is_placeholder(vws)
                 && let Some(pos) = self.resolve_placeholder_position(p)
             {
-                self.register_param(
-                    pos,
-                    Some(name.to_string()),
-                    Some(type_str.to_string()),
-                    false,
-                );
+                self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), false);
             }
         } else if let Expr::Cast {
-            expr: inner,
-            data_type,
-            ..
+            expr: inner, data_type, ..
         } = expr
             && let Expr::Value(vws) = inner.as_ref()
             && let Some(p) = value_is_placeholder(vws)
@@ -258,12 +238,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub(super) fn collect_param_from_expr_with_type(
-        &mut self,
-        expr: &Expr,
-        type_str: &str,
-        name: &str,
-    ) {
+    pub(super) fn collect_param_from_expr_with_type(&mut self, expr: &Expr, type_str: &str, name: &str) {
         self.collect_param_from_expr_with_type_nullable(expr, type_str, name, false);
     }
 
@@ -278,17 +253,10 @@ impl<'a> Analyzer<'a> {
             if let Some(p) = value_is_placeholder(vws)
                 && let Some(pos) = self.resolve_placeholder_position(p)
             {
-                self.register_param(
-                    pos,
-                    Some(name.to_string()),
-                    Some(type_str.to_string()),
-                    nullable,
-                );
+                self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), nullable);
             }
         } else if let Expr::Cast {
-            expr: inner,
-            data_type,
-            ..
+            expr: inner, data_type, ..
         } = expr
             && let Expr::Value(vws) = inner.as_ref()
             && let Some(p) = value_is_placeholder(vws)
@@ -313,12 +281,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub(super) fn collect_param_from_any(
-        &mut self,
-        expr: &Expr,
-        left_ti: &TypeInfo,
-        left_name: &str,
-    ) {
+    pub(super) fn collect_param_from_any(&mut self, expr: &Expr, left_ti: &TypeInfo, left_name: &str) {
         match expr {
             Expr::Value(vws) => {
                 if let Some(p) = value_is_placeholder(vws)
@@ -330,9 +293,7 @@ impl<'a> Analyzer<'a> {
                 }
             }
             Expr::Cast {
-                expr: inner,
-                data_type,
-                ..
+                expr: inner, data_type, ..
             } => {
                 if let Expr::Value(vws) = inner.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
@@ -351,12 +312,7 @@ impl<'a> Analyzer<'a> {
                         && let Some(pos) = self.resolve_placeholder_position(p)
                     {
                         let name = format!("{}{}", left_name, i + 1);
-                        self.register_param(
-                            pos,
-                            Some(name),
-                            Some(left_ti.neutral_type.clone()),
-                            false,
-                        );
+                        self.register_param(pos, Some(name), Some(left_ti.neutral_type.clone()), false);
                     }
                 }
             }
@@ -430,12 +386,7 @@ mod tests {
         let mut analyzer = make_analyzer(&catalog);
         analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false);
         // Re-register with different name/type should NOT overwrite
-        analyzer.register_param(
-            1,
-            Some("new_name".to_string()),
-            Some("string".to_string()),
-            true,
-        );
+        analyzer.register_param(1, Some("new_name".to_string()), Some("string".to_string()), true);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
         assert_eq!(analyzer.params[0].neutral_type, Some("int32".to_string()));
@@ -445,12 +396,7 @@ mod tests {
     fn test_register_multiple_params() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(
-            1,
-            Some("name".to_string()),
-            Some("string".to_string()),
-            false,
-        );
+        analyzer.register_param(1, Some("name".to_string()), Some("string".to_string()), false);
         analyzer.register_param(2, Some("age".to_string()), Some("int32".to_string()), false);
         assert_eq!(analyzer.params.len(), 2);
         assert_eq!(analyzer.params[0].position, 1);
@@ -460,9 +406,7 @@ mod tests {
     // ---- try_bind_param_from_comparison ----
     #[test]
     fn test_try_bind_param_from_comparison_basic() {
-        let catalog =
-            Catalog::from_ddl(&["CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL);"])
-                .unwrap();
+        let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL);"]).unwrap();
         let mut analyzer = Analyzer {
             catalog: &catalog,
             params: Vec::new(),
@@ -492,12 +436,7 @@ mod tests {
 
         let param_side = placeholder_expr("$1");
         let col_side = Expr::Identifier(Ident::new("id"));
-        analyzer.try_bind_param_from_comparison(
-            &param_side,
-            &col_side,
-            &scope,
-            Some(&BinaryOperator::Eq),
-        );
+        analyzer.try_bind_param_from_comparison(&param_side, &col_side, &scope, Some(&BinaryOperator::Eq));
 
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].position, 1);
@@ -524,10 +463,7 @@ mod tests {
         analyzer.collect_param_type_from_cast(&expr, "interval");
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, Some("duration".to_string()));
-        assert_eq!(
-            analyzer.params[0].neutral_type,
-            Some("interval".to_string())
-        );
+        assert_eq!(analyzer.params[0].neutral_type, Some("interval".to_string()));
     }
 
     #[test]
@@ -536,11 +472,7 @@ mod tests {
         let mut analyzer = make_analyzer(&catalog);
         let expr = Expr::Identifier(Ident::new("x"));
         analyzer.collect_param_type_from_cast(&expr, "int32");
-        assert_eq!(
-            analyzer.params.len(),
-            0,
-            "non-placeholder should not register a param"
-        );
+        assert_eq!(analyzer.params.len(), 0, "non-placeholder should not register a param");
     }
 
     // ---- collect_param_from_expr ----

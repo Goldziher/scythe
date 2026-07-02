@@ -105,8 +105,7 @@ impl SnippetValidator for TypeScriptValidator {
         let mut cmd = match level {
             ValidationLevel::Syntax | ValidationLevel::Compile => {
                 let mut c = std::process::Command::new("tsc");
-                c.args(["--noEmit", "--pretty", "false"])
-                    .current_dir(dir.path());
+                c.args(["--noEmit", "--pretty", "false"]).current_dir(dir.path());
                 c
             }
             ValidationLevel::Run => {

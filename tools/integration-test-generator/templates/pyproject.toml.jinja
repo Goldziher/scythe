@@ -1,27 +1,22 @@
-[project]
-name = "scythe-integration-{{ driver }}"
-version = "0.1.0"
-requires-python = ">=3.10"
-dependencies = [
+[project] name = "scythe-integration-{{ driver }}" version = "0.1.0" requires-python = ">=3.10" dependencies = [
 {%- if driver == "psycopg3" %}
-    "psycopg[binary]>=3.1",
+  "psycopg[binary]>=3.1",
 {%- elif driver == "asyncpg" %}
-    "asyncpg>=0.29",
+  "asyncpg>=0.29",
 {%- elif driver == "aiomysql" %}
-    "aiomysql>=0.2",
+  "aiomysql>=0.2",
 {%- elif driver == "aiosqlite" %}
-    "aiosqlite>=0.20",
+  "aiosqlite>=0.20",
 {%- elif driver == "oracledb" %}
-    "oracledb>=2.0",
+  "oracledb>=2.0",
 {%- elif driver == "pyodbc" %}
-    "pyodbc>=5.1",
+  "pyodbc>=5.1",
 {%- elif driver == "snowflake" %}
-    "snowflake-connector-python>=3.0",
-    "fakesnow>=0.9",
+  "snowflake-connector-python>=3.0", "fakesnow>=0.9",
 {%- endif %}
 {%- if options.row_type == "pydantic" %}
-    "pydantic>=2.0",
+  "pydantic>=2.0",
 {%- elif options.row_type == "msgspec" %}
-    "msgspec>=0.18",
+  "msgspec>=0.18",
 {%- endif %}
 ]

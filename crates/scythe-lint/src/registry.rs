@@ -118,12 +118,9 @@ pub fn default_registry() -> RuleRegistry {
     // Security rules — loaded from embedded TOML via the matcher registry.
     let matcher_reg = audit::MatcherRegistry::canonical();
     for spec in audit::canonical_specs() {
-        let matcher_fn = matcher_reg.get(&spec.matcher).unwrap_or_else(|| {
-            panic!(
-                "canonical rule {} references unknown matcher {}",
-                spec.id, spec.matcher
-            )
-        });
+        let matcher_fn = matcher_reg
+            .get(&spec.matcher)
+            .unwrap_or_else(|| panic!("canonical rule {} references unknown matcher {}", spec.id, spec.matcher));
         reg.register(Box::new(audit::MatcherRule::new(spec, matcher_fn)));
     }
 
@@ -144,11 +141,7 @@ mod tests {
 
     impl TestRule {
         fn new(id: &'static str, category: RuleCategory, severity: Severity) -> Self {
-            Self {
-                id,
-                category,
-                severity,
-            }
+            Self { id, category, severity }
         }
     }
 
@@ -182,11 +175,7 @@ mod tests {
     #[test]
     fn register_adds_rule() {
         let mut reg = RuleRegistry::new();
-        reg.register(Box::new(TestRule::new(
-            "TR-01",
-            RuleCategory::Safety,
-            Severity::Warn,
-        )));
+        reg.register(Box::new(TestRule::new("TR-01", RuleCategory::Safety, Severity::Warn)));
         assert_eq!(reg.rules.len(), 1);
         assert_eq!(reg.active_rules().len(), 1);
     }
@@ -200,11 +189,7 @@ mod tests {
     #[test]
     fn apply_config_rule_level_override() {
         let mut reg = RuleRegistry::new();
-        reg.register(Box::new(TestRule::new(
-            "TR-01",
-            RuleCategory::Safety,
-            Severity::Warn,
-        )));
+        reg.register(Box::new(TestRule::new("TR-01", RuleCategory::Safety, Severity::Warn)));
 
         let mut config = LintConfig::default();
         config.rules.insert("TR-01".to_string(), Severity::Error);
@@ -218,16 +203,10 @@ mod tests {
     #[test]
     fn apply_config_category_level_override() {
         let mut reg = RuleRegistry::new();
-        reg.register(Box::new(TestRule::new(
-            "TR-01",
-            RuleCategory::Safety,
-            Severity::Warn,
-        )));
+        reg.register(Box::new(TestRule::new("TR-01", RuleCategory::Safety, Severity::Warn)));
 
         let mut config = LintConfig::default();
-        config
-            .categories
-            .insert(RuleCategory::Safety, Severity::Error);
+        config.categories.insert(RuleCategory::Safety, Severity::Error);
         reg.apply_config(&config);
 
         let active = reg.active_rules();
@@ -239,16 +218,10 @@ mod tests {
     fn effective_severity_rule_override_beats_category_override() {
         let mut reg = RuleRegistry::new();
         let rule = TestRule::new("TR-01", RuleCategory::Safety, Severity::Warn);
-        reg.register(Box::new(TestRule::new(
-            "TR-01",
-            RuleCategory::Safety,
-            Severity::Warn,
-        )));
+        reg.register(Box::new(TestRule::new("TR-01", RuleCategory::Safety, Severity::Warn)));
 
         let mut config = LintConfig::default();
-        config
-            .categories
-            .insert(RuleCategory::Safety, Severity::Off);
+        config.categories.insert(RuleCategory::Safety, Severity::Off);
         config.rules.insert("TR-01".to_string(), Severity::Error);
         reg.apply_config(&config);
 
@@ -262,9 +235,7 @@ mod tests {
         let rule = TestRule::new("TR-01", RuleCategory::Naming, Severity::Warn);
 
         let mut config = LintConfig::default();
-        config
-            .categories
-            .insert(RuleCategory::Naming, Severity::Error);
+        config.categories.insert(RuleCategory::Naming, Severity::Error);
         reg.apply_config(&config);
 
         assert_eq!(reg.effective_severity(&rule), Severity::Error);
@@ -280,21 +251,9 @@ mod tests {
     #[test]
     fn active_rules_filters_out_off() {
         let mut reg = RuleRegistry::new();
-        reg.register(Box::new(TestRule::new(
-            "TR-01",
-            RuleCategory::Safety,
-            Severity::Warn,
-        )));
-        reg.register(Box::new(TestRule::new(
-            "TR-02",
-            RuleCategory::Safety,
-            Severity::Off,
-        )));
-        reg.register(Box::new(TestRule::new(
-            "TR-03",
-            RuleCategory::Style,
-            Severity::Error,
-        )));
+        reg.register(Box::new(TestRule::new("TR-01", RuleCategory::Safety, Severity::Warn)));
+        reg.register(Box::new(TestRule::new("TR-02", RuleCategory::Safety, Severity::Off)));
+        reg.register(Box::new(TestRule::new("TR-03", RuleCategory::Style, Severity::Error)));
 
         let active = reg.active_rules();
         assert_eq!(active.len(), 2);
@@ -307,11 +266,7 @@ mod tests {
     #[test]
     fn active_rules_returns_overridden_severity() {
         let mut reg = RuleRegistry::new();
-        reg.register(Box::new(TestRule::new(
-            "TR-01",
-            RuleCategory::Safety,
-            Severity::Warn,
-        )));
+        reg.register(Box::new(TestRule::new("TR-01", RuleCategory::Safety, Severity::Warn)));
 
         let mut config = LintConfig::default();
         config.rules.insert("TR-01".to_string(), Severity::Error);
@@ -326,11 +281,7 @@ mod tests {
     #[test]
     fn active_rules_config_can_turn_off_rule() {
         let mut reg = RuleRegistry::new();
-        reg.register(Box::new(TestRule::new(
-            "TR-01",
-            RuleCategory::Safety,
-            Severity::Warn,
-        )));
+        reg.register(Box::new(TestRule::new("TR-01", RuleCategory::Safety, Severity::Warn)));
 
         let mut config = LintConfig::default();
         config.rules.insert("TR-01".to_string(), Severity::Off);

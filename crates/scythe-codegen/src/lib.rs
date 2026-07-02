@@ -157,11 +157,9 @@ pub fn generate_with_backend_and_overrides(
             group_by: analyzed.group_by.clone(),
             custom: analyzed.custom.clone(),
         };
-        result.query_fn =
-            Some(backend.generate_query_fn(&many_proxy, &struct_name, &columns, &params)?);
+        result.query_fn = Some(backend.generate_query_fn(&many_proxy, &struct_name, &columns, &params)?);
     } else {
-        result.query_fn =
-            Some(backend.generate_query_fn(analyzed, &struct_name, &columns, &params)?);
+        result.query_fn = Some(backend.generate_query_fn(analyzed, &struct_name, &columns, &params)?);
     }
 
     Ok(result)

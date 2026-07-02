@@ -46,9 +46,7 @@ fn read_function_list(args: &toml::Table) -> Vec<String> {
 }
 
 fn last_name_segment(name: &ObjectName) -> Option<String> {
-    name.0
-        .last()
-        .and_then(|p| p.as_ident().map(|i| i.value.clone()))
+    name.0.last().and_then(|p| p.as_ident().map(|i| i.value.clone()))
 }
 
 struct Collector<'a> {
@@ -90,10 +88,7 @@ mod tests {
 
     fn make_args(fns: &[&str]) -> toml::Table {
         let mut t = toml::Table::new();
-        let arr: toml::value::Array = fns
-            .iter()
-            .map(|s| toml::Value::String((*s).to_string()))
-            .collect();
+        let arr: toml::value::Array = fns.iter().map(|s| toml::Value::String((*s).to_string())).collect();
         t.insert("functions".to_string(), toml::Value::Array(arr));
         t
     }
@@ -106,9 +101,7 @@ mod tests {
         scythe_core::catalog::Catalog,
         scythe_core::parser::Annotations,
     ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -154,10 +147,7 @@ mod tests {
         let args = make_args(&["pg_read_file"]);
         let hits = match_function_name_in_set(&ctx, &args);
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("func").map(|s| s.as_str()),
-            Some("pg_read_file")
-        );
+        assert_eq!(hits[0].bindings.get("func").map(|s| s.as_str()), Some("pg_read_file"));
     }
 
     #[test]

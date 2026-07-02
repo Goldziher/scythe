@@ -30,9 +30,7 @@ impl BackendRenderer {
                     let name = path
                         .file_name()
                         .and_then(|n| n.to_str())
-                        .ok_or_else(|| {
-                            BackendError::TemplateError("invalid template filename".to_string())
-                        })?
+                        .ok_or_else(|| BackendError::TemplateError("invalid template filename".to_string()))?
                         .to_string();
                     let content = std::fs::read_to_string(&path).map_err(BackendError::Io)?;
                     env.add_template_owned(name, content)
@@ -50,11 +48,7 @@ impl BackendRenderer {
     }
 
     /// Render a named template with the given context.
-    pub fn render(
-        &self,
-        template_name: &str,
-        context: &impl Serialize,
-    ) -> Result<String, BackendError> {
+    pub fn render(&self, template_name: &str, context: &impl Serialize) -> Result<String, BackendError> {
         let tmpl = self
             .env
             .get_template(template_name)

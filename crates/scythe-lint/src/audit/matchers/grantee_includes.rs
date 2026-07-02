@@ -12,10 +12,7 @@ use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
 pub fn match_grantee_includes(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<MatcherHit> {
-    let grantee = args
-        .get("grantee")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
+    let grantee = args.get("grantee").and_then(|v| v.as_str()).unwrap_or_default();
 
     match grantee {
         "public" => match_grant_to_public(ctx),
@@ -46,24 +43,12 @@ mod tests {
 
     fn make_args(grantee: &str) -> toml::Table {
         let mut t = toml::Table::new();
-        t.insert(
-            "grantee".to_string(),
-            toml::Value::String(grantee.to_string()),
-        );
+        t.insert("grantee".to_string(), toml::Value::String(grantee.to_string()));
         t
     }
 
-    fn make_ctx(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_ctx(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,

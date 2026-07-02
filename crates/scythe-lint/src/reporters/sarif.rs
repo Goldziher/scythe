@@ -18,8 +18,7 @@ use crate::types::Severity;
 use super::Finding;
 
 const SARIF_VERSION: &str = "2.1.0";
-const SARIF_SCHEMA: &str =
-    "https://docs.oasis-open.org/sarif/sarif/v2.1.0/cos02/schemas/sarif-schema-2.1.0.json";
+const SARIF_SCHEMA: &str = "https://docs.oasis-open.org/sarif/sarif/v2.1.0/cos02/schemas/sarif-schema-2.1.0.json";
 
 #[derive(Serialize)]
 struct SarifLog<'a> {
@@ -110,12 +109,7 @@ struct SarifProperties<'a> {
     source: Option<&'a str>,
 }
 
-pub fn emit(
-    tool_name: &str,
-    tool_version: &str,
-    findings: &[Finding],
-    out: &mut dyn Write,
-) -> io::Result<()> {
+pub fn emit(tool_name: &str, tool_version: &str, findings: &[Finding], out: &mut dyn Write) -> io::Result<()> {
     // Build the rule descriptor set deterministically (sorted by rule id).
     let mut rules_seen: BTreeMap<&str, (Option<&str>, Option<&str>)> = BTreeMap::new();
     for f in findings {
@@ -226,14 +220,10 @@ mod tests {
         assert_eq!(parsed["runs"][0]["results"][0]["ruleId"], "SC-SEC02");
         assert_eq!(parsed["runs"][0]["results"][0]["level"], "error");
         assert_eq!(
-            parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]
-                ["uri"],
+            parsed["runs"][0]["results"][0]["locations"][0]["physicalLocation"]["artifactLocation"]["uri"],
             "q.sql"
         );
-        assert_eq!(
-            parsed["runs"][0]["results"][0]["properties"]["cwe"][0],
-            "CWE-269"
-        );
+        assert_eq!(parsed["runs"][0]["results"][0]["properties"]["cwe"][0], "CWE-269");
     }
 
     #[test]

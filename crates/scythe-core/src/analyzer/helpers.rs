@@ -1,6 +1,4 @@
-use sqlparser::ast::{
-    self, BinaryOperator, Expr, ObjectName, SelectItem, SetExpr, Statement, TableFactor, Value,
-};
+use sqlparser::ast::{self, BinaryOperator, Expr, ObjectName, SelectItem, SetExpr, Statement, TableFactor, Value};
 
 // ---------------------------------------------------------------------------
 // Value matching helpers (ValueWithSpan wraps Value)
@@ -18,10 +16,7 @@ pub(super) fn value_is_number(vws: &ast::ValueWithSpan) -> bool {
 }
 
 pub(super) fn value_is_string(vws: &ast::ValueWithSpan) -> bool {
-    matches!(
-        &vws.value,
-        Value::SingleQuotedString(_) | Value::DoubleQuotedString(_)
-    )
+    matches!(&vws.value, Value::SingleQuotedString(_) | Value::DoubleQuotedString(_))
 }
 
 pub(super) fn value_is_boolean(vws: &ast::ValueWithSpan) -> bool {
@@ -114,8 +109,7 @@ pub(super) fn detect_select_star_source(stmt: &Statement) -> Option<String> {
         && let SetExpr::Select(select) = query.body.as_ref()
     {
         // Check: single wildcard projection, single FROM table, no joins
-        let is_star =
-            select.projection.len() == 1 && matches!(select.projection[0], SelectItem::Wildcard(_));
+        let is_star = select.projection.len() == 1 && matches!(select.projection[0], SelectItem::Wildcard(_));
         if is_star
             && select.from.len() == 1
             && select.from[0].joins.is_empty()
@@ -186,10 +180,7 @@ pub(super) fn is_literal(expr: &Expr) -> bool {
         Expr::Value(vws) => {
             matches!(
                 &vws.value,
-                Value::Number(_, _)
-                    | Value::SingleQuotedString(_)
-                    | Value::DoubleQuotedString(_)
-                    | Value::Boolean(_)
+                Value::Number(_, _) | Value::SingleQuotedString(_) | Value::DoubleQuotedString(_) | Value::Boolean(_)
             )
         }
         _ => false,
@@ -200,11 +191,7 @@ pub(super) fn is_literal(expr: &Expr) -> bool {
 pub(super) fn pluralize(name: &str) -> String {
     if name.ends_with('s') || name.ends_with('x') || name.ends_with("sh") || name.ends_with("ch") {
         format!("{}es", name)
-    } else if name.ends_with('y')
-        && !name.ends_with("ey")
-        && !name.ends_with("ay")
-        && !name.ends_with("oy")
-    {
+    } else if name.ends_with('y') && !name.ends_with("ey") && !name.ends_with("ay") && !name.ends_with("oy") {
         format!("{}ies", &name[..name.len() - 1])
     } else {
         format!("{}s", name)
@@ -278,11 +265,7 @@ pub(super) fn widen_type(a: &str, b: &str) -> String {
         }
     };
     if let (Some(ra), Some(rb)) = (int_rank(a), int_rank(b)) {
-        return if ra >= rb {
-            a.to_string()
-        } else {
-            b.to_string()
-        };
+        return if ra >= rb { a.to_string() } else { b.to_string() };
     }
     // Float widening
     let float_rank = |t: &str| -> Option<u8> {
@@ -293,11 +276,7 @@ pub(super) fn widen_type(a: &str, b: &str) -> String {
         }
     };
     if let (Some(ra), Some(rb)) = (float_rank(a), float_rank(b)) {
-        return if ra >= rb {
-            a.to_string()
-        } else {
-            b.to_string()
-        };
+        return if ra >= rb { a.to_string() } else { b.to_string() };
     }
     // Int + float -> float64
     if int_rank(a).is_some() && float_rank(b).is_some() {
@@ -524,12 +503,7 @@ mod tests {
         let param_side = Expr::Identifier(Ident::new("dummy"));
         // Not a function expression, so just returns col_name
         assert_eq!(
-            derive_param_name_from_comparison(
-                "age",
-                &col_side,
-                &param_side,
-                Some(&BinaryOperator::Gt)
-            ),
+            derive_param_name_from_comparison("age", &col_side, &param_side, Some(&BinaryOperator::Gt)),
             "age"
         );
     }
@@ -550,21 +524,11 @@ mod tests {
         let col_side = Expr::Function(func);
         let param_side = Expr::Identifier(Ident::new("dummy"));
         assert_eq!(
-            derive_param_name_from_comparison(
-                "count",
-                &col_side,
-                &param_side,
-                Some(&BinaryOperator::Gt)
-            ),
+            derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::Gt)),
             "min_count"
         );
         assert_eq!(
-            derive_param_name_from_comparison(
-                "count",
-                &col_side,
-                &param_side,
-                Some(&BinaryOperator::GtEq)
-            ),
+            derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::GtEq)),
             "min_count"
         );
     }
@@ -585,21 +549,11 @@ mod tests {
         let col_side = Expr::Function(func);
         let param_side = Expr::Identifier(Ident::new("dummy"));
         assert_eq!(
-            derive_param_name_from_comparison(
-                "count",
-                &col_side,
-                &param_side,
-                Some(&BinaryOperator::Lt)
-            ),
+            derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::Lt)),
             "max_count"
         );
         assert_eq!(
-            derive_param_name_from_comparison(
-                "count",
-                &col_side,
-                &param_side,
-                Some(&BinaryOperator::LtEq)
-            ),
+            derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::LtEq)),
             "max_count"
         );
     }
@@ -621,12 +575,7 @@ mod tests {
         let param_side = Expr::Identifier(Ident::new("dummy"));
         // Eq does not add prefix even for functions
         assert_eq!(
-            derive_param_name_from_comparison(
-                "count",
-                &col_side,
-                &param_side,
-                Some(&BinaryOperator::Eq)
-            ),
+            derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::Eq)),
             "count"
         );
     }

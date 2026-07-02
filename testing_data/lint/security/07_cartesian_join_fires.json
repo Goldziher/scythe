@@ -1,23 +1,23 @@
 {
-	"name": "cartesian_join_fires",
-	"description": "Comma-separated FROM with no WHERE should trigger SC-SEC08",
-	"category": "lint/security",
-	"tags": ["lint", "security", "cartesian"],
-	"schema_sql": [
-		"CREATE TABLE users (id SERIAL PRIMARY KEY);",
-		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL);"
-	],
-	"query_sql": "-- @name ListAllUserOrderPairs\n-- @returns :many\nSELECT users.id AS user_id, orders.id AS order_id FROM users, orders;",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-SEC08",
-					"message_contains": "cartesian"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "cartesian_join_fires",
+  "description": "Comma-separated FROM with no WHERE should trigger SC-SEC08",
+  "category": "lint/security",
+  "tags": ["lint", "security", "cartesian"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY);",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL);"
+  ],
+  "query_sql": "-- @name ListAllUserOrderPairs\n-- @returns :many\nSELECT users.id AS user_id, orders.id AS order_id FROM users, orders;",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-SEC08",
+          "message_contains": "cartesian"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

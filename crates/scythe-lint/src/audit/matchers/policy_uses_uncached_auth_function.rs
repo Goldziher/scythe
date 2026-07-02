@@ -14,19 +14,13 @@
 //! text; scythe walks the typed `Expr` AST, stopping at any `Expr::Subquery`
 //! boundary (the wrapping is the safe form).
 
-use sqlparser::ast::{
-    Expr, FunctionArg, FunctionArgExpr, FunctionArguments, ObjectName, Statement,
-};
+use sqlparser::ast::{Expr, FunctionArg, FunctionArgExpr, FunctionArguments, ObjectName, Statement};
 
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
-const PROBLEMATIC_AUTH_FUNCTIONS: &[(&str, &str)] = &[
-    ("auth", "uid"),
-    ("auth", "jwt"),
-    ("auth", "role"),
-    ("auth", "email"),
-];
+const PROBLEMATIC_AUTH_FUNCTIONS: &[(&str, &str)] =
+    &[("auth", "uid"), ("auth", "jwt"), ("auth", "role"), ("auth", "email")];
 const PROBLEMATIC_SINGLE_FUNCTIONS: &[&str] = &["current_setting"];
 
 fn matches_problematic_call(name: &ObjectName) -> bool {
@@ -37,9 +31,7 @@ fn matches_problematic_call(name: &ObjectName) -> bool {
         .collect();
     match parts.as_slice() {
         [single] => PROBLEMATIC_SINGLE_FUNCTIONS.contains(&single.as_str()),
-        [schema, func] => PROBLEMATIC_AUTH_FUNCTIONS
-            .iter()
-            .any(|(s, f)| s == schema && f == func),
+        [schema, func] => PROBLEMATIC_AUTH_FUNCTIONS.iter().any(|(s, f)| s == schema && f == func),
         _ => false,
     }
 }
@@ -69,9 +61,7 @@ fn walk_for_bare_auth_call(expr: &Expr) -> bool {
             false
         }
         Expr::Nested(inner) => walk_for_bare_auth_call(inner),
-        Expr::BinaryOp { left, right, .. } => {
-            walk_for_bare_auth_call(left) || walk_for_bare_auth_call(right)
-        }
+        Expr::BinaryOp { left, right, .. } => walk_for_bare_auth_call(left) || walk_for_bare_auth_call(right),
         Expr::UnaryOp { expr, .. } => walk_for_bare_auth_call(expr),
         Expr::Cast { expr, .. } => walk_for_bare_auth_call(expr),
         Expr::IsNull(e)
@@ -82,16 +72,10 @@ fn walk_for_bare_auth_call(expr: &Expr) -> bool {
         | Expr::IsNotFalse(e)
         | Expr::IsUnknown(e)
         | Expr::IsNotUnknown(e) => walk_for_bare_auth_call(e),
-        Expr::Between {
-            expr, low, high, ..
-        } => {
-            walk_for_bare_auth_call(expr)
-                || walk_for_bare_auth_call(low)
-                || walk_for_bare_auth_call(high)
+        Expr::Between { expr, low, high, .. } => {
+            walk_for_bare_auth_call(expr) || walk_for_bare_auth_call(low) || walk_for_bare_auth_call(high)
         }
-        Expr::InList { expr, list, .. } => {
-            walk_for_bare_auth_call(expr) || list.iter().any(walk_for_bare_auth_call)
-        }
+        Expr::InList { expr, list, .. } => walk_for_bare_auth_call(expr) || list.iter().any(walk_for_bare_auth_call),
         // The wrapping `(select …)` form is the safe pattern — never recurse
         // into a Subquery.
         Expr::Subquery(_) => false,
@@ -99,29 +83,20 @@ fn walk_for_bare_auth_call(expr: &Expr) -> bool {
     }
 }
 
-pub fn match_policy_uses_uncached_auth_function(
-    ctx: &LintContext<'_>,
-    _args: &toml::Table,
-) -> Vec<MatcherHit> {
+pub fn match_policy_uses_uncached_auth_function(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec<MatcherHit> {
     let Statement::CreatePolicy(policy) = ctx.stmt else {
         return Vec::new();
     };
     let using_hit = policy.using.as_ref().is_some_and(walk_for_bare_auth_call);
-    let with_check_hit = policy
-        .with_check
-        .as_ref()
-        .is_some_and(walk_for_bare_auth_call);
+    let with_check_hit = policy.with_check.as_ref().is_some_and(walk_for_bare_auth_call);
     if !using_hit && !with_check_hit {
         return Vec::new();
     }
     let mut hit = MatcherHit::empty();
-    hit.bindings
-        .insert("policy".to_string(), policy.name.to_string());
-    hit.bindings
-        .insert("table".to_string(), policy.table_name.to_string());
+    hit.bindings.insert("policy".to_string(), policy.name.to_string());
+    hit.bindings.insert("table".to_string(), policy.table_name.to_string());
     let clause = if using_hit { "USING" } else { "WITH CHECK" };
-    hit.bindings
-        .insert("clause".to_string(), clause.to_string());
+    hit.bindings.insert("clause".to_string(), clause.to_string());
     vec![hit]
 }
 
@@ -135,17 +110,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -200,10 +166,7 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_policy_uses_uncached_auth_function(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("policy").map(|s| s.as_str()),
-            Some("tenant")
-        );
+        assert_eq!(hits[0].bindings.get("policy").map(|s| s.as_str()), Some("tenant"));
     }
 
     #[test]
@@ -217,8 +180,7 @@ mod tests {
 
     #[test]
     fn fires_on_current_setting() {
-        let sql =
-            "CREATE POLICY tenant ON tenants USING (tenant_id = current_setting('app.tenant'));";
+        let sql = "CREATE POLICY tenant ON tenants USING (tenant_id = current_setting('app.tenant'));";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_policy_uses_uncached_auth_function(&ctx, &toml::Table::new());
@@ -232,10 +194,7 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_policy_uses_uncached_auth_function(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("clause").map(|s| s.as_str()),
-            Some("WITH CHECK")
-        );
+        assert_eq!(hits[0].bindings.get("clause").map(|s| s.as_str()), Some("WITH CHECK"));
     }
 
     #[test]

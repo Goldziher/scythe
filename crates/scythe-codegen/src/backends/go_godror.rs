@@ -1,9 +1,7 @@
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
 use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -29,10 +27,7 @@ impl GoGodrorBackend {
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest(
-            "backends/go-godror/manifest.toml",
-            DEFAULT_MANIFEST_TOML,
-        )?;
+        let manifest = super::load_or_default_manifest("backends/go-godror/manifest.toml", DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
 }
@@ -58,11 +53,7 @@ impl CodegenBackend for GoGodrorBackend {
             .to_string()
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "type {} struct {{", struct_name);
@@ -75,11 +66,7 @@ impl CodegenBackend for GoGodrorBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -93,11 +80,7 @@ impl CodegenBackend for GoGodrorBackend {
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(
-                &analyzed.sql,
-                &analyzed.optional_params,
-                &analyzed.params,
-            ),
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
         );
 
@@ -145,12 +128,7 @@ impl CodegenBackend for GoGodrorBackend {
                             "date" | "datetime" | "datetime_tz" | "time" | "time_tz" => "time.Time",
                             _ => "string",
                         };
-                        let _ = writeln!(
-                            out,
-                            "\tvar out{} {}",
-                            to_pascal_case(&col.field_name),
-                            go_type
-                        );
+                        let _ = writeln!(out, "\tvar out{} {}", to_pascal_case(&col.field_name), go_type);
                     }
                     let into_clause = columns
                         .iter()
@@ -161,9 +139,7 @@ impl CodegenBackend for GoGodrorBackend {
                     let full_sql = format!("{} INTO {}", sql, into_clause);
                     let out_args: String = columns
                         .iter()
-                        .map(|c| {
-                            format!(", sql.Out{{Dest: &out{}}}", to_pascal_case(&c.field_name))
-                        })
+                        .map(|c| format!(", sql.Out{{Dest: &out{}}}", to_pascal_case(&c.field_name)))
                         .collect();
                     let _ = writeln!(
                         out,
@@ -193,11 +169,7 @@ impl CodegenBackend for GoGodrorBackend {
                         .iter()
                         .map(|c| format!("&item.{}", to_pascal_case(&c.field_name)))
                         .collect();
-                    let _ = writeln!(
-                        out,
-                        "\tif err := row.Scan({}); err != nil {{",
-                        scan_fields.join(", ")
-                    );
+                    let _ = writeln!(out, "\tif err := row.Scan({}); err != nil {{", scan_fields.join(", "));
                     let _ = writeln!(out, "\t\tif err == sql.ErrNoRows {{");
                     let _ = writeln!(out, "\t\t\treturn nil, nil");
                     let _ = writeln!(out, "\t\t}}");
@@ -213,11 +185,7 @@ impl CodegenBackend for GoGodrorBackend {
                     "func {}(ctx context.Context, db *sql.DB{}{}) ([]{}, error) {{",
                     func_name, sep, param_list, struct_name
                 );
-                let _ = writeln!(
-                    out,
-                    "\trows, err := db.QueryContext(ctx, \"{}\"{})",
-                    sql, args
-                );
+                let _ = writeln!(out, "\trows, err := db.QueryContext(ctx, \"{}\"{})", sql, args);
                 let _ = writeln!(out, "\tif err != nil {{");
                 let _ = writeln!(out, "\t\treturn nil, err");
                 let _ = writeln!(out, "\t}}");
@@ -257,11 +225,7 @@ impl CodegenBackend for GoGodrorBackend {
                     "func {}(ctx context.Context, db *sql.DB{}{}) (int64, error) {{",
                     func_name, sep, param_list
                 );
-                let _ = writeln!(
-                    out,
-                    "\tresult, err := db.ExecContext(ctx, \"{}\"{})",
-                    sql, args
-                );
+                let _ = writeln!(out, "\tresult, err := db.ExecContext(ctx, \"{}\"{})", sql, args);
                 let _ = writeln!(out, "\tif err != nil {{");
                 let _ = writeln!(out, "\t\treturn 0, err");
                 let _ = writeln!(out, "\t}}");
@@ -286,10 +250,7 @@ impl CodegenBackend for GoGodrorBackend {
                 let _ = writeln!(out, "\t}}");
                 let _ = writeln!(out, "\tdefer stmt.Close()");
                 let _ = writeln!(out, "\tfor _, item := range items {{");
-                let _ = writeln!(
-                    out,
-                    "\t\tif _, err := stmt.ExecContext(ctx, item...); err != nil {{"
-                );
+                let _ = writeln!(out, "\t\tif _, err := stmt.ExecContext(ctx, item...); err != nil {{");
                 let _ = writeln!(out, "\t\t\t_ = tx.Rollback()");
                 let _ = writeln!(out, "\t\t\treturn err");
                 let _ = writeln!(out, "\t\t}}");
@@ -311,11 +272,7 @@ impl CodegenBackend for GoGodrorBackend {
         let _ = writeln!(out, "const (");
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(
-                out,
-                "\t{}{} {} = \"{}\"",
-                type_name, variant, type_name, value
-            );
+            let _ = writeln!(out, "\t{}{} {} = \"{}\"", type_name, variant, type_name, value);
         }
         let _ = write!(out, ")");
         Ok(out)

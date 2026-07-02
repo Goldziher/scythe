@@ -1,17 +1,15 @@
-# frozen_string_literal: true
-
-source "https://rubygems.org"
+# frozen_string_literal: true source "https://rubygems.org"
 
 {% if driver == "pg" -%}
-gem "pg"
+  gem "pg"
 {%- elif driver == "mysql2" -%}
-gem "mysql2"
+  gem "mysql2"
 {%- elif driver == "sqlite3" -%}
-gem "sqlite3"
+  gem "sqlite3"
 {%- elif driver == "trilogy" -%}
-gem "trilogy"
+  gem "trilogy"
 {%- elif driver == "tiny-tds" -%}
-gem "tiny_tds"
+  gem "tiny_tds"
 {%- elif driver == "oci8" -%}
-gem "ruby-oci8"
+  gem "ruby-oci8"
 {%- endif %}

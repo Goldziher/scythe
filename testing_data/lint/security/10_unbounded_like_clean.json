@@ -1,17 +1,15 @@
 {
-	"name": "unbounded_like_clean",
-	"description": "LIKE 'alice%' (anchored prefix) should not trigger SC-SEC09",
-	"category": "lint/security",
-	"tags": ["lint", "security", "like"],
-	"schema_sql": [
-		"CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"
-	],
-	"query_sql": "-- @name SearchUsersPrefix\n-- @returns :many\nSELECT id FROM users WHERE name LIKE 'alice%';",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "unbounded_like_clean",
+  "description": "LIKE 'alice%' (anchored prefix) should not trigger SC-SEC09",
+  "category": "lint/security",
+  "tags": ["lint", "security", "like"],
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"],
+  "query_sql": "-- @name SearchUsersPrefix\n-- @returns :many\nSELECT id FROM users WHERE name LIKE 'alice%';",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

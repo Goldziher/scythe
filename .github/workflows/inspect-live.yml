@@ -17,13 +17,22 @@ permissions:
 
 jobs:
   live-pg:
-    name: Postgres live checks
+    name: live-pg-${{ matrix.postgres }}
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    strategy:
+      fail-fast: false
+      matrix:
+        postgres:
+          - 12-alpine
+          - 14-alpine
+          - 16-alpine
+          - 17-alpine
+
     services:
       postgres:
-        image: postgres:16-alpine
+        image: postgres:${{ matrix.postgres }}
         env:
           POSTGRES_USER: scythe
           POSTGRES_PASSWORD: scythe

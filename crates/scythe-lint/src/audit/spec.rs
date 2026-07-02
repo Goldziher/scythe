@@ -18,12 +18,12 @@ pub const SCHEMA_VERSION: u32 = 1;
 /// The canonical built-in rule IDs that users cannot override or reuse.
 pub const CANONICAL_RULE_IDS: &[&str] = &[
     // Security
-    "SC-SEC01", "SC-SEC02", "SC-SEC03", "SC-SEC04", "SC-SEC05", "SC-SEC06", "SC-SEC07", "SC-SEC08",
-    "SC-SEC09", "SC-SEC10", "SC-SEC11", "SC-SEC12", // RLS (also security category)
+    "SC-SEC01", "SC-SEC02", "SC-SEC03", "SC-SEC04", "SC-SEC05", "SC-SEC06", "SC-SEC07", "SC-SEC08", "SC-SEC09",
+    "SC-SEC10", "SC-SEC11", "SC-SEC12", // RLS (also security category)
     "SC-RLS01", "SC-RLS02", "SC-RLS03", // Migration
-    "SC-MIG01", "SC-MIG02", "SC-MIG03", "SC-MIG04", "SC-MIG05", "SC-MIG06", "SC-MIG07", "SC-MIG08",
-    "SC-MIG09", "SC-MIG10", "SC-MIG11", "SC-MIG12", "SC-MIG13", "SC-MIG14", "SC-MIG15", "SC-MIG16",
-    "SC-MIG17", "SC-MIG18", "SC-MIG19", // Quality / antipattern
+    "SC-MIG01", "SC-MIG02", "SC-MIG03", "SC-MIG04", "SC-MIG05", "SC-MIG06", "SC-MIG07", "SC-MIG08", "SC-MIG09",
+    "SC-MIG10", "SC-MIG11", "SC-MIG12", "SC-MIG13", "SC-MIG14", "SC-MIG15", "SC-MIG16", "SC-MIG17", "SC-MIG18",
+    "SC-MIG19", // Quality / antipattern
     "SC-CHK01",
 ];
 
@@ -41,10 +41,7 @@ where
 {
     let strs: Vec<String> = Vec::deserialize(deserializer)?;
     strs.iter()
-        .map(|s| {
-            SqlDialect::from_str(s)
-                .ok_or_else(|| serde::de::Error::custom(format!("unknown SQL dialect: {s:?}")))
-        })
+        .map(|s| SqlDialect::from_str(s).ok_or_else(|| serde::de::Error::custom(format!("unknown SQL dialect: {s:?}"))))
         .collect()
 }
 
@@ -83,10 +80,7 @@ pub struct RuleSpec {
     /// Default severity.
     pub severity: Severity,
     /// Dialects this rule applies to.  Empty means all dialects.
-    #[serde(
-        default = "default_dialects",
-        deserialize_with = "deserialize_dialects"
-    )]
+    #[serde(default = "default_dialects", deserialize_with = "deserialize_dialects")]
     pub dialects: Vec<SqlDialect>,
     /// CWE identifiers (e.g. `["CWE-78"]`).
     #[serde(default)]
@@ -145,11 +139,7 @@ pub enum AuditConfigError {
         source: toml::de::Error,
     },
     #[error("rule file '{path}' has schema_version {found}, expected {expected}")]
-    SchemaVersionMismatch {
-        path: String,
-        found: u32,
-        expected: u32,
-    },
+    SchemaVersionMismatch { path: String, found: u32, expected: u32 },
     #[error("invalid rule '{rule_id}' in '{path}': {reason}")]
     InvalidRule {
         path: String,
@@ -213,8 +203,7 @@ functions = ["pg_read_file"]
 
     #[test]
     fn toml_round_trip_minimal() {
-        let file: RuleFile =
-            toml::from_str(MINIMAL_TOML).expect("should parse minimal TOML fixture");
+        let file: RuleFile = toml::from_str(MINIMAL_TOML).expect("should parse minimal TOML fixture");
         assert_eq!(file.schema_version, SCHEMA_VERSION);
         assert_eq!(file.rules.len(), 1);
         let rule = &file.rules[0];

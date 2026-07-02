@@ -1,20 +1,20 @@
 {
-	"name": "unsupported_reg_types_fires",
-	"description": "Column declared as regnamespace should trigger SC-MIG19",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "unsupported-reg-types"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateMetaTable\n-- @returns :exec\nCREATE TABLE meta (id bigint PRIMARY KEY, ns regnamespace)",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-MIG19",
-					"message_contains": "pg_upgrade"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "unsupported_reg_types_fires",
+  "description": "Column declared as regnamespace should trigger SC-MIG19",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "unsupported-reg-types"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateMetaTable\n-- @returns :exec\nCREATE TABLE meta (id bigint PRIMARY KEY, ns regnamespace)",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-MIG19",
+          "message_contains": "pg_upgrade"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

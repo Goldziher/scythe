@@ -76,10 +76,7 @@ impl LintRule for LikeStartsWithWildcard {
                 {
                     violations.push(Violation {
                         rule_id: Cow::Borrowed("SC-P02"),
-                        message: format!(
-                            "LIKE pattern \"{}\" starts with % — index cannot be used",
-                            s
-                        ),
+                        message: format!("LIKE pattern \"{}\" starts with % — index cannot be used", s),
                         fix: None,
                     });
                 }
@@ -137,9 +134,7 @@ fn extract_string_value(expr: &Expr) -> Option<&str> {
         Expr::Value(v) => match &v.value {
             Value::SingleQuotedString(s)
             | Value::EscapedStringLiteral(s)
-            | Value::DollarQuotedString(sqlparser::ast::DollarQuotedString { value: s, .. }) => {
-                Some(s.as_str())
-            }
+            | Value::DollarQuotedString(sqlparser::ast::DollarQuotedString { value: s, .. }) => Some(s.as_str()),
             _ => None,
         },
         _ => None,
@@ -203,14 +198,10 @@ fn walk_expr(expr: &Expr, visitor: &mut dyn FnMut(&Expr)) {
             walk_expr(inner, visitor);
         }
         Expr::Like {
-            expr: inner,
-            pattern,
-            ..
+            expr: inner, pattern, ..
         }
         | Expr::ILike {
-            expr: inner,
-            pattern,
-            ..
+            expr: inner, pattern, ..
         } => {
             walk_expr(inner, visitor);
             walk_expr(pattern, visitor);
@@ -218,9 +209,7 @@ fn walk_expr(expr: &Expr, visitor: &mut dyn FnMut(&Expr)) {
         Expr::InSubquery { expr: inner, .. } => {
             walk_expr(inner, visitor);
         }
-        Expr::InList {
-            expr: inner, list, ..
-        } => {
+        Expr::InList { expr: inner, list, .. } => {
             walk_expr(inner, visitor);
             for e in list {
                 walk_expr(e, visitor);
@@ -243,10 +232,7 @@ mod tests {
     use scythe_core::parser::parse_query;
 
     fn make_catalog() -> Catalog {
-        Catalog::from_ddl(&[
-            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);",
-        ])
-        .unwrap()
+        Catalog::from_ddl(&["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);"]).unwrap()
     }
 
     fn make_ctx<'a>(
@@ -269,10 +255,8 @@ mod tests {
     #[test]
     fn order_without_limit_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users ORDER BY name;",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users ORDER BY name;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = OrderWithoutLimit.check_query(&ctx);
@@ -282,7 +266,9 @@ mod tests {
     #[test]
     fn order_with_limit_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users ORDER BY name LIMIT 10;").unwrap();
+        let q =
+            parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users ORDER BY name LIMIT 10;")
+                .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = OrderWithoutLimit.check_query(&ctx);
@@ -294,7 +280,9 @@ mod tests {
     #[test]
     fn like_leading_wildcard_fires() {
         let cat = make_catalog();
-        let q = parse_query("-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE '%foo';").unwrap();
+        let q =
+            parse_query("-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE '%foo';")
+                .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = LikeStartsWithWildcard.check_query(&ctx);
@@ -304,7 +292,9 @@ mod tests {
     #[test]
     fn like_trailing_wildcard_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE 'foo%';").unwrap();
+        let q =
+            parse_query("-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE 'foo%';")
+                .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = LikeStartsWithWildcard.check_query(&ctx);
@@ -344,10 +334,8 @@ mod tests {
     #[test]
     fn order_with_limit_clean() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users ORDER BY name LIMIT 5;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users ORDER BY name LIMIT 5;")
+            .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = OrderWithoutLimit.check_query(&ctx);
@@ -387,10 +375,9 @@ mod tests {
     #[test]
     fn like_suffix_wildcard_clean() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE 'foo%';",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE 'foo%';")
+                .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = LikeStartsWithWildcard.check_query(&ctx);
@@ -400,10 +387,8 @@ mod tests {
     #[test]
     fn no_like_clean() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :many\nSELECT id, name FROM users WHERE name = 'foo';",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name GetUser\n-- @returns :many\nSELECT id, name FROM users WHERE name = 'foo';").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = LikeStartsWithWildcard.check_query(&ctx);
@@ -413,10 +398,9 @@ mod tests {
     #[test]
     fn ilike_leading_wildcard_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name ILIKE '%foo';",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name ILIKE '%foo';")
+                .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = LikeStartsWithWildcard.check_query(&ctx);
@@ -428,10 +412,8 @@ mod tests {
     #[test]
     fn not_in_values_list_clean() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetActive\n-- @returns :many\nSELECT id FROM users WHERE id NOT IN (1, 2, 3);",
-        )
-        .unwrap();
+        let q = parse_query("-- @name GetActive\n-- @returns :many\nSELECT id FROM users WHERE id NOT IN (1, 2, 3);")
+            .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = NotInSubquery.check_query(&ctx);

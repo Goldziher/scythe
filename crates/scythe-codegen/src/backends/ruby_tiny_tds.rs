@@ -1,9 +1,7 @@
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -93,10 +91,7 @@ impl RubyTinyTdsBackend {
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest(
-            "backends/ruby-tiny-tds/manifest.toml",
-            DEFAULT_MANIFEST_TOML,
-        )?;
+        let manifest = super::load_or_default_manifest("backends/ruby-tiny-tds/manifest.toml", DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
 }
@@ -116,10 +111,7 @@ impl CodegenBackend for RubyTinyTdsBackend {
     }
 
     fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
-        Some(super::ruby_rbs::generate_rbs_content(
-            context,
-            "TinyTds::Client",
-        ))
+        Some(super::ruby_rbs::generate_rbs_content(context, "TinyTds::Client"))
     }
 
     fn file_header(&self) -> String {
@@ -131,11 +123,7 @@ impl CodegenBackend for RubyTinyTdsBackend {
         "end".to_string()
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let fields = columns
             .iter()
@@ -147,11 +135,7 @@ impl CodegenBackend for RubyTinyTdsBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -165,11 +149,7 @@ impl CodegenBackend for RubyTinyTdsBackend {
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = super::rewrite_pg_placeholders(
-            &super::clean_sql_with_optional(
-                &analyzed.sql,
-                &analyzed.optional_params,
-                &analyzed.params,
-            ),
+            &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
         );
         let mut out = String::new();

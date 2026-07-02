@@ -1,15 +1,15 @@
 {
-	"name": "adding_primary_key_constraint_clean",
-	"description": "ALTER TABLE ADD CONSTRAINT PRIMARY KEY USING INDEX should not trigger SC-MIG15",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "adding-primary-key-constraint"],
-	"schema_sql": ["CREATE TABLE accounts (id bigint NOT NULL, balance bigint)"],
-	"query_sql": "-- @name UpdateAccountsAttachPrimaryKeyIndex\n-- @returns :exec\nALTER TABLE accounts ADD CONSTRAINT accounts_pk PRIMARY KEY USING INDEX accounts_pk_idx",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "adding_primary_key_constraint_clean",
+  "description": "ALTER TABLE ADD CONSTRAINT PRIMARY KEY USING INDEX should not trigger SC-MIG15",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "adding-primary-key-constraint"],
+  "schema_sql": ["CREATE TABLE accounts (id bigint NOT NULL, balance bigint)"],
+  "query_sql": "-- @name UpdateAccountsAttachPrimaryKeyIndex\n-- @returns :exec\nALTER TABLE accounts ADD CONSTRAINT accounts_pk PRIMARY KEY USING INDEX accounts_pk_idx",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

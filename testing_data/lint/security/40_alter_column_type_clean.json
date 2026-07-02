@@ -1,15 +1,15 @@
 {
-	"name": "alter_column_type_clean",
-	"description": "ALTER COLUMN SET DEFAULT should not trigger SC-MIG09",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "ban-alter-column-type"],
-	"schema_sql": [],
-	"query_sql": "-- @name UpdateUsersActiveDefault\n-- @returns :exec\nALTER TABLE users ALTER COLUMN active SET DEFAULT TRUE",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "alter_column_type_clean",
+  "description": "ALTER COLUMN SET DEFAULT should not trigger SC-MIG09",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "ban-alter-column-type"],
+  "schema_sql": [],
+  "query_sql": "-- @name UpdateUsersActiveDefault\n-- @returns :exec\nALTER TABLE users ALTER COLUMN active SET DEFAULT TRUE",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

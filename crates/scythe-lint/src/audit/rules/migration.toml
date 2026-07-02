@@ -301,13 +301,13 @@ matcher = "column_type_disallowed"
 
 [rule.matcher_args]
 disallowed = [
-  "regcollation",
-  "regconfig",
-  "regdictionary",
-  "regnamespace",
-  "regoper",
-  "regoperator",
-  "regproc",
-  "regprocedure",
+    "regcollation",
+    "regconfig",
+    "regdictionary",
+    "regnamespace",
+    "regoper",
+    "regoperator",
+    "regproc",
+    "regprocedure",
 ]
 suggested = ""

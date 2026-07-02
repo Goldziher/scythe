@@ -17,9 +17,8 @@ use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::Annotations;
 use scythe_lint::reporters::{Finding, Format};
 use scythe_lint::{
-    AuditConfigError, LintContext, LintRule, MatcherRegistry, RuleCategory, RuleRegistry, RuleSpec,
-    Severity, SuppressionSet, default_registry, emit_findings, extract_cwe, load_rules_from_file,
-    register_user_rules,
+    AuditConfigError, LintContext, LintRule, MatcherRegistry, RuleCategory, RuleRegistry, RuleSpec, Severity,
+    SuppressionSet, default_registry, emit_findings, extract_cwe, load_rules_from_file, register_user_rules,
 };
 
 use super::shared::resolve_globs;
@@ -61,17 +60,12 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let format = Format::parse(&opts.format).ok_or_else(|| {
-        format!(
-            "unknown --format '{}' (expected human|sarif|json)",
-            opts.format
-        )
-    })?;
+    let format = Format::parse(&opts.format)
+        .ok_or_else(|| format!("unknown --format '{}' (expected human|sarif|json)", opts.format))?;
 
     let severity_floor = match opts.severity.as_deref() {
         Some(s) => Some(
-            Severity::parse_cli(s)
-                .ok_or_else(|| format!("unknown --severity '{}' (expected off|warn|error)", s))?,
+            Severity::parse_cli(s).ok_or_else(|| format!("unknown --severity '{}' (expected off|warn|error)", s))?,
         ),
         None => None,
     };
@@ -79,17 +73,10 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
     let mut findings: Vec<Finding> = Vec::new();
 
     if opts.files.is_empty() {
-        findings.extend(audit_from_config(
-            &opts.config_path,
-            opts.ignore_suppressions,
-        )?);
+        findings.extend(audit_from_config(&opts.config_path, opts.ignore_suppressions)?);
     } else {
         let engine = opts.dialect.as_deref().unwrap_or("postgres");
-        findings.extend(audit_explicit_files(
-            &opts.files,
-            engine,
-            opts.ignore_suppressions,
-        )?);
+        findings.extend(audit_explicit_files(&opts.files, engine, opts.ignore_suppressions)?);
     }
 
     if let Some(floor) = severity_floor {
@@ -119,8 +106,7 @@ fn open_output(path: Option<&str>) -> Result<Box<dyn Write>, Box<dyn std::error:
     match path {
         None => Ok(Box::new(std::io::stdout())),
         Some(p) => {
-            let f = File::create(p)
-                .map_err(|e| format!("failed to open output file '{}': {}", p, e))?;
+            let f = File::create(p).map_err(|e| format!("failed to open output file '{}': {}", p, e))?;
             Ok(Box::new(std::io::BufWriter::new(f)))
         }
     }
@@ -130,9 +116,7 @@ fn open_output(path: Option<&str>) -> Result<Box<dyn Write>, Box<dyn std::error:
 /// Loads canonical rules plus any user rules from `scythe.toml` if it exists.
 /// The registry is never executed; severity overrides are applied so the
 /// catalog reflects the user's effective configuration.
-fn load_registry_for_discovery(
-    config_path: &str,
-) -> Result<RuleRegistry, Box<dyn std::error::Error>> {
+fn load_registry_for_discovery(config_path: &str) -> Result<RuleRegistry, Box<dyn std::error::Error>> {
     let mut registry = default_registry();
     if !Path::new(config_path).exists() {
         return Ok(registry);
@@ -141,9 +125,7 @@ fn load_registry_for_discovery(
     let parsed: toml::Value = toml::from_str(&config_str)?;
     // Apply [lint] severity overrides if present.
     if let Some(lint_section) = parsed.get("lint")
-        && let Ok(lint_config) = lint_section
-            .clone()
-            .try_into::<scythe_lint::types::LintConfig>()
+        && let Ok(lint_config) = lint_section.clone().try_into::<scythe_lint::types::LintConfig>()
     {
         registry.apply_config(&lint_config);
     }
@@ -164,8 +146,7 @@ fn load_registry_for_discovery(
                 if let Some(rel_path) = v.as_str() {
                     let abs_path = config_dir.join(rel_path);
                     let path_str = abs_path.display().to_string();
-                    let specs = load_rules_from_file(&abs_path)
-                        .map_err(|e: AuditConfigError| e.to_string())?;
+                    let specs = load_rules_from_file(&abs_path).map_err(|e: AuditConfigError| e.to_string())?;
                     for spec in specs {
                         user_specs.push((spec, path_str.clone()));
                     }
@@ -188,18 +169,8 @@ pub(crate) fn print_rule_catalog(
     let mut rows: Vec<(&dyn LintRule, Severity)> = registry.active_rules();
     rows.sort_by_key(|(r, _)| (r.category() as u8, r.id()));
 
-    let id_w = rows
-        .iter()
-        .map(|(r, _)| r.id().len())
-        .max()
-        .unwrap_or(2)
-        .max(2);
-    let name_w = rows
-        .iter()
-        .map(|(r, _)| r.name().len())
-        .max()
-        .unwrap_or(4)
-        .max(4);
+    let id_w = rows.iter().map(|(r, _)| r.id().len()).max().unwrap_or(2).max(2);
+    let name_w = rows.iter().map(|(r, _)| r.name().len()).max().unwrap_or(4).max(4);
 
     let mut current_category: Option<RuleCategory> = None;
     for (rule, sev) in &rows {
@@ -233,11 +204,7 @@ pub(crate) fn print_rule_explanation(
 ) -> Result<(), Box<dyn std::error::Error>> {
     let rules = registry.active_rules();
     let Some((rule, sev)) = rules.iter().find(|(r, _)| r.id() == rule_id) else {
-        return Err(format!(
-            "no rule with id '{}' — try `scythe audit --list-rules`",
-            rule_id
-        )
-        .into());
+        return Err(format!("no rule with id '{}' — try `scythe audit --list-rules`", rule_id).into());
     };
     writeln!(out, "{} — {}", rule.id(), rule.name())?;
     writeln!(out, "  category: {}", rule.category())?;
@@ -259,10 +226,7 @@ fn severity_label(s: Severity) -> &'static str {
     }
 }
 
-fn audit_from_config(
-    config_path: &str,
-    ignore_suppressions: bool,
-) -> Result<Vec<Finding>, Box<dyn std::error::Error>> {
+fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec<Finding>, Box<dyn std::error::Error>> {
     use serde::Deserialize;
 
     #[derive(Deserialize, Default)]
@@ -295,10 +259,10 @@ fn audit_from_config(
         return Err(format!("no files specified and config '{}' not found", config_path).into());
     }
 
-    let config_str = std::fs::read_to_string(config_path)
-        .map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
-    let config: ScytheConfig = toml::from_str(&config_str)
-        .map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+    let config_str =
+        std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
+    let config: ScytheConfig =
+        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
     let mut registry = default_registry();
     if let Some(ref lint_config) = config.lint {
@@ -308,9 +272,7 @@ fn audit_from_config(
     // ------------------------------------------------------------------
     // User-supplied rules
     // ------------------------------------------------------------------
-    let config_dir = Path::new(config_path)
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
+    let config_dir = Path::new(config_path).parent().unwrap_or_else(|| Path::new("."));
     let matcher_registry = MatcherRegistry::canonical();
 
     // Collect (spec, source) pairs from inline [[audit.rule]] stanzas.
@@ -341,16 +303,12 @@ fn audit_from_config(
     let mut findings = Vec::new();
 
     for sql_config in &config.sql {
-        let sql_dialect =
-            SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
+        let sql_dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
 
         let schema_files = resolve_globs(&sql_config.schema)?;
         let schema_contents: Vec<String> = schema_files
             .iter()
-            .map(|p| {
-                std::fs::read_to_string(p)
-                    .map_err(|e| format!("failed to read schema file '{}': {}", p, e))
-            })
+            .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
             .collect::<Result<_, _>>()?;
         let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
@@ -402,17 +360,15 @@ pub(crate) fn audit_explicit_files(
 
     // No schema context — security rules don't strictly need a populated
     // catalog (none of the Phase 1 rules consult catalog tables).
-    let catalog = Catalog::from_ddl_with_dialect(&[], &sql_dialect).unwrap_or_else(|_| {
-        Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog")
-    });
+    let catalog = Catalog::from_ddl_with_dialect(&[], &sql_dialect)
+        .unwrap_or_else(|_| Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog"));
 
     let registry = default_registry();
     let rules = registry.active_rules();
 
     let mut findings = Vec::new();
     for path in files {
-        let content = std::fs::read_to_string(path)
-            .map_err(|e| format!("failed to read '{}': {}", path, e))?;
+        let content = std::fs::read_to_string(path).map_err(|e| format!("failed to read '{}': {}", path, e))?;
         findings.extend(run_security_rules_over_sql(
             path,
             &content,
@@ -528,11 +484,7 @@ pub(crate) fn run_security_rules_over_sql(
 /// keeping a running line counter.  For each statement slot (0..n_stmts) we
 /// record the line of its first token. Statement boundaries are identified by
 /// the `SemiColon` token — each `;` advances the statement index by one.
-fn compute_stmt_start_lines(
-    sql: &str,
-    dialect: &dyn sqlparser::dialect::Dialect,
-    n_stmts: usize,
-) -> Vec<usize> {
+fn compute_stmt_start_lines(sql: &str, dialect: &dyn sqlparser::dialect::Dialect, n_stmts: usize) -> Vec<usize> {
     use sqlparser::tokenizer::{Token, Tokenizer};
 
     let mut start_lines = vec![1usize; n_stmts];

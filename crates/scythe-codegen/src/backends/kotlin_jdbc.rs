@@ -48,8 +48,7 @@ impl KotlinJdbcBackend {
                 ));
             }
         };
-        let manifest =
-            super::load_or_default_manifest("backends/kotlin-jdbc/manifest.toml", default_toml)?;
+        let manifest = super::load_or_default_manifest("backends/kotlin-jdbc/manifest.toml", default_toml)?;
         Ok(Self {
             manifest,
             engine: engine.to_string(),
@@ -212,11 +211,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         )
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "data class {}(", struct_name);
@@ -227,11 +222,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -245,11 +236,7 @@ impl CodegenBackend for KotlinJdbcBackend {
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(
-                &analyzed.sql,
-                &analyzed.optional_params,
-                &analyzed.params,
-            ),
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
         );
 
@@ -274,22 +261,11 @@ impl CodegenBackend for KotlinJdbcBackend {
                             param.field_name
                         );
                     } else {
-                        let _ = writeln!(
-                            out,
-                            "        ps.setString({}, {}.value)",
-                            i + 1,
-                            param.field_name
-                        );
+                        let _ = writeln!(out, "        ps.setString({}, {}.value)", i + 1, param.field_name);
                     }
                 } else {
                     let setter = ps_setter(&param.lang_type);
-                    let _ = writeln!(
-                        out,
-                        "        ps.{}({}, {})",
-                        setter,
-                        i + 1,
-                        param.field_name
-                    );
+                    let _ = writeln!(out, "        ps.{}({}, {})", setter, i + 1, param.field_name);
                 }
             }
         };
@@ -301,56 +277,42 @@ impl CodegenBackend for KotlinJdbcBackend {
         //   `fun Connection.name(params...): Ret =` (expression body, when `expr` is true)
         // When `ext` is false:
         //   `fun name(conn: Connection, params...): Ret {`
-        let write_fn_sig = |out: &mut String,
-                            name: &str,
-                            ret: &str,
-                            multiline: bool,
-                            params: &[ResolvedParam],
-                            expr: bool| {
-            if ext {
-                if multiline {
-                    let _ = writeln!(out, "fun Connection.{}(", name);
+        let write_fn_sig =
+            |out: &mut String, name: &str, ret: &str, multiline: bool, params: &[ResolvedParam], expr: bool| {
+                if ext {
+                    if multiline {
+                        let _ = writeln!(out, "fun Connection.{}(", name);
+                        for p in params {
+                            let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
+                        }
+                        if expr {
+                            let _ = writeln!(out, "){} =", ret);
+                        } else {
+                            let _ = writeln!(out, "){} {{", ret);
+                        }
+                    } else if expr {
+                        let _ = writeln!(out, "fun Connection.{}(){} =", name, ret);
+                    } else {
+                        let _ = writeln!(out, "fun Connection.{}(){} {{", name, ret);
+                    }
+                } else if multiline {
+                    let _ = writeln!(out, "fun {}(", name);
+                    let _ = writeln!(out, "    conn: Connection,");
                     for p in params {
                         let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
                     }
-                    if expr {
-                        let _ = writeln!(out, "){} =", ret);
-                    } else {
-                        let _ = writeln!(out, "){} {{", ret);
-                    }
-                } else if expr {
-                    let _ = writeln!(out, "fun Connection.{}(){} =", name, ret);
+                    let _ = writeln!(out, "){} {{", ret);
                 } else {
-                    let _ = writeln!(out, "fun Connection.{}(){} {{", name, ret);
+                    let _ = writeln!(out, "fun {}(conn: Connection){} {{", name, ret);
                 }
-            } else if multiline {
-                let _ = writeln!(out, "fun {}(", name);
-                let _ = writeln!(out, "    conn: Connection,");
-                for p in params {
-                    let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
-                }
-                let _ = writeln!(out, "){} {{", ret);
-            } else {
-                let _ = writeln!(out, "fun {}(conn: Connection){} {{", name, ret);
-            }
-        };
+            };
 
         match &analyzed.command {
             QueryCommand::Exec => {
                 // :exec is Unit-returning: always block body (expression body would
                 // infer Int/Long from executeUpdate(), not Unit).
-                write_fn_sig(
-                    &mut out,
-                    &func_name,
-                    "",
-                    use_multiline_params,
-                    params,
-                    false,
-                );
-                let _ = writeln!(
-                    out,
-                    "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
-                );
+                write_fn_sig(&mut out, &func_name, "", use_multiline_params, params, false);
+                let _ = writeln!(out, "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                 write_setters(&mut out, params);
                 let _ = writeln!(out, "        ps.executeUpdate()");
                 let _ = writeln!(out, "    }}");
@@ -359,34 +321,14 @@ impl CodegenBackend for KotlinJdbcBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 if ext {
                     // Expression body: `): Int = this.prepareStatement(...).use { ps -> ... }`
-                    write_fn_sig(
-                        &mut out,
-                        &func_name,
-                        ": Int",
-                        use_multiline_params,
-                        params,
-                        true,
-                    );
-                    let _ = writeln!(
-                        out,
-                        "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
-                    );
+                    write_fn_sig(&mut out, &func_name, ": Int", use_multiline_params, params, true);
+                    let _ = writeln!(out, "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeUpdate()");
                     let _ = writeln!(out, "    }}");
                 } else {
-                    write_fn_sig(
-                        &mut out,
-                        &func_name,
-                        ": Int",
-                        use_multiline_params,
-                        params,
-                        false,
-                    );
-                    let _ = writeln!(
-                        out,
-                        "    return conn.prepareStatement(\"{sql}\").use {{ ps ->",
-                    );
+                    write_fn_sig(&mut out, &func_name, ": Int", use_multiline_params, params, false);
+                    let _ = writeln!(out, "    return conn.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeUpdate()");
                     let _ = writeln!(out, "    }}");
@@ -395,26 +337,14 @@ impl CodegenBackend for KotlinJdbcBackend {
             }
             QueryCommand::One | QueryCommand::Opt => {
                 let ret = format!(": {}?", struct_name);
-                let is_oracle_returning =
-                    self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
-                let is_mariadb_returning =
-                    self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
+                let is_oracle_returning = self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
+                let is_mariadb_returning = self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
                 if is_mariadb_returning {
                     // MySQL Connector/J rejects executeQuery() for DML statements.
                     // MariaDB RETURNING works via execute() + getResultSet() instead.
                     // Expression body not applicable here (multi-statement body).
-                    write_fn_sig(
-                        &mut out,
-                        &func_name,
-                        &ret,
-                        use_multiline_params,
-                        params,
-                        false,
-                    );
-                    let _ = writeln!(
-                        out,
-                        "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
-                    );
+                    write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params, false);
+                    let _ = writeln!(out, "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.execute()");
                     let _ = writeln!(out, "        val rs = ps.resultSet");
@@ -451,26 +381,16 @@ impl CodegenBackend for KotlinJdbcBackend {
                     // Oracle RETURNING … INTO requires a PL/SQL BEGIN…END block so that
                     // the JDBC driver correctly maps the OUT parameters from a DML statement.
                     // Plain prepareCall on a bare DML RETURNING INTO raises ORA-17173.
-                    let into_placeholders =
-                        columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                    let into_placeholders = columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
                     let full_sql = format!("BEGIN {sql} INTO {into_placeholders}; END;");
                     let use_multiline = !params.is_empty();
                     // Oracle RETURNING has multi-statement body; no expression body here.
                     write_fn_sig(&mut out, &func_name, &ret, use_multiline, params, false);
-                    let _ = writeln!(
-                        out,
-                        "    {receiver}.prepareCall(\"{full_sql}\").use {{ cs ->"
-                    );
+                    let _ = writeln!(out, "    {receiver}.prepareCall(\"{full_sql}\").use {{ cs ->");
                     // Write setters using cs (not ps) for CallableStatement
                     for (i, param) in params.iter().enumerate() {
                         let setter = ps_setter(&param.lang_type);
-                        let _ = writeln!(
-                            out,
-                            "        cs.{}({}, {})",
-                            setter,
-                            i + 1,
-                            param.field_name
-                        );
+                        let _ = writeln!(out, "        cs.{}({}, {})", setter, i + 1, param.field_name);
                     }
                     for (i, col) in columns.iter().enumerate() {
                         let jdbc_type = oracle_jdbc_type(&col.neutral_type);
@@ -484,28 +404,16 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "        cs.execute()");
                     let _ = writeln!(out, "        return {}(", struct_name);
                     for (i, col) in columns.iter().enumerate() {
-                        let getter_call =
-                            oracle_cs_getter_call(&col.neutral_type, params.len() + i + 1);
-                        let _ =
-                            writeln!(out, "            {} = cs.{},", col.field_name, getter_call);
+                        let getter_call = oracle_cs_getter_call(&col.neutral_type, params.len() + i + 1);
+                        let _ = writeln!(out, "            {} = cs.{},", col.field_name, getter_call);
                     }
                     let _ = writeln!(out, "        )");
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                 } else if ext {
                     // Extension + expression body: `): Ret = this.prepareStatement(...).use { ... }`
-                    write_fn_sig(
-                        &mut out,
-                        &func_name,
-                        &ret,
-                        use_multiline_params,
-                        params,
-                        true,
-                    );
-                    let _ = writeln!(
-                        out,
-                        "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
-                    );
+                    write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params, true);
+                    let _ = writeln!(out, "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                     let _ = writeln!(out, "            if (rs.next()) {{");
@@ -539,11 +447,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "                {}(", struct_name);
                     for col in columns.iter() {
                         if col.nullable {
-                            let _ = writeln!(
-                                out,
-                                "                    {} = {},",
-                                col.field_name, col.field_name
-                            );
+                            let _ = writeln!(out, "                    {} = {},", col.field_name, col.field_name);
                         } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
                             let _ = writeln!(
                                 out,
@@ -572,14 +476,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "    }}");
                 } else {
-                    write_fn_sig(
-                        &mut out,
-                        &func_name,
-                        &ret,
-                        use_multiline_params,
-                        params,
-                        false,
-                    );
+                    write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params, false);
                     let _ = writeln!(out, "    conn.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
@@ -614,11 +511,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "                {}(", struct_name);
                     for col in columns.iter() {
                         if col.nullable {
-                            let _ = writeln!(
-                                out,
-                                "                    {} = {},",
-                                col.field_name, col.field_name
-                            );
+                            let _ = writeln!(out, "                    {} = {},", col.field_name, col.field_name);
                         } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
                             let _ = writeln!(
                                 out,
@@ -655,8 +548,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                 // Extension form: `fun Connection.fooBarBatch(items: ...)`.
                 // Block body only — multi-statement body with try/finally.
                 if params.len() > 1 {
-                    let params_class_name =
-                        format!("{}BatchParams", to_pascal_case(&analyzed.name));
+                    let params_class_name = format!("{}BatchParams", to_pascal_case(&analyzed.name));
                     let _ = writeln!(out, "data class {}(", params_class_name);
                     for p in params {
                         let _ = writeln!(out, "    val {}: {},", p.field_name, p.full_type);
@@ -674,10 +566,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, ") {{");
                     let _ = writeln!(out, "    {receiver}.autoCommit = false");
                     let _ = writeln!(out, "    try {{");
-                    let _ = writeln!(
-                        out,
-                        "        {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
-                    );
+                    let _ = writeln!(out, "        {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     let _ = writeln!(out, "            for (item in items) {{");
                     for (i, param) in params.iter().enumerate() {
                         let setter = ps_setter(&param.lang_type);
@@ -713,10 +602,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, ") {{");
                     let _ = writeln!(out, "    {receiver}.autoCommit = false");
                     let _ = writeln!(out, "    try {{");
-                    let _ = writeln!(
-                        out,
-                        "        {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
-                    );
+                    let _ = writeln!(out, "        {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     let _ = writeln!(out, "            for (item in items) {{");
                     let setter = ps_setter(&params[0].lang_type);
                     let _ = writeln!(out, "                ps.{}(1, item)", setter);
@@ -736,10 +622,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "fun Connection.{}(count: Int) {{", batch_fn_name);
                     let _ = writeln!(out, "    {receiver}.autoCommit = false");
                     let _ = writeln!(out, "    try {{");
-                    let _ = writeln!(
-                        out,
-                        "        {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
-                    );
+                    let _ = writeln!(out, "        {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     let _ = writeln!(out, "            repeat(count) {{");
                     let _ = writeln!(out, "                ps.addBatch()");
                     let _ = writeln!(out, "            }}");
@@ -754,11 +637,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "fun {}(conn: Connection, count: Int) {{",
-                        batch_fn_name
-                    );
+                    let _ = writeln!(out, "fun {}(conn: Connection, count: Int) {{", batch_fn_name);
                     let _ = writeln!(out, "    conn.autoCommit = false");
                     let _ = writeln!(out, "    try {{");
                     let _ = writeln!(out, "        conn.prepareStatement(\"{sql}\").use {{ ps ->",);
@@ -781,24 +660,11 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let ret = format!(": List<{}>", struct_name);
                 if ext {
                     // Expression body for :many
-                    write_fn_sig(
-                        &mut out,
-                        &func_name,
-                        &ret,
-                        use_multiline_params,
-                        params,
-                        true,
-                    );
-                    let _ = writeln!(
-                        out,
-                        "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",
-                    );
+                    write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params, true);
+                    let _ = writeln!(out, "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
-                    let _ = writeln!(
-                        out,
-                        "            val result = mutableListOf<{struct_name}>()",
-                    );
+                    let _ = writeln!(out, "            val result = mutableListOf<{struct_name}>()",);
                     let _ = writeln!(out, "            while (rs.next()) {{");
                     for col in columns.iter() {
                         if col.nullable {
@@ -831,11 +697,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "                    {}(", struct_name);
                     for col in columns.iter() {
                         if col.nullable {
-                            let _ = writeln!(
-                                out,
-                                "                        {} = {},",
-                                col.field_name, col.field_name
-                            );
+                            let _ = writeln!(out, "                        {} = {},", col.field_name, col.field_name);
                         } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
                             let _ = writeln!(
                                 out,
@@ -864,21 +726,11 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "    }}");
                 } else {
-                    write_fn_sig(
-                        &mut out,
-                        &func_name,
-                        &ret,
-                        use_multiline_params,
-                        params,
-                        false,
-                    );
+                    write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params, false);
                     let _ = writeln!(out, "    conn.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
-                    let _ = writeln!(
-                        out,
-                        "            val result = mutableListOf<{struct_name}>()",
-                    );
+                    let _ = writeln!(out, "            val result = mutableListOf<{struct_name}>()",);
                     let _ = writeln!(out, "            while (rs.next()) {{");
                     for col in columns.iter() {
                         if col.nullable {
@@ -911,11 +763,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "                    {}(", struct_name);
                     for col in columns.iter() {
                         if col.nullable {
-                            let _ = writeln!(
-                                out,
-                                "                        {} = {},",
-                                col.field_name, col.field_name
-                            );
+                            let _ = writeln!(out, "                        {} = {},", col.field_name, col.field_name);
                         } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
                             let _ = writeln!(
                                 out,
@@ -963,11 +811,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         let _ = writeln!(out, "enum class {}(val value: String) {{", type_name);
         for (i, value) in enum_info.values.iter().enumerate() {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let sep = if i + 1 < enum_info.values.len() {
-                ","
-            } else {
-                ";"
-            };
+            let sep = if i + 1 < enum_info.values.len() { "," } else { ";" };
             let _ = writeln!(out, "    {}(\"{}\"){}", variant, value, sep);
         }
         let _ = writeln!(out, "}}");

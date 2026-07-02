@@ -1,18 +1,18 @@
 {
-	"name": "cartesian_join_clean",
-	"description": "Explicit JOIN with ON condition should not trigger SC-SEC08",
-	"category": "lint/security",
-	"tags": ["lint", "security", "cartesian"],
-	"schema_sql": [
-		"CREATE TABLE users (id SERIAL PRIMARY KEY);",
-		"CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL);"
-	],
-	"query_sql": "-- @name ListOrdersWithUser\n-- @returns :many\nSELECT users.id AS user_id, orders.id AS order_id FROM users JOIN orders ON orders.user_id = users.id;",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "cartesian_join_clean",
+  "description": "Explicit JOIN with ON condition should not trigger SC-SEC08",
+  "category": "lint/security",
+  "tags": ["lint", "security", "cartesian"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY);",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INT NOT NULL);"
+  ],
+  "query_sql": "-- @name ListOrdersWithUser\n-- @returns :many\nSELECT users.id AS user_id, orders.id AS order_id FROM users JOIN orders ON orders.user_id = users.id;",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

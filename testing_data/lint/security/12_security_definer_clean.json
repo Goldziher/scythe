@@ -1,15 +1,15 @@
 {
-	"name": "security_definer_clean",
-	"description": "SECURITY DEFINER with SET search_path should not trigger SC-SEC10",
-	"category": "lint/security",
-	"tags": ["lint", "security", "security-definer"],
-	"schema_sql": ["CREATE TABLE audit_log (id SERIAL PRIMARY KEY);"],
-	"query_sql": "-- @name CreateBumpAuditFnSafe\n-- @returns :exec\nCREATE FUNCTION bump_audit() RETURNS int AS $$ SELECT 1 $$ LANGUAGE SQL SECURITY DEFINER SET search_path = pg_catalog, public;",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "security_definer_clean",
+  "description": "SECURITY DEFINER with SET search_path should not trigger SC-SEC10",
+  "category": "lint/security",
+  "tags": ["lint", "security", "security-definer"],
+  "schema_sql": ["CREATE TABLE audit_log (id SERIAL PRIMARY KEY);"],
+  "query_sql": "-- @name CreateBumpAuditFnSafe\n-- @returns :exec\nCREATE FUNCTION bump_audit() RETURNS int AS $$ SELECT 1 $$ LANGUAGE SQL SECURITY DEFINER SET search_path = pg_catalog, public;",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

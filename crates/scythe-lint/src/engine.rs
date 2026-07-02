@@ -27,15 +27,11 @@ pub struct LintReport {
 
 impl LintReport {
     pub fn has_errors(&self) -> bool {
-        self.violations
-            .iter()
-            .any(|v| matches!(v.severity, Severity::Error))
+        self.violations.iter().any(|v| matches!(v.severity, Severity::Error))
     }
 
     pub fn has_warnings(&self) -> bool {
-        self.violations
-            .iter()
-            .any(|v| matches!(v.severity, Severity::Warn))
+        self.violations.iter().any(|v| matches!(v.severity, Severity::Warn))
     }
 }
 
@@ -78,11 +74,7 @@ impl LintEngine {
     ///
     /// `queries` is an iterator of `LintContext` for each query.
     /// The engine also performs cross-query checks (e.g. duplicate names).
-    pub fn build_report<'a>(
-        &self,
-        queries: impl Iterator<Item = LintContext<'a>>,
-        catalog: &Catalog,
-    ) -> LintReport {
+    pub fn build_report<'a>(&self, queries: impl Iterator<Item = LintContext<'a>>, catalog: &Catalog) -> LintReport {
         let active = self.registry.active_rules();
         let rules_active = active.len();
         let mut violations = Vec::new();
@@ -430,11 +422,7 @@ mod tests {
         assert_eq!(report.queries_checked, 3);
 
         // Should detect one duplicate for "dup_name"
-        let dup_violations: Vec<_> = report
-            .violations
-            .iter()
-            .filter(|v| v.rule_id == "SC-C03")
-            .collect();
+        let dup_violations: Vec<_> = report.violations.iter().filter(|v| v.rule_id == "SC-C03").collect();
         assert_eq!(dup_violations.len(), 1);
         assert_eq!(dup_violations[0].query_name, "dup_name");
         assert_eq!(dup_violations[0].severity, Severity::Error);
@@ -462,11 +450,7 @@ mod tests {
 
         let report = engine.build_report(queries.into_iter(), &catalog);
         assert_eq!(report.queries_checked, 2);
-        let dup_violations: Vec<_> = report
-            .violations
-            .iter()
-            .filter(|v| v.rule_id == "SC-C03")
-            .collect();
+        let dup_violations: Vec<_> = report.violations.iter().filter(|v| v.rule_id == "SC-C03").collect();
         assert!(dup_violations.is_empty());
     }
 

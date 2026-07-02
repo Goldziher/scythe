@@ -29,10 +29,8 @@ pub fn match_alter_column_type(ctx: &LintContext<'_>, _args: &toml::Table) -> Ve
             } => {
                 let mut hit = MatcherHit::empty();
                 hit.bindings.insert("table".to_string(), table.clone());
-                hit.bindings
-                    .insert("column".to_string(), column_name.value.clone());
-                hit.bindings
-                    .insert("target_type".to_string(), data_type.to_string());
+                hit.bindings.insert("column".to_string(), column_name.value.clone());
+                hit.bindings.insert("target_type".to_string(), data_type.to_string());
                 Some(hit)
             }
             _ => None,
@@ -50,17 +48,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -115,19 +104,10 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_alter_column_type(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].bindings.get("table").map(|s| s.as_str()), Some("users"));
+        assert_eq!(hits[0].bindings.get("column").map(|s| s.as_str()), Some("id"));
         assert_eq!(
-            hits[0].bindings.get("table").map(|s| s.as_str()),
-            Some("users")
-        );
-        assert_eq!(
-            hits[0].bindings.get("column").map(|s| s.as_str()),
-            Some("id")
-        );
-        assert_eq!(
-            hits[0]
-                .bindings
-                .get("target_type")
-                .map(|s| s.to_ascii_lowercase()),
+            hits[0].bindings.get("target_type").map(|s| s.to_ascii_lowercase()),
             Some("bigint".to_string())
         );
     }
@@ -139,10 +119,7 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_alter_column_type(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("column").map(|s| s.as_str()),
-            Some("name")
-        );
+        assert_eq!(hits[0].bindings.get("column").map(|s| s.as_str()), Some("name"));
     }
 
     #[test]

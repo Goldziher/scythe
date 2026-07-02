@@ -57,18 +57,10 @@ pub trait CodegenBackend: Send + Sync {
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest;
 
     /// Generate a row struct for a query result.
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError>;
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError>;
 
     /// Generate a model struct for a table.
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError>;
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError>;
 
     /// Generate a query function.
     fn generate_query_fn(
@@ -122,10 +114,7 @@ pub trait CodegenBackend: Send + Sync {
 
     /// Apply per-backend configuration options from [[sql.gen]].
     /// Backends override this to handle options like `row_type = "pydantic"`.
-    fn apply_options(
-        &mut self,
-        _options: &std::collections::HashMap<String, String>,
-    ) -> Result<(), ScytheError> {
+    fn apply_options(&mut self, _options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         Ok(())
     }
 

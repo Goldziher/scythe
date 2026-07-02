@@ -29,10 +29,7 @@ impl RustSibylBackend {
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest(
-            "backends/rust-sibyl/manifest.toml",
-            DEFAULT_MANIFEST_TOML,
-        )?;
+        let manifest = super::load_or_default_manifest("backends/rust-sibyl/manifest.toml", DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
 
@@ -51,13 +48,7 @@ impl RustSibylBackend {
             _ => {
                 let pairs: Vec<String> = params
                     .iter()
-                    .map(|p| {
-                        format!(
-                            "(\"{}\", {})",
-                            Self::named_placeholder(&p.field_name),
-                            p.field_name
-                        )
-                    })
+                    .map(|p| format!("(\"{}\", {})", Self::named_placeholder(&p.field_name), p.field_name))
                     .collect();
                 format!("({})", pairs.join(", "))
             }
@@ -105,12 +96,7 @@ impl RustSibylBackend {
             } else {
                 rest.trim()
             };
-            format!(
-                "{}RETURNING {} INTO {}",
-                prefix,
-                col_list,
-                out_names.join(", ")
-            )
+            format!("{}RETURNING {} INTO {}", prefix, col_list, out_names.join(", "))
         } else {
             // No RETURNING in SQL — shouldn't happen, but handle gracefully
             base_sql.to_string()
@@ -150,19 +136,10 @@ impl RustSibylBackend {
     /// Emit the post-execute conversion from the `out_*` var to the struct field type.
     fn emit_out_var_conversion(col: &ResolvedColumn) -> String {
         match col.neutral_type.as_str() {
-            "int16" => format!(
-                "    let {} = out_{} as i16;",
-                col.field_name, col.field_name
-            ),
-            "int32" => format!(
-                "    let {} = out_{} as i32;",
-                col.field_name, col.field_name
-            ),
+            "int16" => format!("    let {} = out_{} as i16;", col.field_name, col.field_name),
+            "int32" => format!("    let {} = out_{} as i32;", col.field_name, col.field_name),
             "int64" => format!("    let {} = out_{};", col.field_name, col.field_name),
-            "float32" => format!(
-                "    let {} = out_{} as f32;",
-                col.field_name, col.field_name
-            ),
+            "float32" => format!("    let {} = out_{} as f32;", col.field_name, col.field_name),
             "float64" | "decimal" => {
                 format!("    let {} = out_{};", col.field_name, col.field_name)
             }
@@ -252,11 +229,7 @@ impl CodegenBackend for RustSibylBackend {
             .to_string()
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "#[derive(Debug, Clone)]");
@@ -268,11 +241,7 @@ impl CodegenBackend for RustSibylBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let singular = singularize(table_name);
         let name = to_pascal_case(&singular);
         self.generate_row_struct(&name, columns)
@@ -288,11 +257,7 @@ impl CodegenBackend for RustSibylBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         // Rewrite $N placeholders to :N (Oracle positional), then rewrite to named :PARAM_NAME.
         let positional_sql = super::rewrite_pg_placeholders(
-            &super::clean_sql_with_optional(
-                &analyzed.sql,
-                &analyzed.optional_params,
-                &analyzed.params,
-            ),
+            &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
         );
         let sql = Self::sql_with_named_params(&positional_sql, params);
@@ -321,11 +286,7 @@ impl CodegenBackend for RustSibylBackend {
                     // sibyl 0.7 RETURNING: SQL has RETURNING cols INTO :OUT_COL_NAME ...
                     // execute() args tuple includes `(":OUT_COL_NAME", &mut out_col)`.
                     let full_sql = Self::sql_with_returning(&sql, columns);
-                    let _ = writeln!(
-                        out,
-                        "    let stmt = session.prepare(\"{}\").await?;",
-                        full_sql
-                    );
+                    let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", full_sql);
                     // Declare out variables.
                     for col in columns {
                         let _ = writeln!(out, "{}", Self::emit_out_var_decl_typed(col));
@@ -333,13 +294,7 @@ impl CodegenBackend for RustSibylBackend {
                     // Build execute args combining IN params and &mut OUT vars.
                     let in_pairs: Vec<String> = params
                         .iter()
-                        .map(|p| {
-                            format!(
-                                "(\"{}\", {})",
-                                Self::named_placeholder(&p.field_name),
-                                p.field_name
-                            )
-                        })
+                        .map(|p| format!("(\"{}\", {})", Self::named_placeholder(&p.field_name), p.field_name))
                         .collect();
                     let out_pairs: Vec<String> = columns
                         .iter()
@@ -366,12 +321,7 @@ impl CodegenBackend for RustSibylBackend {
                         .iter()
                         .map(|c| format!("{}: {}", c.field_name, c.field_name))
                         .collect();
-                    let _ = writeln!(
-                        out,
-                        "    Ok(Some({} {{ {} }}))",
-                        struct_name,
-                        field_assigns.join(", ")
-                    );
+                    let _ = writeln!(out, "    Ok(Some({} {{ {} }}))", struct_name, field_assigns.join(", "));
                     let _ = write!(out, "}}");
                 } else {
                     let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
@@ -445,11 +395,7 @@ impl CodegenBackend for RustSibylBackend {
                 );
                 let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
                 let args_expr = Self::build_in_args(params);
-                let _ = writeln!(
-                    out,
-                    "    let num_rows = stmt.execute({}).await?;",
-                    args_expr
-                );
+                let _ = writeln!(out, "    let num_rows = stmt.execute({}).await?;", args_expr);
                 let _ = writeln!(out, "    Ok(num_rows)");
                 let _ = write!(out, "}}");
             }
@@ -470,13 +416,7 @@ impl CodegenBackend for RustSibylBackend {
                 let item_pairs: Vec<String> = params
                     .iter()
                     .enumerate()
-                    .map(|(i, p)| {
-                        format!(
-                            "(\"{}\", &item.{})",
-                            Self::named_placeholder(&p.field_name),
-                            i
-                        )
-                    })
+                    .map(|(i, p)| format!("(\"{}\", &item.{})", Self::named_placeholder(&p.field_name), i))
                     .collect();
                 let args_expr = if item_pairs.len() == 1 {
                     item_pairs[0].clone()
@@ -510,11 +450,7 @@ impl CodegenBackend for RustSibylBackend {
         let _ = writeln!(out, "        match self {{");
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(
-                out,
-                "            {}::{} => \"{}\",",
-                type_name, variant, value
-            );
+            let _ = writeln!(out, "            {}::{} => \"{}\",", type_name, variant, value);
         }
         let _ = writeln!(out, "        }}");
         let _ = writeln!(out, "    }}");
@@ -531,17 +467,9 @@ impl CodegenBackend for RustSibylBackend {
             let rust_type = resolve_type(&field.neutral_type, &self.manifest, false)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("composite field type error: {}", e),
-                    )
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
-            let _ = writeln!(
-                out,
-                "    pub {}: {},",
-                to_snake_case(&field.name),
-                rust_type
-            );
+            let _ = writeln!(out, "    pub {}: {},", to_snake_case(&field.name), rust_type);
         }
         let _ = write!(out, "}}");
         Ok(out)

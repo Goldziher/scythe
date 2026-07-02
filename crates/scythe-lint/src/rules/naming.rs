@@ -151,10 +151,7 @@ impl LintRule for QueryNameConvention {
         if !has_prefix {
             return vec![Violation {
                 rule_id: Cow::Borrowed(self.id()),
-                message: format!(
-                    "query name \"{}\" does not start with an accepted verb prefix",
-                    name
-                ),
+                message: format!("query name \"{}\" does not start with an accepted verb prefix", name),
                 fix: None,
             }];
         }
@@ -290,12 +287,7 @@ fn walk_set_expr_from_tables(set_expr: &SetExpr, visitor: &mut dyn FnMut(&str)) 
 
 fn visit_table_factor_alias(tf: &TableFactor, visitor: &mut dyn FnMut(&str)) {
     match tf {
-        TableFactor::Table {
-            alias: Some(alias), ..
-        }
-        | TableFactor::Derived {
-            alias: Some(alias), ..
-        } => {
+        TableFactor::Table { alias: Some(alias), .. } | TableFactor::Derived { alias: Some(alias), .. } => {
             visitor(&alias.name.value);
         }
         _ => {}
@@ -348,10 +340,8 @@ mod tests {
     #[test]
     fn non_snake_case_alias_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :one\nSELECT name AS userName FROM users WHERE id = $1;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT name AS userName FROM users WHERE id = $1;")
+            .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferSnakeCaseColumns.check_query(&ctx);
@@ -361,7 +351,8 @@ mod tests {
     #[test]
     fn snake_case_alias_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT name AS user_name FROM users WHERE id = $1;").unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT name AS user_name FROM users WHERE id = $1;")
+            .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferSnakeCaseColumns.check_query(&ctx);
@@ -385,10 +376,7 @@ mod tests {
     #[test]
     fn bad_query_name_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name doStuff\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name doStuff\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = QueryNameConvention.check_query(&ctx);
@@ -398,10 +386,8 @@ mod tests {
     #[test]
     fn good_query_name_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name UpdateUser\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name UpdateUser\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = QueryNameConvention.check_query(&ctx);
@@ -413,8 +399,7 @@ mod tests {
     #[test]
     fn uppercase_alias_fires() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT U.id FROM users U;")
-            .unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT U.id FROM users U;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = ConsistentAliasCasing.check_query(&ctx);
@@ -424,8 +409,7 @@ mod tests {
     #[test]
     fn lowercase_alias_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT u.id FROM users u;")
-            .unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT u.id FROM users u;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = ConsistentAliasCasing.check_query(&ctx);
@@ -437,10 +421,7 @@ mod tests {
     #[test]
     fn no_aliases_clean() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferSnakeCaseColumns.check_query(&ctx);
@@ -463,8 +444,7 @@ mod tests {
     #[test]
     fn expression_without_alias_clean() {
         let cat = make_catalog();
-        let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferSnakeCaseColumns.check_query(&ctx);
@@ -488,10 +468,9 @@ mod tests {
     fn non_snake_case_table_name_fires() {
         // Use a hyphenated name which remains non-snake_case even after lowercasing
         // (the catalog lowercases names, so camelCase becomes "camelcase" which passes)
-        let cat = Catalog::from_ddl(&[
-            "CREATE TABLE \"user-profiles\" (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL);",
-        ])
-        .unwrap();
+        let cat =
+            Catalog::from_ddl(&["CREATE TABLE \"user-profiles\" (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL);"])
+                .unwrap();
         let v = PreferSnakeCaseTables.check_catalog(&cat);
         assert_eq!(v.len(), 1);
     }
@@ -501,10 +480,7 @@ mod tests {
     #[test]
     fn get_prefix_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = QueryNameConvention.check_query(&ctx);
@@ -514,8 +490,7 @@ mod tests {
     #[test]
     fn list_prefix_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = QueryNameConvention.check_query(&ctx);
@@ -525,10 +500,9 @@ mod tests {
     #[test]
     fn create_prefix_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING id;",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING id;")
+                .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = QueryNameConvention.check_query(&ctx);
@@ -538,9 +512,7 @@ mod tests {
     #[test]
     fn delete_prefix_ok() {
         let cat = make_catalog();
-        let q =
-            parse_query("-- @name DeleteUser\n-- @returns :exec\nDELETE FROM users WHERE id = $1;")
-                .unwrap();
+        let q = parse_query("-- @name DeleteUser\n-- @returns :exec\nDELETE FROM users WHERE id = $1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = QueryNameConvention.check_query(&ctx);
@@ -550,8 +522,7 @@ mod tests {
     #[test]
     fn count_prefix_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = QueryNameConvention.check_query(&ctx);
@@ -574,10 +545,8 @@ mod tests {
     #[test]
     fn record_prefix_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name RecordLogin\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name RecordLogin\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = QueryNameConvention.check_query(&ctx);
@@ -587,10 +556,7 @@ mod tests {
     #[test]
     fn lowercase_query_name_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name getuser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name getuser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = QueryNameConvention.check_query(&ctx);
@@ -603,8 +569,7 @@ mod tests {
     #[test]
     fn no_alias_clean() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = ConsistentAliasCasing.check_query(&ctx);
@@ -614,8 +579,7 @@ mod tests {
     #[test]
     fn lowercase_multichar_alias_clean() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT usr.id FROM users usr;")
-            .unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT usr.id FROM users usr;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = ConsistentAliasCasing.check_query(&ctx);

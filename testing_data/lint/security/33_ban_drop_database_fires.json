@@ -1,20 +1,20 @@
 {
-	"name": "ban_drop_database_fires",
-	"description": "DROP DATABASE should trigger SC-MIG06",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "ban-drop-database-or-schema"],
-	"schema_sql": [],
-	"query_sql": "-- @name DeleteLegacyAppDatabase\n-- @returns :exec\nDROP DATABASE legacy_app",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-MIG06",
-					"message_contains": "DROP database"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "ban_drop_database_fires",
+  "description": "DROP DATABASE should trigger SC-MIG06",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "ban-drop-database-or-schema"],
+  "schema_sql": [],
+  "query_sql": "-- @name DeleteLegacyAppDatabase\n-- @returns :exec\nDROP DATABASE legacy_app",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-MIG06",
+          "message_contains": "DROP database"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

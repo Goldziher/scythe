@@ -1,20 +1,20 @@
 {
-	"name": "prefer_text_over_varchar_fires",
-	"description": "CREATE TABLE with varchar(n) column should trigger SC-MIG11",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "prefer-text-over-varchar"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateProductsTable\n-- @returns :exec\nCREATE TABLE products (id bigint PRIMARY KEY, name varchar(255))",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-MIG11",
-					"message_contains": "prefer `text`"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "prefer_text_over_varchar_fires",
+  "description": "CREATE TABLE with varchar(n) column should trigger SC-MIG11",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "prefer-text-over-varchar"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateProductsTable\n-- @returns :exec\nCREATE TABLE products (id bigint PRIMARY KEY, name varchar(255))",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-MIG11",
+          "message_contains": "prefer `text`"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

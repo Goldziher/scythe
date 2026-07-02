@@ -46,19 +46,10 @@ mod tests {
 
     #[test]
     fn test_from_str_postgresql() {
-        assert_eq!(
-            SqlDialect::from_str("postgresql"),
-            Some(SqlDialect::PostgreSQL)
-        );
-        assert_eq!(
-            SqlDialect::from_str("postgres"),
-            Some(SqlDialect::PostgreSQL)
-        );
+        assert_eq!(SqlDialect::from_str("postgresql"), Some(SqlDialect::PostgreSQL));
+        assert_eq!(SqlDialect::from_str("postgres"), Some(SqlDialect::PostgreSQL));
         assert_eq!(SqlDialect::from_str("pg"), Some(SqlDialect::PostgreSQL));
-        assert_eq!(
-            SqlDialect::from_str("PostgreSQL"),
-            Some(SqlDialect::PostgreSQL)
-        );
+        assert_eq!(SqlDialect::from_str("PostgreSQL"), Some(SqlDialect::PostgreSQL));
     }
 
     #[test]
@@ -76,15 +67,9 @@ mod tests {
 
     #[test]
     fn test_from_str_cockroachdb() {
-        assert_eq!(
-            SqlDialect::from_str("cockroachdb"),
-            Some(SqlDialect::PostgreSQL)
-        );
+        assert_eq!(SqlDialect::from_str("cockroachdb"), Some(SqlDialect::PostgreSQL));
         assert_eq!(SqlDialect::from_str("crdb"), Some(SqlDialect::PostgreSQL));
-        assert_eq!(
-            SqlDialect::from_str("CockroachDB"),
-            Some(SqlDialect::PostgreSQL)
-        );
+        assert_eq!(SqlDialect::from_str("CockroachDB"), Some(SqlDialect::PostgreSQL));
     }
 
     #[test]
@@ -109,26 +94,14 @@ mod tests {
 
     #[test]
     fn test_from_str_snowflake() {
-        assert_eq!(
-            SqlDialect::from_str("snowflake"),
-            Some(SqlDialect::Snowflake)
-        );
-        assert_eq!(
-            SqlDialect::from_str("Snowflake"),
-            Some(SqlDialect::Snowflake)
-        );
+        assert_eq!(SqlDialect::from_str("snowflake"), Some(SqlDialect::Snowflake));
+        assert_eq!(SqlDialect::from_str("Snowflake"), Some(SqlDialect::Snowflake));
     }
 
     #[test]
     fn test_from_str_redshift() {
-        assert_eq!(
-            SqlDialect::from_str("redshift"),
-            Some(SqlDialect::PostgreSQL)
-        );
-        assert_eq!(
-            SqlDialect::from_str("Redshift"),
-            Some(SqlDialect::PostgreSQL)
-        );
+        assert_eq!(SqlDialect::from_str("redshift"), Some(SqlDialect::PostgreSQL));
+        assert_eq!(SqlDialect::from_str("Redshift"), Some(SqlDialect::PostgreSQL));
     }
 
     #[test]

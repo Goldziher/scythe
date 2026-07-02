@@ -29,8 +29,7 @@ impl KotlinExposedBackend {
                 ));
             }
         };
-        let manifest =
-            super::load_or_default_manifest("backends/kotlin-exposed/manifest.toml", default_toml)?;
+        let manifest = super::load_or_default_manifest("backends/kotlin-exposed/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
 }
@@ -140,11 +139,7 @@ impl CodegenBackend for KotlinExposedBackend {
             .to_string()
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "data class {}(", struct_name);
@@ -155,22 +150,14 @@ impl CodegenBackend for KotlinExposedBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         let table_obj_name = format!("{}Table", name);
         let mut out = String::new();
         // TODO: IntIdTable is hardcoded — detecting the actual PK type (LongIdTable,
         // UUIDTable, etc.) from schema DDL requires propagating PK column info through
         // the analyzer. Follow-up: https://github.com/scythe-sql/scythe/issues/XXX
-        let _ = writeln!(
-            out,
-            "object {} : IntIdTable(\"{}\") {{",
-            table_obj_name, table_name
-        );
+        let _ = writeln!(out, "object {} : IntIdTable(\"{}\") {{", table_obj_name, table_name);
         for col in columns.iter() {
             let col_fn = exposed_column_fn(&col.lang_type);
             let nullable_suffix = if col.nullable { ".nullable()" } else { "" };
@@ -204,11 +191,7 @@ impl CodegenBackend for KotlinExposedBackend {
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(
-                &analyzed.sql,
-                &analyzed.optional_params,
-                &analyzed.params,
-            ),
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
         );
 
@@ -243,13 +226,7 @@ impl CodegenBackend for KotlinExposedBackend {
             }
             let pairs: Vec<String> = params
                 .iter()
-                .map(|p| {
-                    format!(
-                        "{} to {}",
-                        exposed_column_type_class(&p.lang_type),
-                        p.field_name
-                    )
-                })
+                .map(|p| format!("{} to {}", exposed_column_type_class(&p.lang_type), p.field_name))
                 .collect();
             format!(", listOf({})", pairs.join(", "))
         };
@@ -292,45 +269,25 @@ impl CodegenBackend for KotlinExposedBackend {
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
                 if params.len() > 1 {
-                    let params_class_name =
-                        format!("{}BatchParams", to_pascal_case(&analyzed.name));
+                    let params_class_name = format!("{}BatchParams", to_pascal_case(&analyzed.name));
                     let _ = writeln!(out, "data class {}(", params_class_name);
                     for p in params {
                         let _ = writeln!(out, "    val {}: {},", p.field_name, p.full_type);
                     }
                     let _ = writeln!(out, ")");
                     let _ = writeln!(out);
-                    let _ = writeln!(
-                        out,
-                        "fun {}(items: List<{}>) =",
-                        batch_fn_name, params_class_name
-                    );
+                    let _ = writeln!(out, "fun {}(items: List<{}>) =", batch_fn_name, params_class_name);
                     let _ = writeln!(out, "    transaction {{");
                     let _ = writeln!(out, "        for (item in items) {{");
                     let args: Vec<String> = params
                         .iter()
-                        .map(|p| {
-                            format!(
-                                "{} to item.{}",
-                                exposed_column_type_class(&p.lang_type),
-                                p.field_name
-                            )
-                        })
+                        .map(|p| format!("{} to item.{}", exposed_column_type_class(&p.lang_type), p.field_name))
                         .collect();
-                    let _ = writeln!(
-                        out,
-                        "            exec(\"{}\", listOf({}))",
-                        sql,
-                        args.join(", ")
-                    );
+                    let _ = writeln!(out, "            exec(\"{}\", listOf({}))", sql, args.join(", "));
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "    }}");
                 } else if params.len() == 1 {
-                    let _ = writeln!(
-                        out,
-                        "fun {}(items: List<{}>) =",
-                        batch_fn_name, params[0].full_type
-                    );
+                    let _ = writeln!(out, "fun {}(items: List<{}>) =", batch_fn_name, params[0].full_type);
                     let _ = writeln!(out, "    transaction {{");
                     let _ = writeln!(out, "        for (item in items) {{");
                     let _ = writeln!(
@@ -392,11 +349,7 @@ impl CodegenBackend for KotlinExposedBackend {
         let _ = writeln!(out, "enum class {}(val value: String) {{", type_name);
         for (i, value) in enum_info.values.iter().enumerate() {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let sep = if i + 1 < enum_info.values.len() {
-                ","
-            } else {
-                ";"
-            };
+            let sep = if i + 1 < enum_info.values.len() { "," } else { ";" };
             let _ = writeln!(out, "    {}(\"{}\"){}", variant, value, sep);
         }
         let _ = writeln!(out, "}}");

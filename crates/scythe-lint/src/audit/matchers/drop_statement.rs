@@ -49,8 +49,7 @@ pub fn match_drop_statement(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<Ma
             .map(|n| {
                 let mut hit = MatcherHit::empty();
                 hit.bindings.insert("name".to_string(), n.to_string());
-                hit.bindings
-                    .insert("kind".to_string(), "database".to_string());
+                hit.bindings.insert("kind".to_string(), "database".to_string());
                 hit
             })
             .collect(),
@@ -64,8 +63,7 @@ pub fn match_drop_statement(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<Ma
             .map(|n| {
                 let mut hit = MatcherHit::empty();
                 hit.bindings.insert("name".to_string(), n.to_string());
-                hit.bindings
-                    .insert("kind".to_string(), "schema".to_string());
+                hit.bindings.insert("kind".to_string(), "schema".to_string());
                 hit
             })
             .collect(),
@@ -119,25 +117,13 @@ mod tests {
 
     fn make_args(kinds: &[&str]) -> toml::Table {
         let mut t = toml::Table::new();
-        let arr: toml::value::Array = kinds
-            .iter()
-            .map(|s| toml::Value::String((*s).to_string()))
-            .collect();
+        let arr: toml::value::Array = kinds.iter().map(|s| toml::Value::String((*s).to_string())).collect();
         t.insert("kinds".to_string(), toml::Value::Array(arr));
         t
     }
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -192,10 +178,7 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_drop_statement(&ctx, &make_args(&["table", "column"]));
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("table").map(|s| s.as_str()),
-            Some("users")
-        );
+        assert_eq!(hits[0].bindings.get("table").map(|s| s.as_str()), Some("users"));
     }
 
     #[test]
@@ -214,14 +197,8 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_drop_statement(&ctx, &make_args(&["table", "column"]));
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("table").map(|s| s.as_str()),
-            Some("users")
-        );
-        assert_eq!(
-            hits[0].bindings.get("column").map(|s| s.as_str()),
-            Some("legacy_id")
-        );
+        assert_eq!(hits[0].bindings.get("table").map(|s| s.as_str()), Some("users"));
+        assert_eq!(hits[0].bindings.get("column").map(|s| s.as_str()), Some("legacy_id"));
     }
 
     #[test]
@@ -258,14 +235,8 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_drop_statement(&ctx, &make_args(&["database", "schema"]));
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("name").map(|s| s.as_str()),
-            Some("legacy_app")
-        );
-        assert_eq!(
-            hits[0].bindings.get("kind").map(|s| s.as_str()),
-            Some("database")
-        );
+        assert_eq!(hits[0].bindings.get("name").map(|s| s.as_str()), Some("legacy_app"));
+        assert_eq!(hits[0].bindings.get("kind").map(|s| s.as_str()), Some("database"));
     }
 
     #[test]
@@ -275,14 +246,8 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_drop_statement(&ctx, &make_args(&["database", "schema"]));
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("name").map(|s| s.as_str()),
-            Some("reporting")
-        );
-        assert_eq!(
-            hits[0].bindings.get("kind").map(|s| s.as_str()),
-            Some("schema")
-        );
+        assert_eq!(hits[0].bindings.get("name").map(|s| s.as_str()), Some("reporting"));
+        assert_eq!(hits[0].bindings.get("kind").map(|s| s.as_str()), Some("schema"));
     }
 
     #[test]

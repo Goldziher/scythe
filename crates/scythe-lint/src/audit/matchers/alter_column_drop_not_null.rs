@@ -15,10 +15,7 @@ use sqlparser::ast::{AlterColumnOperation, AlterTableOperation, Statement};
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
-pub fn match_alter_column_drop_not_null(
-    ctx: &LintContext<'_>,
-    _args: &toml::Table,
-) -> Vec<MatcherHit> {
+pub fn match_alter_column_drop_not_null(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec<MatcherHit> {
     let Statement::AlterTable(alter) = ctx.stmt else {
         return Vec::new();
     };
@@ -52,17 +49,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -117,14 +105,8 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_alter_column_drop_not_null(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("table").map(|s| s.as_str()),
-            Some("users")
-        );
-        assert_eq!(
-            hits[0].bindings.get("column").map(|s| s.as_str()),
-            Some("email")
-        );
+        assert_eq!(hits[0].bindings.get("table").map(|s| s.as_str()), Some("users"));
+        assert_eq!(hits[0].bindings.get("column").map(|s| s.as_str()), Some("email"));
     }
 
     #[test]

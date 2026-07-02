@@ -169,10 +169,7 @@ mod tests {
     #[test]
     fn render_literal_passthrough() {
         let bindings = AHashMap::new();
-        assert_eq!(
-            render_template("no placeholders", &bindings),
-            "no placeholders"
-        );
+        assert_eq!(render_template("no placeholders", &bindings), "no placeholders");
     }
 
     #[test]
@@ -188,10 +185,7 @@ mod tests {
     #[test]
     fn render_missing_binding_left_as_literal() {
         let bindings = AHashMap::new();
-        assert_eq!(
-            render_template("call to {func}", &bindings),
-            "call to {func}"
-        );
+        assert_eq!(render_template("call to {func}", &bindings), "call to {func}");
     }
 
     #[test]
@@ -212,10 +206,7 @@ mod tests {
         let mut b = AHashMap::new();
         b.insert("func".to_string(), "xp_cmdshell".to_string());
         b.insert("reason".to_string(), "dangerous".to_string());
-        assert_eq!(
-            render_template("{func} is {reason}", &b),
-            "xp_cmdshell is dangerous"
-        );
+        assert_eq!(render_template("{func} is {reason}", &b), "xp_cmdshell is dangerous");
     }
 
     // -- MatcherRule end-to-end test -------------------------------------------
@@ -229,9 +220,7 @@ mod tests {
     use sqlparser::parser::Parser;
 
     fn parse_stmt(sql: &str) -> Statement {
-        Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0)
+        Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0)
     }
 
     fn empty_catalog() -> Catalog {

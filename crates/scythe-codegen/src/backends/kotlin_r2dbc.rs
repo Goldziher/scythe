@@ -38,8 +38,7 @@ impl KotlinR2dbcBackend {
                 ));
             }
         };
-        let manifest =
-            super::load_or_default_manifest("backends/kotlin-r2dbc/manifest.toml", default_toml)?;
+        let manifest = super::load_or_default_manifest("backends/kotlin-r2dbc/manifest.toml", default_toml)?;
         let is_pg = matches!(engine, "postgresql" | "postgres" | "pg");
         Ok(Self {
             manifest,
@@ -142,11 +141,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
         }
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "data class {}(", struct_name);
@@ -157,11 +152,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -174,11 +165,8 @@ impl CodegenBackend for KotlinR2dbcBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let cleaned = super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let cleaned =
+            super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let sql = if self.is_pg {
             cleaned
         } else {
@@ -272,10 +260,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
                     write_binds(&mut out, "    stmt");
                     let _ = writeln!(out, "    return Mono");
                     let _ = writeln!(out, "        .from(stmt.execute())");
-                    let _ = writeln!(
-                        out,
-                        "        .flatMap {{ result -> Mono.from(result.rowsUpdated) }}"
-                    );
+                    let _ = writeln!(out, "        .flatMap {{ result -> Mono.from(result.rowsUpdated) }}");
                     let _ = writeln!(out, "        .awaitFirst()");
                     let _ = writeln!(out, "}}");
                 } else {
@@ -350,10 +335,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         let _ = writeln!(out, "fun Connection.{}(){ret} =", func_name);
                     }
                     let _ = writeln!(out, "    Flux");
-                    let _ = writeln!(
-                        out,
-                        "        .from(createStatement(\"{sql}\").also {{ stmt ->"
-                    );
+                    let _ = writeln!(out, "        .from(createStatement(\"{sql}\").also {{ stmt ->");
                     write_binds(&mut out, "            stmt");
                     let _ = writeln!(out, "        }}.execute())");
                     let _ = writeln!(out, "        .flatMap {{ result ->");
@@ -378,10 +360,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
                     let _ = writeln!(out, "        .usingWhen(");
                     let _ = writeln!(out, "            cf.create(),");
                     let _ = writeln!(out, "            {{ conn ->");
-                    let _ = writeln!(
-                        out,
-                        "                val stmt = conn.createStatement(\"{sql}\")"
-                    );
+                    let _ = writeln!(out, "                val stmt = conn.createStatement(\"{sql}\")");
                     write_binds(&mut out, "                stmt");
                     let _ = writeln!(out, "                Flux");
                     let _ = writeln!(out, "                    .from(stmt.execute())");
@@ -399,8 +378,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
                 if params.len() > 1 {
-                    let params_class_name =
-                        format!("{}BatchParams", to_pascal_case(&analyzed.name));
+                    let params_class_name = format!("{}BatchParams", to_pascal_case(&analyzed.name));
                     let _ = writeln!(out, "data class {}(", params_class_name);
                     for p in params {
                         let _ = writeln!(out, "    val {}: {},", p.field_name, p.full_type);
@@ -418,61 +396,36 @@ impl CodegenBackend for KotlinR2dbcBackend {
                     let _ = writeln!(out, ") {{");
                     if ext {
                         // Caller owns the connection; no acquire/close.
-                        let _ =
-                            writeln!(out, "    Mono.from(beginTransaction()).awaitFirstOrNull()");
+                        let _ = writeln!(out, "    Mono.from(beginTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
                         let _ = writeln!(out, "    var first = true");
                         let _ = writeln!(out, "    for (item in items) {{");
                         let _ = writeln!(out, "        if (!first) stmt.add()");
                         for (i, param) in params.iter().enumerate() {
-                            let _ = writeln!(
-                                out,
-                                "        stmt.bind({}, item.{})",
-                                i, param.field_name
-                            );
+                            let _ = writeln!(out, "        stmt.bind({}, item.{})", i, param.field_name);
                         }
                         let _ = writeln!(out, "        first = false");
                         let _ = writeln!(out, "    }}");
-                        let _ = writeln!(
-                            out,
-                            "    Flux.from(stmt.execute()).then().awaitFirstOrNull()"
-                        );
-                        let _ =
-                            writeln!(out, "    Mono.from(commitTransaction()).awaitFirstOrNull()");
+                        let _ = writeln!(out, "    Flux.from(stmt.execute()).then().awaitFirstOrNull()");
+                        let _ = writeln!(out, "    Mono.from(commitTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "}}");
                     } else {
                         let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
                         let _ = writeln!(out, "    try {{");
-                        let _ = writeln!(
-                            out,
-                            "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
-                        );
+                        let _ = writeln!(out, "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "        val stmt = conn.createStatement(\"{sql}\")");
                         let _ = writeln!(out, "        var first = true");
                         let _ = writeln!(out, "        for (item in items) {{");
                         let _ = writeln!(out, "            if (!first) stmt.add()");
                         for (i, param) in params.iter().enumerate() {
-                            let _ = writeln!(
-                                out,
-                                "            stmt.bind({}, item.{})",
-                                i, param.field_name
-                            );
+                            let _ = writeln!(out, "            stmt.bind({}, item.{})", i, param.field_name);
                         }
                         let _ = writeln!(out, "            first = false");
                         let _ = writeln!(out, "        }}");
-                        let _ = writeln!(
-                            out,
-                            "        Flux.from(stmt.execute()).then().awaitFirstOrNull()"
-                        );
-                        let _ = writeln!(
-                            out,
-                            "        Mono.from(conn.commitTransaction()).awaitFirstOrNull()"
-                        );
+                        let _ = writeln!(out, "        Flux.from(stmt.execute()).then().awaitFirstOrNull()");
+                        let _ = writeln!(out, "        Mono.from(conn.commitTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "    }} catch (e: Exception) {{");
-                        let _ = writeln!(
-                            out,
-                            "        Mono.from(conn.rollbackTransaction()).awaitFirstOrNull()"
-                        );
+                        let _ = writeln!(out, "        Mono.from(conn.rollbackTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "        throw e");
                         let _ = writeln!(out, "    }} finally {{");
                         let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
@@ -490,8 +443,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
                     }
                     let _ = writeln!(out, ") {{");
                     if ext {
-                        let _ =
-                            writeln!(out, "    Mono.from(beginTransaction()).awaitFirstOrNull()");
+                        let _ = writeln!(out, "    Mono.from(beginTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
                         let _ = writeln!(out, "    var first = true");
                         let _ = writeln!(out, "    for (item in items) {{");
@@ -499,20 +451,13 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         let _ = writeln!(out, "        stmt.bind(0, item)");
                         let _ = writeln!(out, "        first = false");
                         let _ = writeln!(out, "    }}");
-                        let _ = writeln!(
-                            out,
-                            "    Flux.from(stmt.execute()).then().awaitFirstOrNull()"
-                        );
-                        let _ =
-                            writeln!(out, "    Mono.from(commitTransaction()).awaitFirstOrNull()");
+                        let _ = writeln!(out, "    Flux.from(stmt.execute()).then().awaitFirstOrNull()");
+                        let _ = writeln!(out, "    Mono.from(commitTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "}}");
                     } else {
                         let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
                         let _ = writeln!(out, "    try {{");
-                        let _ = writeln!(
-                            out,
-                            "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
-                        );
+                        let _ = writeln!(out, "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "        val stmt = conn.createStatement(\"{sql}\")");
                         let _ = writeln!(out, "        var first = true");
                         let _ = writeln!(out, "        for (item in items) {{");
@@ -520,19 +465,10 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         let _ = writeln!(out, "            stmt.bind(0, item)");
                         let _ = writeln!(out, "            first = false");
                         let _ = writeln!(out, "        }}");
-                        let _ = writeln!(
-                            out,
-                            "        Flux.from(stmt.execute()).then().awaitFirstOrNull()"
-                        );
-                        let _ = writeln!(
-                            out,
-                            "        Mono.from(conn.commitTransaction()).awaitFirstOrNull()"
-                        );
+                        let _ = writeln!(out, "        Flux.from(stmt.execute()).then().awaitFirstOrNull()");
+                        let _ = writeln!(out, "        Mono.from(conn.commitTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "    }} catch (e: Exception) {{");
-                        let _ = writeln!(
-                            out,
-                            "        Mono.from(conn.rollbackTransaction()).awaitFirstOrNull()"
-                        );
+                        let _ = writeln!(out, "        Mono.from(conn.rollbackTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "        throw e");
                         let _ = writeln!(out, "    }} finally {{");
                         let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
@@ -540,20 +476,13 @@ impl CodegenBackend for KotlinR2dbcBackend {
                         let _ = writeln!(out, "}}");
                     }
                 } else if ext {
-                    let _ = writeln!(
-                        out,
-                        "suspend fun Connection.{}(count: Int) {{",
-                        batch_fn_name
-                    );
+                    let _ = writeln!(out, "suspend fun Connection.{}(count: Int) {{", batch_fn_name);
                     let _ = writeln!(out, "    Mono.from(beginTransaction()).awaitFirstOrNull()");
                     let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
                     let _ = writeln!(out, "    repeat(count - 1) {{");
                     let _ = writeln!(out, "        stmt.add()");
                     let _ = writeln!(out, "    }}");
-                    let _ = writeln!(
-                        out,
-                        "    Flux.from(stmt.execute()).then().awaitFirstOrNull()"
-                    );
+                    let _ = writeln!(out, "    Flux.from(stmt.execute()).then().awaitFirstOrNull()");
                     let _ = writeln!(out, "    Mono.from(commitTransaction()).awaitFirstOrNull()");
                     let _ = writeln!(out, "}}");
                 } else {
@@ -564,27 +493,15 @@ impl CodegenBackend for KotlinR2dbcBackend {
                     );
                     let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
                     let _ = writeln!(out, "    try {{");
-                    let _ = writeln!(
-                        out,
-                        "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()"
-                    );
+                    let _ = writeln!(out, "        Mono.from(conn.beginTransaction()).awaitFirstOrNull()");
                     let _ = writeln!(out, "        val stmt = conn.createStatement(\"{sql}\")");
                     let _ = writeln!(out, "        repeat(count - 1) {{");
                     let _ = writeln!(out, "            stmt.add()");
                     let _ = writeln!(out, "        }}");
-                    let _ = writeln!(
-                        out,
-                        "        Flux.from(stmt.execute()).then().awaitFirstOrNull()"
-                    );
-                    let _ = writeln!(
-                        out,
-                        "        Mono.from(conn.commitTransaction()).awaitFirstOrNull()"
-                    );
+                    let _ = writeln!(out, "        Flux.from(stmt.execute()).then().awaitFirstOrNull()");
+                    let _ = writeln!(out, "        Mono.from(conn.commitTransaction()).awaitFirstOrNull()");
                     let _ = writeln!(out, "    }} catch (e: Exception) {{");
-                    let _ = writeln!(
-                        out,
-                        "        Mono.from(conn.rollbackTransaction()).awaitFirstOrNull()"
-                    );
+                    let _ = writeln!(out, "        Mono.from(conn.rollbackTransaction()).awaitFirstOrNull()");
                     let _ = writeln!(out, "        throw e");
                     let _ = writeln!(out, "    }} finally {{");
                     let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
@@ -610,11 +527,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
         let _ = writeln!(out, "enum class {}(val value: String) {{", type_name);
         for (i, value) in enum_info.values.iter().enumerate() {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let sep = if i + 1 < enum_info.values.len() {
-                ","
-            } else {
-                ";"
-            };
+            let sep = if i + 1 < enum_info.values.len() { "," } else { ";" };
             let _ = writeln!(out, "    {}(\"{}\"){}", variant, value, sep);
         }
         let _ = writeln!(out, "}}");

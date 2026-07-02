@@ -1,7 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, fn_name, row_struct_name, to_camel_case, to_pascal_case};
 use scythe_backend::types::resolve_type;
 use std::fmt::Write;
 
@@ -68,11 +66,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
         header
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
             return Ok(generate_zod_row_struct(&struct_name, query_name, columns));
@@ -87,11 +81,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let singular = singularize(table_name);
         let name = to_pascal_case(&singular);
         self.generate_row_struct(&name, columns)
@@ -113,11 +103,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let sql = super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
 
         let inline_params = if params.is_empty() {
             "db: Database".to_string()
@@ -158,11 +144,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
                 let _ = writeln!(out, "\tconst stmt = db.prepare(`{}`);", sql);
                 if params.is_empty() {
-                    let _ = writeln!(
-                        out,
-                        "\tconst row = stmt.get() as {} | undefined;",
-                        struct_name
-                    );
+                    let _ = writeln!(out, "\tconst row = stmt.get() as {} | undefined;", struct_name);
                 } else {
                     let _ = writeln!(
                         out,
@@ -198,10 +180,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
                         params_type_name
                     );
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let args: Vec<String> = params
-                        .iter()
-                        .map(|p| format!("item.{}", p.field_name))
-                        .collect();
+                    let args: Vec<String> = params.iter().map(|p| format!("item.{}", p.field_name)).collect();
                     let _ = writeln!(out, "\t\t\tstmt.run({});", args.join(", "));
                     let _ = writeln!(out, "\t\t}}");
                     let _ = writeln!(out, "\t}});");
@@ -231,12 +210,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
                         "/** Execute {} for each item in the batch within a transaction. */",
                         analyzed.name
                     );
-                    write_fn_sig(
-                        &mut out,
-                        &batch_fn_name,
-                        "db: Database, count: number",
-                        "void",
-                    );
+                    write_fn_sig(&mut out, &batch_fn_name, "db: Database, count: number", "void");
                     let _ = writeln!(out, "\tconst stmt = db.prepare(`{}`);", sql);
                     let _ = writeln!(out, "\tconst runBatch = db.transaction((n: number) => {{");
                     let _ = writeln!(out, "\t\tfor (let i = 0; i < n; i++) stmt.run();");
@@ -253,11 +227,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
                 if params.is_empty() {
                     let _ = writeln!(out, "\treturn stmt.all() as {}[];", struct_name);
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "\treturn stmt.all({}) as {}[];",
-                        param_args, struct_name
-                    );
+                    let _ = writeln!(out, "\treturn stmt.all({}) as {}[];", param_args, struct_name);
                 }
                 let _ = write!(out, "}}");
             }
@@ -273,10 +243,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(
-                    out,
-                    "/** Execute a query and return the number of affected rows. */"
-                );
+                let _ = writeln!(out, "/** Execute a query and return the number of affected rows. */");
                 write_fn_sig(&mut out, &func_name, &inline_params, "number");
                 let _ = writeln!(out, "\tconst stmt = db.prepare(`{}`);", sql);
                 if params.is_empty() {
@@ -305,11 +272,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
         }
         // SQLite has no native ENUM type; generate a string union type instead
         let mut out = String::new();
-        let variants: Vec<String> = enum_info
-            .values
-            .iter()
-            .map(|v| format!("\"{}\"", v))
-            .collect();
+        let variants: Vec<String> = enum_info.values.iter().map(|v| format!("\"{}\"", v)).collect();
         let _ = write!(out, "export type {} = {};", type_name, variants.join(" | "));
         Ok(out)
     }
@@ -323,10 +286,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
             let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("composite field type error: {}", e),
-                    )
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
             let _ = writeln!(out, "\t{}: {};", to_camel_case(&field.name), ts_type);
         }
@@ -334,10 +294,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
         Ok(out)
     }
 
-    fn apply_options(
-        &mut self,
-        options: &std::collections::HashMap<String, String>,
-    ) -> Result<(), ScytheError> {
+    fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         if let Some(value) = options.get("row_type") {
             self.row_type = TsRowType::from_option(value)?;
         }

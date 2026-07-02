@@ -5,10 +5,7 @@ use std::path::{Path, PathBuf};
 use walkdir::WalkDir;
 
 /// Discover all snippet files from the given directories.
-pub fn discover_snippets(
-    dirs: &[PathBuf],
-    language_filter: Option<&[Language]>,
-) -> Result<Vec<Snippet>> {
+pub fn discover_snippets(dirs: &[PathBuf], language_filter: Option<&[Language]>) -> Result<Vec<Snippet>> {
     let mut snippets = Vec::new();
 
     for dir in dirs {
@@ -61,10 +58,7 @@ fn extract_snippets_from_file(path: &Path, base_dir: &Path) -> Result<Vec<Snippe
             continue;
         }
 
-        let annotation = block
-            .preceding_comment
-            .as_deref()
-            .and_then(parse_annotation);
+        let annotation = block.preceding_comment.as_deref().and_then(parse_annotation);
 
         snippets.push(Snippet {
             path: path.to_path_buf(),
@@ -87,19 +81,11 @@ fn infer_language_from_path(path: &Path, base_dir: &Path) -> Option<Language> {
     let first_component = relative.components().next()?;
     let dir_name = first_component.as_os_str().to_str()?;
     let lang = Language::from_dir_name(dir_name);
-    if lang != Language::Unknown {
-        Some(lang)
-    } else {
-        None
-    }
+    if lang != Language::Unknown { Some(lang) } else { None }
 }
 
 fn parse_annotation(comment: &str) -> Option<SnippetAnnotation> {
-    let inner = comment
-        .trim()
-        .strip_prefix("<!--")?
-        .strip_suffix("-->")?
-        .trim();
+    let inner = comment.trim().strip_prefix("<!--")?.strip_suffix("-->")?.trim();
 
     match inner {
         "snippet:skip" => Some(SnippetAnnotation::Skip),
@@ -126,10 +112,7 @@ mod tests {
 
     #[test]
     fn test_parse_annotation_skip() {
-        assert_eq!(
-            parse_annotation("<!-- snippet:skip -->"),
-            Some(SnippetAnnotation::Skip)
-        );
+        assert_eq!(parse_annotation("<!-- snippet:skip -->"), Some(SnippetAnnotation::Skip));
     }
 
     #[test]

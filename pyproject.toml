@@ -5,21 +5,11 @@ description = "Development dependencies for scythe"
 requires-python = ">=3.12"
 
 [dependency-groups]
-dev = [
-  "prek>=0.2.21",
-  "pyproject-fmt>=2.11.1",
-  "ruff>=0.14.8",
-]
-doc = [
-  "zensical",
-]
+dev = ["prek>=0.2.21", "pyproject-fmt>=2.11.1", "ruff>=0.14.8"]
+doc = ["zensical"]
 
 [tool.uv]
-cache-keys = [
-  { file = "pyproject.toml" },
-  { file = "Cargo.toml" },
-  { file = "Cargo.lock" },
-]
+cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
 
 [tool.ruff]
 target-version = "py312"

@@ -19,10 +19,7 @@ use sqlparser::ast::{SelectItem, SetExpr, Statement, TableFactor, TableWithJoins
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
-pub fn match_select_star_over_pii_columns(
-    ctx: &LintContext<'_>,
-    args: &toml::Table,
-) -> Vec<MatcherHit> {
+pub fn match_select_star_over_pii_columns(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<MatcherHit> {
     let column_patterns = read_string_list(args, "column_patterns");
     if column_patterns.is_empty() {
         return Vec::new();
@@ -48,20 +45,13 @@ fn read_string_list(args: &toml::Table, key: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn check_set_expr(
-    set_expr: &SetExpr,
-    column_patterns: &[String],
-    ctx: &LintContext<'_>,
-    hits: &mut Vec<MatcherHit>,
-) {
+fn check_set_expr(set_expr: &SetExpr, column_patterns: &[String], ctx: &LintContext<'_>, hits: &mut Vec<MatcherHit>) {
     match set_expr {
         SetExpr::Select(select) => {
-            let has_wildcard = select.projection.iter().any(|item| {
-                matches!(
-                    item,
-                    SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _)
-                )
-            });
+            let has_wildcard = select
+                .projection
+                .iter()
+                .any(|item| matches!(item, SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _)));
             if !has_wildcard {
                 return;
             }
@@ -111,13 +101,9 @@ fn check_table_factor(
             // Emit one hit per table, for the first matching column only.
             for col in &table.columns {
                 let col_lower = col.name.to_ascii_lowercase();
-                if let Some(pat) = column_patterns
-                    .iter()
-                    .find(|p| col_lower.contains(p.as_str()))
-                {
+                if let Some(pat) = column_patterns.iter().find(|p| col_lower.contains(p.as_str())) {
                     let mut hit = MatcherHit::empty();
-                    hit.bindings
-                        .insert("table".to_string(), table_as_written.clone());
+                    hit.bindings.insert("table".to_string(), table_as_written.clone());
                     hit.bindings.insert("column".to_string(), col.name.clone());
                     hit.bindings.insert("pattern".to_string(), pat.clone());
                     hits.push(hit);
@@ -140,10 +126,7 @@ mod tests {
 
     fn make_args(patterns: &[&str]) -> toml::Table {
         let mut t = toml::Table::new();
-        let arr: toml::value::Array = patterns
-            .iter()
-            .map(|s| toml::Value::String((*s).to_string()))
-            .collect();
+        let arr: toml::value::Array = patterns.iter().map(|s| toml::Value::String((*s).to_string())).collect();
         t.insert("column_patterns".to_string(), toml::Value::Array(arr));
         t
     }
@@ -151,15 +134,8 @@ mod tests {
     fn make_parts_with_ddl(
         sql: &str,
         ddl: &[&str],
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    ) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,

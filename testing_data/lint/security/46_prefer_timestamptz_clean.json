@@ -1,15 +1,15 @@
 {
-	"name": "prefer_timestamptz_clean",
-	"description": "CREATE TABLE with timestamptz column should not trigger SC-MIG12",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "prefer-timestamptz"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateSessionsTable\n-- @returns :exec\nCREATE TABLE sessions (id bigint PRIMARY KEY, started_at timestamptz)",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "prefer_timestamptz_clean",
+  "description": "CREATE TABLE with timestamptz column should not trigger SC-MIG12",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "prefer-timestamptz"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateSessionsTable\n-- @returns :exec\nCREATE TABLE sessions (id bigint PRIMARY KEY, started_at timestamptz)",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

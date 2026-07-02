@@ -1,20 +1,20 @@
 {
-	"name": "policy_always_permissive_fires",
-	"description": "Permissive RLS policy with USING (true) on UPDATE should trigger SC-RLS02",
-	"category": "lint/security",
-	"tags": ["lint", "security", "rls", "policy-always-permissive"],
-	"schema_sql": ["CREATE TABLE tenants (id bigint PRIMARY KEY)"],
-	"query_sql": "-- @name CreateAllowAllUpdatePolicy\n-- @returns :exec\nCREATE POLICY allow_all ON tenants FOR UPDATE USING (true)",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-RLS02",
-					"message_contains": "always-true"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "policy_always_permissive_fires",
+  "description": "Permissive RLS policy with USING (true) on UPDATE should trigger SC-RLS02",
+  "category": "lint/security",
+  "tags": ["lint", "security", "rls", "policy-always-permissive"],
+  "schema_sql": ["CREATE TABLE tenants (id bigint PRIMARY KEY)"],
+  "query_sql": "-- @name CreateAllowAllUpdatePolicy\n-- @returns :exec\nCREATE POLICY allow_all ON tenants FOR UPDATE USING (true)",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-RLS02",
+          "message_contains": "always-true"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

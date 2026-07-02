@@ -20,8 +20,8 @@ pub const SCHEMA_VERSION: u32 = 1;
 
 /// The canonical built-in check IDs that users cannot override or reuse.
 pub const CANONICAL_CHECK_IDS: &[&str] = &[
-    "SC-INS01", "SC-INS02", "SC-INS03", "SC-INS04", "SC-INS05", "SC-INS06", "SC-INS07", "SC-INS08",
-    "SC-INS09", "SC-INS10", "SC-INS11", "SC-INS12", "SC-INS13",
+    "SC-INS01", "SC-INS02", "SC-INS03", "SC-INS04", "SC-INS05", "SC-INS06", "SC-INS07", "SC-INS08", "SC-INS09",
+    "SC-INS10", "SC-INS11", "SC-INS12", "SC-INS13",
 ];
 
 // ---------------------------------------------------------------------------
@@ -166,9 +166,7 @@ impl CheckSpec {
 fn extract_message_placeholders(message: &str) -> Vec<String> {
     static RE: std::sync::OnceLock<Regex> = std::sync::OnceLock::new();
     let re = RE.get_or_init(|| Regex::new(r"\{(\w+)\}").expect("placeholder regex is valid"));
-    re.captures_iter(message)
-        .map(|cap| cap[1].to_string())
-        .collect()
+    re.captures_iter(message).map(|cap| cap[1].to_string()).collect()
 }
 
 /// Best-effort column name extraction from an expression.
@@ -176,10 +174,7 @@ fn expr_to_name(expr: &sqlparser::ast::Expr) -> String {
     use sqlparser::ast::{Expr, Ident, ObjectNamePart};
     match expr {
         Expr::Identifier(Ident { value, .. }) => value.to_ascii_lowercase(),
-        Expr::CompoundIdentifier(parts) => parts
-            .last()
-            .map(|i| i.value.to_ascii_lowercase())
-            .unwrap_or_default(),
+        Expr::CompoundIdentifier(parts) => parts.last().map(|i| i.value.to_ascii_lowercase()).unwrap_or_default(),
         Expr::Function(f) => f
             .name
             .0
@@ -204,12 +199,11 @@ fn expr_to_name(expr: &sqlparser::ast::Expr) -> String {
 /// If the SQL uses a `SELECT *` or we cannot statically determine the
 /// projection (e.g. CTE-only bodies), validation is skipped (returns `Ok(())`).
 pub fn validate_message_bindings(spec: &CheckSpec) -> Result<(), SpecValidationError> {
-    let stmts = Parser::parse_sql(&PostgreSqlDialect {}, &spec.sql).map_err(|e| {
-        SpecValidationError::SqlParseError {
+    let stmts =
+        Parser::parse_sql(&PostgreSqlDialect {}, &spec.sql).map_err(|e| SpecValidationError::SqlParseError {
             check_id: spec.id.clone(),
             reason: format!("{e}"),
-        }
-    })?;
+        })?;
 
     let stmt = match stmts.into_iter().next() {
         Some(s) => s,
@@ -244,9 +238,7 @@ pub fn validate_message_bindings(spec: &CheckSpec) -> Result<(), SpecValidationE
     let has_wildcard = select.projection.iter().any(|item| {
         matches!(
             item,
-            SelectItem::Wildcard(_)
-                | SelectItem::QualifiedWildcard(_, _)
-                | SelectItem::ExprWithAliases { .. }
+            SelectItem::Wildcard(_) | SelectItem::QualifiedWildcard(_, _) | SelectItem::ExprWithAliases { .. }
         )
     });
     if has_wildcard {
@@ -301,11 +293,7 @@ pub enum ConfigError {
         source: toml::de::Error,
     },
     #[error("check file '{path}' has schema_version {found}, expected {expected}")]
-    SchemaVersionMismatch {
-        path: String,
-        found: u32,
-        expected: u32,
-    },
+    SchemaVersionMismatch { path: String, found: u32, expected: u32 },
     #[error("invalid check '{check_id}' in '{path}': {reason}")]
     InvalidCheck {
         path: String,
@@ -385,11 +373,7 @@ mod tests {
         use crate::spec::CANONICAL_CHECK_IDS;
         let content = include_str!("postgres/checks.toml");
         let file: CheckFile = toml::from_str(content).expect("canonical TOML parses");
-        let sc_ins: Vec<_> = file
-            .checks
-            .iter()
-            .filter(|c| c.id.starts_with("SC-INS"))
-            .collect();
+        let sc_ins: Vec<_> = file.checks.iter().filter(|c| c.id.starts_with("SC-INS")).collect();
         assert_eq!(
             sc_ins.len(),
             CANONICAL_CHECK_IDS.len(),
@@ -401,11 +385,7 @@ mod tests {
 
     #[test]
     fn validate_message_bindings_catches_missing_binding() {
-        let spec = make_spec(
-            "SC-INS01",
-            "table {foo} is broken",
-            "SELECT bar AS bar FROM pg_class",
-        );
+        let spec = make_spec("SC-INS01", "table {foo} is broken", "SELECT bar AS bar FROM pg_class");
         let err = validate_message_bindings(&spec).unwrap_err();
         match err {
             SpecValidationError::MessageBindingMissing { binding, .. } => {
@@ -442,10 +422,7 @@ mod tests {
         let result = spec.validate_user_check();
         assert!(result.is_err());
         // The error should be MissingUserPrefix since "SC-INS01" doesn't start with "USER-INS-"
-        assert!(matches!(
-            result.unwrap_err(),
-            SpecValidationError::MissingUserPrefix(_)
-        ));
+        assert!(matches!(result.unwrap_err(), SpecValidationError::MissingUserPrefix(_)));
     }
 
     #[test]

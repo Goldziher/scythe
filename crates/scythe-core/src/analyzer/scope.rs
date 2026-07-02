@@ -7,13 +7,8 @@ use super::type_conversion::sql_type_to_neutral;
 use super::types::*;
 
 impl<'a> Analyzer<'a> {
-    pub(super) fn build_scope_from_from(
-        &self,
-        from: &[ast::TableWithJoins],
-    ) -> Result<Scope, ScytheError> {
-        let mut scope = Scope {
-            sources: Vec::new(),
-        };
+    pub(super) fn build_scope_from_from(&self, from: &[ast::TableWithJoins]) -> Result<Scope, ScytheError> {
+        let mut scope = Scope { sources: Vec::new() };
 
         for twj in from {
             self.add_table_factor_to_scope(&twj.relation, &mut scope, false)?;
@@ -59,15 +54,12 @@ impl<'a> Analyzer<'a> {
         match tf {
             TableFactor::Table { name, alias, .. } => {
                 let table_name = object_name_to_string(name).to_lowercase();
-                let alias_name = alias
-                    .as_ref()
-                    .map(|a| a.name.value.to_lowercase())
-                    .unwrap_or_else(|| {
-                        table_name
-                            .rsplit_once('.')
-                            .map(|(_, n)| n.to_string())
-                            .unwrap_or_else(|| table_name.clone())
-                    });
+                let alias_name = alias.as_ref().map(|a| a.name.value.to_lowercase()).unwrap_or_else(|| {
+                    table_name
+                        .rsplit_once('.')
+                        .map(|(_, n)| n.to_string())
+                        .unwrap_or_else(|| table_name.clone())
+                });
 
                 // Look up in CTEs first
                 let scope_cols = if let Some(cte_cols) = self.ctes.get(&table_name) {
@@ -78,8 +70,7 @@ impl<'a> Analyzer<'a> {
                         .iter()
                         .map(|c| ScopeColumn {
                             name: c.name.clone(),
-                            neutral_type: sql_type_to_neutral(&c.sql_type, self.catalog)
-                                .into_owned(),
+                            neutral_type: sql_type_to_neutral(&c.sql_type, self.catalog).into_owned(),
                             base_nullable: c.nullable,
                         })
                         .collect()
@@ -157,9 +148,7 @@ impl<'a> Analyzer<'a> {
                     nullable_from_join,
                 });
             }
-            TableFactor::Derived {
-                subquery, alias, ..
-            } => {
+            TableFactor::Derived { subquery, alias, .. } => {
                 // Analyze subquery to get columns
                 let mut sub_analyzer = Analyzer {
                     catalog: self.catalog,
@@ -195,11 +184,7 @@ impl<'a> Analyzer<'a> {
                 table_with_joins,
                 alias: _,
             } => {
-                self.add_table_factor_to_scope(
-                    &table_with_joins.relation,
-                    scope,
-                    nullable_from_join,
-                )?;
+                self.add_table_factor_to_scope(&table_with_joins.relation, scope, nullable_from_join)?;
                 for join in &table_with_joins.joins {
                     let join_nullable = match &join.join_operator {
                         JoinOperator::Left(_) | JoinOperator::LeftOuter(_) => true,
@@ -319,9 +304,7 @@ impl<'a> Analyzer<'a> {
     }
 
     pub(super) fn build_scope_for_table(&self, table_name: &str) -> Result<Scope, ScytheError> {
-        let mut scope = Scope {
-            sources: Vec::new(),
-        };
+        let mut scope = Scope { sources: Vec::new() };
 
         // Check CTEs first
         if let Some(cte_cols) = self.ctes.get(table_name) {
@@ -418,9 +401,7 @@ mod tests {
     // -----------------------------------------------------------------------
     #[test]
     fn test_build_scope_for_table_columns_and_types() {
-        let catalog = make_catalog(&[
-            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);",
-        ]);
+        let catalog = make_catalog(&["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);"]);
         let analyzer = make_analyzer(&catalog);
         let scope = analyzer.build_scope_for_table("users").unwrap();
 
@@ -546,8 +527,7 @@ mod tests {
             "CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL);",
         ]);
         let analyzer = make_analyzer(&catalog);
-        let from =
-            parse_from("SELECT * FROM users FULL OUTER JOIN orders ON users.id = orders.user_id");
+        let from = parse_from("SELECT * FROM users FULL OUTER JOIN orders ON users.id = orders.user_id");
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
         assert_eq!(scope.sources.len(), 2);

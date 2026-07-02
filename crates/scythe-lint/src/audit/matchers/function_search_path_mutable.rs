@@ -18,10 +18,7 @@ use sqlparser::ast::{FunctionSecurity, Statement};
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
-pub fn match_function_search_path_mutable(
-    ctx: &LintContext<'_>,
-    _args: &toml::Table,
-) -> Vec<MatcherHit> {
+pub fn match_function_search_path_mutable(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec<MatcherHit> {
     let Statement::CreateFunction(cf) = ctx.stmt else {
         return Vec::new();
     };
@@ -39,10 +36,7 @@ pub fn match_function_search_path_mutable(
     if has_search_path {
         return Vec::new();
     }
-    vec![MatcherHit::with_binding(
-        "function_name",
-        cf.name.to_string(),
-    )]
+    vec![MatcherHit::with_binding("function_name", cf.name.to_string())]
 }
 
 #[cfg(test)]
@@ -55,17 +49,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -115,8 +100,7 @@ mod tests {
 
     #[test]
     fn fires_on_invoker_function_without_search_path() {
-        let sql =
-            "CREATE FUNCTION public.add_one(i int) RETURNS int LANGUAGE sql AS $$ SELECT i + 1 $$;";
+        let sql = "CREATE FUNCTION public.add_one(i int) RETURNS int LANGUAGE sql AS $$ SELECT i + 1 $$;";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_function_search_path_mutable(&ctx, &toml::Table::new());

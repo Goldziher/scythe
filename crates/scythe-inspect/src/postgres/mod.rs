@@ -130,13 +130,12 @@ impl DbDriver for PostgresDriver {
     }
 
     async fn connect(&mut self, url: &str) -> Result<(), InspectError> {
-        let (client, connection) =
-            tokio_postgres::connect(url, NoTls)
-                .await
-                .map_err(|e| InspectError::Connect {
-                    engine: "postgres",
-                    source: Box::new(e),
-                })?;
+        let (client, connection) = tokio_postgres::connect(url, NoTls)
+            .await
+            .map_err(|e| InspectError::Connect {
+                engine: "postgres",
+                source: Box::new(e),
+            })?;
 
         // Drive the connection on the current runtime. Per-invocation CLI use
         // means the spawned task lives only as long as `run_all` runs, which
@@ -148,13 +147,14 @@ impl DbDriver for PostgresDriver {
         });
 
         // Detect server version for min_pg_version gating.
-        let version_row = client
-            .query_one("SHOW server_version_num", &[])
-            .await
-            .map_err(|e| InspectError::Connect {
-                engine: "postgres",
-                source: Box::new(e),
-            })?;
+        let version_row =
+            client
+                .query_one("SHOW server_version_num", &[])
+                .await
+                .map_err(|e| InspectError::Connect {
+                    engine: "postgres",
+                    source: Box::new(e),
+                })?;
         let version_str: &str = version_row.get(0);
         let pg_version: u32 = version_str.parse().map_err(|e| InspectError::Connect {
             engine: "postgres",
@@ -255,10 +255,7 @@ mod tests {
     async fn run_all_without_connect_errors() {
         let d = PostgresDriver::new();
         let err = d.run_all().await.unwrap_err();
-        assert!(matches!(
-            err,
-            InspectError::NotConnected { engine: "postgres" }
-        ));
+        assert!(matches!(err, InspectError::NotConnected { engine: "postgres" }));
     }
 
     /// Sanity-check the major-version × 10_000 conversion used to gate

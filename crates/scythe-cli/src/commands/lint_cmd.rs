@@ -69,17 +69,11 @@ pub fn run_lint(
 /// `[inspect].database_url` (if scythe.toml exists at `config_path`),
 /// `$DATABASE_URL`, or `$SCYTHE_DATABASE_URL`. Silently skips if no URL
 /// resolves.
-fn lint_files(
-    files: &[String],
-    dialect: &str,
-    fix: bool,
-    config_path: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn lint_files(files: &[String], dialect: &str, fix: bool, config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let mut all_violations: Vec<FileViolation> = Vec::new();
 
     for path in files {
-        let sql = std::fs::read_to_string(path)
-            .map_err(|e| format!("failed to read '{}': {}", path, e))?;
+        let sql = std::fs::read_to_string(path).map_err(|e| format!("failed to read '{}': {}", path, e))?;
 
         if fix {
             let (violations, fixed) = sqruff_adapter::lint_and_fix_sql(&sql, dialect, None);
@@ -96,8 +90,7 @@ fn lint_files(
                 });
             }
             if fixed != sql {
-                std::fs::write(path, &fixed)
-                    .map_err(|e| format!("failed to write '{}': {}", path, e))?;
+                std::fs::write(path, &fixed).map_err(|e| format!("failed to write '{}': {}", path, e))?;
                 eprintln!("fixed {}", path);
             }
         } else {
@@ -129,11 +122,7 @@ fn lint_files(
 /// Lint from config: run both scythe rules and sqruff rules, then auto-run
 /// inspect when a database URL is configured (via `[inspect].database_url`,
 /// `$DATABASE_URL`, or `$SCYTHE_DATABASE_URL`).
-fn lint_from_config(
-    config_path: &str,
-    cli_dialect: Option<&str>,
-    fix: bool,
-) -> Result<(), Box<dyn std::error::Error>> {
+fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> Result<(), Box<dyn std::error::Error>> {
     use serde::Deserialize;
 
     use scythe_core::analyzer::analyze;
@@ -159,10 +148,10 @@ fn lint_from_config(
         engine: String,
     }
 
-    let config_str = std::fs::read_to_string(config_path)
-        .map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
-    let config: ScytheConfig = toml::from_str(&config_str)
-        .map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+    let config_str =
+        std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
+    let config: ScytheConfig =
+        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
     // Build lint engine
     let mut registry = default_registry();
@@ -180,22 +169,17 @@ fn lint_from_config(
         eprintln!("[{}] Parsing schema...", sql_config.name);
 
         // Derive sqruff dialect from config engine, CLI flag takes precedence
-        let sqruff_dialect =
-            cli_dialect.unwrap_or_else(|| engine_to_sqruff_dialect(&sql_config.engine));
+        let sqruff_dialect = cli_dialect.unwrap_or_else(|| engine_to_sqruff_dialect(&sql_config.engine));
 
         // Resolve schema files
         let schema_files = resolve_globs(&sql_config.schema)?;
         let schema_contents: Vec<String> = schema_files
             .iter()
-            .map(|p| {
-                std::fs::read_to_string(p)
-                    .map_err(|e| format!("failed to read schema file '{}': {}", p, e))
-            })
+            .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
             .collect::<Result<_, _>>()?;
         let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
-        let sql_dialect =
-            SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
+        let sql_dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
 
         // Resolve query files
@@ -207,8 +191,7 @@ fn lint_from_config(
 
             // Run sqruff on the entire file
             if fix {
-                let (sq_violations, fixed) =
-                    sqruff_adapter::lint_and_fix_sql(&content, sqruff_dialect, sqruff_config);
+                let (sq_violations, fixed) = sqruff_adapter::lint_and_fix_sql(&content, sqruff_dialect, sqruff_config);
                 for sv in &sq_violations {
                     all_violations.push(FileViolation {
                         file: query_file.clone(),
@@ -227,8 +210,7 @@ fn lint_from_config(
                     eprintln!("fixed {}", query_file);
                 }
             } else {
-                let sq_violations =
-                    sqruff_adapter::lint_sql(&content, sqruff_dialect, sqruff_config);
+                let sq_violations = sqruff_adapter::lint_sql(&content, sqruff_dialect, sqruff_config);
                 for sv in &sq_violations {
                     all_violations.push(FileViolation {
                         file: query_file.clone(),
@@ -357,10 +339,7 @@ fn try_run_inspect(config_path: &str) -> Vec<FileViolation> {
 
     // Build a single-threaded Tokio runtime per invocation — keeps the lint
     // command synchronous.
-    let rt = match tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-    {
+    let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(r) => r,
         Err(e) => {
             tracing::warn!("scythe lint: failed to build tokio runtime for inspect: {e}");
@@ -379,9 +358,7 @@ fn try_run_inspect(config_path: &str) -> Vec<FileViolation> {
                 .and_then(|rest| rest.split('/').next())
                 .and_then(|authority| authority.split('@').next_back())
                 .unwrap_or("<unknown>");
-            tracing::warn!(
-                "scythe lint: could not connect to inspect database (host: {host}): {e}"
-            );
+            tracing::warn!("scythe lint: could not connect to inspect database (host: {host}): {e}");
             return Vec::new();
         }
         match driver.run_all().await {
@@ -455,10 +432,7 @@ fn print_violations(violations: &[FileViolation]) -> Result<(), Box<dyn std::err
         };
 
         if location.is_empty() {
-            eprintln!(
-                "  {}{}: [{}] {}",
-                source_tag, severity_str, v.rule_id, v.message
-            );
+            eprintln!("  {}{}: [{}] {}", source_tag, severity_str, v.rule_id, v.message);
         } else {
             eprintln!(
                 "  {} {}{}: [{}] {}",
@@ -469,11 +443,7 @@ fn print_violations(violations: &[FileViolation]) -> Result<(), Box<dyn std::err
 
     eprintln!();
     if error_count > 0 {
-        Err(format!(
-            "lint: {} error(s), {} warning(s)",
-            error_count, warning_count
-        )
-        .into())
+        Err(format!("lint: {} error(s), {} warning(s)", error_count, warning_count).into())
     } else {
         if warning_count > 0 {
             eprintln!("lint: {} warning(s)", warning_count);

@@ -1,37 +1,28 @@
-[package]
-name = "scythe-integration-test-{{ backend_name }}"
-version = "0.1.0"
-edition = "2024"
-
-[workspace]
-
+[package] name = "scythe-integration-test-{{ backend_name }}" version = "0.1.0" edition = "2024" [workspace]
 [dependencies]
 {% if driver == "sqlx" -%}
-sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal"] }
+  sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal"] }
 {%- elif driver == "sqlx-mysql" or driver == "sqlx-mariadb" -%}
-sqlx = { version = "0.9", features = ["runtime-tokio", "mysql", "chrono", "rust_decimal"] }
+  sqlx = { version = "0.9", features = ["runtime-tokio", "mysql", "chrono", "rust_decimal"] }
 {%- elif driver == "sqlx-sqlite" -%}
-sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
+  sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
 {%- elif driver == "tokio-postgres" -%}
-tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+  tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 {%- elif driver == "tiberius" -%}
-tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls", "rust_decimal", "chrono"] }
-tokio-util = { version = "0.7", features = ["compat"] }
-chrono = { version = "0.4", features = ["serde"] }
-url = "2"
+  tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls", "rust_decimal", "chrono"] }
+  tokio-util = { version = "0.7", features = ["compat"] } chrono = { version = "0.4", features = ["serde"] } url = "2"
 {%- elif driver == "sibyl" -%}
-sibyl = { version = "0.7", features = ["tokio", "nonblocking"] }
-chrono = { version = "0.4", features = ["serde"] }
-url = "2"
+  sibyl = { version = "0.7", features = ["tokio", "nonblocking"] } chrono = { version = "0.4", features = ["serde"] }
+  url = "2"
 {%- endif %}
 tokio = { version = "1", features = ["full"] }
 {%- if driver == "sqlx" or driver == "sqlx-mysql" or driver == "sqlx-mariadb" or driver == "tokio-postgres" %}
-chrono = { version = "0.4", features = ["serde"] }
+  chrono = { version = "0.4", features = ["serde"] }
 {%- endif %}
 {%- if driver == "tokio-postgres" %}
-rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
+  rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
 {%- elif driver == "tiberius" %}
-rust_decimal = "1"
+  rust_decimal = "1"
 {%- elif driver != "sibyl" %}
-rust_decimal = "1"
+  rust_decimal = "1"
 {%- endif %}

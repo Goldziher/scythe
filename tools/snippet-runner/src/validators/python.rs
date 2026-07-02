@@ -49,9 +49,8 @@ impl PythonValidator {
 
             // Check if this line or the next ends a function/class signature
             let trimmed = lines[i].trim();
-            let is_def_start = trimmed.starts_with("def ")
-                || trimmed.starts_with("async def ")
-                || trimmed.starts_with("class ");
+            let is_def_start =
+                trimmed.starts_with("def ") || trimmed.starts_with("async def ") || trimmed.starts_with("class ");
 
             if is_def_start {
                 // Find end of signature (might be multi-line)
@@ -124,8 +123,7 @@ impl PythonValidator {
                     .find(|&j| !lines[j].trim().is_empty())
                     .map(|j| lines[j]);
 
-                let has_body =
-                    next_content.is_some_and(|l| l.starts_with(' ') || l.starts_with('\t'));
+                let has_body = next_content.is_some_and(|l| l.starts_with(' ') || l.starts_with('\t'));
 
                 if !has_body {
                     // Add `...` as body

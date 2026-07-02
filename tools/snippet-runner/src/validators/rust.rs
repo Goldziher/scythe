@@ -155,9 +155,7 @@ edition = "2024"
         file.write_all(code.as_bytes())?;
 
         let (cmd_name, args): (&str, Vec<&str>) = match level {
-            ValidationLevel::Syntax | ValidationLevel::Compile => {
-                ("cargo", vec!["check", "--quiet"])
-            }
+            ValidationLevel::Syntax | ValidationLevel::Compile => ("cargo", vec!["check", "--quiet"]),
             ValidationLevel::Run => ("cargo", vec!["run", "--quiet"]),
         };
 

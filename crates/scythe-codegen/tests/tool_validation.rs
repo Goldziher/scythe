@@ -47,10 +47,7 @@ fn generate_full_file(backend_name: &str) -> String {
     generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::PostgreSQL)
 }
 
-fn generate_full_file_with_options(
-    backend_name: &str,
-    options: &std::collections::HashMap<String, String>,
-) -> String {
+fn generate_full_file_with_options(backend_name: &str, options: &std::collections::HashMap<String, String>) -> String {
     let mut backend = get_backend(backend_name, "postgresql").unwrap();
     backend.apply_options(options).unwrap();
     generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::PostgreSQL)
@@ -61,11 +58,7 @@ fn generate_full_file_mysql(backend_name: &str) -> String {
     generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::MySQL)
 }
 
-fn generate_full_file_from_backend(
-    backend_name: &str,
-    backend: &dyn CodegenBackend,
-    dialect: &SqlDialect,
-) -> String {
+fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBackend, dialect: &SqlDialect) -> String {
     let is_mysql = matches!(dialect, SqlDialect::MySQL);
     let schema = if is_mysql { MYSQL_SCHEMA } else { SCHEMA };
     let queries = if is_mysql {
@@ -359,8 +352,7 @@ const QUERY_UUID: &str = "-- @name GetItem\n-- @returns :one\n\
 
 fn generate_header_for_uuid_jsonb_schema(backend_name: &str) -> String {
     let backend = get_backend(backend_name, "postgresql").unwrap();
-    let catalog =
-        Catalog::from_ddl_with_dialect(&[SCHEMA_UUID_JSONB], &SqlDialect::PostgreSQL).unwrap();
+    let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA_UUID_JSONB], &SqlDialect::PostgreSQL).unwrap();
     let parsed = parse_query_with_dialect(QUERY_UUID, &SqlDialect::PostgreSQL).unwrap();
     let analyzed = analyze(&catalog, &parsed).unwrap();
     let _ = generate_with_backend(&analyzed, &*backend).unwrap();
@@ -436,10 +428,7 @@ fn test_php_pdo_default_namespace() {
 #[test]
 fn test_php_pdo_custom_namespace() {
     let mut options = std::collections::HashMap::new();
-    options.insert(
-        "namespace".to_string(),
-        "App\\Database\\Generated".to_string(),
-    );
+    options.insert("namespace".to_string(), "App\\Database\\Generated".to_string());
     let code = generate_full_file_with_options("php-pdo", &options);
     assert!(
         code.contains("namespace App\\Database\\Generated;"),
@@ -489,10 +478,7 @@ fn test_php_amphp_default_namespace() {
 #[test]
 fn test_php_amphp_custom_namespace() {
     let mut options = std::collections::HashMap::new();
-    options.insert(
-        "namespace".to_string(),
-        "App\\Database\\Generated".to_string(),
-    );
+    options.insert("namespace".to_string(), "App\\Database\\Generated".to_string());
     let code = generate_full_file_with_options("php-amphp", &options);
     assert!(
         code.contains("namespace App\\Database\\Generated;"),

@@ -40,8 +40,7 @@ impl SnippetValidator for CSharpValidator {
         let mut cmd = match level {
             ValidationLevel::Syntax | ValidationLevel::Compile => {
                 let mut c = std::process::Command::new("dotnet");
-                c.args(["build", "--nologo", "-v", "quiet"])
-                    .current_dir(dir.path());
+                c.args(["build", "--nologo", "-v", "quiet"]).current_dir(dir.path());
                 c
             }
             ValidationLevel::Run => {

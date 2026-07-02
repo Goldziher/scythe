@@ -19,13 +19,7 @@ use sqlparser::ast::{AlterRoleOperation, RoleOption, Statement};
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
-const RECOGNIZED_ATTRIBUTES: &[&str] = &[
-    "superuser",
-    "createdb",
-    "createrole",
-    "replication",
-    "bypassrls",
-];
+const RECOGNIZED_ATTRIBUTES: &[&str] = &["superuser", "createdb", "createrole", "replication", "bypassrls"];
 
 pub fn match_role_with_attribute(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<MatcherHit> {
     let wanted = read_wanted_attributes(args);
@@ -71,10 +65,7 @@ fn read_wanted_attributes(args: &toml::Table) -> Vec<String> {
         }
     };
     if let Some(arr) = args.get("attributes").and_then(|v| v.as_array()) {
-        return arr
-            .iter()
-            .filter_map(|v| v.as_str().and_then(normalize))
-            .collect();
+        return arr.iter().filter_map(|v| v.as_str().and_then(normalize)).collect();
     }
     if let Some(s) = args.get("attribute").and_then(|v| v.as_str()) {
         return normalize(s).into_iter().collect();
@@ -109,8 +100,7 @@ fn attribute_set_in_options(attribute: &str, options: &[RoleOption]) -> bool {
 fn make_hit(role: String, attribute: &str) -> MatcherHit {
     let mut hit = MatcherHit::empty();
     hit.bindings.insert("role".to_string(), role);
-    hit.bindings
-        .insert("attribute".to_string(), attribute.to_string());
+    hit.bindings.insert("attribute".to_string(), attribute.to_string());
     hit
 }
 
@@ -126,10 +116,7 @@ mod tests {
 
     fn make_args(attribute: &str) -> toml::Table {
         let mut t = toml::Table::new();
-        t.insert(
-            "attribute".to_string(),
-            toml::Value::String(attribute.to_string()),
-        );
+        t.insert("attribute".to_string(), toml::Value::String(attribute.to_string()));
         t
     }
 
@@ -143,17 +130,8 @@ mod tests {
         t
     }
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -208,14 +186,8 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_role_with_attribute(&ctx, &make_args("superuser"));
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("role").map(|s| s.as_str()),
-            Some("dba")
-        );
-        assert_eq!(
-            hits[0].bindings.get("attribute").map(|s| s.as_str()),
-            Some("superuser")
-        );
+        assert_eq!(hits[0].bindings.get("role").map(|s| s.as_str()), Some("dba"));
+        assert_eq!(hits[0].bindings.get("attribute").map(|s| s.as_str()), Some("superuser"));
     }
 
     #[test]
@@ -225,10 +197,7 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_role_with_attribute(&ctx, &make_args("superuser"));
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("role").map(|s| s.as_str()),
-            Some("dba")
-        );
+        assert_eq!(hits[0].bindings.get("role").map(|s| s.as_str()), Some("dba"));
     }
 
     #[test]
@@ -245,13 +214,7 @@ mod tests {
         let sql = "CREATE ROLE chaos SUPERUSER CREATEROLE BYPASSRLS";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
-        let args = make_args_list(&[
-            "superuser",
-            "createdb",
-            "createrole",
-            "replication",
-            "bypassrls",
-        ]);
+        let args = make_args_list(&["superuser", "createdb", "createrole", "replication", "bypassrls"]);
         let hits = match_role_with_attribute(&ctx, &args);
         let mut attrs: Vec<&str> = hits
             .iter()
@@ -283,9 +246,6 @@ mod tests {
         let args = make_args_list(&["telekinesis", "superuser"]);
         let hits = match_role_with_attribute(&ctx, &args);
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("attribute").map(|s| s.as_str()),
-            Some("superuser")
-        );
+        assert_eq!(hits[0].bindings.get("attribute").map(|s| s.as_str()), Some("superuser"));
     }
 }

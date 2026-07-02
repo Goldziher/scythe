@@ -21,16 +21,13 @@
 //! `{msg}` as the TOML message template.  This is the cleanest approach that
 //! doesn't require two separate TOML rules.
 
-use sqlparser::ast::{
-    Expr, JoinConstraint, JoinOperator, SetExpr, Statement, Value, ValueWithSpan,
-};
+use sqlparser::ast::{Expr, JoinConstraint, JoinOperator, SetExpr, Statement, Value, ValueWithSpan};
 
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
 const MSG_COMMA_FROM: &str = "comma-separated FROM with no WHERE — this is a cartesian product";
-const MSG_UNCONSTRAINED_JOIN: &str =
-    "unconstrained join (ON true / CROSS JOIN) — produces a cartesian product";
+const MSG_UNCONSTRAINED_JOIN: &str = "unconstrained join (ON true / CROSS JOIN) — produces a cartesian product";
 
 pub fn match_cartesian_join(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec<MatcherHit> {
     let mut hits = Vec::new();
@@ -98,17 +95,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_ctx_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_ctx_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -163,10 +151,7 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_cartesian_join(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("msg").map(|s| s.as_str()),
-            Some(MSG_COMMA_FROM)
-        );
+        assert_eq!(hits[0].bindings.get("msg").map(|s| s.as_str()), Some(MSG_COMMA_FROM));
     }
 
     #[test]

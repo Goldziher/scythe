@@ -100,11 +100,7 @@ pub fn parse_code_blocks(path: &Path) -> crate::error::Result<Vec<CodeBlock>> {
         reason: e.to_string(),
     })?;
 
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase();
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 
     if ext == "md" || ext == "markdown" {
         // Markdown file — extract fenced blocks
@@ -232,10 +228,7 @@ fn skipped() {}
 "#;
         let blocks = extract_fenced_blocks(md);
         assert_eq!(blocks.len(), 1);
-        assert_eq!(
-            blocks[0].preceding_comment.as_deref(),
-            Some("<!-- snippet:skip -->")
-        );
+        assert_eq!(blocks[0].preceding_comment.as_deref(), Some("<!-- snippet:skip -->"));
     }
 
     #[test]

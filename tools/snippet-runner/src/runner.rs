@@ -1,7 +1,5 @@
 use crate::error::Result;
-use crate::types::{
-    RunSummary, Snippet, SnippetAnnotation, SnippetStatus, ValidationLevel, ValidationResult,
-};
+use crate::types::{RunSummary, Snippet, SnippetAnnotation, SnippetStatus, ValidationLevel, ValidationResult};
 use crate::validators::ValidatorRegistry;
 use rayon::prelude::*;
 use std::time::Instant;
@@ -25,17 +23,11 @@ impl Default for RunnerConfig {
 }
 
 fn num_cpus() -> usize {
-    std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(4)
+    std::thread::available_parallelism().map(|n| n.get()).unwrap_or(4)
 }
 
 /// Run validation on all snippets using the registry.
-pub fn run_validation(
-    snippets: &[Snippet],
-    registry: &ValidatorRegistry,
-    config: &RunnerConfig,
-) -> Result<RunSummary> {
+pub fn run_validation(snippets: &[Snippet], registry: &ValidatorRegistry, config: &RunnerConfig) -> Result<RunSummary> {
     let pool = rayon::ThreadPoolBuilder::new()
         .num_threads(config.parallelism)
         .build()
@@ -51,11 +43,7 @@ pub fn run_validation(
     Ok(RunSummary::from_results(results))
 }
 
-fn validate_one(
-    snippet: &Snippet,
-    registry: &ValidatorRegistry,
-    config: &RunnerConfig,
-) -> ValidationResult {
+fn validate_one(snippet: &Snippet, registry: &ValidatorRegistry, config: &RunnerConfig) -> ValidationResult {
     // Check annotation constraints
     if let Some(annotation) = &snippet.annotation {
         match annotation {
@@ -117,11 +105,10 @@ fn validate_one(
     let effective_level = config.level.min(validator.max_level());
 
     let start = Instant::now();
-    let (mut status, message) =
-        match validator.validate(snippet, effective_level, config.timeout_secs) {
-            Ok((s, m)) => (s, m),
-            Err(e) => (SnippetStatus::Error, Some(e.to_string())),
-        };
+    let (mut status, message) = match validator.validate(snippet, effective_level, config.timeout_secs) {
+        Ok((s, m)) => (s, m),
+        Err(e) => (SnippetStatus::Error, Some(e.to_string())),
+    };
     let duration_ms = start.elapsed().as_millis() as u64;
 
     // At syntax level, dependency/import errors mean the syntax itself is valid —

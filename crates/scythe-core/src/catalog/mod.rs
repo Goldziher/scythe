@@ -3,8 +3,8 @@ mod view_resolver;
 
 use ahash::AHashMap;
 use sqlparser::ast::{
-    AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ColumnOption, ObjectName,
-    Statement, TableConstraint, UserDefinedTypeRepresentation,
+    AlterColumnOperation, AlterTableOperation, AlterTypeOperation, ColumnOption, ObjectName, Statement,
+    TableConstraint, UserDefinedTypeRepresentation,
 };
 use sqlparser::parser::Parser;
 
@@ -71,10 +71,7 @@ impl Catalog {
         Self::from_ddl_with_dialect(schema_sql, &SqlDialect::PostgreSQL)
     }
 
-    pub fn from_ddl_with_dialect(
-        schema_sql: &[&str],
-        dialect: &SqlDialect,
-    ) -> Result<Catalog, ScytheError> {
+    pub fn from_ddl_with_dialect(schema_sql: &[&str], dialect: &SqlDialect) -> Result<Catalog, ScytheError> {
         let mut catalog = Catalog {
             tables: AHashMap::new(),
             enums: AHashMap::new(),
@@ -97,8 +94,8 @@ impl Catalog {
                 continue;
             }
 
-            let statements = Parser::parse_sql(parser_dialect.as_ref(), &cleaned)
-                .map_err(|e| ScytheError::syntax(e.to_string()))?;
+            let statements =
+                Parser::parse_sql(parser_dialect.as_ref(), &cleaned).map_err(|e| ScytheError::syntax(e.to_string()))?;
 
             for stmt in statements {
                 catalog.process_statement(stmt, dialect)?;
@@ -158,19 +155,16 @@ impl Catalog {
     /// Look up a domain's resolved base type by name.
     pub fn get_domain_base_type(&self, name: &str) -> Option<&str> {
         let lower = name.to_lowercase();
-        self.domains
-            .get(&lower)
-            .map(|d| d.base_type.as_str())
-            .or_else(|| {
-                if let Some((_schema, type_name)) = lower.split_once('.') {
-                    self.domains.get(type_name).map(|d| d.base_type.as_str())
-                } else {
-                    self.domains
-                        .iter()
-                        .find(|(k, _)| k.ends_with(&format!(".{}", lower)))
-                        .map(|(_, d)| d.base_type.as_str())
-                }
-            })
+        self.domains.get(&lower).map(|d| d.base_type.as_str()).or_else(|| {
+            if let Some((_schema, type_name)) = lower.split_once('.') {
+                self.domains.get(type_name).map(|d| d.base_type.as_str())
+            } else {
+                self.domains
+                    .iter()
+                    .find(|(k, _)| k.ends_with(&format!(".{}", lower)))
+                    .map(|(_, d)| d.base_type.as_str())
+            }
+        })
     }
 
     pub fn get_composite(&self, name: &str) -> Option<&CompositeType> {
@@ -242,8 +236,7 @@ impl Catalog {
             // Check for "IDENTITY" keyword (case-insensitive) at word boundary
             if i + 8 <= bytes.len() && Self::matches_identity_keyword(bytes, i) {
                 // Verify this is a word boundary (not preceded by alphanumeric/underscore)
-                let is_start_boundary =
-                    i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
+                let is_start_boundary = i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
                 if !is_start_boundary {
                     result.push(bytes[i] as char);
                     i += 1;
@@ -549,32 +542,19 @@ impl Catalog {
 // ---------------------------------------------------------------------------
 
 impl Catalog {
-    fn process_statement(
-        &mut self,
-        stmt: Statement,
-        dialect: &SqlDialect,
-    ) -> Result<(), ScytheError> {
+    fn process_statement(&mut self, stmt: Statement, dialect: &SqlDialect) -> Result<(), ScytheError> {
         match stmt {
             Statement::CreateTable(ct) => self.process_create_table(ct, dialect),
-            Statement::AlterTable(alter_table) => {
-                self.process_alter_table(alter_table.name, alter_table.operations)
-            }
-            Statement::CreateType {
-                name,
-                representation,
-            } => {
+            Statement::AlterTable(alter_table) => self.process_alter_table(alter_table.name, alter_table.operations),
+            Statement::CreateType { name, representation } => {
                 if let Some(repr) = representation {
                     self.process_create_type(name, repr)
                 } else {
                     Ok(())
                 }
             }
-            Statement::AlterType(alter_type) => {
-                self.process_alter_type(alter_type.name, alter_type.operation)
-            }
-            Statement::CreateView(cv) => {
-                self.process_create_view(cv.name, cv.columns, *cv.query, cv.materialized)
-            }
+            Statement::AlterType(alter_type) => self.process_alter_type(alter_type.name, alter_type.operation),
+            Statement::CreateView(cv) => self.process_create_view(cv.name, cv.columns, *cv.query, cv.materialized),
             // Silently ignore statements we don't handle
             _ => Ok(()),
         }
@@ -598,22 +578,15 @@ impl Catalog {
 
             // Handle MySQL/SQLite inline ENUM: if the data type is an Enum variant,
             // register it in the catalog and use the enum type name.
-            let sql_type = if let sqlparser::ast::DataType::Enum(variants, _bits) =
-                &col_def.data_type
-            {
-                if matches!(dialect, SqlDialect::MySQL | SqlDialect::SQLite) && !variants.is_empty()
-                {
+            let sql_type = if let sqlparser::ast::DataType::Enum(variants, _bits) = &col_def.data_type {
+                if matches!(dialect, SqlDialect::MySQL | SqlDialect::SQLite) && !variants.is_empty() {
                     // Synthesize an enum name from table_name + col_name
                     let enum_key = format!("{}_{}", table_name.replace('.', "_"), col_name);
                     let values: Vec<String> = variants
                         .iter()
                         .map(|v| match v {
-                            sqlparser::ast::EnumMember::Name(name) => {
-                                name.trim_matches('\'').to_string()
-                            }
-                            sqlparser::ast::EnumMember::NamedValue(name, _) => {
-                                name.trim_matches('\'').to_string()
-                            }
+                            sqlparser::ast::EnumMember::Name(name) => name.trim_matches('\'').to_string(),
+                            sqlparser::ast::EnumMember::NamedValue(name, _) => name.trim_matches('\'').to_string(),
                         })
                         .collect();
                     self.enums.insert(enum_key.clone(), EnumType { values });
@@ -716,8 +689,7 @@ impl Catalog {
                     let table = get_table_mut(&mut self.tables, &table_key);
                     if let Some(table) = table {
                         let col_name = ident_to_lower(&column_def.name);
-                        let (sql_type, is_serial) =
-                            normalize_data_type(&column_def.data_type, &self.domains);
+                        let (sql_type, is_serial) = normalize_data_type(&column_def.data_type, &self.domains);
                         let mut nullable = !is_serial;
                         let mut default = None;
                         let mut primary_key = false;
@@ -796,8 +768,7 @@ impl Catalog {
                                     col.nullable = true;
                                 }
                                 AlterColumnOperation::SetDataType { data_type, .. } => {
-                                    let (new_type, _) =
-                                        normalize_data_type(&data_type, &self.domains);
+                                    let (new_type, _) = normalize_data_type(&data_type, &self.domains);
                                     col.sql_type = new_type;
                                 }
                                 AlterColumnOperation::SetDefault { value } => {
@@ -818,8 +789,7 @@ impl Catalog {
                     {
                         for idx_col in &pk_constraint.columns {
                             let pk_name = idx_col.column.expr.to_string().to_lowercase();
-                            if let Some(col) = table.columns.iter_mut().find(|c| c.name == pk_name)
-                            {
+                            if let Some(col) = table.columns.iter_mut().find(|c| c.name == pk_name) {
                                 col.primary_key = true;
                                 col.nullable = false;
                             }
@@ -872,11 +842,7 @@ impl Catalog {
     // ALTER TYPE
     // -----------------------------------------------------------------------
 
-    fn process_alter_type(
-        &mut self,
-        name: ObjectName,
-        operation: AlterTypeOperation,
-    ) -> Result<(), ScytheError> {
+    fn process_alter_type(&mut self, name: ObjectName, operation: AlterTypeOperation) -> Result<(), ScytheError> {
         let type_key = object_name_to_key(&name);
 
         match operation {
@@ -969,8 +935,7 @@ mod tests {
 
     #[test]
     fn test_enum_type() {
-        let catalog =
-            Catalog::from_ddl(&["CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');"]).unwrap();
+        let catalog = Catalog::from_ddl(&["CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');"]).unwrap();
 
         let mood = catalog.get_enum("mood").unwrap();
         assert_eq!(mood.values, vec!["sad", "ok", "happy"]);
@@ -978,9 +943,7 @@ mod tests {
 
     #[test]
     fn test_composite_type() {
-        let catalog =
-            Catalog::from_ddl(&["CREATE TYPE address AS (street TEXT, city TEXT, zip INTEGER);"])
-                .unwrap();
+        let catalog = Catalog::from_ddl(&["CREATE TYPE address AS (street TEXT, city TEXT, zip INTEGER);"]).unwrap();
 
         let addr = catalog.get_composite("address").unwrap();
         assert_eq!(addr.fields.len(), 3);
@@ -1057,8 +1020,7 @@ mod tests {
 
     #[test]
     fn test_array_type() {
-        let catalog =
-            Catalog::from_ddl(&["CREATE TABLE t (tags TEXT[], scores INTEGER[]);"]).unwrap();
+        let catalog = Catalog::from_ddl(&["CREATE TABLE t (tags TEXT[], scores INTEGER[]);"]).unwrap();
 
         let table = catalog.get_table("t").unwrap();
         assert_eq!(table.columns[0].sql_type, "text[]");
@@ -1415,8 +1377,7 @@ ALTER TABLE ONLY public.t\n\
     fn test_skips_leading_backslash_line() {
         // A file whose very first line is a psql meta-command followed by a
         // normal CREATE TABLE must parse without error.
-        let schema =
-            "\\restrict dbmate\nCREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT NOT NULL);";
+        let schema = "\\restrict dbmate\nCREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT NOT NULL);";
         let catalog = Catalog::from_ddl(&[schema]).expect("parse must succeed");
 
         let table = catalog.get_table("items").expect("table items must exist");
@@ -1433,13 +1394,10 @@ ALTER TABLE ONLY public.t\n\
     fn test_normal_ddl_without_backslash_unaffected() {
         // A plain CREATE TABLE with no backslash lines must continue to parse
         // identically before and after the psql-strip pre-filter.
-        let schema =
-            "CREATE TABLE products (id INTEGER PRIMARY KEY, price NUMERIC(10,2) NOT NULL);";
+        let schema = "CREATE TABLE products (id INTEGER PRIMARY KEY, price NUMERIC(10,2) NOT NULL);";
         let catalog = Catalog::from_ddl(&[schema]).expect("parse must succeed");
 
-        let table = catalog
-            .get_table("products")
-            .expect("table products must exist");
+        let table = catalog.get_table("products").expect("table products must exist");
         assert_eq!(table.columns.len(), 2);
 
         let id_col = &table.columns[0];

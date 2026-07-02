@@ -1,15 +1,15 @@
 {
-	"name": "function_search_path_mutable_clean",
-	"description": "CREATE FUNCTION with SET search_path should not trigger SC-SEC12",
-	"category": "lint/security",
-	"tags": ["lint", "security", "function-search-path-mutable"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateAddOneFunction\n-- @returns :exec\nCREATE FUNCTION public.add_one(i int) RETURNS int LANGUAGE sql SET search_path = pg_catalog, public AS $$ SELECT i + 1 $$",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "function_search_path_mutable_clean",
+  "description": "CREATE FUNCTION with SET search_path should not trigger SC-SEC12",
+  "category": "lint/security",
+  "tags": ["lint", "security", "function-search-path-mutable"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateAddOneFunction\n-- @returns :exec\nCREATE FUNCTION public.add_one(i int) RETURNS int LANGUAGE sql SET search_path = pg_catalog, public AS $$ SELECT i + 1 $$",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

@@ -36,8 +36,7 @@ pub fn run_fmt(
     let mut needs_formatting = false;
 
     for path in &file_paths {
-        let original = std::fs::read_to_string(path)
-            .map_err(|e| format!("failed to read '{}': {}", path, e))?;
+        let original = std::fs::read_to_string(path).map_err(|e| format!("failed to read '{}': {}", path, e))?;
 
         let formatted = sqruff_adapter::format_sql(&original, dialect, None)
             .map_err(|e| format!("sqruff error on '{}': {}", path, e))?;
@@ -53,8 +52,7 @@ pub fn run_fmt(
         } else if diff {
             print_diff(path, &original, &formatted);
         } else {
-            std::fs::write(path, &formatted)
-                .map_err(|e| format!("failed to write '{}': {}", path, e))?;
+            std::fs::write(path, &formatted).map_err(|e| format!("failed to write '{}': {}", path, e))?;
             eprintln!("formatted {}", path);
         }
     }
@@ -78,9 +76,7 @@ struct ResolvedConfig {
 }
 
 /// Resolve SQL query files and dialect from the scythe config.
-fn resolve_files_from_config(
-    config_path: &str,
-) -> Result<ResolvedConfig, Box<dyn std::error::Error>> {
+fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dyn std::error::Error>> {
     use serde::Deserialize;
 
     #[derive(Deserialize)]
@@ -97,10 +93,10 @@ fn resolve_files_from_config(
         schema: Vec<String>,
     }
 
-    let config_str = std::fs::read_to_string(config_path)
-        .map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
-    let config: MinConfig = toml::from_str(&config_str)
-        .map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+    let config_str =
+        std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
+    let config: MinConfig =
+        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
     // Use the engine from the first sql block as the dialect
     let dialect = config

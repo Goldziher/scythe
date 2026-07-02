@@ -1,15 +1,15 @@
 {
-	"name": "prefer_bigint_over_int_clean",
-	"description": "CREATE TABLE with bigint column should not trigger SC-MIG10",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "prefer-bigint-over-int"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateAccountsTable\n-- @returns :exec\nCREATE TABLE accounts (id bigint PRIMARY KEY, name text)",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "prefer_bigint_over_int_clean",
+  "description": "CREATE TABLE with bigint column should not trigger SC-MIG10",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "prefer-bigint-over-int"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateAccountsTable\n-- @returns :exec\nCREATE TABLE accounts (id bigint PRIMARY KEY, name text)",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

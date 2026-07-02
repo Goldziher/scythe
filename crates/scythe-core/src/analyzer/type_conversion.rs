@@ -27,8 +27,9 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "numeric" | "decimal" => Cow::Borrowed("decimal"),
 
         // -- String types --
-        "text" | "character varying" | "character" | "varchar" | "char" | "varchar2"
-        | "nvarchar2" => Cow::Borrowed("string"),
+        "text" | "character varying" | "character" | "varchar" | "char" | "varchar2" | "nvarchar2" => {
+            Cow::Borrowed("string")
+        }
         "nvarchar" | "nchar" | "ntext" => Cow::Borrowed("string"),
         "tinytext" | "mediumtext" | "longtext" | "clob" => Cow::Borrowed("string"),
         "set" => Cow::Borrowed("string"),
@@ -38,9 +39,7 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
 
         // -- Binary types --
         "bytea" => Cow::Borrowed("bytes"),
-        "blob" | "tinyblob" | "mediumblob" | "longblob" | "binary" | "varbinary" => {
-            Cow::Borrowed("bytes")
-        }
+        "blob" | "tinyblob" | "mediumblob" | "longblob" | "binary" | "varbinary" => Cow::Borrowed("bytes"),
 
         // -- UUID --
         "uuid" | "uniqueidentifier" => Cow::Borrowed("uuid"),
@@ -119,10 +118,7 @@ pub(super) fn strip_precision(s: &str) -> String {
     {
         let prefix = s[..idx].trim();
         let inner = &s[idx + 1..s.len() - 1];
-        if inner
-            .chars()
-            .all(|c| c.is_ascii_digit() || c == ',' || c == ' ')
-        {
+        if inner.chars().all(|c| c.is_ascii_digit() || c == ',' || c == ' ') {
             return prefix.to_string();
         }
     }
@@ -184,15 +180,9 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
         DataType::JSONB => "json".to_string(),
         DataType::Array(elem) => {
             let inner = match elem {
-                ast::ArrayElemTypeDef::SquareBracket(inner_dt, _) => {
-                    datatype_to_neutral(inner_dt, catalog)
-                }
-                ast::ArrayElemTypeDef::AngleBracket(inner_dt) => {
-                    datatype_to_neutral(inner_dt, catalog)
-                }
-                ast::ArrayElemTypeDef::Parenthesis(inner_dt) => {
-                    datatype_to_neutral(inner_dt, catalog)
-                }
+                ast::ArrayElemTypeDef::SquareBracket(inner_dt, _) => datatype_to_neutral(inner_dt, catalog),
+                ast::ArrayElemTypeDef::AngleBracket(inner_dt) => datatype_to_neutral(inner_dt, catalog),
+                ast::ArrayElemTypeDef::Parenthesis(inner_dt) => datatype_to_neutral(inner_dt, catalog),
                 ast::ArrayElemTypeDef::None => "unknown".to_string(),
             };
             format!("array<{}>", inner)
@@ -284,14 +274,8 @@ mod tests {
     fn test_temporal_types() {
         let c = empty_catalog();
         assert_eq!(sql_type_to_neutral("timestamp", &c), "datetime");
-        assert_eq!(
-            sql_type_to_neutral("timestamp without time zone", &c),
-            "datetime"
-        );
-        assert_eq!(
-            sql_type_to_neutral("timestamp with time zone", &c),
-            "datetime_tz"
-        );
+        assert_eq!(sql_type_to_neutral("timestamp without time zone", &c), "datetime");
+        assert_eq!(sql_type_to_neutral("timestamp with time zone", &c), "datetime_tz");
         assert_eq!(sql_type_to_neutral("timestamptz", &c), "datetime_tz");
         assert_eq!(sql_type_to_neutral("date", &c), "date");
         assert_eq!(sql_type_to_neutral("time", &c), "time");
@@ -375,10 +359,7 @@ mod tests {
         assert_eq!(sql_type_to_neutral("INTEGER", &c), "int32");
         assert_eq!(sql_type_to_neutral("Text", &c), "string");
         assert_eq!(sql_type_to_neutral("BOOLEAN", &c), "bool");
-        assert_eq!(
-            sql_type_to_neutral("TIMESTAMP WITH TIME ZONE", &c),
-            "datetime_tz"
-        );
+        assert_eq!(sql_type_to_neutral("TIMESTAMP WITH TIME ZONE", &c), "datetime_tz");
     }
 
     // ---- Precision stripping ----
@@ -401,10 +382,7 @@ mod tests {
     fn test_type_with_precision() {
         let c = empty_catalog();
         assert_eq!(sql_type_to_neutral("numeric(10,2)", &c), "decimal");
-        assert_eq!(
-            sql_type_to_neutral("timestamp with time zone(6)", &c),
-            "datetime_tz"
-        );
+        assert_eq!(sql_type_to_neutral("timestamp with time zone(6)", &c), "datetime_tz");
     }
 
     // ---- Enum and composite lookups ----
@@ -416,9 +394,7 @@ mod tests {
 
     #[test]
     fn test_composite_type_lookup() {
-        let c =
-            Catalog::from_ddl(&["CREATE TYPE address AS (street TEXT, city TEXT, zip INTEGER);"])
-                .unwrap();
+        let c = Catalog::from_ddl(&["CREATE TYPE address AS (street TEXT, city TEXT, zip INTEGER);"]).unwrap();
         assert_eq!(sql_type_to_neutral("address", &c), "composite::address");
     }
 
@@ -427,10 +403,7 @@ mod tests {
     fn test_generic_array_fallback() {
         let c = empty_catalog();
         // A type not explicitly listed but with [] suffix
-        assert_eq!(
-            sql_type_to_neutral("timestamptz[]", &c),
-            "array<datetime_tz>"
-        );
+        assert_eq!(sql_type_to_neutral("timestamptz[]", &c), "array<datetime_tz>");
     }
 
     // ---- Snowflake-specific types ----

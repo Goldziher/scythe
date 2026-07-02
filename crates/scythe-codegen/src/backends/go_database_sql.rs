@@ -1,9 +1,7 @@
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
 use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -35,10 +33,7 @@ impl GoDatabaseSqlBackend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest(
-            "backends/go-database-sql/manifest.toml",
-            manifest_toml,
-        )?;
+        let manifest = super::load_or_default_manifest("backends/go-database-sql/manifest.toml", manifest_toml)?;
         Ok(Self {
             manifest,
             engine: engine.to_string(),
@@ -65,8 +60,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
             self.engine.as_str(),
             "mysql" | "mariadb" | "duckdb" | "mssql" | "snowflake"
         );
-        let mut header =
-            String::from("package queries\n\nimport (\n\t\"context\"\n\t\"database/sql\"");
+        let mut header = String::from("package queries\n\nimport (\n\t\"context\"\n\t\"database/sql\"");
         if uses_time {
             header.push_str("\n\t\"time\"");
         }
@@ -74,11 +68,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
         header
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "type {} struct {{", struct_name);
@@ -91,11 +81,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -108,11 +94,8 @@ impl CodegenBackend for GoDatabaseSqlBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let mut sql = super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let mut sql =
+            super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         // MSSQL requires @pN placeholders instead of ?
         if self.engine == "mssql" {
             sql = super::rewrite_pg_placeholders(&sql, |n| format!("@p{n}"));
@@ -147,11 +130,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                 } else {
                     format!(", {}", args.join(", "))
                 };
-                let _ = writeln!(
-                    out,
-                    "\t_, err := db.ExecContext(ctx, \"{}\"{})",
-                    sql, args_str
-                );
+                let _ = writeln!(out, "\t_, err := db.ExecContext(ctx, \"{}\"{})", sql, args_str);
                 let _ = writeln!(out, "\treturn err");
                 let _ = write!(out, "}}");
             }
@@ -166,11 +145,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                 } else {
                     format!(", {}", args.join(", "))
                 };
-                let _ = writeln!(
-                    out,
-                    "\tresult, err := db.ExecContext(ctx, \"{}\"{})",
-                    sql, args_str
-                );
+                let _ = writeln!(out, "\tresult, err := db.ExecContext(ctx, \"{}\"{})", sql, args_str);
                 let _ = writeln!(out, "\tif err != nil {{");
                 let _ = writeln!(out, "\t\treturn 0, err");
                 let _ = writeln!(out, "\t}}");
@@ -188,11 +163,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                 } else {
                     format!(", {}", args.join(", "))
                 };
-                let _ = writeln!(
-                    out,
-                    "\trow := db.QueryRowContext(ctx, \"{}\"{})",
-                    sql, args_str
-                );
+                let _ = writeln!(out, "\trow := db.QueryRowContext(ctx, \"{}\"{})", sql, args_str);
                 let _ = writeln!(out, "\tvar r {}", struct_name);
                 let scan_fields: Vec<String> = columns
                     .iter()
@@ -253,8 +224,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                             item_args.join(", ")
                         );
                     } else {
-                        let _ =
-                            writeln!(out, "\t\t_, err := tx.ExecContext(ctx, \"{}\", item)", sql);
+                        let _ = writeln!(out, "\t\t_, err := tx.ExecContext(ctx, \"{}\", item)", sql);
                     }
                 }
                 let _ = writeln!(out, "\t\tif err != nil {{");
@@ -275,11 +245,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                 } else {
                     format!(", {}", args.join(", "))
                 };
-                let _ = writeln!(
-                    out,
-                    "\trows, err := db.QueryContext(ctx, \"{}\"{})",
-                    sql, args_str
-                );
+                let _ = writeln!(out, "\trows, err := db.QueryContext(ctx, \"{}\"{})", sql, args_str);
                 let _ = writeln!(out, "\tif err != nil {{");
                 let _ = writeln!(out, "\t\treturn nil, err");
                 let _ = writeln!(out, "\t}}");
@@ -322,11 +288,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
         let _ = writeln!(out, "const (");
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(
-                out,
-                "\t{}{} {} = \"{}\"",
-                type_name, variant, type_name, value
-            );
+            let _ = writeln!(out, "\t{}{} {} = \"{}\"", type_name, variant, type_name, value);
         }
         let _ = write!(out, ")");
         Ok(out)

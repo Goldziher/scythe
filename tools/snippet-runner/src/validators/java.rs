@@ -22,10 +22,7 @@ impl JavaValidator {
                 "public record ",
             ] {
                 if let Some(rest) = trimmed.strip_prefix(prefix) {
-                    let name: String = rest
-                        .chars()
-                        .take_while(|c| c.is_alphanumeric() || *c == '_')
-                        .collect();
+                    let name: String = rest.chars().take_while(|c| c.is_alphanumeric() || *c == '_').collect();
                     if !name.is_empty() {
                         return name;
                     }
@@ -81,10 +78,7 @@ impl JavaValidator {
                 })
                 .collect::<Vec<_>>()
                 .join("\n");
-            return (
-                "Snippet".to_string(),
-                format!("interface Snippet {{\n{methods}\n}}"),
-            );
+            return ("Snippet".to_string(), format!("interface Snippet {{\n{methods}\n}}"));
         }
 
         // Has a class/interface/enum/record declaration — use as-is

@@ -1,20 +1,20 @@
 {
-	"name": "alter_column_type_fires",
-	"description": "ALTER COLUMN TYPE should trigger SC-MIG09",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "ban-alter-column-type"],
-	"schema_sql": [],
-	"query_sql": "-- @name UpdateUsersIdToBigint\n-- @returns :exec\nALTER TABLE users ALTER COLUMN id TYPE bigint",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-MIG09",
-					"message_contains": "rewrites the table"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "alter_column_type_fires",
+  "description": "ALTER COLUMN TYPE should trigger SC-MIG09",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "ban-alter-column-type"],
+  "schema_sql": [],
+  "query_sql": "-- @name UpdateUsersIdToBigint\n-- @returns :exec\nALTER TABLE users ALTER COLUMN id TYPE bigint",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-MIG09",
+          "message_contains": "rewrites the table"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

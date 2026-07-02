@@ -1,15 +1,15 @@
 {
-	"name": "ban_drop_column_clean",
-	"description": "ALTER TABLE … ADD COLUMN should not trigger SC-MIG02",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "ban-drop-column"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateNicknameColumn\n-- @returns :exec\nALTER TABLE users ADD COLUMN nickname text",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "ban_drop_column_clean",
+  "description": "ALTER TABLE … ADD COLUMN should not trigger SC-MIG02",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "ban-drop-column"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateNicknameColumn\n-- @returns :exec\nALTER TABLE users ADD COLUMN nickname text",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

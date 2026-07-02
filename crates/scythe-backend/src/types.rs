@@ -47,10 +47,7 @@ pub fn resolve_type_pair<'a>(
 }
 
 /// Resolve the base type (without nullable wrapping).
-fn resolve_base_type<'a>(
-    neutral: &str,
-    manifest: &'a BackendManifest,
-) -> Result<Cow<'a, str>, BackendError> {
+fn resolve_base_type<'a>(neutral: &str, manifest: &'a BackendManifest) -> Result<Cow<'a, str>, BackendError> {
     // Check for container pattern: "container_name<inner_type>"
     if let Some(resolved) = try_resolve_container(neutral, manifest)? {
         return Ok(Cow::Owned(resolved));
@@ -82,10 +79,7 @@ fn resolve_base_type<'a>(
 
 /// Try to parse and resolve a container type like "array<int32>".
 /// Returns None if the input doesn't match any container pattern.
-fn try_resolve_container(
-    neutral: &str,
-    manifest: &BackendManifest,
-) -> Result<Option<String>, BackendError> {
+fn try_resolve_container(neutral: &str, manifest: &BackendManifest) -> Result<Option<String>, BackendError> {
     // Find the first '<' to detect container syntax
     let Some(angle_pos) = neutral.find('<') else {
         return Ok(None);
@@ -172,28 +166,19 @@ mod tests {
     #[test]
     fn test_container_array_string() {
         let m = test_manifest();
-        assert_eq!(
-            resolve_type("array<string>", &m, false).unwrap(),
-            "Vec<String>"
-        );
+        assert_eq!(resolve_type("array<string>", &m, false).unwrap(), "Vec<String>");
     }
 
     #[test]
     fn test_enum_type() {
         let m = test_manifest();
-        assert_eq!(
-            resolve_type("enum::user_status", &m, false).unwrap(),
-            "UserStatus"
-        );
+        assert_eq!(resolve_type("enum::user_status", &m, false).unwrap(), "UserStatus");
     }
 
     #[test]
     fn test_composite_type() {
         let m = test_manifest();
-        assert_eq!(
-            resolve_type("composite::address", &m, false).unwrap(),
-            "Address"
-        );
+        assert_eq!(resolve_type("composite::address", &m, false).unwrap(), "Address");
     }
 
     #[test]
@@ -205,10 +190,7 @@ mod tests {
     #[test]
     fn test_nullable_container() {
         let m = test_manifest();
-        assert_eq!(
-            resolve_type("array<int32>", &m, true).unwrap(),
-            "Option<Vec<i32>>"
-        );
+        assert_eq!(resolve_type("array<int32>", &m, true).unwrap(), "Option<Vec<i32>>");
     }
 
     #[test]
@@ -271,10 +253,7 @@ mod tests {
     #[test]
     fn test_container_with_whitespace() {
         let m = test_manifest();
-        assert_eq!(
-            resolve_type("array< int32 >", &m, false).unwrap(),
-            "Vec<i32>"
-        );
+        assert_eq!(resolve_type("array< int32 >", &m, false).unwrap(), "Vec<i32>");
     }
 
     #[test]

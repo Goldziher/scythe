@@ -23,17 +23,11 @@ impl ElixirExqliteBackend {
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
-                    format!(
-                        "elixir-exqlite only supports SQLite, got engine '{}'",
-                        engine
-                    ),
+                    format!("elixir-exqlite only supports SQLite, got engine '{}'", engine),
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest(
-            "backends/elixir-exqlite/manifest.toml",
-            DEFAULT_MANIFEST_TOML,
-        )?;
+        let manifest = super::load_or_default_manifest("backends/elixir-exqlite/manifest.toml", DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
 }
@@ -59,11 +53,7 @@ impl CodegenBackend for ElixirExqliteBackend {
         "end".to_string()
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", struct_name);
@@ -94,11 +84,7 @@ impl CodegenBackend for ElixirExqliteBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -111,11 +97,7 @@ impl CodegenBackend for ElixirExqliteBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let mut out = String::new();
 
         // Parameter list
@@ -172,15 +154,9 @@ impl CodegenBackend for ElixirExqliteBackend {
                 let _ = writeln!(out, "def {}(conn, items) do", batch_fn_name);
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
                 let _ = writeln!(out, "  Enum.reduce_while(items, :ok, fn item, :ok ->");
-                let _ = writeln!(
-                    out,
-                    "    with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),"
-                );
+                let _ = writeln!(out, "    with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),");
                 if params.len() > 1 {
-                    let _ = writeln!(
-                        out,
-                        "         :ok <- Exqlite.Sqlite3.bind(stmt, Tuple.to_list(item)),"
-                    );
+                    let _ = writeln!(out, "         :ok <- Exqlite.Sqlite3.bind(stmt, Tuple.to_list(item)),");
                 } else if params.len() == 1 {
                     let _ = writeln!(out, "         :ok <- Exqlite.Sqlite3.bind(stmt, [item]),");
                 } else {
@@ -221,15 +197,8 @@ impl CodegenBackend for ElixirExqliteBackend {
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
-                let _ = writeln!(
-                    out,
-                    "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),"
-                );
-                let _ = writeln!(
-                    out,
-                    "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),",
-                    param_args
-                );
+                let _ = writeln!(out, "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),");
+                let _ = writeln!(out, "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),", param_args);
                 let _ = writeln!(out, "       rows <- Exqlite.Sqlite3.fetch_all(conn, stmt)");
                 let _ = writeln!(out, "  do");
                 let _ = writeln!(out, "    Exqlite.Sqlite3.release(conn, stmt)");
@@ -248,11 +217,7 @@ impl CodegenBackend for ElixirExqliteBackend {
                     .map(|c| format!("{}: {}", c.field_name, c.field_name))
                     .collect::<Vec<_>>()
                     .join(", ");
-                let _ = writeln!(
-                    out,
-                    "        {{:ok, %{}{{{}}}}}",
-                    struct_name, struct_fields
-                );
+                let _ = writeln!(out, "        {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
                 let _ = writeln!(out, "      {{:ok, []}} ->");
                 let _ = writeln!(out, "        {{:error, :not_found}}");
                 let _ = writeln!(out, "      {{:error, err}} ->");
@@ -264,19 +229,9 @@ impl CodegenBackend for ElixirExqliteBackend {
             }
             QueryCommand::Many => {
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
-                let _ = writeln!(
-                    out,
-                    "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),"
-                );
-                let _ = writeln!(
-                    out,
-                    "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),",
-                    param_args
-                );
-                let _ = writeln!(
-                    out,
-                    "       result <- Exqlite.Sqlite3.fetch_all(conn, stmt)"
-                );
+                let _ = writeln!(out, "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),");
+                let _ = writeln!(out, "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),", param_args);
+                let _ = writeln!(out, "       result <- Exqlite.Sqlite3.fetch_all(conn, stmt)");
                 let _ = writeln!(out, "  do");
                 let _ = writeln!(out, "    Exqlite.Sqlite3.release(conn, stmt)");
                 let _ = writeln!(out, "    case result do");
@@ -307,15 +262,8 @@ impl CodegenBackend for ElixirExqliteBackend {
             }
             QueryCommand::Exec => {
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
-                let _ = writeln!(
-                    out,
-                    "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),"
-                );
-                let _ = writeln!(
-                    out,
-                    "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),",
-                    param_args
-                );
+                let _ = writeln!(out, "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),");
+                let _ = writeln!(out, "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),", param_args);
                 let _ = writeln!(out, "       :done <- Exqlite.Sqlite3.step(conn, stmt)");
                 let _ = writeln!(out, "  do");
                 let _ = writeln!(out, "    Exqlite.Sqlite3.release(conn, stmt)");
@@ -326,20 +274,10 @@ impl CodegenBackend for ElixirExqliteBackend {
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "  sql = \"{}\"", sql);
-                let _ = writeln!(
-                    out,
-                    "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),"
-                );
-                let _ = writeln!(
-                    out,
-                    "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),",
-                    param_args
-                );
+                let _ = writeln!(out, "  with {{:ok, stmt}} <- Exqlite.Sqlite3.prepare(conn, sql),");
+                let _ = writeln!(out, "       :ok <- Exqlite.Sqlite3.bind(stmt, {}),", param_args);
                 let _ = writeln!(out, "       :done <- Exqlite.Sqlite3.step(conn, stmt),");
-                let _ = writeln!(
-                    out,
-                    "       {{:ok, changes}} <- Exqlite.Sqlite3.changes(conn)"
-                );
+                let _ = writeln!(out, "       {{:ok, changes}} <- Exqlite.Sqlite3.changes(conn)");
                 let _ = writeln!(out, "  do");
                 let _ = writeln!(out, "    Exqlite.Sqlite3.release(conn, stmt)");
                 let _ = writeln!(out, "    {{:ok, changes}}");
@@ -358,23 +296,14 @@ impl CodegenBackend for ElixirExqliteBackend {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", type_name);
-        let _ = writeln!(
-            out,
-            "  @moduledoc \"Enum type for {}.\"",
-            enum_info.sql_name
-        );
+        let _ = writeln!(out, "  @moduledoc \"Enum type for {}.\"", enum_info.sql_name);
         let _ = writeln!(out);
         let _ = writeln!(out, "  @type t :: String.t()");
         let _ = writeln!(out);
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
             let _ = writeln!(out, "  @spec {}() :: String.t()", to_snake_case(&variant));
-            let _ = writeln!(
-                out,
-                "  def {}(), do: \"{}\"",
-                to_snake_case(&variant),
-                value
-            );
+            let _ = writeln!(out, "  def {}(), do: \"{}\"", to_snake_case(&variant), value);
         }
         let values_list = enum_info
             .values
@@ -392,11 +321,7 @@ impl CodegenBackend for ElixirExqliteBackend {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", name);
-        let _ = writeln!(
-            out,
-            "  @moduledoc \"Composite type for {}.\"",
-            composite.sql_name
-        );
+        let _ = writeln!(out, "  @moduledoc \"Composite type for {}.\"", composite.sql_name);
         let _ = writeln!(out);
         // Generate @type definition
         if composite.fields.is_empty() {
@@ -404,11 +329,7 @@ impl CodegenBackend for ElixirExqliteBackend {
         } else {
             let _ = writeln!(out, "  @type t :: %__MODULE__{{");
             for (i, f) in composite.fields.iter().enumerate() {
-                let sep = if i + 1 < composite.fields.len() {
-                    ","
-                } else {
-                    ""
-                };
+                let sep = if i + 1 < composite.fields.len() { "," } else { "" };
                 let _ = writeln!(out, "    {}: term(){}", to_snake_case(&f.name), sep);
             }
             let _ = writeln!(out, "  }}");

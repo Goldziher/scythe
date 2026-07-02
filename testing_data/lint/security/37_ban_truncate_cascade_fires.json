@@ -1,20 +1,20 @@
 {
-	"name": "ban_truncate_cascade_fires",
-	"description": "TRUNCATE … CASCADE should trigger SC-MIG08",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "ban-truncate-cascade"],
-	"schema_sql": [],
-	"query_sql": "-- @name DeleteAllUsersAndDependents\n-- @returns :exec\nTRUNCATE TABLE users CASCADE",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-MIG08",
-					"message_contains": "CASCADE"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "ban_truncate_cascade_fires",
+  "description": "TRUNCATE … CASCADE should trigger SC-MIG08",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "ban-truncate-cascade"],
+  "schema_sql": [],
+  "query_sql": "-- @name DeleteAllUsersAndDependents\n-- @returns :exec\nTRUNCATE TABLE users CASCADE",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-MIG08",
+          "message_contains": "CASCADE"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

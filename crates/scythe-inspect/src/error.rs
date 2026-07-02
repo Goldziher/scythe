@@ -33,9 +33,7 @@ pub enum InspectError {
     Unsupported(&'static str),
 
     /// No connection URL could be resolved from CLI, env, or config.
-    #[error(
-        "no database URL provided — pass a positional URL, set DATABASE_URL, or set SCYTHE_DATABASE_URL"
-    )]
+    #[error("no database URL provided — pass a positional URL, set DATABASE_URL, or set SCYTHE_DATABASE_URL")]
     UrlMissing,
 
     /// A driver method was called before [`DbDriver::connect`] succeeded.

@@ -20,10 +20,7 @@ impl TsRowType {
             "zod" => Ok(Self::Zod),
             _ => Err(ScytheError::new(
                 ErrorCode::InternalError,
-                format!(
-                    "invalid row_type '{}': expected 'interface' or 'zod'",
-                    value
-                ),
+                format!("invalid row_type '{}': expected 'interface' or 'zod'", value),
             )),
         }
     }
@@ -54,11 +51,7 @@ pub fn neutral_to_zod(neutral_type: &str, nullable: bool) -> String {
 }
 
 /// Generate a Zod schema and inferred type for a row struct.
-pub fn generate_zod_row_struct(
-    struct_name: &str,
-    query_name: &str,
-    columns: &[ResolvedColumn],
-) -> String {
+pub fn generate_zod_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
     let schema_name = format!("{struct_name}Schema");
     let mut out = String::new();
     let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
@@ -69,11 +62,7 @@ pub fn generate_zod_row_struct(
     }
     let _ = writeln!(out, "}});");
     let _ = writeln!(out);
-    let _ = write!(
-        out,
-        "export type {} = z.infer<typeof {}>;",
-        struct_name, schema_name
-    );
+    let _ = write!(out, "export type {} = z.infer<typeof {}>;", struct_name, schema_name);
     out
 }
 
@@ -108,18 +97,9 @@ pub fn generate_zod_enum(type_name: &str, values: &[String]) -> String {
     let schema_name = format!("{type_name}Schema");
     let mut out = String::new();
     let variants: Vec<String> = values.iter().map(|v| format!("\"{}\"", v)).collect();
-    let _ = writeln!(
-        out,
-        "export const {} = z.enum([{}]);",
-        schema_name,
-        variants.join(", ")
-    );
+    let _ = writeln!(out, "export const {} = z.enum([{}]);", schema_name, variants.join(", "));
     let _ = writeln!(out);
-    let _ = write!(
-        out,
-        "export type {} = z.infer<typeof {}>;",
-        type_name, schema_name
-    );
+    let _ = write!(out, "export type {} = z.infer<typeof {}>;", type_name, schema_name);
     let _ = writeln!(out);
     let _ = writeln!(out);
     let _ = writeln!(out, "export const {} = {{", type_name);

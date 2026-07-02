@@ -257,10 +257,7 @@ mod tests {
     fn test_enum_variant_name() {
         let config = test_config();
         assert_eq!(enum_variant_name("active", &config), "Active");
-        assert_eq!(
-            enum_variant_name("pending_review", &config),
-            "PendingReview"
-        );
+        assert_eq!(enum_variant_name("pending_review", &config), "PendingReview");
     }
 
     #[test]
@@ -298,10 +295,7 @@ mod tests {
         assert_eq!(&*to_screaming_snake_case("active"), "ACTIVE");
         assert_eq!(&*to_screaming_snake_case("user_status"), "USER_STATUS");
         assert_eq!(&*to_screaming_snake_case("PascalCase"), "PASCAL_CASE");
-        assert_eq!(
-            &*to_screaming_snake_case("pending_review"),
-            "PENDING_REVIEW"
-        );
+        assert_eq!(&*to_screaming_snake_case("pending_review"), "PENDING_REVIEW");
     }
 
     #[test]
@@ -314,10 +308,7 @@ mod tests {
             row_suffix: "Row".to_string(),
         };
         assert_eq!(enum_variant_name("active", &config), "ACTIVE");
-        assert_eq!(
-            enum_variant_name("pending_review", &config),
-            "PENDING_REVIEW"
-        );
+        assert_eq!(enum_variant_name("pending_review", &config), "PENDING_REVIEW");
     }
 
     #[test]

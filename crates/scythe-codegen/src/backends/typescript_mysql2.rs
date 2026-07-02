@@ -27,17 +27,12 @@ impl TypescriptMysql2Backend {
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
-                    format!(
-                        "typescript-mysql2 only supports MySQL/MariaDB, got engine '{}'",
-                        engine
-                    ),
+                    format!("typescript-mysql2 only supports MySQL/MariaDB, got engine '{}'", engine),
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest(
-            "backends/typescript-mysql2/manifest.toml",
-            DEFAULT_MANIFEST_TOML,
-        )?;
+        let manifest =
+            super::load_or_default_manifest("backends/typescript-mysql2/manifest.toml", DEFAULT_MANIFEST_TOML)?;
         Ok(Self {
             manifest,
             row_type: TsRowType::default(),
@@ -68,11 +63,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
         header
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
             let mut out = generate_zod_row_struct(&struct_name, query_name, columns);
@@ -87,11 +78,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
         }
         let mut out = String::new();
         let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
-        let _ = writeln!(
-            out,
-            "export interface {} extends RowDataPacket {{",
-            struct_name
-        );
+        let _ = writeln!(out, "export interface {} extends RowDataPacket {{", struct_name);
         for col in columns {
             let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
         }
@@ -99,11 +86,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let singular = singularize(table_name);
         let name = to_pascal_case(&singular);
         self.generate_row_struct(&name, columns)
@@ -125,11 +108,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let sql = super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
 
         let inline_params = if params.is_empty() {
             "pool: Pool".to_string()
@@ -139,10 +118,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
 
         // Helper: write function signature, inline or multi-line based on length
         let write_fn_sig = |out: &mut String, name: &str, params_inline: &str, ret: &str| {
-            let oneliner = format!(
-                "export async function {}({}): {} {{",
-                name, params_inline, ret
-            );
+            let oneliner = format!("export async function {}({}): {} {{", name, params_inline, ret);
             if oneliner.len() <= 80 {
                 let _ = writeln!(out, "{}", oneliner);
             } else {
@@ -178,11 +154,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
                 let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let ret = format!("Promise<{} | null>", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
-                let _ = writeln!(
-                    out,
-                    "\tconst [rows] = await pool.execute<{}[]>(",
-                    query_type
-                );
+                let _ = writeln!(out, "\tconst [rows] = await pool.execute<{}[]>(", query_type);
                 let _ = writeln!(out, "\t\t`{}`{},", sql, param_array);
                 let _ = writeln!(out, "\t);");
                 let _ = writeln!(out, "\treturn rows[0] ?? null;");
@@ -199,21 +171,14 @@ impl CodegenBackend for TypescriptMysql2Backend {
                     }
                     let _ = writeln!(out, "}}");
                     let _ = writeln!(out);
-                    let _ = writeln!(
-                        out,
-                        "/** Execute {} for each item in the batch. */",
-                        analyzed.name
-                    );
+                    let _ = writeln!(out, "/** Execute {} for each item in the batch. */", analyzed.name);
                     let batch_params = format!("pool: Pool, items: {}[]", params_type_name);
                     write_fn_sig(&mut out, &batch_fn_name, &batch_params, "Promise<void>");
                     let _ = writeln!(out, "\tconst conn = await pool.getConnection();");
                     let _ = writeln!(out, "\ttry {{");
                     let _ = writeln!(out, "\t\tawait conn.beginTransaction();");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let args: Vec<String> = params
-                        .iter()
-                        .map(|p| format!("item.{}", p.field_name))
-                        .collect();
+                    let args: Vec<String> = params.iter().map(|p| format!("item.{}", p.field_name)).collect();
                     let _ = writeln!(out, "\t\t\tawait conn.execute(");
                     let args_str = args.join(", ");
                     let _ = writeln!(out, "\t\t\t\t`{}`, [{}],", sql, args_str);
@@ -228,11 +193,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
                     let _ = writeln!(out, "\t}}");
                     let _ = write!(out, "}}");
                 } else if params.len() == 1 {
-                    let _ = writeln!(
-                        out,
-                        "/** Execute {} for each item in the batch. */",
-                        analyzed.name
-                    );
+                    let _ = writeln!(out, "/** Execute {} for each item in the batch. */", analyzed.name);
                     let batch_params = format!("pool: Pool, items: {}[]", params[0].full_type);
                     write_fn_sig(&mut out, &batch_fn_name, &batch_params, "Promise<void>");
                     let _ = writeln!(out, "\tconst conn = await pool.getConnection();");
@@ -250,17 +211,8 @@ impl CodegenBackend for TypescriptMysql2Backend {
                     let _ = writeln!(out, "\t}}");
                     let _ = write!(out, "}}");
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "/** Execute {} for each item in the batch. */",
-                        analyzed.name
-                    );
-                    write_fn_sig(
-                        &mut out,
-                        &batch_fn_name,
-                        "pool: Pool, count: number",
-                        "Promise<void>",
-                    );
+                    let _ = writeln!(out, "/** Execute {} for each item in the batch. */", analyzed.name);
+                    write_fn_sig(&mut out, &batch_fn_name, "pool: Pool, count: number", "Promise<void>");
                     let _ = writeln!(out, "\tconst conn = await pool.getConnection();");
                     let _ = writeln!(out, "\ttry {{");
                     let _ = writeln!(out, "\t\tawait conn.beginTransaction();");
@@ -281,11 +233,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
                 let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
                 let ret = format!("Promise<{}[]>", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
-                let _ = writeln!(
-                    out,
-                    "\tconst [rows] = await pool.execute<{}[]>(",
-                    query_type
-                );
+                let _ = writeln!(out, "\tconst [rows] = await pool.execute<{}[]>(", query_type);
                 let _ = writeln!(out, "\t\t`{}`{},", sql, param_array);
                 let _ = writeln!(out, "\t);");
                 let _ = writeln!(out, "\treturn rows;");
@@ -300,18 +248,12 @@ impl CodegenBackend for TypescriptMysql2Backend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(
-                    out,
-                    "/** Execute a query and return the number of affected rows. */"
-                );
+                let _ = writeln!(out, "/** Execute a query and return the number of affected rows. */");
                 write_fn_sig(&mut out, &func_name, &inline_params, "Promise<number>");
                 let _ = writeln!(out, "\tconst [result] = await pool.execute(");
                 let _ = writeln!(out, "\t\t`{}`{},", sql, param_array);
                 let _ = writeln!(out, "\t);");
-                let _ = writeln!(
-                    out,
-                    "\treturn (result as {{ affectedRows: number }}).affectedRows;"
-                );
+                let _ = writeln!(out, "\treturn (result as {{ affectedRows: number }}).affectedRows;");
                 let _ = write!(out, "}}");
             }
             QueryCommand::Grouped => {
@@ -346,10 +288,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
             let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("composite field type error: {}", e),
-                    )
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
             let _ = writeln!(out, "\t{}: {};", to_camel_case(&field.name), ts_type);
         }
@@ -357,10 +296,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
         Ok(out)
     }
 
-    fn apply_options(
-        &mut self,
-        options: &std::collections::HashMap<String, String>,
-    ) -> Result<(), ScytheError> {
+    fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         if let Some(value) = options.get("row_type") {
             self.row_type = TsRowType::from_option(value)?;
         }

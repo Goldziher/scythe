@@ -240,10 +240,7 @@ mod tests {
         let json = r#"{"categories": {"safety": "error"}, "rules": {"SC-S01": "off"}}"#;
         let config: LintConfig = serde_json::from_str(json).unwrap();
         assert_eq!(config.categories.len(), 1);
-        assert_eq!(
-            config.categories.get(&RuleCategory::Safety),
-            Some(&Severity::Error)
-        );
+        assert_eq!(config.categories.get(&RuleCategory::Safety), Some(&Severity::Error));
         assert_eq!(config.rules.len(), 1);
         assert_eq!(config.rules.get("SC-S01"), Some(&Severity::Off));
     }

@@ -2,9 +2,7 @@ use std::fmt::Write;
 use std::sync::{Arc, Mutex};
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
 use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -37,8 +35,7 @@ impl CsharpNpgsqlBackend {
                 ));
             }
         };
-        let manifest =
-            super::load_or_default_manifest("backends/csharp-npgsql/manifest.toml", default_toml)?;
+        let manifest = super::load_or_default_manifest("backends/csharp-npgsql/manifest.toml", default_toml)?;
         Ok(Self {
             manifest,
             generated_enums: Arc::new(Mutex::new(Vec::new())),
@@ -127,11 +124,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                 );
                 for value in &enum_info.values {
                     let variant = enum_variant_name(value, &self.manifest.naming);
-                    let _ = writeln!(
-                        out,
-                        "        {}.{} => \"{}\",",
-                        qualified_type, variant, value
-                    );
+                    let _ = writeln!(out, "        {}.{} => \"{}\",", qualified_type, variant, value);
                 }
                 let _ = writeln!(
                     out,
@@ -146,11 +139,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         }
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "public record {}(", struct_name);
@@ -163,11 +152,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -181,11 +166,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut sql = super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(
-                &analyzed.sql,
-                &analyzed.optional_params,
-                &analyzed.params,
-            ),
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
         );
         // Cast enum parameters to their PG type so Npgsql sends them correctly
@@ -237,10 +218,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                     batch_fn_name
                 );
             }
-            let _ = writeln!(
-                out,
-                "    await using var tx = await conn.BeginTransactionAsync();"
-            );
+            let _ = writeln!(out, "    await using var tx = await conn.BeginTransactionAsync();");
             let _ = writeln!(out, "    try {{");
             if params.is_empty() {
                 let _ = writeln!(out, "        for (int i = 0; i < count; i++) {{");
@@ -306,31 +284,19 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         );
 
         // Command setup
-        let _ = writeln!(
-            out,
-            "    await using var cmd = new NpgsqlCommand(\"{}\", conn);",
-            sql
-        );
+        let _ = writeln!(out, "    await using var cmd = new NpgsqlCommand(\"{}\", conn);", sql);
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
                 format!("{}.ToDbValue()", p.field_name)
             } else {
                 p.field_name.clone()
             };
-            let _ = writeln!(
-                out,
-                "    cmd.Parameters.AddWithValue(\"p{}\", {});",
-                i + 1,
-                value_expr
-            );
+            let _ = writeln!(out, "    cmd.Parameters.AddWithValue(\"p{}\", {});", i + 1, value_expr);
         }
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
-                let _ = writeln!(
-                    out,
-                    "    await using var reader = await cmd.ExecuteReaderAsync();"
-                );
+                let _ = writeln!(out, "    await using var reader = await cmd.ExecuteReaderAsync();");
                 let _ = writeln!(out, "    if (!await reader.ReadAsync()) return null;");
                 let _ = writeln!(out, "    return new {}(", struct_name);
                 for (i, col) in columns.iter().enumerate() {
@@ -345,10 +311,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                 let _ = writeln!(out, "    );");
             }
             QueryCommand::Many => {
-                let _ = writeln!(
-                    out,
-                    "    await using var reader = await cmd.ExecuteReaderAsync();"
-                );
+                let _ = writeln!(out, "    await using var reader = await cmd.ExecuteReaderAsync();");
                 let _ = writeln!(out, "    var results = new List<{}>();", struct_name);
                 let _ = writeln!(out, "    while (await reader.ReadAsync()) {{");
                 let _ = writeln!(out, "        results.Add(new {}(", struct_name);
@@ -356,8 +319,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                     let expr = column_read_expr(col, i);
                     let sep = if i + 1 < columns.len() { "," } else { "" };
                     if col.nullable {
-                        let _ =
-                            writeln!(out, "            reader.IsDBNull({i}) ? null : {expr}{sep}");
+                        let _ = writeln!(out, "            reader.IsDBNull({i}) ? null : {expr}{sep}");
                     } else {
                         let _ = writeln!(out, "            {expr}{sep}");
                     }
@@ -412,11 +374,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                     .map(|t| t.into_owned())
                     .unwrap_or_else(|_| "object".to_string());
                 let field_name = to_pascal_case(&field.name);
-                let sep = if i + 1 < composite.fields.len() {
-                    ","
-                } else {
-                    ""
-                };
+                let sep = if i + 1 < composite.fields.len() { "," } else { "" };
                 let _ = writeln!(out, "    {} {}{}", cs_type, field_name, sep);
             }
             let _ = write!(out, ");");

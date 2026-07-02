@@ -101,12 +101,7 @@ fn write_rbs_data_class(out: &mut String, struct_name: &str, columns: &[Resolved
             format!("{}: {}", col.field_name, rbs_type)
         })
         .collect();
-    let _ = writeln!(
-        out,
-        "    def self.new: ({}) -> {}",
-        ctor_params.join(", "),
-        struct_name
-    );
+    let _ = writeln!(out, "    def self.new: ({}) -> {}", ctor_params.join(", "), struct_name);
     let _ = writeln!(out, "  end");
 }
 
@@ -150,10 +145,7 @@ fn write_rbs_method(out: &mut String, query: &RbsQueryInfo, connection_type: &st
                 format!("Array[[{}]]", inner.join(", "))
             } else if query.params.len() == 1 {
                 let p = &query.params[0];
-                format!(
-                    "Array[{}]",
-                    param_neutral_to_rbs(&p.neutral_type, p.nullable)
-                )
+                format!("Array[{}]", param_neutral_to_rbs(&p.neutral_type, p.nullable))
             } else {
                 "Array[untyped]".to_string()
             };
@@ -176,9 +168,7 @@ fn write_rbs_method(out: &mut String, query: &RbsQueryInfo, connection_type: &st
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend_trait::{
-        RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, ResolvedColumn, ResolvedParam,
-    };
+    use crate::backend_trait::{RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, ResolvedColumn, ResolvedParam};
     use scythe_core::parser::QueryCommand;
 
     fn col(name: &str, neutral_type: &str, nullable: bool) -> ResolvedColumn {
@@ -260,9 +250,7 @@ mod tests {
         assert!(rbs.contains("attr_reader id: Integer"));
         assert!(rbs.contains("attr_reader name: String"));
         assert!(rbs.contains("attr_reader email: String?"));
-        assert!(
-            rbs.contains("def self.new: (id: Integer, name: String, email: String?) -> GetUserRow")
-        );
+        assert!(rbs.contains("def self.new: (id: Integer, name: String, email: String?) -> GetUserRow"));
         assert!(rbs.contains("def self.get_user: (PG::Connection, Integer) -> GetUserRow?"));
         assert!(rbs.contains("end\n"));
     }
@@ -325,19 +313,14 @@ mod tests {
                 func_name: "insert_user".to_string(),
                 struct_name: None,
                 columns: vec![],
-                params: vec![
-                    param("name", "string", false),
-                    param("email", "string", true),
-                ],
+                params: vec![param("name", "string", false), param("email", "string", true)],
                 command: QueryCommand::Batch,
             }],
             enums: vec![],
         };
 
         let rbs = generate_rbs_content(&context, "PG::Connection");
-        assert!(rbs.contains(
-            "def self.insert_user_batch: (PG::Connection, Array[[String, String?]]) -> void"
-        ));
+        assert!(rbs.contains("def self.insert_user_batch: (PG::Connection, Array[[String, String?]]) -> void"));
     }
 
     #[test]

@@ -17,21 +17,15 @@ use scythe_core::parser::Annotations;
 use scythe_lint::reporters::Finding;
 use scythe_lint::types::RuleCategory;
 use scythe_lint::{
-    AuditConfigError, LintContext, MatcherRegistry, RuleRegistry, RuleSpec, Severity,
-    SuppressionSet, default_registry, extract_cwe, load_rules_from_file, register_user_rules,
+    AuditConfigError, LintContext, MatcherRegistry, RuleRegistry, RuleSpec, Severity, SuppressionSet, default_registry,
+    extract_cwe, load_rules_from_file, register_user_rules,
 };
 
 // ---------------------------------------------------------------------------
 // Shared helper: run security rules over raw SQL, respecting suppressions.
 // ---------------------------------------------------------------------------
 
-fn run_rules(
-    path: &str,
-    sql: &str,
-    dialect: &SqlDialect,
-    catalog: &Catalog,
-    registry: &RuleRegistry,
-) -> Vec<Finding> {
+fn run_rules(path: &str, sql: &str, dialect: &SqlDialect, catalog: &Catalog, registry: &RuleRegistry) -> Vec<Finding> {
     use sqlparser::tokenizer::{Token, Tokenizer};
 
     let rules = registry.active_rules();
@@ -85,16 +79,11 @@ fn run_rules(
             dialect: *dialect,
         };
         for (rule, severity) in &rules {
-            if !matches!(
-                rule.category(),
-                RuleCategory::Security | RuleCategory::Migration
-            ) {
+            if !matches!(rule.category(), RuleCategory::Security | RuleCategory::Migration) {
                 continue;
             }
             for violation in rule.check_query(&ctx) {
-                if !suppressions.is_empty()
-                    && suppressions.is_suppressed(&violation.rule_id, stmt_line)
-                {
+                if !suppressions.is_empty() && suppressions.is_suppressed(&violation.rule_id, stmt_line) {
                     continue;
                 }
                 findings.push(Finding {
@@ -138,10 +127,7 @@ fn suppression_drops_annotated_grant_and_keeps_plain_grant() {
 
     let findings = run_rules("smoke.sql", sql, &dialect, &catalog, &registry);
 
-    let sec02: Vec<_> = findings
-        .iter()
-        .filter(|f| f.rule_id == "SC-SEC02")
-        .collect();
+    let sec02: Vec<_> = findings.iter().filter(|f| f.rule_id == "SC-SEC02").collect();
     assert_eq!(
         sec02.len(),
         1,
@@ -180,20 +166,13 @@ fn user_rule_fires_for_custom_function() {
 
     let mut registry = default_registry();
     let matcher_registry = MatcherRegistry::canonical();
-    register_user_rules(
-        &mut registry,
-        &matcher_registry,
-        &[(spec, "test".to_string())],
-    )
-    .expect("register_user_rules should succeed");
+    register_user_rules(&mut registry, &matcher_registry, &[(spec, "test".to_string())])
+        .expect("register_user_rules should succeed");
 
     let sql = "SELECT debug_print('hello');";
     let findings = run_rules("q.sql", sql, &dialect, &catalog, &registry);
 
-    let user_findings: Vec<_> = findings
-        .iter()
-        .filter(|f| f.rule_id == "USER-001")
-        .collect();
+    let user_findings: Vec<_> = findings.iter().filter(|f| f.rule_id == "USER-001").collect();
     assert!(
         !user_findings.is_empty(),
         "expected USER-001 to fire on debug_print call; findings: {:#?}",
@@ -270,16 +249,9 @@ fn user_rule_without_user_prefix_returns_error() {
         matcher_args,
     };
 
-    let result = register_user_rules(
-        &mut registry,
-        &matcher_registry,
-        &[(spec, "rules.toml".to_string())],
-    );
+    let result = register_user_rules(&mut registry, &matcher_registry, &[(spec, "rules.toml".to_string())]);
 
-    assert!(
-        result.is_err(),
-        "missing USER- prefix must produce an error"
-    );
+    assert!(result.is_err(), "missing USER- prefix must produce an error");
     let err_msg = result.unwrap_err().to_string();
     assert!(
         err_msg.contains("USER-") || err_msg.contains("NOPRE-001"),
@@ -357,10 +329,7 @@ functions = ["extra_fn"]
     register_user_rules(
         &mut registry,
         &matcher_registry,
-        &[(
-            specs.into_iter().next().unwrap(),
-            extra_path.display().to_string(),
-        )],
+        &[(specs.into_iter().next().unwrap(), extra_path.display().to_string())],
     )
     .expect("register_user_rules");
 
@@ -400,20 +369,13 @@ fn malformed_extra_rules_file_returns_error_with_path() {
 
 #[test]
 fn pg_only_rule_skipped_on_non_pg_dialect() {
-    let catalog_pg =
-        Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog");
+    let catalog_pg = Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog");
 
     // CREATE FUNCTION … SECURITY DEFINER trips SC-SEC10 on Postgres.
     let sql = "CREATE FUNCTION elevate() RETURNS void LANGUAGE plpgsql SECURITY DEFINER AS $$ BEGIN END $$;";
 
     let registry = default_registry();
-    let pg_findings = run_rules(
-        "pg.sql",
-        sql,
-        &SqlDialect::PostgreSQL,
-        &catalog_pg,
-        &registry,
-    );
+    let pg_findings = run_rules("pg.sql", sql, &SqlDialect::PostgreSQL, &catalog_pg, &registry);
     assert!(
         pg_findings.iter().any(|f| f.rule_id == "SC-SEC10"),
         "expected SC-SEC10 on Postgres; got: {:#?}",
@@ -424,26 +386,14 @@ fn pg_only_rule_skipped_on_non_pg_dialect() {
     // statement that *would* fire SC-SEC11 (SET ROLE) on Postgres but is
     // skipped under SQLite because the rule declares dialects = ["postgres"].
     let set_role_sql = "SET ROLE admin;";
-    let pg_set = run_rules(
-        "pg2.sql",
-        set_role_sql,
-        &SqlDialect::PostgreSQL,
-        &catalog_pg,
-        &registry,
-    );
+    let pg_set = run_rules("pg2.sql", set_role_sql, &SqlDialect::PostgreSQL, &catalog_pg, &registry);
     assert!(
         pg_set.iter().any(|f| f.rule_id == "SC-SEC11"),
         "expected SC-SEC11 on Postgres for SET ROLE; got: {:#?}",
         pg_set
     );
 
-    let sqlite_set = run_rules(
-        "sqlite.sql",
-        set_role_sql,
-        &SqlDialect::SQLite,
-        &catalog_pg,
-        &registry,
-    );
+    let sqlite_set = run_rules("sqlite.sql", set_role_sql, &SqlDialect::SQLite, &catalog_pg, &registry);
     assert!(
         !sqlite_set.iter().any(|f| f.rule_id == "SC-SEC11"),
         "SC-SEC11 must not fire on SQLite (PG-only); got: {:#?}",

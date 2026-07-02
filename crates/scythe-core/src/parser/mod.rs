@@ -114,10 +114,7 @@ pub fn parse_query(query_sql: &str) -> Result<Query, ScytheError> {
 }
 
 /// Parse a single annotated SQL query into a `Query` using the specified dialect.
-pub fn parse_query_with_dialect(
-    query_sql: &str,
-    dialect: &SqlDialect,
-) -> Result<Query, ScytheError> {
+pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result<Query, ScytheError> {
     let mut name: Option<String> = None;
     let mut command: Option<QueryCommand> = None;
     let mut param_docs = Vec::new();
@@ -273,17 +270,12 @@ pub fn parse_query_with_dialect(
         // filter those out by checking for exactly one non-empty statement.
         let non_empty: Vec<_> = statements
             .into_iter()
-            .filter(|s| {
-                !matches!(s, sqlparser::ast::Statement::Flush { .. }) && format!("{s}") != ""
-            })
+            .filter(|s| !matches!(s, sqlparser::ast::Statement::Flush { .. }) && format!("{s}") != "")
             .collect();
         if non_empty.len() != 1 {
             return Err(ScytheError::syntax("expected exactly one SQL statement"));
         }
-        let stmt = non_empty
-            .into_iter()
-            .next()
-            .expect("filtered to exactly one statement");
+        let stmt = non_empty.into_iter().next().expect("filtered to exactly one statement");
         let annotations = Annotations {
             name: name.clone(),
             command: command.clone(),
@@ -612,17 +604,13 @@ fn strip_and_convert_mssql_output(sql: &str) -> String {
                 // then RETURNING clause (before any trailing semicolon)
                 let before_output_sql = sql[..output_pos].trim_end();
                 let after_values = sql[values_pos..].trim_end();
-                let (values_body, trailing) = if let Some(stripped) = after_values.strip_suffix(';')
-                {
+                let (values_body, trailing) = if let Some(stripped) = after_values.strip_suffix(';') {
                     (stripped, ";")
                 } else {
                     (after_values, "")
                 };
 
-                return format!(
-                    "{}\n{} RETURNING {}{}",
-                    before_output_sql, values_body, cols, trailing
-                );
+                return format!("{}\n{} RETURNING {}{}", before_output_sql, values_body, cols, trailing);
             }
         }
     }
@@ -955,9 +943,7 @@ SELECT 1";
                    ON CONFLICT (stripe_event_id) WHERE stripe_event_id IS NOT NULL DO NOTHING";
         let cleaned = preprocess_postgres_sql(sql);
         assert!(
-            !cleaned
-                .to_uppercase()
-                .contains("WHERE STRIPE_EVENT_ID IS NOT NULL"),
+            !cleaned.to_uppercase().contains("WHERE STRIPE_EVENT_ID IS NOT NULL"),
             "WHERE clause must be stripped between ON CONFLICT cols and DO; got: {cleaned}"
         );
         assert!(
@@ -987,11 +973,7 @@ SELECT 1";
         let sql = "INSERT INTO t (a, b) VALUES ($1, $2) \
                    ON CONFLICT (a, b) WHERE a IS NOT NULL AND b > 0 DO UPDATE SET b = EXCLUDED.b";
         let cleaned = preprocess_postgres_sql(sql);
-        assert!(
-            cleaned
-                .to_uppercase()
-                .contains("ON CONFLICT (A, B) DO UPDATE")
-        );
+        assert!(cleaned.to_uppercase().contains("ON CONFLICT (A, B) DO UPDATE"));
         assert!(!cleaned.to_uppercase().contains("WHERE A IS NOT NULL"));
     }
 
@@ -1048,9 +1030,7 @@ SELECT 1";
     #[test]
     fn test_preprocess_oracle_strips_returning_into() {
         assert_eq!(
-            preprocess_oracle_sql(
-                "INSERT INTO users (name) VALUES (:1) RETURNING id, name INTO :2, :3"
-            ),
+            preprocess_oracle_sql("INSERT INTO users (name) VALUES (:1) RETURNING id, name INTO :2, :3"),
             "INSERT INTO users (name) VALUES (?) RETURNING id, name"
         );
     }
@@ -1118,8 +1098,7 @@ SELECT 1";
 
     #[test]
     fn test_preprocess_mssql_output_inserted_simple() {
-        let sql =
-            "INSERT INTO users (id, name) OUTPUT INSERTED.id, INSERTED.name VALUES (@p1, @p2)";
+        let sql = "INSERT INTO users (id, name) OUTPUT INSERTED.id, INSERTED.name VALUES (@p1, @p2)";
         let result = preprocess_mssql_sql(sql);
         // Should convert OUTPUT INSERTED.col to RETURNING col and @pN to ?
         assert!(result.contains("RETURNING id, name"), "got: {}", result);
@@ -1162,8 +1141,7 @@ SELECT 1";
     #[test]
     fn test_preprocess_mssql_output_with_string_literal() {
         // @p1 inside a string should be preserved by placeholder conversion
-        let sql =
-            "INSERT INTO users (id, name) OUTPUT INSERTED.id, INSERTED.name VALUES (@p1, '@p2')";
+        let sql = "INSERT INTO users (id, name) OUTPUT INSERTED.id, INSERTED.name VALUES (@p1, '@p2')";
         let result = preprocess_mssql_sql(sql);
         assert!(result.contains("RETURNING id, name"), "got: {}", result);
         assert!(result.contains("(?, '@p2')"), "got: {}", result);
@@ -1171,8 +1149,7 @@ SELECT 1";
 
     #[test]
     fn test_preprocess_mssql_output_with_whitespace() {
-        let sql =
-            "INSERT INTO users (id, name)\nOUTPUT INSERTED.id,\n  INSERTED.name\nVALUES (@p1, @p2)";
+        let sql = "INSERT INTO users (id, name)\nOUTPUT INSERTED.id,\n  INSERTED.name\nVALUES (@p1, @p2)";
         let result = preprocess_mssql_sql(sql);
         assert!(result.contains("RETURNING id, name"), "got: {}", result);
         assert!(result.contains("VALUES (?, ?)"), "got: {}", result);

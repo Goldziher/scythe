@@ -289,10 +289,7 @@ mod tests {
     #[test]
     fn equal_null_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name = NULL;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name = NULL;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = NotEqualNull.check_query(&ctx);
@@ -302,10 +299,7 @@ mod tests {
     #[test]
     fn is_null_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name IS NULL;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name IS NULL;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = NotEqualNull.check_query(&ctx);
@@ -345,10 +339,7 @@ mod tests {
     #[test]
     fn not_equal_null_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name != NULL;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name != NULL;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = NotEqualNull.check_query(&ctx);
@@ -358,10 +349,7 @@ mod tests {
     #[test]
     fn not_equal_null_angle_brackets_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name <> NULL;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name <> NULL;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = NotEqualNull.check_query(&ctx);
@@ -371,10 +359,7 @@ mod tests {
     #[test]
     fn null_equals_col_reversed_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE NULL = name;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE NULL = name;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = NotEqualNull.check_query(&ctx);
@@ -384,10 +369,8 @@ mod tests {
     #[test]
     fn is_not_null_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name IS NOT NULL;",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE name IS NOT NULL;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = NotEqualNull.check_query(&ctx);
@@ -399,9 +382,7 @@ mod tests {
     #[test]
     fn implicit_type_coercion_returns_empty() {
         let cat = make_catalog();
-        let q =
-            parse_query("-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE id = 1;")
-                .unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :many\nSELECT id FROM users WHERE id = 1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = ImplicitTypeCoercion.check_query(&ctx);
@@ -426,10 +407,7 @@ mod tests {
     #[test]
     fn no_join_clean() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name GetUser\n-- @returns :many\nSELECT id, name FROM users WHERE id = 1;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name GetUser\n-- @returns :many\nSELECT id, name FROM users WHERE id = 1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = OrInJoinCondition.check_query(&ctx);

@@ -31,9 +31,7 @@ pub fn match_session_mutation(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<
 
     match ctx.stmt {
         Statement::Set(set) => match_set(set, &kinds),
-        Statement::Reset(reset) if kinds.iter().any(|k| k == "reset_role") => {
-            match_reset_role(&reset.reset)
-        }
+        Statement::Reset(reset) if kinds.iter().any(|k| k == "reset_role") => match_reset_role(&reset.reset),
         _ => Vec::new(),
     }
 }
@@ -47,9 +45,7 @@ fn match_set(set: &Set, kinds: &[String]) -> Vec<MatcherHit> {
                 .unwrap_or_else(|| "NONE".to_string());
             vec![make_hit("SET ROLE", target)]
         }
-        Set::SetSessionAuthorization(param)
-            if kinds.iter().any(|k| k == "set_session_authorization") =>
-        {
+        Set::SetSessionAuthorization(param) if kinds.iter().any(|k| k == "set_session_authorization") => {
             let target = match &param.kind {
                 SetSessionAuthorizationParamKind::Default => "DEFAULT".to_string(),
                 SetSessionAuthorizationParamKind::User(name) => name.to_string(),
@@ -106,25 +102,13 @@ mod tests {
 
     fn make_args(kinds: &[&str]) -> toml::Table {
         let mut t = toml::Table::new();
-        let arr: toml::value::Array = kinds
-            .iter()
-            .map(|s| toml::Value::String((*s).to_string()))
-            .collect();
+        let arr: toml::value::Array = kinds.iter().map(|s| toml::Value::String((*s).to_string())).collect();
         t.insert("kinds".to_string(), toml::Value::Array(arr));
         t
     }
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -180,14 +164,8 @@ mod tests {
         let args = make_args(&["set_role", "set_session_authorization"]);
         let hits = match_session_mutation(&ctx, &args);
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("op").map(|s| s.as_str()),
-            Some("SET ROLE")
-        );
-        assert_eq!(
-            hits[0].bindings.get("target").map(|s| s.as_str()),
-            Some("admin")
-        );
+        assert_eq!(hits[0].bindings.get("op").map(|s| s.as_str()), Some("SET ROLE"));
+        assert_eq!(hits[0].bindings.get("target").map(|s| s.as_str()), Some("admin"));
     }
 
     #[test]
@@ -202,10 +180,7 @@ mod tests {
             hits[0].bindings.get("op").map(|s| s.as_str()),
             Some("SET SESSION AUTHORIZATION")
         );
-        assert_eq!(
-            hits[0].bindings.get("target").map(|s| s.as_str()),
-            Some("alice")
-        );
+        assert_eq!(hits[0].bindings.get("target").map(|s| s.as_str()), Some("alice"));
     }
 
     #[test]
@@ -226,10 +201,7 @@ mod tests {
         let args = make_args(&["set_role", "set_session_authorization", "reset_role"]);
         let hits = match_session_mutation(&ctx, &args);
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("op").map(|s| s.as_str()),
-            Some("RESET ROLE")
-        );
+        assert_eq!(hits[0].bindings.get("op").map(|s| s.as_str()), Some("RESET ROLE"));
     }
 
     #[test]

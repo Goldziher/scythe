@@ -1,9 +1,7 @@
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
 use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -27,15 +25,11 @@ impl GoPgxBackend {
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
-                    format!(
-                        "go-pgx only supports PostgreSQL/Redshift, got engine '{}'",
-                        engine
-                    ),
+                    format!("go-pgx only supports PostgreSQL/Redshift, got engine '{}'", engine),
                 ));
             }
         };
-        let manifest =
-            super::load_or_default_manifest("backends/go-pgx/manifest.toml", default_toml)?;
+        let manifest = super::load_or_default_manifest("backends/go-pgx/manifest.toml", default_toml)?;
         Ok(Self { manifest })
     }
 }
@@ -60,11 +54,7 @@ impl CodegenBackend for GoPgxBackend {
             .to_string()
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "type {} struct {{", struct_name);
@@ -77,11 +67,7 @@ impl CodegenBackend for GoPgxBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -94,11 +80,7 @@ impl CodegenBackend for GoPgxBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_oneline_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let sql = super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
 
         let param_list = params
             .iter()
@@ -146,11 +128,7 @@ impl CodegenBackend for GoPgxBackend {
                 } else {
                     format!(", {}", args.join(", "))
                 };
-                let _ = writeln!(
-                    out,
-                    "\tresult, err := db.Exec(ctx, \"{}\"{})",
-                    sql, args_str
-                );
+                let _ = writeln!(out, "\tresult, err := db.Exec(ctx, \"{}\"{})", sql, args_str);
                 let _ = writeln!(out, "\tif err != nil {{");
                 let _ = writeln!(out, "\t\treturn 0, err");
                 let _ = writeln!(out, "\t}}");
@@ -160,14 +138,8 @@ impl CodegenBackend for GoPgxBackend {
             QueryCommand::One | QueryCommand::Opt => {
                 // :one - returns single struct
                 // Generated doc comment explains zero-value behavior
-                let _ = writeln!(
-                    out,
-                    "// Returns the zero value of the struct if no row is found."
-                );
-                let _ = writeln!(
-                    out,
-                    "// Use pgx.ErrNoRows to distinguish not-found from other errors."
-                );
+                let _ = writeln!(out, "// Returns the zero value of the struct if no row is found.");
+                let _ = writeln!(out, "// Use pgx.ErrNoRows to distinguish not-found from other errors.");
                 let _ = writeln!(
                     out,
                     "func {}(ctx context.Context, db *pgxpool.Pool{}{}) ({}, error) {{",
@@ -269,12 +241,7 @@ impl CodegenBackend for GoPgxBackend {
                             .iter()
                             .map(|p| format!("item.{}", to_pascal_case(&p.field_name)))
                             .collect();
-                        let _ = writeln!(
-                            out,
-                            "\t\t_, err := tx.Exec(ctx, \"{}\", {})",
-                            sql,
-                            item_args.join(", ")
-                        );
+                        let _ = writeln!(out, "\t\t_, err := tx.Exec(ctx, \"{}\", {})", sql, item_args.join(", "));
                     } else {
                         let _ = writeln!(out, "\t\t_, err := tx.Exec(ctx, \"{}\", item)", sql);
                     }
@@ -305,11 +272,7 @@ impl CodegenBackend for GoPgxBackend {
         let _ = writeln!(out, "const (");
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(
-                out,
-                "\t{}{} {} = \"{}\"",
-                type_name, variant, type_name, value
-            );
+            let _ = writeln!(out, "\t{}{} {} = \"{}\"", type_name, variant, type_name, value);
         }
         let _ = write!(out, ")");
         Ok(out)

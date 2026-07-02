@@ -1,15 +1,15 @@
 {
-	"name": "grant_all_clean",
-	"description": "GRANT with explicit privileges should not trigger SC-SEC02",
-	"category": "lint/security",
-	"tags": ["lint", "security", "grant"],
-	"schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY);"],
-	"query_sql": "-- @name CreateReadOnlyGrant\n-- @returns :exec\nGRANT SELECT ON users TO app_role;",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "grant_all_clean",
+  "description": "GRANT with explicit privileges should not trigger SC-SEC02",
+  "category": "lint/security",
+  "tags": ["lint", "security", "grant"],
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY);"],
+  "query_sql": "-- @name CreateReadOnlyGrant\n-- @returns :exec\nGRANT SELECT ON users TO app_role;",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

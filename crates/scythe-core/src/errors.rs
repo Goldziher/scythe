@@ -62,17 +62,11 @@ impl ScytheError {
     }
 
     pub fn unknown_table(name: &str) -> Self {
-        Self::new(
-            ErrorCode::UnknownTable,
-            format!("table \"{name}\" does not exist"),
-        )
+        Self::new(ErrorCode::UnknownTable, format!("table \"{name}\" does not exist"))
     }
 
     pub fn unknown_column(name: &str) -> Self {
-        Self::new(
-            ErrorCode::UnknownColumn,
-            format!("column \"{name}\" does not exist"),
-        )
+        Self::new(ErrorCode::UnknownColumn, format!("column \"{name}\" does not exist"))
     }
 
     pub fn unknown_function(name: &str) -> Self {
@@ -83,10 +77,7 @@ impl ScytheError {
     }
 
     pub fn ambiguous_column(name: &str) -> Self {
-        Self::new(
-            ErrorCode::AmbiguousColumn,
-            format!("column \"{name}\" is ambiguous"),
-        )
+        Self::new(ErrorCode::AmbiguousColumn, format!("column \"{name}\" is ambiguous"))
     }
 
     pub fn type_mismatch(msg: impl Into<String>) -> Self {
@@ -94,10 +85,7 @@ impl ScytheError {
     }
 
     pub fn missing_annotation(what: &str) -> Self {
-        Self::new(
-            ErrorCode::MissingAnnotation,
-            format!("missing @{what} annotation"),
-        )
+        Self::new(ErrorCode::MissingAnnotation, format!("missing @{what} annotation"))
     }
 
     pub fn invalid_annotation(msg: impl Into<String>) -> Self {
@@ -112,10 +100,7 @@ impl ScytheError {
     }
 
     pub fn duplicate_alias(name: &str) -> Self {
-        Self::new(
-            ErrorCode::DuplicateAlias,
-            format!("duplicate column alias \"{name}\""),
-        )
+        Self::new(ErrorCode::DuplicateAlias, format!("duplicate column alias \"{name}\""))
     }
 
     pub fn invalid_recursion(msg: impl Into<String>) -> Self {

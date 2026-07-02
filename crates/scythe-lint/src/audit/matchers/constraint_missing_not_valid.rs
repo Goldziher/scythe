@@ -18,10 +18,7 @@ use sqlparser::ast::{AlterTableOperation, Statement, TableConstraint};
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
-pub fn match_constraint_missing_not_valid(
-    ctx: &LintContext<'_>,
-    _args: &toml::Table,
-) -> Vec<MatcherHit> {
+pub fn match_constraint_missing_not_valid(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec<MatcherHit> {
     let Statement::AlterTable(alter) = ctx.stmt else {
         return Vec::new();
     };
@@ -34,12 +31,8 @@ pub fn match_constraint_missing_not_valid(
                 constraint,
                 not_valid: false,
             } => match constraint {
-                TableConstraint::ForeignKey(fk) => {
-                    Some(("foreign key", fk.name.as_ref().map(|i| i.value.clone())))
-                }
-                TableConstraint::Check(check) => {
-                    Some(("check", check.name.as_ref().map(|i| i.value.clone())))
-                }
+                TableConstraint::ForeignKey(fk) => Some(("foreign key", fk.name.as_ref().map(|i| i.value.clone()))),
+                TableConstraint::Check(check) => Some(("check", check.name.as_ref().map(|i| i.value.clone()))),
                 _ => None,
             },
             _ => None,
@@ -47,8 +40,7 @@ pub fn match_constraint_missing_not_valid(
         .map(|(kind, name)| {
             let mut hit = MatcherHit::empty();
             hit.bindings.insert("table".to_string(), table.clone());
-            hit.bindings
-                .insert("constraint_kind".to_string(), kind.to_string());
+            hit.bindings.insert("constraint_kind".to_string(), kind.to_string());
             if let Some(n) = name {
                 hit.bindings.insert("constraint_name".to_string(), n);
             }
@@ -67,17 +59,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -132,10 +115,7 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_constraint_missing_not_valid(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("table").map(|s| s.as_str()),
-            Some("orders")
-        );
+        assert_eq!(hits[0].bindings.get("table").map(|s| s.as_str()), Some("orders"));
         assert_eq!(
             hits[0].bindings.get("constraint_kind").map(|s| s.as_str()),
             Some("foreign key")
@@ -148,7 +128,8 @@ mod tests {
 
     #[test]
     fn no_match_fk_with_not_valid() {
-        let sql = "ALTER TABLE orders ADD CONSTRAINT orders_user_fk FOREIGN KEY (user_id) REFERENCES users(id) NOT VALID;";
+        let sql =
+            "ALTER TABLE orders ADD CONSTRAINT orders_user_fk FOREIGN KEY (user_id) REFERENCES users(id) NOT VALID;";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_constraint_missing_not_valid(&ctx, &toml::Table::new());

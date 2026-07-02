@@ -49,10 +49,7 @@ fn test_version_exits_zero() {
 
     assert!(output.status.success(), "scythe --version should exit 0");
     let stdout = String::from_utf8_lossy(&output.stdout);
-    assert!(
-        stdout.contains("scythe"),
-        "version output should contain 'scythe'"
-    );
+    assert!(stdout.contains("scythe"), "version output should contain 'scythe'");
 }
 
 // ---------------------------------------------------------------------------
@@ -75,9 +72,7 @@ fn test_check_basemind_exits_zero() {
         stderr
     );
     assert!(
-        stderr.contains("Check passed")
-            || stderr.contains("valid")
-            || stderr.contains("All queries valid"),
+        stderr.contains("Check passed") || stderr.contains("valid") || stderr.contains("All queries valid"),
         "check should report success.\nstderr: {}",
         stderr
     );
@@ -200,10 +195,7 @@ output = "{}"
     );
 
     let generated_file = output_dir.join("queries.rs");
-    assert!(
-        generated_file.exists(),
-        "should create queries.rs for pagila"
-    );
+    assert!(generated_file.exists(), "should create queries.rs for pagila");
 
     let content = std::fs::read_to_string(&generated_file).unwrap();
     // Pagila has many queries, should produce substantial output
@@ -225,20 +217,14 @@ fn test_missing_config_exits_nonzero() {
         .output()
         .expect("failed to run scythe check");
 
-    assert!(
-        !output.status.success(),
-        "scythe check with missing config should fail"
-    );
+    assert!(!output.status.success(), "scythe check with missing config should fail");
 }
 
 #[test]
 fn test_no_subcommand_exits_nonzero() {
     let output = scythe_bin().output().expect("failed to run scythe");
 
-    assert!(
-        !output.status.success(),
-        "scythe with no subcommand should fail"
-    );
+    assert!(!output.status.success(), "scythe with no subcommand should fail");
 }
 
 // ---------------------------------------------------------------------------

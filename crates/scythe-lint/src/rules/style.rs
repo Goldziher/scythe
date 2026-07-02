@@ -37,11 +37,7 @@ impl LintRule for PreferExplicitJoin {
     }
 }
 
-fn walk_set_expr_for_implicit_join(
-    set_expr: &SetExpr,
-    violations: &mut Vec<Violation>,
-    rule_id: &'static str,
-) {
+fn walk_set_expr_for_implicit_join(set_expr: &SetExpr, violations: &mut Vec<Violation>, rule_id: &'static str) {
     match set_expr {
         SetExpr::Select(select)
             // Multiple tables in FROM with no JOINs = implicit join
@@ -154,8 +150,7 @@ impl LintRule for PreferCountStar {
                 if fname == "count"
                     && let FunctionArguments::List(ref arglist) = func.args
                     && arglist.args.len() == 1
-                    && let FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(v))) =
-                        &arglist.args[0]
+                    && let FunctionArg::Unnamed(FunctionArgExpr::Expr(Expr::Value(v))) = &arglist.args[0]
                     && matches!(&v.value, Value::Number(n, _) if n == "1")
                 {
                     violations.push(Violation {
@@ -364,10 +359,7 @@ mod tests {
     #[test]
     fn count_1_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name CountUsers\n-- @returns :one\nSELECT COUNT(1) AS total FROM users;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(1) AS total FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferCountStar.check_query(&ctx);
@@ -377,10 +369,7 @@ mod tests {
     #[test]
     fn count_star_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) AS total FROM users;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) AS total FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferCountStar.check_query(&ctx);
@@ -410,8 +399,7 @@ mod tests {
     #[test]
     fn single_table_no_implicit_join() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferExplicitJoin.check_query(&ctx);
@@ -466,10 +454,8 @@ mod tests {
     #[test]
     fn count_column_name_clean() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name CountEmails\n-- @returns :one\nSELECT COUNT(email) AS total FROM users;",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name CountEmails\n-- @returns :one\nSELECT COUNT(email) AS total FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferCountStar.check_query(&ctx);

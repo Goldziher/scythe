@@ -37,25 +37,16 @@ use super::registry::MatcherRegistry;
 /// Register all canonical built-in matchers into `reg`.
 pub fn register_canonical(reg: &mut MatcherRegistry) {
     // Security matchers (SC-SEC*)
-    reg.register(
-        "function_name_in_set",
-        function_name_in_set::match_function_name_in_set,
-    );
+    reg.register("function_name_in_set", function_name_in_set::match_function_name_in_set);
     reg.register("grant_kind", grant_kind::match_grant_kind);
     reg.register("grantee_includes", grantee_includes::match_grantee_includes);
     reg.register("cartesian_join", cartesian_join::match_cartesian_join);
-    reg.register(
-        "unbounded_pattern",
-        unbounded_pattern::match_unbounded_pattern,
-    );
+    reg.register("unbounded_pattern", unbounded_pattern::match_unbounded_pattern);
     reg.register(
         "security_definer_no_search_path",
         security_definer_no_search_path::match_security_definer_no_search_path,
     );
-    reg.register(
-        "role_with_attribute",
-        role_with_attribute::match_role_with_attribute,
-    );
+    reg.register("role_with_attribute", role_with_attribute::match_role_with_attribute);
     reg.register(
         "role_password_literal",
         role_password_literal::match_role_password_literal,
@@ -105,10 +96,7 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
         alter_table_rename_table::match_alter_table_rename_table,
     );
     reg.register("truncate_cascade", truncate_cascade::match_truncate_cascade);
-    reg.register(
-        "alter_column_type",
-        alter_column_type::match_alter_column_type,
-    );
+    reg.register("alter_column_type", alter_column_type::match_alter_column_type);
     reg.register(
         "column_type_disallowed",
         column_type_disallowed::match_column_type_disallowed,

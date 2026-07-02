@@ -12,12 +12,7 @@ pub fn print_summary(summary: &RunSummary, show_code: bool) {
     println!("{}", "-".repeat(100));
 
     for result in &summary.results {
-        let path_display = result
-            .snippet
-            .path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("?");
+        let path_display = result.snippet.path.file_name().and_then(|n| n.to_str()).unwrap_or("?");
 
         let status_str = match result.status {
             SnippetStatus::Pass => "PASS",
@@ -77,12 +72,7 @@ pub fn print_summary(summary: &RunSummary, show_code: bool) {
     println!("{}", "-".repeat(100));
     println!(
         "Total: {}  Passed: {}  Failed: {}  Skipped: {}  Errors: {}  Unavailable: {}",
-        summary.total,
-        summary.passed,
-        summary.failed,
-        summary.skipped,
-        summary.errors,
-        summary.unavailable,
+        summary.total, summary.passed, summary.failed, summary.skipped, summary.errors, summary.unavailable,
     );
     println!();
 }

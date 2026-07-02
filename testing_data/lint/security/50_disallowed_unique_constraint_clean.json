@@ -1,15 +1,15 @@
 {
-	"name": "disallowed_unique_constraint_clean",
-	"description": "ALTER TABLE ADD CONSTRAINT UNIQUE USING INDEX should not trigger SC-MIG14",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "disallowed-unique-constraint"],
-	"schema_sql": ["CREATE TABLE users (id bigint PRIMARY KEY, email text)"],
-	"query_sql": "-- @name UpdateUsersAttachEmailUniqueIndex\n-- @returns :exec\nALTER TABLE users ADD CONSTRAINT users_email_uniq UNIQUE USING INDEX users_email_idx",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "disallowed_unique_constraint_clean",
+  "description": "ALTER TABLE ADD CONSTRAINT UNIQUE USING INDEX should not trigger SC-MIG14",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "disallowed-unique-constraint"],
+  "schema_sql": ["CREATE TABLE users (id bigint PRIMARY KEY, email text)"],
+  "query_sql": "-- @name UpdateUsersAttachEmailUniqueIndex\n-- @returns :exec\nALTER TABLE users ADD CONSTRAINT users_email_uniq UNIQUE USING INDEX users_email_idx",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

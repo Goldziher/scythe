@@ -26,10 +26,7 @@ impl ElixirJamdbBackend {
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest(
-            "backends/elixir-jamdb/manifest.toml",
-            DEFAULT_MANIFEST_TOML,
-        )?;
+        let manifest = super::load_or_default_manifest("backends/elixir-jamdb/manifest.toml", DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
 }
@@ -55,11 +52,7 @@ impl CodegenBackend for ElixirJamdbBackend {
         "end".to_string()
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", struct_name);
@@ -83,11 +76,7 @@ impl CodegenBackend for ElixirJamdbBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -101,11 +90,7 @@ impl CodegenBackend for ElixirJamdbBackend {
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = super::rewrite_pg_placeholders(
-            &super::clean_sql_with_optional(
-                &analyzed.sql,
-                &analyzed.optional_params,
-                &analyzed.params,
-            ),
+            &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
         );
         let mut out = String::new();
@@ -173,11 +158,7 @@ impl CodegenBackend for ElixirJamdbBackend {
                         sql
                     );
                 } else if params.len() == 1 {
-                    let _ = writeln!(
-                        out,
-                        "      Jamdb.Oracle.query(tx_conn, \"{}\", [item])",
-                        sql
-                    );
+                    let _ = writeln!(out, "      Jamdb.Oracle.query(tx_conn, \"{}\", [item])", sql);
                 } else {
                     let _ = writeln!(out, "      Jamdb.Oracle.query(tx_conn, \"{}\", [])", sql);
                 }
@@ -220,10 +201,7 @@ impl CodegenBackend for ElixirJamdbBackend {
                             _ => ":number",
                         })
                         .collect();
-                    let out_tuples: Vec<String> = out_type_atoms
-                        .iter()
-                        .map(|t| format!("{{:out, {}}}", t))
-                        .collect();
+                    let out_tuples: Vec<String> = out_type_atoms.iter().map(|t| format!("{{:out, {}}}", t)).collect();
 
                     // Append INTO :N+1, :N+2, ... placeholders to SQL
                     let into_placeholders: Vec<String> = (0..columns.len())
@@ -234,8 +212,7 @@ impl CodegenBackend for ElixirJamdbBackend {
                     let all_args = if params.is_empty() {
                         format!("[{}]", out_tuples.join(", "))
                     } else {
-                        let input_args: Vec<String> =
-                            params.iter().map(|p| p.field_name.clone()).collect();
+                        let input_args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
                         format!("[{}, {}]", input_args.join(", "), out_tuples.join(", "))
                     };
 
@@ -261,11 +238,7 @@ impl CodegenBackend for ElixirJamdbBackend {
                     let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                     let _ = writeln!(out, "  end");
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "  case Jamdb.Oracle.query(conn, \"{}\", {}) do",
-                        sql, param_args
-                    );
+                    let _ = writeln!(out, "  case Jamdb.Oracle.query(conn, \"{}\", {}) do", sql, param_args);
                     let _ = writeln!(out, "    {{:ok, %{{rows: [row | _]}}}} ->");
 
                     let field_vars = columns
@@ -287,11 +260,7 @@ impl CodegenBackend for ElixirJamdbBackend {
                 }
             }
             QueryCommand::Many => {
-                let _ = writeln!(
-                    out,
-                    "  case Jamdb.Oracle.query(conn, \"{}\", {}) do",
-                    sql, param_args
-                );
+                let _ = writeln!(out, "  case Jamdb.Oracle.query(conn, \"{}\", {}) do", sql, param_args);
                 let _ = writeln!(out, "    {{:ok, %{{rows: rows}}}} ->");
 
                 let field_vars = columns
@@ -314,21 +283,13 @@ impl CodegenBackend for ElixirJamdbBackend {
                 let _ = writeln!(out, "  end");
             }
             QueryCommand::Exec => {
-                let _ = writeln!(
-                    out,
-                    "  case Jamdb.Oracle.query(conn, \"{}\", {}) do",
-                    sql, param_args
-                );
+                let _ = writeln!(out, "  case Jamdb.Oracle.query(conn, \"{}\", {}) do", sql, param_args);
                 let _ = writeln!(out, "    {{:ok, _}} -> :ok");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(
-                    out,
-                    "  case Jamdb.Oracle.query(conn, \"{}\", {}) do",
-                    sql, param_args
-                );
+                let _ = writeln!(out, "  case Jamdb.Oracle.query(conn, \"{}\", {}) do", sql, param_args);
                 let _ = writeln!(out, "    {{:ok, %{{num_rows: n}}}} -> {{:ok, n}}");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
@@ -344,23 +305,14 @@ impl CodegenBackend for ElixirJamdbBackend {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", type_name);
-        let _ = writeln!(
-            out,
-            "  @moduledoc \"Enum type for {}.\"",
-            enum_info.sql_name
-        );
+        let _ = writeln!(out, "  @moduledoc \"Enum type for {}.\"", enum_info.sql_name);
         let _ = writeln!(out);
         let _ = writeln!(out, "  @type t :: String.t()");
         let _ = writeln!(out);
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
             let _ = writeln!(out, "  @spec {}() :: String.t()", to_snake_case(&variant));
-            let _ = writeln!(
-                out,
-                "  def {}(), do: \"{}\"",
-                to_snake_case(&variant),
-                value
-            );
+            let _ = writeln!(out, "  def {}(), do: \"{}\"", to_snake_case(&variant), value);
         }
         let values_list = enum_info
             .values
@@ -378,11 +330,7 @@ impl CodegenBackend for ElixirJamdbBackend {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", name);
-        let _ = writeln!(
-            out,
-            "  @moduledoc \"Composite type for {}.\"",
-            composite.sql_name
-        );
+        let _ = writeln!(out, "  @moduledoc \"Composite type for {}.\"", composite.sql_name);
         let _ = writeln!(out);
         if composite.fields.is_empty() {
             let _ = writeln!(out, "  @type t :: %__MODULE__{{}}");
@@ -391,11 +339,7 @@ impl CodegenBackend for ElixirJamdbBackend {
         } else {
             let _ = writeln!(out, "  @type t :: %__MODULE__{{");
             for (i, f) in composite.fields.iter().enumerate() {
-                let sep = if i + 1 < composite.fields.len() {
-                    ","
-                } else {
-                    ""
-                };
+                let sep = if i + 1 < composite.fields.len() { "," } else { "" };
                 let _ = writeln!(out, "    {}: term(){}", to_snake_case(&f.name), sep);
             }
             let _ = writeln!(out, "  }}");

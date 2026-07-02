@@ -1,17 +1,15 @@
 {
-	"name": "weak_hash_clean",
-	"description": "md5() over a non-credential column should not trigger SC-SEC06",
-	"category": "lint/security",
-	"tags": ["lint", "security", "weak-hash-in-auth"],
-	"schema_sql": [
-		"CREATE TABLE documents (id SERIAL PRIMARY KEY, content TEXT NOT NULL);"
-	],
-	"query_sql": "-- @name GetDocumentHash\n-- @returns :one\nSELECT md5(content) AS content_hash FROM documents WHERE id = $1",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "weak_hash_clean",
+  "description": "md5() over a non-credential column should not trigger SC-SEC06",
+  "category": "lint/security",
+  "tags": ["lint", "security", "weak-hash-in-auth"],
+  "schema_sql": ["CREATE TABLE documents (id SERIAL PRIMARY KEY, content TEXT NOT NULL);"],
+  "query_sql": "-- @name GetDocumentHash\n-- @returns :one\nSELECT md5(content) AS content_hash FROM documents WHERE id = $1",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

@@ -42,21 +42,19 @@ pub fn register_user_rules(
     user_specs: &[(RuleSpec, String)],
 ) -> Result<(), AuditConfigError> {
     for (spec, source) in user_specs {
-        spec.validate_user_rule()
-            .map_err(|e| AuditConfigError::InvalidRule {
+        spec.validate_user_rule().map_err(|e| AuditConfigError::InvalidRule {
+            path: source.clone(),
+            rule_id: spec.id.clone(),
+            reason: e.to_string(),
+        })?;
+
+        let matcher_fn = matcher_registry
+            .get(&spec.matcher)
+            .ok_or_else(|| AuditConfigError::InvalidRule {
                 path: source.clone(),
                 rule_id: spec.id.clone(),
-                reason: e.to_string(),
+                reason: format!("unknown matcher '{}'", spec.matcher),
             })?;
-
-        let matcher_fn =
-            matcher_registry
-                .get(&spec.matcher)
-                .ok_or_else(|| AuditConfigError::InvalidRule {
-                    path: source.clone(),
-                    rule_id: spec.id.clone(),
-                    reason: format!("unknown matcher '{}'", spec.matcher),
-                })?;
 
         registry.register(Box::new(MatcherRule::new(spec.clone(), matcher_fn)));
     }
@@ -80,12 +78,12 @@ const QUALITY_TOML: &str = include_str!("rules/quality.toml");
 /// assets; a parse failure indicates a developer error, not a runtime
 /// condition.
 pub fn canonical_specs() -> Vec<RuleSpec> {
-    let security: RuleFile = toml::from_str(SECURITY_TOML)
-        .expect("canonical security.toml is invalid — fix the source TOML");
-    let migration: RuleFile = toml::from_str(MIGRATION_TOML)
-        .expect("canonical migration.toml is invalid — fix the source TOML");
-    let quality: RuleFile = toml::from_str(QUALITY_TOML)
-        .expect("canonical quality.toml is invalid — fix the source TOML");
+    let security: RuleFile =
+        toml::from_str(SECURITY_TOML).expect("canonical security.toml is invalid — fix the source TOML");
+    let migration: RuleFile =
+        toml::from_str(MIGRATION_TOML).expect("canonical migration.toml is invalid — fix the source TOML");
+    let quality: RuleFile =
+        toml::from_str(QUALITY_TOML).expect("canonical quality.toml is invalid — fix the source TOML");
     let mut all = security.rules;
     all.extend(migration.rules);
     all.extend(quality.rules);

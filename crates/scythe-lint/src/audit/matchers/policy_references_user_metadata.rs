@@ -21,34 +21,21 @@ use crate::types::LintContext;
 const USER_METADATA: &str = "user_metadata";
 
 fn expr_mentions_user_metadata(expr: &Expr) -> bool {
-    expr.to_string()
-        .to_ascii_lowercase()
-        .contains(USER_METADATA)
+    expr.to_string().to_ascii_lowercase().contains(USER_METADATA)
 }
 
-pub fn match_policy_references_user_metadata(
-    ctx: &LintContext<'_>,
-    _args: &toml::Table,
-) -> Vec<MatcherHit> {
+pub fn match_policy_references_user_metadata(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec<MatcherHit> {
     let Statement::CreatePolicy(policy) = ctx.stmt else {
         return Vec::new();
     };
-    let mentions = policy
-        .using
-        .as_ref()
-        .is_some_and(expr_mentions_user_metadata)
-        || policy
-            .with_check
-            .as_ref()
-            .is_some_and(expr_mentions_user_metadata);
+    let mentions = policy.using.as_ref().is_some_and(expr_mentions_user_metadata)
+        || policy.with_check.as_ref().is_some_and(expr_mentions_user_metadata);
     if !mentions {
         return Vec::new();
     }
     let mut hit = MatcherHit::empty();
-    hit.bindings
-        .insert("policy".to_string(), policy.name.to_string());
-    hit.bindings
-        .insert("table".to_string(), policy.table_name.to_string());
+    hit.bindings.insert("policy".to_string(), policy.name.to_string());
+    hit.bindings.insert("table".to_string(), policy.table_name.to_string());
     vec![hit]
 }
 
@@ -62,17 +49,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -127,14 +105,8 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_policy_references_user_metadata(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("policy").map(|s| s.as_str()),
-            Some("trust_jwt")
-        );
-        assert_eq!(
-            hits[0].bindings.get("table").map(|s| s.as_str()),
-            Some("tenants")
-        );
+        assert_eq!(hits[0].bindings.get("policy").map(|s| s.as_str()), Some("trust_jwt"));
+        assert_eq!(hits[0].bindings.get("table").map(|s| s.as_str()), Some("tenants"));
     }
 
     #[test]

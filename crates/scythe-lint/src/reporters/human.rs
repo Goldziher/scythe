@@ -43,11 +43,7 @@ pub fn emit(findings: &[Finding], out: &mut dyn Write) -> io::Result<()> {
         };
 
         if location.is_empty() {
-            writeln!(
-                out,
-                "  {}{}: [{}] {}",
-                source_tag, severity_str, f.rule_id, f.message
-            )?;
+            writeln!(out, "  {}{}: [{}] {}", source_tag, severity_str, f.rule_id, f.message)?;
         } else {
             writeln!(
                 out,

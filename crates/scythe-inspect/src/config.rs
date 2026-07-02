@@ -170,12 +170,11 @@ pub fn parse_inspect_section(config_path: &Path) -> Result<Option<InspectConfig>
     // Validate inline [[inspect.check]] specs.
     // ------------------------------------------------------------------
     for spec in &config.check {
-        spec.validate_user_check()
-            .map_err(|e| ConfigError::InvalidCheck {
-                path: config_path.display().to_string(),
-                check_id: spec.id.clone(),
-                reason: e.to_string(),
-            })?;
+        spec.validate_user_check().map_err(|e| ConfigError::InvalidCheck {
+            path: config_path.display().to_string(),
+            check_id: spec.id.clone(),
+            reason: e.to_string(),
+        })?;
         validate_message_bindings(spec).map_err(|e| ConfigError::InvalidCheck {
             path: config_path.display().to_string(),
             check_id: spec.id.clone(),
@@ -196,12 +195,11 @@ pub fn parse_inspect_section(config_path: &Path) -> Result<Option<InspectConfig>
 
         let specs = load_checks_from_file(&abs_path)?;
         for spec in &specs {
-            spec.validate_user_check()
-                .map_err(|e| ConfigError::InvalidCheck {
-                    path: abs_str.clone(),
-                    check_id: spec.id.clone(),
-                    reason: e.to_string(),
-                })?;
+            spec.validate_user_check().map_err(|e| ConfigError::InvalidCheck {
+                path: abs_str.clone(),
+                check_id: spec.id.clone(),
+                reason: e.to_string(),
+            })?;
             validate_message_bindings(spec).map_err(|e| ConfigError::InvalidCheck {
                 path: abs_str.clone(),
                 check_id: spec.id.clone(),
@@ -277,15 +275,9 @@ sql         = "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_
             .expect("parses")
             .expect("has inspect block");
 
-        assert_eq!(
-            cfg.database_url.as_deref(),
-            Some("postgres://localhost/dev")
-        );
+        assert_eq!(cfg.database_url.as_deref(), Some("postgres://localhost/dev"));
         assert_eq!(cfg.api_schemas, vec!["public", "api"]);
-        assert_eq!(
-            cfg.severity_overrides.get("SC-INS10"),
-            Some(&Severity::Error)
-        );
+        assert_eq!(cfg.severity_overrides.get("SC-INS10"), Some(&Severity::Error));
         assert_eq!(cfg.severity_overrides.get("SC-INS13"), Some(&Severity::Off));
         assert_eq!(cfg.suppression.len(), 1);
         assert_eq!(cfg.suppression[0].rule, "SC-INS09");
@@ -333,8 +325,7 @@ sql         = "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_
 
     #[test]
     fn returns_none_when_file_missing() {
-        let result =
-            parse_inspect_section(Path::new("/tmp/nonexistent-scythe-abc123.toml")).expect("ok");
+        let result = parse_inspect_section(Path::new("/tmp/nonexistent-scythe-abc123.toml")).expect("ok");
         assert!(result.is_none());
     }
 
@@ -389,9 +380,7 @@ sql         = "SELECT 1 AS x"
         let (path, _f) = write_toml(toml);
         let err = parse_inspect_section(&path).expect_err("should fail");
         match err {
-            ConfigError::InvalidCheck {
-                check_id, reason, ..
-            } => {
+            ConfigError::InvalidCheck { check_id, reason, .. } => {
                 assert_eq!(check_id, "BAD-001");
                 assert!(reason.contains("USER-INS-"), "reason: {reason}");
             }
@@ -421,9 +410,7 @@ sql         = "SELECT 1 AS bar"
         let (path, _f) = write_toml(toml);
         let err = parse_inspect_section(&path).expect_err("should fail");
         match err {
-            ConfigError::InvalidCheck {
-                check_id, reason, ..
-            } => {
+            ConfigError::InvalidCheck { check_id, reason, .. } => {
                 assert_eq!(check_id, "USER-INS-002");
                 assert!(reason.contains("foo"), "reason: {reason}");
             }

@@ -11,9 +11,7 @@
 //!
 //! CWE-798 (Use of Hard-coded Credentials).
 
-use sqlparser::ast::{
-    AlterRoleOperation, Expr, Password, RoleOption, Statement, Value, ValueWithSpan,
-};
+use sqlparser::ast::{AlterRoleOperation, Expr, Password, RoleOption, Statement, Value, ValueWithSpan};
 
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
@@ -70,17 +68,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -135,10 +124,7 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_role_password_literal(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("role").map(|s| s.as_str()),
-            Some("appuser")
-        );
+        assert_eq!(hits[0].bindings.get("role").map(|s| s.as_str()), Some("appuser"));
     }
 
     #[test]
@@ -157,9 +143,6 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_role_password_literal(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("role").map(|s| s.as_str()),
-            Some("appuser")
-        );
+        assert_eq!(hits[0].bindings.get("role").map(|s| s.as_str()), Some("appuser"));
     }
 }

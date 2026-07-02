@@ -1,9 +1,7 @@
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
 use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -25,17 +23,11 @@ impl CsharpOracleBackend {
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
-                    format!(
-                        "csharp-oracle only supports Oracle, got engine '{}'",
-                        engine
-                    ),
+                    format!("csharp-oracle only supports Oracle, got engine '{}'", engine),
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest(
-            "backends/csharp-oracle/manifest.toml",
-            DEFAULT_MANIFEST_TOML,
-        )?;
+        let manifest = super::load_or_default_manifest("backends/csharp-oracle/manifest.toml", DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
 }
@@ -70,14 +62,10 @@ fn oracle_out_cast(neutral_type: &str, param_expr: &str) -> String {
             "((Oracle.ManagedDataAccess.Types.OracleDecimal){}).ToDecimal()",
             param_expr
         ),
-        "date" | "datetime" | "datetime_tz" => format!(
-            "((Oracle.ManagedDataAccess.Types.OracleDate){}).Value",
-            param_expr
-        ),
-        _ => format!(
-            "((Oracle.ManagedDataAccess.Types.OracleString){}).Value",
-            param_expr
-        ),
+        "date" | "datetime" | "datetime_tz" => {
+            format!("((Oracle.ManagedDataAccess.Types.OracleDate){}).Value", param_expr)
+        }
+        _ => format!("((Oracle.ManagedDataAccess.Types.OracleString){}).Value", param_expr),
     }
 }
 
@@ -121,11 +109,7 @@ impl CodegenBackend for CsharpOracleBackend {
         "}".to_string()
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "public record {}(", struct_name);
@@ -138,11 +122,7 @@ impl CodegenBackend for CsharpOracleBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -156,11 +136,7 @@ impl CodegenBackend for CsharpOracleBackend {
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(
-                &analyzed.sql,
-                &analyzed.optional_params,
-                &analyzed.params,
-            ),
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
         );
         let mut out = String::new();
@@ -209,11 +185,7 @@ impl CodegenBackend for CsharpOracleBackend {
             } else {
                 let _ = writeln!(out, "        foreach (var item in items) {{");
             }
-            let _ = writeln!(
-                out,
-                "            using var cmd = new OracleCommand(\"{}\", conn);",
-                sql
-            );
+            let _ = writeln!(out, "            using var cmd = new OracleCommand(\"{}\", conn);", sql);
             for (i, p) in params.iter().enumerate() {
                 let value_expr = if params.len() > 1 {
                     format!("item.{}", to_pascal_case(&p.field_name))
@@ -317,20 +289,14 @@ impl CodegenBackend for CsharpOracleBackend {
                     }
                     let _ = writeln!(out, "    );");
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "    using var reader = await cmd.ExecuteReaderAsync();"
-                    );
+                    let _ = writeln!(out, "    using var reader = await cmd.ExecuteReaderAsync();");
                     let _ = writeln!(out, "    if (!await reader.ReadAsync()) return null;");
                     let _ = writeln!(out, "    return new {}(", struct_name);
                     for (i, col) in columns.iter().enumerate() {
                         let method = reader_method(&col.neutral_type);
                         let sep = if i + 1 < columns.len() { "," } else { "" };
                         if col.nullable {
-                            let _ = writeln!(
-                                out,
-                                "        reader.IsDBNull({i}) ? null : reader.{method}({i}){sep}"
-                            );
+                            let _ = writeln!(out, "        reader.IsDBNull({i}) ? null : reader.{method}({i}){sep}");
                         } else {
                             let _ = writeln!(out, "        reader.{method}({i}){sep}");
                         }
@@ -339,10 +305,7 @@ impl CodegenBackend for CsharpOracleBackend {
                 }
             }
             QueryCommand::Many => {
-                let _ = writeln!(
-                    out,
-                    "    using var reader = await cmd.ExecuteReaderAsync();"
-                );
+                let _ = writeln!(out, "    using var reader = await cmd.ExecuteReaderAsync();");
                 let _ = writeln!(out, "    var results = new List<{}>();", struct_name);
                 let _ = writeln!(out, "    while (await reader.ReadAsync()) {{");
                 let _ = writeln!(out, "        results.Add(new {}(", struct_name);
@@ -399,11 +362,7 @@ impl CodegenBackend for CsharpOracleBackend {
                     .map(|t| t.into_owned())
                     .unwrap_or_else(|_| "object".to_string());
                 let field_name = to_pascal_case(&field.name);
-                let sep = if i + 1 < composite.fields.len() {
-                    ","
-                } else {
-                    ""
-                };
+                let sep = if i + 1 < composite.fields.len() { "," } else { "" };
                 let _ = writeln!(out, "    {} {}{}", cs_type, field_name, sep);
             }
             let _ = write!(out, ");");

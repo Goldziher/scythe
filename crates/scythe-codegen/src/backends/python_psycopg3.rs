@@ -16,8 +16,7 @@ use crate::singularize;
 use super::python_common::{PythonRowType, type_support_imports};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-psycopg3.toml");
-const DEFAULT_MANIFEST_REDSHIFT: &str =
-    include_str!("../../manifests/python-psycopg3.redshift.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/python-psycopg3.redshift.toml");
 
 pub struct PythonPsycopg3Backend {
     manifest: BackendManifest,
@@ -39,10 +38,7 @@ impl PythonPsycopg3Backend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest(
-            "backends/python-psycopg3/manifest.toml",
-            default_toml,
-        )?;
+        let manifest = super::load_or_default_manifest("backends/python-psycopg3/manifest.toml", default_toml)?;
         Ok(Self {
             manifest,
             row_type: PythonRowType::default(),
@@ -73,11 +69,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
     fn file_header(&self) -> String {
         let import_line = self.row_type.import_line();
         let (needs_uuid, needs_any) = type_support_imports(&self.manifest);
-        let uuid_line = if needs_uuid {
-            "import uuid  # noqa: F401\n"
-        } else {
-            ""
-        };
+        let uuid_line = if needs_uuid { "import uuid  # noqa: F401\n" } else { "" };
         let any_line = if needs_any {
             "from typing import Any  # noqa: F401\n"
         } else {
@@ -120,11 +112,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
         }
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = write!(out, "{}", self.row_type.decorator());
@@ -141,11 +129,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let singular = singularize(table_name);
         let name = to_pascal_case(&singular);
         self.generate_row_struct(&name, columns)
@@ -170,11 +154,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         // Clean and rewrite SQL
-        let sql_clean = super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let name_map: std::collections::HashMap<u32, String> = analyzed
             .params
             .iter()
@@ -216,11 +196,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                     .enumerate()
                     .map(|(i, col)| format!("{}=row[{}]", col.field_name, i))
                     .collect();
-                let oneliner = format!(
-                    "    return {}({})",
-                    struct_name,
-                    field_assignments.join(", ")
-                );
+                let oneliner = format!("    return {}({})", struct_name, field_assignments.join(", "));
                 if oneliner.len() <= 88 {
                     let _ = writeln!(out, "{}", oneliner);
                 } else {
@@ -280,8 +256,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 let batch_fn_name = format!("{}_batch", func_name);
                 // Build the items type annotation
                 let items_type = if params.len() > 1 {
-                    let tuple_types: Vec<String> =
-                        params.iter().map(|p| p.full_type.clone()).collect();
+                    let tuple_types: Vec<String> = params.iter().map(|p| p.full_type.clone()).collect();
                     format!("list[tuple[{}]]", tuple_types.join(", "))
                 } else if params.len() == 1 {
                     format!("list[{}]", params[0].full_type)
@@ -386,11 +361,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "class {}(str, Enum):", type_name);
-        let _ = writeln!(
-            out,
-            "    \"\"\"Database enum type {}.\"\"\"",
-            enum_info.sql_name
-        );
+        let _ = writeln!(out, "    \"\"\"Database enum type {}.\"\"\"", enum_info.sql_name);
         if enum_info.values.is_empty() {
             let _ = writeln!(out, "    pass");
         } else {
@@ -408,11 +379,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let mut out = String::new();
         let _ = write!(out, "{}", self.row_type.decorator());
         let _ = writeln!(out, "{}", self.row_type.class_def(&name));
-        let _ = writeln!(
-            out,
-            "    \"\"\"Composite type {}.\"\"\"",
-            composite.sql_name
-        );
+        let _ = writeln!(out, "    \"\"\"Composite type {}.\"\"\"", composite.sql_name);
         if composite.fields.is_empty() {
             let _ = writeln!(out, "    pass");
         } else {
@@ -421,10 +388,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 let py_type = resolve_type(&field.neutral_type, &self.manifest, false)
                     .map(|t| t.into_owned())
                     .map_err(|e| {
-                        ScytheError::new(
-                            ErrorCode::InternalError,
-                            format!("composite field type error: {}", e),
-                        )
+                        ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                     })?;
                 let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
             }

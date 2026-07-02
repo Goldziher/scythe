@@ -195,9 +195,8 @@ impl Catalog {
                         // Try to get arg type
                         if let sqlparser::ast::FunctionArguments::List(args) = &func.args
                             && let Some(first) = args.args.first()
-                            && let sqlparser::ast::FunctionArg::Unnamed(
-                                sqlparser::ast::FunctionArgExpr::Expr(e),
-                            ) = first
+                            && let sqlparser::ast::FunctionArg::Unnamed(sqlparser::ast::FunctionArgExpr::Expr(e)) =
+                                first
                         {
                             let (_, t, _) = self.resolve_view_expr(e, sources);
                             return (name, t, true);
@@ -223,9 +222,7 @@ mod tests {
             "CREATE VIEW active_users AS SELECT id, name FROM users WHERE status = 'active';",
         ])
         .unwrap();
-        let view = catalog
-            .get_table("active_users")
-            .expect("view should exist");
+        let view = catalog.get_table("active_users").expect("view should exist");
         assert_eq!(view.columns.len(), 2);
         assert_eq!(view.columns[0].name, "id");
         assert_eq!(view.columns[0].sql_type, "integer");
@@ -286,9 +283,7 @@ mod tests {
             "CREATE MATERIALIZED VIEW mv AS SELECT id, name FROM users WHERE status = 'active';",
         ])
         .unwrap();
-        let view = catalog
-            .get_table("mv")
-            .expect("materialized view should exist");
+        let view = catalog.get_table("mv").expect("materialized view should exist");
         assert_eq!(view.columns.len(), 2);
         assert_eq!(view.columns[0].name, "id");
         assert_eq!(view.columns[1].name, "name");
@@ -302,9 +297,7 @@ mod tests {
             "CREATE VIEW active_names AS SELECT name FROM active_users;",
         ])
         .unwrap();
-        let view = catalog
-            .get_table("active_names")
-            .expect("view-from-view should exist");
+        let view = catalog.get_table("active_names").expect("view-from-view should exist");
         assert_eq!(view.columns.len(), 1);
         assert_eq!(view.columns[0].name, "name");
         assert_eq!(view.columns[0].sql_type, "text");

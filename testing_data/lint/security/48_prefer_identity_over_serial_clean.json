@@ -1,15 +1,15 @@
 {
-	"name": "prefer_identity_over_serial_clean",
-	"description": "CREATE INDEX CONCURRENTLY should not trigger SC-MIG13",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "prefer-identity-over-serial"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateUserNameIndex\n-- @returns :exec\nCREATE INDEX CONCURRENTLY idx_users_name ON users (name)",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "prefer_identity_over_serial_clean",
+  "description": "CREATE INDEX CONCURRENTLY should not trigger SC-MIG13",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "prefer-identity-over-serial"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateUserNameIndex\n-- @returns :exec\nCREATE INDEX CONCURRENTLY idx_users_name ON users (name)",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

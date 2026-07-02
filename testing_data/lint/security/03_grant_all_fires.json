@@ -1,20 +1,20 @@
 {
-	"name": "grant_all_fires",
-	"description": "GRANT ALL should trigger SC-SEC02",
-	"category": "lint/security",
-	"tags": ["lint", "security", "grant"],
-	"schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY);"],
-	"query_sql": "-- @name CreateGrantAll\n-- @returns :exec\nGRANT ALL ON users TO app_role;",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-SEC02",
-					"message_contains": "GRANT ALL"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "grant_all_fires",
+  "description": "GRANT ALL should trigger SC-SEC02",
+  "category": "lint/security",
+  "tags": ["lint", "security", "grant"],
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY);"],
+  "query_sql": "-- @name CreateGrantAll\n-- @returns :exec\nGRANT ALL ON users TO app_role;",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-SEC02",
+          "message_contains": "GRANT ALL"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

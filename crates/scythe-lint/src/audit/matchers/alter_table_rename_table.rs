@@ -13,10 +13,7 @@ use sqlparser::ast::{AlterTableOperation, RenameTableNameKind, Statement};
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
-pub fn match_alter_table_rename_table(
-    ctx: &LintContext<'_>,
-    _args: &toml::Table,
-) -> Vec<MatcherHit> {
+pub fn match_alter_table_rename_table(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec<MatcherHit> {
     let Statement::AlterTable(alter) = ctx.stmt else {
         return Vec::new();
     };
@@ -27,13 +24,10 @@ pub fn match_alter_table_rename_table(
         .filter_map(|op| match op {
             AlterTableOperation::RenameTable { table_name } => {
                 let new_table = match table_name {
-                    RenameTableNameKind::To(name) | RenameTableNameKind::As(name) => {
-                        name.to_string()
-                    }
+                    RenameTableNameKind::To(name) | RenameTableNameKind::As(name) => name.to_string(),
                 };
                 let mut hit = MatcherHit::empty();
-                hit.bindings
-                    .insert("old_table".to_string(), old_table.clone());
+                hit.bindings.insert("old_table".to_string(), old_table.clone());
                 hit.bindings.insert("new_table".to_string(), new_table);
                 Some(hit)
             }
@@ -52,17 +46,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -117,14 +102,8 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_alter_table_rename_table(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("old_table").map(|s| s.as_str()),
-            Some("users")
-        );
-        assert_eq!(
-            hits[0].bindings.get("new_table").map(|s| s.as_str()),
-            Some("accounts")
-        );
+        assert_eq!(hits[0].bindings.get("old_table").map(|s| s.as_str()), Some("users"));
+        assert_eq!(hits[0].bindings.get("new_table").map(|s| s.as_str()), Some("accounts"));
     }
 
     #[test]

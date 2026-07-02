@@ -18,6 +18,11 @@ env:
   CARGO_TERM_COLOR: always
 
 jobs:
+  validate:
+    uses: xberg-io/actions/.github/workflows/reusable-validate.yml@v1
+    with:
+      setup-rust: true
+
   lint:
     name: Lint
     runs-on: ubuntu-latest

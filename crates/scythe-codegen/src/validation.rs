@@ -4,8 +4,9 @@ use std::process::Command;
 /// Returns a list of errors (empty = passed).
 pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
     match backend_name {
-        "python-psycopg3" | "python-asyncpg" | "python-aiomysql" | "python-aiosqlite"
-        | "python-duckdb" => validate_python(code),
+        "python-psycopg3" | "python-asyncpg" | "python-aiomysql" | "python-aiosqlite" | "python-duckdb" => {
+            validate_python(code)
+        }
         "typescript-postgres"
         | "typescript-pg"
         | "typescript-mysql2"
@@ -32,9 +33,7 @@ fn validate_python(code: &str) -> Vec<String> {
 
     // Check for pre-3.10 typing imports (should NOT be used)
     if code.contains("from __future__ import annotations") {
-        errors.push(
-            "unnecessary `from __future__ import annotations` — target is Python 3.10+".into(),
-        );
+        errors.push("unnecessary `from __future__ import annotations` — target is Python 3.10+".into());
     }
 
     let has_struct = code.contains("@dataclass")
@@ -71,10 +70,7 @@ fn validate_python(code: &str) -> Vec<String> {
     // Check for proper indentation: 4 spaces, no tabs
     for (i, line) in code.lines().enumerate() {
         if line.starts_with('\t') {
-            errors.push(format!(
-                "line {} uses tab indentation (should use 4 spaces)",
-                i + 1
-            ));
+            errors.push(format!("line {} uses tab indentation (should use 4 spaces)", i + 1));
             break; // one error is enough
         }
     }
@@ -90,11 +86,7 @@ fn validate_typescript(code: &str) -> Vec<String> {
     // Structs are only required when the code is NOT exec-only (i.e. when
     // there is something beyond a bare function).
     let has_zod = code.contains("z.object(") || code.contains("z.infer<");
-    if !code.contains("export interface")
-        && !code.contains("export type")
-        && !has_zod
-        && !has_function
-    {
+    if !code.contains("export interface") && !code.contains("export type") && !has_zod && !has_function {
         errors.push("missing `export interface` or `export type` (for DTOs)".into());
     }
 
@@ -144,13 +136,9 @@ fn validate_go(code: &str) -> Vec<String> {
     }
 
     // Go uses tabs for indentation
-    let has_indented_lines = code
-        .lines()
-        .any(|l| l.starts_with('\t') || l.starts_with("  "));
+    let has_indented_lines = code.lines().any(|l| l.starts_with('\t') || l.starts_with("  "));
     if has_indented_lines {
-        let uses_spaces = code
-            .lines()
-            .any(|l| l.starts_with("    ") && !l.trim().is_empty());
+        let uses_spaces = code.lines().any(|l| l.starts_with("    ") && !l.trim().is_empty());
         if uses_spaces {
             errors.push("uses space indentation (Go standard is tabs)".into());
         }
@@ -418,19 +406,13 @@ fn validate_python_tools(code: &str) -> Option<Vec<String>> {
 
     // ast.parse — syntax check
     let out = Command::new("python3")
-        .args([
-            "-c",
-            &format!("import ast; ast.parse(open({:?}).read())", path),
-        ])
+        .args(["-c", &format!("import ast; ast.parse(open({:?}).read())", path)])
         .output()
         .ok()?;
     if !out.status.success() {
         errors.push(format!(
             "python syntax: {}",
-            String::from_utf8_lossy(&out.stderr)
-                .lines()
-                .next()
-                .unwrap_or("")
+            String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("")
         ));
     }
 
@@ -490,10 +472,7 @@ fn validate_go_tools(code: &str) -> Option<Vec<String>> {
     let path = write_temp(code, ".go")?;
     let mut errors = vec![];
 
-    let out = Command::new("gofmt")
-        .args(["-e", path.to_str()?])
-        .output()
-        .ok()?;
+    let out = Command::new("gofmt").args(["-e", path.to_str()?]).output().ok()?;
     if !out.status.success() {
         for line in String::from_utf8_lossy(&out.stderr).lines().take(3) {
             if !line.trim().is_empty() {
@@ -513,17 +492,11 @@ fn validate_ruby_tools(code: &str) -> Option<Vec<String>> {
     let path = write_temp(code, ".rb")?;
     let mut errors = vec![];
 
-    let out = Command::new("ruby")
-        .args(["-c", path.to_str()?])
-        .output()
-        .ok()?;
+    let out = Command::new("ruby").args(["-c", path.to_str()?]).output().ok()?;
     if !out.status.success() {
         errors.push(format!(
             "ruby syntax: {}",
-            String::from_utf8_lossy(&out.stderr)
-                .lines()
-                .next()
-                .unwrap_or("")
+            String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("")
         ));
     }
 
@@ -538,17 +511,11 @@ fn validate_php_tools(code: &str) -> Option<Vec<String>> {
     let path = write_temp(code, ".php")?;
     let mut errors = vec![];
 
-    let out = Command::new("php")
-        .args(["-l", path.to_str()?])
-        .output()
-        .ok()?;
+    let out = Command::new("php").args(["-l", path.to_str()?]).output().ok()?;
     if !out.status.success() {
         errors.push(format!(
             "php syntax: {}",
-            String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .next()
-                .unwrap_or("")
+            String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or("")
         ));
     }
 

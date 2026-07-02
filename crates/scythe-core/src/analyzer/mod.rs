@@ -7,8 +7,7 @@ mod type_conversion;
 mod types;
 
 pub use types::{
-    AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, EnumInfo,
-    GroupByConfig,
+    AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, EnumInfo, GroupByConfig,
 };
 
 use ahash::{AHashMap, AHashSet};
@@ -44,29 +43,14 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
     // Apply annotation overrides
     let mut columns = columns;
     for col in &mut columns {
-        if query
-            .annotations
-            .nullable_overrides
-            .iter()
-            .any(|o| o == &col.name)
-        {
+        if query.annotations.nullable_overrides.iter().any(|o| o == &col.name) {
             col.nullable = true;
         }
-        if query
-            .annotations
-            .nonnull_overrides
-            .iter()
-            .any(|o| o == &col.name)
-        {
+        if query.annotations.nonnull_overrides.iter().any(|o| o == &col.name) {
             col.nullable = false;
         }
         // Apply @json type mappings
-        if let Some(mapping) = query
-            .annotations
-            .json_mappings
-            .iter()
-            .find(|m| m.column == col.name)
-        {
+        if let Some(mapping) = query.annotations.json_mappings.iter().find(|m| m.column == col.name) {
             col.neutral_type = format!("json_typed<{}>", mapping.rust_type);
         }
     }
@@ -80,10 +64,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         .iter()
         .map(|p| {
             let name = p.name.clone().unwrap_or_else(|| format!("p{}", p.position));
-            let neutral_type = p
-                .neutral_type
-                .clone()
-                .unwrap_or_else(|| "unknown".to_string());
+            let neutral_type = p.neutral_type.clone().unwrap_or_else(|| "unknown".to_string());
             AnalyzedParam {
                 name,
                 neutral_type,

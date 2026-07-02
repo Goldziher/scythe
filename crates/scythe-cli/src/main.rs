@@ -136,10 +136,8 @@ fn main() {
 
     let result = match cli.command {
         Commands::Generate { config } => commands::generate::run_generate(&config),
-        Commands::Migrate { sqlc_config } => {
-            commands::migrate::run_migrate(std::path::Path::new(&sqlc_config))
-                .map_err(|e| Box::new(e) as Box<dyn std::error::Error>)
-        }
+        Commands::Migrate { sqlc_config } => commands::migrate::run_migrate(std::path::Path::new(&sqlc_config))
+            .map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
         Commands::Check { config } => commands::generate::run_check(&config),
         Commands::Fmt {
             config,

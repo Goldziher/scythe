@@ -14,8 +14,7 @@ use crate::singularize;
 
 /// Default embedded manifest TOML for rust-tokio-postgres, used as fallback.
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-tokio-postgres.toml");
-const DEFAULT_MANIFEST_REDSHIFT: &str =
-    include_str!("../../manifests/rust-tokio-postgres.redshift.toml");
+const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/rust-tokio-postgres.redshift.toml");
 
 /// TokioPostgresBackend generates Rust code targeting the tokio-postgres crate.
 pub struct TokioPostgresBackend {
@@ -39,10 +38,7 @@ impl TokioPostgresBackend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest(
-            "backends/rust-tokio-postgres/manifest.toml",
-            default_toml,
-        )?;
+        let manifest = super::load_or_default_manifest("backends/rust-tokio-postgres/manifest.toml", default_toml)?;
         Ok(Self {
             manifest,
             serde: false,
@@ -98,10 +94,7 @@ impl CodegenBackend for TokioPostgresBackend {
             .to_string()
     }
 
-    fn apply_options(
-        &mut self,
-        options: &std::collections::HashMap<String, String>,
-    ) -> Result<(), ScytheError> {
+    fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         if let Some(val) = options.get("serde") {
             self.serde = val == "true";
         }
@@ -111,20 +104,12 @@ impl CodegenBackend for TokioPostgresBackend {
         Ok(())
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         generate_struct_with_from_row(&struct_name, columns, &self.struct_derives())
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let singular = singularize(table_name);
         let struct_name = to_pascal_case(&singular).into_owned();
         generate_struct_with_from_row(&struct_name, columns, &self.struct_derives())
@@ -152,11 +137,7 @@ impl CodegenBackend for TokioPostgresBackend {
         }
 
         // Clean SQL
-        let sql = super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
 
         // Handle :batch separately
         if matches!(analyzed.command, QueryCommand::Batch) {
@@ -188,11 +169,7 @@ impl CodegenBackend for TokioPostgresBackend {
                         }
                     })
                     .collect();
-                let _ = writeln!(
-                    out,
-                    "        client.execute(&stmt, &[{}]).await?;",
-                    refs.join(", ")
-                );
+                let _ = writeln!(out, "        client.execute(&stmt, &[{}]).await?;", refs.join(", "));
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "    Ok(())");
             } else if params.len() == 1 {
@@ -254,10 +231,7 @@ impl CodegenBackend for TokioPostgresBackend {
         let param_refs: String = if params.is_empty() {
             "&[]".to_string()
         } else {
-            let refs: Vec<String> = params
-                .iter()
-                .map(|p| format!("&{}", p.field_name))
-                .collect();
+            let refs: Vec<String> = params.iter().map(|p| format!("&{}", p.field_name)).collect();
             format!("&[{}]", refs.join(", "))
         };
 
@@ -284,18 +258,10 @@ impl CodegenBackend for TokioPostgresBackend {
                     "    let rows = client.query(r#\"{}\"#, {}).await?;",
                     sql, param_refs
                 );
-                let _ = writeln!(
-                    out,
-                    "    Ok(rows.iter().map({}::from_row).collect())",
-                    struct_name
-                );
+                let _ = writeln!(out, "    Ok(rows.iter().map({}::from_row).collect())", struct_name);
             }
             QueryCommand::Exec => {
-                let _ = writeln!(
-                    out,
-                    "    client.execute(r#\"{}\"#, {}).await?;",
-                    sql, param_refs
-                );
+                let _ = writeln!(out, "    client.execute(r#\"{}\"#, {}).await?;", sql, param_refs);
                 let _ = writeln!(out, "    Ok(())");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
@@ -355,34 +321,20 @@ impl CodegenBackend for TokioPostgresBackend {
         // impl FromStr for deserialization
         let _ = writeln!(out, "impl std::str::FromStr for {} {{", type_name);
         let _ = writeln!(out, "    type Err = String;");
-        let _ = writeln!(
-            out,
-            "    fn from_str(s: &str) -> Result<Self, Self::Err> {{"
-        );
+        let _ = writeln!(out, "    fn from_str(s: &str) -> Result<Self, Self::Err> {{");
         let _ = writeln!(out, "        match s {{");
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(
-                out,
-                "            \"{}\" => Ok({}::{}),",
-                value, type_name, variant
-            );
+            let _ = writeln!(out, "            \"{}\" => Ok({}::{}),", value, type_name, variant);
         }
-        let _ = writeln!(
-            out,
-            "            _ => Err(format!(\"unknown variant: {{}}\", s)),"
-        );
+        let _ = writeln!(out, "            _ => Err(format!(\"unknown variant: {{}}\", s)),");
         let _ = writeln!(out, "        }}");
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
 
         // impl FromSql for tokio-postgres row deserialization
-        let _ = writeln!(
-            out,
-            "impl<'a> tokio_postgres::types::FromSql<'a> for {} {{",
-            type_name
-        );
+        let _ = writeln!(out, "impl<'a> tokio_postgres::types::FromSql<'a> for {} {{", type_name);
         let _ = writeln!(
             out,
             "    fn from_sql(ty: &tokio_postgres::types::Type, raw: &'a [u8]) -> Result<Self, Box<dyn std::error::Error + Sync + Send>> {{"
@@ -391,17 +343,10 @@ impl CodegenBackend for TokioPostgresBackend {
             out,
             "        let s = <&str as tokio_postgres::types::FromSql>::from_sql(ty, raw)?;"
         );
-        let _ = writeln!(
-            out,
-            "        s.parse::<{}>().map_err(|e| e.into())",
-            type_name
-        );
+        let _ = writeln!(out, "        s.parse::<{}>().map_err(|e| e.into())", type_name);
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out);
-        let _ = writeln!(
-            out,
-            "    fn accepts(ty: &tokio_postgres::types::Type) -> bool {{"
-        );
+        let _ = writeln!(out, "    fn accepts(ty: &tokio_postgres::types::Type) -> bool {{");
         let _ = writeln!(
             out,
             "        ty.name() == \"{}\" || <&str as tokio_postgres::types::FromSql>::accepts(ty)",
@@ -412,11 +357,7 @@ impl CodegenBackend for TokioPostgresBackend {
         let _ = writeln!(out);
 
         // impl ToSql for tokio-postgres parameter serialization
-        let _ = writeln!(
-            out,
-            "impl tokio_postgres::types::ToSql for {} {{",
-            type_name
-        );
+        let _ = writeln!(out, "impl tokio_postgres::types::ToSql for {} {{", type_name);
         let _ = writeln!(
             out,
             "    fn to_sql(&self, ty: &tokio_postgres::types::Type, out: &mut tokio_postgres::types::private::BytesMut) -> Result<tokio_postgres::types::IsNull, Box<dyn std::error::Error + Sync + Send>> {{"
@@ -424,10 +365,7 @@ impl CodegenBackend for TokioPostgresBackend {
         let _ = writeln!(out, "        self.to_string().to_sql(ty, out)");
         let _ = writeln!(out, "    }}");
         let _ = writeln!(out);
-        let _ = writeln!(
-            out,
-            "    fn accepts(ty: &tokio_postgres::types::Type) -> bool {{"
-        );
+        let _ = writeln!(out, "    fn accepts(ty: &tokio_postgres::types::Type) -> bool {{");
         let _ = writeln!(
             out,
             "        ty.name() == \"{}\" || <String as tokio_postgres::types::ToSql>::accepts(ty)",
@@ -451,17 +389,9 @@ impl CodegenBackend for TokioPostgresBackend {
             let rust_type = resolve_type(&field.neutral_type, &self.manifest, false)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("composite field type error: {}", e),
-                    )
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
-            let _ = writeln!(
-                out,
-                "    pub {}: {},",
-                to_snake_case(&field.name),
-                rust_type
-            );
+            let _ = writeln!(out, "    pub {}: {},", to_snake_case(&field.name), rust_type);
         }
         let _ = write!(out, "}}");
         Ok(out)
@@ -494,17 +424,10 @@ fn generate_struct_with_from_row(
 
     // from_row is infallible — matches tokio-postgres row.get() convention (panics on mismatch)
     let _ = writeln!(out, "impl {} {{", struct_name);
-    let _ = writeln!(
-        out,
-        "    pub fn from_row(row: &tokio_postgres::Row) -> Self {{"
-    );
+    let _ = writeln!(out, "    pub fn from_row(row: &tokio_postgres::Row) -> Self {{");
     let _ = writeln!(out, "        Self {{");
     for col in columns {
-        let _ = writeln!(
-            out,
-            "            {}: row.get(\"{}\"),",
-            col.field_name, col.name
-        );
+        let _ = writeln!(out, "            {}: row.get(\"{}\"),", col.field_name, col.name);
     }
     let _ = writeln!(out, "        }}");
     let _ = writeln!(out, "    }}");

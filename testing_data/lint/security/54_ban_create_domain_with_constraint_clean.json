@@ -1,15 +1,15 @@
 {
-	"name": "ban_create_domain_with_constraint_clean",
-	"description": "CREATE DOMAIN without constraints should not trigger SC-MIG16",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "ban-create-domain-with-constraint"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreatePositiveIntDomain\n-- @returns :exec\nCREATE DOMAIN positive_int AS integer",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "ban_create_domain_with_constraint_clean",
+  "description": "CREATE DOMAIN without constraints should not trigger SC-MIG16",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "ban-create-domain-with-constraint"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreatePositiveIntDomain\n-- @returns :exec\nCREATE DOMAIN positive_int AS integer",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

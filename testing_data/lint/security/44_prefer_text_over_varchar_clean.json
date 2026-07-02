@@ -1,15 +1,15 @@
 {
-	"name": "prefer_text_over_varchar_clean",
-	"description": "CREATE TABLE with text column should not trigger SC-MIG11",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "prefer-text-over-varchar"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateTagsTable\n-- @returns :exec\nCREATE TABLE tags (id bigint PRIMARY KEY, label text)",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "prefer_text_over_varchar_clean",
+  "description": "CREATE TABLE with text column should not trigger SC-MIG11",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "prefer-text-over-varchar"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateTagsTable\n-- @returns :exec\nCREATE TABLE tags (id bigint PRIMARY KEY, label text)",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

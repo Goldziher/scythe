@@ -5,9 +5,7 @@ use serde::Deserialize;
 
 use ahash::AHashSet;
 
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
 use scythe_codegen::{
     CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, TypeOverride,
     generate_single_enum_def_with_backend, generate_with_backend_and_overrides, get_backend,
@@ -125,10 +123,7 @@ fn toml_value_to_string(value: &toml::Value) -> String {
 
 /// Convert config into a list of resolved generation targets.
 fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
-    let default_output = sql_config
-        .output
-        .clone()
-        .unwrap_or_else(|| "generated".to_string());
+    let default_output = sql_config.output.clone().unwrap_or_else(|| "generated".to_string());
 
     match &sql_config.gen_config {
         Some(GenTargets::Array(targets)) => targets
@@ -212,10 +207,10 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
 
 pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     // 1. Read and parse config
-    let config_str = std::fs::read_to_string(config_path)
-        .map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
-    let config: ScytheConfig = toml::from_str(&config_str)
-        .map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+    let config_str =
+        std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
+    let config: ScytheConfig =
+        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
     // 2. Process each SQL block
     for sql_config in &config.sql {
@@ -227,10 +222,7 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
         // 4. Read all schema SQL
         let schema_contents: Vec<String> = schema_files
             .iter()
-            .map(|p| {
-                std::fs::read_to_string(p)
-                    .map_err(|e| format!("failed to read schema file '{}': {}", p, e))
-            })
+            .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
             .collect::<Result<_, _>>()?;
         let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
@@ -250,11 +242,7 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
             all_query_blocks.extend(blocks);
         }
 
-        eprintln!(
-            "[{}] Analyzing {} queries...",
-            sql_config.name,
-            all_query_blocks.len()
-        );
+        eprintln!("[{}] Analyzing {} queries...", sql_config.name, all_query_blocks.len());
 
         // 8. Parse and analyze all queries once
         let mut analyzed_queries: Vec<AnalyzedQuery> = Vec::new();
@@ -289,9 +277,9 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
             })?;
 
             if !target.options.is_empty() {
-                backend.apply_options(&target.options).map_err(|e| {
-                    format!("backend '{}' apply_options failed: {}", target.backend, e)
-                })?;
+                backend
+                    .apply_options(&target.options)
+                    .map_err(|e| format!("backend '{}' apply_options failed: {}", target.backend, e))?;
             }
 
             generate_for_backend(
@@ -412,8 +400,7 @@ fn generate_for_backend(
 
     // Write output
     let out_path = Path::new(output_dir);
-    std::fs::create_dir_all(out_path)
-        .map_err(|e| format!("failed to create output dir '{}': {}", output_dir, e))?;
+    std::fs::create_dir_all(out_path).map_err(|e| format!("failed to create output dir '{}': {}", output_dir, e))?;
 
     let output_file = out_path.join(&filename);
     let mut output_content = if output_parts.is_empty() {
@@ -427,13 +414,8 @@ fn generate_for_backend(
         output_content = format_rust_code_if_possible(&output_content);
     }
 
-    std::fs::write(&output_file, &output_content).map_err(|e| {
-        format!(
-            "failed to write output file '{}': {}",
-            output_file.display(),
-            e
-        )
-    })?;
+    std::fs::write(&output_file, &output_content)
+        .map_err(|e| format!("failed to write output file '{}': {}", output_file.display(), e))?;
 
     eprintln!(
         "[{}] Writing {} output to {}",
@@ -449,10 +431,7 @@ fn generate_for_backend(
 }
 
 /// Determine the struct name for a query, matching the logic in scythe_codegen.
-fn determine_struct_name(
-    analyzed: &AnalyzedQuery,
-    naming: &scythe_backend::naming::NamingConfig,
-) -> String {
+fn determine_struct_name(analyzed: &AnalyzedQuery, naming: &scythe_backend::naming::NamingConfig) -> String {
     if let Some(ref table_name) = analyzed.source_table {
         let singular = scythe_codegen::singularize(table_name);
         to_pascal_case(&singular).into_owned()
@@ -489,18 +468,8 @@ fn generate_rbs_if_supported(
 
     for analyzed in analyzed_queries {
         let source_table = analyzed.source_table.as_deref().unwrap_or("");
-        let columns = scythe_codegen::resolve::resolve_columns(
-            &analyzed.columns,
-            manifest,
-            overrides,
-            source_table,
-        )?;
-        let params = scythe_codegen::resolve::resolve_params(
-            &analyzed.params,
-            manifest,
-            overrides,
-            source_table,
-        )?;
+        let columns = scythe_codegen::resolve::resolve_columns(&analyzed.columns, manifest, overrides, source_table)?;
+        let params = scythe_codegen::resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
 
         let func = fn_name(&analyzed.name, naming);
         let struct_name = determine_struct_name(analyzed, naming);
@@ -518,11 +487,7 @@ fn generate_rbs_if_supported(
 
         rbs_queries.push(RbsQueryInfo {
             func_name: func,
-            struct_name: if needs_struct {
-                Some(struct_name)
-            } else {
-                None
-            },
+            struct_name: if needs_struct { Some(struct_name) } else { None },
             columns,
             params,
             command,
@@ -532,11 +497,7 @@ fn generate_rbs_if_supported(
         for enum_info in &analyzed.enums {
             if seen_enums.insert(enum_info.sql_name.clone()) {
                 let type_name = enum_type_name(&enum_info.sql_name, naming);
-                let values: Vec<String> = enum_info
-                    .values
-                    .iter()
-                    .map(|v| enum_variant_name(v, naming))
-                    .collect();
+                let values: Vec<String> = enum_info.values.iter().map(|v| enum_variant_name(v, naming)).collect();
                 rbs_enums.push(RbsEnumInfo { type_name, values });
             }
         }
@@ -569,10 +530,10 @@ fn generate_rbs_if_supported(
 pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     use scythe_lint::{LintContext, LintEngine, QueryViolation, Severity, default_registry};
 
-    let config_str = std::fs::read_to_string(config_path)
-        .map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
-    let config: ScytheConfig = toml::from_str(&config_str)
-        .map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+    let config_str =
+        std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
+    let config: ScytheConfig =
+        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
     // Build lint engine from config
     let mut registry = default_registry();
@@ -589,10 +550,7 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         let schema_files = resolve_globs(&sql_config.schema)?;
         let schema_contents: Vec<String> = schema_files
             .iter()
-            .map(|p| {
-                std::fs::read_to_string(p)
-                    .map_err(|e| format!("failed to read schema file '{}': {}", p, e))
-            })
+            .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
             .collect::<Result<_, _>>()?;
         let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
@@ -608,11 +566,7 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
             all_query_blocks.extend(blocks);
         }
 
-        eprintln!(
-            "[{}] Checking {} queries...",
-            sql_config.name,
-            all_query_blocks.len()
-        );
+        eprintln!("[{}] Checking {} queries...", sql_config.name, all_query_blocks.len());
 
         let mut query_names: Vec<String> = Vec::new();
 
@@ -675,28 +629,18 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         match qv.severity {
             Severity::Error => {
                 error_count += 1;
-                eprintln!(
-                    "error: [{}] {} (query: {})",
-                    qv.rule_id, qv.message, qv.query_name
-                );
+                eprintln!("error: [{}] {} (query: {})", qv.rule_id, qv.message, qv.query_name);
             }
             Severity::Warn => {
                 warning_count += 1;
-                eprintln!(
-                    "warning: [{}] {} (query: {})",
-                    qv.rule_id, qv.message, qv.query_name
-                );
+                eprintln!("warning: [{}] {} (query: {})", qv.rule_id, qv.message, qv.query_name);
             }
             Severity::Off => {}
         }
     }
 
     if error_count > 0 {
-        return Err(format!(
-            "lint: {} error(s), {} warning(s)",
-            error_count, warning_count
-        )
-        .into());
+        return Err(format!("lint: {} error(s), {} warning(s)", error_count, warning_count).into());
     }
     if warning_count > 0 {
         eprintln!("lint: {} warning(s)", warning_count);

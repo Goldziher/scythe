@@ -47,8 +47,7 @@ impl JavaJdbcBackend {
                 ));
             }
         };
-        let manifest =
-            super::load_or_default_manifest("backends/java-jdbc/manifest.toml", default_toml)?;
+        let manifest = super::load_or_default_manifest("backends/java-jdbc/manifest.toml", default_toml)?;
         Ok(Self {
             manifest,
             engine: engine.to_string(),
@@ -167,11 +166,7 @@ fn ps_bind_param(param: &ResolvedParam, index: usize, engine: &str) -> String {
                 param.field_name
             )
         } else {
-            format!(
-                "ps.setString({}, {}.getValue());",
-                index + 1,
-                param.field_name
-            )
+            format!("ps.setString({}, {}.getValue());", index + 1, param.field_name)
         }
     } else {
         let setter = ps_setter(&param.lang_type);
@@ -260,11 +255,7 @@ impl CodegenBackend for JavaJdbcBackend {
         "}\n".to_string()
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
 
@@ -293,9 +284,7 @@ impl CodegenBackend for JavaJdbcBackend {
             struct_name
         );
         // Check if any nullable primitives need wasNull() handling
-        let needs_preamble = columns
-            .iter()
-            .any(|c| c.nullable && is_java_primitive(&c.lang_type));
+        let needs_preamble = columns.iter().any(|c| c.nullable && is_java_primitive(&c.lang_type));
         if needs_preamble {
             for col in columns.iter() {
                 if col.nullable && is_java_primitive(&col.lang_type) {
@@ -322,11 +311,7 @@ impl CodegenBackend for JavaJdbcBackend {
                 // Already extracted above with wasNull() check
                 let _ = writeln!(out, "            {}{}", col.field_name, sep);
             } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                let _ = writeln!(
-                    out,
-                    "            rs.getObject(\"{}\", {}){}",
-                    col.name, class_lit, sep
-                );
+                let _ = writeln!(out, "            rs.getObject(\"{}\", {}){}", col.name, class_lit, sep);
             } else if col.neutral_type.starts_with("enum::") {
                 // Enum columns: convert DB string to enum via valueOf(UPPER_CASE)
                 let _ = writeln!(
@@ -345,11 +330,7 @@ impl CodegenBackend for JavaJdbcBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -363,19 +344,11 @@ impl CodegenBackend for JavaJdbcBackend {
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(
-                &analyzed.sql,
-                &analyzed.optional_params,
-                &analyzed.params,
-            ),
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
         );
 
-        let param_list = params
-            .iter()
-            .map(java_annotated_param)
-            .collect::<Vec<_>>()
-            .join(", ");
+        let param_list = params.iter().map(java_annotated_param).collect::<Vec<_>>().join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
         let mut out = String::new();
@@ -387,11 +360,7 @@ impl CodegenBackend for JavaJdbcBackend {
                     "public static void {}(Connection conn{}{}) throws SQLException {{",
                     func_name, sep, param_list
                 );
-                let _ = writeln!(
-                    out,
-                    "    try (var ps = conn.prepareStatement(\"{}\")) {{",
-                    sql
-                );
+                let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                 for (i, param) in params.iter().enumerate() {
                     let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
                 }
@@ -405,11 +374,7 @@ impl CodegenBackend for JavaJdbcBackend {
                     "public static int {}(Connection conn{}{}) throws SQLException {{",
                     func_name, sep, param_list
                 );
-                let _ = writeln!(
-                    out,
-                    "    try (var ps = conn.prepareStatement(\"{}\")) {{",
-                    sql
-                );
+                let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                 for (i, param) in params.iter().enumerate() {
                     let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
                 }
@@ -423,18 +388,12 @@ impl CodegenBackend for JavaJdbcBackend {
                     "public static @Nullable {} {}(Connection conn{}{}) throws SQLException {{",
                     struct_name, func_name, sep, param_list
                 );
-                let is_oracle_returning =
-                    self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
-                let is_mariadb_returning =
-                    self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
+                let is_oracle_returning = self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
+                let is_mariadb_returning = self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
                 if is_mariadb_returning {
                     // MySQL Connector/J rejects executeQuery() for DML statements.
                     // MariaDB RETURNING works via execute() + getResultSet() instead.
-                    let _ = writeln!(
-                        out,
-                        "    try (var ps = conn.prepareStatement(\"{}\")) {{",
-                        sql
-                    );
+                    let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                     for (i, param) in params.iter().enumerate() {
                         let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
                     }
@@ -450,23 +409,12 @@ impl CodegenBackend for JavaJdbcBackend {
                     // Oracle RETURNING … INTO requires a PL/SQL BEGIN…END block so that
                     // the JDBC driver correctly maps the OUT parameters from a DML statement.
                     // Plain prepareCall on a bare DML RETURNING INTO raises ORA-17173.
-                    let into_placeholders =
-                        columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
+                    let into_placeholders = columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
                     let full_sql = format!("BEGIN {} INTO {}; END;", sql, into_placeholders);
-                    let _ = writeln!(
-                        out,
-                        "    try (var cs = conn.prepareCall(\"{}\")) {{",
-                        full_sql
-                    );
+                    let _ = writeln!(out, "    try (var cs = conn.prepareCall(\"{}\")) {{", full_sql);
                     for (i, param) in params.iter().enumerate() {
                         let setter = ps_setter(&param.lang_type);
-                        let _ = writeln!(
-                            out,
-                            "        cs.{}({}, {});",
-                            setter,
-                            i + 1,
-                            param.field_name
-                        );
+                        let _ = writeln!(out, "        cs.{}({}, {});", setter, i + 1, param.field_name);
                     }
                     for (i, col) in columns.iter().enumerate() {
                         let jdbc_type = oracle_jdbc_type(&col.neutral_type);
@@ -480,8 +428,7 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "        cs.execute();");
                     let _ = writeln!(out, "        return new {}(", struct_name);
                     for (i, col) in columns.iter().enumerate() {
-                        let getter_call =
-                            oracle_cs_getter_call(&col.neutral_type, params.len() + i + 1);
+                        let getter_call = oracle_cs_getter_call(&col.neutral_type, params.len() + i + 1);
                         let sep = if i + 1 < columns.len() { "," } else { "" };
                         let _ = writeln!(out, "            cs.{}{}", getter_call, sep);
                     }
@@ -489,21 +436,13 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "    }}");
                     let _ = write!(out, "}}");
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "    try (var ps = conn.prepareStatement(\"{}\")) {{",
-                        sql
-                    );
+                    let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                     for (i, param) in params.iter().enumerate() {
                         let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
                     }
                     let _ = writeln!(out, "        try (ResultSet rs = ps.executeQuery()) {{");
                     let _ = writeln!(out, "            if (rs.next()) {{");
-                    let _ = writeln!(
-                        out,
-                        "                return {}.fromResultSet(rs);",
-                        struct_name
-                    );
+                    let _ = writeln!(out, "                return {}.fromResultSet(rs);", struct_name);
                     let _ = writeln!(out, "            }}");
                     let _ = writeln!(out, "            return null;");
                     let _ = writeln!(out, "        }}");
@@ -517,26 +456,14 @@ impl CodegenBackend for JavaJdbcBackend {
                     "public static List<{}> {}(Connection conn{}{}) throws SQLException {{",
                     struct_name, func_name, sep, param_list
                 );
-                let _ = writeln!(
-                    out,
-                    "    try (var ps = conn.prepareStatement(\"{}\")) {{",
-                    sql
-                );
+                let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                 for (i, param) in params.iter().enumerate() {
                     let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
                 }
                 let _ = writeln!(out, "        try (ResultSet rs = ps.executeQuery()) {{");
-                let _ = writeln!(
-                    out,
-                    "            List<{}> result = new ArrayList<>();",
-                    struct_name
-                );
+                let _ = writeln!(out, "            List<{}> result = new ArrayList<>();", struct_name);
                 let _ = writeln!(out, "            while (rs.next()) {{");
-                let _ = writeln!(
-                    out,
-                    "                result.add({}.fromResultSet(rs));",
-                    struct_name
-                );
+                let _ = writeln!(out, "                result.add({}.fromResultSet(rs));", struct_name);
                 let _ = writeln!(out, "            }}");
                 let _ = writeln!(out, "            return result;");
                 let _ = writeln!(out, "        }}");
@@ -547,18 +474,13 @@ impl CodegenBackend for JavaJdbcBackend {
                 let batch_fn_name = format!("{}Batch", func_name);
                 if params.len() > 1 {
                     // Generate params record
-                    let params_record_name =
-                        format!("{}BatchParams", to_pascal_case(&analyzed.name));
+                    let params_record_name = format!("{}BatchParams", to_pascal_case(&analyzed.name));
                     let record_fields = params
                         .iter()
                         .map(|p| format!("{} {}", java_param_type(p), p.field_name))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    let _ = writeln!(
-                        out,
-                        "public record {}({}) {{}}",
-                        params_record_name, record_fields
-                    );
+                    let _ = writeln!(out, "public record {}({}) {{}}", params_record_name, record_fields);
                     let _ = writeln!(out);
                     let _ = writeln!(
                         out,
@@ -566,11 +488,7 @@ impl CodegenBackend for JavaJdbcBackend {
                         batch_fn_name, params_record_name
                     );
                     let _ = writeln!(out, "    conn.setAutoCommit(false);");
-                    let _ = writeln!(
-                        out,
-                        "    try (var ps = conn.prepareStatement(\"{}\")) {{",
-                        sql
-                    );
+                    let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                     let _ = writeln!(out, "        for (var item : items) {{");
                     for (i, param) in params.iter().enumerate() {
                         let setter = ps_setter(&param.lang_type);
@@ -602,11 +520,7 @@ impl CodegenBackend for JavaJdbcBackend {
                         java_param_type(param)
                     );
                     let _ = writeln!(out, "    conn.setAutoCommit(false);");
-                    let _ = writeln!(
-                        out,
-                        "    try (var ps = conn.prepareStatement(\"{}\")) {{",
-                        sql
-                    );
+                    let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                     let _ = writeln!(out, "        for (var item : items) {{");
                     let setter = ps_setter(&param.lang_type);
                     let _ = writeln!(out, "            ps.{}(1, item);", setter);
@@ -628,11 +542,7 @@ impl CodegenBackend for JavaJdbcBackend {
                         batch_fn_name
                     );
                     let _ = writeln!(out, "    conn.setAutoCommit(false);");
-                    let _ = writeln!(
-                        out,
-                        "    try (var ps = conn.prepareStatement(\"{}\")) {{",
-                        sql
-                    );
+                    let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                     let _ = writeln!(out, "        for (int i = 0; i < count; i++) {{");
                     let _ = writeln!(out, "            ps.addBatch();");
                     let _ = writeln!(out, "        }}");
@@ -664,20 +574,12 @@ impl CodegenBackend for JavaJdbcBackend {
         let _ = writeln!(out, "public enum {} {{", type_name);
         for (i, value) in enum_info.values.iter().enumerate() {
             let variant = enum_variant_name(value, &self.manifest.naming);
-            let sep = if i + 1 < enum_info.values.len() {
-                ","
-            } else {
-                ";"
-            };
+            let sep = if i + 1 < enum_info.values.len() { "," } else { ";" };
             let _ = writeln!(out, "    {}(\"{}\"){}", variant, value, sep);
         }
         let _ = writeln!(out);
         let _ = writeln!(out, "    private final String value;");
-        let _ = writeln!(
-            out,
-            "    {}(String value) {{ this.value = value; }}",
-            type_name
-        );
+        let _ = writeln!(out, "    {}(String value) {{ this.value = value; }}", type_name);
         let _ = writeln!(out, "    public String getValue() {{ return value; }}");
         let _ = write!(out, "}}");
         Ok(out)

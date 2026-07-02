@@ -35,31 +35,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
     if !cli.fixtures.is_dir() {
-        return Err(format!(
-            "fixtures directory does not exist: {}",
-            cli.fixtures.display()
-        )
-        .into());
+        return Err(format!("fixtures directory does not exist: {}", cli.fixtures.display()).into());
     }
 
     let fixtures = fixture::load_fixtures(&cli.fixtures)?;
     if fixtures.is_empty() {
-        eprintln!(
-            "warning: no fixture files found in {}",
-            cli.fixtures.display()
-        );
+        eprintln!("warning: no fixture files found in {}", cli.fixtures.display());
         return Ok(());
     }
 
     // Group by top-level category (first path component of `category`).
     let mut groups: BTreeMap<String, Vec<&Fixture>> = BTreeMap::new();
     for f in &fixtures {
-        let top = f
-            .category
-            .split('/')
-            .next()
-            .unwrap_or(&f.category)
-            .to_string();
+        let top = f.category.split('/').next().unwrap_or(&f.category).to_string();
         groups.entry(top).or_default().push(f);
     }
 
@@ -157,20 +145,14 @@ fn generate_catalog_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str(&format_schema_sql(&fixture.schema_sql));
 
     if let Some(ref catalog) = fixture.expected.catalog
-        && (!catalog.tables.is_empty()
-            || !catalog.enums.is_empty()
-            || !catalog.composites.is_empty())
+        && (!catalog.tables.is_empty() || !catalog.enums.is_empty() || !catalog.composites.is_empty())
     {
-        out.push_str(
-            "    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n\n",
-        );
+        out.push_str("    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n\n");
         out.push_str(&generate_catalog_assertions(catalog));
     } else {
         // No catalog assertions — use a let binding that suppresses the unused
         // variable lint while still verifying that DDL parses without error.
-        out.push_str(
-            "    let _catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n\n",
-        );
+        out.push_str("    let _catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n\n");
     }
 
     out.push_str("}\n");
@@ -191,13 +173,9 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     let query_sql = fixture.query_sql.as_deref().unwrap_or("");
     let _ = writeln!(out, "    let query_sql = {:?};\n", query_sql);
 
-    out.push_str(
-        "    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n",
-    );
+    out.push_str("    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n");
     out.push_str("    let query = scythe_core::parser::parse_query(query_sql).unwrap();\n");
-    out.push_str(
-        "    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();\n\n",
-    );
+    out.push_str("    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();\n\n");
 
     // Analysis assertions (types, nullability, params)
     if let Some(ref catalog) = fixture.expected.catalog {
@@ -239,9 +217,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("        \"php-amphp\",\n");
     out.push_str("    ];\n");
     out.push_str("    for backend_name in &all_backends {\n");
-    out.push_str(
-        "        let backend = match scythe_codegen::get_backend(backend_name, \"postgresql\") {\n",
-    );
+    out.push_str("        let backend = match scythe_codegen::get_backend(backend_name, \"postgresql\") {\n");
     out.push_str("            Ok(b) => b,\n");
     out.push_str("            Err(_) => continue, // skip unregistered backends\n");
     out.push_str("        };\n");
@@ -253,12 +229,16 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("                    let mut h = header; h.push('\\n'); h\n");
     out.push_str("                };\n");
     out.push_str("                if let Some(ref s) = generated.enum_def { code.push_str(s); code.push('\\n'); }\n");
-    out.push_str("                if let Some(ref s) = generated.model_struct { code.push_str(s); code.push('\\n'); }\n");
+    out.push_str(
+        "                if let Some(ref s) = generated.model_struct { code.push_str(s); code.push('\\n'); }\n",
+    );
     out.push_str("                if let Some(ref s) = generated.row_struct { code.push_str(s); code.push('\\n'); }\n");
     out.push_str("                if let Some(ref s) = generated.query_fn { code.push_str(s); code.push('\\n'); }\n");
     out.push_str("                if code.lines().count() > 1 {\n");
     out.push_str("                    // Only validate Rust syntax with syn for Rust backends\n");
-    out.push_str("                    if *backend_name == \"rust-sqlx\" || *backend_name == \"rust-tokio-postgres\" {\n");
+    out.push_str(
+        "                    if *backend_name == \"rust-sqlx\" || *backend_name == \"rust-tokio-postgres\" {\n",
+    );
     out.push_str("                        assert!(\n");
     out.push_str("                            syn::parse_file(&code).is_ok(),\n");
     let _ = writeln!(
@@ -269,7 +249,9 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("                        );\n");
     out.push_str("                    } else {\n");
     out.push_str("                        // Structural validation for non-Rust backends\n");
-    out.push_str("                        let errors = scythe_codegen::validation::validate_structural(&code, backend_name);\n");
+    out.push_str(
+        "                        let errors = scythe_codegen::validation::validate_structural(&code, backend_name);\n",
+    );
     out.push_str("                        assert!(\n");
     out.push_str("                            errors.is_empty(),\n");
     let _ = writeln!(
@@ -318,9 +300,7 @@ fn generate_lint_test(fixture: &Fixture, file_path: &str) -> String {
 
     out.push_str(&format_schema_sql(&fixture.schema_sql));
 
-    out.push_str(
-        "    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n",
-    );
+    out.push_str("    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n");
     out.push_str("    let registry = scythe_lint::default_registry();\n");
     out.push_str("    let engine = scythe_lint::LintEngine::new(registry);\n");
     out.push_str("    let mut _violations: Vec<(scythe_lint::Violation, scythe_lint::Severity)> = Vec::new();\n\n");
@@ -333,9 +313,7 @@ fn generate_lint_test(fixture: &Fixture, file_path: &str) -> String {
         // Lint tests may have multiple queries — try to parse single query.
         // Use let-chain syntax (Rust 2024) to avoid collapsible-if lint.
         out.push_str("    if let Ok(query) = scythe_core::parser::parse_query(query_sql)\n");
-        out.push_str(
-            "        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query) {\n",
-        );
+        out.push_str("        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query) {\n");
         out.push_str("        let ctx = scythe_lint::LintContext {\n");
         out.push_str("            sql: &query.sql,\n");
         out.push_str("            stmt: &query.stmt,\n");
@@ -352,7 +330,9 @@ fn generate_lint_test(fixture: &Fixture, file_path: &str) -> String {
     // Check expected lint results (outside if-let blocks so catalog checks are always verified)
     if let Some(ref lint) = fixture.expected.lint {
         if lint.violations.is_empty() {
-            out.push_str("    assert!(_violations.is_empty(), \"expected no lint violations but got {}\", _violations.len());\n");
+            out.push_str(
+                "    assert!(_violations.is_empty(), \"expected no lint violations but got {}\", _violations.len());\n",
+            );
         } else {
             let _ = writeln!(
                 out,
@@ -389,15 +369,11 @@ fn generate_error_test(fixture: &Fixture, file_path: &str) -> String {
     if has_query {
         let query_sql = fixture.query_sql.as_deref().unwrap_or("");
         let _ = writeln!(out, "    let query_sql = {:?};\n", query_sql);
-        out.push_str(
-            "    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);\n",
-        );
+        out.push_str("    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);\n");
         out.push_str("    if let Ok(catalog) = catalog_result {\n");
         out.push_str("        let query_result = scythe_core::parser::parse_query(query_sql);\n");
         out.push_str("        if let Ok(query) = query_result {\n");
-        out.push_str(
-            "            let result = scythe_core::analyzer::analyze(&catalog, &query);\n",
-        );
+        out.push_str("            let result = scythe_core::analyzer::analyze(&catalog, &query);\n");
         out.push_str("            assert!(result.is_err(), \"expected analysis to fail\");\n");
 
         if let Some(ref error) = fixture.expected.error {
@@ -416,11 +392,7 @@ fn generate_error_test(fixture: &Fixture, file_path: &str) -> String {
         out.push_str("        // DDL processing failed -- that counts as expected failure.\n");
 
         if let Some(ref error) = fixture.expected.error {
-            out.push_str(&generate_error_assertions_nested(
-                "catalog_result",
-                error,
-                8,
-            ));
+            out.push_str(&generate_error_assertions_nested("catalog_result", error, 8));
         }
 
         out.push_str("    }\n");
@@ -585,11 +557,7 @@ fn generate_catalog_assertions(catalog: &ExpectedCatalog) -> String {
 fn generate_query_assertions(query: &ExpectedQuery) -> String {
     let mut out = String::with_capacity(4096);
 
-    let _ = writeln!(
-        out,
-        "    assert_eq!(analyzed.name, {:?}, \"query name\");",
-        query.name,
-    );
+    let _ = writeln!(out, "    assert_eq!(analyzed.name, {:?}, \"query name\");", query.name,);
     let _ = writeln!(
         out,
         "    assert_eq!(analyzed.command.to_string(), {:?}, \"query command\");",
@@ -665,20 +633,11 @@ fn generate_query_assertions(query: &ExpectedQuery) -> String {
     out
 }
 
-fn generate_error_assertions_nested(
-    result_var: &str,
-    error: &fixture::ExpectedError,
-    indent: usize,
-) -> String {
+fn generate_error_assertions_nested(result_var: &str, error: &fixture::ExpectedError, indent: usize) -> String {
     let mut out = String::with_capacity(4096);
     let pad = " ".repeat(indent);
 
-    let _ = writeln!(
-        out,
-        "{pad}let err = {var}.unwrap_err();",
-        pad = pad,
-        var = result_var,
-    );
+    let _ = writeln!(out, "{pad}let err = {var}.unwrap_err();", pad = pad, var = result_var,);
     let _ = writeln!(out, "{pad}let err_msg = err.to_string();", pad = pad,);
 
     if let Some(ref code) = error.code {
@@ -718,26 +677,14 @@ fn format_schema_sql(stmts: &[String]) -> String {
 
 fn sanitize_module_name(name: &str) -> String {
     name.chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
+        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
         .collect::<String>()
         .to_lowercase()
 }
 
 fn sanitize_ident(name: &str) -> String {
     name.chars()
-        .map(|c| {
-            if c.is_alphanumeric() || c == '_' {
-                c
-            } else {
-                '_'
-            }
-        })
+        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
         .collect::<String>()
         .to_lowercase()
 }

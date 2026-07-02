@@ -1013,8 +1013,7 @@ fn load_templates(env: &mut Environment<'_>, templates_dir: &Path) -> Result<(),
         ));
     }
 
-    let entries =
-        fs::read_dir(templates_dir).map_err(|err| format!("reading templates dir: {err}"))?;
+    let entries = fs::read_dir(templates_dir).map_err(|err| format!("reading templates dir: {err}"))?;
 
     for entry in entries {
         let entry = entry.map_err(|err| format!("reading template entry: {err}"))?;
@@ -1025,8 +1024,8 @@ fn load_templates(env: &mut Environment<'_>, templates_dir: &Path) -> Result<(),
                 .and_then(|s| s.to_str())
                 .ok_or_else(|| format!("invalid template filename: {}", path.display()))?
                 .to_string();
-            let content = fs::read_to_string(&path)
-                .map_err(|err| format!("reading template {}: {err}", path.display()))?;
+            let content =
+                fs::read_to_string(&path).map_err(|err| format!("reading template {}: {err}", path.display()))?;
             env.add_template_owned(name, content)
                 .map_err(|err| format!("parsing template {}: {err}", path.display()))?;
         }
@@ -1035,11 +1034,7 @@ fn load_templates(env: &mut Environment<'_>, templates_dir: &Path) -> Result<(),
     Ok(())
 }
 
-fn render_template(
-    env: &Environment<'_>,
-    template_name: &str,
-    context: &TemplateContext,
-) -> Result<String, String> {
+fn render_template(env: &Environment<'_>, template_name: &str, context: &TemplateContext) -> Result<String, String> {
     let tmpl = env
         .get_template(template_name)
         .map_err(|err| format!("template '{template_name}' not found: {err}"))?;

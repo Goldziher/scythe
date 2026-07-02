@@ -27,18 +27,17 @@ pub fn resolve_columns(
             } else {
                 format!("{}.{}", source_table, col.name)
             };
-            let effective_neutral_type = find_override(overrides, &column_match, &col.neutral_type)
-                .unwrap_or(&col.neutral_type);
+            let effective_neutral_type =
+                find_override(overrides, &column_match, &col.neutral_type).unwrap_or(&col.neutral_type);
 
-            let (full_type, lang_type) =
-                resolve_type_pair(effective_neutral_type, manifest, col.nullable)
-                    .map(|(f, l)| (f.into_owned(), l.into_owned()))
-                    .map_err(|e| {
-                        ScytheError::new(
-                            ErrorCode::InternalError,
-                            format!("type resolution failed for column '{}': {}", col.name, e),
-                        )
-                    })?;
+            let (full_type, lang_type) = resolve_type_pair(effective_neutral_type, manifest, col.nullable)
+                .map(|(f, l)| (f.into_owned(), l.into_owned()))
+                .map_err(|e| {
+                    ScytheError::new(
+                        ErrorCode::InternalError,
+                        format!("type resolution failed for column '{}': {}", col.name, e),
+                    )
+                })?;
             Ok(ResolvedColumn {
                 name: col.name.clone(),
                 field_name: to_snake_case(&col.name).into_owned(),
@@ -70,18 +69,16 @@ pub fn resolve_params(
                 format!("{}.{}", source_table, param.name)
             };
             let effective_neutral_type =
-                find_override(overrides, &column_match, &param.neutral_type)
-                    .unwrap_or(&param.neutral_type);
+                find_override(overrides, &column_match, &param.neutral_type).unwrap_or(&param.neutral_type);
 
-            let (full_type, lang_type) =
-                resolve_type_pair(effective_neutral_type, manifest, param.nullable)
-                    .map(|(f, l)| (f.into_owned(), l.into_owned()))
-                    .map_err(|e| {
-                        ScytheError::new(
-                            ErrorCode::InternalError,
-                            format!("type resolution failed for param '{}': {}", param.name, e),
-                        )
-                    })?;
+            let (full_type, lang_type) = resolve_type_pair(effective_neutral_type, manifest, param.nullable)
+                .map(|(f, l)| (f.into_owned(), l.into_owned()))
+                .map_err(|e| {
+                    ScytheError::new(
+                        ErrorCode::InternalError,
+                        format!("type resolution failed for param '{}': {}", param.name, e),
+                    )
+                })?;
             let borrowed_type = param_type_to_borrowed(&full_type);
             Ok(ResolvedParam {
                 name: param.name.clone(),
@@ -109,18 +106,12 @@ pub fn param_type_to_borrowed(rust_type: &str) -> String {
         return "&str".to_string();
     }
     // Option<T> wrapping: Option<String> -> Option<&str>, Option<Copy> stays, Option<Other> -> Option<&Other>
-    if let Some(inner) = rust_type
-        .strip_prefix("Option<")
-        .and_then(|s| s.strip_suffix('>'))
-    {
+    if let Some(inner) = rust_type.strip_prefix("Option<").and_then(|s| s.strip_suffix('>')) {
         let borrowed_inner = param_type_to_borrowed(inner);
         return format!("Option<{}>", borrowed_inner);
     }
     // Vec<T> -> &[T] (slice reference)
-    if let Some(inner) = rust_type
-        .strip_prefix("Vec<")
-        .and_then(|s| s.strip_suffix('>'))
-    {
+    if let Some(inner) = rust_type.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
         return format!("&[{}]", inner);
     }
     // Everything else gets a & prefix

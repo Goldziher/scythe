@@ -220,15 +220,8 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
                     format!("sql_{idx}")
                 }
             });
-            let engine = pkg
-                .engine
-                .clone()
-                .unwrap_or_else(|| "postgresql".to_string());
-            let schema = pkg
-                .schema
-                .as_ref()
-                .map(|s| vec![s.clone()])
-                .unwrap_or_default();
+            let engine = pkg.engine.clone().unwrap_or_else(|| "postgresql".to_string());
+            let schema = pkg.schema.as_ref().map(|s| vec![s.clone()]).unwrap_or_default();
             let queries: Vec<String> = pkg
                 .queries
                 .as_ref()
@@ -249,16 +242,9 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
     } else {
         // v2 format
         for (idx, entry) in sqlc.sql.iter().enumerate() {
-            let engine = entry
-                .engine
-                .clone()
-                .unwrap_or_else(|| "postgresql".to_string());
+            let engine = entry.engine.clone().unwrap_or_else(|| "postgresql".to_string());
 
-            let schema: Vec<String> = entry
-                .schema
-                .as_ref()
-                .map(|v| v.to_vec())
-                .unwrap_or_default();
+            let schema: Vec<String> = entry.schema.as_ref().map(|v| v.to_vec()).unwrap_or_default();
 
             let queries: Vec<String> = entry
                 .queries
@@ -337,11 +323,7 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
                 format!("sql_{idx}")
             };
 
-            let gen_opt = if gen_map.is_empty() {
-                None
-            } else {
-                Some(gen_map)
-            };
+            let gen_opt = if gen_map.is_empty() { None } else { Some(gen_map) };
 
             sql_blocks.push(ScytheSqlBlock {
                 name,
@@ -362,12 +344,10 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
         sql: sql_blocks,
     };
 
-    let toml_string =
-        toml::to_string_pretty(&config).map_err(|e| internal(format!("toml serialize: {e}")))?;
+    let toml_string = toml::to_string_pretty(&config).map_err(|e| internal(format!("toml serialize: {e}")))?;
 
     let dest = base_dir.join("scythe.toml");
-    fs::write(&dest, &toml_string)
-        .map_err(|e| internal(format!("write {}: {e}", dest.display())))?;
+    fs::write(&dest, &toml_string).map_err(|e| internal(format!("write {}: {e}", dest.display())))?;
 
     Ok(dest.display().to_string())
 }
@@ -383,10 +363,7 @@ struct ConvertStats {
 }
 
 /// Convert all query files found under the given paths.
-fn convert_query_files(
-    query_paths: &[String],
-    base_dir: &Path,
-) -> Result<ConvertStats, ScytheError> {
+fn convert_query_files(query_paths: &[String], base_dir: &Path) -> Result<ConvertStats, ScytheError> {
     let mut stats = ConvertStats {
         files: 0,
         queries: 0,
@@ -407,8 +384,7 @@ fn convert_query_files(
             pattern_str.clone()
         };
 
-        let entries =
-            glob::glob(&glob_pattern).map_err(|e| internal(format!("glob {glob_pattern}: {e}")))?;
+        let entries = glob::glob(&glob_pattern).map_err(|e| internal(format!("glob {glob_pattern}: {e}")))?;
 
         for entry in entries {
             let path = entry.map_err(|e| internal(format!("glob entry: {e}")))?;
@@ -427,19 +403,16 @@ fn convert_query_files(
 
 /// Convert a single .sql query file in-place (with .bak backup).
 fn convert_single_file(path: &Path) -> Result<(usize, usize), ScytheError> {
-    let content =
-        fs::read_to_string(path).map_err(|e| internal(format!("read {}: {e}", path.display())))?;
+    let content = fs::read_to_string(path).map_err(|e| internal(format!("read {}: {e}", path.display())))?;
 
     let (converted, query_count, param_count) = convert_query_content(&content)?;
 
     if converted != content {
         // Create backup
         let bak = path.with_extension("sql.bak");
-        fs::write(&bak, &content)
-            .map_err(|e| internal(format!("backup {}: {e}", bak.display())))?;
+        fs::write(&bak, &content).map_err(|e| internal(format!("backup {}: {e}", bak.display())))?;
         // Write converted file
-        fs::write(path, &converted)
-            .map_err(|e| internal(format!("write {}: {e}", path.display())))?;
+        fs::write(path, &converted).map_err(|e| internal(format!("write {}: {e}", path.display())))?;
     }
 
     Ok((query_count, param_count))
@@ -454,11 +427,9 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
     )
     .map_err(|e| internal(format!("regex: {e}")))?;
 
-    let sqlc_arg_re =
-        Regex::new(r"sqlc\.arg\((\w+)\)").map_err(|e| internal(format!("regex: {e}")))?;
+    let sqlc_arg_re = Regex::new(r"sqlc\.arg\((\w+)\)").map_err(|e| internal(format!("regex: {e}")))?;
 
-    let sqlc_narg_re =
-        Regex::new(r"sqlc\.narg\((\w+)\)").map_err(|e| internal(format!("regex: {e}")))?;
+    let sqlc_narg_re = Regex::new(r"sqlc\.narg\((\w+)\)").map_err(|e| internal(format!("regex: {e}")))?;
 
     // Regex to find existing positional parameters like $1, $2, etc.
     let positional_re = Regex::new(r"\$(\d+)").map_err(|e| internal(format!("regex: {e}")))?;
@@ -590,10 +561,7 @@ pub fn run_migrate(sqlc_config_path: &Path) -> Result<(), ScytheError> {
     let raw = fs::read_to_string(sqlc_config_path)
         .map_err(|e| internal(format!("read {}: {e}", sqlc_config_path.display())))?;
 
-    let sqlc: SqlcConfig = if sqlc_config_path
-        .extension()
-        .is_some_and(|ext| ext == "json")
-    {
+    let sqlc: SqlcConfig = if sqlc_config_path.extension().is_some_and(|ext| ext == "json") {
         serde_json::from_str(&raw).map_err(|e| internal(format!("parse json config: {e}")))?
     } else {
         serde_yaml::from_str(&raw).map_err(|e| internal(format!("parse yaml config: {e}")))?

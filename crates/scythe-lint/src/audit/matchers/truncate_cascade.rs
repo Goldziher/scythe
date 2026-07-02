@@ -25,8 +25,7 @@ pub fn match_truncate_cascade(ctx: &LintContext<'_>, _args: &toml::Table) -> Vec
         .iter()
         .map(|target| {
             let mut hit = MatcherHit::empty();
-            hit.bindings
-                .insert("table".to_string(), target.name.to_string());
+            hit.bindings.insert("table".to_string(), target.name.to_string());
             hit
         })
         .collect()
@@ -42,17 +41,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -107,10 +97,7 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_truncate_cascade(&ctx, &toml::Table::new());
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("table").map(|s| s.as_str()),
-            Some("users")
-        );
+        assert_eq!(hits[0].bindings.get("table").map(|s| s.as_str()), Some("users"));
     }
 
     #[test]

@@ -1,20 +1,20 @@
 {
-	"name": "session_mutation_fires",
-	"description": "SET ROLE inside application SQL should trigger SC-SEC11",
-	"category": "lint/security",
-	"tags": ["lint", "security", "session-mutation"],
-	"schema_sql": [],
-	"query_sql": "-- @name EscalateToAdmin\n-- @returns :exec\nSET ROLE admin",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-SEC11",
-					"message_contains": "privilege escalation risk"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "session_mutation_fires",
+  "description": "SET ROLE inside application SQL should trigger SC-SEC11",
+  "category": "lint/security",
+  "tags": ["lint", "security", "session-mutation"],
+  "schema_sql": [],
+  "query_sql": "-- @name EscalateToAdmin\n-- @returns :exec\nSET ROLE admin",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-SEC11",
+          "message_contains": "privilege escalation risk"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

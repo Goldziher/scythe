@@ -25,18 +25,11 @@ use crate::types::LintContext;
 fn read_kinds(args: &toml::Table) -> Vec<String> {
     args.get("kinds")
         .and_then(|v| v.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|v| v.as_str().map(str::to_string))
-                .collect()
-        })
+        .map(|arr| arr.iter().filter_map(|v| v.as_str().map(str::to_string)).collect())
         .unwrap_or_default()
 }
 
-pub fn match_add_constraint_without_using_index(
-    ctx: &LintContext<'_>,
-    args: &toml::Table,
-) -> Vec<MatcherHit> {
+pub fn match_add_constraint_without_using_index(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<MatcherHit> {
     let Statement::AlterTable(alter) = ctx.stmt else {
         return Vec::new();
     };
@@ -53,9 +46,7 @@ pub fn match_add_constraint_without_using_index(
         .iter()
         .filter_map(|op| match op {
             AlterTableOperation::AddConstraint { constraint, .. } => match constraint {
-                TableConstraint::Unique(u) if want_unique => {
-                    Some(("unique", u.name.as_ref().map(|i| i.value.clone())))
-                }
+                TableConstraint::Unique(u) if want_unique => Some(("unique", u.name.as_ref().map(|i| i.value.clone()))),
                 TableConstraint::PrimaryKey(p) if want_pk => {
                     Some(("primary key", p.name.as_ref().map(|i| i.value.clone())))
                 }
@@ -66,8 +57,7 @@ pub fn match_add_constraint_without_using_index(
         .map(|(kind, name)| {
             let mut hit = MatcherHit::empty();
             hit.bindings.insert("table".to_string(), table.clone());
-            hit.bindings
-                .insert("constraint_kind".to_string(), kind.to_string());
+            hit.bindings.insert("constraint_kind".to_string(), kind.to_string());
             if let Some(n) = name {
                 hit.bindings.insert("constraint_name".to_string(), n);
             }
@@ -86,17 +76,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -162,10 +143,7 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_add_constraint_without_using_index(&ctx, &args_kinds(&["unique"]));
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("table").map(|s| s.as_str()),
-            Some("users")
-        );
+        assert_eq!(hits[0].bindings.get("table").map(|s| s.as_str()), Some("users"));
         assert_eq!(
             hits[0].bindings.get("constraint_kind").map(|s| s.as_str()),
             Some("unique")
@@ -178,8 +156,7 @@ mod tests {
 
     #[test]
     fn no_match_unique_using_index() {
-        let sql =
-            "ALTER TABLE users ADD CONSTRAINT users_email_uniq UNIQUE USING INDEX users_email_idx;";
+        let sql = "ALTER TABLE users ADD CONSTRAINT users_email_uniq UNIQUE USING INDEX users_email_idx;";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_add_constraint_without_using_index(&ctx, &args_kinds(&["unique"]));
@@ -223,8 +200,7 @@ mod tests {
         let sql = "ALTER TABLE accounts ADD CONSTRAINT balance_nn CHECK (balance >= 0);";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
-        let hits =
-            match_add_constraint_without_using_index(&ctx, &args_kinds(&["unique", "primary_key"]));
+        let hits = match_add_constraint_without_using_index(&ctx, &args_kinds(&["unique", "primary_key"]));
         assert!(hits.is_empty());
     }
 

@@ -101,9 +101,7 @@ impl SuppressionSet {
 
     /// Return `true` if `rule_id` is suppressed on `line` (1-based).
     pub fn is_suppressed(&self, rule_id: &str, line: usize) -> bool {
-        self.by_line
-            .get(&line)
-            .is_some_and(|ids| ids.contains(rule_id))
+        self.by_line.get(&line).is_some_and(|ids| ids.contains(rule_id))
     }
 
     /// Return `true` if no suppressions are recorded.

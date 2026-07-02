@@ -11,10 +11,7 @@ use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
 pub fn match_grant_kind(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<MatcherHit> {
-    let kind = args
-        .get("kind")
-        .and_then(|v| v.as_str())
-        .unwrap_or_default();
+    let kind = args.get("kind").and_then(|v| v.as_str()).unwrap_or_default();
 
     match kind {
         "all" => match_grant_all(ctx),
@@ -47,17 +44,8 @@ mod tests {
         t
     }
 
-    fn make_ctx(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_ctx(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,

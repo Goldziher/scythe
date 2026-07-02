@@ -226,10 +226,7 @@ impl LintRule for MissingReturning {
         if !has_returning {
             return vec![Violation {
                 rule_id: Cow::Borrowed(self.id()),
-                message: format!(
-                    "DML with :{} command but no RETURNING clause",
-                    ctx.analyzed.command
-                ),
+                message: format!("DML with :{} command but no RETURNING clause", ctx.analyzed.command),
                 fix: None,
             }];
         }
@@ -271,13 +268,13 @@ impl LintRule for AmbiguousColumnInJoin {
             SelectItem::UnnamedExpr(expr) | SelectItem::ExprWithAlias { expr, .. } => {
                 if let Expr::Identifier(ident) = expr {
                     violations.push(Violation {
-                            rule_id: Cow::Borrowed("SC-S06"),
-                            message: format!(
-                                "column \"{}\" is unqualified in a JOIN query — prefix with table alias",
-                                ident.value
-                            ),
-                            fix: None,
-                        });
+                        rule_id: Cow::Borrowed("SC-S06"),
+                        message: format!(
+                            "column \"{}\" is unqualified in a JOIN query — prefix with table alias",
+                            ident.value
+                        ),
+                        fix: None,
+                    });
                 }
             }
             _ => {}
@@ -331,9 +328,7 @@ fn set_expr_has_join(set_expr: &SetExpr) -> bool {
     match set_expr {
         SetExpr::Select(select) => select.from.iter().any(|twj| !twj.joins.is_empty()),
         SetExpr::Query(query) => query_has_join(query),
-        SetExpr::SetOperation { left, right, .. } => {
-            set_expr_has_join(left) || set_expr_has_join(right)
-        }
+        SetExpr::SetOperation { left, right, .. } => set_expr_has_join(left) || set_expr_has_join(right),
         _ => false,
     }
 }
@@ -386,8 +381,7 @@ mod tests {
     #[test]
     fn update_without_where_fires() {
         let cat = make_catalog();
-        let q = parse_query("-- @name UpdateAll\n-- @returns :exec\nUPDATE users SET name = $1;")
-            .unwrap();
+        let q = parse_query("-- @name UpdateAll\n-- @returns :exec\nUPDATE users SET name = $1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = UpdateWithoutWhere.check_query(&ctx);
@@ -398,10 +392,8 @@ mod tests {
     #[test]
     fn update_with_where_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name UpdateOne\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name UpdateOne\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = UpdateWithoutWhere.check_query(&ctx);
@@ -423,9 +415,7 @@ mod tests {
     #[test]
     fn delete_with_where_ok() {
         let cat = make_catalog();
-        let q =
-            parse_query("-- @name DeleteOne\n-- @returns :exec\nDELETE FROM users WHERE id = $1;")
-                .unwrap();
+        let q = parse_query("-- @name DeleteOne\n-- @returns :exec\nDELETE FROM users WHERE id = $1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = DeleteWithoutWhere.check_query(&ctx);
@@ -447,8 +437,7 @@ mod tests {
     #[test]
     fn select_cols_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListAll\n-- @returns :many\nSELECT id, name FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name ListAll\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = NoSelectStar.check_query(&ctx);
@@ -460,7 +449,8 @@ mod tests {
     #[test]
     fn missing_returning_fires() {
         let cat = make_catalog();
-        let q = parse_query("-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name, email) VALUES ($1, $2);").unwrap();
+        let q = parse_query("-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name, email) VALUES ($1, $2);")
+            .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = MissingReturning.check_query(&ctx);
@@ -484,7 +474,8 @@ mod tests {
         let cat = make_catalog();
         let q = parse_query(
             "-- @name ListJoined\n-- @returns :many\nSELECT title FROM users u JOIN posts p ON u.id = p.user_id;",
-        ).unwrap();
+        )
+        .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = AmbiguousColumnInJoin.check_query(&ctx);
@@ -496,7 +487,8 @@ mod tests {
         let cat = make_catalog();
         let q = parse_query(
             "-- @name ListJoined\n-- @returns :many\nSELECT p.title FROM users u JOIN posts p ON u.id = p.user_id;",
-        ).unwrap();
+        )
+        .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = AmbiguousColumnInJoin.check_query(&ctx);
@@ -510,10 +502,8 @@ mod tests {
         // $1 and $2 declared but only $1 used → $2 gap not possible here;
         // use $1 and $3 to create a gap at $2
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name UpdateSome\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $3;",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name UpdateSome\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $3;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = UnusedParams.check_query(&ctx);
@@ -524,10 +514,8 @@ mod tests {
     #[test]
     fn unused_params_all_used_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name UpdateOne\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name UpdateOne\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = UnusedParams.check_query(&ctx);
@@ -537,8 +525,7 @@ mod tests {
     #[test]
     fn unused_params_no_params_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListAll\n-- @returns :many\nSELECT id, name FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name ListAll\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = UnusedParams.check_query(&ctx);
@@ -550,8 +537,7 @@ mod tests {
     #[test]
     fn no_join_no_ambiguity() {
         let cat = make_catalog();
-        let q =
-            parse_query("-- @name ListUsers\n-- @returns :many\nSELECT name FROM users;").unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT name FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = AmbiguousColumnInJoin.check_query(&ctx);
@@ -571,10 +557,7 @@ mod tests {
         let ctx = make_ctx(&q, &a, &cat);
 
         let v_s06 = AmbiguousColumnInJoin.check_query(&ctx);
-        assert!(
-            v_s06.is_empty(),
-            "S06 should not fire on fully qualified columns"
-        );
+        assert!(v_s06.is_empty(), "S06 should not fire on fully qualified columns");
     }
 
     // SC-S01/S02: WHERE clause edge cases
@@ -609,10 +592,7 @@ mod tests {
     fn update_with_where_true_ok() {
         // WHERE TRUE is still a WHERE clause — rule should not fire
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name UpdateAll\n-- @returns :exec\nUPDATE users SET name = $1 WHERE TRUE;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name UpdateAll\n-- @returns :exec\nUPDATE users SET name = $1 WHERE TRUE;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = UpdateWithoutWhere.check_query(&ctx);
@@ -622,8 +602,7 @@ mod tests {
     #[test]
     fn delete_with_where_true_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name DeleteAll\n-- @returns :exec\nDELETE FROM users WHERE TRUE;")
-            .unwrap();
+        let q = parse_query("-- @name DeleteAll\n-- @returns :exec\nDELETE FROM users WHERE TRUE;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = DeleteWithoutWhere.check_query(&ctx);
@@ -636,8 +615,7 @@ mod tests {
     fn select_qualified_star_ok() {
         // SELECT users.* is a QualifiedWildcard, not a Wildcard — S03 should NOT fire
         let cat = make_catalog();
-        let q =
-            parse_query("-- @name ListAll\n-- @returns :many\nSELECT users.* FROM users;").unwrap();
+        let q = parse_query("-- @name ListAll\n-- @returns :many\nSELECT users.* FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = NoSelectStar.check_query(&ctx);
@@ -649,10 +627,8 @@ mod tests {
     #[test]
     fn missing_returning_exec_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name CreateUser\n-- @returns :exec\nINSERT INTO users (name, email) VALUES ($1, $2);",
-        )
-        .unwrap();
+        let q = parse_query("-- @name CreateUser\n-- @returns :exec\nINSERT INTO users (name, email) VALUES ($1, $2);")
+            .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = MissingReturning.check_query(&ctx);
@@ -664,8 +640,7 @@ mod tests {
     #[test]
     fn missing_returning_select_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = MissingReturning.check_query(&ctx);
@@ -677,10 +652,8 @@ mod tests {
     #[test]
     fn missing_returning_update_many_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name UpdateMany\n-- @returns :many\nUPDATE users SET name = $1 WHERE id = $2;",
-        )
-        .unwrap();
+        let q =
+            parse_query("-- @name UpdateMany\n-- @returns :many\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = MissingReturning.check_query(&ctx);
@@ -692,9 +665,7 @@ mod tests {
     #[test]
     fn missing_returning_delete_one_fires() {
         let cat = make_catalog();
-        let q =
-            parse_query("-- @name DeleteOne\n-- @returns :one\nDELETE FROM users WHERE id = $1;")
-                .unwrap();
+        let q = parse_query("-- @name DeleteOne\n-- @returns :one\nDELETE FROM users WHERE id = $1;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = MissingReturning.check_query(&ctx);
@@ -706,8 +677,7 @@ mod tests {
     #[test]
     fn update_without_where_on_select_noop() {
         let cat = make_catalog();
-        let q =
-            parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id FROM users;").unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = UpdateWithoutWhere.check_query(&ctx);
@@ -719,8 +689,7 @@ mod tests {
     #[test]
     fn delete_without_where_on_select_noop() {
         let cat = make_catalog();
-        let q =
-            parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id FROM users;").unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = DeleteWithoutWhere.check_query(&ctx);

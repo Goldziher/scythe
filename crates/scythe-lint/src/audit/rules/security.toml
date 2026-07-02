@@ -15,26 +15,26 @@ matcher = "function_name_in_set"
 
 [rule.matcher_args]
 functions = [
-  "pg_read_file",
-  "pg_read_binary_file",
-  "pg_ls_dir",
-  "pg_stat_file",
-  "dblink",
-  "dblink_connect",
-  "dblink_exec",
-  "lo_import",
-  "lo_export",
-  "load_file",
-  "sys_exec",
-  "sys_eval",
-  "xp_cmdshell",
-  "xp_dirtree",
-  "xp_fileexist",
-  "openrowset",
-  "opendatasource",
-  "sp_oacreate",
-  "sp_oamethod",
-  "load_extension",
+    "pg_read_file",
+    "pg_read_binary_file",
+    "pg_ls_dir",
+    "pg_stat_file",
+    "dblink",
+    "dblink_connect",
+    "dblink_exec",
+    "lo_import",
+    "lo_export",
+    "load_file",
+    "sys_exec",
+    "sys_eval",
+    "xp_cmdshell",
+    "xp_dirtree",
+    "xp_fileexist",
+    "openrowset",
+    "opendatasource",
+    "sp_oacreate",
+    "sp_oamethod",
+    "load_extension",
 ]
 
 # SC-SEC02 — grant-all
@@ -155,15 +155,7 @@ matcher = "weak_hash_over_sensitive_column"
 
 [rule.matcher_args]
 functions = ["md5", "sha1"]
-column_patterns = [
-  "password",
-  "passwd",
-  "pwd",
-  "secret",
-  "token",
-  "api_key",
-  "auth_token",
-]
+column_patterns = ["password", "passwd", "pwd", "secret", "token", "api_key", "auth_token"]
 
 # SC-SEC07 — select-star-pii
 # SELECT * against a table whose schema contains PII or credential columns.
@@ -180,19 +172,19 @@ matcher = "select_star_over_pii_columns"
 
 [rule.matcher_args]
 column_patterns = [
-  "password",
-  "passwd",
-  "ssn",
-  "social_security",
-  "credit_card",
-  "cc_number",
-  "email",
-  "phone",
-  "dob",
-  "date_of_birth",
-  "secret",
-  "token",
-  "api_key",
+    "password",
+    "passwd",
+    "ssn",
+    "social_security",
+    "credit_card",
+    "cc_number",
+    "email",
+    "phone",
+    "dob",
+    "date_of_birth",
+    "secret",
+    "token",
+    "api_key",
 ]
 
 # SC-SEC11 — session-mutation

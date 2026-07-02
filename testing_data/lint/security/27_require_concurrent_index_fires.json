@@ -1,20 +1,20 @@
 {
-	"name": "require_concurrent_index_fires",
-	"description": "CREATE INDEX without CONCURRENTLY should trigger SC-MIG03",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "require-concurrent-index-creation"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateUserEmailIndex\n-- @returns :exec\nCREATE INDEX idx_users_email ON users (email)",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-MIG03",
-					"message_contains": "CONCURRENT"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "require_concurrent_index_fires",
+  "description": "CREATE INDEX without CONCURRENTLY should trigger SC-MIG03",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "require-concurrent-index-creation"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateUserEmailIndex\n-- @returns :exec\nCREATE INDEX idx_users_email ON users (email)",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-MIG03",
+          "message_contains": "CONCURRENT"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

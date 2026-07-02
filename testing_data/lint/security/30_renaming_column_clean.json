@@ -1,15 +1,15 @@
 {
-	"name": "renaming_column_clean",
-	"description": "ALTER TABLE … ADD COLUMN should not trigger SC-MIG04",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "renaming-column"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateUsernameColumn\n-- @returns :exec\nALTER TABLE users ADD COLUMN username text",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "renaming_column_clean",
+  "description": "ALTER TABLE … ADD COLUMN should not trigger SC-MIG04",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "renaming-column"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateUsernameColumn\n-- @returns :exec\nALTER TABLE users ADD COLUMN username text",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

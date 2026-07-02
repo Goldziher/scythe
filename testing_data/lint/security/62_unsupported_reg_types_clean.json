@@ -1,15 +1,15 @@
 {
-	"name": "unsupported_reg_types_clean",
-	"description": "Column declared as regclass (the exempt regtype) should not trigger SC-MIG19",
-	"category": "lint/security",
-	"tags": ["lint", "migration", "unsupported-reg-types"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateMetaTable\n-- @returns :exec\nCREATE TABLE meta (id bigint PRIMARY KEY, rel regclass)",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "unsupported_reg_types_clean",
+  "description": "Column declared as regclass (the exempt regtype) should not trigger SC-MIG19",
+  "category": "lint/security",
+  "tags": ["lint", "migration", "unsupported-reg-types"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateMetaTable\n-- @returns :exec\nCREATE TABLE meta (id bigint PRIMARY KEY, rel regclass)",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

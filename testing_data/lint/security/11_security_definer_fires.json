@@ -1,20 +1,20 @@
 {
-	"name": "security_definer_fires",
-	"description": "SECURITY DEFINER without SET search_path should trigger SC-SEC10",
-	"category": "lint/security",
-	"tags": ["lint", "security", "security-definer"],
-	"schema_sql": ["CREATE TABLE audit_log (id SERIAL PRIMARY KEY);"],
-	"query_sql": "-- @name CreateBumpAuditFn\n-- @returns :exec\nCREATE FUNCTION bump_audit() RETURNS int AS $$ SELECT 1 $$ LANGUAGE SQL SECURITY DEFINER;",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": [
-				{
-					"rule_code": "SC-SEC10",
-					"message_contains": "search_path"
-				}
-			]
-		}
-	},
-	"source": "original"
+  "name": "security_definer_fires",
+  "description": "SECURITY DEFINER without SET search_path should trigger SC-SEC10",
+  "category": "lint/security",
+  "tags": ["lint", "security", "security-definer"],
+  "schema_sql": ["CREATE TABLE audit_log (id SERIAL PRIMARY KEY);"],
+  "query_sql": "-- @name CreateBumpAuditFn\n-- @returns :exec\nCREATE FUNCTION bump_audit() RETURNS int AS $$ SELECT 1 $$ LANGUAGE SQL SECURITY DEFINER;",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": [
+        {
+          "rule_code": "SC-SEC10",
+          "message_contains": "search_path"
+        }
+      ]
+    }
+  },
+  "source": "original"
 }

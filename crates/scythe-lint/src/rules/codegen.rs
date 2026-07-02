@@ -71,8 +71,7 @@ impl LintRule for ExecWithReturning {
         if has_returning {
             return vec![Violation {
                 rule_id: Cow::Borrowed(self.id()),
-                message: ":exec command with RETURNING clause — returned rows will be discarded"
-                    .into(),
+                message: ":exec command with RETURNING clause — returned rows will be discarded".into(),
                 fix: Some(LintFix {
                     description: "Change to :one or :many, or remove RETURNING".into(),
                     replacement: String::new(),
@@ -165,10 +164,8 @@ mod tests {
     #[test]
     fn exec_without_returning_ok() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name CreateUser\n-- @returns :exec\nINSERT INTO users (name, email) VALUES ($1, $2);",
-        )
-        .unwrap();
+        let q = parse_query("-- @name CreateUser\n-- @returns :exec\nINSERT INTO users (name, email) VALUES ($1, $2);")
+            .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = ExecWithReturning.check_query(&ctx);
@@ -193,8 +190,7 @@ mod tests {
     #[test]
     fn missing_returns_annotation_is_noop() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = MissingReturnsAnnotation.check_query(&ctx);
@@ -262,10 +258,8 @@ mod tests {
     #[test]
     fn exec_with_delete_returning_fires() {
         let cat = make_catalog();
-        let q = parse_query(
-            "-- @name DeleteUser\n-- @returns :exec\nDELETE FROM users WHERE id = $1 RETURNING id;",
-        )
-        .unwrap();
+        let q = parse_query("-- @name DeleteUser\n-- @returns :exec\nDELETE FROM users WHERE id = $1 RETURNING id;")
+            .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = ExecWithReturning.check_query(&ctx);
@@ -278,8 +272,7 @@ mod tests {
     #[test]
     fn exec_with_select_ok() {
         let cat = make_catalog();
-        let q = parse_query("-- @name CountUsers\n-- @returns :exec\nSELECT count(*) FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name CountUsers\n-- @returns :exec\nSELECT count(*) FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = ExecWithReturning.check_query(&ctx);
@@ -291,8 +284,7 @@ mod tests {
     #[test]
     fn duplicate_query_names_is_noop() {
         let cat = make_catalog();
-        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;")
-            .unwrap();
+        let q = parse_query("-- @name ListUsers\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = DuplicateQueryNames.check_query(&ctx);

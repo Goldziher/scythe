@@ -38,8 +38,8 @@ struct GenerationResult {
 fn generate_for_schema(relative_path: &str) -> GenerationResult {
     let schema_dir = schema_dir(relative_path);
     let config_path = schema_dir.join("scythe.toml");
-    let config_str = std::fs::read_to_string(&config_path)
-        .unwrap_or_else(|_| panic!("missing config: {}", config_path.display()));
+    let config_str =
+        std::fs::read_to_string(&config_path).unwrap_or_else(|_| panic!("missing config: {}", config_path.display()));
 
     let config: toml::Value = toml::from_str(&config_str).unwrap();
     let sql_blocks = config["sql"].as_array().unwrap();
@@ -158,10 +158,7 @@ fn generate_for_schema(relative_path: &str) -> GenerationResult {
         }
     }
 
-    GenerationResult {
-        combined,
-        fragments,
-    }
+    GenerationResult { combined, fragments }
 }
 
 /// Split a SQL file into individual query blocks (same logic as commands/shared.rs).
@@ -220,10 +217,7 @@ fn validate_fragments(fragments: &[CodeFragment]) -> (usize, Vec<String>) {
 #[test]
 fn test_basemind_generates_valid_rust() {
     let result = generate_for_schema("simple/basemind");
-    assert!(
-        !result.fragments.is_empty(),
-        "should generate code fragments"
-    );
+    assert!(!result.fragments.is_empty(), "should generate code fragments");
 
     let (valid, invalid) = validate_fragments(&result.fragments);
     let total = result.fragments.len();
@@ -250,10 +244,7 @@ fn test_basemind_generates_valid_rust() {
 #[test]
 fn test_pagila_generates_valid_rust() {
     let result = generate_for_schema("medium/pagila");
-    assert!(
-        !result.fragments.is_empty(),
-        "should generate code fragments"
-    );
+    assert!(!result.fragments.is_empty(), "should generate code fragments");
 
     let (valid, invalid) = validate_fragments(&result.fragments);
     let total = result.fragments.len();
@@ -280,8 +271,7 @@ fn test_generated_code_contains_expected_structs() {
 
     // Basemind schema has user_account queries
     assert!(
-        result.combined.contains("fn create_user_account")
-            || result.combined.contains("CreateUserAccount"),
+        result.combined.contains("fn create_user_account") || result.combined.contains("CreateUserAccount"),
         "should generate code for CreateUserAccount query"
     );
     assert!(

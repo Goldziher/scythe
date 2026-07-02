@@ -33,11 +33,7 @@ impl TypeOverride {
 ///
 /// Returns `None` when no override matches — the caller should fall through to
 /// the default type-resolution path.
-pub fn find_override<'a>(
-    overrides: &'a [TypeOverride],
-    column_match: &str,
-    col_neutral_type: &str,
-) -> Option<&'a str> {
+pub fn find_override<'a>(overrides: &'a [TypeOverride], column_match: &str, col_neutral_type: &str) -> Option<&'a str> {
     overrides.iter().find_map(|o| {
         if o.matches(column_match, col_neutral_type) {
             o.neutral_type.as_deref()
@@ -102,15 +98,9 @@ mod tests {
             },
         ];
         // column match wins over db_type match
-        assert_eq!(
-            find_override(&overrides, "users.metadata", "jsonb"),
-            Some("json")
-        );
+        assert_eq!(find_override(&overrides, "users.metadata", "jsonb"), Some("json"));
         // db_type fallback for non-column-matched columns
-        assert_eq!(
-            find_override(&overrides, "posts.data", "jsonb"),
-            Some("string")
-        );
+        assert_eq!(find_override(&overrides, "posts.data", "jsonb"), Some("string"));
         // no match
         assert_eq!(find_override(&overrides, "posts.data", "text"), None);
     }

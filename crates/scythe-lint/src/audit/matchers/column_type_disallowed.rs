@@ -30,11 +30,7 @@ pub fn match_column_type_disallowed(ctx: &LintContext<'_>, args: &toml::Table) -
     if disallowed.is_empty() {
         return Vec::new();
     }
-    let suggested = args
-        .get("suggested")
-        .and_then(|v| v.as_str())
-        .unwrap_or("")
-        .to_string();
+    let suggested = args.get("suggested").and_then(|v| v.as_str()).unwrap_or("").to_string();
 
     match ctx.stmt {
         Statement::CreateTable(ct) => {
@@ -46,11 +42,9 @@ pub fn match_column_type_disallowed(ctx: &LintContext<'_>, args: &toml::Table) -
                     if is_disallowed(&ty, &disallowed) {
                         let mut hit = MatcherHit::empty();
                         hit.bindings.insert("table".to_string(), table.clone());
-                        hit.bindings
-                            .insert("column".to_string(), col.name.value.clone());
+                        hit.bindings.insert("column".to_string(), col.name.value.clone());
                         hit.bindings.insert("actual_type".to_string(), ty);
-                        hit.bindings
-                            .insert("suggested_type".to_string(), suggested.clone());
+                        hit.bindings.insert("suggested_type".to_string(), suggested.clone());
                         Some(hit)
                     } else {
                         None
@@ -70,11 +64,9 @@ pub fn match_column_type_disallowed(ctx: &LintContext<'_>, args: &toml::Table) -
                         if is_disallowed(&ty, &disallowed) {
                             let mut hit = MatcherHit::empty();
                             hit.bindings.insert("table".to_string(), table.clone());
-                            hit.bindings
-                                .insert("column".to_string(), column_def.name.value.clone());
+                            hit.bindings.insert("column".to_string(), column_def.name.value.clone());
                             hit.bindings.insert("actual_type".to_string(), ty);
-                            hit.bindings
-                                .insert("suggested_type".to_string(), suggested.clone());
+                            hit.bindings.insert("suggested_type".to_string(), suggested.clone());
                             Some(hit)
                         } else {
                             None
@@ -121,17 +113,8 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -186,10 +169,7 @@ mod tests {
             .map(|s| toml::Value::String((*s).to_string()))
             .collect();
         t.insert("disallowed".to_string(), toml::Value::Array(arr));
-        t.insert(
-            "suggested".to_string(),
-            toml::Value::String(suggested.to_string()),
-        );
+        t.insert("suggested".to_string(), toml::Value::String(suggested.to_string()));
         t
     }
 
@@ -202,14 +182,8 @@ mod tests {
         let hits = match_column_type_disallowed(&ctx, &args);
         assert_eq!(hits.len(), 1);
         assert_eq!(hits[0].bindings.get("table").map(|s| s.as_str()), Some("t"));
-        assert_eq!(
-            hits[0].bindings.get("column").map(|s| s.as_str()),
-            Some("id")
-        );
-        assert_eq!(
-            hits[0].bindings.get("actual_type").map(|s| s.as_str()),
-            Some("int")
-        );
+        assert_eq!(hits[0].bindings.get("column").map(|s| s.as_str()), Some("id"));
+        assert_eq!(hits[0].bindings.get("actual_type").map(|s| s.as_str()), Some("int"));
         assert_eq!(
             hits[0].bindings.get("suggested_type").map(|s| s.as_str()),
             Some("bigint")
@@ -224,14 +198,8 @@ mod tests {
         let args = make_args(&["int", "integer", "int4", "smallint", "int2"], "bigint");
         let hits = match_column_type_disallowed(&ctx, &args);
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("table").map(|s| s.as_str()),
-            Some("users")
-        );
-        assert_eq!(
-            hits[0].bindings.get("column").map(|s| s.as_str()),
-            Some("legacy_id")
-        );
+        assert_eq!(hits[0].bindings.get("table").map(|s| s.as_str()), Some("users"));
+        assert_eq!(hits[0].bindings.get("column").map(|s| s.as_str()), Some("legacy_id"));
     }
 
     #[test]
@@ -319,10 +287,7 @@ mod tests {
         let args = make_args(&["serial", "bigserial", "smallserial"], "identity");
         let hits = match_column_type_disallowed(&ctx, &args);
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("actual_type").map(|s| s.as_str()),
-            Some("serial")
-        );
+        assert_eq!(hits[0].bindings.get("actual_type").map(|s| s.as_str()), Some("serial"));
     }
 
     #[test]
@@ -370,13 +335,7 @@ mod tests {
         let h = &hits[0];
         assert_eq!(h.bindings.get("table").map(|s| s.as_str()), Some("orders"));
         assert_eq!(h.bindings.get("column").map(|s| s.as_str()), Some("qty"));
-        assert_eq!(
-            h.bindings.get("actual_type").map(|s| s.as_str()),
-            Some("int")
-        );
-        assert_eq!(
-            h.bindings.get("suggested_type").map(|s| s.as_str()),
-            Some("bigint")
-        );
+        assert_eq!(h.bindings.get("actual_type").map(|s| s.as_str()), Some("int"));
+        assert_eq!(h.bindings.get("suggested_type").map(|s| s.as_str()), Some("bigint"));
     }
 }

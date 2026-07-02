@@ -34,12 +34,8 @@ impl CheckRegistry {
             .expect("canonical checks.toml must parse correctly");
 
         for spec in &checks {
-            validate_message_bindings(spec).unwrap_or_else(|e| {
-                panic!(
-                    "canonical check {id} has invalid message bindings: {e}",
-                    id = spec.id
-                )
-            });
+            validate_message_bindings(spec)
+                .unwrap_or_else(|e| panic!("canonical check {id} has invalid message bindings: {e}", id = spec.id));
         }
 
         Self { checks }
@@ -59,12 +55,11 @@ impl CheckRegistry {
         let path_str = path.display().to_string();
 
         for spec in specs {
-            spec.validate_user_check()
-                .map_err(|e| ConfigError::InvalidCheck {
-                    path: path_str.clone(),
-                    check_id: spec.id.clone(),
-                    reason: format!("{e}"),
-                })?;
+            spec.validate_user_check().map_err(|e| ConfigError::InvalidCheck {
+                path: path_str.clone(),
+                check_id: spec.id.clone(),
+                reason: format!("{e}"),
+            })?;
 
             validate_message_bindings(&spec).map_err(|e| ConfigError::InvalidCheck {
                 path: path_str.clone(),
@@ -114,8 +109,7 @@ impl CheckRegistry {
         }
 
         // Remove checks that are overridden to `off`.
-        self.checks
-            .retain(|c| overrides.get(&c.id) != Some(&Severity::Off));
+        self.checks.retain(|c| overrides.get(&c.id) != Some(&Severity::Off));
 
         // Update severities for surviving checks.
         for spec in &mut self.checks {
@@ -151,10 +145,7 @@ mod tests {
     fn canonical_registry_has_canonical_postgres_checks() {
         use crate::spec::CANONICAL_CHECK_IDS;
         let reg = CheckRegistry::canonical();
-        assert_eq!(
-            reg.for_engine("postgres").count(),
-            CANONICAL_CHECK_IDS.len()
-        );
+        assert_eq!(reg.for_engine("postgres").count(), CANONICAL_CHECK_IDS.len());
     }
 
     #[test]
@@ -178,10 +169,7 @@ mod tests {
         });
 
         // postgres engine should still only see the canonical checks
-        assert_eq!(
-            reg.for_engine("postgres").count(),
-            CANONICAL_CHECK_IDS.len()
-        );
+        assert_eq!(reg.for_engine("postgres").count(), CANONICAL_CHECK_IDS.len());
         // mysql engine should see only the synthetic one
         assert_eq!(reg.for_engine("mysql").count(), 1);
     }
@@ -191,10 +179,7 @@ mod tests {
         use crate::spec::CANONICAL_CHECK_IDS;
         let reg = CheckRegistry::canonical();
         for id in CANONICAL_CHECK_IDS {
-            assert!(
-                reg.get(id).is_some(),
-                "canonical registry missing check {id}"
-            );
+            assert!(reg.get(id).is_some(), "canonical registry missing check {id}");
         }
     }
 

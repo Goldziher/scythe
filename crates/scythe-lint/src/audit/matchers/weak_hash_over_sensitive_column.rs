@@ -14,17 +14,12 @@
 
 use std::ops::ControlFlow;
 
-use sqlparser::ast::{
-    Expr, FunctionArg, FunctionArgExpr, FunctionArguments, ObjectName, Statement, Visit, Visitor,
-};
+use sqlparser::ast::{Expr, FunctionArg, FunctionArgExpr, FunctionArguments, ObjectName, Statement, Visit, Visitor};
 
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
-pub fn match_weak_hash_over_sensitive_column(
-    ctx: &LintContext<'_>,
-    args: &toml::Table,
-) -> Vec<MatcherHit> {
+pub fn match_weak_hash_over_sensitive_column(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<MatcherHit> {
     let functions = read_string_list(args, "functions");
     let column_patterns = read_string_list(args, "column_patterns");
 
@@ -53,9 +48,7 @@ fn read_string_list(args: &toml::Table, key: &str) -> Vec<String> {
 }
 
 fn last_name_segment(name: &ObjectName) -> Option<String> {
-    name.0
-        .last()
-        .and_then(|p| p.as_ident().map(|i| i.value.clone()))
+    name.0.last().and_then(|p| p.as_ident().map(|i| i.value.clone()))
 }
 
 struct Collector<'a> {
@@ -120,11 +113,7 @@ fn extract_sensitive_column(expr: &Expr, patterns: &[String]) -> Option<String> 
             if let Some(last) = parts.last() {
                 let lower = last.value.to_ascii_lowercase();
                 if patterns.iter().any(|p| lower.contains(p.as_str())) {
-                    let rendered = parts
-                        .iter()
-                        .map(|i| i.value.as_str())
-                        .collect::<Vec<_>>()
-                        .join(".");
+                    let rendered = parts.iter().map(|i| i.value.as_str()).collect::<Vec<_>>().join(".");
                     return Some(rendered);
                 }
             }
@@ -159,17 +148,8 @@ mod tests {
         t
     }
 
-    fn make_parts(
-        sql: &str,
-    ) -> (
-        sqlparser::ast::Statement,
-        AnalyzedQuery,
-        Catalog,
-        Annotations,
-    ) {
-        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql)
-            .unwrap()
-            .remove(0);
+    fn make_parts(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
+        let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
         let analyzed = AnalyzedQuery {
             name: "q".to_string(),
             command: QueryCommand::Many,
@@ -225,14 +205,8 @@ mod tests {
         let args = make_args(&["md5", "sha1"], &["password", "passwd", "secret"]);
         let hits = match_weak_hash_over_sensitive_column(&ctx, &args);
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("func").map(|s| s.as_str()),
-            Some("md5")
-        );
-        assert_eq!(
-            hits[0].bindings.get("column").map(|s| s.as_str()),
-            Some("password")
-        );
+        assert_eq!(hits[0].bindings.get("func").map(|s| s.as_str()), Some("md5"));
+        assert_eq!(hits[0].bindings.get("column").map(|s| s.as_str()), Some("password"));
     }
 
     #[test]
@@ -253,10 +227,7 @@ mod tests {
         let args = make_args(&["md5", "sha1"], &["password"]);
         let hits = match_weak_hash_over_sensitive_column(&ctx, &args);
         assert_eq!(hits.len(), 1);
-        assert_eq!(
-            hits[0].bindings.get("func").map(|s| s.as_str()),
-            Some("sha1")
-        );
+        assert_eq!(hits[0].bindings.get("func").map(|s| s.as_str()), Some("sha1"));
         assert_eq!(
             hits[0].bindings.get("column").map(|s| s.as_str()),
             Some("users.password")

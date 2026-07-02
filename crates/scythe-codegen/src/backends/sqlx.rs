@@ -30,8 +30,7 @@ impl SqlxBackend {
         // Multi-DB backend — accept all engines, load PG manifest as default
         // TODO: Load engine-specific manifests once they exist
         match engine {
-            "postgresql" | "postgres" | "pg" | "mysql" | "mariadb" | "sqlite" | "sqlite3"
-            | "redshift" => {}
+            "postgresql" | "postgres" | "pg" | "mysql" | "mariadb" | "sqlite" | "sqlite3" | "redshift" => {}
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
@@ -40,18 +39,11 @@ impl SqlxBackend {
             }
         }
         let manifest = match engine {
-            "mariadb" => super::load_or_default_manifest(
-                "backends/rust-sqlx/manifest.toml",
-                DEFAULT_MANIFEST_MARIADB,
-            )?,
-            "redshift" => super::load_or_default_manifest(
-                "backends/rust-sqlx/manifest.toml",
-                DEFAULT_MANIFEST_REDSHIFT,
-            )?,
-            _ => super::load_or_default_manifest(
-                "backends/rust-sqlx/manifest.toml",
-                DEFAULT_MANIFEST_TOML,
-            )?,
+            "mariadb" => super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_MARIADB)?,
+            "redshift" => {
+                super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_REDSHIFT)?
+            }
+            _ => super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_TOML)?,
         };
         Ok(Self {
             manifest,
@@ -74,10 +66,7 @@ impl SqlxBackend {
     /// For these engines, row struct fields must use `String` (or `Option<String>`)
     /// instead of the generated Rust enum type.
     fn uses_inline_enums(&self) -> bool {
-        matches!(
-            self.engine.as_str(),
-            "mysql" | "mariadb" | "sqlite" | "sqlite3"
-        )
+        matches!(self.engine.as_str(), "mysql" | "mariadb" | "sqlite" | "sqlite3")
     }
 
     /// Resolve the field type for a row struct column.
@@ -87,11 +76,7 @@ impl SqlxBackend {
     /// the generated Rust enum at runtime (see `uses_inline_enums`).
     fn row_field_type<'a>(&self, col: &'a ResolvedColumn) -> &'a str {
         if self.uses_inline_enums() && col.neutral_type.starts_with("enum::") {
-            if col.nullable {
-                "Option<String>"
-            } else {
-                "String"
-            }
+            if col.nullable { "Option<String>" } else { "String" }
         } else {
             &col.full_type
         }
@@ -134,21 +119,14 @@ impl CodegenBackend for SqlxBackend {
             .to_string()
     }
 
-    fn apply_options(
-        &mut self,
-        options: &std::collections::HashMap<String, String>,
-    ) -> Result<(), ScytheError> {
+    fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         if options.get("structs_only").is_some_and(|v| v == "true") {
             self.structs_only = true;
         }
         Ok(())
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
 
@@ -164,11 +142,7 @@ impl CodegenBackend for SqlxBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let singular = singularize(table_name);
         let struct_name = to_pascal_case(&singular).into_owned();
         let mut out = String::new();
@@ -214,11 +188,7 @@ impl CodegenBackend for SqlxBackend {
         }
 
         // Clean SQL
-        let sql_raw = super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let sql_raw = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let sql = rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest);
 
         // Build bind params string
@@ -275,11 +245,7 @@ impl CodegenBackend for SqlxBackend {
                     })
                     .collect();
 
-                let _ = writeln!(
-                    out,
-                    "        sqlx::query!(\"{}\"{})",
-                    sql, struct_bind_params
-                );
+                let _ = writeln!(out, "        sqlx::query!(\"{}\"{})", sql, struct_bind_params);
                 let _ = writeln!(out, "            .execute(&mut *tx)");
                 let _ = writeln!(out, "            .await?;");
                 let _ = writeln!(out, "    }}");
@@ -360,18 +326,10 @@ impl CodegenBackend for SqlxBackend {
                     struct_name, sql, bind_params
                 );
             } else {
-                let _ = write!(
-                    out,
-                    "    let result = sqlx::query!(\"{}\"{})",
-                    sql, bind_params
-                );
+                let _ = write!(out, "    let result = sqlx::query!(\"{}\"{})", sql, bind_params);
             }
         } else if has_row_struct && !analyzed.columns.is_empty() {
-            let _ = write!(
-                out,
-                "    sqlx::query_as!({}, \"{}\"{})",
-                struct_name, sql, bind_params
-            );
+            let _ = write!(out, "    sqlx::query_as!({}, \"{}\"{})", struct_name, sql, bind_params);
         } else {
             let _ = write!(out, "    sqlx::query!(\"{}\"{})", sql, bind_params);
         }
@@ -460,17 +418,9 @@ impl CodegenBackend for SqlxBackend {
             let rust_type = resolve_type(&field.neutral_type, &self.manifest, false)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("composite field type error: {}", e),
-                    )
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
-            let _ = writeln!(
-                out,
-                "    pub {}: {},",
-                to_snake_case(&field.name),
-                rust_type
-            );
+            let _ = writeln!(out, "    pub {}: {},", to_snake_case(&field.name), rust_type);
         }
         let _ = write!(out, "}}");
         Ok(out)
@@ -482,11 +432,7 @@ impl CodegenBackend for SqlxBackend {
 // ---------------------------------------------------------------------------
 
 /// Rewrite SQL to add enum type annotations for sqlx.
-fn rewrite_sql_for_enums(
-    sql: &str,
-    columns: &[AnalyzedColumn],
-    manifest: &BackendManifest,
-) -> String {
+fn rewrite_sql_for_enums(sql: &str, columns: &[AnalyzedColumn], manifest: &BackendManifest) -> String {
     let enum_cols: Vec<(&str, String)> = columns
         .iter()
         .filter_map(|col| {

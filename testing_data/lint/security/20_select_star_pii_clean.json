@@ -1,17 +1,15 @@
 {
-	"name": "select_star_pii_clean",
-	"description": "SELECT * from a table with no PII columns — SC-SEC07 does not fire (SC-S03 SELECT * warning is separate)",
-	"category": "lint/security",
-	"tags": ["lint", "security", "select-star-pii"],
-	"schema_sql": [
-		"CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price NUMERIC NOT NULL);"
-	],
-	"query_sql": "-- @name ListProducts\n-- @returns :many\nSELECT id, name, price FROM products",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "select_star_pii_clean",
+  "description": "SELECT * from a table with no PII columns — SC-SEC07 does not fire (SC-S03 SELECT * warning is separate)",
+  "category": "lint/security",
+  "tags": ["lint", "security", "select-star-pii"],
+  "schema_sql": ["CREATE TABLE products (id SERIAL PRIMARY KEY, name TEXT NOT NULL, price NUMERIC NOT NULL);"],
+  "query_sql": "-- @name ListProducts\n-- @returns :many\nSELECT id, name, price FROM products",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

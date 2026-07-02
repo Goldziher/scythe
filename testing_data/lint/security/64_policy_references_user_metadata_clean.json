@@ -1,17 +1,15 @@
 {
-	"name": "policy_references_user_metadata_clean",
-	"description": "RLS policy reading from app_metadata (server-set) should not trigger SC-RLS01",
-	"category": "lint/security",
-	"tags": ["lint", "security", "rls", "policy-references-user-metadata"],
-	"schema_sql": [
-		"CREATE TABLE tenants (id bigint PRIMARY KEY, tenant_id text)"
-	],
-	"query_sql": "-- @name CreateTrustJwtPolicy\n-- @returns :exec\nCREATE POLICY trust_jwt ON tenants USING ((select auth.jwt()) -> 'app_metadata' ->> 'tenant_id' = tenant_id)",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "policy_references_user_metadata_clean",
+  "description": "RLS policy reading from app_metadata (server-set) should not trigger SC-RLS01",
+  "category": "lint/security",
+  "tags": ["lint", "security", "rls", "policy-references-user-metadata"],
+  "schema_sql": ["CREATE TABLE tenants (id bigint PRIMARY KEY, tenant_id text)"],
+  "query_sql": "-- @name CreateTrustJwtPolicy\n-- @returns :exec\nCREATE POLICY trust_jwt ON tenants USING ((select auth.jwt()) -> 'app_metadata' ->> 'tenant_id' = tenant_id)",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

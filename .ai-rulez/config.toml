@@ -7,18 +7,18 @@ description = 'SQL compilation and code generation framework — compiles annota
 gitignore = true
 presets = ['claude', 'gemini', 'codex']
 builtins = [
-  'rust',
-  'python',
-  'typescript',
-  'ruby',
-  'php',
-  'elixir',
-  'go',
-  'java',
-  'csharp',
-  'pyo3',
-  'napi-rs',
-  'default-commands',
+    'rust',
+    'python',
+    'typescript',
+    'ruby',
+    'php',
+    'elixir',
+    'go',
+    'java',
+    'csharp',
+    'pyo3',
+    'napi-rs',
+    'default-commands',
 ]
 
 [header]

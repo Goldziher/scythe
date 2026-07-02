@@ -286,11 +286,7 @@ pub struct SqlcComparison {
 /// Recursively loads all `.json` fixture files from `dir`, excluding
 /// `00-FIXTURE-SCHEMA.json`. Returns fixtures sorted by (category, name).
 pub fn load_fixtures(dir: &Path) -> Result<Vec<Fixture>, Box<dyn std::error::Error>> {
-    let pattern = dir
-        .join("**/*.json")
-        .to_str()
-        .ok_or("non-UTF-8 path")?
-        .to_string();
+    let pattern = dir.join("**/*.json").to_str().ok_or("non-UTF-8 path")?.to_string();
 
     let mut fixtures: Vec<Fixture> = Vec::new();
 
@@ -305,17 +301,13 @@ pub fn load_fixtures(dir: &Path) -> Result<Vec<Fixture>, Box<dyn std::error::Err
         }
 
         let contents = std::fs::read_to_string(&path)?;
-        let mut fixture: Fixture = serde_json::from_str(&contents)
-            .map_err(|e| format!("failed to parse {}: {}", path.display(), e))?;
+        let mut fixture: Fixture =
+            serde_json::from_str(&contents).map_err(|e| format!("failed to parse {}: {}", path.display(), e))?;
         fixture.file_path = Some(path.display().to_string());
         fixtures.push(fixture);
     }
 
-    fixtures.sort_by(|a, b| {
-        a.category
-            .cmp(&b.category)
-            .then_with(|| a.name.cmp(&b.name))
-    });
+    fixtures.sort_by(|a, b| a.category.cmp(&b.category).then_with(|| a.name.cmp(&b.name)));
 
     // Detect duplicate fixture names (globally unique, not just adjacent).
     let mut seen = AHashSet::new();

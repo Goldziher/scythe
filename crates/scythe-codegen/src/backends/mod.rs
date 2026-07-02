@@ -68,8 +68,7 @@ pub(crate) fn load_or_default_manifest(
         scythe_backend::manifest::load_manifest(path)
             .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
     } else {
-        toml::from_str(default_toml)
-            .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
+        toml::from_str(default_toml).map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
     }
 }
 
@@ -105,11 +104,7 @@ pub(crate) fn clean_sql_oneline(sql: &str) -> String {
 /// to skip a filter condition at runtime.
 ///
 /// This operates on the raw SQL before any backend-specific placeholder rewriting.
-pub(crate) fn rewrite_optional_params(
-    sql: &str,
-    optional_params: &[String],
-    params: &[AnalyzedParam],
-) -> String {
+pub(crate) fn rewrite_optional_params(sql: &str, optional_params: &[String], params: &[AnalyzedParam]) -> String {
     if optional_params.is_empty() {
         return sql.to_string();
     }
@@ -123,9 +118,7 @@ pub(crate) fn rewrite_optional_params(
         let placeholder = format!("${}", param.position);
 
         // Try each comparison operator
-        for op in &[
-            ">=", "<=", "<>", "!=", ">", "<", "=", "ILIKE", "ilike", "LIKE", "like",
-        ] {
+        for op in &[">=", "<=", "<>", "!=", ">", "<", "=", "ILIKE", "ilike", "LIKE", "like"] {
             result = rewrite_comparison(&result, &placeholder, op);
         }
     }
@@ -144,18 +137,14 @@ fn rewrite_comparison(sql: &str, placeholder: &str, op: &str) -> String {
     while i < len {
         // Try to match `identifier <op> $N` at this position
         if let Some((_start, col, end)) = try_match_col_op_ph(&chars, i, op, placeholder) {
-            result.push_str(&format!(
-                "({placeholder} IS NULL OR {col} {op} {placeholder})"
-            ));
+            result.push_str(&format!("({placeholder} IS NULL OR {col} {op} {placeholder})"));
             i = end;
             continue;
         }
 
         // Try to match `$N <op> identifier` at this position
         if let Some((end, col)) = try_match_ph_op_col(&chars, i, op, placeholder) {
-            result.push_str(&format!(
-                "({placeholder} IS NULL OR {col} {op} {placeholder})"
-            ));
+            result.push_str(&format!("({placeholder} IS NULL OR {col} {op} {placeholder})"));
             i = end;
             continue;
         }
@@ -169,12 +158,7 @@ fn rewrite_comparison(sql: &str, placeholder: &str, op: &str) -> String {
 
 /// Try to match `identifier <ws>* <op> <ws>* placeholder` starting at position `i`.
 /// Returns `(match_start, column_name, match_end)` if found.
-fn try_match_col_op_ph(
-    chars: &[char],
-    i: usize,
-    op: &str,
-    placeholder: &str,
-) -> Option<(usize, String, usize)> {
+fn try_match_col_op_ph(chars: &[char], i: usize, op: &str, placeholder: &str) -> Option<(usize, String, usize)> {
     // Must start with an identifier character (word char)
     if !is_ident_char(chars[i]) {
         return None;
@@ -236,12 +220,7 @@ fn try_match_col_op_ph(
 
 /// Try to match `placeholder <ws>* <op> <ws>* identifier` starting at position `i`.
 /// Returns `(match_end, column_name)` if found.
-fn try_match_ph_op_col(
-    chars: &[char],
-    i: usize,
-    op: &str,
-    placeholder: &str,
-) -> Option<(usize, String)> {
+fn try_match_ph_op_col(chars: &[char], i: usize, op: &str, placeholder: &str) -> Option<(usize, String)> {
     let ph_chars: Vec<char> = placeholder.chars().collect();
     if i + ph_chars.len() > chars.len() {
         return None;
@@ -306,11 +285,7 @@ fn try_match_ph_op_col(
 }
 
 /// Clean SQL and apply optional parameter rewriting.
-pub(crate) fn clean_sql_with_optional(
-    sql: &str,
-    optional_params: &[String],
-    params: &[AnalyzedParam],
-) -> String {
+pub(crate) fn clean_sql_with_optional(sql: &str, optional_params: &[String], params: &[AnalyzedParam]) -> String {
     let cleaned = clean_sql(sql);
     rewrite_optional_params(&cleaned, optional_params, params)
 }
@@ -386,114 +361,68 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "rust-tokio-postgres" | "tokio-postgres" => {
             Box::new(tokio_postgres::TokioPostgresBackend::new(canonical_engine)?)
         }
-        "python-psycopg3" | "python" => Box::new(python_psycopg3::PythonPsycopg3Backend::new(
-            canonical_engine,
-        )?),
+        "python-psycopg3" | "python" => Box::new(python_psycopg3::PythonPsycopg3Backend::new(canonical_engine)?),
         "python-asyncpg" => Box::new(python_asyncpg::PythonAsyncpgBackend::new(canonical_engine)?),
-        "python-aiomysql" => Box::new(python_aiomysql::PythonAiomysqlBackend::new(
-            canonical_engine,
-        )?),
-        "python-aiosqlite" => Box::new(python_aiosqlite::PythonAiosqliteBackend::new(
-            canonical_engine,
-        )?),
+        "python-aiomysql" => Box::new(python_aiomysql::PythonAiomysqlBackend::new(canonical_engine)?),
+        "python-aiosqlite" => Box::new(python_aiosqlite::PythonAiosqliteBackend::new(canonical_engine)?),
         "python-duckdb" => Box::new(python_duckdb::PythonDuckdbBackend::new(canonical_engine)?),
-        "typescript-postgres" | "ts" | "typescript" => Box::new(
-            typescript_postgres::TypescriptPostgresBackend::new(canonical_engine)?,
-        ),
+        "typescript-postgres" | "ts" | "typescript" => {
+            Box::new(typescript_postgres::TypescriptPostgresBackend::new(canonical_engine)?)
+        }
         "typescript-pg" => Box::new(typescript_pg::TypescriptPgBackend::new(canonical_engine)?),
-        "typescript-mysql2" => Box::new(typescript_mysql2::TypescriptMysql2Backend::new(
+        "typescript-mysql2" => Box::new(typescript_mysql2::TypescriptMysql2Backend::new(canonical_engine)?),
+        "typescript-better-sqlite3" => Box::new(typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new(
             canonical_engine,
         )?),
-        "typescript-better-sqlite3" => Box::new(
-            typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new(canonical_engine)?,
-        ),
-        "typescript-duckdb" => Box::new(typescript_duckdb::TypescriptDuckdbBackend::new(
-            canonical_engine,
-        )?),
-        "go-database-sql" => Box::new(go_database_sql::GoDatabaseSqlBackend::new(
-            canonical_engine,
-        )?),
+        "typescript-duckdb" => Box::new(typescript_duckdb::TypescriptDuckdbBackend::new(canonical_engine)?),
+        "go-database-sql" => Box::new(go_database_sql::GoDatabaseSqlBackend::new(canonical_engine)?),
         "go-pgx" | "go" => Box::new(go_pgx::GoPgxBackend::new(canonical_engine)?),
         "java-jdbc" | "java" => Box::new(java_jdbc::JavaJdbcBackend::new(canonical_engine)?),
-        "java-r2dbc" | "r2dbc-java" => {
-            Box::new(java_r2dbc::JavaR2dbcBackend::new(canonical_engine)?)
-        }
-        "kotlin-exposed" | "exposed" => {
-            Box::new(kotlin_exposed::KotlinExposedBackend::new(canonical_engine)?)
-        }
-        "kotlin-jdbc" | "kotlin" | "kt" => {
-            Box::new(kotlin_jdbc::KotlinJdbcBackend::new(canonical_engine)?)
-        }
-        "kotlin-r2dbc" | "r2dbc-kotlin" => {
-            Box::new(kotlin_r2dbc::KotlinR2dbcBackend::new(canonical_engine)?)
-        }
+        "java-r2dbc" | "r2dbc-java" => Box::new(java_r2dbc::JavaR2dbcBackend::new(canonical_engine)?),
+        "kotlin-exposed" | "exposed" => Box::new(kotlin_exposed::KotlinExposedBackend::new(canonical_engine)?),
+        "kotlin-jdbc" | "kotlin" | "kt" => Box::new(kotlin_jdbc::KotlinJdbcBackend::new(canonical_engine)?),
+        "kotlin-r2dbc" | "r2dbc-kotlin" => Box::new(kotlin_r2dbc::KotlinR2dbcBackend::new(canonical_engine)?),
         "csharp-npgsql" | "csharp" | "c#" | "dotnet" => {
             Box::new(csharp_npgsql::CsharpNpgsqlBackend::new(canonical_engine)?)
         }
-        "csharp-mysqlconnector" => Box::new(
-            csharp_mysqlconnector::CsharpMysqlConnectorBackend::new(canonical_engine)?,
-        ),
-        "csharp-microsoft-sqlite" => Box::new(
-            csharp_microsoft_sqlite::CsharpMicrosoftSqliteBackend::new(canonical_engine)?,
-        ),
-        "elixir-postgrex" | "elixir" | "ex" => Box::new(
-            elixir_postgrex::ElixirPostgrexBackend::new(canonical_engine)?,
-        ),
+        "csharp-mysqlconnector" => Box::new(csharp_mysqlconnector::CsharpMysqlConnectorBackend::new(
+            canonical_engine,
+        )?),
+        "csharp-microsoft-sqlite" => Box::new(csharp_microsoft_sqlite::CsharpMicrosoftSqliteBackend::new(
+            canonical_engine,
+        )?),
+        "elixir-postgrex" | "elixir" | "ex" => Box::new(elixir_postgrex::ElixirPostgrexBackend::new(canonical_engine)?),
         "elixir-ecto" | "ecto" => Box::new(elixir_ecto::ElixirEctoBackend::new(canonical_engine)?),
         "elixir-myxql" => Box::new(elixir_myxql::ElixirMyxqlBackend::new(canonical_engine)?),
         "elixir-exqlite" => Box::new(elixir_exqlite::ElixirExqliteBackend::new(canonical_engine)?),
         "ruby-pg" | "ruby" | "rb" => Box::new(ruby_pg::RubyPgBackend::new(canonical_engine)?),
         "ruby-mysql2" => Box::new(ruby_mysql2::RubyMysql2Backend::new(canonical_engine)?),
         "ruby-sqlite3" => Box::new(ruby_sqlite3::RubySqlite3Backend::new(canonical_engine)?),
-        "ruby-trilogy" | "trilogy" => {
-            Box::new(ruby_trilogy::RubyTrilogyBackend::new(canonical_engine)?)
-        }
+        "ruby-trilogy" | "trilogy" => Box::new(ruby_trilogy::RubyTrilogyBackend::new(canonical_engine)?),
         "php-pdo" | "php" => Box::new(php_pdo::PhpPdoBackend::new(canonical_engine)?),
         "php-amphp" | "amphp" => Box::new(php_amphp::PhpAmphpBackend::new(canonical_engine)?),
         // MSSQL backends
-        "rust-tiberius" | "tiberius" => {
-            Box::new(rust_tiberius::RustTiberiusBackend::new(canonical_engine)?)
-        }
-        "python-pyodbc" | "pyodbc" => {
-            Box::new(python_pyodbc::PythonPyodbcBackend::new(canonical_engine)?)
-        }
-        "typescript-mssql" | "tedious" => Box::new(typescript_mssql::TypescriptMssqlBackend::new(
-            canonical_engine,
-        )?),
-        "csharp-sqlclient" => Box::new(csharp_sqlclient::CsharpSqlClientBackend::new(
-            canonical_engine,
-        )?),
+        "rust-tiberius" | "tiberius" => Box::new(rust_tiberius::RustTiberiusBackend::new(canonical_engine)?),
+        "python-pyodbc" | "pyodbc" => Box::new(python_pyodbc::PythonPyodbcBackend::new(canonical_engine)?),
+        "typescript-mssql" | "tedious" => Box::new(typescript_mssql::TypescriptMssqlBackend::new(canonical_engine)?),
+        "csharp-sqlclient" => Box::new(csharp_sqlclient::CsharpSqlClientBackend::new(canonical_engine)?),
         "ruby-tiny-tds" | "tiny-tds" | "tiny_tds" => {
             Box::new(ruby_tiny_tds::RubyTinyTdsBackend::new(canonical_engine)?)
         }
         "elixir-tds" | "tds" => Box::new(elixir_tds::ElixirTdsBackend::new(canonical_engine)?),
         // Oracle backends
         "rust-sibyl" | "sibyl" => Box::new(rust_sibyl::RustSibylBackend::new(canonical_engine)?),
-        "python-oracledb" | "oracledb" => Box::new(python_oracledb::PythonOracledbBackend::new(
-            canonical_engine,
-        )?),
-        "typescript-oracledb" => Box::new(typescript_oracledb::TypescriptOracledbBackend::new(
-            canonical_engine,
-        )?),
+        "python-oracledb" | "oracledb" => Box::new(python_oracledb::PythonOracledbBackend::new(canonical_engine)?),
+        "typescript-oracledb" => Box::new(typescript_oracledb::TypescriptOracledbBackend::new(canonical_engine)?),
         "go-godror" | "godror" => Box::new(go_godror::GoGodrorBackend::new(canonical_engine)?),
         "csharp-oracle" => Box::new(csharp_oracle::CsharpOracleBackend::new(canonical_engine)?),
         "ruby-oci8" | "oci8" => Box::new(ruby_oci8::RubyOci8Backend::new(canonical_engine)?),
-        "elixir-jamdb" | "jamdb" => {
-            Box::new(elixir_jamdb::ElixirJamdbBackend::new(canonical_engine)?)
-        }
+        "elixir-jamdb" | "jamdb" => Box::new(elixir_jamdb::ElixirJamdbBackend::new(canonical_engine)?),
         // Snowflake backends
-        "python-snowflake" => Box::new(python_snowflake::PythonSnowflakeBackend::new(
-            canonical_engine,
-        )?),
-        "typescript-snowflake" => Box::new(typescript_snowflake::TypescriptSnowflakeBackend::new(
-            canonical_engine,
-        )?),
-        "go-gosnowflake" | "gosnowflake" => {
-            Box::new(go_gosnowflake::GoGosnowflakeBackend::new(canonical_engine)?)
-        }
-        "csharp-snowflake" => Box::new(csharp_snowflake::CsharpSnowflakeBackend::new(
-            canonical_engine,
-        )?),
+        "python-snowflake" => Box::new(python_snowflake::PythonSnowflakeBackend::new(canonical_engine)?),
+        "typescript-snowflake" => Box::new(typescript_snowflake::TypescriptSnowflakeBackend::new(canonical_engine)?),
+        "go-gosnowflake" | "gosnowflake" => Box::new(go_gosnowflake::GoGosnowflakeBackend::new(canonical_engine)?),
+        "csharp-snowflake" => Box::new(csharp_snowflake::CsharpSnowflakeBackend::new(canonical_engine)?),
         _ => {
             return Err(ScytheError::new(
                 ErrorCode::InternalError,
@@ -588,10 +517,7 @@ mod tests {
     #[test]
     fn test_get_backend_crdb_alias() {
         let result = get_backend("rust-sqlx", "crdb");
-        assert!(
-            result.is_ok(),
-            "rust-sqlx should accept 'crdb' engine alias"
-        );
+        assert!(result.is_ok(), "rust-sqlx should accept 'crdb' engine alias");
     }
 
     #[test]
@@ -630,10 +556,7 @@ mod tests {
         let sql = "SELECT * FROM users WHERE status = $1";
         let params = vec![param("status", 1)];
         let result = rewrite_optional_params(sql, &["status".to_string()], &params);
-        assert_eq!(
-            result,
-            "SELECT * FROM users WHERE ($1 IS NULL OR status = $1)"
-        );
+        assert_eq!(result, "SELECT * FROM users WHERE ($1 IS NULL OR status = $1)");
     }
 
     #[test]
@@ -641,18 +564,14 @@ mod tests {
         let sql = "SELECT * FROM users u WHERE u.status = $1";
         let params = vec![param("status", 1)];
         let result = rewrite_optional_params(sql, &["status".to_string()], &params);
-        assert_eq!(
-            result,
-            "SELECT * FROM users u WHERE ($1 IS NULL OR u.status = $1)"
-        );
+        assert_eq!(result, "SELECT * FROM users u WHERE ($1 IS NULL OR u.status = $1)");
     }
 
     #[test]
     fn test_rewrite_multiple_optional() {
         let sql = "SELECT * FROM users WHERE status = $1 AND name = $2";
         let params = vec![param("status", 1), param("name", 2)];
-        let result =
-            rewrite_optional_params(sql, &["status".to_string(), "name".to_string()], &params);
+        let result = rewrite_optional_params(sql, &["status".to_string(), "name".to_string()], &params);
         assert_eq!(
             result,
             "SELECT * FROM users WHERE ($1 IS NULL OR status = $1) AND ($2 IS NULL OR name = $2)"
@@ -675,10 +594,7 @@ mod tests {
         let sql = "SELECT * FROM users WHERE name LIKE $1";
         let params = vec![param("name", 1)];
         let result = rewrite_optional_params(sql, &["name".to_string()], &params);
-        assert_eq!(
-            result,
-            "SELECT * FROM users WHERE ($1 IS NULL OR name LIKE $1)"
-        );
+        assert_eq!(result, "SELECT * FROM users WHERE ($1 IS NULL OR name LIKE $1)");
     }
 
     #[test]
@@ -686,10 +602,7 @@ mod tests {
         let sql = "SELECT * FROM users WHERE name ILIKE $1";
         let params = vec![param("name", 1)];
         let result = rewrite_optional_params(sql, &["name".to_string()], &params);
-        assert_eq!(
-            result,
-            "SELECT * FROM users WHERE ($1 IS NULL OR name ILIKE $1)"
-        );
+        assert_eq!(result, "SELECT * FROM users WHERE ($1 IS NULL OR name ILIKE $1)");
     }
 
     #[test]
@@ -697,10 +610,7 @@ mod tests {
         let sql = "SELECT * FROM users WHERE age >= $1";
         let params = vec![param("age", 1)];
         let result = rewrite_optional_params(sql, &["age".to_string()], &params);
-        assert_eq!(
-            result,
-            "SELECT * FROM users WHERE ($1 IS NULL OR age >= $1)"
-        );
+        assert_eq!(result, "SELECT * FROM users WHERE ($1 IS NULL OR age >= $1)");
     }
 
     #[test]
@@ -724,10 +634,7 @@ mod tests {
         let sql = "SELECT * FROM users WHERE status <> $1";
         let params = vec![param("status", 1)];
         let result = rewrite_optional_params(sql, &["status".to_string()], &params);
-        assert_eq!(
-            result,
-            "SELECT * FROM users WHERE ($1 IS NULL OR status <> $1)"
-        );
+        assert_eq!(result, "SELECT * FROM users WHERE ($1 IS NULL OR status <> $1)");
     }
 
     #[test]

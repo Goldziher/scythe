@@ -54,9 +54,7 @@ impl<'a> Analyzer<'a> {
             }
 
             Expr::Cast {
-                expr: inner,
-                data_type,
-                ..
+                expr: inner, data_type, ..
             } => {
                 let inner_ti = self.infer_expr_type(inner, scope);
                 let neutral = datatype_to_neutral(data_type, self.catalog);
@@ -71,9 +69,7 @@ impl<'a> Analyzer<'a> {
                 let right_ti = self.infer_expr_type(right, scope);
 
                 match op {
-                    BinaryOperator::StringConcat => {
-                        TypeInfo::new("string", left_ti.nullable || right_ti.nullable)
-                    }
+                    BinaryOperator::StringConcat => TypeInfo::new("string", left_ti.nullable || right_ti.nullable),
                     BinaryOperator::Plus
                     | BinaryOperator::Minus
                     | BinaryOperator::Multiply
@@ -123,9 +119,7 @@ impl<'a> Analyzer<'a> {
             | Expr::IsNotUnknown(_) => TypeInfo::new("bool", false),
 
             Expr::InList {
-                expr: col_expr,
-                list,
-                ..
+                expr: col_expr, list, ..
             } => {
                 let col_ti = self.infer_expr_type(col_expr, scope);
                 for item in list {
@@ -134,12 +128,7 @@ impl<'a> Analyzer<'a> {
                         && let Some(pos) = self.resolve_placeholder_position(p)
                     {
                         let col_name = expr_to_name(col_expr);
-                        self.register_param(
-                            pos,
-                            Some(col_name),
-                            Some(col_ti.neutral_type.clone()),
-                            false,
-                        );
+                        self.register_param(pos, Some(col_name), Some(col_ti.neutral_type.clone()), false);
                     }
                 }
                 TypeInfo::new("bool", false)
@@ -192,12 +181,7 @@ impl<'a> Analyzer<'a> {
                         && let Some(p) = value_is_placeholder(vws)
                         && let Some(pos) = self.resolve_placeholder_position(p)
                     {
-                        self.register_param(
-                            pos,
-                            Some("flag".to_string()),
-                            Some("bool".to_string()),
-                            false,
-                        );
+                        self.register_param(pos, Some("flag".to_string()), Some("bool".to_string()), false);
                     }
 
                     // Infer result type
@@ -348,12 +332,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub(super) fn resolve_column_in_scope(
-        &self,
-        col_name: &str,
-        qualifier: Option<&str>,
-        scope: &Scope,
-    ) -> TypeInfo {
+    pub(super) fn resolve_column_in_scope(&self, col_name: &str, qualifier: Option<&str>, scope: &Scope) -> TypeInfo {
         if let Some(qual) = qualifier {
             for source in &scope.sources {
                 if (source.alias == qual || source.table_name == qual)
@@ -453,9 +432,7 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(base_type, true)
             }
             "bool_and" | "bool_or" | "every" => TypeInfo::new("bool", true),
-            "json_agg" | "jsonb_agg" | "json_object_agg" | "jsonb_object_agg" => {
-                TypeInfo::new("json", true)
-            }
+            "json_agg" | "jsonb_agg" | "json_object_agg" | "jsonb_object_agg" => TypeInfo::new("json", true),
 
             "coalesce" => {
                 let args = self.get_function_args(func);
@@ -505,14 +482,16 @@ impl<'a> Analyzer<'a> {
             }
 
             // String functions
-            "upper" | "lower" | "initcap" | "reverse" | "ltrim" | "rtrim" | "btrim" | "lpad"
-            | "rpad" | "repeat" | "replace" | "translate" | "left" | "right" | "md5" | "encode"
-            | "decode" | "chr" | "to_hex" | "quote_ident" | "quote_literal" | "format"
-            | "regexp_replace" => TypeInfo::new("string", first_arg_nullable),
+            "upper" | "lower" | "initcap" | "reverse" | "ltrim" | "rtrim" | "btrim" | "lpad" | "rpad" | "repeat"
+            | "replace" | "translate" | "left" | "right" | "md5" | "encode" | "decode" | "chr" | "to_hex"
+            | "quote_ident" | "quote_literal" | "format" | "regexp_replace" => {
+                TypeInfo::new("string", first_arg_nullable)
+            }
             "concat" | "concat_ws" => TypeInfo::new("string", false),
             "substring" | "substr" => TypeInfo::new("string", first_arg_nullable),
-            "length" | "char_length" | "character_length" | "octet_length" | "bit_length"
-            | "strpos" => TypeInfo::new("int32", first_arg_nullable),
+            "length" | "char_length" | "character_length" | "octet_length" | "bit_length" | "strpos" => {
+                TypeInfo::new("int32", first_arg_nullable)
+            }
 
             // Math functions
             "abs" | "sign" => first_arg_ti.unwrap_or_else(TypeInfo::unknown),
@@ -521,10 +500,8 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(ti.neutral_type, ti.nullable)
             }
             "round" | "trunc" => TypeInfo::new("decimal", first_arg_nullable),
-            "power" | "sqrt" | "cbrt" | "log" | "ln" | "exp" | "pi" | "sin" | "cos" | "tan"
-            | "asin" | "acos" | "atan" | "atan2" | "degrees" | "radians" | "random" => {
-                TypeInfo::new("float64", false)
-            }
+            "power" | "sqrt" | "cbrt" | "log" | "ln" | "exp" | "pi" | "sin" | "cos" | "tan" | "asin" | "acos"
+            | "atan" | "atan2" | "degrees" | "radians" | "random" => TypeInfo::new("float64", false),
             "mod" => first_arg_ti.unwrap_or_else(|| TypeInfo::new("int32", false)),
             "div" => TypeInfo::new("int64", first_arg_nullable),
             "greatest" | "least" => {
@@ -533,11 +510,9 @@ impl<'a> Analyzer<'a> {
             }
 
             // Date/time functions
-            "now"
-            | "current_timestamp"
-            | "statement_timestamp"
-            | "transaction_timestamp"
-            | "clock_timestamp" => TypeInfo::new("datetime_tz", false),
+            "now" | "current_timestamp" | "statement_timestamp" | "transaction_timestamp" | "clock_timestamp" => {
+                TypeInfo::new("datetime_tz", false)
+            }
             "current_date" | "localdate" | "date" => TypeInfo::new("date", false),
             "current_time" | "localtime" => TypeInfo::new("time_tz", false),
             "date_trunc" => {
@@ -574,16 +549,13 @@ impl<'a> Analyzer<'a> {
             }
 
             // JSON functions
-            "json_build_object" | "jsonb_build_object" | "json_build_array"
-            | "jsonb_build_array" | "to_json" | "to_jsonb" | "json_strip_nulls"
-            | "jsonb_strip_nulls" => TypeInfo::new("json", false),
+            "json_build_object" | "jsonb_build_object" | "json_build_array" | "jsonb_build_array" | "to_json"
+            | "to_jsonb" | "json_strip_nulls" | "jsonb_strip_nulls" => TypeInfo::new("json", false),
             "json_typeof" | "jsonb_typeof" => TypeInfo::new("string", true),
             "json_extract_path_text" | "jsonb_extract_path_text" => TypeInfo::new("string", true),
             "json_extract_path" | "jsonb_extract_path" => TypeInfo::new("json", true),
             "json_array_length" | "jsonb_array_length" => TypeInfo::new("int32", true),
-            "json_each" | "jsonb_each" | "json_each_text" | "jsonb_each_text" => {
-                TypeInfo::new("string", true)
-            }
+            "json_each" | "jsonb_each" | "json_each_text" | "jsonb_each_text" => TypeInfo::new("string", true),
             "json_object_keys" | "jsonb_object_keys" => TypeInfo::new("string", false),
             "json_populate_record"
             | "jsonb_populate_record"
@@ -594,18 +566,18 @@ impl<'a> Analyzer<'a> {
             "array_length" | "array_ndims" | "array_lower" | "array_upper" | "cardinality" => {
                 TypeInfo::new("int32", true)
             }
-            "array_cat" | "array_append" | "array_prepend" | "array_remove" | "array_replace"
-            | "array_positions" => first_arg_ti.unwrap_or_else(TypeInfo::unknown),
+            "array_cat" | "array_append" | "array_prepend" | "array_remove" | "array_replace" | "array_positions" => {
+                first_arg_ti.unwrap_or_else(TypeInfo::unknown)
+            }
             "array_position" => TypeInfo::new("int32", true),
             "array_to_string" => TypeInfo::new("string", true),
             "unnest" => {
                 let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
-                let inner =
-                    if ti.neutral_type.starts_with("array<") && ti.neutral_type.ends_with('>') {
-                        ti.neutral_type[6..ti.neutral_type.len() - 1].to_string()
-                    } else {
-                        "unknown".to_string()
-                    };
+                let inner = if ti.neutral_type.starts_with("array<") && ti.neutral_type.ends_with('>') {
+                    ti.neutral_type[6..ti.neutral_type.len() - 1].to_string()
+                } else {
+                    "unknown".to_string()
+                };
                 TypeInfo::new(inner, true)
             }
 
@@ -625,11 +597,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub(super) fn get_first_arg_type(
-        &mut self,
-        func: &ast::Function,
-        scope: &Scope,
-    ) -> Option<TypeInfo> {
+    pub(super) fn get_first_arg_type(&mut self, func: &ast::Function, scope: &Scope) -> Option<TypeInfo> {
         let args = self.get_function_args(func);
         args.first().map(|arg| self.infer_expr_type(arg, scope))
     }
@@ -660,9 +628,8 @@ mod tests {
     use crate::catalog::Catalog;
     use ahash::AHashMap;
     use sqlparser::ast::{
-        Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident,
-        ObjectName, ObjectNamePart, Value, ValueWithSpan, WindowFrame, WindowFrameBound,
-        WindowFrameUnits, WindowSpec, WindowType,
+        Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident, ObjectName,
+        ObjectNamePart, Value, ValueWithSpan, WindowFrame, WindowFrameBound, WindowFrameUnits, WindowSpec, WindowType,
     };
     use sqlparser::tokenizer::Span;
 
@@ -681,9 +648,7 @@ mod tests {
     }
 
     fn empty_scope() -> Scope {
-        Scope {
-            sources: Vec::new(),
-        }
+        Scope { sources: Vec::new() }
     }
 
     fn make_func(name: &str, args: Vec<Expr>) -> ast::Function {
@@ -785,10 +750,7 @@ mod tests {
         let func = make_window_func("sum", vec![int_literal()]);
         let ti = analyzer.infer_function_type(&func, &scope);
         assert_eq!(ti.neutral_type, "int64");
-        assert!(
-            !ti.nullable,
-            "sum as window function should not be nullable"
-        );
+        assert!(!ti.nullable, "sum as window function should not be nullable");
     }
 
     // ---- avg ----
@@ -808,9 +770,7 @@ mod tests {
     fn test_string_functions_return_string() {
         let catalog = empty_catalog();
         let scope = empty_scope();
-        for fname in &[
-            "upper", "lower", "initcap", "reverse", "ltrim", "rtrim", "replace",
-        ] {
+        for fname in &["upper", "lower", "initcap", "reverse", "ltrim", "rtrim", "replace"] {
             let mut analyzer = make_analyzer(&catalog);
             let func = make_func(fname, vec![string_literal("hello")]);
             let ti = analyzer.infer_function_type(&func, &scope);
@@ -859,11 +819,7 @@ mod tests {
             let func = make_func(fname, vec![int_literal()]);
             let ti = analyzer.infer_function_type(&func, &scope);
             // abs/sign return same type as input; int literal is int64
-            assert_eq!(
-                ti.neutral_type, "int64",
-                "{} should return int64 for int input",
-                fname
-            );
+            assert_eq!(ti.neutral_type, "int64", "{} should return int64 for int input", fname);
         }
     }
 
@@ -897,11 +853,7 @@ mod tests {
             let mut analyzer = make_analyzer(&catalog);
             let func = make_func(fname, vec![int_literal()]);
             let ti = analyzer.infer_function_type(&func, &scope);
-            assert_eq!(
-                ti.neutral_type, "float64",
-                "{} should return float64",
-                fname
-            );
+            assert_eq!(ti.neutral_type, "float64", "{} should return float64", fname);
             assert!(!ti.nullable, "{} should not be nullable", fname);
         }
     }
@@ -998,11 +950,7 @@ mod tests {
             let mut analyzer = make_analyzer(&catalog);
             let func = make_func(fname, vec![int_literal()]);
             let ti = analyzer.infer_function_type(&func, &scope);
-            assert_eq!(
-                ti.neutral_type, "int64",
-                "{} should pass through input type",
-                fname
-            );
+            assert_eq!(ti.neutral_type, "int64", "{} should pass through input type", fname);
             assert!(ti.nullable, "{} should be nullable", fname);
         }
     }
@@ -1040,10 +988,7 @@ mod tests {
         let func = make_func("coalesce", vec![col_expr("x"), string_literal("default")]);
         let ti = analyzer.infer_function_type(&func, &scope);
         assert_eq!(ti.neutral_type, "string");
-        assert!(
-            !ti.nullable,
-            "coalesce with a literal fallback should not be nullable"
-        );
+        assert!(!ti.nullable, "coalesce with a literal fallback should not be nullable");
     }
 
     // ---- nullif ----
@@ -1067,11 +1012,7 @@ mod tests {
             let mut analyzer = make_analyzer(&catalog);
             let func = make_func(fname, vec![int_literal()]);
             let ti = analyzer.infer_function_type(&func, &scope);
-            assert_eq!(
-                ti.neutral_type, "int64",
-                "{} should preserve input type",
-                fname
-            );
+            assert_eq!(ti.neutral_type, "int64", "{} should preserve input type", fname);
             assert!(ti.nullable, "{} (non-window) should be nullable", fname);
         }
     }

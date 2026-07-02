@@ -1,26 +1,16 @@
-[scythe]
-version = "1"
-
-[[sql]]
-name = "main"
-engine = "{{ engine }}"
-schema = ["{{ schema_dir }}/schema.sql"]
-queries = ["{{ queries_dir }}/*.sql"]
-
-[[sql.gen]]
-backend = "{{ backend }}"
+[scythe] version = "1" [[sql]] name = "main" engine = "{{ engine }}" schema = ["{{ schema_dir }}/schema.sql"] queries =
+["{{ queries_dir }}/*.sql"] [[sql.gen]] backend = "{{ backend }}"
 {%- if language == "java" %}
-output = "src/main/java/generated"
+  output = "src/main/java/generated"
 {%- elif language == "kotlin" %}
-output = "src/main/kotlin/generated"
+  output = "src/main/kotlin/generated"
 {%- elif language == "rust" and driver != "tokio-postgres" %}
-output = "src"
-structs_only = "true"
+  output = "src" structs_only = "true"
 {%- elif language == "rust" %}
-output = "src"
+  output = "src"
 {%- else %}
-output = "generated"
+  output = "generated"
 {%- endif %}
 {%- if options.row_type %}
-row_type = "{{ options.row_type }}"
+  row_type = "{{ options.row_type }}"
 {%- endif %}

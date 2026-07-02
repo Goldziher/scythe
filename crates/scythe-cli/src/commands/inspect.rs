@@ -16,8 +16,8 @@ use std::io::Write;
 use std::path::Path;
 
 use scythe_inspect::{
-    CheckRegistry, DbDriver, InspectConfig, InspectError, MysqlDriver, PostgresDriver,
-    SuppressionEngine, parse_inspect_section,
+    CheckRegistry, DbDriver, InspectConfig, InspectError, MysqlDriver, PostgresDriver, SuppressionEngine,
+    parse_inspect_section,
 };
 use scythe_lint::reporters::{Finding, Format};
 use scythe_lint::{Severity, emit_findings};
@@ -51,8 +51,8 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
     // ------------------------------------------------------------------
     // Load [inspect] config from scythe.toml (best-effort; None if absent).
     // ------------------------------------------------------------------
-    let inspect_config: Option<InspectConfig> = parse_inspect_section(Path::new(&opts.config_path))
-        .unwrap_or_else(|e| {
+    let inspect_config: Option<InspectConfig> =
+        parse_inspect_section(Path::new(&opts.config_path)).unwrap_or_else(|e| {
             eprintln!("scythe-inspect: warning: could not parse [inspect] config: {e}");
             None
         });
@@ -82,17 +82,12 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
         }
     }
 
-    let format = Format::parse(&opts.format).ok_or_else(|| {
-        format!(
-            "unknown --format '{}' (expected human|sarif|json)",
-            opts.format
-        )
-    })?;
+    let format = Format::parse(&opts.format)
+        .ok_or_else(|| format!("unknown --format '{}' (expected human|sarif|json)", opts.format))?;
 
     let severity_floor = match opts.severity.as_deref() {
         Some(s) => Some(
-            Severity::parse_cli(s)
-                .ok_or_else(|| format!("unknown --severity '{}' (expected off|warn|error)", s))?,
+            Severity::parse_cli(s).ok_or_else(|| format!("unknown --severity '{}' (expected off|warn|error)", s))?,
         ),
         None => None,
     };
@@ -101,9 +96,7 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
     // Resolve DB URL: CLI positional > $DATABASE_URL > $SCYTHE_DATABASE_URL
     // > [inspect].database_url.
     // ------------------------------------------------------------------
-    let config_db_url = inspect_config
-        .as_ref()
-        .and_then(|c| c.database_url.as_deref());
+    let config_db_url = inspect_config.as_ref().and_then(|c| c.database_url.as_deref());
     let url = resolve_url(opts.database_url.as_deref(), config_db_url)?;
 
     // ------------------------------------------------------------------
@@ -113,9 +106,7 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
 
     // Build a single-threaded tokio runtime per invocation — keeps the rest
     // of the CLI (`lint`, `audit`, `generate`) synchronous.
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()?;
+    let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 
     let findings: Vec<Finding> = rt.block_on(async {
         driver.connect(&url).await?;
@@ -242,10 +233,7 @@ fn resolve_engine(dialect: Option<&str>, url: Option<&str>) -> String {
 /// Resolve the database URL with the full precedence chain:
 /// CLI positional > `$DATABASE_URL` > `$SCYTHE_DATABASE_URL` >
 /// `[inspect].database_url` in scythe.toml.
-fn resolve_url(
-    positional: Option<&str>,
-    config_url: Option<&str>,
-) -> Result<String, Box<dyn std::error::Error>> {
+fn resolve_url(positional: Option<&str>, config_url: Option<&str>) -> Result<String, Box<dyn std::error::Error>> {
     resolve_url_inner(
         positional,
         std::env::var("DATABASE_URL").ok().as_deref(),
@@ -311,8 +299,7 @@ fn open_output(path: Option<&str>) -> Result<Box<dyn Write>, Box<dyn std::error:
     match path {
         None => Ok(Box::new(std::io::stdout())),
         Some(p) => {
-            let f = File::create(p)
-                .map_err(|e| format!("failed to open output file '{}': {}", p, e))?;
+            let f = File::create(p).map_err(|e| format!("failed to open output file '{}': {}", p, e))?;
             Ok(Box::new(std::io::BufWriter::new(f)))
         }
     }
@@ -334,12 +321,7 @@ fn print_check_catalog_from_registry(
     }
 
     let id_w = checks.iter().map(|c| c.id.len()).max().unwrap_or(2).max(2);
-    let name_w = checks
-        .iter()
-        .map(|c| c.name.len())
-        .max()
-        .unwrap_or(4)
-        .max(4);
+    let name_w = checks.iter().map(|c| c.name.len()).max().unwrap_or(4).max(4);
 
     writeln!(out, "[{engine}]")?;
     for check in checks {
@@ -368,9 +350,14 @@ pub(crate) fn print_explanation(
     id: &str,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let spec = registry.get(id).filter(|s| s.engines.iter().any(|e| e == engine)).ok_or_else(|| {
-        format!("no check with id '{id}' for engine '{engine}' — try `scythe inspect --list-checks --dialect {engine}`")
-    })?;
+    let spec = registry
+        .get(id)
+        .filter(|s| s.engines.iter().any(|e| e == engine))
+        .ok_or_else(|| {
+            format!(
+                "no check with id '{id}' for engine '{engine}' — try `scythe inspect --list-checks --dialect {engine}`"
+            )
+        })?;
 
     writeln!(out, "{} — {}", spec.id, spec.name)?;
     writeln!(out, "  category: {}", spec.category)?;
@@ -422,19 +409,13 @@ mod tests {
 
     #[test]
     fn resolve_engine_explicit_dialect_wins() {
-        assert_eq!(
-            resolve_engine(Some("mysql"), Some("postgres://x/y")),
-            "mysql"
-        );
+        assert_eq!(resolve_engine(Some("mysql"), Some("postgres://x/y")), "mysql");
     }
 
     #[test]
     fn resolve_engine_from_url_scheme() {
         assert_eq!(resolve_engine(None, Some("postgres://u@h/db")), "postgres");
-        assert_eq!(
-            resolve_engine(None, Some("postgresql://u@h/db")),
-            "postgres"
-        );
+        assert_eq!(resolve_engine(None, Some("postgresql://u@h/db")), "postgres");
         assert_eq!(resolve_engine(None, Some("mysql://u@h/db")), "mysql");
         assert_eq!(resolve_engine(None, Some("mariadb://u@h/db")), "mysql");
     }
@@ -450,11 +431,7 @@ mod tests {
 
     #[test]
     fn resolve_url_prefers_positional() {
-        let url = resolve_url(
-            Some("postgres://positional/db"),
-            Some("postgres://config/db"),
-        )
-        .unwrap();
+        let url = resolve_url(Some("postgres://positional/db"), Some("postgres://config/db")).unwrap();
         assert_eq!(url, "postgres://positional/db");
     }
 
@@ -533,11 +510,7 @@ mod tests {
 
     #[test]
     fn resolve_inspect_url_inner_opt_prefers_scythe_database_url_over_config() {
-        let result = resolve_url_inner_opt(
-            None,
-            Some("postgres://env-scythe/db"),
-            Some("postgres://config/db"),
-        );
+        let result = resolve_url_inner_opt(None, Some("postgres://env-scythe/db"), Some("postgres://config/db"));
         assert_eq!(result.as_deref(), Some("postgres://env-scythe/db"));
     }
 
@@ -551,11 +524,7 @@ mod tests {
     fn resolve_inspect_url_returns_none_from_empty_config() {
         let config: Option<InspectConfig> = Some(InspectConfig::default());
         // With no env vars (we control the inner function), this is None.
-        let result = resolve_url_inner_opt(
-            None,
-            None,
-            config.as_ref().and_then(|c| c.database_url.as_deref()),
-        );
+        let result = resolve_url_inner_opt(None, None, config.as_ref().and_then(|c| c.database_url.as_deref()));
         assert!(result.is_none());
     }
 

@@ -33,10 +33,7 @@ impl<'a> Analyzer<'a> {
     // SELECT / Query
     // -----------------------------------------------------------------------
 
-    pub(super) fn analyze_query(
-        &mut self,
-        query: &ast::Query,
-    ) -> Result<Vec<AnalyzedColumn>, ScytheError> {
+    pub(super) fn analyze_query(&mut self, query: &ast::Query) -> Result<Vec<AnalyzedColumn>, ScytheError> {
         // Process CTEs first
         if let Some(with) = &query.with {
             for cte in &with.cte_tables {
@@ -113,10 +110,7 @@ impl<'a> Analyzer<'a> {
         Ok(result)
     }
 
-    pub(super) fn analyze_set_expr(
-        &mut self,
-        set_expr: &SetExpr,
-    ) -> Result<Vec<AnalyzedColumn>, ScytheError> {
+    pub(super) fn analyze_set_expr(&mut self, set_expr: &SetExpr) -> Result<Vec<AnalyzedColumn>, ScytheError> {
         match set_expr {
             SetExpr::Select(select) => self.analyze_select(select),
             SetExpr::Query(query) => self.analyze_query(query),
@@ -125,14 +119,8 @@ impl<'a> Analyzer<'a> {
                 let left_cols = self.analyze_set_expr(left)?;
                 let right_cols = self.analyze_set_expr(right)?;
                 // Validate column count match
-                if !left_cols.is_empty()
-                    && !right_cols.is_empty()
-                    && left_cols.len() != right_cols.len()
-                {
-                    return Err(ScytheError::column_count_mismatch(
-                        left_cols.len(),
-                        right_cols.len(),
-                    ));
+                if !left_cols.is_empty() && !right_cols.is_empty() && left_cols.len() != right_cols.len() {
+                    return Err(ScytheError::column_count_mismatch(left_cols.len(), right_cols.len()));
                 }
                 // Widen types across union
                 let widened: Vec<AnalyzedColumn> = left_cols
@@ -140,8 +128,7 @@ impl<'a> Analyzer<'a> {
                     .enumerate()
                     .map(|(i, lc)| {
                         if i < right_cols.len() {
-                            let widened_type =
-                                widen_type(&lc.neutral_type, &right_cols[i].neutral_type);
+                            let widened_type = widen_type(&lc.neutral_type, &right_cols[i].neutral_type);
                             AnalyzedColumn {
                                 name: lc.name.clone(),
                                 neutral_type: widened_type,
@@ -160,12 +147,7 @@ impl<'a> Analyzer<'a> {
                         .iter()
                         .enumerate()
                         .map(|(i, expr)| {
-                            let ti = self.infer_expr_type(
-                                expr,
-                                &Scope {
-                                    sources: Vec::new(),
-                                },
-                            );
+                            let ti = self.infer_expr_type(expr, &Scope { sources: Vec::new() });
                             AnalyzedColumn {
                                 name: format!("column{}", i + 1),
                                 neutral_type: ti.neutral_type,
@@ -182,10 +164,7 @@ impl<'a> Analyzer<'a> {
         }
     }
 
-    pub(super) fn analyze_select(
-        &mut self,
-        select: &ast::Select,
-    ) -> Result<Vec<AnalyzedColumn>, ScytheError> {
+    pub(super) fn analyze_select(&mut self, select: &ast::Select) -> Result<Vec<AnalyzedColumn>, ScytheError> {
         // 1. Build scope from FROM/JOIN
         let scope = self.build_scope_from_from(&select.from)?;
 
@@ -302,9 +281,7 @@ impl<'a> Analyzer<'a> {
     ) -> Result<(Vec<AnalyzedColumn>, Vec<ParamInfo>), ScytheError> {
         let table_name = match &insert.table {
             ast::TableObject::TableName(name) => object_name_to_string(name).to_lowercase(),
-            ast::TableObject::TableFunction(func) => {
-                object_name_to_string(&func.name).to_lowercase()
-            }
+            ast::TableObject::TableFunction(func) => object_name_to_string(&func.name).to_lowercase(),
             ast::TableObject::TableQuery(_) => {
                 return Err(ScytheError::syntax(
                     "INSERT target must be a table name or table function",
@@ -364,9 +341,7 @@ impl<'a> Analyzer<'a> {
                             let col_name = &target_cols[i];
                             if let Some(col_type) = self.get_column_type(table_name, col_name) {
                                 let nullable = self.is_column_nullable(table_name, col_name);
-                                self.collect_param_from_expr_with_type_nullable(
-                                    expr, &col_type, col_name, nullable,
-                                );
+                                self.collect_param_from_expr_with_type_nullable(expr, &col_type, col_name, nullable);
                             }
                         }
                     }
@@ -400,8 +375,7 @@ impl<'a> Analyzer<'a> {
         let mut scope = self.build_scope_for_table(&table_name)?;
         if let Some(from_kind) = from {
             let tables = match from_kind {
-                ast::UpdateTableFromKind::BeforeSet(tables)
-                | ast::UpdateTableFromKind::AfterSet(tables) => tables,
+                ast::UpdateTableFromKind::BeforeSet(tables) | ast::UpdateTableFromKind::AfterSet(tables) => tables,
             };
             let from_scope = self.build_scope_from_from(tables)?;
             scope.sources.extend(from_scope.sources);

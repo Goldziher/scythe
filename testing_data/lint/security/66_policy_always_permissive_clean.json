@@ -1,15 +1,15 @@
 {
-	"name": "policy_always_permissive_clean",
-	"description": "SELECT-only policy with USING (true) is the intentional everyone-can-read pattern; SC-RLS02 must not fire",
-	"category": "lint/security",
-	"tags": ["lint", "security", "rls", "policy-always-permissive"],
-	"schema_sql": ["CREATE TABLE tenants (id bigint PRIMARY KEY)"],
-	"query_sql": "-- @name CreateReadablePolicy\n-- @returns :exec\nCREATE POLICY readable ON tenants FOR SELECT USING (true)",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "policy_always_permissive_clean",
+  "description": "SELECT-only policy with USING (true) is the intentional everyone-can-read pattern; SC-RLS02 must not fire",
+  "category": "lint/security",
+  "tags": ["lint", "security", "rls", "policy-always-permissive"],
+  "schema_sql": ["CREATE TABLE tenants (id bigint PRIMARY KEY)"],
+  "query_sql": "-- @name CreateReadablePolicy\n-- @returns :exec\nCREATE POLICY readable ON tenants FOR SELECT USING (true)",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

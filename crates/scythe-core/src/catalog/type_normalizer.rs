@@ -5,10 +5,7 @@ use super::DomainDef;
 
 /// Normalize a sqlparser DataType into a lowercase PostgreSQL type string.
 /// Returns (type_string, is_serial).
-pub(crate) fn normalize_data_type(
-    dt: &DataType,
-    domains: &AHashMap<String, DomainDef>,
-) -> (String, bool) {
+pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, DomainDef>) -> (String, bool) {
     match dt {
         // Custom types (includes serial, timestamptz, and user-defined types)
         DataType::Custom(name, tokens) => {
@@ -33,9 +30,7 @@ pub(crate) fn normalize_data_type(
         }
 
         // Integer family
-        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) => {
-            ("integer".to_string(), false)
-        }
+        DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) => ("integer".to_string(), false),
         DataType::SmallInt(_) | DataType::Int2(_) => ("smallint".to_string(), false),
         DataType::BigInt(_) | DataType::Int8(_) => ("bigint".to_string(), false),
 
@@ -57,18 +52,14 @@ pub(crate) fn normalize_data_type(
         }
 
         // Character types
-        DataType::Varchar(len) | DataType::CharVarying(len) | DataType::CharacterVarying(len) => {
-            match len {
-                Some(sqlparser::ast::CharacterLength::IntegerLength { length, .. }) => {
-                    (format!("varchar({})", length), false)
-                }
-                _ => ("text".to_string(), false),
-            }
-        }
-        DataType::Char(len) | DataType::Character(len) => match len {
+        DataType::Varchar(len) | DataType::CharVarying(len) | DataType::CharacterVarying(len) => match len {
             Some(sqlparser::ast::CharacterLength::IntegerLength { length, .. }) => {
-                (format!("char({})", length), false)
+                (format!("varchar({})", length), false)
             }
+            _ => ("text".to_string(), false),
+        },
+        DataType::Char(len) | DataType::Character(len) => match len {
+            Some(sqlparser::ast::CharacterLength::IntegerLength { length, .. }) => (format!("char({})", length), false),
             _ => ("char(1)".to_string(), false),
         },
         DataType::Text => ("text".to_string(), false),
@@ -84,9 +75,7 @@ pub(crate) fn normalize_data_type(
         DataType::Numeric(info) | DataType::Decimal(info) | DataType::Dec(info) => {
             use sqlparser::ast::ExactNumberInfo;
             match info {
-                ExactNumberInfo::PrecisionAndScale(p, s) => {
-                    (format!("numeric({},{})", p, s), false)
-                }
+                ExactNumberInfo::PrecisionAndScale(p, s) => (format!("numeric({},{})", p, s), false),
                 ExactNumberInfo::Precision(p) => (format!("numeric({})", p), false),
                 ExactNumberInfo::None => ("numeric".to_string(), false),
             }

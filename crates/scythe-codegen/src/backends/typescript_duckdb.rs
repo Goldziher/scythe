@@ -1,7 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, fn_name, row_struct_name, to_camel_case, to_pascal_case};
 use scythe_backend::types::resolve_type;
 use std::fmt::Write;
 
@@ -27,17 +25,12 @@ impl TypescriptDuckdbBackend {
             _ => {
                 return Err(ScytheError::new(
                     ErrorCode::InternalError,
-                    format!(
-                        "typescript-duckdb only supports DuckDB, got engine '{}'",
-                        engine
-                    ),
+                    format!("typescript-duckdb only supports DuckDB, got engine '{}'", engine),
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest(
-            "backends/typescript-duckdb/manifest.toml",
-            DEFAULT_MANIFEST_TOML,
-        )?;
+        let manifest =
+            super::load_or_default_manifest("backends/typescript-duckdb/manifest.toml", DEFAULT_MANIFEST_TOML)?;
         Ok(Self {
             manifest,
             row_type: TsRowType::default(),
@@ -68,11 +61,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         header
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
             return Ok(generate_zod_row_struct(&struct_name, query_name, columns));
@@ -87,11 +76,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let singular = singularize(table_name);
         let name = to_pascal_case(&singular);
         self.generate_row_struct(&name, columns)
@@ -113,11 +98,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let sql = super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
 
         let inline_params = if params.is_empty() {
             "conn: Connection".to_string()
@@ -126,10 +107,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         };
 
         let write_fn_sig = |out: &mut String, name: &str, params_inline: &str, ret: &str| {
-            let oneliner = format!(
-                "export async function {}({}): Promise<{}> {{",
-                name, params_inline, ret
-            );
+            let oneliner = format!("export async function {}({}): Promise<{}> {{", name, params_inline, ret);
             if oneliner.len() <= 80 {
                 let _ = writeln!(out, "{}", oneliner);
             } else {
@@ -152,11 +130,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             if oneliner.len() <= 80 {
                 let _ = writeln!(out, "{}", oneliner);
             } else {
-                let _ = writeln!(
-                    out,
-                    "\tconst stmt = await conn.prepare(\n\t\t`{}`,\n\t);",
-                    sql
-                );
+                let _ = writeln!(out, "\tconst stmt = await conn.prepare(\n\t\t`{}`,\n\t);", sql);
             }
         };
 
@@ -201,30 +175,18 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                     }
                     let _ = writeln!(out, "}}");
                     let _ = writeln!(out);
-                    let _ = writeln!(
-                        out,
-                        "/** Execute {} for each item in the batch. */",
-                        analyzed.name
-                    );
+                    let _ = writeln!(out, "/** Execute {} for each item in the batch. */", analyzed.name);
                     let batch_params = format!("conn: Connection, items: {}[]", params_type_name);
                     write_fn_sig(&mut out, &batch_fn_name, &batch_params, "void");
                     write_prepare(&mut out, &sql);
                     let _ = writeln!(out, "\tfor (const item of items) {{");
-                    let args: Vec<String> = params
-                        .iter()
-                        .map(|p| format!("item.{}", p.field_name))
-                        .collect();
+                    let args: Vec<String> = params.iter().map(|p| format!("item.{}", p.field_name)).collect();
                     let _ = writeln!(out, "\t\tawait stmt.run({});", args.join(", "));
                     let _ = writeln!(out, "\t}}");
                     let _ = write!(out, "}}");
                 } else if params.len() == 1 {
-                    let _ = writeln!(
-                        out,
-                        "/** Execute {} for each item in the batch. */",
-                        analyzed.name
-                    );
-                    let batch_params =
-                        format!("conn: Connection, items: {}[]", params[0].full_type);
+                    let _ = writeln!(out, "/** Execute {} for each item in the batch. */", analyzed.name);
+                    let batch_params = format!("conn: Connection, items: {}[]", params[0].full_type);
                     write_fn_sig(&mut out, &batch_fn_name, &batch_params, "void");
                     write_prepare(&mut out, &sql);
                     let _ = writeln!(out, "\tfor (const item of items) {{");
@@ -232,17 +194,8 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                     let _ = writeln!(out, "\t}}");
                     let _ = write!(out, "}}");
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "/** Execute {} for each item in the batch. */",
-                        analyzed.name
-                    );
-                    write_fn_sig(
-                        &mut out,
-                        &batch_fn_name,
-                        "conn: Connection, count: number",
-                        "void",
-                    );
+                    let _ = writeln!(out, "/** Execute {} for each item in the batch. */", analyzed.name);
+                    write_fn_sig(&mut out, &batch_fn_name, "conn: Connection, count: number", "void");
                     write_prepare(&mut out, &sql);
                     let _ = writeln!(out, "\tfor (let i = 0; i < count; i++) {{");
                     let _ = writeln!(out, "\t\tawait stmt.run();");
@@ -280,10 +233,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             }
             QueryCommand::Grouped => unreachable!("Grouped is rewritten to Many before codegen"),
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(
-                    out,
-                    "/** Execute a query and return the number of affected rows. */"
-                );
+                let _ = writeln!(out, "/** Execute a query and return the number of affected rows. */");
                 write_fn_sig(&mut out, &func_name, &inline_params, "number");
                 write_prepare(&mut out, &sql);
                 if params.is_empty() {
@@ -308,11 +258,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             ));
         }
         let mut out = String::new();
-        let variants: Vec<String> = enum_info
-            .values
-            .iter()
-            .map(|v| format!("\"{}\"", v))
-            .collect();
+        let variants: Vec<String> = enum_info.values.iter().map(|v| format!("\"{}\"", v)).collect();
         let _ = write!(out, "export type {} = {};", type_name, variants.join(" | "));
         Ok(out)
     }
@@ -326,10 +272,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
                 .map(|t| t.into_owned())
                 .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("composite field type error: {}", e),
-                    )
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
             let _ = writeln!(out, "\t{}: {};", to_camel_case(&field.name), ts_type);
         }
@@ -337,10 +280,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         Ok(out)
     }
 
-    fn apply_options(
-        &mut self,
-        options: &std::collections::HashMap<String, String>,
-    ) -> Result<(), ScytheError> {
+    fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         if let Some(value) = options.get("row_type") {
             self.row_type = TsRowType::from_option(value)?;
         }

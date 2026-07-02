@@ -1,15 +1,15 @@
 {
-	"name": "superuser_role_clean",
-	"description": "CREATE ROLE without SUPERUSER should not trigger SC-SEC04",
-	"category": "lint/security",
-	"tags": ["lint", "security", "superuser-role"],
-	"schema_sql": [],
-	"query_sql": "-- @name CreateReadonlyRole\n-- @returns :exec\nCREATE ROLE readonly NOSUPERUSER LOGIN",
-	"expected": {
-		"success": true,
-		"lint": {
-			"violations": []
-		}
-	},
-	"source": "original"
+  "name": "superuser_role_clean",
+  "description": "CREATE ROLE without SUPERUSER should not trigger SC-SEC04",
+  "category": "lint/security",
+  "tags": ["lint", "security", "superuser-role"],
+  "schema_sql": [],
+  "query_sql": "-- @name CreateReadonlyRole\n-- @returns :exec\nCREATE ROLE readonly NOSUPERUSER LOGIN",
+  "expected": {
+    "success": true,
+    "lint": {
+      "violations": []
+    }
+  },
+  "source": "original"
 }

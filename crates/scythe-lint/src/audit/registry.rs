@@ -104,10 +104,7 @@ mod tests {
     #[test]
     fn matcher_hit_with_binding() {
         let hit = MatcherHit::with_binding("func", "pg_read_file");
-        assert_eq!(
-            hit.bindings.get("func").map(|s| s.as_str()),
-            Some("pg_read_file")
-        );
+        assert_eq!(hit.bindings.get("func").map(|s| s.as_str()), Some("pg_read_file"));
     }
 
     #[test]
@@ -147,10 +144,7 @@ mod tests {
             "check_constraint_always_true",
         ];
         for name in &expected {
-            assert!(
-                reg.get(name).is_some(),
-                "canonical registry missing matcher: {name}"
-            );
+            assert!(reg.get(name).is_some(), "canonical registry missing matcher: {name}");
         }
     }
 }

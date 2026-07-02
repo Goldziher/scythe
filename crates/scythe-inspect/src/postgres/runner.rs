@@ -87,11 +87,7 @@ fn row_to_map(row: &tokio_postgres::Row) -> HashMap<String, String> {
 ///
 /// Returns `Err(InspectError::MessageBindingMissing)` if any placeholder has
 /// no matching key in `bindings`.
-fn render_message(
-    template: &str,
-    bindings: &HashMap<String, String>,
-    check_id: &str,
-) -> Result<String, InspectError> {
+fn render_message(template: &str, bindings: &HashMap<String, String>, check_id: &str) -> Result<String, InspectError> {
     let re = placeholder_regex();
     let mut last_end = 0;
     let mut output = String::with_capacity(template.len());
@@ -201,14 +197,12 @@ mod tests {
 
     #[test]
     fn render_message_substitutes_bindings() {
-        let template = "foreign-key `{schema_name}.{table_name}.{constraint_name}` on columns ({columns}) has no covering index";
+        let template =
+            "foreign-key `{schema_name}.{table_name}.{constraint_name}` on columns ({columns}) has no covering index";
         let mut bindings = HashMap::new();
         bindings.insert("schema_name".to_string(), "public".to_string());
         bindings.insert("table_name".to_string(), "orders".to_string());
-        bindings.insert(
-            "constraint_name".to_string(),
-            "orders_user_id_fkey".to_string(),
-        );
+        bindings.insert("constraint_name".to_string(), "orders_user_id_fkey".to_string());
         bindings.insert("columns".to_string(), "user_id".to_string());
 
         let result = render_message(template, &bindings, "SC-INS01").unwrap();

@@ -27,10 +27,7 @@ impl ElixirMyxqlBackend {
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest(
-            "backends/elixir-myxql/manifest.toml",
-            DEFAULT_MANIFEST_TOML,
-        )?;
+        let manifest = super::load_or_default_manifest("backends/elixir-myxql/manifest.toml", DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
 }
@@ -56,11 +53,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
         "end".to_string()
     }
 
-    fn generate_row_struct(
-        &self,
-        query_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", struct_name);
@@ -91,11 +84,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
         Ok(out)
     }
 
-    fn generate_model_struct(
-        &self,
-        table_name: &str,
-        columns: &[ResolvedColumn],
-    ) -> Result<String, ScytheError> {
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let name = to_pascal_case(table_name);
         self.generate_row_struct(&name, columns)
     }
@@ -108,11 +97,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_with_optional(
-            &analyzed.sql,
-            &analyzed.optional_params,
-            &analyzed.params,
-        );
+        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let mut out = String::new();
 
         // Parameter list
@@ -169,11 +154,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
                 let _ = writeln!(out, "def {}(conn, items) do", batch_fn_name);
                 let _ = writeln!(out, "  Enum.reduce_while(items, :ok, fn item, :ok ->");
                 if params.len() > 1 {
-                    let _ = writeln!(
-                        out,
-                        "    case MyXQL.query(conn, \"{}\", Tuple.to_list(item)) do",
-                        sql
-                    );
+                    let _ = writeln!(out, "    case MyXQL.query(conn, \"{}\", Tuple.to_list(item)) do", sql);
                 } else if params.len() == 1 {
                     let _ = writeln!(out, "    case MyXQL.query(conn, \"{}\", [item]) do", sql);
                 } else {
@@ -208,11 +189,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
-                let _ = writeln!(
-                    out,
-                    "  case MyXQL.query(conn, \"{}\", {}) do",
-                    sql, param_args
-                );
+                let _ = writeln!(out, "  case MyXQL.query(conn, \"{}\", {}) do", sql, param_args);
                 let _ = writeln!(out, "    {{:ok, %MyXQL.Result{{rows: [row]}}}} ->");
 
                 let field_vars = columns
@@ -228,19 +205,12 @@ impl CodegenBackend for ElixirMyxqlBackend {
                     .collect::<Vec<_>>()
                     .join(", ");
                 let _ = writeln!(out, "      {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
-                let _ = writeln!(
-                    out,
-                    "    {{:ok, %MyXQL.Result{{rows: []}}}} -> {{:error, :not_found}}"
-                );
+                let _ = writeln!(out, "    {{:ok, %MyXQL.Result{{rows: []}}}} -> {{:error, :not_found}}");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
             QueryCommand::Many => {
-                let _ = writeln!(
-                    out,
-                    "  case MyXQL.query(conn, \"{}\", {}) do",
-                    sql, param_args
-                );
+                let _ = writeln!(out, "  case MyXQL.query(conn, \"{}\", {}) do", sql, param_args);
                 let _ = writeln!(out, "    {{:ok, %MyXQL.Result{{rows: rows}}}} ->");
 
                 let field_vars = columns
@@ -263,25 +233,14 @@ impl CodegenBackend for ElixirMyxqlBackend {
                 let _ = writeln!(out, "  end");
             }
             QueryCommand::Exec => {
-                let _ = writeln!(
-                    out,
-                    "  case MyXQL.query(conn, \"{}\", {}) do",
-                    sql, param_args
-                );
+                let _ = writeln!(out, "  case MyXQL.query(conn, \"{}\", {}) do", sql, param_args);
                 let _ = writeln!(out, "    {{:ok, _}} -> :ok");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(
-                    out,
-                    "  case MyXQL.query(conn, \"{}\", {}) do",
-                    sql, param_args
-                );
-                let _ = writeln!(
-                    out,
-                    "    {{:ok, %MyXQL.Result{{num_rows: n}}}} -> {{:ok, n}}"
-                );
+                let _ = writeln!(out, "  case MyXQL.query(conn, \"{}\", {}) do", sql, param_args);
+                let _ = writeln!(out, "    {{:ok, %MyXQL.Result{{num_rows: n}}}} -> {{:ok, n}}");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
@@ -296,23 +255,14 @@ impl CodegenBackend for ElixirMyxqlBackend {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", type_name);
-        let _ = writeln!(
-            out,
-            "  @moduledoc \"Enum type for {}.\"",
-            enum_info.sql_name
-        );
+        let _ = writeln!(out, "  @moduledoc \"Enum type for {}.\"", enum_info.sql_name);
         let _ = writeln!(out);
         let _ = writeln!(out, "  @type t :: String.t()");
         let _ = writeln!(out);
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
             let _ = writeln!(out, "  @spec {}() :: String.t()", to_snake_case(&variant));
-            let _ = writeln!(
-                out,
-                "  def {}(), do: \"{}\"",
-                to_snake_case(&variant),
-                value
-            );
+            let _ = writeln!(out, "  def {}(), do: \"{}\"", to_snake_case(&variant), value);
         }
         // values/0 function
         let values_list = enum_info
@@ -331,11 +281,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", name);
-        let _ = writeln!(
-            out,
-            "  @moduledoc \"Composite type for {}.\"",
-            composite.sql_name
-        );
+        let _ = writeln!(out, "  @moduledoc \"Composite type for {}.\"", composite.sql_name);
         let _ = writeln!(out);
         // Generate @type definition
         if composite.fields.is_empty() {
@@ -343,11 +289,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
         } else {
             let _ = writeln!(out, "  @type t :: %__MODULE__{{");
             for (i, f) in composite.fields.iter().enumerate() {
-                let sep = if i + 1 < composite.fields.len() {
-                    ","
-                } else {
-                    ""
-                };
+                let sep = if i + 1 < composite.fields.len() { "," } else { "" };
                 let _ = writeln!(out, "    {}: term(){}", to_snake_case(&f.name), sep);
             }
             let _ = writeln!(out, "  }}");

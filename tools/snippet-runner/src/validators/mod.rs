@@ -144,17 +144,11 @@ pub fn run_command(cmd: &mut std::process::Command, timeout_secs: u64) -> Result
 }
 
 trait WaitTimeout {
-    fn wait_timeout(
-        &mut self,
-        timeout: std::time::Duration,
-    ) -> std::io::Result<Option<std::process::ExitStatus>>;
+    fn wait_timeout(&mut self, timeout: std::time::Duration) -> std::io::Result<Option<std::process::ExitStatus>>;
 }
 
 impl WaitTimeout for std::process::Child {
-    fn wait_timeout(
-        &mut self,
-        timeout: std::time::Duration,
-    ) -> std::io::Result<Option<std::process::ExitStatus>> {
+    fn wait_timeout(&mut self, timeout: std::time::Duration) -> std::io::Result<Option<std::process::ExitStatus>> {
         let start = std::time::Instant::now();
         let poll_interval = std::time::Duration::from_millis(50);
 
