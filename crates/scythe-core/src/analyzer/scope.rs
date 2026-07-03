@@ -7,7 +7,7 @@ use super::type_conversion::sql_type_to_neutral;
 use super::types::*;
 
 impl<'a> Analyzer<'a> {
-    pub(super) fn build_scope_from_from(&self, from: &[ast::TableWithJoins]) -> Result<Scope, ScytheError> {
+    pub(super) fn build_scope_from_from(&mut self, from: &[ast::TableWithJoins]) -> Result<Scope, ScytheError> {
         let mut scope = Scope { sources: Vec::new() };
 
         for twj in from {
@@ -46,7 +46,7 @@ impl<'a> Analyzer<'a> {
     }
 
     fn add_table_factor_to_scope(
-        &self,
+        &mut self,
         tf: &TableFactor,
         scope: &mut Scope,
         nullable_from_join: bool,
@@ -149,7 +149,11 @@ impl<'a> Analyzer<'a> {
                 });
             }
             TableFactor::Derived { subquery, alias, .. } => {
-                // Analyze subquery to get columns
+                // Analyze subquery to get columns. A separate sub_analyzer is used
+                // to keep CTE scoping isolated (inner CTEs must not leak to outer scope),
+                // but params and the positional counter MUST be merged back so that any
+                // $N / ? placeholder inside the derived table is registered on the outer
+                // analyzer — fixing the silent-drop bug (#52 Case C).
                 let mut sub_analyzer = Analyzer {
                     catalog: self.catalog,
                     params: Vec::new(),
@@ -158,6 +162,11 @@ impl<'a> Analyzer<'a> {
                     positional_param_counter: self.positional_param_counter,
                 };
                 let sub_cols = sub_analyzer.analyze_query(subquery)?;
+
+                // Merge params, counter, and any type errors back into the outer analyzer.
+                self.params.extend(sub_analyzer.params);
+                self.positional_param_counter = sub_analyzer.positional_param_counter;
+                self.type_errors.extend(sub_analyzer.type_errors);
 
                 let alias_name = alias
                     .as_ref()
@@ -435,7 +444,7 @@ mod tests {
     #[test]
     fn test_build_scope_from_from_single_table() {
         let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT NOT NULL);"]);
-        let analyzer = make_analyzer(&catalog);
+        let mut analyzer = make_analyzer(&catalog);
         let from = parse_from("SELECT * FROM users");
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
@@ -454,7 +463,7 @@ mod tests {
     #[test]
     fn test_build_scope_from_from_with_alias() {
         let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT NOT NULL);"]);
-        let analyzer = make_analyzer(&catalog);
+        let mut analyzer = make_analyzer(&catalog);
         let from = parse_from("SELECT * FROM users u");
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
@@ -472,7 +481,7 @@ mod tests {
             "CREATE TABLE users (id INT NOT NULL);",
             "CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL);",
         ]);
-        let analyzer = make_analyzer(&catalog);
+        let mut analyzer = make_analyzer(&catalog);
         let from = parse_from("SELECT * FROM users INNER JOIN orders ON users.id = orders.user_id");
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
@@ -490,7 +499,7 @@ mod tests {
             "CREATE TABLE users (id INT NOT NULL);",
             "CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL);",
         ]);
-        let analyzer = make_analyzer(&catalog);
+        let mut analyzer = make_analyzer(&catalog);
         let from = parse_from("SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id");
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
@@ -508,7 +517,7 @@ mod tests {
             "CREATE TABLE users (id INT NOT NULL);",
             "CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL);",
         ]);
-        let analyzer = make_analyzer(&catalog);
+        let mut analyzer = make_analyzer(&catalog);
         let from = parse_from("SELECT * FROM users RIGHT JOIN orders ON users.id = orders.user_id");
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
@@ -526,7 +535,7 @@ mod tests {
             "CREATE TABLE users (id INT NOT NULL);",
             "CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL);",
         ]);
-        let analyzer = make_analyzer(&catalog);
+        let mut analyzer = make_analyzer(&catalog);
         let from = parse_from("SELECT * FROM users FULL OUTER JOIN orders ON users.id = orders.user_id");
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
@@ -541,7 +550,7 @@ mod tests {
     #[test]
     fn test_add_table_factor_subquery() {
         let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT NOT NULL);"]);
-        let analyzer = make_analyzer(&catalog);
+        let mut analyzer = make_analyzer(&catalog);
         let from = parse_from("SELECT * FROM (SELECT id, name FROM users) AS sub");
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
@@ -550,6 +559,27 @@ mod tests {
         assert_eq!(scope.sources[0].columns.len(), 2);
         assert_eq!(scope.sources[0].columns[0].name, "id");
         assert_eq!(scope.sources[0].columns[1].name, "name");
+    }
+
+    // -----------------------------------------------------------------------
+    // Derived table param propagation — regression for #52 Case C
+    // -----------------------------------------------------------------------
+    #[test]
+    fn test_derived_table_params_propagate_to_outer_analyzer() {
+        // $1 is inside a CROSS JOIN derived table; it must end up in the outer
+        // analyzer's params list after build_scope_from_from returns.
+        let catalog = make_catalog(&["CREATE TABLE posts (id INT NOT NULL, user_id INT NOT NULL);"]);
+        let mut analyzer = make_analyzer(&catalog);
+        let from = parse_from("SELECT * FROM posts p CROSS JOIN (SELECT $1::text AS bucket) b");
+        analyzer.build_scope_from_from(&from).unwrap();
+        assert!(
+            !analyzer.params.is_empty(),
+            "params from derived table subquery must propagate to outer analyzer"
+        );
+        assert_eq!(
+            analyzer.params[0].position, 1,
+            "$1 inside derived table must be registered at position 1"
+        );
     }
 
     // -----------------------------------------------------------------------
@@ -638,7 +668,7 @@ mod tests {
     #[test]
     fn test_unknown_table_errors() {
         let catalog = make_catalog(&[]);
-        let analyzer = make_analyzer(&catalog);
+        let mut analyzer = make_analyzer(&catalog);
         let from = parse_from("SELECT * FROM nonexistent_table");
         let result = analyzer.build_scope_from_from(&from);
         assert!(result.is_err());
@@ -650,7 +680,7 @@ mod tests {
     #[test]
     fn test_known_function_jsonb_array_elements() {
         let catalog = make_catalog(&[]);
-        let analyzer = make_analyzer(&catalog);
+        let mut analyzer = make_analyzer(&catalog);
         let from = parse_from("SELECT * FROM jsonb_array_elements('[1,2]')");
         let scope = analyzer.build_scope_from_from(&from).unwrap();
         assert_eq!(scope.sources.len(), 1);
