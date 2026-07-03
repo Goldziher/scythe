@@ -63,7 +63,15 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         .params
         .iter()
         .map(|p| {
-            let name = p.name.clone().unwrap_or_else(|| format!("p{}", p.position));
+            // Apply explicit @param $N name override first; fall back to the
+            // analyzer-inferred name or the pN placeholder.
+            let name = query
+                .annotations
+                .positional_param_docs
+                .iter()
+                .find(|doc| doc.position == p.position)
+                .map(|doc| doc.name.clone())
+                .unwrap_or_else(|| p.name.clone().unwrap_or_else(|| format!("p{}", p.position)));
             let neutral_type = p.neutral_type.clone().unwrap_or_else(|| "unknown".to_string());
             AnalyzedParam {
                 name,
@@ -403,6 +411,75 @@ SELECT CAST(age AS TEXT) as age_text FROM users;",
         .unwrap();
         let result = analyze(&catalog, &query).unwrap();
         assert_eq!(result.columns[0].neutral_type, "string");
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 1 regression: $N inside a FROM-clause derived table must reach analyzed.params
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_param_inside_derived_table_propagates() {
+        let catalog = make_catalog();
+        // $1 is the ONLY placeholder; it lives inside a CROSS JOIN derived-table
+        // subquery.  Before the fix it was silently dropped.
+        let query = parse_query(
+            "-- @name BucketCounts
+-- @returns :many
+SELECT b.bucket, count(*) AS n
+FROM posts p
+CROSS JOIN (SELECT $1::text AS bucket) b
+GROUP BY 1;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(
+            result.params.len(),
+            1,
+            "$1 inside derived table must appear in analyzed.params; got {:?}",
+            result.params
+        );
+        assert_eq!(result.params[0].position, 1);
+        assert_eq!(result.params[0].neutral_type, "string");
+    }
+
+    // -----------------------------------------------------------------------
+    // Task 3: @param $N name overrides the fallback pN name
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn test_positional_param_name_override() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUser
+-- @returns :one
+-- @param $1 user_id: the primary key
+SELECT id, name FROM users WHERE id = $1;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 1);
+        // Without the override the name would be "id" (inferred from column) or "p1".
+        // With the override it must be "user_id".
+        assert_eq!(result.params[0].name, "user_id");
+        assert_eq!(result.params[0].position, 1);
+    }
+
+    #[test]
+    fn test_positional_param_override_does_not_affect_unrelated_params() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name UpdateUser
+-- @returns :exec
+-- @param $2 target_id
+UPDATE users SET name = $1 WHERE id = $2;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 2);
+        // $1 has no override → stays as inferred "name"
+        assert_eq!(result.params[0].name, "name");
+        // $2 has override → becomes "target_id"
+        assert_eq!(result.params[1].name, "target_id");
     }
 
     #[test]

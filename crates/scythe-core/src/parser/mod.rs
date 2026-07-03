@@ -57,6 +57,24 @@ pub struct ParamDoc {
     pub description: String,
 }
 
+/// An explicit `-- @param $N name[: description]` annotation that binds a
+/// position number to a human-chosen parameter name, overriding the `pN`
+/// fallback name that the analyzer would otherwise infer.
+///
+/// The positional form (`$N` as first token) is distinct from the existing
+/// docs-only `-- @param name: description` form, which is preserved unchanged
+/// for backward compatibility.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct PositionalParamDoc {
+    /// 1-based parameter position (`$N`).
+    pub position: i64,
+    /// Caller-chosen name that replaces the `pN` fallback.
+    pub name: String,
+    /// Optional description (everything after the `:` separator).
+    pub description: String,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct JsonMapping {
@@ -94,6 +112,10 @@ pub struct Annotations {
     pub deprecated: Option<String>,
     pub optional_params: Vec<String>,
     pub group_by: Option<String>,
+    /// Explicit `-- @param $N name[: description]` annotations that override
+    /// the inferred or fallback `pN` name for a specific positional parameter.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub positional_param_docs: Vec<PositionalParamDoc>,
     /// Annotations scythe does not natively recognise, preserved in source order
     /// for crate consumers to interpret.
     pub custom: Vec<CustomAnnotation>,
@@ -118,6 +140,7 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
     let mut name: Option<String> = None;
     let mut command: Option<QueryCommand> = None;
     let mut param_docs = Vec::new();
+    let mut positional_param_docs: Vec<PositionalParamDoc> = Vec::new();
     let mut nullable_overrides = Vec::new();
     let mut nonnull_overrides = Vec::new();
     let mut json_mappings = Vec::new();
@@ -156,19 +179,55 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
                     command = Some(QueryCommand::from_str(cmd_str)?);
                 }
                 "param" => {
-                    // format: "<name>: <description>" or "<name>:<description>"
-                    if let Some(colon_pos) = value.find(':') {
-                        let param_name = value[..colon_pos].trim().to_string();
-                        let description = value[colon_pos + 1..].trim().to_string();
-                        param_docs.push(ParamDoc {
-                            name: param_name,
-                            description,
-                        });
+                    // Two forms:
+                    //   Positional: -- @param $N name[: description]
+                    //     → overrides the inferred name for parameter at position N.
+                    //   Docs-only:  -- @param name[: description]
+                    //     → preserved in param_docs for consumers; does not affect codegen.
+                    //
+                    // Detect the positional form by checking whether the first whitespace-
+                    // separated token matches `$<digits>`.
+                    let first_end = value.find(|c: char| c.is_whitespace());
+                    let first_token = first_end.map(|p| &value[..p]).unwrap_or(value);
+
+                    if let Some(digits) = first_token.strip_prefix('$')
+                        && let Ok(pos) = digits.parse::<i64>()
+                        && pos > 0
+                    {
+                        // Positional form: extract name and optional description from the rest.
+                        let rest = first_end.map(|p| value[p..].trim()).unwrap_or("").trim();
+                        if !rest.is_empty() {
+                            let (param_name, description) = if let Some(colon_pos) = rest.find(':') {
+                                (
+                                    rest[..colon_pos].trim().to_string(),
+                                    rest[colon_pos + 1..].trim().to_string(),
+                                )
+                            } else {
+                                (rest.to_string(), String::new())
+                            };
+                            if !param_name.is_empty() {
+                                positional_param_docs.push(PositionalParamDoc {
+                                    position: pos,
+                                    name: param_name,
+                                    description,
+                                });
+                            }
+                        }
                     } else {
-                        param_docs.push(ParamDoc {
-                            name: value.to_string(),
-                            description: String::new(),
-                        });
+                        // Docs-only form: "<name>: <description>" or "<name>:<description>"
+                        if let Some(colon_pos) = value.find(':') {
+                            let param_name = value[..colon_pos].trim().to_string();
+                            let description = value[colon_pos + 1..].trim().to_string();
+                            param_docs.push(ParamDoc {
+                                name: param_name,
+                                description,
+                            });
+                        } else {
+                            param_docs.push(ParamDoc {
+                                name: value.to_string(),
+                                description: String::new(),
+                            });
+                        }
                     }
                 }
                 "nullable" => {
@@ -280,6 +339,7 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
             name: name.clone(),
             command: command.clone(),
             param_docs,
+            positional_param_docs: positional_param_docs.clone(),
             nullable_overrides,
             nonnull_overrides,
             json_mappings,
@@ -306,6 +366,7 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
         name: name.clone(),
         command: command.clone(),
         param_docs,
+        positional_param_docs,
         nullable_overrides,
         nonnull_overrides,
         json_mappings,
@@ -861,6 +922,57 @@ SELECT 1";
         assert_eq!(q.annotations.custom.len(), 1);
         assert_eq!(q.annotations.custom[0].name, "http_auth");
         assert_eq!(q.annotations.custom[0].value, "Bearer");
+    }
+
+    // ---- @param positional form ----
+
+    #[test]
+    fn test_positional_param_basic() {
+        let input = "-- @name Foo\n-- @returns :one\n-- @param $1 user_id\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.positional_param_docs.len(), 1);
+        assert_eq!(q.annotations.positional_param_docs[0].position, 1);
+        assert_eq!(q.annotations.positional_param_docs[0].name, "user_id");
+        assert_eq!(q.annotations.positional_param_docs[0].description, "");
+        // docs-only list must be empty
+        assert_eq!(q.annotations.param_docs.len(), 0);
+    }
+
+    #[test]
+    fn test_positional_param_with_description() {
+        let input = "-- @name Foo\n-- @returns :one\n-- @param $4 bucket: time bucket as text\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.positional_param_docs.len(), 1);
+        assert_eq!(q.annotations.positional_param_docs[0].position, 4);
+        assert_eq!(q.annotations.positional_param_docs[0].name, "bucket");
+        assert_eq!(
+            q.annotations.positional_param_docs[0].description,
+            "time bucket as text"
+        );
+    }
+
+    #[test]
+    fn test_positional_param_does_not_affect_docs_only_param() {
+        // The docs-only form still works alongside the positional form.
+        let input = "-- @name Foo\n-- @returns :one\n-- @param id: the user ID\n-- @param $2 name\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.param_docs.len(), 1);
+        assert_eq!(q.annotations.param_docs[0].name, "id");
+        assert_eq!(q.annotations.positional_param_docs.len(), 1);
+        assert_eq!(q.annotations.positional_param_docs[0].position, 2);
+        assert_eq!(q.annotations.positional_param_docs[0].name, "name");
+    }
+
+    #[test]
+    fn test_positional_param_multiple() {
+        let input =
+            "-- @name Foo\n-- @returns :one\n-- @param $1 start_date: start\n-- @param $2 end_date: end\nSELECT 1";
+        let q = parse(input).unwrap();
+        assert_eq!(q.annotations.positional_param_docs.len(), 2);
+        assert_eq!(q.annotations.positional_param_docs[0].position, 1);
+        assert_eq!(q.annotations.positional_param_docs[0].name, "start_date");
+        assert_eq!(q.annotations.positional_param_docs[1].position, 2);
+        assert_eq!(q.annotations.positional_param_docs[1].name, "end_date");
     }
 
     #[test]

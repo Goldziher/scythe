@@ -175,6 +175,7 @@ mod tests {
             deprecated: None,
             optional_params: vec![],
             group_by: None,
+            positional_param_docs: vec![],
             custom: vec![],
         };
         (stmt, analyzed, catalog, annotations)
