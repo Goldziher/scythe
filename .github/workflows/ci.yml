@@ -36,8 +36,8 @@ jobs:
         run: |
           cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
           cargo fmt --all
-      - name: Check formatting
-        run: cargo fmt --check
+      # Formatting is validated by the `validate` job (poly fmt --check). This job
+      # keeps clippy, which poly's CI validation does not run.
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 
