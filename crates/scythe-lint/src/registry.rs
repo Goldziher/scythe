@@ -88,6 +88,7 @@ pub fn default_registry() -> RuleRegistry {
     reg.register(Box::new(rules::safety::UnusedParams));
     reg.register(Box::new(rules::safety::MissingReturning));
     reg.register(Box::new(rules::safety::AmbiguousColumnInJoin));
+    reg.register(Box::new(rules::safety::UnboundSqlParam));
 
     // Codegen rules
     reg.register(Box::new(rules::codegen::MissingReturnsAnnotation));
@@ -181,9 +182,9 @@ mod tests {
     }
 
     #[test]
-    fn default_registry_has_57_rules() {
+    fn default_registry_has_58_rules() {
         let reg = default_registry();
-        assert_eq!(reg.rules.len(), 57);
+        assert_eq!(reg.rules.len(), 58);
     }
 
     #[test]

@@ -284,6 +284,101 @@ impl LintRule for AmbiguousColumnInJoin {
 }
 
 // ---------------------------------------------------------------------------
+// SC-S07: UnboundSqlParam
+// ---------------------------------------------------------------------------
+
+/// Checks that every `$N` placeholder referenced in the SQL body is present in
+/// `analyzed.params`. A placeholder that appears in the SQL text but is absent
+/// from the generated parameter signature indicates a silent analysis failure
+/// (e.g., a param inside a derived-table subquery that was previously dropped).
+///
+/// This is the mirror of SC-S04 (`UnusedParams`), which checks numbering gaps.
+/// SC-S07 backstops the whole class: even if a future regression re-introduces
+/// a param-drop bug, the lint rule will catch it before the query ships.
+pub struct UnboundSqlParam;
+
+impl LintRule for UnboundSqlParam {
+    fn id(&self) -> &'static str {
+        "SC-S07"
+    }
+    fn name(&self) -> &'static str {
+        "unbound-sql-param"
+    }
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Safety
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Error
+    }
+    fn description(&self) -> &'static str {
+        "SQL placeholder $N present in query body but absent from the generated parameter signature"
+    }
+
+    fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
+        // Collect all $N positions referenced in SQL text (same scan as SC-S04).
+        let mut referenced: ahash::AHashSet<i64> = ahash::AHashSet::new();
+        let sql = ctx.sql;
+        let mut chars = sql.char_indices().peekable();
+        while let Some((i, ch)) = chars.next() {
+            if ch == '$' {
+                let start = i + 1;
+                let mut end = start;
+                while let Some(&(j, c)) = chars.peek() {
+                    if c.is_ascii_digit() {
+                        end = j + 1;
+                        chars.next();
+                    } else {
+                        break;
+                    }
+                }
+                if end > start
+                    && let Ok(n) = sql[start..end].parse::<i64>()
+                {
+                    referenced.insert(n);
+                }
+            }
+        }
+
+        if referenced.is_empty() {
+            return Vec::new();
+        }
+
+        // Collect positions present in the analyzed signature.
+        let bound: ahash::AHashSet<i64> = ctx.analyzed.params.iter().map(|p| p.position).collect();
+
+        // Any placeholder that is in SQL but not in the signature is unbound.
+        let mut violations: Vec<Violation> = referenced
+            .iter()
+            .copied()
+            .filter(|n| !bound.contains(n))
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|n| Violation {
+                rule_id: Cow::Borrowed(self.id()),
+                message: format!(
+                    "parameter ${n} appears in SQL but is absent from the generated parameter \
+                     signature — it may have been silently dropped during analysis"
+                ),
+                fix: None,
+            })
+            .collect();
+
+        // Sort by position for stable output (referenced is a hash set).
+        violations.sort_by_key(|v| {
+            // Extract the number from the message for stable ordering.
+            v.message
+                .split('$')
+                .nth(1)
+                .and_then(|s| s.split_whitespace().next())
+                .and_then(|s| s.parse::<i64>().ok())
+                .unwrap_or(0)
+        });
+
+        violations
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -670,6 +765,99 @@ mod tests {
         let ctx = make_ctx(&q, &a, &cat);
         let v = MissingReturning.check_query(&ctx);
         assert_eq!(v.len(), 1);
+    }
+
+    // SC-S07: UnboundSqlParam
+
+    #[test]
+    fn unbound_sql_param_fires_when_param_absent_from_signature() {
+        // Construct a scenario where $1 is in the SQL text but analyzed.params
+        // is empty — simulating the kind of silent drop that the rule backstops.
+        use scythe_core::analyzer::AnalyzedQuery;
+        use scythe_core::parser::QueryCommand;
+
+        let cat = make_catalog();
+        let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT id FROM users WHERE id = $1;").unwrap();
+        // Build a hand-crafted analyzed with no params to simulate a drop.
+        let analyzed = AnalyzedQuery {
+            name: q.name.clone(),
+            command: QueryCommand::One,
+            sql: q.sql.clone(),
+            params: vec![], // intentionally empty — $1 is unbound
+            ..Default::default()
+        };
+        let ctx = LintContext {
+            sql: &q.sql,
+            stmt: &q.stmt,
+            analyzed: &analyzed,
+            catalog: &cat,
+            annotations: &q.annotations,
+            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+        };
+        let v = UnboundSqlParam.check_query(&ctx);
+        assert_eq!(v.len(), 1, "SC-S07 must fire for unbound $1");
+        assert_eq!(v[0].rule_id, "SC-S07");
+        assert!(
+            v[0].message.contains("$1"),
+            "violation message must name the unbound param"
+        );
+    }
+
+    #[test]
+    fn unbound_sql_param_no_false_positive_on_bound_params() {
+        let cat = make_catalog();
+        let q =
+            parse_query("-- @name UpdateUser\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = UnboundSqlParam.check_query(&ctx);
+        assert!(
+            v.is_empty(),
+            "SC-S07 must not fire when all params are in the signature"
+        );
+    }
+
+    #[test]
+    fn unbound_sql_param_no_false_positive_no_params() {
+        let cat = make_catalog();
+        let q = parse_query("-- @name ListAll\n-- @returns :many\nSELECT id, name FROM users;").unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = UnboundSqlParam.check_query(&ctx);
+        assert!(v.is_empty(), "SC-S07 must not fire when there are no params");
+    }
+
+    #[test]
+    fn unbound_sql_param_multiple_missing_params() {
+        use scythe_core::analyzer::AnalyzedQuery;
+        use scythe_core::parser::QueryCommand;
+
+        let cat = make_catalog();
+        let q = parse_query("-- @name Up\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
+        // Only $2 is in the signature; $1 is missing.
+        let analyzed = AnalyzedQuery {
+            name: q.name.clone(),
+            command: QueryCommand::Exec,
+            sql: q.sql.clone(),
+            params: vec![scythe_core::analyzer::AnalyzedParam {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                position: 2,
+            }],
+            ..Default::default()
+        };
+        let ctx = LintContext {
+            sql: &q.sql,
+            stmt: &q.stmt,
+            analyzed: &analyzed,
+            catalog: &cat,
+            annotations: &q.annotations,
+            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+        };
+        let v = UnboundSqlParam.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+        assert!(v[0].message.contains("$1"));
     }
 
     // SC-S01: non-UPDATE statement should not fire
