@@ -291,9 +291,131 @@ impl CodegenBackend for PythonAsyncpgBackend {
                 let _ = writeln!(out, "    return int(result.split()[-1])");
             }
             QueryCommand::Grouped => {
-                unreachable!("Grouped is rewritten to Many before codegen")
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
         }
+
+        Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[crate::backend_trait::ResolvedColumn],
+        child_columns: &[crate::backend_trait::ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        let mut out = String::new();
+
+        // Child class (defined first so the parent's `list[child]` annotation resolves).
+        let _ = write!(out, "{}", self.row_type.decorator());
+        let _ = writeln!(out, "{}", self.row_type.class_def(child_struct_name));
+        let _ = writeln!(out, "    \"\"\"Child row type for grouped query.\"\"\"");
+        if child_columns.is_empty() {
+            let _ = writeln!(out, "    pass");
+        } else {
+            let _ = writeln!(out);
+            for col in child_columns {
+                let _ = writeln!(out, "    {}: {}", col.field_name, col.full_type);
+            }
+        }
+
+        let _ = writeln!(out);
+
+        // Parent class — has all parent columns plus a `children` list field.
+        let _ = write!(out, "{}", self.row_type.decorator());
+        let _ = writeln!(out, "{}", self.row_type.class_def(parent_struct_name));
+        let _ = writeln!(out, "    \"\"\"Parent row type for grouped query.\"\"\"");
+        let _ = writeln!(out);
+        for col in parent_columns {
+            let _ = writeln!(out, "    {}: {}", col.field_name, col.full_type);
+        }
+        let _ = writeln!(out, "    children: list[{child_struct_name}]");
+
+        Ok(out)
+    }
+
+    fn generate_grouped_query_fn(
+        &self,
+        request: &crate::backend_trait::GroupedQueryFn<'_>,
+    ) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let key_field = to_snake_case(key_column);
+        let mut out = String::new();
+
+        // Build keyword-only parameter list (positional: conn; keyword-only: query params).
+        let param_list = params
+            .iter()
+            .map(|p| format!("{}: {}", p.field_name, p.full_type))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
+
+        // asyncpg uses $1, $2 positional params natively — no placeholder rewriting needed.
+        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+
+        let _ = writeln!(
+            out,
+            "async def {func_name}(conn: Connection{kw_sep}{param_list}) -> list[{parent_struct_name}]:"
+        );
+        let _ = writeln!(out, "    \"\"\"Execute {} grouped query.\"\"\"", analyzed.name);
+        let _ = writeln!(out, "    rows = await conn.fetch(");
+        let _ = writeln!(out, "        \"\"\"{sql}\"\"\",");
+        if !params.is_empty() {
+            let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+            let _ = writeln!(out, "        {},", args.join(", "));
+        }
+        let _ = writeln!(out, "    )");
+
+        // Client-side fold using an index dict (O(1) lookup) and an insertion-order list.
+        // `_index` maps the grouping key to the position in `_entries`.
+        // `_entries` holds (parent_kwargs_dict, children_list) pairs where
+        // parent_kwargs_dict is passed to the parent struct constructor via **kwargs.
+        let _ = writeln!(out, "    _index: dict = {{}}");
+        let _ = writeln!(out, "    _entries: list = []");
+        let _ = writeln!(out, "    for row in rows:");
+        let _ = writeln!(out, "        key = row[\"{key_field}\"]");
+        let _ = writeln!(out, "        if key not in _index:");
+        let _ = writeln!(out, "            _index[key] = len(_entries)");
+
+        // Emit the parent kwargs dict: {"field_name": row["col_name"], ...}
+        // We emit each key-value pair on its own line for readability.
+        let _ = writeln!(out, "            _entries.append((");
+        let _ = writeln!(out, "                {{");
+        for col in parent_columns {
+            let _ = writeln!(
+                out,
+                "                    \"{}\": row[\"{}\"],",
+                col.field_name, col.name
+            );
+        }
+        let _ = writeln!(out, "                }},");
+        let _ = writeln!(out, "                [],");
+        let _ = writeln!(out, "            ))");
+
+        // Append child struct to the existing parent's children list.
+        let _ = writeln!(out, "        _entries[_index[key]][1].append({child_struct_name}(");
+        for col in child_columns {
+            let _ = writeln!(out, "            {}=row[\"{}\"],", col.field_name, col.name);
+        }
+        let _ = writeln!(out, "        ))");
+
+        // Return list comprehension that builds the frozen parent structs.
+        // `**parent_kwargs` unpacks the dict built above into keyword arguments,
+        // which works for @dataclass, Pydantic BaseModel, and msgspec.Struct.
+        let _ = writeln!(out, "    return [");
+        let _ = writeln!(out, "        {parent_struct_name}(**parent_kwargs, children=children)");
+        let _ = writeln!(out, "        for parent_kwargs, children in _entries");
+        let _ = write!(out, "    ]");
 
         Ok(out)
     }

@@ -297,10 +297,7 @@ impl CodegenBackend for SqlxBackend {
             QueryCommand::ExecRows => "u64".to_string(),
             QueryCommand::Batch => unreachable!(),
             QueryCommand::Grouped => {
-                return Err(ScytheError::new(
-                    ErrorCode::InternalError,
-                    "Grouped queries should be rewritten before codegen".to_string(),
-                ));
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
         };
 
@@ -345,10 +342,7 @@ impl CodegenBackend for SqlxBackend {
             QueryCommand::ExecRows => ".execute(pool)",
             QueryCommand::Batch => unreachable!(),
             QueryCommand::Grouped => {
-                return Err(ScytheError::new(
-                    ErrorCode::InternalError,
-                    "Grouped queries should be rewritten before codegen".to_string(),
-                ));
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
         };
 
@@ -402,6 +396,148 @@ impl CodegenBackend for SqlxBackend {
         }
 
         let _ = write!(out, "}}");
+        Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[crate::backend_trait::ResolvedColumn],
+        child_columns: &[crate::backend_trait::ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        let mut out = String::new();
+
+        // Child struct (defined first so the parent can reference it without forward refs).
+        // Uses `sqlx::FromRow` so callers can also query just child rows directly.
+        let _ = writeln!(out, "#[derive(Debug, Clone, sqlx::FromRow)]");
+        let _ = writeln!(out, "pub struct {child_struct_name} {{");
+        for col in child_columns {
+            let field_type = self.row_field_type(col);
+            let _ = writeln!(out, "    pub {}: {field_type},", col.field_name);
+        }
+        let _ = writeln!(out, "}}");
+
+        let _ = writeln!(out);
+
+        // Parent struct — no `sqlx::FromRow` because the `children` field is not a DB column.
+        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "pub struct {parent_struct_name} {{");
+        for col in parent_columns {
+            let field_type = self.row_field_type(col);
+            let _ = writeln!(out, "    pub {}: {field_type},", col.field_name);
+        }
+        let _ = writeln!(out, "    pub children: Vec<{child_struct_name}>,");
+        let _ = write!(out, "}}");
+
+        Ok(out)
+    }
+
+    fn generate_grouped_query_fn(
+        &self,
+        request: &crate::backend_trait::GroupedQueryFn<'_>,
+    ) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        // In structs_only mode, skip function generation entirely.
+        if self.structs_only {
+            return Ok(String::new());
+        }
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let pool_type = self.pool_type();
+        let key_field = to_snake_case(key_column);
+        let mut out = String::new();
+
+        // Optional deprecated annotation.
+        if let Some(ref msg) = analyzed.deprecated {
+            let _ = writeln!(out, "#[deprecated(note = \"{msg}\")]");
+        }
+
+        // Build parameter list: pool first, then query params.
+        let mut param_parts: Vec<String> = vec![format!("pool: &{pool_type}")];
+        for param in params {
+            param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
+        }
+
+        // Clean the SQL (strip annotation comments, semicolon, optional params).
+        let sql_raw = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest);
+
+        // Build the bind parameter string for sqlx::query!.
+        let bind_params: String = analyzed
+            .params
+            .iter()
+            .map(|p| {
+                let pname = to_snake_case(&p.name);
+                if p.neutral_type.starts_with("enum::") {
+                    let enum_name = p.neutral_type.strip_prefix("enum::").unwrap();
+                    let rust_type = enum_type_name(enum_name, &self.manifest.naming);
+                    format!(", {pname} as &{rust_type}")
+                } else {
+                    format!(", {pname}")
+                }
+            })
+            .collect();
+
+        // Function signature — returns Vec<ParentStruct>.
+        let _ = writeln!(
+            out,
+            "pub async fn {func_name}({}) -> Result<Vec<{parent_struct_name}>, sqlx::Error> {{",
+            param_parts.join(", ")
+        );
+
+        // Fetch flat rows using sqlx::query! (not query_as! — the parent struct has a
+        // `children` field that is not a DB column, so we can't use a typed row struct).
+        let _ = writeln!(out, "    let flat_rows = sqlx::query!(\"{sql}\"{bind_params})");
+        let _ = writeln!(out, "        .fetch_all(pool)");
+        let _ = writeln!(out, "        .await?;");
+
+        // Client-side fold: order-preserving grouping by key_column.
+        // Searching backward from the end is O(1) when the SQL is ordered by the parent key
+        // (the typical and recommended case).
+        let _ = writeln!(out, "    let mut result: Vec<{parent_struct_name}> = Vec::new();");
+        let _ = writeln!(out, "    for row in flat_rows {{");
+
+        // Clone the key before we move other fields out of `row`.
+        // `.clone()` is a no-op for Copy types (i32, i64, bool, …) and makes a heap
+        // allocation for String — either way the compiler handles it correctly.
+        let _ = writeln!(out, "        let key = row.{key_field}.clone();");
+
+        // Construct the child struct from the child columns.
+        let _ = writeln!(out, "        let child = {child_struct_name} {{");
+        for col in child_columns {
+            let _ = writeln!(out, "            {}: row.{},", col.field_name, col.field_name);
+        }
+        let _ = writeln!(out, "        }};");
+
+        // Fold: if we already have a parent with this key, push the child; otherwise
+        // create a new parent.  We scan from the end because consecutive rows share
+        // the same parent in the common (sorted) case, making the scan O(1).
+        let _ = writeln!(
+            out,
+            "        if let Some(parent) = result.iter_mut().rev().find(|p| p.{key_field} == key) {{"
+        );
+        let _ = writeln!(out, "            parent.children.push(child);");
+        let _ = writeln!(out, "        }} else {{");
+        let _ = writeln!(out, "            result.push({parent_struct_name} {{");
+        for col in parent_columns {
+            let _ = writeln!(out, "                {}: row.{},", col.field_name, col.field_name);
+        }
+        let _ = writeln!(out, "                children: vec![child],");
+        let _ = writeln!(out, "            }});");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "    Ok(result)");
+        let _ = write!(out, "}}");
+
         Ok(out)
     }
 

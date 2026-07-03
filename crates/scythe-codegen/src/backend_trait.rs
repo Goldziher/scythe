@@ -1,5 +1,5 @@
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
-use scythe_core::errors::ScytheError;
+use scythe_core::errors::{ErrorCode, ScytheError};
 
 /// Information needed to generate an RBS type signature file.
 #[derive(Debug, Clone)]
@@ -46,6 +46,33 @@ pub struct ResolvedParam {
     pub borrowed_type: String,
     pub neutral_type: String,
     pub nullable: bool,
+}
+
+/// Inputs for [`CodegenBackend::generate_grouped_query_fn`].
+///
+/// The grouped query-fn contract carries enough context (analyzed query, both
+/// struct names, the flat and split column sets, params, and the grouping key)
+/// that passing it positionally trips `clippy::too_many_arguments`. Bundling it
+/// into one struct keeps the per-language implementations uniform as backends
+/// opt in to grouped codegen.
+pub struct GroupedQueryFn<'a> {
+    /// Full analyzed query (SQL, name, params, optional_params, deprecated, …).
+    pub analyzed: &'a AnalyzedQuery,
+    /// Name of the generated parent struct.
+    pub parent_struct_name: &'a str,
+    /// Name of the generated child struct.
+    pub child_struct_name: &'a str,
+    /// All resolved columns in flat SELECT order; used for row decoding.
+    pub all_columns: &'a [ResolvedColumn],
+    /// Resolved columns belonging to the parent struct.
+    pub parent_columns: &'a [ResolvedColumn],
+    /// Resolved columns belonging to the child struct(s).
+    pub child_columns: &'a [ResolvedColumn],
+    /// Resolved query parameters.
+    pub params: &'a [ResolvedParam],
+    /// Grouping key column name in the flat result row
+    /// (matches [`scythe_core::analyzer::GroupByConfig::key_column`]).
+    pub key_column: &'a str,
 }
 
 /// Trait that all codegen backends must implement.
@@ -110,6 +137,93 @@ pub trait CodegenBackend: Send + Sync {
     /// Returns `None` by default; Ruby backends override this.
     fn generate_rbs_file(&self, _context: &RbsGenerationContext) -> Option<String> {
         None
+    }
+
+    /// Generate parent and child structs for a `:grouped` query.
+    ///
+    /// A `:grouped` query folds flat rows from a normal SQL SELECT into a nested
+    /// parent/child structure entirely on the client side — the SQL itself is
+    /// unchanged from a regular `:many` query.
+    ///
+    /// ## Struct layout
+    ///
+    /// * **Child struct** (`child_struct_name`): contains all `child_columns`.
+    ///   Defined first in the output to avoid forward references.
+    /// * **Parent struct** (`parent_struct_name`): contains all `parent_columns`
+    ///   plus one extra field `children: Vec<child_struct_name>` (or the
+    ///   language-native equivalent collection type).
+    ///
+    /// ## Grouping semantics
+    ///
+    /// The generated query function fetches flat rows and folds them into an
+    /// **order-preserving** list of parent structs, appending each row's child
+    /// fields to the matching parent's collection. Equality on `key_column` is
+    /// the fold predicate.
+    ///
+    /// ## Parameters
+    ///
+    /// * `parent_struct_name` – fully qualified struct/class name for the parent
+    ///   (e.g. `"GetUsersWithOrdersRow"`).
+    /// * `child_struct_name` – fully qualified struct/class name for the child
+    ///   (e.g. `"GetUsersWithOrdersChildRow"`).
+    /// * `parent_columns` – resolved columns belonging to the parent table.
+    /// * `child_columns` – resolved columns belonging to child table(s).
+    /// * `key_column` – SQL column name used as the grouping key; identifies
+    ///   the boundary between parent groups (matches [`GroupByConfig::key_column`]).
+    ///
+    /// ## Return value
+    ///
+    /// A string containing both struct definitions (child first, parent second),
+    /// stored in [`GeneratedCode::row_struct`].
+    ///
+    /// ## Default implementation
+    ///
+    /// Returns an error:
+    /// *"grouped queries are not yet supported by the '\<name\>' backend"*.
+    /// Backends opt in by overriding this method.
+    fn generate_grouped_structs(
+        &self,
+        _parent_struct_name: &str,
+        _child_struct_name: &str,
+        _parent_columns: &[ResolvedColumn],
+        _child_columns: &[ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        Err(ScytheError::new(
+            ErrorCode::InternalError,
+            format!("grouped queries are not yet supported by the '{}' backend", self.name()),
+        ))
+    }
+
+    /// Generate the query function for a `:grouped` query.
+    ///
+    /// The function runs the flat SQL from `analyzed.sql`, decodes each row,
+    /// and folds the rows into an **order-preserving** `Vec<parent_struct_name>`
+    /// (or the language-native equivalent), grouping by `key_column` and
+    /// appending each row's child fields to the matching parent's `children`
+    /// collection.
+    ///
+    /// ## Parameters
+    ///
+    /// All inputs are bundled in [`GroupedQueryFn`]: the analyzed query, both
+    /// generated struct names, the flat and split (parent/child) column sets,
+    /// the resolved params, and the grouping key column.
+    ///
+    /// ## Return value
+    ///
+    /// A string containing the full query function definition, stored in
+    /// [`GeneratedCode::query_fn`].
+    ///
+    /// ## Default implementation
+    ///
+    /// Returns an error:
+    /// *"grouped queries are not yet supported by the '\<name\>' backend"*.
+    /// Backends opt in by overriding this method.
+    fn generate_grouped_query_fn(&self, _request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        Err(ScytheError::new(
+            ErrorCode::InternalError,
+            format!("grouped queries are not yet supported by the '{}' backend", self.name()),
+        ))
     }
 
     /// Apply per-backend configuration options from [[sql.gen]].

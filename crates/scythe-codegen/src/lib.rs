@@ -15,7 +15,7 @@ use scythe_backend::naming::{row_struct_name, to_pascal_case};
 
 use scythe_core::analyzer::{AnalyzedQuery, EnumInfo};
 use scythe_core::catalog::Catalog;
-use scythe_core::errors::ScytheError;
+use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
 // ---------------------------------------------------------------------------
@@ -105,10 +105,11 @@ pub fn generate_with_backend_and_overrides(
         result.enum_def = Some(enum_def);
     }
 
-    // Generate row/model struct for :one, :opt, and :many commands (not :batch)
+    // Generate row/model struct for :one, :opt, and :many commands (not :batch or :grouped).
+    // Grouped queries generate their own parent+child structs via generate_grouped_structs.
     let needs_row_struct = matches!(
         analyzed.command,
-        QueryCommand::One | QueryCommand::Opt | QueryCommand::Many | QueryCommand::Grouped
+        QueryCommand::One | QueryCommand::Opt | QueryCommand::Many
     );
     if needs_row_struct && !analyzed.columns.is_empty() {
         if let Some(ref table_name) = analyzed.source_table {
@@ -137,27 +138,54 @@ pub fn generate_with_backend_and_overrides(
         }
     }
 
-    // Generate query function
+    // Generate query function (and for :grouped, also the parent+child structs).
     let struct_name = determine_struct_name(analyzed, manifest);
 
-    // For :grouped, delegate to the backend as :many for now.
-    // Full grouped codegen (parent + child structs, grouping logic) will come in a later phase.
     if analyzed.command == QueryCommand::Grouped {
-        let many_proxy = AnalyzedQuery {
-            name: analyzed.name.clone(),
-            command: QueryCommand::Many,
-            sql: analyzed.sql.clone(),
-            columns: analyzed.columns.clone(),
-            params: analyzed.params.clone(),
-            deprecated: analyzed.deprecated.clone(),
-            source_table: analyzed.source_table.clone(),
-            composites: analyzed.composites.clone(),
-            enums: analyzed.enums.clone(),
-            optional_params: analyzed.optional_params.clone(),
-            group_by: analyzed.group_by.clone(),
-            custom: analyzed.custom.clone(),
+        // Real grouped codegen: parent struct + child struct + fold-on-client query fn.
+        let group_by = analyzed.group_by.as_ref().ok_or_else(|| {
+            ScytheError::new(
+                ErrorCode::InternalError,
+                format!(
+                    "query '{}' is :grouped but is missing @group_by annotation",
+                    analyzed.name
+                ),
+            )
+        })?;
+
+        // Derive struct names from the manifest's row suffix and struct case.
+        // E.g. "GetUsersWithOrders" + suffix "Row" -> parent "GetUsersWithOrdersRow",
+        // child "GetUsersWithOrdersChildRow".
+        let parent_struct_name = scythe_backend::naming::row_struct_name(&analyzed.name, &manifest.naming);
+        let child_struct_name = {
+            let suffix = &manifest.naming.row_suffix;
+            let base = parent_struct_name.trim_end_matches(suffix.as_str());
+            format!("{}Child{}", base, suffix)
         };
-        result.query_fn = Some(backend.generate_query_fn(&many_proxy, &struct_name, &columns, &params)?);
+
+        // Resolve parent and child columns to language-specific types.
+        let parent_cols = resolve::resolve_columns(&group_by.parent_columns, manifest, overrides, source_table)?;
+        let child_cols = resolve::resolve_columns(&group_by.child_columns, manifest, overrides, source_table)?;
+
+        result.row_struct = Some(backend.generate_grouped_structs(
+            &parent_struct_name,
+            &child_struct_name,
+            &parent_cols,
+            &child_cols,
+            &group_by.key_column,
+        )?);
+        result.query_fn = Some(
+            backend.generate_grouped_query_fn(&crate::backend_trait::GroupedQueryFn {
+                analyzed,
+                parent_struct_name: &parent_struct_name,
+                child_struct_name: &child_struct_name,
+                all_columns: &columns,
+                parent_columns: &parent_cols,
+                child_columns: &child_cols,
+                params: &params,
+                key_column: &group_by.key_column,
+            })?,
+        );
     } else {
         result.query_fn = Some(backend.generate_query_fn(analyzed, &struct_name, &columns, &params)?);
     }
@@ -272,7 +300,7 @@ pub fn load_or_default_manifest() -> Result<BackendManifest, ScytheError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery};
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
 
     fn make_query(
@@ -474,6 +502,256 @@ mod tests {
         assert_eq!(singularize("batches"), "batch");
         assert_eq!(singularize("boxes"), "box");
         assert_eq!(singularize("wishes"), "wish");
+    }
+
+    // -----------------------------------------------------------------------
+    // Grouped query codegen tests (issue #55 reference example)
+    // Schema: users(id, name, email), orders(id, user_id, total, created_at)
+    // Query: SELECT u.id, u.name, u.email, o.id AS order_id, o.total,
+    //               o.created_at AS order_date FROM users u JOIN orders o ...
+    // @group_by users.id
+    // -----------------------------------------------------------------------
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+            AnalyzedColumn {
+                name: "order_date".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+                  SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\n\
+                  FROM users u\n\
+                  JOIN orders o ON o.user_id = u.id"
+                .to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_sqlx_structs() {
+        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &*backend).unwrap();
+
+        // Both child and parent structs packed into row_struct (child first)
+        let row_struct = result.row_struct.as_deref().unwrap();
+        assert!(
+            row_struct.contains("pub struct GetUsersWithOrdersChildRow"),
+            "missing child struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub order_id: i32"),
+            "child struct missing order_id field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub struct GetUsersWithOrdersRow"),
+            "missing parent struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub id: i32"),
+            "parent struct missing id field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub name: String"),
+            "parent struct missing name field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub email: String"),
+            "parent struct missing email field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub children: Vec<GetUsersWithOrdersChildRow>"),
+            "parent struct missing children field; got:\n{row_struct}"
+        );
+        // Child struct must appear BEFORE parent struct (no forward references)
+        let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("pub struct GetUsersWithOrdersRow").unwrap();
+        assert!(
+            child_pos < parent_pos,
+            "child struct must be defined before parent struct"
+        );
+
+        // No flat struct should exist for grouped queries
+        assert!(
+            result.model_struct.is_none(),
+            "grouped should not produce a model_struct"
+        );
+    }
+
+    #[test]
+    fn test_grouped_sqlx_query_fn() {
+        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &*backend).unwrap();
+
+        let query_fn = result.query_fn.as_deref().unwrap();
+        assert!(
+            query_fn.contains("pub async fn get_users_with_orders("),
+            "missing fn; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("-> Result<Vec<GetUsersWithOrdersRow>, sqlx::Error>"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("sqlx::query!("),
+            "grouped fn must use sqlx::query!; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersChildRow {"),
+            "fn must construct child struct; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("children: vec![child]"),
+            "fn must initialize children vec; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("parent.children.push(child)"),
+            "fn must fold child into existing parent; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Ok(result)"),
+            "fn must return result; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_grouped_python_asyncpg_structs() {
+        let backend = get_backend("python-asyncpg", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &*backend).unwrap();
+
+        let row_struct = result.row_struct.as_deref().unwrap();
+        assert!(
+            row_struct.contains("class GetUsersWithOrdersChildRow"),
+            "missing child class; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("order_id: int"),
+            "child class missing order_id field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("class GetUsersWithOrdersRow"),
+            "missing parent class; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("id: int"),
+            "parent class missing id field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("name: str"),
+            "parent class missing name field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("children: list[GetUsersWithOrdersChildRow]"),
+            "parent class missing children field; got:\n{row_struct}"
+        );
+        // Child class must appear before parent class
+        let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("class GetUsersWithOrdersRow").unwrap();
+        assert!(
+            child_pos < parent_pos,
+            "child class must be defined before parent class"
+        );
+    }
+
+    #[test]
+    fn test_grouped_python_asyncpg_query_fn() {
+        let backend = get_backend("python-asyncpg", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &*backend).unwrap();
+
+        let query_fn = result.query_fn.as_deref().unwrap();
+        assert!(
+            query_fn.contains("async def get_users_with_orders(conn: Connection)"),
+            "missing fn; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("-> list[GetUsersWithOrdersRow]:"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("conn.fetch("),
+            "fn must use conn.fetch; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersChildRow("),
+            "fn must construct child class; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersRow(**parent_kwargs, children=children)"),
+            "fn must construct parent with **kwargs; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("_index"),
+            "fn must use index dict for O(1) lookup; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_grouped_unsupported_backend_returns_clear_error() {
+        let backend = get_backend("go-pgx", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &*backend);
+        assert!(result.is_err(), "go-pgx should return an error for grouped queries");
+        let err = result.unwrap_err();
+        assert!(
+            err.message.contains("not yet supported"),
+            "error should contain 'not yet supported', got: {}",
+            err.message
+        );
+        assert!(
+            err.message.contains("go-pgx"),
+            "error should name the backend, got: {}",
+            err.message
+        );
     }
 
     #[test]
