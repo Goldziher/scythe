@@ -8,6 +8,12 @@ impl<'a> Analyzer<'a> {
     /// Resolve a placeholder string to a position number.
     /// For `$N` placeholders, returns the parsed number.
     /// For `?` (MySQL positional), auto-increments and returns the next position.
+    /// For any other token (e.g. `:bucket` named placeholders) this is an error:
+    /// a message is pushed to `self.type_errors` and `None` is returned so the
+    /// caller's no-match path skips param registration. The error surfaces through
+    /// `analyze()` which checks `type_errors` before returning.
+    /// Note: Oracle `:N` numeric placeholders are converted to `?` by
+    /// `preprocess_oracle_sql` before the AST is built, so they never reach here.
     pub(super) fn resolve_placeholder_position(&mut self, placeholder: &str) -> Option<i64> {
         if let Some(pos) = parse_placeholder(placeholder) {
             Some(pos)
@@ -15,6 +21,12 @@ impl<'a> Analyzer<'a> {
             self.positional_param_counter += 1;
             Some(self.positional_param_counter)
         } else {
+            // Named placeholders such as `:bucket` are not supported.
+            // Use $N for PostgreSQL or ? for MySQL/SQLite instead.
+            self.type_errors.push(format!(
+                "unsupported placeholder \"{placeholder}\": named placeholders are not supported; \
+                 use $N (PostgreSQL) or ? (MySQL/SQLite) instead",
+            ));
             None
         }
     }
@@ -473,6 +485,45 @@ mod tests {
         let expr = Expr::Identifier(Ident::new("x"));
         analyzer.collect_param_type_from_cast(&expr, "int32");
         assert_eq!(analyzer.params.len(), 0, "non-placeholder should not register a param");
+    }
+
+    // ---- resolve_placeholder_position ----
+
+    #[test]
+    fn test_resolve_placeholder_position_dollar_n() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        assert_eq!(analyzer.resolve_placeholder_position("$1"), Some(1));
+        assert_eq!(analyzer.resolve_placeholder_position("$99"), Some(99));
+        assert!(analyzer.type_errors.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_placeholder_position_question_mark() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        assert_eq!(analyzer.resolve_placeholder_position("?"), Some(1));
+        assert_eq!(analyzer.resolve_placeholder_position("?"), Some(2));
+        assert!(analyzer.type_errors.is_empty());
+    }
+
+    #[test]
+    fn test_resolve_placeholder_position_named_param_errors() {
+        // `:bucket` is a named placeholder not supported by scythe.
+        // It must push to type_errors and return None.
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let result = analyzer.resolve_placeholder_position(":bucket");
+        assert_eq!(result, None, "named placeholder must return None");
+        assert_eq!(analyzer.type_errors.len(), 1, "one error must be recorded");
+        assert!(
+            analyzer.type_errors[0].contains(":bucket"),
+            "error must name the offending token"
+        );
+        assert!(
+            analyzer.type_errors[0].contains("not supported"),
+            "error must explain the problem"
+        );
     }
 
     // ---- collect_param_from_expr ----
