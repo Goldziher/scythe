@@ -10,12 +10,3 @@ doc = ["zensical"]
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]
-
-[tool.ruff]
-target-version = "py312"
-line-length = 120
-extend-exclude = ["integration_tests", "docs/snippets"]
-
-[tool.pyproject-fmt]
-keep_full_version = true
-max_supported_python = "3.14"
