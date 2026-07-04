@@ -18,6 +18,13 @@ task check    # run lint + test — verify everything passes
 
 This should take under 5 minutes from clone to green tests.
 
+## Pre-commit hooks
+
+Install the git hooks with `task setup` (or `poly hooks install` directly). On
+every commit, poly runs lint, format, and file-safety checks plus `cargo clippy`;
+the commit-msg hook validates the message. Run all hooks manually with
+`poly hooks run pre-commit --all-files`.
+
 ## Architecture
 
 Crate dependency graph:
