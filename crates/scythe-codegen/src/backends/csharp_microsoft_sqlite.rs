@@ -8,7 +8,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/csharp-microsoft-sqlite.toml");
 
@@ -233,7 +233,10 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
             }
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
-            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
+            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Grouped => {
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
+            }
         };
 
         let is_async_void = return_type == "void";
@@ -299,10 +302,140 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "    return await cmd.ExecuteNonQueryAsync();");
             }
-            QueryCommand::Batch | QueryCommand::Grouped => unreachable!(),
+            QueryCommand::Batch => unreachable!(),
+            QueryCommand::Grouped => {
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
+            }
         }
 
         let _ = write!(out, "}}");
+        Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[ResolvedColumn],
+        child_columns: &[ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        let mut out = String::new();
+
+        let _ = writeln!(out, "public record {}(", child_struct_name);
+        for (i, c) in child_columns.iter().enumerate() {
+            let field = to_pascal_case(&c.field_name);
+            let sep = if i + 1 < child_columns.len() { "," } else { "" };
+            let _ = writeln!(out, "    {} {}{}", c.full_type, field, sep);
+        }
+        let _ = writeln!(out, ");");
+        let _ = writeln!(out);
+
+        let _ = writeln!(out, "public record {}(", parent_struct_name);
+        for c in parent_columns {
+            let field = to_pascal_case(&c.field_name);
+            let _ = writeln!(out, "    {} {},", c.full_type, field);
+        }
+        let _ = writeln!(out, "    List<{}> Children", child_struct_name);
+        let _ = write!(out, ");");
+
+        Ok(out)
+    }
+
+    fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let all_columns = request.all_columns;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql = rewrite_sqlite_placeholders(&super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            |n| format!("?{n}"),
+        ));
+
+        let mut out = String::new();
+
+        let param_list = params
+            .iter()
+            .map(|p| format!("{} {}", p.full_type, p.field_name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sep = if param_list.is_empty() { "" } else { ", " };
+
+        let key_col = parent_columns
+            .iter()
+            .find(|c| c.name == key_column)
+            .unwrap_or(&parent_columns[0]);
+        let key_type = &key_col.full_type;
+        let key_ordinal = all_columns.iter().position(|c| c.name == key_column).unwrap_or(0);
+
+        let _ = writeln!(
+            out,
+            "public static async Task<List<{parent_struct_name}>> {func_name}(SqliteConnection conn{sep}{param_list}) {{"
+        );
+        let _ = writeln!(out, "    await using var cmd = new SqliteCommand(\"{sql}\", conn);");
+        for (i, p) in params.iter().enumerate() {
+            let value_expr = if p.neutral_type.starts_with("enum::") {
+                format!("{}.ToString().ToLower()", p.field_name)
+            } else {
+                p.field_name.clone()
+            };
+            let _ = writeln!(out, "    cmd.Parameters.AddWithValue(\"?{}\", {});", i + 1, value_expr);
+        }
+        let _ = writeln!(out, "    await using var reader = await cmd.ExecuteReaderAsync();");
+        let _ = writeln!(
+            out,
+            "    var lookup = new Dictionary<{key_type}, {parent_struct_name}>();"
+        );
+        let _ = writeln!(out, "    var result = new List<{parent_struct_name}>();");
+        let _ = writeln!(out, "    while (await reader.ReadAsync()) {{");
+
+        let key_expr = column_read_expr(key_col, key_ordinal);
+        let _ = writeln!(out, "        var key = {key_expr};");
+
+        let _ = writeln!(out, "        var child = new {child_struct_name}(");
+        for (ci, col) in child_columns.iter().enumerate() {
+            let ord = all_columns
+                .iter()
+                .position(|c| c.name == col.name)
+                .unwrap_or(parent_columns.len() + ci);
+            let expr = column_read_expr(col, ord);
+            let trailing = if ci + 1 < child_columns.len() { "," } else { "" };
+            if col.nullable {
+                let _ = writeln!(out, "            reader.IsDBNull({ord}) ? null : {expr}{trailing}");
+            } else {
+                let _ = writeln!(out, "            {expr}{trailing}");
+            }
+        }
+        let _ = writeln!(out, "        );");
+
+        let _ = writeln!(out, "        if (lookup.TryGetValue(key, out var parent)) {{");
+        let _ = writeln!(out, "            parent.Children.Add(child);");
+        let _ = writeln!(out, "        }} else {{");
+        let _ = writeln!(out, "            var newParent = new {parent_struct_name}(");
+        for col in parent_columns {
+            let ord = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
+            let expr = column_read_expr(col, ord);
+            if col.nullable {
+                let _ = writeln!(out, "                reader.IsDBNull({ord}) ? null : {expr},");
+            } else {
+                let _ = writeln!(out, "                {expr},");
+            }
+        }
+        let _ = writeln!(out, "                new List<{child_struct_name}> {{ child }}");
+        let _ = writeln!(out, "            );");
+        let _ = writeln!(out, "            lookup[key] = newParent;");
+        let _ = writeln!(out, "            result.Add(newParent);");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "    return result;");
+        let _ = write!(out, "}}");
+
         Ok(out)
     }
 
@@ -336,5 +469,130 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
             let _ = write!(out, ");");
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+            AnalyzedColumn {
+                name: "order_date".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id".to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_csharp_microsoft_sqlite_structs() {
+        let backend = crate::backends::get_backend("csharp-microsoft-sqlite", "sqlite").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("public record GetUsersWithOrdersChildRow"),
+            "missing child record; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("public record GetUsersWithOrdersRow"),
+            "missing parent record; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("List<GetUsersWithOrdersChildRow> Children"),
+            "parent missing Children field; got:\n{row_struct}"
+        );
+        let child_pos = row_struct.find("public record GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("public record GetUsersWithOrdersRow(").unwrap();
+        assert!(child_pos < parent_pos, "child must precede parent; got:\n{row_struct}");
+        assert!(result.model_struct.is_none(), "grouped must not produce model_struct");
+    }
+
+    #[test]
+    fn test_grouped_csharp_microsoft_sqlite_query_fn() {
+        let backend = crate::backends::get_backend("csharp-microsoft-sqlite", "sqlite").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("Task<List<GetUsersWithOrdersRow>>"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrders"),
+            "missing fn name; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("SqliteConnection conn"),
+            "missing connection param; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Dictionary<"),
+            "must use Dictionary; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("lookup.TryGetValue"),
+            "must fold with TryGetValue; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Children.Add(child)"),
+            "must append child; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("return result;"),
+            "must return result; got:\n{query_fn}"
+        );
     }
 }
