@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.11.0] - 2026-07-04
+
+### Added
+
+- Full `:grouped` / `@group_by` nested code generation across every backend. A `:grouped` query now emits a child struct plus a parent struct carrying a `children` collection, and a query function that runs the flat SQL and folds rows into an order-preserving list of parents keyed by the grouping column — all client-side, with the SQL unchanged from `:many`. Previously `:grouped` silently degraded to a flat `:many` proxy despite the docs promising nesting (#55). Implemented for all Rust, Python, TypeScript, C#, Go, Ruby, PHP, Elixir, and Java/Kotlin backends, each with language-native structs, collection types, and fold idioms.
+- `CodegenBackend::generate_grouped_structs` and `generate_grouped_query_fn` trait methods (inputs bundled in a `GroupedQueryFn` context struct) with default implementations that return a clear "grouped queries are not yet supported by '<backend>'" error, so future backends opt in incrementally without panicking.
+- Positional param-naming escape hatch: `-- @param $N <name>[: <description>]` overrides the inferred/`pN` fallback name for a placeholder by position, flowing the chosen name to every language. The existing docs-only `-- @param <name>: <description>` form is unchanged (#53).
+- Lint rule SC-S07 `unbound-sql-param` (error): flags any `$N` present in the SQL body but absent from the generated parameter signature, backstopping the whole class of silent param drops.
+
+### Fixed
+
+- Params inside a FROM-clause derived table (subquery) are no longer discarded — the sub-analyzer's collected params and positional counter are merged back into the parent scope (#52, Case C).
+- Placeholders nested inside an `UPDATE … SET` arithmetic expression such as `SET credits = credits + $2` are now collected instead of silently dropped; param collection recurses through `BinaryOp`/`UnaryOp`/`Nested` expressions (but not subqueries, which own their own param scope). Caught by SC-S07 (#52).
+- Unsupported inline named placeholders (`:name`) now fail fast with a query-pointed error instead of emitting broken codegen (#52, Cases A/B).
+
+### Changed
+
+- Workspace crate versions bumped 0.10.0 → 0.11.0 across all six crates, with cross-crate path-dep version pins updated.
+- `sqruff-lib` upgraded 0.38 → 0.39 (`cargo upgrade --incompatible`); lockfile refreshed.
+
 ## [0.10.0] - 2026-06-14
 
 ### Added
