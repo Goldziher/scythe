@@ -169,4 +169,7 @@ jobs:
           publish_crate scythe-lint
           sleep 30
 
+          publish_crate scythe-inspect
+          sleep 30
+
           publish_crate scythe-cli
