@@ -7,7 +7,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-use crate::backend_trait::{CodegenBackend, RbsGenerationContext, ResolvedColumn, ResolvedParam};
+use crate::backend_trait::{CodegenBackend, GroupedQueryFn, RbsGenerationContext, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-tiny-tds.toml");
 
@@ -265,10 +265,111 @@ impl CodegenBackend for RubyTinyTdsBackend {
                     let _ = writeln!(out, "    client.execute(sql).affected_rows");
                 }
             }
-            QueryCommand::Grouped => unreachable!("handled as Many in codegen"),
+            QueryCommand::Grouped => unreachable!("handled by generate_grouped_query_fn"),
         }
 
         let _ = write!(out, "  end");
+        Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[ResolvedColumn],
+        child_columns: &[ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        Ok(super::ruby_rbs::generate_grouped_structs_ruby(
+            parent_struct_name,
+            child_struct_name,
+            parent_columns,
+            child_columns,
+        ))
+    }
+
+    fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+
+        let param_list = params
+            .iter()
+            .map(|p| p.field_name.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sep = if param_list.is_empty() { "" } else { ", " };
+
+        // tiny_tds uses @p1-style placeholders; replace in SQL.
+        let sql_with_placeholders = {
+            let mut s = sql.clone();
+            let mut n = 1u32;
+            while let Some(pos) = s.find('$') {
+                let end = s[pos + 1..]
+                    .find(|c: char| !c.is_ascii_digit())
+                    .map_or(s.len(), |i| pos + 1 + i);
+                s.replace_range(pos..end, &format!("@p{n}"));
+                n += 1;
+            }
+            s
+        };
+
+        // Build the inline SQL string.
+        let final_sql = if params.is_empty() {
+            sql_with_placeholders.clone()
+        } else {
+            sql_with_placeholders
+        };
+
+        let mut out = String::new();
+        let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
+        if params.is_empty() {
+            let _ = writeln!(out, "    results = client.execute(\"{}\")", final_sql);
+        } else {
+            let _ = writeln!(out, "    sql = \"{}\"", final_sql);
+            // Inline param substitution the tiny_tds way: bind via execute with params hash.
+            let params_hash = params
+                .iter()
+                .enumerate()
+                .map(|(i, p)| format!("\"@p{}\": {}", i + 1, p.field_name))
+                .collect::<Vec<_>>()
+                .join(", ");
+            let _ = writeln!(out, "    results = client.execute(sql, {{{}}})", params_hash);
+        }
+        let _ = writeln!(out, "    _index = {{}}");
+        let _ = writeln!(out, "    _entries = []");
+        let _ = writeln!(out, "    results.each do |row|");
+        let _ = writeln!(out, "      key = row[\"{}\"]", key_column);
+        let _ = writeln!(out, "      unless _index.key?(key)");
+        let _ = writeln!(out, "        _index[key] = _entries.size");
+        let _ = writeln!(out, "        _entries << {{");
+        for col in parent_columns {
+            // tiny_tds returns typed Ruby values — no coercions needed.
+            let _ = writeln!(out, "          {}: row[\"{}\"],", col.field_name, col.name);
+        }
+        let _ = writeln!(out, "          children: []");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "      end");
+        let _ = writeln!(
+            out,
+            "      _entries[_index[key]][:children] << {}.new(",
+            child_struct_name
+        );
+        for col in child_columns {
+            let _ = writeln!(out, "        {}: row[\"{}\"],", col.field_name, col.name);
+        }
+        let _ = writeln!(out, "      )");
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "    _entries.map {{ |e| {}.new(**e) }}", parent_struct_name);
+        let _ = write!(out, "  end");
+
         Ok(out)
     }
 
@@ -306,5 +407,120 @@ impl CodegenBackend for RubyTinyTdsBackend {
             let _ = writeln!(out, "  {} = Data.define({})", name, fields);
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+            AnalyzedColumn {
+                name: "order_date".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id".to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_ruby_tiny_tds_structs() {
+        let backend = RubyTinyTdsBackend::new("mssql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+
+        let row_struct = result.row_struct.as_deref().unwrap();
+        assert!(
+            row_struct.contains("GetUsersWithOrdersChildRow = Data.define(:order_id, :total, :order_date)"),
+            "missing child struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("GetUsersWithOrdersRow = Data.define(:id, :name, :email, :children)"),
+            "missing parent struct; got:\n{row_struct}"
+        );
+        let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("GetUsersWithOrdersRow = Data.define").unwrap();
+        assert!(child_pos < parent_pos, "child struct must appear before parent struct");
+    }
+
+    #[test]
+    fn test_grouped_ruby_tiny_tds_query_fn() {
+        let backend = RubyTinyTdsBackend::new("mssql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+
+        let query_fn = result.query_fn.as_deref().unwrap();
+        assert!(
+            query_fn.contains("def self.get_users_with_orders(client)"),
+            "missing fn; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("client.execute("),
+            "must use client.execute; got:\n{query_fn}"
+        );
+        // String key access
+        assert!(
+            query_fn.contains("key = row[\"id\"]"),
+            "must access key by string; got:\n{query_fn}"
+        );
+        assert!(query_fn.contains("_index = {}"), "must use _index; got:\n{query_fn}");
+        assert!(
+            query_fn.contains("GetUsersWithOrdersChildRow.new("),
+            "must construct child struct; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersRow.new(**e)"),
+            "must fold into parent; got:\n{query_fn}"
+        );
     }
 }

@@ -4,6 +4,36 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{RbsGenerationContext, RbsQueryInfo, ResolvedColumn};
 
+/// Generate child and parent `Data.define` structs for a `:grouped` Ruby query.
+///
+/// Emits the child struct first (convention: child before parent) then the parent
+/// struct with all parent columns plus a `:children` field.
+pub(crate) fn generate_grouped_structs_ruby(
+    parent_struct_name: &str,
+    child_struct_name: &str,
+    parent_columns: &[ResolvedColumn],
+    child_columns: &[ResolvedColumn],
+) -> String {
+    let mut out = String::new();
+
+    // Child struct — must appear before parent so type checkers see it in scope.
+    let child_fields = child_columns
+        .iter()
+        .map(|c| format!(":{}", c.field_name))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let _ = writeln!(out, "  {child_struct_name} = Data.define({child_fields})");
+    let _ = writeln!(out);
+
+    // Parent struct — all parent columns plus :children (Array of child structs).
+    let mut parent_field_parts: Vec<String> = parent_columns.iter().map(|c| format!(":{}", c.field_name)).collect();
+    parent_field_parts.push(":children".to_string());
+    let parent_fields = parent_field_parts.join(", ");
+    let _ = writeln!(out, "  {parent_struct_name} = Data.define({parent_fields})");
+
+    out
+}
+
 /// Map a neutral type to an RBS type string.
 fn neutral_to_rbs(neutral_type: &str, nullable: bool) -> String {
     let base = match neutral_type {

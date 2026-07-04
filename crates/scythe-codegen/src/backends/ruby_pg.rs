@@ -6,7 +6,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-use crate::backend_trait::{CodegenBackend, RbsGenerationContext, ResolvedColumn, ResolvedParam};
+use crate::backend_trait::{CodegenBackend, GroupedQueryFn, RbsGenerationContext, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-pg.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/ruby-pg.redshift.toml");
@@ -186,10 +186,115 @@ impl CodegenBackend for RubyPgBackend {
                 let _ = writeln!(out, "    result = conn.exec_params(\"{}\", {})", sql, param_array);
                 let _ = writeln!(out, "    result.cmd_tuples.to_i");
             }
-            QueryCommand::Grouped => unreachable!("handled as Many in codegen"),
+            QueryCommand::Grouped => unreachable!("handled by generate_grouped_query_fn"),
         }
 
         let _ = write!(out, "  end");
+        Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[ResolvedColumn],
+        child_columns: &[ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        Ok(super::ruby_rbs::generate_grouped_structs_ruby(
+            parent_struct_name,
+            child_struct_name,
+            parent_columns,
+            child_columns,
+        ))
+    }
+
+    fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let all_columns = request.all_columns;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+
+        let param_list = params
+            .iter()
+            .map(|p| p.field_name.clone())
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sep = if param_list.is_empty() { "" } else { ", " };
+        let param_array = if params.is_empty() {
+            "[]".to_string()
+        } else {
+            format!(
+                "[{}]",
+                params
+                    .iter()
+                    .map(|p| p.field_name.clone())
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            )
+        };
+
+        let key_neutral_type = all_columns
+            .iter()
+            .find(|c| c.name == key_column)
+            .map(|c| c.neutral_type.as_str())
+            .unwrap_or("string");
+        let key_coercion = ruby_coercion(key_neutral_type);
+
+        let mut out = String::new();
+        let _ = writeln!(out, "  def self.{}(conn{}{})", func_name, sep, param_list);
+        let _ = writeln!(out, "    result = conn.exec_params(\"{}\", {})", sql, param_array);
+        let _ = writeln!(out, "    _index = {{}}");
+        let _ = writeln!(out, "    _entries = []");
+        let _ = writeln!(out, "    result.each do |row|");
+        let _ = writeln!(out, "      key = row[\"{}\"]{}", key_column, key_coercion);
+        let _ = writeln!(out, "      unless _index.key?(key)");
+        let _ = writeln!(out, "        _index[key] = _entries.size");
+        let _ = writeln!(out, "        _entries << {{");
+        for col in parent_columns {
+            let coercion = ruby_coercion(&col.neutral_type);
+            if col.nullable && !coercion.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "          {}: row[\"{}\"]&.then {{ |v| v{} }},",
+                    col.field_name, col.name, coercion
+                );
+            } else {
+                let _ = writeln!(out, "          {}: row[\"{}\"]{},", col.field_name, col.name, coercion);
+            }
+        }
+        let _ = writeln!(out, "          children: []");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "      end");
+        let _ = writeln!(
+            out,
+            "      _entries[_index[key]][:children] << {}.new(",
+            child_struct_name
+        );
+        for col in child_columns {
+            let coercion = ruby_coercion(&col.neutral_type);
+            if col.nullable && !coercion.is_empty() {
+                let _ = writeln!(
+                    out,
+                    "        {}: row[\"{}\"]&.then {{ |v| v{} }},",
+                    col.field_name, col.name, coercion
+                );
+            } else {
+                let _ = writeln!(out, "        {}: row[\"{}\"]{},", col.field_name, col.name, coercion);
+            }
+        }
+        let _ = writeln!(out, "      )");
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out, "    _entries.map {{ |e| {}.new(**e) }}", parent_struct_name);
+        let _ = write!(out, "  end");
+
         Ok(out)
     }
 
@@ -228,5 +333,126 @@ impl CodegenBackend for RubyPgBackend {
             let _ = writeln!(out, "  {} = Data.define({})", name, fields);
         }
         Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+            AnalyzedColumn {
+                name: "order_date".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id".to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_ruby_pg_structs() {
+        let backend = RubyPgBackend::new("postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+
+        let row_struct = result.row_struct.as_deref().unwrap();
+        assert!(
+            row_struct.contains("GetUsersWithOrdersChildRow = Data.define(:order_id, :total, :order_date)"),
+            "missing child struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("GetUsersWithOrdersRow = Data.define(:id, :name, :email, :children)"),
+            "missing parent struct with :children; got:\n{row_struct}"
+        );
+        let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("GetUsersWithOrdersRow = Data.define").unwrap();
+        assert!(child_pos < parent_pos, "child struct must appear before parent struct");
+    }
+
+    #[test]
+    fn test_grouped_ruby_pg_query_fn() {
+        let backend = RubyPgBackend::new("postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+
+        let query_fn = result.query_fn.as_deref().unwrap();
+        assert!(
+            query_fn.contains("def self.get_users_with_orders(conn)"),
+            "missing fn; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("exec_params("),
+            "must use exec_params; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("_index = {}"),
+            "must use _index hash; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("_entries = []"),
+            "must use _entries array; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersChildRow.new("),
+            "must construct child struct; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersRow.new(**e)"),
+            "must fold into parent via **e; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("_index[key]"),
+            "must look up key in _index; got:\n{query_fn}"
+        );
     }
 }
