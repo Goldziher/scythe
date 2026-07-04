@@ -10,7 +10,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/kotlin-exposed.toml");
 
@@ -308,11 +308,7 @@ impl CodegenBackend for KotlinExposedBackend {
                 }
             }
             QueryCommand::Grouped => {
-                // Grouped queries are not yet supported by this backend.
-                return Err(ScytheError::new(
-                    ErrorCode::InternalError,
-                    "kotlin-exposed backend does not yet support :grouped queries".to_string(),
-                ));
+                unreachable!("routed to generate_grouped_query_fn")
             }
             QueryCommand::Many => {
                 let ret = format!(": List<{}>", struct_name);
@@ -369,5 +365,237 @@ impl CodegenBackend for KotlinExposedBackend {
         }
         let _ = writeln!(out, ")");
         Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[ResolvedColumn],
+        child_columns: &[ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        let mut out = String::new();
+
+        // Child data class first.
+        let _ = writeln!(out, "data class {}(", child_struct_name);
+        for col in child_columns {
+            let _ = writeln!(out, "    val {}: {},", col.field_name, col.full_type);
+        }
+        let _ = writeln!(out, ")");
+        let _ = writeln!(out);
+
+        // Parent data class — parent columns then the mutable children list.
+        let _ = writeln!(out, "data class {}(", parent_struct_name);
+        for col in parent_columns {
+            let _ = writeln!(out, "    val {}: {},", col.field_name, col.full_type);
+        }
+        let _ = writeln!(out, "    val children: MutableList<{}>,", child_struct_name);
+        let _ = write!(out, ")");
+
+        Ok(out)
+    }
+
+    fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            |_| "?".to_string(),
+        );
+
+        let key_col = parent_columns
+            .iter()
+            .find(|c| c.name == key_column)
+            .unwrap_or(&parent_columns[0]);
+        let key_type = key_col.full_type.trim_end_matches('?');
+
+        // Build the args list for exec() parameter binding.
+        let args = if params.is_empty() {
+            String::new()
+        } else {
+            let pairs: Vec<String> = params
+                .iter()
+                .map(|p| format!("{} to {}", exposed_column_type_class(&p.lang_type), p.field_name))
+                .collect();
+            format!(", listOf({})", pairs.join(", "))
+        };
+
+        let inline_params: String = params
+            .iter()
+            .map(|p| format!("{}: {}", p.field_name, p.full_type))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sig = format!("fun {}({}): List<{parent_struct_name}> =", func_name, inline_params);
+        let mut out = String::new();
+        if sig.len() <= 100 {
+            let _ = writeln!(out, "{sig}");
+        } else {
+            let _ = writeln!(out, "fun {}(", func_name);
+            for p in params {
+                let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
+            }
+            let _ = writeln!(out, "): List<{parent_struct_name}> =");
+        }
+        let _ = writeln!(out, "    transaction {{");
+        let _ = writeln!(
+            out,
+            "        val lookup = LinkedHashMap<{key_type}, {parent_struct_name}>()"
+        );
+        let _ = writeln!(out, "        val result = mutableListOf<{parent_struct_name}>()");
+        let _ = writeln!(out, "        exec(\"{sql}\"{args}) {{ rs ->");
+        let _ = writeln!(out, "            while (rs.next()) {{");
+
+        let key_getter = rs_getter(&key_col.lang_type);
+        let _ = writeln!(out, "                val key = rs.{key_getter}(\"{key_column}\")");
+
+        let _ = writeln!(out, "                val child = {child_struct_name}(");
+        for col in child_columns {
+            let getter = rs_getter(&col.lang_type);
+            let _ = writeln!(
+                out,
+                "                    {} = rs.{}(\"{}\"),",
+                col.field_name, getter, col.name
+            );
+        }
+        let _ = writeln!(out, "                )");
+
+        let _ = writeln!(out, "                if (lookup.containsKey(key)) {{");
+        let _ = writeln!(out, "                    lookup[key]!!.children.add(child)");
+        let _ = writeln!(out, "                }} else {{");
+        let _ = writeln!(out, "                    val parent = {parent_struct_name}(");
+        for col in parent_columns {
+            let getter = rs_getter(&col.lang_type);
+            let _ = writeln!(
+                out,
+                "                        {} = rs.{}(\"{}\"),",
+                col.field_name, getter, col.name
+            );
+        }
+        let _ = writeln!(out, "                        children = mutableListOf(child),");
+        let _ = writeln!(out, "                    )");
+        let _ = writeln!(out, "                    lookup[key] = parent");
+        let _ = writeln!(out, "                    result.add(parent)");
+        let _ = writeln!(out, "                }}");
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "        result");
+        let _ = write!(out, "    }}");
+
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "SELECT u.id, u.name, o.id AS order_id, o.total FROM users u JOIN orders o ON o.user_id = u.id"
+                .to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_kotlin_exposed_structs() {
+        let backend = crate::backends::get_backend("kotlin-exposed", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("data class GetUsersWithOrdersChildRow"),
+            "missing child data class; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("data class GetUsersWithOrdersRow"),
+            "missing parent data class; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("val children: MutableList<GetUsersWithOrdersChildRow>"),
+            "parent missing children field; got:\n{row_struct}"
+        );
+        let child_pos = row_struct.find("data class GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("data class GetUsersWithOrdersRow(").unwrap();
+        assert!(child_pos < parent_pos, "child must precede parent");
+    }
+
+    #[test]
+    fn test_grouped_kotlin_exposed_query_fn() {
+        let backend = crate::backends::get_backend("kotlin-exposed", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("List<GetUsersWithOrdersRow>"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("transaction {"),
+            "must use transaction block; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("LinkedHashMap"),
+            "must use LinkedHashMap for fold lookup; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("lookup.containsKey(key)"),
+            "must fold with containsKey; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("children.add(child)"),
+            "must append child; got:\n{query_fn}"
+        );
     }
 }

@@ -11,7 +11,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/java-r2dbc.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/java-r2dbc.mysql.toml");
@@ -434,11 +434,7 @@ impl CodegenBackend for JavaR2dbcBackend {
                 }
             }
             QueryCommand::Grouped => {
-                // Grouped queries are not yet supported for java-r2dbc
-                return Err(ScytheError::new(
-                    ErrorCode::InternalError,
-                    "grouped queries are not yet supported for java-r2dbc".to_string(),
-                ));
+                unreachable!("routed to generate_grouped_query_fn")
             }
         }
 
@@ -482,5 +478,257 @@ impl CodegenBackend for JavaR2dbcBackend {
             let _ = writeln!(out, "public record {}({}) {{}}", name, fields);
         }
         Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[ResolvedColumn],
+        child_columns: &[ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        let mut out = String::new();
+
+        // Child record first.
+        let _ = writeln!(out, "public record {}(", child_struct_name);
+        for (i, c) in child_columns.iter().enumerate() {
+            let field_type = java_field_type(c);
+            let sep = if i + 1 < child_columns.len() { "," } else { "" };
+            if c.nullable {
+                let _ = writeln!(out, "    @Nullable {} {}{}", field_type, c.field_name, sep);
+            } else {
+                let _ = writeln!(out, "    {} {}{}", field_type, c.field_name, sep);
+            }
+        }
+        let _ = writeln!(out, ") {{}}");
+        let _ = writeln!(out);
+
+        // Parent record — parent columns then the children collection.
+        let _ = writeln!(out, "public record {}(", parent_struct_name);
+        for c in parent_columns {
+            let field_type = java_field_type(c);
+            if c.nullable {
+                let _ = writeln!(out, "    @Nullable {} {},", field_type, c.field_name);
+            } else {
+                let _ = writeln!(out, "    {} {},", field_type, c.field_name);
+            }
+        }
+        let _ = writeln!(out, "    java.util.List<{}> children", child_struct_name);
+        let _ = write!(out, ") {{}}");
+
+        Ok(out)
+    }
+
+    fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let all_columns = request.all_columns;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql = pg_to_r2dbc_params(
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            self.is_pg,
+        );
+
+        let param_list = params.iter().map(java_annotated_param).collect::<Vec<_>>().join(", ");
+        let sep = if param_list.is_empty() { "" } else { ", " };
+
+        let key_col = parent_columns
+            .iter()
+            .find(|c| c.name == key_column)
+            .unwrap_or(&parent_columns[0]);
+        let key_type = box_primitive(&key_col.lang_type).to_string();
+
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "public static Mono<java.util.List<{parent_struct_name}>> {func_name}(ConnectionFactory cf{sep}{param_list}) {{"
+        );
+        let _ = writeln!(out, "    return Flux.usingWhen(");
+        let _ = writeln!(out, "        cf.create(),");
+        let _ = writeln!(out, "        conn -> {{");
+        let _ = writeln!(out, "            var stmt = conn.createStatement(\"{sql}\");");
+        for (i, param) in params.iter().enumerate() {
+            let _ = writeln!(out, "            stmt.bind({i}, {});", param.field_name);
+        }
+        // Decode each row into an Object[] to escape the Row validity window.
+        let _ = writeln!(out, "            return Flux.from(stmt.execute())");
+        let _ = writeln!(
+            out,
+            "                .flatMap(result -> result.map((row, meta) -> new Object[]{{"
+        );
+        for col in all_columns {
+            let class = r2dbc_row_class(&col.lang_type);
+            let _ = writeln!(out, "                    row.get(\"{}\", {}),", col.name, class);
+        }
+        let _ = writeln!(out, "                }});");
+        let _ = writeln!(out, "        }},");
+        let _ = writeln!(out, "        conn -> Mono.from(conn.close())");
+        let _ = writeln!(out, "    ).collectList().map(rows -> {{");
+        let _ = writeln!(
+            out,
+            "        var lookup = new java.util.LinkedHashMap<{key_type}, {parent_struct_name}>();"
+        );
+        let _ = writeln!(
+            out,
+            "        var result = new java.util.ArrayList<{parent_struct_name}>();"
+        );
+        let _ = writeln!(out, "        for (var raw : rows) {{");
+
+        // Key extraction — use ordinal in all_columns
+        let key_ordinal = all_columns.iter().position(|c| c.name == key_column).unwrap_or(0);
+        let key_cast = box_primitive(&key_col.lang_type);
+        let _ = writeln!(out, "            var key = ({key_cast}) raw[{key_ordinal}];");
+
+        // Build child
+        let _ = writeln!(out, "            var child = new {child_struct_name}(");
+        for (ci, col) in child_columns.iter().enumerate() {
+            let ordinal = all_columns
+                .iter()
+                .position(|c| c.name == col.name)
+                .unwrap_or(parent_columns.len() + ci);
+            let cast_type = box_primitive(&col.lang_type);
+            let sep = if ci + 1 < child_columns.len() { "," } else { "" };
+            let _ = writeln!(out, "                ({cast_type}) raw[{ordinal}]{sep}");
+        }
+        let _ = writeln!(out, "            );");
+
+        // Fold
+        let _ = writeln!(out, "            if (lookup.containsKey(key)) {{");
+        let _ = writeln!(out, "                lookup.get(key).children().add(child);");
+        let _ = writeln!(out, "            }} else {{");
+        let _ = writeln!(out, "                var parent = new {parent_struct_name}(");
+        for col in parent_columns {
+            let ordinal = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
+            let cast_type = box_primitive(&col.lang_type);
+            let _ = writeln!(out, "                    ({cast_type}) raw[{ordinal}],");
+        }
+        let _ = writeln!(
+            out,
+            "                    new java.util.ArrayList<>(java.util.List.of(child))"
+        );
+        let _ = writeln!(out, "                );");
+        let _ = writeln!(out, "                lookup.put(key, parent);");
+        let _ = writeln!(out, "                result.add(parent);");
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "        return result;");
+        let _ = writeln!(out, "    }});");
+        let _ = write!(out, "}}");
+
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "SELECT u.id, u.name, o.id AS order_id, o.total FROM users u JOIN orders o ON o.user_id = u.id"
+                .to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_java_r2dbc_structs() {
+        let backend = crate::backends::get_backend("java-r2dbc", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("public record GetUsersWithOrdersChildRow"),
+            "missing child record; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("public record GetUsersWithOrdersRow"),
+            "missing parent record; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("java.util.List<GetUsersWithOrdersChildRow> children"),
+            "parent missing children field; got:\n{row_struct}"
+        );
+        let child_pos = row_struct.find("public record GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("public record GetUsersWithOrdersRow(").unwrap();
+        assert!(child_pos < parent_pos, "child must precede parent");
+    }
+
+    #[test]
+    fn test_grouped_java_r2dbc_query_fn() {
+        let backend = crate::backends::get_backend("java-r2dbc", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("Mono<java.util.List<GetUsersWithOrdersRow>>"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("LinkedHashMap"),
+            "must use LinkedHashMap for fold lookup; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("lookup.containsKey(key)"),
+            "must fold with containsKey; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("children().add(child)"),
+            "must append child; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("return result;"),
+            "must return result; got:\n{query_fn}"
+        );
     }
 }

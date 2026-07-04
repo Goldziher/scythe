@@ -11,7 +11,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/java-jdbc.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/java-jdbc.mysql.toml");
@@ -209,6 +209,47 @@ fn java_annotated_param(param: &ResolvedParam) -> String {
         format!("@Nonnull {} {}", param_type, param.field_name)
     } else {
         format!("{} {}", param_type, param.field_name)
+    }
+}
+
+/// Build the inline JDBC ResultSet expression for a column (read by column name).
+/// For nullable primitives, the variable name is returned — the preamble has already
+/// extracted the value and performed the wasNull() check.
+fn col_rs_expr(col: &ResolvedColumn) -> String {
+    if col.nullable && is_java_primitive(&col.lang_type) {
+        col.field_name.clone()
+    } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+        format!("rs.getObject(\"{}\", {})", col.name, class_lit)
+    } else if col.neutral_type.starts_with("enum::") {
+        format!(
+            "{}.valueOf(rs.getString(\"{}\").toUpperCase())",
+            col.lang_type, col.name
+        )
+    } else {
+        let getter = rs_getter(&col.lang_type);
+        format!("rs.{}(\"{}\")", getter, col.name)
+    }
+}
+
+/// Emit nullable-primitive preamble variable declarations for grouped JDBC folding.
+fn write_jdbc_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent: &str) {
+    for col in cols {
+        if col.nullable && is_java_primitive(&col.lang_type) {
+            let getter = rs_getter(&col.lang_type);
+            let _ = writeln!(
+                out,
+                "{}var {}Raw = rs.{}(\"{}\");",
+                indent, col.field_name, getter, col.name
+            );
+            let _ = writeln!(
+                out,
+                "{}{} {} = rs.wasNull() ? null : {}Raw;",
+                indent,
+                box_primitive(&col.lang_type),
+                col.field_name,
+                col.field_name
+            );
+        }
     }
 }
 
@@ -558,10 +599,7 @@ impl CodegenBackend for JavaJdbcBackend {
                 }
             }
             QueryCommand::Grouped => {
-                return Err(ScytheError::new(
-                    ErrorCode::InternalError,
-                    "grouped queries are not yet supported for java-jdbc".to_string(),
-                ));
+                unreachable!("routed to generate_grouped_query_fn")
             }
         }
 
@@ -605,5 +643,236 @@ impl CodegenBackend for JavaJdbcBackend {
             let _ = writeln!(out, "public record {}({}) {{}}", name, fields);
         }
         Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[ResolvedColumn],
+        child_columns: &[ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        let mut out = String::new();
+
+        // Child record first — no forward reference in the parent.
+        let _ = writeln!(out, "public record {}(", child_struct_name);
+        for (i, c) in child_columns.iter().enumerate() {
+            let field_type = java_field_type(c);
+            let sep = if i + 1 < child_columns.len() { "," } else { "" };
+            if c.nullable {
+                let _ = writeln!(out, "    @Nullable {} {}{}", field_type, c.field_name, sep);
+            } else {
+                let _ = writeln!(out, "    {} {}{}", field_type, c.field_name, sep);
+            }
+        }
+        let _ = writeln!(out, ") {{}}");
+        let _ = writeln!(out);
+
+        // Parent record — parent columns then the children collection.
+        let _ = writeln!(out, "public record {}(", parent_struct_name);
+        for c in parent_columns {
+            let field_type = java_field_type(c);
+            if c.nullable {
+                let _ = writeln!(out, "    @Nullable {} {},", field_type, c.field_name);
+            } else {
+                let _ = writeln!(out, "    {} {},", field_type, c.field_name);
+            }
+        }
+        let _ = writeln!(out, "    List<{}> children", child_struct_name);
+        let _ = write!(out, ") {{}}");
+
+        Ok(out)
+    }
+
+    fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            |_| "?".to_string(),
+        );
+
+        let param_list = params.iter().map(java_annotated_param).collect::<Vec<_>>().join(", ");
+        let sep = if param_list.is_empty() { "" } else { ", " };
+
+        let key_col = parent_columns
+            .iter()
+            .find(|c| c.name == key_column)
+            .unwrap_or(&parent_columns[0]);
+        let key_type = box_primitive(&key_col.lang_type).to_string();
+
+        let mut out = String::new();
+        let _ = writeln!(
+            out,
+            "public static List<{parent_struct_name}> {func_name}(Connection conn{sep}{param_list}) throws SQLException {{"
+        );
+        let _ = writeln!(
+            out,
+            "    var lookup = new java.util.LinkedHashMap<{key_type}, {parent_struct_name}>();"
+        );
+        let _ = writeln!(out, "    var result = new ArrayList<{parent_struct_name}>();");
+        let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{sql}\")) {{");
+        for (i, param) in params.iter().enumerate() {
+            let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
+        }
+        let _ = writeln!(out, "        try (ResultSet rs = ps.executeQuery()) {{");
+        let _ = writeln!(out, "            while (rs.next()) {{");
+
+        // Extract key (always non-null for grouping key)
+        let key_expr = col_rs_expr(key_col);
+        let _ = writeln!(out, "                {key_type} key = {key_expr};");
+
+        // Nullable-primitive preamble for child columns
+        write_jdbc_nullable_preamble(&mut out, child_columns, "                ");
+
+        // Build child row
+        let _ = writeln!(out, "                var child = new {child_struct_name}(");
+        for (i, col) in child_columns.iter().enumerate() {
+            let expr = col_rs_expr(col);
+            let sep = if i + 1 < child_columns.len() { "," } else { "" };
+            let _ = writeln!(out, "                    {expr}{sep}");
+        }
+        let _ = writeln!(out, "                );");
+
+        // Fold into lookup
+        let _ = writeln!(out, "                if (lookup.containsKey(key)) {{");
+        let _ = writeln!(out, "                    lookup.get(key).children().add(child);");
+        let _ = writeln!(out, "                }} else {{");
+
+        // Nullable-primitive preamble for parent columns
+        write_jdbc_nullable_preamble(&mut out, parent_columns, "                    ");
+
+        let _ = writeln!(out, "                    var parent = new {parent_struct_name}(");
+        for col in parent_columns {
+            let expr = col_rs_expr(col);
+            let _ = writeln!(out, "                        {expr},");
+        }
+        let _ = writeln!(out, "                        new ArrayList<>(List.of(child))");
+        let _ = writeln!(out, "                    );");
+        let _ = writeln!(out, "                    lookup.put(key, parent);");
+        let _ = writeln!(out, "                    result.add(parent);");
+        let _ = writeln!(out, "                }}");
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "    return result;");
+        let _ = write!(out, "}}");
+
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "SELECT u.id, u.name, o.id AS order_id, o.total FROM users u JOIN orders o ON o.user_id = u.id"
+                .to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_java_jdbc_structs() {
+        let backend = crate::backends::get_backend("java-jdbc", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("public record GetUsersWithOrdersChildRow"),
+            "missing child record; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("public record GetUsersWithOrdersRow"),
+            "missing parent record; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("List<GetUsersWithOrdersChildRow> children"),
+            "parent missing children field; got:\n{row_struct}"
+        );
+        let child_pos = row_struct.find("public record GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("public record GetUsersWithOrdersRow(").unwrap();
+        assert!(child_pos < parent_pos, "child must precede parent");
+    }
+
+    #[test]
+    fn test_grouped_java_jdbc_query_fn() {
+        let backend = crate::backends::get_backend("java-jdbc", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("List<GetUsersWithOrdersRow> getUsersWithOrders"),
+            "wrong signature; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("LinkedHashMap"),
+            "must use LinkedHashMap for fold lookup; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("lookup.containsKey(key)"),
+            "must fold with containsKey; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("children().add(child)"),
+            "must append child; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("return result;"),
+            "must return result; got:\n{query_fn}"
+        );
     }
 }
