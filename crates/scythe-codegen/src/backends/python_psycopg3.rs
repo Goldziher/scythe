@@ -352,7 +352,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 let _ = writeln!(out, "    return cur.rowcount");
             }
             QueryCommand::Grouped => {
-                unreachable!("Grouped is rewritten to Many before codegen")
+                unreachable!("grouped queries are routed to generate_grouped_query_fn")
             }
         }
 

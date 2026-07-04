@@ -266,7 +266,7 @@ impl CodegenBackend for PythonPyodbcBackend {
                 }
                 let _ = writeln!(out, "    conn.commit()");
             }
-            QueryCommand::Grouped => unreachable!("Grouped is rewritten to Many before codegen"),
+            QueryCommand::Grouped => unreachable!("grouped queries are routed to generate_grouped_query_fn"),
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(
                     out,

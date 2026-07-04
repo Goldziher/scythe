@@ -314,7 +314,7 @@ impl CodegenBackend for PythonOracledbBackend {
                     );
                 }
             }
-            QueryCommand::Grouped => unreachable!("Grouped is rewritten to Many before codegen"),
+            QueryCommand::Grouped => unreachable!("grouped queries are routed to generate_grouped_query_fn"),
         }
 
         Ok(out)

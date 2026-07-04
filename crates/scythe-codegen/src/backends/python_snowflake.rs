@@ -267,7 +267,7 @@ impl CodegenBackend for PythonSnowflakeBackend {
                     let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\", {})", sql, args_tuple);
                 }
             }
-            QueryCommand::Grouped => unreachable!("Grouped is rewritten to Many before codegen"),
+            QueryCommand::Grouped => unreachable!("grouped queries are routed to generate_grouped_query_fn"),
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(
                     out,

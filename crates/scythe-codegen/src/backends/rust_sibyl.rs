@@ -428,7 +428,7 @@ impl CodegenBackend for RustSibylBackend {
                 let _ = writeln!(out, "    Ok(())");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::Grouped => unreachable!("Grouped is rewritten to Many before codegen"),
+            QueryCommand::Grouped => unreachable!("grouped queries are routed to generate_grouped_query_fn"),
         }
 
         Ok(out)

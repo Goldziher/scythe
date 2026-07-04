@@ -290,7 +290,7 @@ impl CodegenBackend for PythonAiosqliteBackend {
                 let _ = writeln!(out, "    return cursor.rowcount");
             }
             QueryCommand::Grouped => {
-                unreachable!("Grouped is rewritten to Many before codegen")
+                unreachable!("grouped queries are routed to generate_grouped_query_fn")
             }
         }
 
