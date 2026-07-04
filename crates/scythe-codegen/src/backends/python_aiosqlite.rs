@@ -10,10 +10,10 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::singularize;
 
-use super::python_common::PythonRowType;
+use super::python_common::{PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-aiosqlite.toml");
 
@@ -334,5 +334,226 @@ impl CodegenBackend for PythonAiosqliteBackend {
             }
         }
         Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[ResolvedColumn],
+        child_columns: &[ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        Ok(generate_grouped_structs_py(
+            self.row_type,
+            parent_struct_name,
+            child_struct_name,
+            parent_columns,
+            child_columns,
+        ))
+    }
+
+    fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let all_columns = request.all_columns;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let mut out = String::new();
+
+        let param_list = params
+            .iter()
+            .map(|p| format!("{}: {}", p.field_name, p.full_type))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
+
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            |_| "?".to_string(),
+        );
+
+        let args_tuple = if params.is_empty() {
+            None
+        } else {
+            let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+            if args.len() == 1 {
+                Some(format!("({},)", args[0]))
+            } else {
+                Some(format!("({})", args.join(", ")))
+            }
+        };
+
+        // Signature: wrap to multi-line if it would exceed 88 chars.
+        let sig = format!(
+            "async def {func_name}(conn: aiosqlite.Connection{kw_sep}{param_list}) -> list[{parent_struct_name}]:"
+        );
+        if sig.len() <= 88 {
+            let _ = writeln!(out, "{sig}");
+        } else {
+            let _ = writeln!(out, "async def {func_name}(");
+            let _ = writeln!(out, "    conn: aiosqlite.Connection,");
+            if !params.is_empty() {
+                let _ = writeln!(out, "    *,");
+                for p in params {
+                    let _ = writeln!(out, "    {}: {},", p.field_name, p.full_type);
+                }
+            }
+            let _ = writeln!(out, ") -> list[{parent_struct_name}]:");
+        }
+        let _ = writeln!(out, "    \"\"\"Execute {} grouped query.\"\"\"", analyzed.name);
+
+        // Use newline-first SQL format so SQL content stays at column 0.
+        let _ = writeln!(out, "    async with conn.execute(");
+        let _ = writeln!(out, "        \"\"\"");
+        for line in sql.lines() {
+            let _ = writeln!(out, "{line}");
+        }
+        let _ = writeln!(out, "\"\"\",");
+        if let Some(ref a) = args_tuple {
+            let _ = writeln!(out, "        {a},");
+        }
+        let _ = writeln!(out, "    ) as cursor:");
+        let _ = writeln!(out, "        rows = await cursor.fetchall()");
+
+        generate_grouped_fold_positional(
+            &mut out,
+            all_columns,
+            parent_struct_name,
+            child_struct_name,
+            parent_columns,
+            child_columns,
+            key_column,
+        );
+
+        Ok(out)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+            AnalyzedColumn {
+                name: "order_date".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id"
+                .to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_python_aiosqlite_structs() {
+        let backend = PythonAiosqliteBackend::new("sqlite").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+
+        let row_struct = result.row_struct.as_deref().unwrap();
+        assert!(
+            row_struct.contains("class GetUsersWithOrdersChildRow"),
+            "missing child class; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("class GetUsersWithOrdersRow"),
+            "missing parent class; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("children: list[GetUsersWithOrdersChildRow]"),
+            "parent class missing children field; got:\n{row_struct}"
+        );
+        let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("class GetUsersWithOrdersRow").unwrap();
+        assert!(child_pos < parent_pos, "child class must appear before parent class");
+    }
+
+    #[test]
+    fn test_grouped_python_aiosqlite_query_fn() {
+        let backend = PythonAiosqliteBackend::new("sqlite").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+
+        let query_fn = result.query_fn.as_deref().unwrap();
+        assert!(
+            query_fn.contains("async def get_users_with_orders"),
+            "missing async fn; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("list[GetUsersWithOrdersRow]"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("conn.execute("),
+            "fn must use conn.execute; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersChildRow("),
+            "fn must construct child class; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersRow(**parent_kwargs, children=children)"),
+            "fn must construct parent; got:\n{query_fn}"
+        );
+        assert!(query_fn.contains("_index"), "fn must use _index dict; got:\n{query_fn}");
+        assert!(
+            query_fn.contains("async def") && query_fn.contains("await"),
+            "fn must be async; got:\n{query_fn}"
+        );
     }
 }
