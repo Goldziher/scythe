@@ -9,8 +9,12 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
-use crate::backends::typescript_common::{TsRowType, generate_zod_enum, generate_zod_row_struct};
+use crate::backends::typescript_common::{
+    TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_zod_enum,
+    generate_zod_grouped_structs, generate_zod_row_struct,
+};
 use crate::singularize;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-postgres.toml");
@@ -261,10 +265,101 @@ impl CodegenBackend for TypescriptPostgresBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::Grouped => {
-                unreachable!("Grouped is rewritten to Many before codegen")
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
         }
 
+        Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[ResolvedColumn],
+        child_columns: &[ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        if self.row_type == TsRowType::Zod {
+            return Ok(generate_zod_grouped_structs(
+                child_struct_name,
+                parent_struct_name,
+                parent_columns,
+                child_columns,
+            ));
+        }
+        Ok(generate_grouped_interface_structs(
+            child_struct_name,
+            parent_struct_name,
+            parent_columns,
+            child_columns,
+        ))
+    }
+
+    fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let name_map: std::collections::HashMap<u32, String> = analyzed
+            .params
+            .iter()
+            .zip(params.iter())
+            .map(|(ap, rp)| (ap.position as u32, rp.field_name.clone()))
+            .collect();
+        let sql_template = super::rewrite_pg_placeholders(&sql_clean, |n| {
+            format!("${{{}}}", name_map.get(&n).map_or("?", |s| s.as_str()))
+        });
+
+        let param_list = params
+            .iter()
+            .map(|p| format!("{}: {}", p.field_name, p.full_type))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let inline_params = if params.is_empty() {
+            "sql: Sql".to_string()
+        } else {
+            format!("sql: Sql, {}", param_list)
+        };
+        let ret = format!("Promise<{parent_struct_name}[]>");
+
+        let mut out = String::new();
+        let oneliner = format!("export async function {func_name}({inline_params}): {ret} {{");
+        if oneliner.len() <= 80 {
+            let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
+            let _ = writeln!(out, "{oneliner}");
+        } else {
+            let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
+            let _ = writeln!(out, "export async function {func_name}(");
+            let _ = writeln!(out, "\tsql: Sql,");
+            for p in params {
+                let _ = writeln!(out, "\t{}: {},", p.field_name, p.full_type);
+            }
+            let _ = writeln!(out, "): {ret} {{");
+        }
+
+        // postgres.js tagged template; type as Record<string, unknown>[] for fold access
+        let _ = writeln!(out, "\tconst flatRows = await sql<Record<string, unknown>[]>`");
+        let _ = writeln!(out, "    {sql_template}");
+        let _ = writeln!(out, "  `;");
+
+        // Fold — rows are Record<string, unknown>, use bracket access + as-cast
+        let fold = generate_ts_grouped_fold_body(
+            parent_struct_name,
+            child_struct_name,
+            parent_columns,
+            child_columns,
+            key_column,
+            |name, ty| format!("row['{name}'] as {ty}"),
+        );
+        out.push_str(&fold);
+        let _ = write!(out, "}}");
         Ok(out)
     }
 
@@ -309,5 +404,127 @@ impl CodegenBackend for TypescriptPostgresBackend {
             self.row_type = TsRowType::from_option(value)?;
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::TypescriptPostgresBackend;
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+            AnalyzedColumn {
+                name: "order_date".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id".to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_typescript_postgres_structs() {
+        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("interface GetUsersWithOrdersChildRow"),
+            "missing child; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("order_id: number"),
+            "child missing order_id; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("interface GetUsersWithOrdersRow"),
+            "missing parent; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("children: GetUsersWithOrdersChildRow[]"),
+            "missing children; got:\n{row_struct}"
+        );
+        let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("interface GetUsersWithOrdersRow").unwrap();
+        assert!(child_pos < parent_pos, "child must precede parent");
+    }
+
+    #[test]
+    fn test_grouped_typescript_postgres_query_fn() {
+        let backend = TypescriptPostgresBackend::new("postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(query_fn.contains("getUsersWithOrders"), "missing fn; got:\n{query_fn}");
+        assert!(
+            query_fn.contains("Promise<GetUsersWithOrdersRow[]>"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("sql<Record<string, unknown>[]>"),
+            "must use typed sql template; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("new Map<unknown, GetUsersWithOrdersRow>()"),
+            "must use Map; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("parent.children.push"),
+            "must fold children; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("return result"),
+            "must return result; got:\n{query_fn}"
+        );
     }
 }
