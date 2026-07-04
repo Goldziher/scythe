@@ -211,10 +211,7 @@ impl CodegenBackend for TokioPostgresBackend {
             QueryCommand::ExecRows => "u64".to_string(),
             QueryCommand::Batch => unreachable!(),
             QueryCommand::Grouped => {
-                return Err(ScytheError::new(
-                    ErrorCode::InternalError,
-                    "Grouped queries should be rewritten before codegen".to_string(),
-                ));
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
         };
 
@@ -274,10 +271,7 @@ impl CodegenBackend for TokioPostgresBackend {
             }
             QueryCommand::Batch => unreachable!(),
             QueryCommand::Grouped => {
-                return Err(ScytheError::new(
-                    ErrorCode::InternalError,
-                    "Grouped queries should be rewritten before codegen".to_string(),
-                ));
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
         }
 
@@ -379,6 +373,136 @@ impl CodegenBackend for TokioPostgresBackend {
         Ok(out)
     }
 
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[crate::backend_trait::ResolvedColumn],
+        child_columns: &[crate::backend_trait::ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        let mut out = String::new();
+
+        // Child struct with from_row (defined first, no forward references).
+        out.push_str(&generate_struct_with_from_row(
+            child_struct_name,
+            child_columns,
+            &self.struct_derives(),
+        )?);
+        let _ = writeln!(out);
+        let _ = writeln!(out);
+
+        // Parent struct — no from_row because the children field is not a DB column.
+        let _ = writeln!(out, "{}", self.struct_derives());
+        let _ = writeln!(out, "pub struct {} {{", parent_struct_name);
+        for col in parent_columns {
+            let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
+        }
+        let _ = writeln!(out, "    pub children: Vec<{}>,", child_struct_name);
+        let _ = write!(out, "}}");
+
+        Ok(out)
+    }
+
+    fn generate_grouped_query_fn(
+        &self,
+        request: &crate::backend_trait::GroupedQueryFn<'_>,
+    ) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let key_field = to_snake_case(key_column);
+        let mut out = String::new();
+
+        // Deprecated annotation.
+        if let Some(ref msg) = analyzed.deprecated {
+            let _ = writeln!(out, "#[deprecated(note = \"{msg}\")]");
+        }
+
+        // Build parameter list: client first, then query params.
+        let mut param_parts: Vec<String> = vec![CLIENT_PARAM.to_string()];
+        for param in params {
+            param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
+        }
+
+        // Clean SQL.
+        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+
+        // Build param refs for the query call.
+        let param_refs: String = if params.is_empty() {
+            "&[]".to_string()
+        } else {
+            let refs: Vec<String> = params.iter().map(|p| format!("&{}", p.field_name)).collect();
+            format!("&[{}]", refs.join(", "))
+        };
+
+        // Find the key column type for the explicit let annotation.
+        let key_col_type = parent_columns
+            .iter()
+            .find(|c| c.name == key_column || c.field_name == key_field)
+            .map(|c| c.full_type.as_str())
+            .unwrap_or("i64");
+
+        // Function signature — returns Vec<ParentStruct>.
+        let _ = writeln!(
+            out,
+            "pub async fn {}({}) -> Result<Vec<{}>, {}> {{",
+            func_name,
+            param_parts.join(", "),
+            parent_struct_name,
+            ERROR_TYPE
+        );
+
+        // Fetch flat rows.
+        let _ = writeln!(
+            out,
+            "    let rows = client.query(r#\"{}\"#, {}).await?;",
+            sql, param_refs
+        );
+        let _ = writeln!(out, "    let mut result: Vec<{}> = Vec::new();", parent_struct_name);
+        let _ = writeln!(out, "    for row in &rows {{");
+
+        // Decode all parent columns as owned variables (each typed to enable generic inference).
+        for col in parent_columns {
+            let _ = writeln!(
+                out,
+                "        let {}: {} = row.get(\"{}\");",
+                col.field_name, col.full_type, col.name
+            );
+        }
+
+        // Clone the key before any moves.
+        let _ = writeln!(out, "        let key: {key_col_type} = {key_field}.clone();");
+
+        // Build child struct via the from_row method that the child struct generates.
+        let _ = writeln!(out, "        let child = {}::from_row(row);", child_struct_name);
+
+        // Fold: search from the end for an existing parent with this key.
+        let _ = writeln!(
+            out,
+            "        if let Some(parent) = result.iter_mut().rev().find(|p| p.{key_field} == key) {{"
+        );
+        let _ = writeln!(out, "            parent.children.push(child);");
+        let _ = writeln!(out, "        }} else {{");
+        let _ = writeln!(out, "            result.push({} {{", parent_struct_name);
+        for col in parent_columns {
+            let _ = writeln!(out, "                {},", col.field_name);
+        }
+        let _ = writeln!(out, "                children: vec![child],");
+        let _ = writeln!(out, "            }});");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "    Ok(result)");
+        let _ = write!(out, "}}");
+
+        Ok(out)
+    }
+
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let struct_name = to_pascal_case(&composite.sql_name).into_owned();
         let mut out = String::new();
@@ -434,4 +558,161 @@ fn generate_struct_with_from_row(
     let _ = write!(out, "}}");
 
     Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    use super::TokioPostgresBackend;
+    use crate::generate_with_backend;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+            AnalyzedColumn {
+                name: "order_date".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+                  SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\n\
+                  FROM users u\n\
+                  JOIN orders o ON o.user_id = u.id"
+                .to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_tokio_postgres_structs() {
+        let backend = TokioPostgresBackend::new("postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &backend).unwrap();
+
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("pub struct GetUsersWithOrdersChildRow"),
+            "missing child struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub order_id: i32"),
+            "child struct missing order_id; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub struct GetUsersWithOrdersRow"),
+            "missing parent struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub id: i32"),
+            "parent struct missing id; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub name: String"),
+            "parent struct missing name; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub children: Vec<GetUsersWithOrdersChildRow>"),
+            "parent struct missing children field; got:\n{row_struct}"
+        );
+        // Child must be defined before parent (no forward references).
+        let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("pub struct GetUsersWithOrdersRow").unwrap();
+        assert!(child_pos < parent_pos, "child struct must appear before parent struct");
+
+        // Child struct has from_row; parent struct does not.
+        assert!(
+            row_struct.contains("tokio_postgres::Row"),
+            "child struct should include from_row"
+        );
+        assert!(result.model_struct.is_none(), "grouped must not produce a model_struct");
+    }
+
+    #[test]
+    fn test_grouped_tokio_postgres_query_fn() {
+        let backend = TokioPostgresBackend::new("postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &backend).unwrap();
+
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("pub async fn get_users_with_orders("),
+            "missing fn; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("-> Result<Vec<GetUsersWithOrdersRow>, tokio_postgres::Error>"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("client.query("),
+            "fn must use client.query; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersChildRow::from_row(row)"),
+            "fn must call child from_row; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("children: vec![child]"),
+            "fn must initialize children vec; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("parent.children.push(child)"),
+            "fn must fold child into existing parent; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Ok(result)"),
+            "fn must return result; got:\n{query_fn}"
+        );
+    }
 }

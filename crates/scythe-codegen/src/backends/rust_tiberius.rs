@@ -32,6 +32,55 @@ impl RustTiberiusBackend {
         let manifest = super::load_or_default_manifest("backends/rust-tiberius/manifest.toml", DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
+
+    /// Generate the struct-field initializer expression for a tiberius row column.
+    /// Used inside `from_row` implementations: `field_name: <expr>,`.
+    fn tiberius_field_init(col: &ResolvedColumn) -> String {
+        if col.nullable {
+            if col.neutral_type == "string" {
+                format!(
+                    "{}: row.try_get::<&str, _>(\"{}\")?.map(|s| s.to_string())",
+                    col.field_name, col.name
+                )
+            } else {
+                format!("{}: row.try_get(\"{}\")?", col.field_name, col.name)
+            }
+        } else if col.neutral_type == "string" {
+            format!(
+                "{}: row.try_get::<&str, _>(\"{name}\")?.ok_or_else(|| tiberius::error::Error::Protocol(\"unexpected NULL for non-nullable column '{name}'\".into()))?.to_string()",
+                col.field_name,
+                name = col.name
+            )
+        } else {
+            format!(
+                "{}: row.try_get(\"{name}\")?.ok_or_else(|| tiberius::error::Error::Protocol(\"unexpected NULL for non-nullable column '{name}'\".into()))?",
+                col.field_name,
+                name = col.name
+            )
+        }
+    }
+
+    /// Generate the right-hand side expression for decoding a column from a tiberius row.
+    /// Used as a standalone `let field: Type = <expr>;` statement.
+    fn tiberius_decode_col(col: &ResolvedColumn) -> String {
+        if col.nullable {
+            if col.neutral_type == "string" {
+                format!("row.try_get::<&str, _>(\"{}\")?.map(|s| s.to_string())", col.name)
+            } else {
+                format!("row.try_get(\"{}\")?", col.name)
+            }
+        } else if col.neutral_type == "string" {
+            format!(
+                "row.try_get::<&str, _>(\"{name}\")?.ok_or_else(|| tiberius::error::Error::Protocol(\"unexpected NULL for non-nullable column '{name}'\".into()))?.to_string()",
+                name = col.name
+            )
+        } else {
+            format!(
+                "row.try_get(\"{name}\")?.ok_or_else(|| tiberius::error::Error::Protocol(\"unexpected NULL for non-nullable column '{name}'\".into()))?",
+                name = col.name
+            )
+        }
+    }
 }
 
 /// Rewrite $1, $2, ... positional params to @p1, @p2, ... for MSSQL.
@@ -196,10 +245,7 @@ impl CodegenBackend for RustTiberiusBackend {
             QueryCommand::ExecResult | QueryCommand::ExecRows => "u64".to_string(),
             QueryCommand::Batch => unreachable!(),
             QueryCommand::Grouped => {
-                return Err(ScytheError::new(
-                    ErrorCode::InternalError,
-                    "grouped queries are not yet supported for rust-tiberius".to_string(),
-                ));
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
         };
 
@@ -273,10 +319,7 @@ impl CodegenBackend for RustTiberiusBackend {
             }
             QueryCommand::Batch => unreachable!(),
             QueryCommand::Grouped => {
-                return Err(ScytheError::new(
-                    ErrorCode::InternalError,
-                    "grouped queries are not yet supported for rust-tiberius".to_string(),
-                ));
+                unreachable!("Grouped command is routed through generate_grouped_query_fn, not generate_query_fn")
             }
         }
 
@@ -332,6 +375,166 @@ impl CodegenBackend for RustTiberiusBackend {
         Ok(out)
     }
 
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[crate::backend_trait::ResolvedColumn],
+        child_columns: &[crate::backend_trait::ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        let mut out = String::new();
+
+        // Child struct with from_row (defined first — no forward references).
+        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "pub struct {} {{", child_struct_name);
+        for col in child_columns {
+            let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
+        }
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "impl {} {{", child_struct_name);
+        let _ = writeln!(
+            out,
+            "    pub fn from_row(row: &tiberius::Row) -> Result<Self, tiberius::error::Error> {{"
+        );
+        let _ = writeln!(out, "        Ok(Self {{");
+        for col in child_columns {
+            let _ = writeln!(out, "            {},", Self::tiberius_field_init(col));
+        }
+        let _ = writeln!(out, "        }})");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "}}");
+
+        let _ = writeln!(out);
+
+        // Parent struct — no from_row because the children field is not a DB column.
+        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "pub struct {} {{", parent_struct_name);
+        for col in parent_columns {
+            let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
+        }
+        let _ = writeln!(out, "    pub children: Vec<{}>,", child_struct_name);
+        let _ = write!(out, "}}");
+
+        Ok(out)
+    }
+
+    fn generate_grouped_query_fn(
+        &self,
+        request: &crate::backend_trait::GroupedQueryFn<'_>,
+    ) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let key_field = to_snake_case(key_column);
+        let mut out = String::new();
+
+        if let Some(ref msg) = analyzed.deprecated {
+            let _ = writeln!(out, "#[deprecated(note = \"{msg}\")]");
+        }
+
+        // Build parameter list.
+        let mut param_parts: Vec<String> =
+            vec!["client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>".to_string()];
+        for param in params {
+            param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
+        }
+
+        // Clean SQL and rewrite PG placeholders to @pN for MSSQL.
+        let sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            |n| format!("@p{n}"),
+        );
+
+        // Build parameter slice for tiberius.
+        let param_slice: String = if params.is_empty() {
+            "&[]".to_string()
+        } else {
+            let refs: Vec<String> = params
+                .iter()
+                .map(|p| {
+                    let bt = &p.borrowed_type;
+                    if bt == "&str" || bt == "Option<&str>" {
+                        if bt == "Option<&str>" {
+                            format!("&{}.map(|s| s.to_string()) as &dyn tiberius::ToSql", p.field_name)
+                        } else {
+                            format!("&{}.to_string() as &dyn tiberius::ToSql", p.field_name)
+                        }
+                    } else if bt.starts_with('&') {
+                        format!("{} as &dyn tiberius::ToSql", p.field_name)
+                    } else {
+                        format!("&{} as &dyn tiberius::ToSql", p.field_name)
+                    }
+                })
+                .collect();
+            format!("&[{}]", refs.join(", "))
+        };
+
+        // Find the key column type for the explicit annotation.
+        let key_col_type = parent_columns
+            .iter()
+            .find(|c| c.name == key_column || c.field_name == key_field)
+            .map(|c| c.full_type.as_str())
+            .unwrap_or("i64");
+
+        // Function signature.
+        let _ = writeln!(
+            out,
+            "pub async fn {}({}) -> Result<Vec<{}>, tiberius::error::Error> {{",
+            func_name,
+            param_parts.join(", "),
+            parent_struct_name
+        );
+
+        // Fetch flat rows.
+        let _ = writeln!(
+            out,
+            "    let stream = client.query(r#\"{}\"#, {}).await?;",
+            sql, param_slice
+        );
+        let _ = writeln!(out, "    let rows = stream.into_first_result().await?;");
+        let _ = writeln!(out, "    let mut result: Vec<{}> = Vec::new();", parent_struct_name);
+        let _ = writeln!(out, "    for row in &rows {{");
+
+        // Decode all parent columns.
+        for col in parent_columns {
+            let decode = Self::tiberius_decode_col(col);
+            let _ = writeln!(out, "        let {}: {} = {decode};", col.field_name, col.full_type);
+        }
+
+        // Clone the key for comparison.
+        let _ = writeln!(out, "        let key: {key_col_type} = {key_field}.clone();");
+
+        // Build child struct by calling from_row on the flat row.
+        let _ = writeln!(out, "        let child = {}::from_row(row)?;", child_struct_name);
+
+        // Fold: search from the end for an existing parent with this key.
+        let _ = writeln!(
+            out,
+            "        if let Some(parent) = result.iter_mut().rev().find(|p| p.{key_field} == key) {{"
+        );
+        let _ = writeln!(out, "            parent.children.push(child);");
+        let _ = writeln!(out, "        }} else {{");
+        let _ = writeln!(out, "            result.push({} {{", parent_struct_name);
+        for col in parent_columns {
+            let _ = writeln!(out, "                {},", col.field_name);
+        }
+        let _ = writeln!(out, "                children: vec![child],");
+        let _ = writeln!(out, "            }});");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "    Ok(result)");
+        let _ = write!(out, "}}");
+
+        Ok(out)
+    }
+
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let struct_name = to_pascal_case(&composite.sql_name).into_owned();
         let mut out = String::new();
@@ -348,5 +551,162 @@ impl CodegenBackend for RustTiberiusBackend {
         }
         let _ = write!(out, "}}");
         Ok(out)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    use super::RustTiberiusBackend;
+    use crate::generate_with_backend;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+            AnalyzedColumn {
+                name: "order_date".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+                  SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\n\
+                  FROM users u\n\
+                  JOIN orders o ON o.user_id = u.id"
+                .to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_tiberius_structs() {
+        let backend = RustTiberiusBackend::new("mssql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &backend).unwrap();
+
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("pub struct GetUsersWithOrdersChildRow"),
+            "missing child struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub order_id: i32"),
+            "child struct missing order_id; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub struct GetUsersWithOrdersRow"),
+            "missing parent struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub id: i32"),
+            "parent struct missing id; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub name: String"),
+            "parent struct missing name; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub children: Vec<GetUsersWithOrdersChildRow>"),
+            "parent struct missing children field; got:\n{row_struct}"
+        );
+        // Child struct must appear BEFORE parent struct (no forward references).
+        let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("pub struct GetUsersWithOrdersRow").unwrap();
+        assert!(child_pos < parent_pos, "child struct must appear before parent struct");
+
+        // Child struct has a from_row; parent struct does not.
+        assert!(
+            row_struct.contains("fn from_row(row: &tiberius::Row)"),
+            "child struct should include from_row; got:\n{row_struct}"
+        );
+        assert!(result.model_struct.is_none(), "grouped must not produce a model_struct");
+    }
+
+    #[test]
+    fn test_grouped_tiberius_query_fn() {
+        let backend = RustTiberiusBackend::new("mssql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &backend).unwrap();
+
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("pub async fn get_users_with_orders("),
+            "missing fn; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("-> Result<Vec<GetUsersWithOrdersRow>, tiberius::error::Error>"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("into_first_result()"),
+            "fn must use into_first_result; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersChildRow::from_row(row)?"),
+            "fn must call child from_row; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("children: vec![child]"),
+            "fn must initialize children vec; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("parent.children.push(child)"),
+            "fn must fold child into existing parent; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Ok(result)"),
+            "fn must return result; got:\n{query_fn}"
+        );
     }
 }

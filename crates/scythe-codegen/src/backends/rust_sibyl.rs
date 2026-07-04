@@ -458,6 +458,125 @@ impl CodegenBackend for RustSibylBackend {
         Ok(out)
     }
 
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[crate::backend_trait::ResolvedColumn],
+        child_columns: &[crate::backend_trait::ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        let mut out = String::new();
+
+        // Child struct (defined first — no forward references).
+        // Sibyl row structs carry no from_row method; callers decode fields via row.get(index).
+        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "pub struct {} {{", child_struct_name);
+        for col in child_columns {
+            let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
+        }
+        let _ = writeln!(out, "}}");
+
+        let _ = writeln!(out);
+
+        // Parent struct — no from_row because the children field is not a DB column.
+        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "pub struct {} {{", parent_struct_name);
+        for col in parent_columns {
+            let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
+        }
+        let _ = writeln!(out, "    pub children: Vec<{}>,", child_struct_name);
+        let _ = write!(out, "}}");
+
+        Ok(out)
+    }
+
+    fn generate_grouped_query_fn(
+        &self,
+        request: &crate::backend_trait::GroupedQueryFn<'_>,
+    ) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let key_field = to_snake_case(key_column);
+        let mut out = String::new();
+
+        // Rewrite positional $N → :N, then :N → :PARAM_NAME for Oracle named params.
+        let positional_sql = super::rewrite_pg_placeholders(
+            &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            |n| format!(":{n}"),
+        );
+        let sql = Self::sql_with_named_params(&positional_sql, params);
+
+        let param_list = params
+            .iter()
+            .map(|p| format!("{}: {}", p.field_name, p.borrowed_type))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sep = if param_list.is_empty() { "" } else { ", " };
+
+        let args_expr = Self::build_in_args(params);
+
+        // Function signature — returns Vec<ParentStruct> using sibyl lifetimes.
+        let _ = writeln!(
+            out,
+            "pub async fn {}<'a>(session: &'a Session<'a>{}{}) -> sibyl::Result<Vec<{}>> {{",
+            func_name, sep, param_list, parent_struct_name
+        );
+
+        let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
+        let _ = writeln!(out, "    let rows = stmt.query({}).await?;", args_expr);
+        let _ = writeln!(out, "    let mut result: Vec<{}> = Vec::new();", parent_struct_name);
+        let _ = writeln!(out, "    while let Some(row) = rows.next().await? {{");
+
+        // Decode parent columns (indices 0..parent_columns.len()-1 in the flat SELECT).
+        for (i, col) in parent_columns.iter().enumerate() {
+            let _ = writeln!(out, "{}", Self::emit_row_get(col, i, "        "));
+        }
+
+        // Clone the key before any moves.
+        let _ = writeln!(out, "        let key = {key_field}.clone();");
+
+        // Decode child columns (indices parent_columns.len()..all_columns.len()-1).
+        let parent_len = parent_columns.len();
+        for (j, col) in child_columns.iter().enumerate() {
+            let _ = writeln!(out, "{}", Self::emit_row_get(col, parent_len + j, "        "));
+        }
+
+        // Construct the child struct from the decoded child variables.
+        let _ = writeln!(out, "        let child = {} {{", child_struct_name);
+        for col in child_columns {
+            let _ = writeln!(out, "            {},", col.field_name);
+        }
+        let _ = writeln!(out, "        }};");
+
+        // Fold: search from the end for an existing parent with this key.
+        let _ = writeln!(
+            out,
+            "        if let Some(parent) = result.iter_mut().rev().find(|p| p.{key_field} == key) {{"
+        );
+        let _ = writeln!(out, "            parent.children.push(child);");
+        let _ = writeln!(out, "        }} else {{");
+        let _ = writeln!(out, "            result.push({} {{", parent_struct_name);
+        for col in parent_columns {
+            let _ = writeln!(out, "                {},", col.field_name);
+        }
+        let _ = writeln!(out, "                children: vec![child],");
+        let _ = writeln!(out, "            }});");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "    Ok(result)");
+        let _ = write!(out, "}}");
+
+        Ok(out)
+    }
+
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
@@ -473,5 +592,157 @@ impl CodegenBackend for RustSibylBackend {
         }
         let _ = write!(out, "}}");
         Ok(out)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    use super::RustSibylBackend;
+    use crate::generate_with_backend;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+            AnalyzedColumn {
+                name: "order_date".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+                  SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\n\
+                  FROM users u\n\
+                  JOIN orders o ON o.user_id = u.id"
+                .to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_sibyl_structs() {
+        let backend = RustSibylBackend::new("oracle").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &backend).unwrap();
+
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("pub struct GetUsersWithOrdersChildRow"),
+            "missing child struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub order_id: i32"),
+            "child struct missing order_id; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub struct GetUsersWithOrdersRow"),
+            "missing parent struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub id: i32"),
+            "parent struct missing id; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub name: String"),
+            "parent struct missing name; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("pub children: Vec<GetUsersWithOrdersChildRow>"),
+            "parent struct missing children field; got:\n{row_struct}"
+        );
+        // Child struct must appear BEFORE parent struct (no forward references).
+        let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("pub struct GetUsersWithOrdersRow").unwrap();
+        assert!(child_pos < parent_pos, "child struct must appear before parent struct");
+
+        assert!(result.model_struct.is_none(), "grouped must not produce a model_struct");
+    }
+
+    #[test]
+    fn test_grouped_sibyl_query_fn() {
+        let backend = RustSibylBackend::new("oracle").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &backend).unwrap();
+
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("pub async fn get_users_with_orders<'a>(session: &'a Session<'a>)"),
+            "missing fn; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("-> sibyl::Result<Vec<GetUsersWithOrdersRow>>"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("rows.next().await?"),
+            "fn must iterate rows; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("GetUsersWithOrdersChildRow {"),
+            "fn must construct child struct; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("children: vec![child]"),
+            "fn must initialize children vec; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("parent.children.push(child)"),
+            "fn must fold child into existing parent; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Ok(result)"),
+            "fn must return result; got:\n{query_fn}"
+        );
     }
 }
