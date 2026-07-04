@@ -254,12 +254,133 @@ impl CodegenBackend for GoPgxBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::Grouped => {
-                return Err(ScytheError::new(
-                    ErrorCode::InternalError,
-                    "Grouped queries should be rewritten before codegen".to_string(),
-                ));
+                unreachable!("Grouped is handled by generate_grouped_query_fn, not generate_query_fn")
             }
         }
+
+        Ok(out)
+    }
+
+    fn generate_grouped_structs(
+        &self,
+        parent_struct_name: &str,
+        child_struct_name: &str,
+        parent_columns: &[crate::backend_trait::ResolvedColumn],
+        child_columns: &[crate::backend_trait::ResolvedColumn],
+        _key_column: &str,
+    ) -> Result<String, ScytheError> {
+        let mut out = String::new();
+
+        // Child struct defined first (parent references it — no forward declarations in Go).
+        let _ = writeln!(out, "type {} struct {{", child_struct_name);
+        for col in child_columns {
+            let field = to_pascal_case(&col.field_name);
+            let _ = writeln!(out, "\t{} {} `json:\"{}\"`", field, col.full_type, col.field_name);
+        }
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+
+        // Parent struct with an extra Children slice field.
+        let _ = writeln!(out, "type {} struct {{", parent_struct_name);
+        for col in parent_columns {
+            let field = to_pascal_case(&col.field_name);
+            let _ = writeln!(out, "\t{} {} `json:\"{}\"`", field, col.full_type, col.field_name);
+        }
+        let _ = writeln!(out, "\tChildren []{} `json:\"children\"`", child_struct_name);
+        let _ = write!(out, "}}");
+
+        Ok(out)
+    }
+
+    fn generate_grouped_query_fn(
+        &self,
+        request: &crate::backend_trait::GroupedQueryFn<'_>,
+    ) -> Result<String, ScytheError> {
+        let analyzed = request.analyzed;
+        let parent_struct_name = request.parent_struct_name;
+        let child_struct_name = request.child_struct_name;
+        let all_columns = request.all_columns;
+        let parent_columns = request.parent_columns;
+        let child_columns = request.child_columns;
+        let params = request.params;
+        let key_column = request.key_column;
+
+        let func_name = fn_name(&analyzed.name, &self.manifest.naming);
+        let sql = super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+
+        let param_list = params
+            .iter()
+            .map(|p| format!("{} {}", to_pascal_case(&p.field_name), p.full_type))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let sep = if param_list.is_empty() { "" } else { ", " };
+
+        let args_str = if params.is_empty() {
+            String::new()
+        } else {
+            let args: Vec<String> = params
+                .iter()
+                .map(|p| to_pascal_case(&p.field_name).into_owned())
+                .collect();
+            format!(", {}", args.join(", "))
+        };
+
+        // Determine the Go type for the map key (looked up from parent columns).
+        let key_go_type = parent_columns
+            .iter()
+            .find(|c| c.name == key_column || c.field_name == key_column)
+            .map(|c| c.full_type.as_str())
+            .unwrap_or("int64");
+
+        let mut out = String::new();
+
+        let _ = writeln!(
+            out,
+            "func {}(ctx context.Context, db *pgxpool.Pool{}{}) ([]{}, error) {{",
+            func_name, sep, param_list, parent_struct_name
+        );
+        let _ = writeln!(out, "\trows, err := db.Query(ctx, \"{}\"{})", sql, args_str);
+        let _ = writeln!(out, "\tif err != nil {{");
+        let _ = writeln!(out, "\t\treturn nil, err");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\tdefer rows.Close()");
+        let _ = writeln!(out, "\tvar result []{}", parent_struct_name);
+        let _ = writeln!(out, "\tindex := make(map[{}]*{})", key_go_type, parent_struct_name);
+        let _ = writeln!(out, "\tfor rows.Next() {{");
+
+        // Declare one local variable per flat column.
+        for col in all_columns {
+            let _ = writeln!(out, "\t\tvar {} {}", col.field_name, col.full_type);
+        }
+
+        // Scan all flat columns in SELECT order.
+        let scan_refs: Vec<String> = all_columns.iter().map(|c| format!("&{}", c.field_name)).collect();
+        let _ = writeln!(out, "\t\tif err := rows.Scan({}); err != nil {{", scan_refs.join(", "));
+        let _ = writeln!(out, "\t\t\treturn nil, err");
+        let _ = writeln!(out, "\t\t}}");
+
+        // Build child struct from child column locals.
+        let _ = writeln!(out, "\t\tchild := {} {{", child_struct_name);
+        for col in child_columns {
+            let _ = writeln!(out, "\t\t\t{}: {},", to_pascal_case(&col.field_name), col.field_name);
+        }
+        let _ = writeln!(out, "\t\t}}");
+
+        // Order-preserving fold: map for O(1) lookup, slice for order.
+        let _ = writeln!(out, "\t\tif parent, ok := index[{}]; ok {{", key_column);
+        let _ = writeln!(out, "\t\t\tparent.Children = append(parent.Children, child)");
+        let _ = writeln!(out, "\t\t}} else {{");
+        let _ = writeln!(out, "\t\t\tresult = append(result, {} {{", parent_struct_name);
+        for col in parent_columns {
+            let _ = writeln!(out, "\t\t\t\t{}: {},", to_pascal_case(&col.field_name), col.field_name);
+        }
+        let _ = writeln!(out, "\t\t\t\tChildren: []{}{{child}},", child_struct_name);
+        let _ = writeln!(out, "\t\t\t}})");
+        let _ = writeln!(out, "\t\t\tindex[{}] = &result[len(result)-1]", key_column);
+        let _ = writeln!(out, "\t\t}}");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\treturn result, rows.Err()");
+        let _ = write!(out, "}}");
 
         Ok(out)
     }
@@ -296,5 +417,160 @@ impl CodegenBackend for GoPgxBackend {
         }
         let _ = write!(out, "}}");
         Ok(out)
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::parser::QueryCommand;
+
+    use crate::backends::get_backend;
+    use crate::generate_with_backend;
+
+    fn make_grouped_query() -> AnalyzedQuery {
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            },
+        ];
+        let child_cols = vec![
+            AnalyzedColumn {
+                name: "order_id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            },
+            AnalyzedColumn {
+                name: "total".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+            },
+            AnalyzedColumn {
+                name: "order_date".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+            },
+        ];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+        AnalyzedQuery {
+            name: "GetUsersWithOrders".to_string(),
+            command: QueryCommand::Grouped,
+            sql: "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+                  SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\n\
+                  FROM users u\n\
+                  JOIN orders o ON o.user_id = u.id"
+                .to_string(),
+            columns: all_cols,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            }),
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_grouped_go_pgx_structs() {
+        let backend = get_backend("go-pgx", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &*backend).unwrap();
+
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("type GetUsersWithOrdersChildRow struct"),
+            "missing child struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("OrderId"),
+            "child struct missing OrderId field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("type GetUsersWithOrdersRow struct"),
+            "missing parent struct; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("Id"),
+            "parent struct missing Id field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("Name"),
+            "parent struct missing Name field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("Children []GetUsersWithOrdersChildRow"),
+            "parent struct missing Children field; got:\n{row_struct}"
+        );
+        // Child struct must appear before parent struct (no forward references in Go).
+        let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
+        let parent_pos = row_struct.find("type GetUsersWithOrdersRow struct").unwrap();
+        assert!(
+            child_pos < parent_pos,
+            "child struct must be defined before parent struct"
+        );
+
+        assert!(result.model_struct.is_none(), "grouped must not produce a model_struct");
+    }
+
+    #[test]
+    fn test_grouped_go_pgx_query_fn() {
+        let backend = get_backend("go-pgx", "postgresql").unwrap();
+        let query = make_grouped_query();
+        let result = generate_with_backend(&query, &*backend).unwrap();
+
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("func GetUsersWithOrders("),
+            "missing function; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("[]GetUsersWithOrdersRow, error)"),
+            "wrong return type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("db.Query(ctx,"),
+            "must use db.Query; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("index := make(map["),
+            "must declare index map; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("parent.Children = append(parent.Children, child)"),
+            "must fold child into existing parent; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Children: []GetUsersWithOrdersChildRow{child}"),
+            "must initialize Children slice; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("rows.Err()"),
+            "must return rows.Err(); got:\n{query_fn}"
+        );
     }
 }
