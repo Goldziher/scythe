@@ -261,21 +261,42 @@ impl<'a> Analyzer<'a> {
         name: &str,
         nullable: bool,
     ) {
-        if let Expr::Value(vws) = expr {
-            if let Some(p) = value_is_placeholder(vws)
-                && let Some(pos) = self.resolve_placeholder_position(p)
-            {
-                self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), nullable);
+        match expr {
+            Expr::Value(vws) => {
+                if let Some(p) = value_is_placeholder(vws)
+                    && let Some(pos) = self.resolve_placeholder_position(p)
+                {
+                    self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), nullable);
+                }
             }
-        } else if let Expr::Cast {
-            expr: inner, data_type, ..
-        } = expr
-            && let Expr::Value(vws) = inner.as_ref()
-            && let Some(p) = value_is_placeholder(vws)
-            && let Some(pos) = self.resolve_placeholder_position(p)
-        {
-            let neutral = datatype_to_neutral(data_type, self.catalog);
-            self.register_param(pos, Some(name.to_string()), Some(neutral), nullable);
+            Expr::Cast {
+                expr: inner, data_type, ..
+            } => {
+                if let Expr::Value(vws) = inner.as_ref()
+                    && let Some(p) = value_is_placeholder(vws)
+                    && let Some(pos) = self.resolve_placeholder_position(p)
+                {
+                    let neutral = datatype_to_neutral(data_type, self.catalog);
+                    self.register_param(pos, Some(name.to_string()), Some(neutral), nullable);
+                } else {
+                    self.collect_param_from_expr_with_type_nullable(inner, type_str, name, nullable);
+                }
+            }
+            // Recurse into compound expressions so placeholders nested inside an
+            // assignment RHS such as `credits = credits + $2` are still collected.
+            // Subqueries are intentionally not walked here — they are analysed by a
+            // dedicated sub-analyzer that owns their param scope (see `scope.rs`).
+            Expr::Nested(inner) => {
+                self.collect_param_from_expr_with_type_nullable(inner, type_str, name, nullable);
+            }
+            Expr::UnaryOp { expr: inner, .. } => {
+                self.collect_param_from_expr_with_type_nullable(inner, type_str, name, nullable);
+            }
+            Expr::BinaryOp { left, right, .. } => {
+                self.collect_param_from_expr_with_type_nullable(left, type_str, name, nullable);
+                self.collect_param_from_expr_with_type_nullable(right, type_str, name, nullable);
+            }
+            _ => {}
         }
     }
 

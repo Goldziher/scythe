@@ -483,6 +483,26 @@ UPDATE users SET name = $1 WHERE id = $2;",
     }
 
     #[test]
+    fn test_update_set_arithmetic_expr_collects_all_params() {
+        // Regression: a placeholder nested inside an arithmetic expression on the
+        // right-hand side of a SET assignment (e.g. `age = age + $2`) must still be
+        // collected. Previously only bare-placeholder and cast RHS were handled, so
+        // `$2` was silently dropped, leaving a gap in the param signature (issue #52).
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name IncrementUserAge
+-- @returns :exec
+UPDATE users SET age = age + $2 WHERE id = $1;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 2, "both $1 and $2 must be present");
+        let positions: Vec<i64> = result.params.iter().map(|p| p.position).collect();
+        assert!(positions.contains(&1), "missing $1; got {positions:?}");
+        assert!(positions.contains(&2), "missing $2; got {positions:?}");
+    }
+
+    #[test]
     fn test_annotation_overrides() {
         let catalog = make_catalog();
         let query = parse_query(
