@@ -735,12 +735,61 @@ mod tests {
         );
     }
 
+    /// Minimal backend that implements only the required trait methods and
+    /// leaves the grouped methods as their default (erroring) impl. Every
+    /// shipped backend now supports grouped codegen, so the "not yet supported"
+    /// path can only be exercised by a backend that has not opted in — this stub
+    /// stands in for such a backend so the contract stays covered.
+    struct StubBackend {
+        manifest: BackendManifest,
+    }
+
+    impl CodegenBackend for StubBackend {
+        fn name(&self) -> &str {
+            "stub-backend"
+        }
+        fn manifest(&self) -> &BackendManifest {
+            &self.manifest
+        }
+        fn generate_row_struct(&self, _query_name: &str, _columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
+            Ok(String::new())
+        }
+        fn generate_model_struct(&self, _table_name: &str, _columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
+            Ok(String::new())
+        }
+        fn generate_query_fn(
+            &self,
+            _analyzed: &AnalyzedQuery,
+            _struct_name: &str,
+            _columns: &[ResolvedColumn],
+            _params: &[ResolvedParam],
+        ) -> Result<String, ScytheError> {
+            Ok(String::new())
+        }
+        fn generate_enum_def(&self, _enum_info: &scythe_core::analyzer::EnumInfo) -> Result<String, ScytheError> {
+            Ok(String::new())
+        }
+        fn generate_composite_def(
+            &self,
+            _composite: &scythe_core::analyzer::CompositeInfo,
+        ) -> Result<String, ScytheError> {
+            Ok(String::new())
+        }
+    }
+
     #[test]
     fn test_grouped_unsupported_backend_returns_clear_error() {
-        let backend = get_backend("go-pgx", "postgresql").unwrap();
+        // A backend that does not override the grouped trait methods must surface
+        // a clear, backend-named error rather than panicking. A stub keeps this
+        // valid even though every shipped backend now implements grouped codegen.
+        let manifest = get_backend("rust-sqlx", "postgresql").unwrap().manifest().clone();
+        let backend = StubBackend { manifest };
         let query = make_grouped_query();
-        let result = generate_with_backend(&query, &*backend);
-        assert!(result.is_err(), "go-pgx should return an error for grouped queries");
+        let result = generate_with_backend(&query, &backend);
+        assert!(
+            result.is_err(),
+            "stub backend should return an error for grouped queries"
+        );
         let err = result.unwrap_err();
         assert!(
             err.message.contains("not yet supported"),
@@ -748,7 +797,7 @@ mod tests {
             err.message
         );
         assert!(
-            err.message.contains("go-pgx"),
+            err.message.contains("stub-backend"),
             "error should name the backend, got: {}",
             err.message
         );
