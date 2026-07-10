@@ -44,7 +44,6 @@ pub fn run_validation(snippets: &[Snippet], registry: &ValidatorRegistry, config
 }
 
 fn validate_one(snippet: &Snippet, registry: &ValidatorRegistry, config: &RunnerConfig) -> ValidationResult {
-    // Check annotation constraints
     if let Some(annotation) = &snippet.annotation {
         match annotation {
             SnippetAnnotation::Skip => {
@@ -101,7 +100,6 @@ fn validate_one(snippet: &Snippet, registry: &ValidatorRegistry, config: &Runner
         };
     }
 
-    // Clamp level to validator's max supported level
     let effective_level = config.level.min(validator.max_level());
 
     let start = Instant::now();
@@ -111,8 +109,6 @@ fn validate_one(snippet: &Snippet, registry: &ValidatorRegistry, config: &Runner
     };
     let duration_ms = start.elapsed().as_millis() as u64;
 
-    // At syntax level, dependency/import errors mean the syntax itself is valid —
-    // only the external dependencies are missing. Treat as pass.
     if status == SnippetStatus::Fail
         && effective_level == ValidationLevel::Syntax
         && let Some(ref err_output) = message

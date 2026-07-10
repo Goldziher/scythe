@@ -4,7 +4,7 @@ description: Maintains developer guides, upgrade notes, and architecture referen
 so contributors can follow cross-language patterns. Ensures ADRs stay synchronized
 with code changes and examples remain runnable.
 
-model: haiku
+model: sonnet
 ---
 
 # docs-strategist

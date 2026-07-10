@@ -1,7 +1,6 @@
 use sqlparser::ast::{self, BinaryOperator, Expr, ObjectName, SelectItem, SetExpr, Statement, TableFactor, Value};
 
 // ---------------------------------------------------------------------------
-// Value matching helpers (ValueWithSpan wraps Value)
 // ---------------------------------------------------------------------------
 
 pub(super) fn value_is_placeholder(vws: &ast::ValueWithSpan) -> Option<&str> {
@@ -27,10 +26,6 @@ pub(super) fn value_is_null(vws: &ast::ValueWithSpan) -> bool {
     matches!(&vws.value, Value::Null)
 }
 
-// ---------------------------------------------------------------------------
-// Free-standing helpers
-// ---------------------------------------------------------------------------
-
 pub(super) fn object_name_to_string(name: &ObjectName) -> String {
     name.0
         .iter()
@@ -52,13 +47,10 @@ pub(super) fn table_factor_name(tf: &TableFactor) -> String {
 pub(super) fn assignment_target_name(target: &ast::AssignmentTarget) -> String {
     match target {
         ast::AssignmentTarget::ColumnName(name) => object_name_to_string(name).to_lowercase(),
-        ast::AssignmentTarget::Tuple(names) => {
-            // Use the first name in the tuple
-            names
-                .first()
-                .map(|n| object_name_to_string(n).to_lowercase())
-                .unwrap_or_default()
-        }
+        ast::AssignmentTarget::Tuple(names) => names
+            .first()
+            .map(|n| object_name_to_string(n).to_lowercase())
+            .unwrap_or_default(),
     }
 }
 
@@ -91,7 +83,6 @@ pub(super) fn expr_to_name(expr: &Expr) -> String {
         }
         Expr::BinaryOp { left, .. } => expr_to_name(left),
         Expr::CompoundFieldAccess { access_chain, .. } => {
-            // Return the last field name, e.g. (home_address).street -> "street"
             if let Some(last) = access_chain.last()
                 && let ast::AccessExpr::Dot(inner) = last
             {
@@ -108,7 +99,6 @@ pub(super) fn detect_select_star_source(stmt: &Statement) -> Option<String> {
     if let Statement::Query(query) = stmt
         && let SetExpr::Select(select) = query.body.as_ref()
     {
-        // Check: single wildcard projection, single FROM table, no joins
         let is_star = select.projection.len() == 1 && matches!(select.projection[0], SelectItem::Wildcard(_));
         if is_star
             && select.from.len() == 1
@@ -147,16 +137,13 @@ pub(super) fn derive_param_name_from_comparison(
     _param_side: &Expr,
     op: Option<&BinaryOperator>,
 ) -> String {
-    // If the column side is an aggregate function, use min_/max_ prefix
     if let Expr::Function(_) = col_side
         && let Some(op) = op
     {
         match op {
-            // col > $1 means param is a minimum for col
             BinaryOperator::Gt | BinaryOperator::GtEq => {
                 return format!("min_{}", col_name);
             }
-            // col < $1 means param is a maximum for col
             BinaryOperator::Lt | BinaryOperator::LtEq => {
                 return format!("max_{}", col_name);
             }
@@ -203,21 +190,17 @@ pub(super) fn is_integer_type(t: &str) -> bool {
 }
 
 pub(super) fn is_comparable_types(a: &str, b: &str) -> bool {
-    // Numeric types are comparable with each other
     let numeric = ["int16", "int32", "int64", "float32", "float64", "decimal"];
     if numeric.contains(&a) && numeric.contains(&b) {
         return true;
     }
-    // String types
     if a == "string" && b == "string" {
         return true;
     }
-    // Temporal types
     let temporal = ["date", "datetime", "datetime_tz", "time", "time_tz"];
     if temporal.contains(&a) && temporal.contains(&b) {
         return true;
     }
-    // Enums are comparable with strings (PG implicit cast) and with themselves
     if (a.starts_with("enum::") && b == "string") || (b.starts_with("enum::") && a == "string") {
         return true;
     }
@@ -255,7 +238,6 @@ pub(super) fn widen_type(a: &str, b: &str) -> String {
     if a == b {
         return a.to_string();
     }
-    // Integer widening
     let int_rank = |t: &str| -> Option<u8> {
         match t {
             "int16" => Some(0),
@@ -267,7 +249,6 @@ pub(super) fn widen_type(a: &str, b: &str) -> String {
     if let (Some(ra), Some(rb)) = (int_rank(a), int_rank(b)) {
         return if ra >= rb { a.to_string() } else { b.to_string() };
     }
-    // Float widening
     let float_rank = |t: &str| -> Option<u8> {
         match t {
             "float32" => Some(0),
@@ -278,14 +259,12 @@ pub(super) fn widen_type(a: &str, b: &str) -> String {
     if let (Some(ra), Some(rb)) = (float_rank(a), float_rank(b)) {
         return if ra >= rb { a.to_string() } else { b.to_string() };
     }
-    // Int + float -> float64
     if int_rank(a).is_some() && float_rank(b).is_some() {
         return "float64".to_string();
     }
     if float_rank(a).is_some() && int_rank(b).is_some() {
         return "float64".to_string();
     }
-    // Default: use left side
     a.to_string()
 }
 
@@ -295,7 +274,6 @@ mod tests {
     use sqlparser::ast::{Ident, ObjectNamePart, ValueWithSpan};
     use sqlparser::tokenizer::Span;
 
-    // ---- widen_type ----
     #[test]
     fn test_widen_type_same() {
         assert_eq!(widen_type("int32", "int32"), "int32");
@@ -328,12 +306,10 @@ mod tests {
 
     #[test]
     fn test_widen_type_default_fallback() {
-        // Non-numeric: returns left side
         assert_eq!(widen_type("string", "int32"), "string");
         assert_eq!(widen_type("bool", "string"), "bool");
     }
 
-    // ---- is_comparable_types ----
     #[test]
     fn test_is_comparable_types_numeric() {
         assert!(is_comparable_types("int16", "int32"));
@@ -363,7 +339,6 @@ mod tests {
         assert!(!is_comparable_types("json", "string"));
     }
 
-    // ---- parse_placeholder ----
     #[test]
     fn test_parse_placeholder_valid() {
         assert_eq!(parse_placeholder("$1"), Some(1));
@@ -377,11 +352,9 @@ mod tests {
         assert_eq!(parse_placeholder("$abc"), None);
         assert_eq!(parse_placeholder(""), None);
         assert_eq!(parse_placeholder("$$"), None);
-        // MySQL `?` returns None (handled by resolve_placeholder_position)
         assert_eq!(parse_placeholder("?"), None);
     }
 
-    // ---- is_positional_placeholder ----
     #[test]
     fn test_is_positional_placeholder() {
         assert!(is_positional_placeholder("?"));
@@ -390,7 +363,6 @@ mod tests {
         assert!(!is_positional_placeholder("??"));
     }
 
-    // ---- expr_to_name ----
     #[test]
     fn test_expr_to_name_identifier() {
         let expr = Expr::Identifier(Ident::new("my_column"));
@@ -447,7 +419,6 @@ mod tests {
         assert_eq!(expr_to_name(&expr), "unknown");
     }
 
-    // ---- pluralize ----
     #[test]
     fn test_pluralize_regular() {
         assert_eq!(pluralize("user"), "users");
@@ -467,13 +438,11 @@ mod tests {
     fn test_pluralize_y_ending() {
         assert_eq!(pluralize("category"), "categories");
         assert_eq!(pluralize("city"), "cities");
-        // "ey", "ay", "oy" endings should just add 's'
         assert_eq!(pluralize("key"), "keys");
         assert_eq!(pluralize("day"), "days");
         assert_eq!(pluralize("boy"), "boys");
     }
 
-    // ---- is_integer_type ----
     #[test]
     fn test_is_integer_type() {
         assert!(is_integer_type("int16"));
@@ -483,7 +452,6 @@ mod tests {
         assert!(!is_integer_type("string"));
     }
 
-    // ---- neutral_to_sql_label ----
     #[test]
     fn test_neutral_to_sql_label() {
         assert_eq!(neutral_to_sql_label("int32"), "integer");
@@ -492,16 +460,13 @@ mod tests {
         assert_eq!(neutral_to_sql_label("bool"), "boolean");
         assert_eq!(neutral_to_sql_label("datetime_tz"), "timestamptz");
         assert_eq!(neutral_to_sql_label("uuid"), "uuid");
-        // Unknown type returns as-is
         assert_eq!(neutral_to_sql_label("custom_type"), "custom_type");
     }
 
-    // ---- derive_param_name_from_comparison ----
     #[test]
     fn test_derive_param_name_from_comparison_no_function() {
         let col_side = Expr::Identifier(Ident::new("age"));
         let param_side = Expr::Identifier(Ident::new("dummy"));
-        // Not a function expression, so just returns col_name
         assert_eq!(
             derive_param_name_from_comparison("age", &col_side, &param_side, Some(&BinaryOperator::Gt)),
             "age"
@@ -573,14 +538,12 @@ mod tests {
         };
         let col_side = Expr::Function(func);
         let param_side = Expr::Identifier(Ident::new("dummy"));
-        // Eq does not add prefix even for functions
         assert_eq!(
             derive_param_name_from_comparison("count", &col_side, &param_side, Some(&BinaryOperator::Eq)),
             "count"
         );
     }
 
-    // ---- is_not_null_guard ----
     #[test]
     fn test_is_not_null_guard_matching() {
         let inner = Expr::Identifier(Ident::new("bio"));
@@ -604,7 +567,6 @@ mod tests {
         assert!(!is_not_null_guard(&condition, &result));
     }
 
-    // ---- is_literal ----
     #[test]
     fn test_is_literal() {
         let num = Expr::Value(ValueWithSpan {
@@ -635,7 +597,6 @@ mod tests {
         assert!(!is_literal(&ident));
     }
 
-    // ---- object_name_to_string ----
     #[test]
     fn test_object_name_to_string_single() {
         let name = ObjectName(vec![ObjectNamePart::Identifier(Ident::new("users"))]);
@@ -651,7 +612,6 @@ mod tests {
         assert_eq!(object_name_to_string(&name), "public.users");
     }
 
-    // ---- value helpers ----
     #[test]
     fn test_value_is_number() {
         let vws = ValueWithSpan {

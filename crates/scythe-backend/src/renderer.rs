@@ -21,7 +21,6 @@ impl BackendRenderer {
         let templates_dir = backend_dir.join("templates");
         let mut env = Environment::new();
 
-        // Load all template files from the templates directory
         if templates_dir.exists() {
             for entry in std::fs::read_dir(&templates_dir).map_err(BackendError::Io)? {
                 let entry = entry.map_err(BackendError::Io)?;

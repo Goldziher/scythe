@@ -60,7 +60,6 @@ impl CodegenBackend for ElixirMyxqlBackend {
         let _ = writeln!(out, "  @moduledoc \"Row type for {} queries.\"", query_name);
         let _ = writeln!(out);
 
-        // Generate typespec
         let _ = writeln!(out, "  @type t :: %__MODULE__{{");
         for (i, c) in columns.iter().enumerate() {
             let sep = if i + 1 < columns.len() { "," } else { "" };
@@ -73,7 +72,6 @@ impl CodegenBackend for ElixirMyxqlBackend {
         }
         let _ = writeln!(out, "  }}");
 
-        // Generate defstruct
         let fields = columns
             .iter()
             .map(|c| format!(":{}", c.field_name))
@@ -100,7 +98,6 @@ impl CodegenBackend for ElixirMyxqlBackend {
         let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let mut out = String::new();
 
-        // Parameter list
         let param_list = params
             .iter()
             .map(|p| p.field_name.clone())
@@ -108,7 +105,6 @@ impl CodegenBackend for ElixirMyxqlBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Build the params list for MyXQL.query
         let param_args = if params.is_empty() {
             "[]".to_string()
         } else {
@@ -122,7 +118,6 @@ impl CodegenBackend for ElixirMyxqlBackend {
             )
         };
 
-        // Build @spec
         let param_specs = if params.is_empty() {
             String::new()
         } else {
@@ -264,7 +259,6 @@ impl CodegenBackend for ElixirMyxqlBackend {
             let _ = writeln!(out, "  @spec {}() :: String.t()", to_snake_case(&variant));
             let _ = writeln!(out, "  def {}(), do: \"{}\"", to_snake_case(&variant), value);
         }
-        // values/0 function
         let values_list = enum_info
             .values
             .iter()
@@ -283,7 +277,6 @@ impl CodegenBackend for ElixirMyxqlBackend {
         let _ = writeln!(out, "defmodule {} do", name);
         let _ = writeln!(out, "  @moduledoc \"Composite type for {}.\"", composite.sql_name);
         let _ = writeln!(out);
-        // Generate @type definition
         if composite.fields.is_empty() {
             let _ = writeln!(out, "  @type t :: %__MODULE__{{}}");
         } else {
@@ -320,7 +313,6 @@ impl CodegenBackend for ElixirMyxqlBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child struct — defined first so the parent's @type can reference it.
         let _ = writeln!(out, "defmodule {} do", child_struct_name);
         let _ = writeln!(out, "  @moduledoc \"Child row type for grouped query.\"");
         let _ = writeln!(out);
@@ -344,7 +336,6 @@ impl CodegenBackend for ElixirMyxqlBackend {
         let _ = writeln!(out, "end");
         let _ = writeln!(out);
 
-        // Parent struct — all parent columns plus a `children` list.
         let _ = writeln!(out, "defmodule {} do", parent_struct_name);
         let _ = writeln!(out, "  @moduledoc \"Parent row type for grouped query.\"");
         let _ = writeln!(out);
@@ -573,7 +564,6 @@ mod tests {
             row_struct.contains("children: [GetUsersWithOrdersChildRow.t()]"),
             "parent struct missing children field; got:\n{row_struct}"
         );
-        // Child must appear before parent.
         let child_pos = row_struct.find("GetUsersWithOrdersChildRow do").unwrap();
         let parent_pos = row_struct.find("GetUsersWithOrdersRow do").unwrap();
         assert!(child_pos < parent_pos, "child struct must appear before parent struct");

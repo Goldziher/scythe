@@ -1,11 +1,9 @@
-# AI-Rulez Configuration (migrated to V4 TOML format)
-# Documentation: https://github.com/Goldziher/ai-rulez
 
 version = '4.0'
 name = 'scythe'
 description = 'SQL compilation and code generation framework — compiles annotated SQL into type-safe database access code for 10 languages'
 gitignore = true
-presets = ['claude', 'gemini', 'codex']
+presets = ["claude", "codex"]
 builtins = [
     'rust',
     'python',

@@ -69,16 +69,12 @@ pub fn generate_zod_row_struct(struct_name: &str, query_name: &str, columns: &[R
 /// Map a ResolvedColumn to its Zod schema expression, handling enums properly.
 fn column_to_zod(col: &ResolvedColumn) -> String {
     if col.neutral_type.starts_with("enum::") {
-        // For enum types, extract the enum name from lang_type or compute it from neutral_type
-        // lang_type should be like "UserStatus", we need "UserStatusSchema"
         let base = if col.lang_type.starts_with("enum::") {
-            // If lang_type still has enum::, extract the enum name
             col.lang_type
                 .strip_prefix("enum::")
                 .unwrap_or(&col.lang_type)
                 .to_string()
         } else {
-            // lang_type should be the proper TypeScript enum name
             col.lang_type.clone()
         };
         let schema_name = format!("{}Schema", base);
@@ -133,7 +129,6 @@ pub fn generate_zod_grouped_structs(
     let child_schema = format!("{child_struct_name}Schema");
     let parent_schema = format!("{parent_struct_name}Schema");
     let mut out = String::new();
-    // Child schema
     let _ = writeln!(out, "/** Child row type for grouped query. */");
     let _ = writeln!(out, "export const {child_schema} = z.object({{");
     for col in child_columns {
@@ -144,7 +139,6 @@ pub fn generate_zod_grouped_structs(
     let _ = writeln!(out);
     let _ = writeln!(out, "export type {child_struct_name} = z.infer<typeof {child_schema}>;");
     let _ = writeln!(out);
-    // Parent schema — references child schema in the children array field
     let _ = writeln!(out, "/** Parent row type for grouped query. */");
     let _ = writeln!(out, "export const {parent_schema} = z.object({{");
     for col in parent_columns {
@@ -179,7 +173,6 @@ pub fn generate_ts_grouped_fold_body(
     key_col_name: &str,
     row_access: impl Fn(&str, &str) -> String,
 ) -> String {
-    // Look up the key column's TypeScript type for the Map key expression.
     let key_type = parent_columns
         .iter()
         .find(|c| c.name == key_col_name)

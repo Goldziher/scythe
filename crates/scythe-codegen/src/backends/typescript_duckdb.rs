@@ -61,6 +61,14 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         if self.row_type == TsRowType::Zod {
             header.push_str("import { z } from \"zod\";\n");
         }
+        header.push_str(
+            "\nfunction firstRow<T>(rows: readonly unknown[]): T | null {\n\
+             \treturn rows.length === 0 ? null : (rows[0] as T);\n\
+             }\n\n\
+             function allRows<T>(rows: readonly unknown[]): T[] {\n\
+             \treturn rows as T[];\n\
+             }\n",
+        );
         header
     }
 
@@ -126,8 +134,6 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             }
         };
 
-        // Helper: emit `const stmt = await conn.prepare(...)`, using multiline
-        // when the SQL would exceed biome's 80-char line width.
         let write_prepare = |out: &mut String, sql: &str| {
             let oneliner = format!("\tconst stmt = await conn.prepare(`{}`);", sql);
             if oneliner.len() <= 80 {
@@ -156,14 +162,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                     let _ = writeln!(out, "\tconst result = await stmt.run({});", param_args);
                 }
                 let _ = writeln!(out, "\tconst rows = await result.getRows();");
-                // TODO: `as unknown as T` is the standard DuckDB Node.js pattern but lacks
-                // per-column mapping/validation. A future improvement could map columns by
-                // name to struct fields for type safety.
-                let _ = writeln!(
-                    out,
-                    "\tconst row = rows.length > 0 ? (rows[0] as unknown as {}) : null;",
-                    struct_name
-                );
+                let _ = writeln!(out, "\tconst row = firstRow<{}>(rows);", struct_name);
                 let _ = writeln!(out, "\treturn row;");
                 let _ = write!(out, "}}");
             }
@@ -216,11 +215,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 } else {
                     let _ = writeln!(out, "\tconst result = await stmt.run({});", param_args);
                 }
-                let _ = writeln!(
-                    out,
-                    "\treturn (await result.getRows()) as unknown as {}[];",
-                    struct_name
-                );
+                let _ = writeln!(out, "\treturn allRows<{}>(await result.getRows());", struct_name);
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {
@@ -317,7 +312,6 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             let _ = writeln!(out, "): {ret} {{");
         }
 
-        // DuckDB uses prepare → run → getRows pattern
         let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
         if params.is_empty() {
             let _ = writeln!(out, "\tconst _result = await stmt.run();");
@@ -327,10 +321,9 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         }
         let _ = writeln!(
             out,
-            "\tconst flatRows = await _result.getRows() as unknown as Record<string, unknown>[];"
+            "\tconst flatRows = allRows<Record<string, unknown>>(await _result.getRows());"
         );
 
-        // Fold — DuckDB result.getRows() returns weakly typed; use bracket + as-cast
         let fold = generate_ts_grouped_fold_body(
             parent_struct_name,
             child_struct_name,

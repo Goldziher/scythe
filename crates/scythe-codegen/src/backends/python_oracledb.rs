@@ -145,7 +145,6 @@ impl CodegenBackend for PythonOracledbBackend {
             format!("[{}]", args.join(", "))
         };
 
-        // Check if this is a DML with RETURNING (INSERT/UPDATE/DELETE RETURNING)
         let has_returning = sql.to_uppercase().contains("RETURNING");
 
         match &analyzed.command {
@@ -159,7 +158,6 @@ impl CodegenBackend for PythonOracledbBackend {
                 let _ = writeln!(out, "    async with conn.cursor() as cur:");
 
                 if has_returning {
-                    // Oracle RETURNING requires output bind variables via INTO clause
                     let oracledb_types: Vec<String> = columns
                         .iter()
                         .map(|col| {
@@ -181,7 +179,6 @@ impl CodegenBackend for PythonOracledbBackend {
                     let out_var_names: Vec<String> =
                         columns.iter().map(|col| format!("out_{}", col.field_name)).collect();
 
-                    // Append INTO clause to the SQL
                     let into_clause = out_var_names
                         .iter()
                         .enumerate()
@@ -203,7 +200,6 @@ impl CodegenBackend for PythonOracledbBackend {
                         .collect();
                     let _ = writeln!(out, "        return {}({})", struct_name, field_assignments.join(", "));
                 } else {
-                    // SELECT query — use fetchone()
                     if params.is_empty() {
                         let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\")", sql);
                     } else {
@@ -408,7 +404,6 @@ impl CodegenBackend for PythonOracledbBackend {
             Some(format!("[{}]", args.join(", ")))
         };
 
-        // Signature: wrap to multi-line if it would exceed 88 chars.
         let sig = format!(
             "async def {func_name}(conn: oracledb.AsyncConnection{kw_sep}{param_list}) -> list[{parent_struct_name}]:"
         );

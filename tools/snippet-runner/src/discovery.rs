@@ -41,7 +41,6 @@ fn extract_snippets_from_file(path: &Path, base_dir: &Path) -> Result<Vec<Snippe
     let blocks = parser::parse_code_blocks(path)?;
     let mut snippets = Vec::new();
 
-    // Try to infer language from directory structure (e.g., docs/snippets/rust/...)
     let dir_language = infer_language_from_path(path, base_dir);
 
     for (idx, block) in blocks.into_iter().enumerate() {

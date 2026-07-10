@@ -46,7 +46,6 @@ fn is_tautology(expr: &Expr) -> bool {
 
 fn is_write_side_command(cmd: &Option<CreatePolicyCommand>) -> bool {
     match cmd {
-        // `None` defaults to ALL in Postgres — applies to writes too.
         None => true,
         Some(CreatePolicyCommand::Select) => false,
         Some(_) => true,
@@ -57,7 +56,6 @@ pub fn match_policy_always_permissive(ctx: &LintContext<'_>, _args: &toml::Table
     let Statement::CreatePolicy(policy) = ctx.stmt else {
         return Vec::new();
     };
-    // `None` `policy_type` defaults to PERMISSIVE in Postgres.
     if matches!(policy.policy_type, Some(CreatePolicyType::Restrictive)) {
         return Vec::new();
     }
@@ -168,7 +166,6 @@ mod tests {
 
     #[test]
     fn no_match_select_only_policy_with_using_true() {
-        // SELECT + USING (true) is the everyone-can-read pattern; intentional.
         let sql = "CREATE POLICY readable ON tenants FOR SELECT USING (true);";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
@@ -178,8 +175,6 @@ mod tests {
 
     #[test]
     fn no_match_restrictive_policy() {
-        // Restrictive policies AND with permissive ones; an always-true
-        // restrictive policy contributes nothing but is not a security hole.
         let sql = "CREATE POLICY always_pass ON tenants AS RESTRICTIVE FOR UPDATE USING (true);";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);

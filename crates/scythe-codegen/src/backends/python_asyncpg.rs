@@ -141,7 +141,6 @@ impl CodegenBackend for PythonAsyncpgBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
 
-        // Build parameter list (keyword-only after conn)
         let param_list = params
             .iter()
             .map(|p| format!("{}: {}", p.field_name, p.full_type))
@@ -149,7 +148,6 @@ impl CodegenBackend for PythonAsyncpgBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        // Clean SQL — asyncpg uses $1, $2 positional params natively
         let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
 
         match &analyzed.command {
@@ -247,7 +245,6 @@ impl CodegenBackend for PythonAsyncpgBackend {
                     let _ = writeln!(out, "            \"\"\"{}\"\"\",", sql);
                     let _ = writeln!(out, "        )");
                 } else {
-                    // asyncpg executemany takes list of tuples
                     if params.len() == 1 {
                         let _ = writeln!(out, "    args = [(item,) for item in items]");
                     } else {
@@ -308,7 +305,6 @@ impl CodegenBackend for PythonAsyncpgBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child class (defined first so the parent's `list[child]` annotation resolves).
         let _ = write!(out, "{}", self.row_type.decorator());
         let _ = writeln!(out, "{}", self.row_type.class_def(child_struct_name));
         let _ = writeln!(out, "    \"\"\"Child row type for grouped query.\"\"\"");
@@ -323,7 +319,6 @@ impl CodegenBackend for PythonAsyncpgBackend {
 
         let _ = writeln!(out);
 
-        // Parent class — has all parent columns plus a `children` list field.
         let _ = write!(out, "{}", self.row_type.decorator());
         let _ = writeln!(out, "{}", self.row_type.class_def(parent_struct_name));
         let _ = writeln!(out, "    \"\"\"Parent row type for grouped query.\"\"\"");
@@ -352,7 +347,6 @@ impl CodegenBackend for PythonAsyncpgBackend {
         let key_field = to_snake_case(key_column);
         let mut out = String::new();
 
-        // Build keyword-only parameter list (positional: conn; keyword-only: query params).
         let param_list = params
             .iter()
             .map(|p| format!("{}: {}", p.field_name, p.full_type))
@@ -360,7 +354,6 @@ impl CodegenBackend for PythonAsyncpgBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        // asyncpg uses $1, $2 positional params natively — no placeholder rewriting needed.
         let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
 
         let _ = writeln!(
@@ -376,10 +369,6 @@ impl CodegenBackend for PythonAsyncpgBackend {
         }
         let _ = writeln!(out, "    )");
 
-        // Client-side fold using an index dict (O(1) lookup) and an insertion-order list.
-        // `_index` maps the grouping key to the position in `_entries`.
-        // `_entries` holds (parent_kwargs_dict, children_list) pairs where
-        // parent_kwargs_dict is passed to the parent struct constructor via **kwargs.
         let _ = writeln!(out, "    _index: dict = {{}}");
         let _ = writeln!(out, "    _entries: list = []");
         let _ = writeln!(out, "    for row in rows:");
@@ -387,8 +376,6 @@ impl CodegenBackend for PythonAsyncpgBackend {
         let _ = writeln!(out, "        if key not in _index:");
         let _ = writeln!(out, "            _index[key] = len(_entries)");
 
-        // Emit the parent kwargs dict: {"field_name": row["col_name"], ...}
-        // We emit each key-value pair on its own line for readability.
         let _ = writeln!(out, "            _entries.append((");
         let _ = writeln!(out, "                {{");
         for col in parent_columns {
@@ -402,16 +389,12 @@ impl CodegenBackend for PythonAsyncpgBackend {
         let _ = writeln!(out, "                [],");
         let _ = writeln!(out, "            ))");
 
-        // Append child struct to the existing parent's children list.
         let _ = writeln!(out, "        _entries[_index[key]][1].append({child_struct_name}(");
         for col in child_columns {
             let _ = writeln!(out, "            {}=row[\"{}\"],", col.field_name, col.name);
         }
         let _ = writeln!(out, "        ))");
 
-        // Return list comprehension that builds the frozen parent structs.
-        // `**parent_kwargs` unpacks the dict built above into keyword arguments,
-        // which works for @dataclass, Pydantic BaseModel, and msgspec.Struct.
         let _ = writeln!(out, "    return [");
         let _ = writeln!(out, "        {parent_struct_name}(**parent_kwargs, children=children)");
         let _ = writeln!(out, "        for parent_kwargs, children in _entries");

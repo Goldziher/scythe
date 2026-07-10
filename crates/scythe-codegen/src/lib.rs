@@ -18,21 +18,13 @@ use scythe_core::catalog::Catalog;
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
-// ---------------------------------------------------------------------------
-// Output types
-// ---------------------------------------------------------------------------
-
-#[derive(Debug, Default)]
+#[derive(Debug, Clone, Default)]
 pub struct GeneratedCode {
     pub query_fn: Option<String>,
     pub row_struct: Option<String>,
     pub model_struct: Option<String>,
     pub enum_def: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// Utility (shared across backends)
-// ---------------------------------------------------------------------------
 
 /// Simple singularization: remove trailing 's'.
 pub fn singularize(name: &str) -> String {
@@ -53,10 +45,6 @@ pub fn singularize(name: &str) -> String {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Manifest helpers
-// ---------------------------------------------------------------------------
-
 /// Get the manifest for a backend. Defaults to PostgreSQL engine.
 pub fn get_manifest_for_backend(backend_name: &str) -> Result<BackendManifest, ScytheError> {
     let backend = get_backend(backend_name, "postgresql")?;
@@ -72,10 +60,6 @@ fn determine_struct_name(analyzed: &AnalyzedQuery, manifest: &BackendManifest) -
         row_struct_name(&analyzed.name, &manifest.naming)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Public API
-// ---------------------------------------------------------------------------
 
 /// Generate code using a specific backend.
 pub fn generate_with_backend(
@@ -98,15 +82,11 @@ pub fn generate_with_backend_and_overrides(
 
     let mut result = GeneratedCode::default();
 
-    // Generate enum definitions for any enum-typed columns
-    // Use the backend-specific enum generation for proper derives
     let enum_def = generate_enum_defs_via_backend(analyzed, backend)?;
     if !enum_def.is_empty() {
         result.enum_def = Some(enum_def);
     }
 
-    // Generate row/model struct for :one, :opt, and :many commands (not :batch or :grouped).
-    // Grouped queries generate their own parent+child structs via generate_grouped_structs.
     let needs_row_struct = matches!(
         analyzed.command,
         QueryCommand::One | QueryCommand::Opt | QueryCommand::Many
@@ -119,7 +99,6 @@ pub fn generate_with_backend_and_overrides(
         }
     }
 
-    // Generate composite type definitions
     if !analyzed.composites.is_empty() {
         let mut comp_defs = String::new();
         for (i, comp) in analyzed.composites.iter().enumerate() {
@@ -138,11 +117,9 @@ pub fn generate_with_backend_and_overrides(
         }
     }
 
-    // Generate query function (and for :grouped, also the parent+child structs).
     let struct_name = determine_struct_name(analyzed, manifest);
 
     if analyzed.command == QueryCommand::Grouped {
-        // Real grouped codegen: parent struct + child struct + fold-on-client query fn.
         let group_by = analyzed.group_by.as_ref().ok_or_else(|| {
             ScytheError::new(
                 ErrorCode::InternalError,
@@ -153,9 +130,6 @@ pub fn generate_with_backend_and_overrides(
             )
         })?;
 
-        // Derive struct names from the manifest's row suffix and struct case.
-        // E.g. "GetUsersWithOrders" + suffix "Row" -> parent "GetUsersWithOrdersRow",
-        // child "GetUsersWithOrdersChildRow".
         let parent_struct_name = scythe_backend::naming::row_struct_name(&analyzed.name, &manifest.naming);
         let child_struct_name = {
             let suffix = &manifest.naming.row_suffix;
@@ -163,7 +137,6 @@ pub fn generate_with_backend_and_overrides(
             format!("{}Child{}", base, suffix)
         };
 
-        // Resolve parent and child columns to language-specific types.
         let parent_cols = resolve::resolve_columns(&group_by.parent_columns, manifest, overrides, source_table)?;
         let child_cols = resolve::resolve_columns(&group_by.child_columns, manifest, overrides, source_table)?;
 
@@ -228,8 +201,6 @@ fn generate_enum_defs_via_backend(
         if let Some(enum_info) = analyzed.enums.iter().find(|e| e.sql_name == sql_name) {
             out.push_str(&backend.generate_enum_def(enum_info)?);
         } else {
-            // Generate a stub enum with no variants (for enum types referenced but
-            // not fully defined in the query's EnumInfo list).
             let stub_info = EnumInfo {
                 sql_name: sql_name.to_string(),
                 values: vec![],
@@ -263,7 +234,6 @@ pub fn generate_single_enum_def_with_backend(
 /// Backward-compatible: generate a single enum definition (sqlx backend).
 /// Uses the manifest directly for backward compatibility with existing callers.
 pub fn generate_single_enum_def(enum_info: &EnumInfo, manifest: &BackendManifest) -> String {
-    // Reproduce the old behavior exactly using the sqlx backend's logic
     use scythe_backend::naming::{enum_type_name, enum_variant_name};
     use std::fmt::Write;
 
@@ -292,10 +262,6 @@ pub fn load_or_default_manifest() -> Result<BackendManifest, ScytheError> {
     let b = backends::sqlx::SqlxBackend::new("postgresql")?;
     Ok(b.manifest().clone())
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -504,14 +470,6 @@ mod tests {
         assert_eq!(singularize("wishes"), "wish");
     }
 
-    // -----------------------------------------------------------------------
-    // Grouped query codegen tests (issue #55 reference example)
-    // Schema: users(id, name, email), orders(id, user_id, total, created_at)
-    // Query: SELECT u.id, u.name, u.email, o.id AS order_id, o.total,
-    //               o.created_at AS order_date FROM users u JOIN orders o ...
-    // @group_by users.id
-    // -----------------------------------------------------------------------
-
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![
             AnalyzedColumn {
@@ -580,7 +538,6 @@ mod tests {
         let query = make_grouped_query();
         let result = generate_with_backend(&query, &*backend).unwrap();
 
-        // Both child and parent structs packed into row_struct (child first)
         let row_struct = result.row_struct.as_deref().unwrap();
         assert!(
             row_struct.contains("pub struct GetUsersWithOrdersChildRow"),
@@ -610,7 +567,6 @@ mod tests {
             row_struct.contains("pub children: Vec<GetUsersWithOrdersChildRow>"),
             "parent struct missing children field; got:\n{row_struct}"
         );
-        // Child struct must appear BEFORE parent struct (no forward references)
         let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
         let parent_pos = row_struct.find("pub struct GetUsersWithOrdersRow").unwrap();
         assert!(
@@ -618,7 +574,6 @@ mod tests {
             "child struct must be defined before parent struct"
         );
 
-        // No flat struct should exist for grouped queries
         assert!(
             result.model_struct.is_none(),
             "grouped should not produce a model_struct"
@@ -693,7 +648,6 @@ mod tests {
             row_struct.contains("children: list[GetUsersWithOrdersChildRow]"),
             "parent class missing children field; got:\n{row_struct}"
         );
-        // Child class must appear before parent class
         let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
         let parent_pos = row_struct.find("class GetUsersWithOrdersRow").unwrap();
         assert!(
@@ -779,9 +733,6 @@ mod tests {
 
     #[test]
     fn test_grouped_unsupported_backend_returns_clear_error() {
-        // A backend that does not override the grouped trait methods must surface
-        // a clear, backend-named error rather than panicking. A stub keeps this
-        // valid even though every shipped backend now implements grouped codegen.
         let manifest = get_backend("rust-sqlx", "postgresql").unwrap().manifest().clone();
         let backend = StubBackend { manifest };
         let query = make_grouped_query();
@@ -834,7 +785,6 @@ mod tests {
         assert!(row_struct.contains("pub name: String"));
         assert!(row_struct.contains("from_row"));
         assert!(row_struct.contains("tokio_postgres::Row"));
-        // Should NOT contain sqlx
         assert!(!row_struct.contains("sqlx"));
 
         let query_fn = result.query_fn.unwrap();
@@ -859,7 +809,6 @@ mod tests {
         assert!(def.contains("Inactive"));
         assert!(def.contains("impl std::fmt::Display"));
         assert!(def.contains("impl std::str::FromStr"));
-        // Should NOT contain sqlx
         assert!(!def.contains("sqlx"));
     }
 
@@ -887,8 +836,6 @@ mod tests {
         let result = generate_with_backend(&query, &*backend).unwrap();
         let query_fn = result.query_fn.unwrap();
 
-        // The SQL should preserve the original casing of function names (LEAST, COALESCE, SUM)
-        // and the alias keyword (as)
         assert!(
             query_fn.contains("LEAST(COALESCE(SUM(ba.free_pages_remaining), 0), 10000)"),
             "SQL should preserve original LEAST/COALESCE/SUM function names and casing"
@@ -930,12 +877,10 @@ mod tests {
         let result = generate_with_backend(&query, &*backend).unwrap();
         let query_fn = result.query_fn.unwrap();
 
-        // Verify basic structure is present
         assert!(query_fn.contains("pub async fn get_user("));
         assert!(query_fn.contains("tokio_postgres::GenericClient"));
         assert!(query_fn.contains("GetUserRow"));
 
-        // Verify SQL is preserved in the code
         assert!(query_fn.contains("SELECT id, name FROM users"));
     }
 }

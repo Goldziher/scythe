@@ -429,7 +429,6 @@ mod tests {
             query_fn.contains("db.execute("),
             "must use db.execute; got:\n{query_fn}"
         );
-        // Positional index access: key at index 0 (id)
         assert!(
             query_fn.contains("key = row[0]"),
             "must access key by index; got:\n{query_fn}"
@@ -443,7 +442,6 @@ mod tests {
             query_fn.contains("GetUsersWithOrdersRow.new(**e)"),
             "must fold into parent; got:\n{query_fn}"
         );
-        // decimal is coerced with .to_f in sqlite3
         assert!(
             query_fn.contains(".to_f"),
             "sqlite3 must coerce decimal to_f; got:\n{query_fn}"

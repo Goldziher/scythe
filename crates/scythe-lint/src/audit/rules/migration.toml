@@ -1,8 +1,6 @@
 schema_version = 1
 
-# SC-MIG01 — ban-drop-table
 # DROP TABLE is irreversible and breaks any deployed application version
-# still reading from the table.
 [[rule]]
 id = "SC-MIG01"
 name = "ban-drop-table"
@@ -17,8 +15,6 @@ matcher = "drop_statement"
 [rule.matcher_args]
 kinds = ["table"]
 
-# SC-MIG02 — ban-drop-column
-# Dropping a column breaks any application version still reading from it.
 [[rule]]
 id = "SC-MIG02"
 name = "ban-drop-column"
@@ -33,8 +29,6 @@ matcher = "drop_statement"
 [rule.matcher_args]
 kinds = ["column"]
 
-# SC-MIG03 — require-concurrent-index-creation
-# Non-concurrent index creation takes ACCESS EXCLUSIVE on the table.
 [[rule]]
 id = "SC-MIG03"
 name = "require-concurrent-index-creation"
@@ -46,8 +40,6 @@ description = "CREATE INDEX without CONCURRENTLY takes ACCESS EXCLUSIVE on the t
 message = "CREATE INDEX `{index}` on `{table}` is not CONCURRENT — use CREATE INDEX CONCURRENTLY to avoid table lock"
 matcher = "create_index_concurrency"
 
-# SC-MIG04 — renaming-column
-# Renaming a column breaks any application version still reading it.
 [[rule]]
 id = "SC-MIG04"
 name = "renaming-column"
@@ -59,9 +51,6 @@ description = "ALTER TABLE … RENAME COLUMN breaks any deployed application ver
 message = "rename of `{table}.{old_column}` to `{new_column}` — stage as add-new → backfill → drop-old across releases"
 matcher = "alter_table_rename_column"
 
-# SC-MIG05 — constraint-missing-not-valid
-# Adding a FK or CHECK constraint without NOT VALID validates every existing
-# row under an ACCESS EXCLUSIVE lock.
 [[rule]]
 id = "SC-MIG05"
 name = "constraint-missing-not-valid"
@@ -73,9 +62,6 @@ description = "ALTER TABLE … ADD CONSTRAINT without NOT VALID validates every 
 message = "ADD {constraint_kind} on `{table}` is missing NOT VALID — split into `ADD CONSTRAINT … NOT VALID;` plus a follow-up `VALIDATE CONSTRAINT` to avoid long write locks"
 matcher = "constraint_missing_not_valid"
 
-# SC-MIG06 — ban-drop-database-or-schema
-# Dropping a database or schema is irreversible and cascades destruction
-# across every contained object.
 [[rule]]
 id = "SC-MIG06"
 name = "ban-drop-database-or-schema"
@@ -90,9 +76,6 @@ matcher = "drop_statement"
 [rule.matcher_args]
 kinds = ["database", "schema"]
 
-# SC-MIG07 — renaming-table
-# Renaming a table breaks any application version still reading from the
-# old name.
 [[rule]]
 id = "SC-MIG07"
 name = "renaming-table"
@@ -104,9 +87,6 @@ description = "ALTER TABLE … RENAME TO breaks any deployed application version
 message = "rename of table `{old_table}` to `{new_table}` — stage as create-new → backfill → switch reads → drop-old across releases"
 matcher = "alter_table_rename_table"
 
-# SC-MIG08 — ban-truncate-cascade
-# TRUNCATE … CASCADE silently clears every table that references the
-# target via foreign key.
 [[rule]]
 id = "SC-MIG08"
 name = "ban-truncate-cascade"
@@ -118,9 +98,6 @@ description = "TRUNCATE … CASCADE clears every referencing table — blast rad
 message = "TRUNCATE `{table}` CASCADE silently clears every referencing table — list the tables explicitly instead"
 matcher = "truncate_cascade"
 
-# SC-MIG09 — ban-alter-column-type
-# Changing a column type takes ACCESS EXCLUSIVE for the rewrite and may
-# rewrite the whole table.
 [[rule]]
 id = "SC-MIG09"
 name = "ban-alter-column-type"
@@ -132,9 +109,6 @@ description = "ALTER COLUMN … TYPE rewrites the table under ACCESS EXCLUSIVE �
 message = "ALTER `{table}.{column}` TYPE {target_type} rewrites the table under ACCESS EXCLUSIVE — stage as add-new-column → backfill → swap → drop-old"
 matcher = "alter_column_type"
 
-# SC-MIG10 — prefer-bigint-over-int
-# 32-bit surrogate keys silently overflow at 2^31 rows; the subsequent widen
-# is a write-blocking type change that requires a full table rewrite.
 [[rule]]
 id = "SC-MIG10"
 name = "prefer-bigint-over-int"
@@ -150,9 +124,6 @@ matcher = "column_type_disallowed"
 disallowed = ["int", "integer", "int4", "smallint", "int2"]
 suggested = "bigint"
 
-# SC-MIG11 — prefer-text-over-varchar
-# Postgres stores text and length-limited varchar identically; a length bump
-# later is a write-blocking ALTER. Use text plus a CHECK constraint instead.
 [[rule]]
 id = "SC-MIG11"
 name = "prefer-text-over-varchar"
@@ -168,9 +139,6 @@ matcher = "column_type_disallowed"
 disallowed = ["varchar", "character varying", "char"]
 suggested = "text"
 
-# SC-MIG12 — prefer-timestamptz
-# Naive timestamps shift silently when the session timezone changes.
-# timestamptz stores UTC and converts on read, which is always correct.
 [[rule]]
 id = "SC-MIG12"
 name = "prefer-timestamptz"
@@ -186,9 +154,6 @@ matcher = "column_type_disallowed"
 disallowed = ["timestamp", "timestamp without time zone"]
 suggested = "timestamptz"
 
-# SC-MIG13 — prefer-identity-over-serial
-# SERIAL is legacy implicit-sequence shorthand; GENERATED … AS IDENTITY is
-# the SQL-standard replacement with explicit ownership semantics.
 [[rule]]
 id = "SC-MIG13"
 name = "prefer-identity-over-serial"
@@ -204,8 +169,6 @@ matcher = "column_type_disallowed"
 disallowed = ["serial", "bigserial", "smallserial"]
 suggested = "identity"
 
-# SC-MIG14 — disallowed-unique-constraint
-# Adding a UNIQUE constraint inline builds the index under ACCESS EXCLUSIVE.
 [[rule]]
 id = "SC-MIG14"
 name = "disallowed-unique-constraint"
@@ -220,8 +183,6 @@ matcher = "add_constraint_without_using_index"
 [rule.matcher_args]
 kinds = ["unique"]
 
-# SC-MIG15 — adding-primary-key-constraint
-# Adding a PRIMARY KEY inline builds the index under ACCESS EXCLUSIVE.
 [[rule]]
 id = "SC-MIG15"
 name = "adding-primary-key-constraint"
@@ -236,9 +197,6 @@ matcher = "add_constraint_without_using_index"
 [rule.matcher_args]
 kinds = ["primary_key"]
 
-# SC-MIG16 — ban-create-domain-with-constraint
-# CHECK on a domain validates every row of every table using that domain
-# under ACCESS EXCLUSIVE; the constraint cannot be added incrementally.
 [[rule]]
 id = "SC-MIG16"
 name = "ban-create-domain-with-constraint"
@@ -250,9 +208,6 @@ description = "CREATE DOMAIN with a CHECK constraint validates every row of ever
 message = "CREATE DOMAIN `{domain}` with a CHECK constraint cannot be added incrementally — declare the domain without a constraint and enforce CHECK on each column with `NOT VALID` + `VALIDATE CONSTRAINT`"
 matcher = "create_domain_with_constraint"
 
-# SC-MIG17 — ban-drop-not-null
-# Relaxing a NOT NULL contract breaks any deployed application version that
-# still treats the column as non-null (ORM mappings, validation layers).
 [[rule]]
 id = "SC-MIG17"
 name = "ban-drop-not-null"
@@ -264,10 +219,6 @@ description = "ALTER TABLE … ALTER COLUMN … DROP NOT NULL relaxes a column c
 message = "DROP NOT NULL on `{table}.{column}` weakens an existing contract — deploy code that tolerates NULL first; drop the constraint in a later release"
 matcher = "alter_column_drop_not_null"
 
-# SC-MIG18 — adding-not-nullable-field
-# Adding a NOT NULL column without a DEFAULT fails on any non-empty table on
-# PG < 11 and breaks any deployed application version that inserts without
-# supplying the new column.
 [[rule]]
 id = "SC-MIG18"
 name = "adding-not-nullable-field"
@@ -279,15 +230,6 @@ description = "ALTER TABLE … ADD COLUMN … NOT NULL without a DEFAULT rewrite
 message = "ADD COLUMN `{table}.{column}` is NOT NULL without a DEFAULT — provide a constant DEFAULT (catalog-only on PG 11+) and backfill before deploying code that requires the new column"
 matcher = "add_column_not_null_no_default"
 
-# SC-MIG19 — unsupported-reg-types
-# Columns declared as regnamespace/regproc/etc. embed OIDs that do not
-# survive pg_dump/pg_restore or pg_upgrade — Postgres outright refuses
-# pg_upgrade when these types are present. regclass is exempted because
-# its OID semantics are stable across major-version upgrades.
-# Reuses the existing `column_type_disallowed` matcher with no `suggested`
-# replacement (the migration is to a manual lookup, not another type).
-# Detection inspired by supabase/splinter lint
-# `0018_unsupported_reg_types` (see ATTRIBUTIONS.md).
 [[rule]]
 id = "SC-MIG19"
 name = "unsupported-reg-types"

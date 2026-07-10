@@ -88,9 +88,7 @@ fn check_table_factor(
 ) {
     if let TableFactor::Table { name, .. } = factor {
         let table_as_written = name.to_string();
-        // Try lookup by full name, then by bare name (last segment).
         let table_def = ctx.catalog.get_table(&table_as_written).or_else(|| {
-            // bare name: last segment of the ObjectName
             name.0
                 .last()
                 .and_then(|p| p.as_ident().map(|i| i.value.as_str()))
@@ -98,7 +96,6 @@ fn check_table_factor(
         });
 
         if let Some(table) = table_def {
-            // Emit one hit per table, for the first matching column only.
             for col in &table.columns {
                 let col_lower = col.name.to_ascii_lowercase();
                 if let Some(pat) = column_patterns.iter().find(|p| col_lower.contains(p.as_str())) {
@@ -107,7 +104,7 @@ fn check_table_factor(
                     hit.bindings.insert("column".to_string(), col.name.clone());
                     hit.bindings.insert("pattern".to_string(), pat.clone());
                     hits.push(hit);
-                    break; // one hit per table
+                    break;
                 }
             }
         }
@@ -193,7 +190,6 @@ mod tests {
         let args = make_args(&["password", "email"]);
         let hits = match_select_star_over_pii_columns(&ctx, &args);
         assert_eq!(hits.len(), 1);
-        // Should report the first matching column
         let hit = &hits[0];
         assert_eq!(hit.bindings.get("table").map(|s| s.as_str()), Some("users"));
     }

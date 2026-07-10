@@ -13,8 +13,10 @@ use crate::singularize;
 
 /// Default embedded manifest TOML for rust-sqlx, used as fallback.
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-sqlx.toml");
+const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/rust-sqlx.mysql.toml");
 const DEFAULT_MANIFEST_MARIADB: &str = include_str!("../../manifests/rust-sqlx.mariadb.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/rust-sqlx.redshift.toml");
+const DEFAULT_MANIFEST_SQLITE: &str = include_str!("../../manifests/rust-sqlx.sqlite.toml");
 
 /// SqlxBackend generates Rust code targeting the sqlx crate.
 pub struct SqlxBackend {
@@ -27,8 +29,6 @@ pub struct SqlxBackend {
 
 impl SqlxBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
-        // Multi-DB backend — accept all engines, load PG manifest as default
-        // TODO: Load engine-specific manifests once they exist
         match engine {
             "postgresql" | "postgres" | "pg" | "mysql" | "mariadb" | "sqlite" | "sqlite3" | "redshift" => {}
             _ => {
@@ -39,9 +39,13 @@ impl SqlxBackend {
             }
         }
         let manifest = match engine {
+            "mysql" => super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_MYSQL)?,
             "mariadb" => super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_MARIADB)?,
             "redshift" => {
                 super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_REDSHIFT)?
+            }
+            "sqlite" | "sqlite3" => {
+                super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_SQLITE)?
             }
             _ => super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_TOML)?,
         };
@@ -166,8 +170,6 @@ impl CodegenBackend for SqlxBackend {
         _columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
-        // In structs_only mode, skip all function generation (avoids sqlx::query!() macros
-        // which require DATABASE_URL at compile time).
         if self.structs_only {
             return Ok(String::new());
         }
@@ -175,23 +177,19 @@ impl CodegenBackend for SqlxBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
 
-        // Deprecated annotation
         if let Some(ref msg) = analyzed.deprecated {
             let _ = writeln!(out, "#[deprecated(note = \"{}\")]", msg);
         }
 
-        // Build parameter list
         let pool_type = self.pool_type();
         let mut param_parts: Vec<String> = vec![format!("pool: &{}", pool_type)];
         for param in params {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
 
-        // Clean SQL
         let sql_raw = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let sql = rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest);
 
-        // Build bind params string
         let bind_params: String = analyzed
             .params
             .iter()
@@ -207,11 +205,9 @@ impl CodegenBackend for SqlxBackend {
             })
             .collect();
 
-        // Handle :batch separately — generates a different function signature
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}_batch", func_name);
 
-            // Generate params struct if >1 param
             if params.len() > 1 {
                 let params_struct_name = format!("{}BatchParams", struct_name);
                 let _ = writeln!(out, "#[derive(Debug, Clone)]");
@@ -222,7 +218,6 @@ impl CodegenBackend for SqlxBackend {
                 let _ = writeln!(out, "}}");
                 let _ = writeln!(out);
 
-                // Batch function takes &[ParamsStruct]
                 let _ = writeln!(
                     out,
                     "pub async fn {}(pool: &{}, items: &[{}]) -> Result<(), sqlx::Error> {{",
@@ -231,7 +226,6 @@ impl CodegenBackend for SqlxBackend {
                 let _ = writeln!(out, "    let mut tx = pool.begin().await?;");
                 let _ = writeln!(out, "    for item in items {{");
 
-                // Build bind params from struct fields
                 let struct_bind_params: String = params
                     .iter()
                     .map(|p| {
@@ -252,7 +246,6 @@ impl CodegenBackend for SqlxBackend {
                 let _ = writeln!(out, "    tx.commit().await?;");
                 let _ = writeln!(out, "    Ok(())");
             } else if params.len() == 1 {
-                // Single param — takes a slice of that type
                 let param = &params[0];
                 let _ = writeln!(
                     out,
@@ -268,7 +261,6 @@ impl CodegenBackend for SqlxBackend {
                 let _ = writeln!(out, "    tx.commit().await?;");
                 let _ = writeln!(out, "    Ok(())");
             } else {
-                // No params — just execute N times (unusual but valid)
                 let _ = writeln!(
                     out,
                     "pub async fn {}(pool: &{}, count: usize) -> Result<(), sqlx::Error> {{",
@@ -288,7 +280,6 @@ impl CodegenBackend for SqlxBackend {
             return Ok(out);
         }
 
-        // Return type for non-batch commands
         let return_type = match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => struct_name.to_string(),
             QueryCommand::Many => format!("Vec<{}>", struct_name),
@@ -301,7 +292,6 @@ impl CodegenBackend for SqlxBackend {
             }
         };
 
-        // Function signature
         let _ = writeln!(
             out,
             "pub async fn {}({}) -> Result<{}, sqlx::Error> {{",
@@ -310,7 +300,6 @@ impl CodegenBackend for SqlxBackend {
             return_type
         );
 
-        // Query body
         let has_row_struct = matches!(analyzed.command, QueryCommand::One | QueryCommand::Many);
 
         let is_exec_rows = matches!(analyzed.command, QueryCommand::ExecRows);
@@ -333,7 +322,6 @@ impl CodegenBackend for SqlxBackend {
 
         let _ = writeln!(out);
 
-        // Fetch method
         let fetch_method = match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => ".fetch_one(pool)",
             QueryCommand::Many => ".fetch_all(pool)",
@@ -349,7 +337,6 @@ impl CodegenBackend for SqlxBackend {
         let _ = write!(out, "        {}", fetch_method);
         let _ = writeln!(out);
 
-        // Post-processing for exec variants
         match &analyzed.command {
             QueryCommand::Exec => {
                 let _ = writeln!(out, "        .await?;");
@@ -373,9 +360,6 @@ impl CodegenBackend for SqlxBackend {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
 
         let _ = writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]");
-        // MySQL/MariaDB/SQLite use inline ENUMs — sqlx decodes them by value matching only.
-        // The `type_name` annotation is PostgreSQL-specific (for named custom types) and
-        // causes a "mismatched types" error on MySQL at runtime.
         match self.engine.as_str() {
             "mysql" | "mariadb" | "sqlite" | "sqlite3" => {
                 let _ = writeln!(out, "#[sqlx(rename_all = \"snake_case\")]");
@@ -409,8 +393,6 @@ impl CodegenBackend for SqlxBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child struct (defined first so the parent can reference it without forward refs).
-        // Uses `sqlx::FromRow` so callers can also query just child rows directly.
         let _ = writeln!(out, "#[derive(Debug, Clone, sqlx::FromRow)]");
         let _ = writeln!(out, "pub struct {child_struct_name} {{");
         for col in child_columns {
@@ -421,7 +403,6 @@ impl CodegenBackend for SqlxBackend {
 
         let _ = writeln!(out);
 
-        // Parent struct — no `sqlx::FromRow` because the `children` field is not a DB column.
         let _ = writeln!(out, "#[derive(Debug, Clone)]");
         let _ = writeln!(out, "pub struct {parent_struct_name} {{");
         for col in parent_columns {
@@ -446,7 +427,6 @@ impl CodegenBackend for SqlxBackend {
         let params = request.params;
         let key_column = request.key_column;
 
-        // In structs_only mode, skip function generation entirely.
         if self.structs_only {
             return Ok(String::new());
         }
@@ -456,22 +436,18 @@ impl CodegenBackend for SqlxBackend {
         let key_field = to_snake_case(key_column);
         let mut out = String::new();
 
-        // Optional deprecated annotation.
         if let Some(ref msg) = analyzed.deprecated {
             let _ = writeln!(out, "#[deprecated(note = \"{msg}\")]");
         }
 
-        // Build parameter list: pool first, then query params.
         let mut param_parts: Vec<String> = vec![format!("pool: &{pool_type}")];
         for param in params {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
 
-        // Clean the SQL (strip annotation comments, semicolon, optional params).
         let sql_raw = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let sql = rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest);
 
-        // Build the bind parameter string for sqlx::query!.
         let bind_params: String = analyzed
             .params
             .iter()
@@ -487,40 +463,27 @@ impl CodegenBackend for SqlxBackend {
             })
             .collect();
 
-        // Function signature — returns Vec<ParentStruct>.
         let _ = writeln!(
             out,
             "pub async fn {func_name}({}) -> Result<Vec<{parent_struct_name}>, sqlx::Error> {{",
             param_parts.join(", ")
         );
 
-        // Fetch flat rows using sqlx::query! (not query_as! — the parent struct has a
-        // `children` field that is not a DB column, so we can't use a typed row struct).
         let _ = writeln!(out, "    let flat_rows = sqlx::query!(\"{sql}\"{bind_params})");
         let _ = writeln!(out, "        .fetch_all(pool)");
         let _ = writeln!(out, "        .await?;");
 
-        // Client-side fold: order-preserving grouping by key_column.
-        // Searching backward from the end is O(1) when the SQL is ordered by the parent key
-        // (the typical and recommended case).
         let _ = writeln!(out, "    let mut result: Vec<{parent_struct_name}> = Vec::new();");
         let _ = writeln!(out, "    for row in flat_rows {{");
 
-        // Clone the key before we move other fields out of `row`.
-        // `.clone()` is a no-op for Copy types (i32, i64, bool, …) and makes a heap
-        // allocation for String — either way the compiler handles it correctly.
         let _ = writeln!(out, "        let key = row.{key_field}.clone();");
 
-        // Construct the child struct from the child columns.
         let _ = writeln!(out, "        let child = {child_struct_name} {{");
         for col in child_columns {
             let _ = writeln!(out, "            {}: row.{},", col.field_name, col.field_name);
         }
         let _ = writeln!(out, "        }};");
 
-        // Fold: if we already have a parent with this key, push the child; otherwise
-        // create a new parent.  We scan from the end because consecutive rows share
-        // the same parent in the common (sorted) case, making the scan O(1).
         let _ = writeln!(
             out,
             "        if let Some(parent) = result.iter_mut().rev().find(|p| p.{key_field} == key) {{"
@@ -562,10 +525,6 @@ impl CodegenBackend for SqlxBackend {
         Ok(out)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Internal helpers (moved from old modules)
-// ---------------------------------------------------------------------------
 
 /// Rewrite SQL to add enum type annotations for sqlx.
 fn rewrite_sql_for_enums(sql: &str, columns: &[AnalyzedColumn], manifest: &BackendManifest) -> String {

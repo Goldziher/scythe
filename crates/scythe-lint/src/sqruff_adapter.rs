@@ -25,14 +25,12 @@ fn make_config(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> FluffConf
 
     let mut excluded: Vec<&str> = DEFAULT_EXCLUDED_RULES.to_vec();
     if let Some(cfg) = sqruff_config {
-        // Add user-configured rules set to "off"
         for (k, v) in &cfg.rules {
             if v.as_str() == "off" && !excluded.contains(&k.as_str()) {
                 excluded.push(k.as_str());
             }
         }
 
-        // Add rules for rules explicitly enabled
         let included: Vec<&str> = cfg
             .rules
             .iter()
@@ -133,9 +131,6 @@ pub fn format_sql(sql: &str, dialect: &str, sqruff_config: Option<&SqruffConfig>
 
     let fixed = result.fix_string();
 
-    // Workaround: sqruff incorrectly splits compound operators inside CHECK
-    // constraints (e.g., ">=" becomes "> ="). Rejoin them.
-    // See: https://github.com/quarylabs/sqruff/issues/2530
     Ok(rejoin_split_operators(&fixed))
 }
 
@@ -155,9 +150,6 @@ mod tests {
     fn lint_simple_sql() {
         let sql = "SELECT  id,  name  FROM  users  WHERE  id = 1\n";
         let violations = lint_sql(sql, "ansi", None);
-        // sqruff should find at least some style violations
-        // (multiple spaces, trailing whitespace, etc.)
-        // We just verify it doesn't panic and returns a Vec.
         let _ = violations;
     }
 
@@ -172,7 +164,6 @@ mod tests {
     fn lint_and_fix_returns_fixed_sql() {
         let sql = "select  id,name from users\n";
         let (_, fixed) = lint_and_fix_sql(sql, "ansi", None);
-        // The fixed SQL should be different from the original (extra spaces removed)
         assert!(!fixed.is_empty());
     }
 

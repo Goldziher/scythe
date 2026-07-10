@@ -20,10 +20,6 @@ use helpers::detect_select_star_source;
 use type_conversion::sql_type_to_neutral;
 use types::Analyzer;
 
-// ---------------------------------------------------------------------------
-// Public entry point
-// ---------------------------------------------------------------------------
-
 pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, ScytheError> {
     let mut analyzer = Analyzer {
         catalog,
@@ -35,12 +31,10 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
 
     let (columns, _) = analyzer.analyze_statement(&query.stmt)?;
 
-    // Check for type errors collected during analysis
     if let Some(err_msg) = analyzer.type_errors.first() {
         return Err(ScytheError::type_mismatch(err_msg.clone()));
     }
 
-    // Apply annotation overrides
     let mut columns = columns;
     for col in &mut columns {
         if query.annotations.nullable_overrides.iter().any(|o| o == &col.name) {
@@ -49,13 +43,11 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         if query.annotations.nonnull_overrides.iter().any(|o| o == &col.name) {
             col.nullable = false;
         }
-        // Apply @json type mappings
         if let Some(mapping) = query.annotations.json_mappings.iter().find(|m| m.column == col.name) {
             col.neutral_type = format!("json_typed<{}>", mapping.rust_type);
         }
     }
 
-    // Deduplicate and sort params by position
     analyzer.params.sort_by_key(|p| p.position);
     analyzer.params.dedup_by_key(|p| p.position);
 
@@ -64,7 +56,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         .iter()
         .map(|p| {
             // Apply explicit @param $N name override first; fall back to the
-            // analyzer-inferred name or the pN placeholder.
             let name = query
                 .annotations
                 .positional_param_docs
@@ -82,7 +73,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         })
         .collect();
 
-    // Apply @optional before disambiguation so we match original param names
     for opt_name in &query.annotations.optional_params {
         for p in &mut params {
             if p.name == *opt_name {
@@ -91,7 +81,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
-    // Validate that all @optional param names reference actual params
     for opt_name in &query.annotations.optional_params {
         if !params.iter().any(|p| p.name == *opt_name) {
             return Err(ScytheError::invalid_annotation(format!(
@@ -101,7 +90,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
-    // Disambiguate duplicate param names by appending _N suffix
     {
         let mut name_counts: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
         for p in &params {
@@ -117,10 +105,8 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
-    // Detect SELECT * from single table for model struct reuse
     let source_table = detect_select_star_source(&query.stmt);
 
-    // Collect composite type definitions needed
     let mut composites = Vec::new();
     let mut seen_composites: AHashSet<String> = AHashSet::new();
     for col in &columns {
@@ -142,7 +128,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
-    // Collect enum type definitions needed
     let mut enums = Vec::new();
     let mut seen_enums: AHashSet<String> = AHashSet::new();
     let all_types: Vec<&str> = columns
@@ -162,7 +147,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
-    // Build GroupByConfig for :grouped queries
     let group_by = if query.command == QueryCommand::Grouped {
         if let Some(ref group_by_value) = query.annotations.group_by {
             let (table, key_column) = if let Some(dot_pos) = group_by_value.find('.') {
@@ -177,10 +161,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
                 )));
             };
 
-            // Split columns into parent (matching group_by table) and child (all others).
-            // We inspect the source_table metadata from the scope to determine which columns
-            // belong to which table. For now, use a heuristic: columns whose names match
-            // the parent table's catalog columns belong to the parent; the rest are children.
             let parent_table_columns: Vec<String> = catalog
                 .get_table(&table)
                 .map(|t| t.columns.iter().map(|c| c.name.clone()).collect())
@@ -204,7 +184,6 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
                 child_columns,
             })
         } else {
-            // Validation in parser should catch this, but be defensive
             None
         }
     } else {
@@ -413,15 +392,9 @@ SELECT CAST(age AS TEXT) as age_text FROM users;",
         assert_eq!(result.columns[0].neutral_type, "string");
     }
 
-    // -----------------------------------------------------------------------
-    // Task 1 regression: $N inside a FROM-clause derived table must reach analyzed.params
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_param_inside_derived_table_propagates() {
         let catalog = make_catalog();
-        // $1 is the ONLY placeholder; it lives inside a CROSS JOIN derived-table
-        // subquery.  Before the fix it was silently dropped.
         let query = parse_query(
             "-- @name BucketCounts
 -- @returns :many
@@ -442,9 +415,7 @@ GROUP BY 1;",
         assert_eq!(result.params[0].neutral_type, "string");
     }
 
-    // -----------------------------------------------------------------------
     // Task 3: @param $N name overrides the fallback pN name
-    // -----------------------------------------------------------------------
 
     #[test]
     fn test_positional_param_name_override() {
@@ -458,8 +429,6 @@ SELECT id, name FROM users WHERE id = $1;",
         .unwrap();
         let result = analyze(&catalog, &query).unwrap();
         assert_eq!(result.params.len(), 1);
-        // Without the override the name would be "id" (inferred from column) or "p1".
-        // With the override it must be "user_id".
         assert_eq!(result.params[0].name, "user_id");
         assert_eq!(result.params[0].position, 1);
     }
@@ -476,18 +445,12 @@ UPDATE users SET name = $1 WHERE id = $2;",
         .unwrap();
         let result = analyze(&catalog, &query).unwrap();
         assert_eq!(result.params.len(), 2);
-        // $1 has no override → stays as inferred "name"
         assert_eq!(result.params[0].name, "name");
-        // $2 has override → becomes "target_id"
         assert_eq!(result.params[1].name, "target_id");
     }
 
     #[test]
     fn test_update_set_arithmetic_expr_collects_all_params() {
-        // Regression: a placeholder nested inside an arithmetic expression on the
-        // right-hand side of a SET assignment (e.g. `age = age + $2`) must still be
-        // collected. Previously only bare-placeholder and cast RHS were handled, so
-        // `$2` was silently dropped, leaving a gap in the param signature (issue #52).
         let catalog = make_catalog();
         let query = parse_query(
             "-- @name IncrementUserAge

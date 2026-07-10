@@ -31,7 +31,7 @@ fn neutral_to_sql_type(neutral_type: &str) -> &'static str {
         "datetime_tz" => "sql.DateTimeOffset",
         "uuid" => "sql.UniqueIdentifier",
         "binary" => "sql.Binary",
-        _ => "sql.VarChar", // Default fallback
+        _ => "sql.VarChar",
     }
 }
 
@@ -350,7 +350,6 @@ impl CodegenBackend for TypescriptMssqlBackend {
             let _ = writeln!(out, "): {ret} {{");
         }
 
-        // Build request + bind inputs
         let _ = writeln!(out, "\tconst request = pool.request();");
         for (i, (_ap, rp)) in analyzed.params.iter().zip(params.iter()).enumerate() {
             let sql_type = neutral_to_sql_type(&rp.neutral_type);
@@ -358,7 +357,6 @@ impl CodegenBackend for TypescriptMssqlBackend {
         }
         let _ = writeln!(out, "\tconst {{ recordset: flatRows }} = await request.query(`{sql}`);");
 
-        // Fold — mssql rows are Record<string, unknown> equivalent
         let fold = generate_ts_grouped_fold_body(
             parent_struct_name,
             child_struct_name,
@@ -509,7 +507,6 @@ mod tests {
             query_fn.contains("recordset: flatRows"),
             "must destructure recordset; got:\n{query_fn}"
         );
-        // mssql uses bracket access + as-cast for unknown-typed recordset rows
         assert!(
             query_fn.contains("row['id']"),
             "must use bracket access; got:\n{query_fn}"

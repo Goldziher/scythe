@@ -137,7 +137,6 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
             format!(", [{}]", args.join(", "))
         };
 
-        // Snowflake SDK uses callback-based API; wrap in a Promise.
         let emit_execute = |out: &mut String, sql: &str, binds: &str, result_var: &str| {
             let _ = writeln!(
                 out,
@@ -148,7 +147,7 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                 out,
                 "\t\tconn.execute({{ sqlText: `{}`, binds: [{}], complete: (err, _stmt, rows) => {{",
                 sql,
-                if binds.is_empty() { "" } else { &binds[2..] } // strip ", " prefix
+                if binds.is_empty() { "" } else { &binds[2..] }
             );
             let _ = writeln!(out, "\t\t\tif (err) reject(err);");
             let _ = writeln!(out, "\t\t\telse resolve(rows ?? []);");
@@ -162,7 +161,6 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                 let ret = format!("{} | null", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
                 emit_execute(&mut out, &sql, &binds, "rows");
-                // Snowflake SDK rows are typed as any[], so a single assertion suffices.
                 let _ = writeln!(out, "\treturn rows.length > 0 ? (rows[0] as {}) : null;", struct_name);
                 let _ = write!(out, "}}");
             }
@@ -226,7 +224,6 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                 let ret = format!("{}[]", struct_name);
                 write_fn_sig(&mut out, &func_name, &inline_params, &ret);
                 emit_execute(&mut out, &sql, &binds, "rows");
-                // Snowflake SDK rows are typed as any[], so a single assertion suffices.
                 let _ = writeln!(out, "\treturn rows as {}[];", struct_name);
                 let _ = write!(out, "}}");
             }
@@ -303,7 +300,6 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        // Snowflake uses positional ? placeholders
         let sql = super::rewrite_pg_placeholders(&sql_clean, |_n| "?".to_string());
 
         let param_list = params
@@ -333,7 +329,6 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
             let _ = writeln!(out, "): {ret} {{");
         }
 
-        // Snowflake uses callback-based execute wrapped in a Promise
         let binds_arg = if params.is_empty() {
             String::new()
         } else {
@@ -347,7 +342,7 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
         let _ = writeln!(out, "\t\tconn.execute({{");
         let _ = writeln!(out, "\t\t\tsqlText: `{sql}`,");
         if !binds_arg.is_empty() {
-            let _ = writeln!(out, "\t\t\t{},", &binds_arg[2..]); // strip leading ", "
+            let _ = writeln!(out, "\t\t\t{},", &binds_arg[2..]);
         }
         let _ = writeln!(out, "\t\t\tcomplete: (err, _stmt, rows) => {{");
         let _ = writeln!(out, "\t\t\t\tif (err) reject(err);");
@@ -356,7 +351,6 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
         let _ = writeln!(out, "\t\t}});");
         let _ = writeln!(out, "\t}});");
 
-        // Fold — Snowflake rows are typed as any[], use bracket access (no cast needed)
         let fold = generate_ts_grouped_fold_body(
             parent_struct_name,
             child_struct_name,
@@ -499,7 +493,6 @@ mod tests {
             query_fn.contains("Promise<GetUsersWithOrdersRow[]>"),
             "wrong return type; got:\n{query_fn}"
         );
-        // Snowflake uses callback-based Promise
         assert!(
             query_fn.contains("new Promise<any[]>"),
             "must wrap in Promise; got:\n{query_fn}"
@@ -508,7 +501,6 @@ mod tests {
             query_fn.contains("conn.execute"),
             "must use conn.execute; got:\n{query_fn}"
         );
-        // Snowflake rows are any[] so bracket access without cast
         assert!(
             query_fn.contains("row['id']"),
             "must use bracket access; got:\n{query_fn}"

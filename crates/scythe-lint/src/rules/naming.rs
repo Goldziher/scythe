@@ -7,8 +7,6 @@ use crate::types::*;
 use scythe_core::catalog::Catalog;
 
 // ---------------------------------------------------------------------------
-// SC-N01: PreferSnakeCaseColumns
-// ---------------------------------------------------------------------------
 
 pub struct PreferSnakeCaseColumns;
 
@@ -50,10 +48,6 @@ impl LintRule for PreferSnakeCaseColumns {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SC-N02: PreferSnakeCaseTables
-// ---------------------------------------------------------------------------
-
 pub struct PreferSnakeCaseTables;
 
 impl LintRule for PreferSnakeCaseTables {
@@ -76,7 +70,6 @@ impl LintRule for PreferSnakeCaseTables {
     fn check_catalog(&self, catalog: &Catalog) -> Vec<Violation> {
         let mut violations = Vec::new();
         for name in catalog.tables() {
-            // Strip schema prefix for checking
             let bare = name.rsplit('.').next().unwrap_or(name);
             if !is_snake_case(bare) {
                 violations.push(Violation {
@@ -89,10 +82,6 @@ impl LintRule for PreferSnakeCaseTables {
         violations
     }
 }
-
-// ---------------------------------------------------------------------------
-// SC-N03: QueryNameConvention
-// ---------------------------------------------------------------------------
 
 pub struct QueryNameConvention;
 
@@ -159,10 +148,6 @@ impl LintRule for QueryNameConvention {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SC-N04: ConsistentAliasCasing
-// ---------------------------------------------------------------------------
-
 pub struct ConsistentAliasCasing;
 
 impl LintRule for ConsistentAliasCasing {
@@ -199,10 +184,6 @@ impl LintRule for ConsistentAliasCasing {
         violations
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 fn is_snake_case(s: &str) -> bool {
     if s.is_empty() {
@@ -294,10 +275,6 @@ fn visit_table_factor_alias(tf: &TableFactor, visitor: &mut dyn FnMut(&str)) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -335,8 +312,6 @@ mod tests {
         }
     }
 
-    // SC-N01
-
     #[test]
     fn non_snake_case_alias_fires() {
         let cat = make_catalog();
@@ -359,19 +334,12 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-N02
-
     #[test]
     fn non_snake_case_table_fires() {
         let cat = make_catalog();
         let v = PreferSnakeCaseTables.check_catalog(&cat);
-        // "UserProfiles" (or "userprofiles" after lowering) — actually the catalog stores
-        // names lowercased, so "userprofiles" IS snake_case.
-        // Let's just assert no panic.
         let _ = v;
     }
-
-    // SC-N03
 
     #[test]
     fn bad_query_name_fires() {
@@ -394,8 +362,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-N04
-
     #[test]
     fn uppercase_alias_fires() {
         let cat = make_catalog();
@@ -415,8 +381,6 @@ mod tests {
         let v = ConsistentAliasCasing.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // --- Additional SC-N01 tests ---
 
     #[test]
     fn no_aliases_clean() {
@@ -451,8 +415,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // --- Additional SC-N02 tests ---
-
     #[test]
     fn all_snake_case_tables_clean() {
         let cat = Catalog::from_ddl(&[
@@ -466,16 +428,12 @@ mod tests {
 
     #[test]
     fn non_snake_case_table_name_fires() {
-        // Use a hyphenated name which remains non-snake_case even after lowercasing
-        // (the catalog lowercases names, so camelCase becomes "camelcase" which passes)
         let cat =
             Catalog::from_ddl(&["CREATE TABLE \"user-profiles\" (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL);"])
                 .unwrap();
         let v = PreferSnakeCaseTables.check_catalog(&cat);
         assert_eq!(v.len(), 1);
     }
-
-    // --- Additional SC-N03 tests ---
 
     #[test]
     fn get_prefix_ok() {
@@ -560,11 +518,8 @@ mod tests {
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = QueryNameConvention.check_query(&ctx);
-        // "getuser" does not start with "Get" (case-sensitive), so it should fire
         assert_eq!(v.len(), 1);
     }
-
-    // --- Additional SC-N04 tests ---
 
     #[test]
     fn no_alias_clean() {

@@ -20,12 +20,10 @@ pub fn run_fmt(
         let resolved = resolve_files_from_config(config_path)?;
         (resolved.files, resolved.dialect)
     } else {
-        // Even with explicit files, try to read dialect from config
         let config_dialect = dialect_from_config(config_path);
         (files.to_vec(), config_dialect)
     };
 
-    // CLI --dialect flag takes precedence, then config engine, then "ansi"
     let dialect = dialect.unwrap_or_else(|| config_dialect.as_deref().unwrap_or("ansi"));
 
     if file_paths.is_empty() {
@@ -98,7 +96,6 @@ fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dy
     let config: MinConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
-    // Use the engine from the first sql block as the dialect
     let dialect = config
         .sql
         .first()
@@ -107,7 +104,6 @@ fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dy
 
     let mut all_files = Vec::new();
     for sql_config in &config.sql {
-        // Include both query files and schema files
         for patterns in [&sql_config.queries, &sql_config.schema] {
             for pattern in patterns {
                 let matches: Vec<_> = glob::glob(pattern)?.collect::<Result<Vec<_>, _>>()?;
@@ -132,7 +128,6 @@ fn print_diff(path: &str, original: &str, formatted: &str) {
     let orig_lines: Vec<&str> = original.lines().collect();
     let fmt_lines: Vec<&str> = formatted.lines().collect();
 
-    // Simple line-by-line diff (not a full unified diff algorithm, but useful enough)
     let max_lines = orig_lines.len().max(fmt_lines.len());
     let mut in_hunk = false;
     for i in 0..max_lines {

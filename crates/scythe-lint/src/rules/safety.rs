@@ -7,8 +7,6 @@ use crate::types::*;
 use scythe_core::parser::QueryCommand;
 
 // ---------------------------------------------------------------------------
-// SC-S01: UpdateWithoutWhere
-// ---------------------------------------------------------------------------
 
 pub struct UpdateWithoutWhere;
 
@@ -43,10 +41,6 @@ impl LintRule for UpdateWithoutWhere {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SC-S02: DeleteWithoutWhere
-// ---------------------------------------------------------------------------
-
 pub struct DeleteWithoutWhere;
 
 impl LintRule for DeleteWithoutWhere {
@@ -79,10 +73,6 @@ impl LintRule for DeleteWithoutWhere {
         Vec::new()
     }
 }
-
-// ---------------------------------------------------------------------------
-// SC-S03: NoSelectStar
-// ---------------------------------------------------------------------------
 
 pub struct NoSelectStar;
 
@@ -118,10 +108,6 @@ impl LintRule for NoSelectStar {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SC-S04: UnusedParams
-// ---------------------------------------------------------------------------
-
 pub struct UnusedParams;
 
 impl LintRule for UnusedParams {
@@ -142,7 +128,6 @@ impl LintRule for UnusedParams {
     }
 
     fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
-        // Collect all $N placeholders referenced in SQL text
         let mut referenced: ahash::AHashSet<i64> = ahash::AHashSet::new();
         let sql = ctx.sql;
         let mut chars = sql.char_indices().peekable();
@@ -172,7 +157,6 @@ impl LintRule for UnusedParams {
 
         let max_ref = referenced.iter().copied().max().unwrap_or(0);
 
-        // Check for gaps: if max is N, then 1..=N should all be present
         let mut violations = Vec::new();
         for n in 1..=max_ref {
             if !referenced.contains(&n) {
@@ -186,10 +170,6 @@ impl LintRule for UnusedParams {
         violations
     }
 }
-
-// ---------------------------------------------------------------------------
-// SC-S05: MissingReturning
-// ---------------------------------------------------------------------------
 
 pub struct MissingReturning;
 
@@ -220,7 +200,7 @@ impl LintRule for MissingReturning {
             Statement::Insert(ins) => ins.returning.is_some(),
             Statement::Update(upd) => upd.returning.is_some(),
             Statement::Delete(del) => del.returning.is_some(),
-            _ => return Vec::new(), // SELECT always returns rows
+            _ => return Vec::new(),
         };
 
         if !has_returning {
@@ -233,10 +213,6 @@ impl LintRule for MissingReturning {
         Vec::new()
     }
 }
-
-// ---------------------------------------------------------------------------
-// SC-S06: AmbiguousColumnInJoin
-// ---------------------------------------------------------------------------
 
 pub struct AmbiguousColumnInJoin;
 
@@ -283,10 +259,6 @@ impl LintRule for AmbiguousColumnInJoin {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SC-S07: UnboundSqlParam
-// ---------------------------------------------------------------------------
-
 /// Checks that every `$N` placeholder referenced in the SQL body is present in
 /// `analyzed.params`. A placeholder that appears in the SQL text but is absent
 /// from the generated parameter signature indicates a silent analysis failure
@@ -315,7 +287,6 @@ impl LintRule for UnboundSqlParam {
     }
 
     fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
-        // Collect all $N positions referenced in SQL text (same scan as SC-S04).
         let mut referenced: ahash::AHashSet<i64> = ahash::AHashSet::new();
         let sql = ctx.sql;
         let mut chars = sql.char_indices().peekable();
@@ -343,10 +314,8 @@ impl LintRule for UnboundSqlParam {
             return Vec::new();
         }
 
-        // Collect positions present in the analyzed signature.
         let bound: ahash::AHashSet<i64> = ctx.analyzed.params.iter().map(|p| p.position).collect();
 
-        // Any placeholder that is in SQL but not in the signature is unbound.
         let mut violations: Vec<Violation> = referenced
             .iter()
             .copied()
@@ -363,9 +332,7 @@ impl LintRule for UnboundSqlParam {
             })
             .collect();
 
-        // Sort by position for stable output (referenced is a hash set).
         violations.sort_by_key(|v| {
-            // Extract the number from the message for stable ordering.
             v.message
                 .split('$')
                 .nth(1)
@@ -377,10 +344,6 @@ impl LintRule for UnboundSqlParam {
         violations
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 fn walk_select_items(stmt: &Statement, visitor: &mut dyn FnMut(&SelectItem)) {
     if let Statement::Query(query) = stmt {
@@ -428,10 +391,6 @@ fn set_expr_has_join(set_expr: &SetExpr) -> bool {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,8 +430,6 @@ mod tests {
         }
     }
 
-    // SC-S01
-
     #[test]
     fn update_without_where_fires() {
         let cat = make_catalog();
@@ -495,8 +452,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-S02
-
     #[test]
     fn delete_without_where_fires() {
         let cat = make_catalog();
@@ -516,8 +471,6 @@ mod tests {
         let v = DeleteWithoutWhere.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-S03
 
     #[test]
     fn select_star_fires() {
@@ -539,8 +492,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-S05
-
     #[test]
     fn missing_returning_fires() {
         let cat = make_catalog();
@@ -561,8 +512,6 @@ mod tests {
         let v = MissingReturning.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-S06
 
     #[test]
     fn ambiguous_column_in_join_fires() {
@@ -590,12 +539,8 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-S04: UnusedParams — additional coverage
-
     #[test]
     fn unused_params_gap_fires() {
-        // $1 and $2 declared but only $1 used → $2 gap not possible here;
-        // use $1 and $3 to create a gap at $2
         let cat = make_catalog();
         let q =
             parse_query("-- @name UpdateSome\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $3;").unwrap();
@@ -627,8 +572,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-S06: AmbiguousColumnInJoin — additional coverage
-
     #[test]
     fn no_join_no_ambiguity() {
         let cat = make_catalog();
@@ -641,8 +584,6 @@ mod tests {
 
     #[test]
     fn select_star_in_join_s06_does_not_fire() {
-        // SELECT * with JOIN: S06 looks at Wildcard via walk_select_items.
-        // Wildcard is not UnnamedExpr(Identifier), so S06 should NOT fire for *.
         let cat = make_catalog();
         let q = parse_query(
             "-- @name ListJoined\n-- @returns :many\nSELECT u.id, p.title FROM users u JOIN posts p ON u.id = p.user_id;",
@@ -654,8 +595,6 @@ mod tests {
         let v_s06 = AmbiguousColumnInJoin.check_query(&ctx);
         assert!(v_s06.is_empty(), "S06 should not fire on fully qualified columns");
     }
-
-    // SC-S01/S02: WHERE clause edge cases
 
     #[test]
     fn update_with_subquery_in_where_ok() {
@@ -685,7 +624,6 @@ mod tests {
 
     #[test]
     fn update_with_where_true_ok() {
-        // WHERE TRUE is still a WHERE clause — rule should not fire
         let cat = make_catalog();
         let q = parse_query("-- @name UpdateAll\n-- @returns :exec\nUPDATE users SET name = $1 WHERE TRUE;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
@@ -704,11 +642,8 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-S03: table-qualified wildcard
-
     #[test]
     fn select_qualified_star_ok() {
-        // SELECT users.* is a QualifiedWildcard, not a Wildcard — S03 should NOT fire
         let cat = make_catalog();
         let q = parse_query("-- @name ListAll\n-- @returns :many\nSELECT users.* FROM users;").unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
@@ -716,8 +651,6 @@ mod tests {
         let v = NoSelectStar.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-S05: :exec should not fire even without RETURNING
 
     #[test]
     fn missing_returning_exec_ok() {
@@ -730,8 +663,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-S05: SELECT always returns rows — should not fire
-
     #[test]
     fn missing_returning_select_ok() {
         let cat = make_catalog();
@@ -741,8 +672,6 @@ mod tests {
         let v = MissingReturning.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-S05: UPDATE :many without RETURNING should fire
 
     #[test]
     fn missing_returning_update_many_fires() {
@@ -755,8 +684,6 @@ mod tests {
         assert_eq!(v.len(), 1);
     }
 
-    // SC-S05: DELETE :one without RETURNING should fire
-
     #[test]
     fn missing_returning_delete_one_fires() {
         let cat = make_catalog();
@@ -767,23 +694,18 @@ mod tests {
         assert_eq!(v.len(), 1);
     }
 
-    // SC-S07: UnboundSqlParam
-
     #[test]
     fn unbound_sql_param_fires_when_param_absent_from_signature() {
-        // Construct a scenario where $1 is in the SQL text but analyzed.params
-        // is empty — simulating the kind of silent drop that the rule backstops.
         use scythe_core::analyzer::AnalyzedQuery;
         use scythe_core::parser::QueryCommand;
 
         let cat = make_catalog();
         let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT id FROM users WHERE id = $1;").unwrap();
-        // Build a hand-crafted analyzed with no params to simulate a drop.
         let analyzed = AnalyzedQuery {
             name: q.name.clone(),
             command: QueryCommand::One,
             sql: q.sql.clone(),
-            params: vec![], // intentionally empty — $1 is unbound
+            params: vec![],
             ..Default::default()
         };
         let ctx = LintContext {
@@ -834,7 +756,6 @@ mod tests {
 
         let cat = make_catalog();
         let q = parse_query("-- @name Up\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
-        // Only $2 is in the signature; $1 is missing.
         let analyzed = AnalyzedQuery {
             name: q.name.clone(),
             command: QueryCommand::Exec,
@@ -860,8 +781,6 @@ mod tests {
         assert!(v[0].message.contains("$1"));
     }
 
-    // SC-S01: non-UPDATE statement should not fire
-
     #[test]
     fn update_without_where_on_select_noop() {
         let cat = make_catalog();
@@ -871,8 +790,6 @@ mod tests {
         let v = UpdateWithoutWhere.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-S02: non-DELETE statement should not fire
 
     #[test]
     fn delete_without_where_on_select_noop() {

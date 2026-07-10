@@ -56,7 +56,6 @@ impl PythonRowType {
         let lib_is_bare = library_import.starts_with("import ");
 
         match (row_is_bare, lib_is_bare) {
-            // Both bare imports or both from imports: sort by module name.
             (true, true) | (false, false) => {
                 if row_import < library_import {
                     format!("{row_import}\n{library_import}")
@@ -64,9 +63,7 @@ impl PythonRowType {
                     format!("{library_import}\n{row_import}")
                 }
             }
-            // Row is bare, library is from: bare comes first.
             (true, false) => format!("{row_import}\n{library_import}"),
-            // Row is from, library is bare: bare comes first.
             (false, true) => format!("{library_import}\n{row_import}"),
         }
     }
@@ -122,7 +119,6 @@ pub fn generate_grouped_structs_py(
 ) -> String {
     let mut out = String::new();
 
-    // Child class first — parent references it in the `children` field.
     let _ = write!(out, "{}", row_type.decorator());
     let _ = writeln!(out, "{}", row_type.class_def(child_struct_name));
     let _ = writeln!(out, "    \"\"\"Child row type for grouped query.\"\"\"");
@@ -137,7 +133,6 @@ pub fn generate_grouped_structs_py(
 
     let _ = writeln!(out);
 
-    // Parent class — all parent columns plus a `children` list field.
     let _ = write!(out, "{}", row_type.decorator());
     let _ = writeln!(out, "{}", row_type.class_def(parent_struct_name));
     let _ = writeln!(out, "    \"\"\"Parent row type for grouped query.\"\"\"");

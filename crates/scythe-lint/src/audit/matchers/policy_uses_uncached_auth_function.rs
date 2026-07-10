@@ -42,8 +42,6 @@ fn walk_for_bare_auth_call(expr: &Expr) -> bool {
             if matches_problematic_call(&f.name) {
                 return true;
             }
-            // The function isn't an auth helper itself, but it may wrap one
-            // in its arguments — e.g. `coalesce(auth.uid(), 0)`. Walk args.
             if let FunctionArguments::List(list) = &f.args {
                 for arg in &list.args {
                     let inner = match arg {
@@ -76,8 +74,6 @@ fn walk_for_bare_auth_call(expr: &Expr) -> bool {
             walk_for_bare_auth_call(expr) || walk_for_bare_auth_call(low) || walk_for_bare_auth_call(high)
         }
         Expr::InList { expr, list, .. } => walk_for_bare_auth_call(expr) || list.iter().any(walk_for_bare_auth_call),
-        // The wrapping `(select …)` form is the safe pattern — never recurse
-        // into a Subquery.
         Expr::Subquery(_) => false,
         _ => false,
     }

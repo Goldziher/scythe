@@ -35,15 +35,12 @@ impl GoValidator {
     }
 
     fn wrap_if_fragment(code: &str) -> String {
-        // Dedent first to handle indented markdown snippets
         let code = Self::dedent(code);
         let trimmed = code.trim();
-        // Already has a package declaration — complete file
         if trimmed.starts_with("package ") {
             return code;
         }
 
-        // Separate imports from other code
         let mut imports = Vec::new();
         let mut body = Vec::new();
         let mut past_imports = false;
@@ -67,7 +64,6 @@ impl GoValidator {
         let body_str = body.join("\n");
         let body_trimmed = body_str.trim();
 
-        // Has a top-level declaration (func, type, var, const) — needs package + imports
         let has_top_level = body_trimmed.starts_with("func ")
             || body_trimmed.starts_with("type ")
             || body_trimmed.starts_with("var ")
@@ -83,7 +79,6 @@ impl GoValidator {
                 format!("package main\n\n{body_str}")
             }
         } else {
-            // Statement-level code — wrap in func main()
             if has_imports {
                 format!("package main\n\n{imports_str}\n\nfunc main() {{\n{body_str}\n}}")
             } else {
@@ -110,7 +105,6 @@ impl SnippetValidator for GoValidator {
     ) -> Result<(SnippetStatus, Option<String>)> {
         let dir = TempDir::new()?;
 
-        // Init go module
         let go_mod = "module snippet-check\n\ngo 1.21\n";
         std::fs::write(dir.path().join("go.mod"), go_mod)?;
 
@@ -187,12 +181,12 @@ impl SnippetValidator for GoValidator {
                 || line.contains("declared and not used")
                 || line.contains("imported and not used")
                 || line.contains("has no field or method")
-                || line.contains("# snippet-check") // build output summary
-                || line.contains("# [snippet-check]") // vet output summary
-                || line.contains("expected '('") // CGo export comments causing parse issues
-                || line.contains("expected declaration") // cascading from wrapping
-                || line.contains("more errors") // N more errors summary
-                || line.contains("expected '}'") // struct { ... } literal syntax in signatures
+                || line.contains("# snippet-check")
+                || line.contains("# [snippet-check]")
+                || line.contains("expected '('")
+                || line.contains("expected declaration")
+                || line.contains("more errors")
+                || line.contains("expected '}'")
         })
     }
 }

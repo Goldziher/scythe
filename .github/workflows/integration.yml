@@ -54,7 +54,6 @@ jobs:
       - name: Run PG schema migration
         run: PGPASSWORD=scythe psql -h localhost -U scythe -d scythe_test -f integration_tests/sql/pg/schema.sql
 
-      # Language toolchains
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -92,7 +91,6 @@ jobs:
       - run: pip install uv
       - run: npm install -g pnpm
 
-      # Rust
       - name: Test rust-sqlx
         working-directory: integration_tests/rust-sqlx
         run: cargo run --quiet
@@ -101,7 +99,6 @@ jobs:
         working-directory: integration_tests/rust-tokio-postgres
         run: cargo run --quiet
 
-      # Python
       - name: Test python-psycopg3
         working-directory: integration_tests/python-psycopg3
         run: uv run python test_integration.py
@@ -118,12 +115,10 @@ jobs:
         working-directory: integration_tests/python-psycopg3-msgspec
         run: uv run python test_integration.py
 
-      # Go
       - name: Test go-pgx
         working-directory: integration_tests/go-pgx
         run: go mod tidy && go run .
 
-      # TypeScript
       - name: Test typescript-postgres
         working-directory: integration_tests/typescript-postgres
         run: |
@@ -142,7 +137,6 @@ jobs:
           pnpm install
           pnpm exec tsx test.ts
 
-      # JVM
       - name: Test java-jdbc
         working-directory: integration_tests/java-jdbc
         run: mvn -q compile exec:java
@@ -151,12 +145,10 @@ jobs:
         working-directory: integration_tests/kotlin-jdbc
         run: gradle run --quiet
 
-      # .NET
       - name: Test csharp-npgsql
         working-directory: integration_tests/csharp-npgsql
         run: dotnet run
 
-      # Elixir
       - name: Test elixir-postgrex
         working-directory: integration_tests/elixir-postgrex
         run: |
@@ -173,14 +165,12 @@ jobs:
           mix deps.get
           mix run test/integration_test.exs
 
-      # Ruby
       - name: Test ruby-pg
         working-directory: integration_tests/ruby-pg
         run: |
           bundle install
           bundle exec ruby test_integration.rb
 
-      # PHP
       - name: Test php-pdo
         working-directory: integration_tests/php-pdo
         run: php test_integration.php
@@ -222,7 +212,6 @@ jobs:
       - name: Run MySQL schema migration
         run: mysql -h 127.0.0.1 -u scythe -pscythe scythe_test < integration_tests/sql/mysql/schema.sql
 
-      # Language toolchains
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -343,7 +332,6 @@ jobs:
       - name: Run MariaDB schema migration
         run: mysql -h 127.0.0.1 -u scythe -pscythe scythe_test < integration_tests/sql/mariadb/schema.sql
 
-      # Language toolchains
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -478,7 +466,6 @@ jobs:
           export PATH=/usr/lib/oracle/23/client64/bin:$PATH
           sqlplus scythe/scythe@localhost:1521/XEPDB1 @integration_tests/sql/oracle/schema_full.sql
 
-      # Language toolchains
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -537,9 +524,6 @@ jobs:
         working-directory: integration_tests/csharp-oracle
         run: dotnet run
 
-      # Skipped: elixir-jamdb-oracle (DBConnection pool issue, see #28)
-      # Skipped: ruby-oci8-oracle (native gem build needs SDK headers)
-
       - name: Test rust-sibyl-oracle
         working-directory: integration_tests/rust-sibyl-oracle
         run: cargo run --quiet
@@ -581,7 +565,6 @@ jobs:
           /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Scythe_Test1" -C -Q "CREATE DATABASE scythe_test"
           /opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P "Scythe_Test1" -C -d scythe_test -i integration_tests/sql/mssql/schema.sql
 
-      # Language toolchains
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -665,8 +648,6 @@ jobs:
         working-directory: integration_tests/php-pdo-mssql
         run: php test_integration.php
 
-      # Skipped: elixir-tds-mssql (TDS parameter encoding, see #28)
-
   integration-sqlite:
     name: SQLite Integration Tests
     runs-on: ubuntu-latest
@@ -680,7 +661,6 @@ jobs:
     steps:
       - uses: actions/checkout@v6
 
-      # Language toolchains
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -764,8 +744,6 @@ jobs:
           bundle install
           bundle exec ruby test_integration.rb
 
-      # Skipped: php-pdo-sqlite (createUser status param mismatch)
-
   integration-redshift:
     name: Redshift Integration Tests (PG-compat)
     runs-on: ubuntu-latest
@@ -795,7 +773,6 @@ jobs:
       - name: Run Redshift PG-compat schema migration
         run: PGPASSWORD=scythe psql -h localhost -U scythe -d scythe_redshift_test -f integration_tests/sql/redshift/schema_pg_compat.sql
 
-      # Language toolchains
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -897,9 +874,6 @@ jobs:
     name: Snowflake Integration Tests (Emulator)
     runs-on: ubuntu-latest
     timeout-minutes: 30
-
-    # No Docker service needed — Python uses fakesnow (in-process DuckDB).
-    # Other Snowflake drivers have no local emulator with full protocol support.
 
     steps:
       - uses: actions/checkout@v6

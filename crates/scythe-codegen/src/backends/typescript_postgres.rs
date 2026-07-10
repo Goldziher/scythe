@@ -101,7 +101,6 @@ impl CodegenBackend for TypescriptPostgresBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
 
-        // Build parameter list
         let param_list = params
             .iter()
             .map(|p| format!("{}: {}", p.field_name, p.full_type))
@@ -109,7 +108,6 @@ impl CodegenBackend for TypescriptPostgresBackend {
             .join(", ");
         let _sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Clean SQL and rewrite $1, $2 to ${paramName} for postgres.js tagged template
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let name_map: std::collections::HashMap<u32, String> = analyzed
             .params
@@ -121,22 +119,17 @@ impl CodegenBackend for TypescriptPostgresBackend {
             format!("${{{}}}", name_map.get(&n).map_or("?", |s| s.as_str()))
         });
 
-        // Build function params: inline if short, multi-line if long (biome compliance)
         let inline_params = if params.is_empty() {
             "sql: Sql".to_string()
         } else {
             format!("sql: Sql, {}", param_list)
         };
 
-        // We'll decide inline vs multi-line per call site based on the full signature length
-
-        // Helper: write function signature, inline or multi-line based on length
         let write_fn_sig = |out: &mut String, name: &str, params_inline: &str, ret: &str| {
             let oneliner = format!("export async function {}({}): {} {{", name, params_inline, ret);
             if oneliner.len() <= 80 {
                 let _ = writeln!(out, "{}", oneliner);
             } else {
-                // Multi-line params
                 let mut parts = vec!["\tsql: Sql".to_string()];
                 for p in params {
                     parts.push(format!("\t{}: {}", p.field_name, p.full_type));
@@ -180,7 +173,6 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     write_fn_sig(&mut out, &batch_fn_name, &batch_params, "Promise<void>");
                     let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    // Build template with item.fieldName
                     let batch_sql = {
                         let mut s = sql_clean.clone();
                         let mut indexed: Vec<(i64, &str)> = analyzed
@@ -344,12 +336,10 @@ impl CodegenBackend for TypescriptPostgresBackend {
             let _ = writeln!(out, "): {ret} {{");
         }
 
-        // postgres.js tagged template; type as Record<string, unknown>[] for fold access
         let _ = writeln!(out, "\tconst flatRows = await sql<Record<string, unknown>[]>`");
         let _ = writeln!(out, "    {sql_template}");
         let _ = writeln!(out, "  `;");
 
-        // Fold — rows are Record<string, unknown>, use bracket access + as-cast
         let fold = generate_ts_grouped_fold_body(
             parent_struct_name,
             child_struct_name,
@@ -384,7 +374,6 @@ impl CodegenBackend for TypescriptPostgresBackend {
         let _ = writeln!(out, "/** Composite type {}. */", composite.sql_name);
         let _ = writeln!(out, "export interface {} {{", name);
         if composite.fields.is_empty() {
-            // empty interface
         } else {
             for field in &composite.fields {
                 let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)

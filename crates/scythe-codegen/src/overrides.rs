@@ -77,9 +77,7 @@ mod tests {
             db_type: Some("text".to_string()),
             neutral_type: Some("custom".to_string()),
         };
-        // column match succeeds regardless of db_type
         assert!(o.matches("users.name", "int32"));
-        // column mismatch means no match (db_type not checked when column is set)
         assert!(!o.matches("other.name", "text"));
     }
 
@@ -97,11 +95,8 @@ mod tests {
                 neutral_type: Some("string".to_string()),
             },
         ];
-        // column match wins over db_type match
         assert_eq!(find_override(&overrides, "users.metadata", "jsonb"), Some("json"));
-        // db_type fallback for non-column-matched columns
         assert_eq!(find_override(&overrides, "posts.data", "jsonb"), Some("string"));
-        // no match
         assert_eq!(find_override(&overrides, "posts.data", "text"), None);
     }
 

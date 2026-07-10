@@ -40,10 +40,6 @@ impl<'a> Analyzer<'a> {
                 } else if value_is_null(vws) {
                     TypeInfo::new("unknown", true)
                 } else if let Some(p) = value_is_placeholder(vws) {
-                    // Only pre-register $N placeholders (idempotent position).
-                    // For ? placeholders, skip — they are registered in
-                    // collect_params_from_where / collect_insert_params to avoid
-                    // double-incrementing the positional counter.
                     if let Some(pos) = parse_placeholder(p) {
                         self.register_param(pos, None, None, false);
                     }
@@ -174,9 +170,7 @@ impl<'a> Analyzer<'a> {
                 let mut any_nullable = false;
 
                 for case_when in conditions {
-                    // Infer condition type (may contain params)
                     let _ = self.infer_expr_type(&case_when.condition, scope);
-                    // If condition is a placeholder, it's a bool flag
                     if let Expr::Value(vws) = &case_when.condition
                         && let Some(p) = value_is_placeholder(vws)
                         && let Some(pos) = self.resolve_placeholder_position(p)
@@ -184,12 +178,10 @@ impl<'a> Analyzer<'a> {
                         self.register_param(pos, Some("flag".to_string()), Some("bool".to_string()), false);
                     }
 
-                    // Infer result type
                     let ti = self.infer_expr_type(&case_when.result, scope);
                     if result_type == "unknown" && ti.neutral_type != "unknown" {
                         result_type = ti.neutral_type.clone();
                     }
-                    // Check if condition is IS NOT NULL on the same expr as result
                     let guarded = is_not_null_guard(&case_when.condition, &case_when.result);
                     if ti.nullable && !guarded {
                         any_nullable = true;
@@ -215,8 +207,6 @@ impl<'a> Analyzer<'a> {
                 if let Ok(cols) = self.analyze_query(query)
                     && let Some(first) = cols.first()
                 {
-                    // Scalar subquery: if the subquery returns a non-nullable aggregate
-                    // (like COUNT), the result is non-nullable
                     return TypeInfo::new(first.neutral_type.clone(), first.nullable);
                 }
                 TypeInfo::unknown()
@@ -302,22 +292,16 @@ impl<'a> Analyzer<'a> {
             Expr::Interval { .. } => TypeInfo::new("interval", false),
 
             Expr::CompoundFieldAccess { root, access_chain } => {
-                // e.g. (home_address).street — resolve the composite type and field
                 let root_ti = self.infer_expr_type(root, scope);
-                // Check if root is a composite type
                 if let Some(comp_name) = root_ti.neutral_type.strip_prefix("composite::")
                     && let Some(comp) = self.catalog.get_composite(comp_name)
+                    && let Some(last) = access_chain.last()
+                    && let ast::AccessExpr::Dot(Expr::Identifier(ident)) = last
                 {
-                    // Get the last field access
-                    if let Some(last) = access_chain.last()
-                        && let ast::AccessExpr::Dot(Expr::Identifier(ident)) = last
-                    {
-                        let field_name = ident.value.to_lowercase();
-                        if let Some(field) = comp.fields.iter().find(|f| f.name == field_name) {
-                            let neutral = sql_type_to_neutral(&field.sql_type, self.catalog);
-                            // Composite fields are nullable even if composite is NOT NULL
-                            return TypeInfo::new(neutral, true);
-                        }
+                    let field_name = ident.value.to_lowercase();
+                    if let Some(field) = comp.fields.iter().find(|f| f.name == field_name) {
+                        let neutral = sql_type_to_neutral(&field.sql_type, self.catalog);
+                        return TypeInfo::new(neutral, true);
                     }
                 }
                 TypeInfo::unknown()
@@ -349,7 +333,6 @@ impl<'a> Analyzer<'a> {
                     let nullable = col.base_nullable || source.nullable_from_join;
                     let ti = TypeInfo::new(col.neutral_type.clone(), nullable);
                     if found.is_some() {
-                        // ambiguous - mark it
                         return TypeInfo {
                             neutral_type: format!("__ambiguous__:{}", col_name),
                             nullable: false,
@@ -363,7 +346,6 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        // Check if scope has any sources with columns at all (for error detection)
         let has_sources = scope.sources.iter().any(|s| !s.columns.is_empty());
         if has_sources {
             return TypeInfo {
@@ -438,7 +420,6 @@ impl<'a> Analyzer<'a> {
                 let args = self.get_function_args(func);
                 let mut result_type = "unknown".to_string();
                 let mut any_non_nullable = false;
-                // Get a name from the first non-placeholder argument
                 let mut coalesce_name: Option<String> = None;
 
                 for arg in &args {
@@ -481,7 +462,6 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(ti.neutral_type, true)
             }
 
-            // String functions
             "upper" | "lower" | "initcap" | "reverse" | "ltrim" | "rtrim" | "btrim" | "lpad" | "rpad" | "repeat"
             | "replace" | "translate" | "left" | "right" | "md5" | "encode" | "decode" | "chr" | "to_hex"
             | "quote_ident" | "quote_literal" | "format" | "regexp_replace" => {
@@ -493,7 +473,6 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new("int32", first_arg_nullable)
             }
 
-            // Math functions
             "abs" | "sign" => first_arg_ti.unwrap_or_else(TypeInfo::unknown),
             "ceil" | "ceiling" | "floor" => {
                 let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
@@ -509,7 +488,6 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(ti.neutral_type, ti.nullable)
             }
 
-            // Date/time functions
             "now" | "current_timestamp" | "statement_timestamp" | "transaction_timestamp" | "clock_timestamp" => {
                 TypeInfo::new("datetime_tz", false)
             }
@@ -535,7 +513,6 @@ impl<'a> Analyzer<'a> {
             "to_date" => TypeInfo::new("date", false),
             "to_char" => TypeInfo::new("string", first_arg_nullable),
 
-            // Window functions
             "row_number" | "rank" | "dense_rank" | "cume_dist" | "ntile" | "percent_rank" => {
                 TypeInfo::new("int64", false)
             }
@@ -548,7 +525,6 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(ti.neutral_type, true)
             }
 
-            // JSON functions
             "json_build_object" | "jsonb_build_object" | "json_build_array" | "jsonb_build_array" | "to_json"
             | "to_jsonb" | "json_strip_nulls" | "jsonb_strip_nulls" => TypeInfo::new("json", false),
             "json_typeof" | "jsonb_typeof" => TypeInfo::new("string", true),
@@ -562,7 +538,6 @@ impl<'a> Analyzer<'a> {
             | "json_populate_recordset"
             | "jsonb_populate_recordset" => TypeInfo::new("unknown", true),
 
-            // Array functions
             "array_length" | "array_ndims" | "array_lower" | "array_upper" | "cardinality" => {
                 TypeInfo::new("int32", true)
             }
@@ -581,13 +556,11 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(inner, true)
             }
 
-            // Misc
             "gen_random_uuid" | "uuid_generate_v4" => TypeInfo::new("uuid", false),
             "nextval" | "currval" | "lastval" | "setval" => TypeInfo::new("int64", false),
             "pg_typeof" => TypeInfo::new("string", false),
 
             _ => {
-                // Mark as unknown function for error detection
                 let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
                 TypeInfo {
                     neutral_type: format!("__unknown_func__:{}", func_name),
@@ -718,7 +691,6 @@ mod tests {
         Expr::Identifier(Ident::new(name))
     }
 
-    // ---- count ----
     #[test]
     fn test_count_returns_int64() {
         let catalog = empty_catalog();
@@ -730,7 +702,6 @@ mod tests {
         assert!(!ti.nullable, "count should not be nullable");
     }
 
-    // ---- sum ----
     #[test]
     fn test_sum_returns_nullable() {
         let catalog = empty_catalog();
@@ -753,7 +724,6 @@ mod tests {
         assert!(!ti.nullable, "sum as window function should not be nullable");
     }
 
-    // ---- avg ----
     #[test]
     fn test_avg_returns_decimal_nullable() {
         let catalog = empty_catalog();
@@ -765,7 +735,6 @@ mod tests {
         assert!(ti.nullable);
     }
 
-    // ---- string functions ----
     #[test]
     fn test_string_functions_return_string() {
         let catalog = empty_catalog();
@@ -809,7 +778,6 @@ mod tests {
         assert_eq!(ti.neutral_type, "int32");
     }
 
-    // ---- math functions ----
     #[test]
     fn test_math_functions_abs_sign() {
         let catalog = empty_catalog();
@@ -818,7 +786,6 @@ mod tests {
             let mut analyzer = make_analyzer(&catalog);
             let func = make_func(fname, vec![int_literal()]);
             let ti = analyzer.infer_function_type(&func, &scope);
-            // abs/sign return same type as input; int literal is int64
             assert_eq!(ti.neutral_type, "int64", "{} should return int64 for int input", fname);
         }
     }
@@ -858,7 +825,6 @@ mod tests {
         }
     }
 
-    // ---- date/time functions ----
     #[test]
     fn test_now_returns_datetime_tz() {
         let catalog = empty_catalog();
@@ -896,13 +862,11 @@ mod tests {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
         let scope = empty_scope();
-        // date_trunc('month', some_timestamp) - with a string literal as timestamp stand-in
         let func = make_func(
             "date_trunc",
             vec![string_literal("month"), string_literal("2024-01-01")],
         );
         let ti = analyzer.infer_function_type(&func, &scope);
-        // Second arg is inferred as string (from literal)
         assert_eq!(ti.neutral_type, "string");
     }
 
@@ -917,7 +881,6 @@ mod tests {
         assert!(!ti.nullable);
     }
 
-    // ---- window functions ----
     #[test]
     fn test_row_number_returns_int64() {
         let catalog = empty_catalog();
@@ -955,7 +918,6 @@ mod tests {
         }
     }
 
-    // ---- JSON functions ----
     #[test]
     fn test_json_build_object() {
         let catalog = empty_catalog();
@@ -967,7 +929,6 @@ mod tests {
         assert!(!ti.nullable);
     }
 
-    // ---- UUID functions ----
     #[test]
     fn test_gen_random_uuid() {
         let catalog = empty_catalog();
@@ -979,7 +940,6 @@ mod tests {
         assert!(!ti.nullable);
     }
 
-    // ---- coalesce ----
     #[test]
     fn test_coalesce_with_literal_is_not_nullable() {
         let catalog = empty_catalog();
@@ -991,7 +951,6 @@ mod tests {
         assert!(!ti.nullable, "coalesce with a literal fallback should not be nullable");
     }
 
-    // ---- nullif ----
     #[test]
     fn test_nullif_always_nullable() {
         let catalog = empty_catalog();
@@ -1003,7 +962,6 @@ mod tests {
         assert!(ti.nullable, "nullif should always be nullable");
     }
 
-    // ---- min/max ----
     #[test]
     fn test_min_max_nullable_non_window() {
         let catalog = empty_catalog();
@@ -1017,7 +975,6 @@ mod tests {
         }
     }
 
-    // ---- unknown function ----
     #[test]
     fn test_unknown_function() {
         let catalog = empty_catalog();
@@ -1028,7 +985,6 @@ mod tests {
         assert_eq!(ti.neutral_type, "__unknown_func__:my_custom_function");
     }
 
-    // ---- sequence functions ----
     #[test]
     fn test_nextval_returns_int64() {
         let catalog = empty_catalog();

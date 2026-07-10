@@ -186,7 +186,6 @@ fn language_outputs(language: &str) -> LanguageOutputs {
 
 fn build_backends() -> Vec<BackendConfig> {
     vec![
-        // --- Python ---
         BackendConfig {
             name: "python-psycopg3".into(),
             language: "python".into(),
@@ -241,7 +240,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "python-aiosqlite".into(),
             options: HashMap::new(),
         },
-        // --- TypeScript ---
         BackendConfig {
             name: "typescript-pg".into(),
             language: "typescript".into(),
@@ -287,7 +285,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "typescript-better-sqlite3".into(),
             options: HashMap::new(),
         },
-        // --- Go ---
         BackendConfig {
             name: "go-pgx".into(),
             language: "go".into(),
@@ -315,7 +312,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "go-database-sql".into(),
             options: HashMap::new(),
         },
-        // --- Elixir ---
         BackendConfig {
             name: "elixir-postgrex".into(),
             language: "elixir".into(),
@@ -352,7 +348,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "elixir-ecto".into(),
             options: HashMap::new(),
         },
-        // --- Ruby ---
         BackendConfig {
             name: "ruby-pg".into(),
             language: "ruby".into(),
@@ -389,7 +384,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "ruby-trilogy".into(),
             options: HashMap::new(),
         },
-        // --- PHP ---
         BackendConfig {
             name: "php-pdo".into(),
             language: "php".into(),
@@ -426,7 +420,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "php-amphp".into(),
             options: HashMap::new(),
         },
-        // --- Rust ---
         BackendConfig {
             name: "rust-sqlx".into(),
             language: "rust".into(),
@@ -463,7 +456,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "rust-tokio-postgres".into(),
             options: HashMap::new(),
         },
-        // --- Java ---
         BackendConfig {
             name: "java-jdbc".into(),
             language: "java".into(),
@@ -491,7 +483,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "java-jdbc".into(),
             options: HashMap::new(),
         },
-        // --- Kotlin ---
         BackendConfig {
             name: "kotlin-jdbc".into(),
             language: "kotlin".into(),
@@ -519,7 +510,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "kotlin-jdbc".into(),
             options: HashMap::new(),
         },
-        // --- C# ---
         BackendConfig {
             name: "csharp-npgsql".into(),
             language: "csharp".into(),
@@ -547,7 +537,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "csharp-microsoft-sqlite".into(),
             options: HashMap::new(),
         },
-        // --- MariaDB ---
         BackendConfig {
             name: "rust-sqlx-mariadb".into(),
             language: "rust".into(),
@@ -647,7 +636,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "php-pdo".into(),
             options: HashMap::new(),
         },
-        // --- Oracle ---
         BackendConfig {
             name: "python-oracledb-oracle".into(),
             language: "python".into(),
@@ -729,7 +717,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "rust-sibyl".into(),
             options: HashMap::new(),
         },
-        // --- MSSQL ---
         BackendConfig {
             name: "rust-tiberius-mssql".into(),
             language: "rust".into(),
@@ -820,7 +807,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "php-pdo".into(),
             options: HashMap::new(),
         },
-        // --- Redshift backends (PG-compatible drivers) ---
         BackendConfig {
             name: "rust-sqlx-redshift".into(),
             language: "rust".into(),
@@ -938,7 +924,6 @@ fn build_backends() -> Vec<BackendConfig> {
             backend: "php-pdo".into(),
             options: HashMap::new(),
         },
-        // --- Snowflake backends ---
         BackendConfig {
             name: "python-snowflake".into(),
             language: "python".into(),
@@ -1041,7 +1026,6 @@ fn render_template(env: &Environment<'_>, template_name: &str, context: &Templat
     let mut output = tmpl
         .render(context)
         .map_err(|err| format!("rendering '{template_name}': {err}"))?;
-    // Ensure trailing newline for POSIX compliance.
     if !output.ends_with('\n') {
         output.push('\n');
     }
@@ -1074,7 +1058,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let outputs = language_outputs(&backend.language);
         let context = TemplateContext::from(backend);
 
-        // Check that the required templates exist before creating the directory.
         if env.get_template(&outputs.test_template).is_err() {
             eprintln!(
                 "warning: skipping {} — template '{}' not found",
@@ -1086,11 +1069,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         fs::create_dir_all(&output_dir)?;
 
-        // Render scythe.toml
         let scythe_toml = render_template(&env, "scythe.toml.jinja", &context)?;
         fs::write(output_dir.join("scythe.toml"), scythe_toml)?;
 
-        // Render test file (create parent dirs for nested paths like test/foo.exs)
         let test_path = output_dir.join(outputs.test_filename);
         if let Some(parent) = test_path.parent() {
             fs::create_dir_all(parent)?;
@@ -1098,13 +1079,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let test_content = render_template(&env, &outputs.test_template, &context)?;
         fs::write(&test_path, test_content)?;
 
-        // Render dependency file
         if env.get_template(&outputs.dep_template).is_ok() {
             let dep_content = render_template(&env, &outputs.dep_template, &context)?;
             fs::write(output_dir.join(outputs.dep_filename), dep_content)?;
         }
 
-        // Render extra files
         for (tmpl, filename) in &outputs.extra {
             if env.get_template(tmpl).is_ok() {
                 let content = render_template(&env, tmpl, &context)?;

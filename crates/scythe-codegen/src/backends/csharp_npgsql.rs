@@ -100,9 +100,6 @@ impl CodegenBackend for CsharpNpgsqlBackend {
     }
 
     fn post_footer(&self) -> String {
-        // Generate extension methods for all tracked enums
-        // These must be top-level static classes, not nested inside the Queries class
-        // They reference the nested enum types via Queries.EnumName
         if let Ok(enums) = self.generated_enums.lock() {
             if enums.is_empty() {
                 return String::new();
@@ -169,7 +166,6 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
         );
-        // Cast enum parameters to their PG type so Npgsql sends them correctly
         for (i, p) in params.iter().enumerate() {
             if let Some(enum_name) = p.neutral_type.strip_prefix("enum::") {
                 let placeholder = format!("@p{}", i + 1);
@@ -179,7 +175,6 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         }
         let mut out = String::new();
 
-        // Build C# parameter list
         let param_list = params
             .iter()
             .map(|p| format!("{} {}", p.full_type, p.field_name))
@@ -187,7 +182,6 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Handle :batch separately
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}Batch", func_name);
             if params.len() > 1 {
@@ -261,7 +255,6 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             return Ok(out);
         }
 
-        // Return type depends on command
         let return_type = match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => format!("{}?", struct_name),
             QueryCommand::Many => format!("List<{}>", struct_name),
@@ -286,7 +279,6 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             task_type, func_name, sep, param_list
         );
 
-        // Command setup
         let _ = writeln!(out, "    await using var cmd = new NpgsqlCommand(\"{}\", conn);", sql);
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
@@ -357,7 +349,6 @@ impl CodegenBackend for CsharpNpgsqlBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child record first — no forward references in the parent
         let _ = writeln!(out, "public record {}(", child_struct_name);
         for (i, c) in child_columns.iter().enumerate() {
             let field = to_pascal_case(&c.field_name);
@@ -367,7 +358,6 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         let _ = writeln!(out, ");");
         let _ = writeln!(out);
 
-        // Parent record — parent columns then the children collection
         let _ = writeln!(out, "public record {}(", parent_struct_name);
         for c in parent_columns {
             let field = to_pascal_case(&c.field_name);
@@ -493,12 +483,10 @@ impl CodegenBackend for CsharpNpgsqlBackend {
         }
         let _ = write!(out, "}}");
 
-        // Track this enum so we can generate its extension method in post_footer
-        if let Ok(mut enums) = self.generated_enums.lock() {
-            // Only add if not already present
-            if !enums.iter().any(|e| e.sql_name == enum_info.sql_name) {
-                enums.push(enum_info.clone());
-            }
+        if let Ok(mut enums) = self.generated_enums.lock()
+            && !enums.iter().any(|e| e.sql_name == enum_info.sql_name)
+        {
+            enums.push(enum_info.clone());
         }
 
         Ok(out)

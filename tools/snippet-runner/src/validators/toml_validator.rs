@@ -10,7 +10,7 @@ impl SnippetValidator for TomlValidator {
     }
 
     fn is_available(&self) -> bool {
-        true // In-process, always available
+        true
     }
 
     fn validate(

@@ -32,10 +32,6 @@ impl MatcherHit {
 /// string bindings used to render the rule's message template.
 pub type MatcherFn = fn(&LintContext<'_>, &toml::Table) -> Vec<MatcherHit>;
 
-// ---------------------------------------------------------------------------
-// MatcherRegistry
-// ---------------------------------------------------------------------------
-
 /// Registry mapping matcher names to [`MatcherFn`] implementations.
 pub struct MatcherRegistry {
     matchers: AHashMap<&'static str, MatcherFn>,
@@ -111,7 +107,6 @@ mod tests {
     fn canonical_registry_has_all_matchers() {
         let reg = MatcherRegistry::canonical();
         let expected = [
-            // Security
             "function_name_in_set",
             "grant_kind",
             "grantee_includes",
@@ -127,7 +122,6 @@ mod tests {
             "policy_references_user_metadata",
             "policy_always_permissive",
             "policy_uses_uncached_auth_function",
-            // Migration
             "drop_statement",
             "create_index_concurrency",
             "alter_table_rename_column",
@@ -140,7 +134,6 @@ mod tests {
             "create_domain_with_constraint",
             "alter_column_drop_not_null",
             "add_column_not_null_no_default",
-            // Quality / antipattern
             "check_constraint_always_true",
         ];
         for name in &expected {

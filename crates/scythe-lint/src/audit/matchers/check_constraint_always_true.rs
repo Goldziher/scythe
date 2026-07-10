@@ -202,9 +202,6 @@ mod tests {
 
     #[test]
     fn no_match_unrelated_eq() {
-        // 1 = 2 is also a tautological constant, but it's always FALSE — that
-        // CHECK would forbid every row, so SC-CHK01 stays narrow and does
-        // NOT fire here. (A later rule could flag always-false CHECKs.)
         let sql = "CREATE TABLE x (a int, CHECK (1 = 2));";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);

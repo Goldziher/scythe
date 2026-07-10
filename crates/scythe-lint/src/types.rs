@@ -4,7 +4,6 @@ use scythe_core::dialect::SqlDialect;
 use serde::Deserialize;
 
 // ---------------------------------------------------------------------------
-// Severity
 // ---------------------------------------------------------------------------
 
 /// Severity of a lint/audit finding.
@@ -31,10 +30,6 @@ impl Severity {
         }
     }
 }
-
-// ---------------------------------------------------------------------------
-// RuleCategory
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -65,10 +60,6 @@ impl std::fmt::Display for RuleCategory {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Violation & LintFix
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone)]
 pub struct LintFix {
     pub description: String,
@@ -82,10 +73,6 @@ pub struct Violation {
     pub fix: Option<LintFix>,
 }
 
-// ---------------------------------------------------------------------------
-// LintContext
-// ---------------------------------------------------------------------------
-
 pub struct LintContext<'a> {
     pub sql: &'a str,
     pub stmt: &'a sqlparser::ast::Statement,
@@ -94,10 +81,6 @@ pub struct LintContext<'a> {
     pub annotations: &'a scythe_core::parser::Annotations,
     pub dialect: SqlDialect,
 }
-
-// ---------------------------------------------------------------------------
-// SqruffConfig
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct SqruffConfig {
@@ -110,10 +93,6 @@ pub struct SqruffConfig {
 fn default_true() -> bool {
     true
 }
-
-// ---------------------------------------------------------------------------
-// LintConfig
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize, Default)]
 pub struct LintConfig {
@@ -161,7 +140,6 @@ mod tests {
 
     #[test]
     fn rule_category_variants_exist() {
-        // Ensure all seven categories are distinct
         let cats = [
             RuleCategory::Naming,
             RuleCategory::Safety,

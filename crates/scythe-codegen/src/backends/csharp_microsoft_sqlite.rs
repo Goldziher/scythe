@@ -20,7 +20,6 @@ fn rewrite_sqlite_placeholders(sql: &str) -> String {
 
     while let Some(ch) = chars.next() {
         if ch == '\'' {
-            // Inside string literal, don't change anything
             result.push(ch);
             while let Some(inner) = chars.next() {
                 result.push(inner);
@@ -33,7 +32,6 @@ fn rewrite_sqlite_placeholders(sql: &str) -> String {
                 }
             }
         } else if ch == '?' && !chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-            // Replace unnamed ? with ?1, ?2, etc.
             placeholder_count += 1;
             result.push_str(&format!("?{placeholder_count}"));
         } else {
@@ -72,9 +70,9 @@ fn reader_method(neutral_type: &str) -> &'static str {
     match neutral_type {
         "bool" => "GetBoolean",
         "int16" => "GetInt16",
-        "int32" => "GetInt64", // SQLite INTEGER is unbounded, use Int64
+        "int32" => "GetInt64",
         "int64" => "GetInt64",
-        "float32" => "GetDouble", // SQLite REAL is double-precision, use Double
+        "float32" => "GetDouble",
         "float64" => "GetDouble",
         "string" | "json" | "inet" | "interval" | "uuid" | "date" | "time" | "time_tz" | "datetime_tz" => "GetString",
         "decimal" => "GetDecimal",
@@ -158,7 +156,6 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Handle :batch separately
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}Batch", func_name);
             if params.len() > 1 {

@@ -48,28 +48,22 @@ pub fn resolve_type_pair<'a>(
 
 /// Resolve the base type (without nullable wrapping).
 fn resolve_base_type<'a>(neutral: &str, manifest: &'a BackendManifest) -> Result<Cow<'a, str>, BackendError> {
-    // Check for container pattern: "container_name<inner_type>"
     if let Some(resolved) = try_resolve_container(neutral, manifest)? {
         return Ok(Cow::Owned(resolved));
     }
 
-    // Check for enum prefix
     if let Some(sql_name) = neutral.strip_prefix("enum::") {
         return Ok(Cow::Owned(to_pascal_case(sql_name).into_owned()));
     }
 
-    // Check for composite prefix
     if let Some(sql_name) = neutral.strip_prefix("composite::") {
         return Ok(Cow::Owned(to_pascal_case(sql_name).into_owned()));
     }
 
-    // Scalar lookup
     if let Some(lang_type) = manifest.types.scalars.get(neutral) {
         return Ok(Cow::Borrowed(lang_type.as_str()));
     }
 
-    // Passthrough: user-defined type name (e.g., "EventData")
-    // We treat it as passthrough if it starts with an uppercase letter
     if neutral.chars().next().is_some_and(|c| c.is_uppercase()) {
         return Ok(Cow::Owned(neutral.to_string()));
     }
@@ -80,30 +74,24 @@ fn resolve_base_type<'a>(neutral: &str, manifest: &'a BackendManifest) -> Result
 /// Try to parse and resolve a container type like "array<int32>".
 /// Returns None if the input doesn't match any container pattern.
 fn try_resolve_container(neutral: &str, manifest: &BackendManifest) -> Result<Option<String>, BackendError> {
-    // Find the first '<' to detect container syntax
     let Some(angle_pos) = neutral.find('<') else {
         return Ok(None);
     };
 
     let container_name = &neutral[..angle_pos];
 
-    // Check if this container is known
     let Some(pattern) = manifest.types.containers.get(container_name) else {
         return Err(BackendError::UnknownContainer(container_name.to_string()));
     };
 
-    // Extract the inner type (strip trailing '>')
     let inner = neutral[angle_pos + 1..]
         .strip_suffix('>')
         .ok_or_else(|| BackendError::UnknownType(neutral.to_string()))?;
 
-    // Trim whitespace from inner type
     let inner = inner.trim();
 
-    // Recursively resolve the inner type
     let resolved_inner = resolve_base_type(inner, manifest)?;
 
-    // Apply the container pattern
     let result = pattern.replace("{T}", &resolved_inner);
     Ok(Some(result))
 }

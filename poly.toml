@@ -10,8 +10,7 @@ trim_trailing_whitespace = true
 exclude = [
     "**/*.lock",
     "**/*.svg",
-    # scythe's SQL codegen test corpus — inputs its generator consumes and
-    # snapshots; must stay byte-stable, so poly does not lint/format them.
+    "**/*.jinja",
     "tests/schemas/**",
     "**/Cargo.lock",
     "**/go.sum",
@@ -28,6 +27,8 @@ exclude = [
     "vendor/**",
     "docs/snippets",
     "integration_tests",
+    "crates/*-ffi/include/*.h",
+    "packages/go/include/*.h",
 ]
 
 [lint.python.ruff]
@@ -37,6 +38,45 @@ line_length = 120
 [lint.markdown.rumdl]
 disable = ["MD012", "MD013", "MD024", "MD030", "MD033", "MD035", "MD036", "MD041", "MD046", "MD051", "MD076"]
 
+
+[lint.uncomment]
+enabled = true
+remove_todos = false
+remove_fixme = false
+remove_docs = false
+use_default_ignores = true
+preserve_patterns = [
+    "SAFETY",
+    "HACK",
+    "WORKAROUND",
+    "NOTE",
+    "Copyright",
+    "Licensed",
+    "License",
+    "SPDX",
+    "Apache",
+    "MIT",
+    "WITHOUT WARRANTIES",
+    "limitations under the License",
+    "copyright",
+    "licensed",
+    "license",
+    "apache",
+    "you may not use this file except in compliance",
+    "You may obtain a copy of the License",
+    "you may obtain a copy of the license",
+    "http://www.apache.org/licenses/LICENSE-2.0",
+    "http://www.apache.org/licenses/license-2.0",
+    "Unless required by applicable law",
+    "unless required by applicable law",
+    "distributed under the License",
+    "distributed under the license",
+    "AS IS",
+    "as is",
+    "without warranties",
+    "specific language governing permissions",
+    "limitations under the license",
+]
 [fmt.markdown.rumdl]
 disable = ["MD012", "MD013", "MD024", "MD030", "MD033", "MD035", "MD036", "MD041", "MD046", "MD051", "MD076"]
 
@@ -54,49 +94,17 @@ extend_exclude = [
     "**/package-lock.json",
 ]
 # NOTE: typos extend-ignore-re is NOT portable to poly (no regex-based ignore support).
+extend_ignore_words = ["CHEC", "SELEC", "CHECKs", "SELCT", "SELECTs", "ba", "inh", "statu"]
 
 [hooks]
 stages = ["pre-commit"]
 
 [hooks.builtin]
-polylint = { exclude = [
-    "**/*.lock",
-    "**/*.svg",
-    "**/Cargo.lock",
-    "**/go.sum",
-    "**/package-lock.json",
-    "**/pnpm-lock.yaml",
-    "**/uv.lock",
-    ".basemind/**",
-    "artifacts/**",
-    "dist/**",
-    "docs/snippets/**",
-    "integration_tests/**",
-    "node_modules/**",
-    "target/**",
-    "vendor/**",
-] }
-polyfmt = { exclude = [
-    "**/*.lock",
-    "**/*.svg",
-    "**/Cargo.lock",
-    "**/go.sum",
-    "**/package-lock.json",
-    "**/pnpm-lock.yaml",
-    "**/uv.lock",
-    ".basemind/**",
-    "artifacts/**",
-    "dist/**",
-    "docs/snippets/**",
-    "integration_tests/**",
-    "node_modules/**",
-    "target/**",
-    "vendor/**",
-] }
 commit = { stages = ["commit-msg"] }
 file_safety = { exclude = [
     "**/*.lock",
     "**/*.svg",
+    "**/*.jinja",
     "**/Cargo.lock",
     "**/go.sum",
     "**/package-lock.json",
@@ -110,10 +118,50 @@ file_safety = { exclude = [
     "node_modules/**",
     "target/**",
     "vendor/**",
+    "crates/*-ffi/include/*.h",
+    "packages/go/include/*.h",
 ] }
 cargo = true
 
-# --- catalog tools (standalone binaries, PATH-probed) ---
+lint = { exclude = [
+    "**/*.lock",
+    "**/*.svg",
+    "**/Cargo.lock",
+    "**/go.sum",
+    "**/package-lock.json",
+    "**/pnpm-lock.yaml",
+    "**/uv.lock",
+    ".basemind/**",
+    "artifacts/**",
+    "dist/**",
+    "docs/snippets/**",
+    "integration_tests/**",
+    "node_modules/**",
+    "target/**",
+    "vendor/**",
+    "crates/*-ffi/include/*.h",
+    "packages/go/include/*.h",
+] }
+fmt = { exclude = [
+    "**/*.lock",
+    "**/*.svg",
+    "**/*.jinja",
+    "**/Cargo.lock",
+    "**/go.sum",
+    "**/package-lock.json",
+    "**/pnpm-lock.yaml",
+    "**/uv.lock",
+    ".basemind/**",
+    "artifacts/**",
+    "dist/**",
+    "docs/snippets/**",
+    "integration_tests/**",
+    "node_modules/**",
+    "target/**",
+    "vendor/**",
+    "crates/*-ffi/include/*.h",
+    "packages/go/include/*.h",
+] }
 [tools.shfmt]
 enabled = true
 
@@ -123,6 +171,17 @@ enabled = true
 [tools.actionlint]
 enabled = true
 
-# --- dropped / unmapped hooks (for the record) ---
-# UNMAPPED: taplo-format
-# UNMAPPED: biome-format
+
+[per-file-ignores]
+"e2e/**" = ["comment", "doc-comment"]
+"**/e2e/**" = ["comment", "doc-comment"]
+"test_apps/**" = ["comment", "doc-comment"]
+"**/test_apps/**" = ["comment", "doc-comment"]
+"docs/assets/**" = ["comment", "doc-comment"]
+"**/generated/**" = ["comment", "doc-comment"]
+"**/*.generated.*" = ["comment", "doc-comment"]
+"**/*.g.*" = ["comment", "doc-comment"]
+"**/*.freezed.*" = ["comment", "doc-comment"]
+"crates/*-ffi/include/*.h" = ["comment", "doc-comment"]
+"packages/go/include/*.h" = ["comment", "doc-comment"]
+"Package.swift" = ["comment", "doc-comment"]

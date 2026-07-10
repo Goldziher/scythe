@@ -26,7 +26,6 @@ impl SnippetValidator for ElixirValidator {
 
         let mut cmd = match level {
             ValidationLevel::Syntax | ValidationLevel::Compile => {
-                // Write a checker script that parses without executing
                 let checker_path = dir.path().join("check.exs");
                 let checker = format!(
                     r#"path = "{}"

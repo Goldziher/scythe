@@ -70,7 +70,6 @@ impl CodegenBackend for TypescriptMysql2Backend {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
             let mut out = generate_zod_row_struct(&struct_name, query_name, columns);
-            // mysql2 needs a RowDataPacket-compatible interface for query generics
             let _ = writeln!(out);
             let _ = writeln!(out);
             let _ = write!(
@@ -119,7 +118,6 @@ impl CodegenBackend for TypescriptMysql2Backend {
             format!("pool: Pool, {}", param_list)
         };
 
-        // Helper: write function signature, inline or multi-line based on length
         let write_fn_sig = |out: &mut String, name: &str, params_inline: &str, ret: &str| {
             let oneliner = format!("export async function {}({}): {} {{", name, params_inline, ret);
             if oneliner.len() <= 80 {
@@ -137,7 +135,6 @@ impl CodegenBackend for TypescriptMysql2Backend {
             }
         };
 
-        // Helper: write param array for execute call
         let param_array = if params.is_empty() {
             String::new()
         } else {
@@ -145,7 +142,6 @@ impl CodegenBackend for TypescriptMysql2Backend {
             format!(", [{}]", args.join(", "))
         };
 
-        // In Zod mode, mysql2 query generics use the Packet interface
         let query_type = if self.row_type == TsRowType::Zod {
             format!("{struct_name}Packet")
         } else {
@@ -330,7 +326,6 @@ impl CodegenBackend for TypescriptMysql2Backend {
             let _ = writeln!(out, "): {ret} {{");
         }
 
-        // Fetch flat rows; RowDataPacket extends Record<string, any>
         if params.is_empty() {
             let _ = writeln!(
                 out,
@@ -345,7 +340,6 @@ impl CodegenBackend for TypescriptMysql2Backend {
             );
         }
 
-        // Fold — RowDataPacket rows have any-typed columns, use dot access
         let fold = generate_ts_grouped_fold_body(
             parent_struct_name,
             child_struct_name,
@@ -493,7 +487,6 @@ mod tests {
             query_fn.contains("pool.execute<RowDataPacket[]>"),
             "must use pool.execute; got:\n{query_fn}"
         );
-        // mysql2 uses dot access (any-typed RowDataPacket)
         assert!(query_fn.contains("row.id"), "must use dot access; got:\n{query_fn}");
         assert!(
             query_fn.contains("new Map<unknown, GetUsersWithOrdersRow>()"),

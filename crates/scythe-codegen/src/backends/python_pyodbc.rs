@@ -380,7 +380,6 @@ impl CodegenBackend for PythonPyodbcBackend {
             }
         };
 
-        // Signature: pyodbc.Connection is short enough to fit in 88 chars for typical names.
         let sig =
             format!("def {func_name}(conn: pyodbc.Connection{kw_sep}{param_list}) -> list[{parent_struct_name}]:");
         if sig.len() <= 88 {

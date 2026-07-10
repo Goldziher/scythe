@@ -32,7 +32,6 @@ pub fn print_summary(summary: &RunSummary, show_code: bool) {
         );
 
         if result.status == SnippetStatus::Fail || result.status == SnippetStatus::Error {
-            // Show source location
             let title_info = result
                 .snippet
                 .title
@@ -46,7 +45,6 @@ pub fn print_summary(summary: &RunSummary, show_code: bool) {
                 title_info,
             );
 
-            // Show full error output
             if let Some(msg) = &result.message {
                 let trimmed = msg.trim();
                 if !trimmed.is_empty() {
@@ -57,7 +55,6 @@ pub fn print_summary(summary: &RunSummary, show_code: bool) {
                 }
             }
 
-            // Optionally show the snippet source code
             if show_code {
                 println!("  Code:");
                 for (i, line) in result.snippet.code.lines().enumerate() {

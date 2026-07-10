@@ -188,7 +188,6 @@ mod tests {
 
     #[test]
     fn kinds_filter_isolates_rules() {
-        // A PRIMARY KEY add must not fire the SC-MIG14 (unique-only) variant.
         let sql = "ALTER TABLE accounts ADD CONSTRAINT accounts_pk PRIMARY KEY (id);";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);

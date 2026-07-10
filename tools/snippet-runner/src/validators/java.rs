@@ -12,7 +12,6 @@ impl JavaValidator {
     fn class_name(code: &str) -> String {
         for line in code.lines() {
             let trimmed = line.trim();
-            // Try all public type declarations
             for prefix in [
                 "public class ",
                 "public abstract class ",
@@ -36,7 +35,6 @@ impl JavaValidator {
     /// e.g. `public static ExtractionResult extractFile(String path) throws IOException`
     fn is_api_signature(code: &str) -> bool {
         let trimmed = code.trim();
-        // Multiple method signatures listed (no braces at all)
         if !trimmed.contains('{') {
             let has_method = trimmed.contains('(') && trimmed.contains(')');
             let has_modifier = trimmed.starts_with("public ")
@@ -54,9 +52,7 @@ impl JavaValidator {
     fn wrap_if_fragment(code: &str) -> (String, String) {
         let trimmed = code.trim();
 
-        // Bare API signatures — treat as pass-through (will fail and be caught by is_dependency_error)
         if Self::is_api_signature(trimmed) {
-            // Wrap in interface (methods are implicitly abstract)
             let methods: String = trimmed
                 .lines()
                 .map(|l| {
@@ -64,7 +60,6 @@ impl JavaValidator {
                     if t.is_empty() || t.starts_with("//") || t.starts_with("import ") {
                         l.to_string()
                     } else {
-                        // Strip modifiers that aren't allowed in interfaces
                         let cleaned = t
                             .replace("public static ", "")
                             .replace("public ", "")
@@ -81,7 +76,6 @@ impl JavaValidator {
             return ("Snippet".to_string(), format!("interface Snippet {{\n{methods}\n}}"));
         }
 
-        // Has a class/interface/enum/record declaration — use as-is
         if trimmed.contains("class ")
             || trimmed.contains("interface ")
             || trimmed.contains("enum ")
@@ -91,7 +85,6 @@ impl JavaValidator {
             return (name, code.to_string());
         }
 
-        // Separate imports from body
         let mut imports = Vec::new();
         let mut body_lines = Vec::new();
         let mut past_imports = false;
@@ -108,7 +101,6 @@ impl JavaValidator {
         let body_str = body_lines.join("\n");
         let body_trimmed = body_str.trim();
 
-        // Check if body contains method declarations (should be class members, not in main)
         let has_method_decl = body_trimmed.starts_with("public ")
             || body_trimmed.starts_with("private ")
             || body_trimmed.starts_with("protected ")
@@ -116,7 +108,6 @@ impl JavaValidator {
             || body_trimmed.starts_with("@");
 
         if has_method_decl && !body_trimmed.contains("class ") {
-            // Method-level code — wrap in a class without main
             let has_imports = !imports_str.trim().is_empty();
             if has_imports {
                 return (
@@ -130,7 +121,6 @@ impl JavaValidator {
             );
         }
 
-        // Statement-level code — wrap in class + main
         let has_imports = !imports_str.trim().is_empty();
         if has_imports {
             (
@@ -181,7 +171,6 @@ impl SnippetValidator for JavaValidator {
                 c
             }
             ValidationLevel::Run => {
-                // First compile
                 let mut compile = std::process::Command::new("javac");
                 compile.args(["-d", &dir.path().to_string_lossy(), &path_str]);
                 let (ok, output) = run_command(&mut compile, timeout_secs)?;
@@ -212,7 +201,6 @@ impl SnippetValidator for JavaValidator {
         let error_lines: Vec<&str> = output
             .lines()
             .filter(|l| {
-                // Match javac error lines (file:line: error: message) or summary lines (N errors)
                 l.contains(": error:")
                     || l.contains(": error ")
                     || l.trim().ends_with("error")
@@ -229,25 +217,25 @@ impl SnippetValidator for JavaValidator {
                 || (line.contains("package") && line.contains("does not exist"))
                 || line.contains("cannot access")
                 || line.contains("class, interface, enum, or record expected")
-                || line.contains("illegal start of expression") // from wrapping artifacts
+                || line.contains("illegal start of expression")
                 || line.contains("reached end of file while parsing")
                 || line.contains("not a statement")
-                || line.contains("should be declared in a file named") // filename mismatch
-                || line.contains("illegal combination of modifiers") // abstract static
-                || line.contains("unreported exception") // checked exceptions
-                || line.contains("incompatible types") // cascading type errors
-                || (line.contains(" error") && line.trim().ends_with("errors")) // N errors summary
-                || (line.contains(" error") && line.trim().ends_with("error")) // 1 error summary
-                || line.contains("class, interface, annotation type") // top-level statement after class
-                || line.contains("method does not override") // missing interface
-                || line.contains("is abstract; cannot be instantiated") // abstract type usage
-                || line.contains("illegal start of type") // bare method sigs in interface
-                || line.contains("<identifier> expected") // cascading from type wrapping
-                || line.contains("= expected") // cascading from interface wrapping
-                || line.trim().ends_with("errors") // "N errors" summary line
-                || line.contains("implicitly declared classes") // preview feature error (Java 21+)
-                || line.contains("preview feature") // general preview feature errors
-                || line.contains("missing method body, or declare abstract") // bare method signatures
+                || line.contains("should be declared in a file named")
+                || line.contains("illegal combination of modifiers")
+                || line.contains("unreported exception")
+                || line.contains("incompatible types")
+                || (line.contains(" error") && line.trim().ends_with("errors"))
+                || (line.contains(" error") && line.trim().ends_with("error"))
+                || line.contains("class, interface, annotation type")
+                || line.contains("method does not override")
+                || line.contains("is abstract; cannot be instantiated")
+                || line.contains("illegal start of type")
+                || line.contains("<identifier> expected")
+                || line.contains("= expected")
+                || line.trim().ends_with("errors")
+                || line.contains("implicitly declared classes")
+                || line.contains("preview feature")
+                || line.contains("missing method body, or declare abstract")
         })
     }
 }

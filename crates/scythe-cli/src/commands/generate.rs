@@ -17,10 +17,6 @@ use scythe_core::parser::{QueryCommand, parse_query_with_dialect};
 
 use super::shared::{resolve_globs, split_query_file};
 
-// ---------------------------------------------------------------------------
-// Config types
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Deserialize)]
 struct ScytheConfig {
     #[allow(dead_code)]
@@ -201,39 +197,28 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Generate command
-// ---------------------------------------------------------------------------
-
 pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    // 1. Read and parse config
     let config_str =
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
-    // 2. Process each SQL block
     for sql_config in &config.sql {
         eprintln!("[{}] Parsing schema...", sql_config.name);
 
-        // 3. Resolve schema files via glob
         let schema_files = resolve_globs(&sql_config.schema)?;
 
-        // 4. Read all schema SQL
         let schema_contents: Vec<String> = schema_files
             .iter()
             .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
             .collect::<Result<_, _>>()?;
         let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
-        // 5. Build catalog with the configured dialect
         let dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &dialect)?;
 
-        // 6. Resolve query files via glob
         let query_files = resolve_globs(&sql_config.queries)?;
 
-        // 7. Split each query file into individual query blocks
         let mut all_query_blocks = Vec::new();
         for query_file in &query_files {
             let content = std::fs::read_to_string(query_file)
@@ -244,7 +229,6 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
 
         eprintln!("[{}] Analyzing {} queries...", sql_config.name, all_query_blocks.len());
 
-        // 8. Parse and analyze all queries once
         let mut analyzed_queries: Vec<AnalyzedQuery> = Vec::new();
         for block in &all_query_blocks {
             let parsed = parse_query_with_dialect(block, &dialect)?;
@@ -252,7 +236,6 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
             analyzed_queries.push(analyzed);
         }
 
-        // 9. Convert type overrides
         let overrides: Vec<TypeOverride> = sql_config
             .type_overrides
             .as_deref()
@@ -265,7 +248,6 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
             })
             .collect();
 
-        // 10. Generate code for each backend target
         let gen_targets = resolve_gen_targets(sql_config);
 
         for target in &gen_targets {
@@ -316,7 +298,6 @@ fn generate_for_backend(
         results.push(QueryResult { code, enums });
     }
 
-    // Deduplicate enums across all queries
     let mut seen_enums = AHashSet::new();
     let mut unique_enum_defs: Vec<String> = Vec::new();
     for result in &results {
@@ -329,24 +310,20 @@ fn generate_for_backend(
         }
     }
 
-    // Build output: header → enums → per-query structs/functions
     let mut output_parts: Vec<String> = Vec::new();
 
-    // File header from backend
-    let header = backend.file_header();
+    let generated: Vec<scythe_codegen::GeneratedCode> = results.iter().map(|result| result.code.clone()).collect();
+    let header = backend.file_header_for_results(&generated);
     if !header.is_empty() {
         output_parts.push(header);
     }
 
-    // Deduplicated enums
     for def in &unique_enum_defs {
         output_parts.push(def.clone());
     }
 
-    // Per-query code (structs + functions, skip enum_def since we already deduplicated above)
     let class_header = backend.query_class_header();
     if class_header.is_empty() {
-        // No class wrapper: interleave structs and functions as before
         for result in &results {
             if let Some(ref s) = result.code.model_struct {
                 output_parts.push(s.clone());
@@ -359,8 +336,6 @@ fn generate_for_backend(
             }
         }
     } else {
-        // Class wrapper mode: emit all type definitions first, then class
-        // header, then all query functions (so types stay outside the class).
         for result in &results {
             if let Some(ref s) = result.code.model_struct {
                 output_parts.push(s.clone());
@@ -377,20 +352,16 @@ fn generate_for_backend(
         }
     }
 
-    // File footer (e.g., closing brace for C# class wrapper)
     let footer = backend.file_footer();
     if !footer.is_empty() {
         output_parts.push(footer);
     }
 
-    // Post-footer code (e.g., top-level C# extension methods)
     let post_footer = backend.post_footer();
     if !post_footer.is_empty() {
         output_parts.push(post_footer);
     }
 
-    // Determine output filename from backend manifest
-    // Java requires the filename to match the public class name (Queries.java, not queries.java)
     let ext = &backend.manifest().backend.file_extension;
     let filename = if ext == "java" {
         format!("Queries.{}", ext)
@@ -398,7 +369,6 @@ fn generate_for_backend(
         format!("queries.{}", ext)
     };
 
-    // Write output
     let out_path = Path::new(output_dir);
     std::fs::create_dir_all(out_path).map_err(|e| format!("failed to create output dir '{}': {}", output_dir, e))?;
 
@@ -409,7 +379,6 @@ fn generate_for_backend(
         output_parts.join("\n\n") + "\n"
     };
 
-    // Format Rust code to be rustfmt-compliant
     if ext == "rs" {
         output_content = format_rust_code_if_possible(&output_content);
     }
@@ -424,7 +393,6 @@ fn generate_for_backend(
         output_file.display()
     );
 
-    // Generate RBS type signature file for Ruby backends
     generate_rbs_if_supported(config_name, backend, analyzed_queries, overrides, out_path)?;
 
     Ok(())
@@ -449,7 +417,6 @@ fn generate_rbs_if_supported(
     overrides: &[TypeOverride],
     out_path: &Path,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Quick check: only Ruby backends produce RBS files. Test with an empty context.
     let empty_context = RbsGenerationContext {
         queries: vec![],
         enums: vec![],
@@ -461,7 +428,6 @@ fn generate_rbs_if_supported(
     let manifest = backend.manifest();
     let naming = &manifest.naming;
 
-    // Build RBS query info for each analyzed query
     let mut rbs_queries: Vec<RbsQueryInfo> = Vec::new();
     let mut seen_enums = AHashSet::new();
     let mut rbs_enums: Vec<RbsEnumInfo> = Vec::new();
@@ -493,7 +459,6 @@ fn generate_rbs_if_supported(
             command,
         });
 
-        // Collect enum info
         for enum_info in &analyzed.enums {
             if seen_enums.insert(enum_info.sql_name.clone()) {
                 let type_name = enum_type_name(&enum_info.sql_name, naming);
@@ -523,10 +488,6 @@ fn generate_rbs_if_supported(
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Check command (validate without generating)
-// ---------------------------------------------------------------------------
-
 pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     use scythe_lint::{LintContext, LintEngine, QueryViolation, Severity, default_registry};
 
@@ -535,7 +496,6 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
-    // Build lint engine from config
     let mut registry = default_registry();
     if let Some(ref lint_config) = config.lint {
         registry.apply_config(lint_config);
@@ -595,7 +555,6 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        // Check catalog-level rules
         let cat_violations = engine.check_catalog(&catalog);
         for (v, sev) in cat_violations {
             all_violations.push(QueryViolation {
@@ -606,7 +565,6 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
             });
         }
 
-        // Duplicate query name detection (SC-C03)
         let mut seen_names: AHashSet<String> = AHashSet::new();
         for name in &query_names {
             if !seen_names.insert(name.clone()) {
@@ -622,7 +580,6 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("[{}] All queries valid.", sql_config.name);
     }
 
-    // Print diagnostics
     let mut error_count = 0usize;
     let mut warning_count = 0usize;
     for qv in &all_violations {
@@ -658,7 +615,6 @@ fn format_rust_code_if_possible(code: &str) -> String {
     use std::io::Write;
     use std::process::{Command, Stdio};
 
-    // Try to find rustfmt on PATH
     let Ok(mut child) = Command::new("rustfmt")
         .arg("--edition=2024")
         .stdin(Stdio::piped())
@@ -666,25 +622,19 @@ fn format_rust_code_if_possible(code: &str) -> String {
         .stderr(Stdio::null())
         .spawn()
     else {
-        // rustfmt not available, return original code
         return code.to_string();
     };
 
-    // Write code to rustfmt's stdin
     if let Some(mut stdin) = child.stdin.take() {
         let _ = stdin.write_all(code.as_bytes());
     }
 
-    // Read formatted output
     match child.wait_with_output() {
         Ok(output) if output.status.success() => match String::from_utf8(output.stdout) {
             Ok(formatted) => formatted,
             Err(_) => code.to_string(),
         },
-        _ => {
-            // rustfmt failed, return original code
-            code.to_string()
-        }
+        _ => code.to_string(),
     }
 }
 

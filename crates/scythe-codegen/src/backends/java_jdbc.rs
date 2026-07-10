@@ -300,7 +300,6 @@ impl CodegenBackend for JavaJdbcBackend {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
 
-        // Record declaration with fields
         let fields = columns
             .iter()
             .map(|c| {
@@ -318,13 +317,11 @@ impl CodegenBackend for JavaJdbcBackend {
         let _ = writeln!(out, "{}", fields);
         let _ = writeln!(out, ") {{");
 
-        // fromResultSet static factory method
         let _ = writeln!(
             out,
             "    public static {} fromResultSet(ResultSet rs) throws SQLException {{",
             struct_name
         );
-        // Check if any nullable primitives need wasNull() handling
         let needs_preamble = columns.iter().any(|c| c.nullable && is_java_primitive(&c.lang_type));
         if needs_preamble {
             for col in columns.iter() {
@@ -349,12 +346,10 @@ impl CodegenBackend for JavaJdbcBackend {
         for (i, col) in columns.iter().enumerate() {
             let sep = if i + 1 < columns.len() { "," } else { "" };
             if col.nullable && is_java_primitive(&col.lang_type) {
-                // Already extracted above with wasNull() check
                 let _ = writeln!(out, "            {}{}", col.field_name, sep);
             } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
                 let _ = writeln!(out, "            rs.getObject(\"{}\", {}){}", col.name, class_lit, sep);
             } else if col.neutral_type.starts_with("enum::") {
-                // Enum columns: convert DB string to enum via valueOf(UPPER_CASE)
                 let _ = writeln!(
                     out,
                     "            {}.valueOf(rs.getString(\"{}\").toUpperCase()){}",
@@ -432,8 +427,6 @@ impl CodegenBackend for JavaJdbcBackend {
                 let is_oracle_returning = self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
                 let is_mariadb_returning = self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
                 if is_mariadb_returning {
-                    // MySQL Connector/J rejects executeQuery() for DML statements.
-                    // MariaDB RETURNING works via execute() + getResultSet() instead.
                     let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                     for (i, param) in params.iter().enumerate() {
                         let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
@@ -447,9 +440,6 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "    }}");
                     let _ = write!(out, "}}");
                 } else if is_oracle_returning {
-                    // Oracle RETURNING … INTO requires a PL/SQL BEGIN…END block so that
-                    // the JDBC driver correctly maps the OUT parameters from a DML statement.
-                    // Plain prepareCall on a bare DML RETURNING INTO raises ORA-17173.
                     let into_placeholders = columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
                     let full_sql = format!("BEGIN {} INTO {}; END;", sql, into_placeholders);
                     let _ = writeln!(out, "    try (var cs = conn.prepareCall(\"{}\")) {{", full_sql);
@@ -514,7 +504,6 @@ impl CodegenBackend for JavaJdbcBackend {
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
                 if params.len() > 1 {
-                    // Generate params record
                     let params_record_name = format!("{}BatchParams", to_pascal_case(&analyzed.name));
                     let record_fields = params
                         .iter()
@@ -655,7 +644,6 @@ impl CodegenBackend for JavaJdbcBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child record first — no forward reference in the parent.
         let _ = writeln!(out, "public record {}(", child_struct_name);
         for (i, c) in child_columns.iter().enumerate() {
             let field_type = java_field_type(c);
@@ -669,7 +657,6 @@ impl CodegenBackend for JavaJdbcBackend {
         let _ = writeln!(out, ") {{}}");
         let _ = writeln!(out);
 
-        // Parent record — parent columns then the children collection.
         let _ = writeln!(out, "public record {}(", parent_struct_name);
         for c in parent_columns {
             let field_type = java_field_type(c);
@@ -726,14 +713,11 @@ impl CodegenBackend for JavaJdbcBackend {
         let _ = writeln!(out, "        try (ResultSet rs = ps.executeQuery()) {{");
         let _ = writeln!(out, "            while (rs.next()) {{");
 
-        // Extract key (always non-null for grouping key)
         let key_expr = col_rs_expr(key_col);
         let _ = writeln!(out, "                {key_type} key = {key_expr};");
 
-        // Nullable-primitive preamble for child columns
         write_jdbc_nullable_preamble(&mut out, child_columns, "                ");
 
-        // Build child row
         let _ = writeln!(out, "                var child = new {child_struct_name}(");
         for (i, col) in child_columns.iter().enumerate() {
             let expr = col_rs_expr(col);
@@ -742,12 +726,10 @@ impl CodegenBackend for JavaJdbcBackend {
         }
         let _ = writeln!(out, "                );");
 
-        // Fold into lookup
         let _ = writeln!(out, "                if (lookup.containsKey(key)) {{");
         let _ = writeln!(out, "                    lookup.get(key).children().add(child);");
         let _ = writeln!(out, "                }} else {{");
 
-        // Nullable-primitive preamble for parent columns
         write_jdbc_nullable_preamble(&mut out, parent_columns, "                    ");
 
         let _ = writeln!(out, "                    var parent = new {parent_struct_name}(");

@@ -19,8 +19,6 @@ impl SnippetValidator for SqlValidator {
         _level: ValidationLevel,
         _timeout_secs: u64,
     ) -> Result<(SnippetStatus, Option<String>)> {
-        // SQL validation is a pass-through for now.
-        // Future: integrate with scythe's own SQL parser.
         Ok((SnippetStatus::Pass, None))
     }
 

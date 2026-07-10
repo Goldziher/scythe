@@ -155,7 +155,6 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
         let line_no = line_idx + 1;
         let trimmed = line.trim();
 
-        // Check for annotation: "-- @..." or "--@..."
         let annotation_body = if let Some(rest) = trimmed.strip_prefix("--") {
             let rest = rest.trim_start();
             rest.strip_prefix('@')
@@ -164,7 +163,6 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
         };
 
         if let Some(body) = annotation_body {
-            // Parse the annotation keyword and value
             let (keyword, value) = match body.find(|c: char| c.is_whitespace()) {
                 Some(pos) => (&body[..pos], body[pos..].trim()),
                 None => (body, ""),
@@ -179,14 +177,8 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
                     command = Some(QueryCommand::from_str(cmd_str)?);
                 }
                 "param" => {
-                    // Two forms:
                     //   Positional: -- @param $N name[: description]
-                    //     → overrides the inferred name for parameter at position N.
                     //   Docs-only:  -- @param name[: description]
-                    //     → preserved in param_docs for consumers; does not affect codegen.
-                    //
-                    // Detect the positional form by checking whether the first whitespace-
-                    // separated token matches `$<digits>`.
                     let first_end = value.find(|c: char| c.is_whitespace());
                     let first_token = first_end.map(|p| &value[..p]).unwrap_or(value);
 
@@ -194,7 +186,6 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
                         && let Ok(pos) = digits.parse::<i64>()
                         && pos > 0
                     {
-                        // Positional form: extract name and optional description from the rest.
                         let rest = first_end.map(|p| value[p..].trim()).unwrap_or("").trim();
                         if !rest.is_empty() {
                             let (param_name, description) = if let Some(colon_pos) = rest.find(':') {
@@ -214,7 +205,6 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
                             }
                         }
                     } else {
-                        // Docs-only form: "<name>: <description>" or "<name>:<description>"
                         if let Some(colon_pos) = value.find(':') {
                             let param_name = value[..colon_pos].trim().to_string();
                             let description = value[colon_pos + 1..].trim().to_string();
@@ -247,7 +237,6 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
                     }
                 }
                 "json" => {
-                    // format: "<col> = <Type>"
                     if let Some(eq_pos) = value.find('=') {
                         let column = value[..eq_pos].trim().to_string();
                         let rust_type = value[eq_pos + 1..].trim().to_string();
@@ -269,7 +258,6 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
                     }
                 }
                 other => {
-                    // Unknown annotation — capture verbatim for crate consumers.
                     custom.push(CustomAnnotation {
                         name: other.to_string(),
                         value: value.to_string(),
@@ -297,20 +285,11 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
         return Err(ScytheError::syntax("empty SQL body"));
     }
 
-    // Preprocess dialect-specific syntax before parsing:
-    //   * Oracle: strip `RETURNING ... INTO` output binds, convert `:N` → `?`.
-    //   * MSSQL: convert `OUTPUT INSERTED.*` → `RETURNING` for parsing,
-    //     convert `@pN` → `?` for parsing; keep original SQL for codegen.
-    //   * PostgreSQL: strip `WHERE …` between `ON CONFLICT (cols)` and `DO …`
-    //     for parsing (sqlparser-rs <= 0.61 doesn't recognise the
-    //     partial-index inference form); keep original SQL for codegen.
     let (sql, parse_sql) = if *dialect == SqlDialect::Oracle {
         let processed = preprocess_oracle_sql(&sql);
         (processed.clone(), processed)
     } else if *dialect == SqlDialect::MsSql {
-        // For codegen: only convert @pN → ? placeholders (keep OUTPUT syntax)
         let codegen_sql = convert_mssql_placeholders(&sql);
-        // For parsing: also convert OUTPUT INSERTED → RETURNING
         let parse_sql = preprocess_mssql_sql(&sql);
         (codegen_sql, parse_sql)
     } else if *dialect == SqlDialect::PostgreSQL {
@@ -325,8 +304,6 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
         .map_err(|e| ScytheError::syntax(format!("syntax error: {}", e)))?;
 
     if statements.len() != 1 {
-        // sqlparser may produce an extra empty statement from a trailing semicolon —
-        // filter those out by checking for exactly one non-empty statement.
         let non_empty: Vec<_> = statements
             .into_iter()
             .filter(|s| !matches!(s, sqlparser::ast::Statement::Flush { .. }) && format!("{s}") != "")
@@ -391,9 +368,6 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
 /// we lift it out for the parser and let the caller keep the original SQL
 /// for codegen + runtime, where Postgres validates it.
 fn preprocess_postgres_sql(sql: &str) -> String {
-    // Strip line comments + string literals first so we only scan structural SQL.
-    // (We still emit the original `sql` slice byte-for-byte; the upper-mask is
-    //  only used to decide *where* to cut.)
     let mask = mask_postgres_for_scan(sql);
     let mask_bytes = mask.as_bytes();
     let bytes = sql.as_bytes();
@@ -437,8 +411,6 @@ fn preprocess_postgres_sql(sql: &str) -> String {
             && let Some(do_rel) = find_keyword(&mask[after_cols + "WHERE".len()..], "DO")
         {
             let do_abs = after_cols + "WHERE".len() + do_rel;
-            // Slice from the original SQL (preserves casing + UTF-8) up to
-            // the byte before WHERE; skip ahead to DO.
             result.push_str(std::str::from_utf8(&bytes[last..after_cols]).unwrap_or(""));
             last = do_abs;
             search_from = do_abs;
@@ -461,7 +433,6 @@ fn mask_postgres_for_scan(sql: &str) -> String {
     while i < bytes.len() {
         let b = bytes[i];
         if b == b'-' && i + 1 < bytes.len() && bytes[i + 1] == b'-' {
-            // Line comment — replace through end-of-line with spaces.
             while i < bytes.len() && bytes[i] != b'\n' {
                 out[i] = b' ';
                 i += 1;
@@ -469,7 +440,6 @@ fn mask_postgres_for_scan(sql: &str) -> String {
             continue;
         }
         if b == b'/' && i + 1 < bytes.len() && bytes[i + 1] == b'*' {
-            // Block comment — replace through `*/`.
             out[i] = b' ';
             out[i + 1] = b' ';
             i += 2;
@@ -504,8 +474,6 @@ fn mask_postgres_for_scan(sql: &str) -> String {
             }
             continue;
         }
-        // ASCII goes through as-uppercase; non-ASCII bytes become spaces so the
-        // mask stays single-byte-per-position and positions line up.
         if b.is_ascii() {
             out[i] = b.to_ascii_uppercase();
         } else {
@@ -540,16 +508,12 @@ fn find_keyword(haystack: &str, keyword: &str) -> Option<usize> {
 /// 1. Strip `INTO :N, :N, ...` suffix from `RETURNING ... INTO` clauses.
 /// 2. Convert `:N` positional placeholders to `?` (universally supported).
 fn preprocess_oracle_sql(sql: &str) -> String {
-    // Strip Oracle RETURNING ... INTO clause (output bind variables)
-    // e.g. "INSERT ... RETURNING id, name INTO :4, :5" → "INSERT ... RETURNING id, name"
     let sql = strip_returning_into(sql);
 
-    // Convert :N → ? (outside string literals)
     let mut result = String::with_capacity(sql.len());
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '\'' {
-            // Skip string literals
             result.push(ch);
             while let Some(inner) = chars.next() {
                 result.push(inner);
@@ -562,7 +526,6 @@ fn preprocess_oracle_sql(sql: &str) -> String {
                 }
             }
         } else if ch == ':' && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-            // Convert :N → ?
             result.push('?');
             while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                 chars.next();
@@ -582,13 +545,11 @@ fn convert_mssql_placeholders(sql: &str) -> String {
     let mut chars = sql.chars().peekable();
     while let Some(ch) = chars.next() {
         if ch == '\'' {
-            // Skip string literals verbatim
             result.push(ch);
             while let Some(inner) = chars.next() {
                 result.push(inner);
                 if inner == '\'' {
                     if chars.peek() == Some(&'\'') {
-                        // Escaped quote inside string literal
                         result.push(chars.next().unwrap());
                     } else {
                         break;
@@ -596,12 +557,10 @@ fn convert_mssql_placeholders(sql: &str) -> String {
                 }
             }
         } else if ch == '@' && chars.peek().is_some_and(|c| *c == 'p' || *c == 'P') {
-            // Peek ahead: must be `@p` followed by at least one digit
             let mut lookahead = chars.clone();
-            lookahead.next(); // consume the 'p'/'P'
+            lookahead.next();
             if lookahead.peek().is_some_and(|c| c.is_ascii_digit()) {
-                // It is an `@pN` placeholder — consume `p` and all digits
-                chars.next(); // consume 'p'/'P'
+                chars.next();
                 while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
                     chars.next();
                 }
@@ -620,9 +579,7 @@ fn convert_mssql_placeholders(sql: &str) -> String {
 /// 1. Strip `OUTPUT INSERTED.col, ...` clauses and convert to RETURNING
 /// 2. Convert `@pN` positional placeholders to `?`
 fn preprocess_mssql_sql(sql: &str) -> String {
-    // First pass: convert OUTPUT INSERTED.col to RETURNING col
     let sql = strip_and_convert_mssql_output(sql);
-    // Second pass: convert @pN to ?
     convert_mssql_placeholders(&sql)
 }
 
@@ -633,36 +590,27 @@ fn preprocess_mssql_sql(sql: &str) -> String {
 /// becomes:
 ///   INSERT INTO table (cols) VALUES (...) RETURNING col1, col2, ...
 fn strip_and_convert_mssql_output(sql: &str) -> String {
-    // Case-insensitive search for OUTPUT keyword in INSERT statements
     let upper = sql.to_uppercase();
 
-    // Only process INSERT statements with OUTPUT
     if !upper.contains("INSERT") || !upper.contains("OUTPUT") {
         return sql.to_string();
     }
 
-    // Find the OUTPUT keyword
     if let Some(output_pos) = find_word_position(&upper, "OUTPUT") {
-        // Check if this is actually part of an INSERT statement by finding INSERT before it
         let before_output = &upper[..output_pos];
         if !before_output.contains("INSERT") {
             return sql.to_string();
         }
 
-        // Look for the VALUES keyword after OUTPUT
         let after_output = &upper[output_pos + "OUTPUT".len()..];
         if let Some(values_offset) = find_word_position(after_output, "VALUES") {
             let values_pos = output_pos + "OUTPUT".len() + values_offset;
 
-            // Extract the OUTPUT column list (between OUTPUT and VALUES)
             let output_cols_str = &sql[output_pos + "OUTPUT".len()..values_pos];
 
-            // Parse column names: strip "INSERTED." prefix from each column name
             let cols = parse_inserted_columns(output_cols_str);
 
             if !cols.is_empty() {
-                // Build result: keep everything before OUTPUT, then VALUES clause,
-                // then RETURNING clause (before any trailing semicolon)
                 let before_output_sql = sql[..output_pos].trim_end();
                 let after_values = sql[values_pos..].trim_end();
                 let (values_body, trailing) = if let Some(stripped) = after_values.strip_suffix(';') {
@@ -687,14 +635,12 @@ fn find_word_position(text: &str, word: &str) -> Option<usize> {
     while let Some(idx) = text[pos..].find(word) {
         let abs_idx = pos + idx;
 
-        // Check character before
         let before_ok = abs_idx == 0
             || !text
                 .as_bytes()
                 .get(abs_idx - 1)
                 .is_some_and(|&b| b.is_ascii_alphanumeric() || b == b'_');
 
-        // Check character after
         let after_idx = abs_idx + word_len;
         let after_ok = after_idx >= text.len()
             || !text
@@ -717,7 +663,6 @@ fn parse_inserted_columns(output_str: &str) -> String {
     for part in output_str.split(',') {
         let trimmed = part.trim();
 
-        // Try to extract column name after INSERTED.
         if let Some(after_inserted) = trimmed
             .strip_prefix("INSERTED.")
             .or_else(|| trimmed.strip_prefix("inserted."))
@@ -736,13 +681,11 @@ fn parse_inserted_columns(output_str: &str) -> String {
 
 /// Strip the `INTO :N, :N, ...` suffix from an Oracle `RETURNING ... INTO` clause.
 fn strip_returning_into(sql: &str) -> String {
-    // Case-insensitive search for "INTO" after "RETURNING" at the end of the statement
     let upper = sql.to_uppercase();
     if let Some(ret_pos) = upper.rfind("RETURNING") {
         let after_returning = &upper[ret_pos + "RETURNING".len()..];
         if let Some(into_offset) = after_returning.find("INTO") {
             let into_pos = ret_pos + "RETURNING".len() + into_offset;
-            // Keep everything before INTO, trim trailing whitespace/semicolons
             let trimmed = sql[..into_pos].trim_end();
             return trimmed.to_string();
         }
@@ -817,7 +760,6 @@ mod tests {
 
     #[test]
     fn test_empty_name_value() {
-        // An empty name is accepted by the parser (it stores "")
         let input = "-- @name\n-- @returns :one\nSELECT 1";
         let q = parse(input).unwrap();
         assert_eq!(q.name, "");
@@ -866,8 +808,6 @@ mod tests {
 
     #[test]
     fn test_custom_annotations_captured() {
-        // Unknown @xxx lines are captured verbatim as CustomAnnotation triples;
-        // native annotations remain in their typed fields.
         let input = "-- @name GetUser
 -- @returns :one
 -- @http GET /users/{id}
@@ -934,7 +874,6 @@ SELECT 1";
         assert_eq!(q.annotations.positional_param_docs[0].position, 1);
         assert_eq!(q.annotations.positional_param_docs[0].name, "user_id");
         assert_eq!(q.annotations.positional_param_docs[0].description, "");
-        // docs-only list must be empty
         assert_eq!(q.annotations.param_docs.len(), 0);
     }
 
@@ -953,7 +892,6 @@ SELECT 1";
 
     #[test]
     fn test_positional_param_does_not_affect_docs_only_param() {
-        // The docs-only form still works alongside the positional form.
         let input = "-- @name Foo\n-- @returns :one\n-- @param id: the user ID\n-- @param $2 name\nSELECT 1";
         let q = parse(input).unwrap();
         assert_eq!(q.annotations.param_docs.len(), 1);
@@ -1063,7 +1001,6 @@ SELECT 1";
                 .to_uppercase()
                 .contains("ON CONFLICT (STRIPE_EVENT_ID) DO NOTHING")
         );
-        // sqlparser must accept the cleaned form.
         sqlparser::parser::Parser::parse_sql(&sqlparser::dialect::PostgreSqlDialect {}, &cleaned)
             .expect("cleaned SQL should parse");
     }
@@ -1091,17 +1028,12 @@ SELECT 1";
 
     #[test]
     fn test_preprocess_postgres_preserves_unrelated_where() {
-        // The DELETE's WHERE is its own clause, not an ON-CONFLICT predicate;
-        // it must survive untouched.
         let sql = "DELETE FROM t WHERE id = $1";
         assert_eq!(preprocess_postgres_sql(sql), sql);
     }
 
     #[test]
     fn test_preprocess_postgres_ignores_text_inside_line_comments() {
-        // Earlier scans treated this as a real `ON CONFLICT (col) WHERE … DO`
-        // and excised the entire comment + INSERT body up to the next `DO`.
-        // Comments must be opaque to the predicate-stripping pass.
         let sql = "-- inline doc: `ON CONFLICT (col) WHERE …` is the partial form\n\
                    INSERT INTO t (a) VALUES ($1) \
                    ON CONFLICT (a) WHERE a IS NOT NULL DO NOTHING";
@@ -1199,7 +1131,6 @@ SELECT 1";
 
     #[test]
     fn test_preprocess_mssql_non_placeholder_at_variable_unchanged() {
-        // @variable (not @pN pattern) must not be touched
         assert_eq!(preprocess_mssql_sql("SELECT @myvar"), "SELECT @myvar");
     }
 
@@ -1212,7 +1143,6 @@ SELECT 1";
     fn test_preprocess_mssql_output_inserted_simple() {
         let sql = "INSERT INTO users (id, name) OUTPUT INSERTED.id, INSERTED.name VALUES (@p1, @p2)";
         let result = preprocess_mssql_sql(sql);
-        // Should convert OUTPUT INSERTED.col to RETURNING col and @pN to ?
         assert!(result.contains("RETURNING id, name"), "got: {}", result);
         assert!(result.contains("VALUES (?, ?)"), "got: {}", result);
         assert!(!result.contains("OUTPUT"), "got: {}", result);
@@ -1235,7 +1165,6 @@ SELECT 1";
         let sql = "INSERT INTO users (id) output inserted.id values (@p1)";
         let result = preprocess_mssql_sql(sql);
         assert!(result.contains("RETURNING id"), "got: {}", result);
-        // The original lowercase "values" is preserved, then @p1 becomes ?
         assert!(
             result.contains("values (?)") || result.contains("VALUES (?)"),
             "got: {}",
@@ -1252,7 +1181,6 @@ SELECT 1";
 
     #[test]
     fn test_preprocess_mssql_output_with_string_literal() {
-        // @p1 inside a string should be preserved by placeholder conversion
         let sql = "INSERT INTO users (id, name) OUTPUT INSERTED.id, INSERTED.name VALUES (@p1, '@p2')";
         let result = preprocess_mssql_sql(sql);
         assert!(result.contains("RETURNING id, name"), "got: {}", result);

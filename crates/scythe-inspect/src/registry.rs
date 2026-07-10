@@ -108,10 +108,8 @@ impl CheckRegistry {
             return;
         }
 
-        // Remove checks that are overridden to `off`.
         self.checks.retain(|c| overrides.get(&c.id) != Some(&Severity::Off));
 
-        // Update severities for surviving checks.
         for spec in &mut self.checks {
             if let Some(&new_sev) = overrides.get(&spec.id) {
                 spec.severity = new_sev;
@@ -133,10 +131,6 @@ impl CheckRegistry {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Unit tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,7 +145,6 @@ mod tests {
     #[test]
     fn for_engine_filters_by_engine() {
         use crate::spec::CANONICAL_CHECK_IDS;
-        // Build a registry with a synthetic MySQL-only spec appended.
         let mut reg = CheckRegistry::canonical();
         reg.checks.push(CheckSpec {
             id: "USER-INS-MYSQL-01".to_string(),
@@ -168,9 +161,7 @@ mod tests {
             min_pg_version: None,
         });
 
-        // postgres engine should still only see the canonical checks
         assert_eq!(reg.for_engine("postgres").count(), CANONICAL_CHECK_IDS.len());
-        // mysql engine should see only the synthetic one
         assert_eq!(reg.for_engine("mysql").count(), 1);
     }
 

@@ -96,25 +96,20 @@ pub fn resolve_params(
 /// Convert a resolved Rust type to its borrowed form for function parameters.
 /// Copy types (primitives) stay as-is; String becomes &str; other non-Copy types get a & prefix.
 pub fn param_type_to_borrowed(rust_type: &str) -> String {
-    // Copy types that should stay owned in function params
     let copy_types = ["bool", "i16", "i32", "i64", "f32", "f64", "u64"];
     if copy_types.contains(&rust_type) {
         return rust_type.to_string();
     }
-    // String -> &str
     if rust_type == "String" {
         return "&str".to_string();
     }
-    // Option<T> wrapping: Option<String> -> Option<&str>, Option<Copy> stays, Option<Other> -> Option<&Other>
     if let Some(inner) = rust_type.strip_prefix("Option<").and_then(|s| s.strip_suffix('>')) {
         let borrowed_inner = param_type_to_borrowed(inner);
         return format!("Option<{}>", borrowed_inner);
     }
-    // Vec<T> -> &[T] (slice reference)
     if let Some(inner) = rust_type.strip_prefix("Vec<").and_then(|s| s.strip_suffix('>')) {
         return format!("&[{}]", inner);
     }
-    // Everything else gets a & prefix
     format!("&{}", rust_type)
 }
 

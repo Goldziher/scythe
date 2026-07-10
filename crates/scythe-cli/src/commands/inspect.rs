@@ -48,28 +48,16 @@ pub struct RunInspectOpts {
 }
 
 pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error>> {
-    // ------------------------------------------------------------------
-    // Load [inspect] config from scythe.toml (best-effort; None if absent).
-    // ------------------------------------------------------------------
     let inspect_config: Option<InspectConfig> =
         parse_inspect_section(Path::new(&opts.config_path)).unwrap_or_else(|e| {
             eprintln!("scythe-inspect: warning: could not parse [inspect] config: {e}");
             None
         });
 
-    // ------------------------------------------------------------------
-    // Resolve engine first so `--list-checks` / `--explain` work without a URL.
-    // ------------------------------------------------------------------
     let engine = resolve_engine(opts.dialect.as_deref(), opts.database_url.as_deref());
 
-    // ------------------------------------------------------------------
-    // Build the registry (canonical + user checks + severity overrides).
-    // ------------------------------------------------------------------
     let registry = build_registry(opts.config_path.as_str(), &engine, &inspect_config)?;
 
-    // ------------------------------------------------------------------
-    // Discovery flags — no DB connection needed.
-    // ------------------------------------------------------------------
     if opts.list_checks || opts.explain.is_some() {
         let mut out = open_output(opts.output.as_deref())?;
         if opts.list_checks {
@@ -92,20 +80,11 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
         None => None,
     };
 
-    // ------------------------------------------------------------------
-    // Resolve DB URL: CLI positional > $DATABASE_URL > $SCYTHE_DATABASE_URL
-    // > [inspect].database_url.
-    // ------------------------------------------------------------------
     let config_db_url = inspect_config.as_ref().and_then(|c| c.database_url.as_deref());
     let url = resolve_url(opts.database_url.as_deref(), config_db_url)?;
 
-    // ------------------------------------------------------------------
-    // Build the driver with config-aware extras.
-    // ------------------------------------------------------------------
     let mut driver = build_driver_with_config(&engine, registry, &inspect_config);
 
-    // Build a single-threaded tokio runtime per invocation — keeps the rest
-    // of the CLI (`lint`, `audit`, `generate`) synchronous.
     let rt = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 
     let findings: Vec<Finding> = rt.block_on(async {
@@ -132,10 +111,6 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
     Ok(())
 }
 
-// ---------------------------------------------------------------------------
-// Registry builder
-// ---------------------------------------------------------------------------
-
 /// Build a [`CheckRegistry`] for the given engine with:
 /// 1. The canonical built-in checks.
 /// 2. Inline user checks from `[[inspect.check]]`.
@@ -150,33 +125,24 @@ pub(crate) fn build_registry(
     let mut registry = CheckRegistry::canonical();
 
     if let Some(cfg) = inspect_config {
-        // Add inline [[inspect.check]] specs (already validated by
-        // parse_inspect_section).
         if !cfg.check.is_empty() {
             registry = registry.with_inline_checks(cfg.check.clone());
         }
 
-        // Load extra_rules TOML files (paths already resolved to absolute by
-        // parse_inspect_section).
         for abs_path in &cfg.extra_rules {
             registry = registry
                 .with_user_checks(Path::new(abs_path))
                 .map_err(|e| format!("failed to load extra_rules '{}': {}", abs_path, e))?;
         }
 
-        // Apply severity overrides BEFORE running checks.
         if !cfg.severity_overrides.is_empty() {
             registry.apply_severity_overrides(&cfg.severity_overrides);
         }
     }
 
-    let _ = config_path; // used only for error attribution, resolved paths are in cfg
+    let _ = config_path;
     Ok(registry)
 }
-
-// ---------------------------------------------------------------------------
-// Driver builder
-// ---------------------------------------------------------------------------
 
 /// Build and configure the right driver for `engine`, wiring in the
 /// suppression engine and api_schemas from config.
@@ -190,11 +156,9 @@ pub(crate) fn build_driver_with_config(
             let mut driver = PostgresDriver::with_registry(registry);
 
             if let Some(cfg) = inspect_config {
-                // Wire suppression rules.
                 if !cfg.suppression.is_empty() {
                     driver.set_suppression(SuppressionEngine::new(cfg.suppression.clone()));
                 }
-                // Wire api_schemas for SC-INS10.
                 if !cfg.api_schemas.is_empty() {
                     driver.set_api_schemas(cfg.api_schemas.clone());
                 }
@@ -202,15 +166,9 @@ pub(crate) fn build_driver_with_config(
 
             Box::new(driver)
         }
-        // MySQL / unknown engines: return the stub (suppression/api_schemas
-        // don't apply since there are no MySQL checks yet).
         _ => Box::new(MysqlDriver::new()),
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 /// Resolve engine from explicit `--dialect`, else from URL scheme, else
 /// default to `postgres`.
@@ -395,17 +353,9 @@ fn severity_label(s: Severity) -> &'static str {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Unit tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    // -----------------------------------------------------------------------
-    // resolve_engine
-    // -----------------------------------------------------------------------
 
     #[test]
     fn resolve_engine_explicit_dialect_wins() {
@@ -424,10 +374,6 @@ mod tests {
     fn resolve_engine_defaults_to_postgres() {
         assert_eq!(resolve_engine(None, None), "postgres");
     }
-
-    // -----------------------------------------------------------------------
-    // resolve_url
-    // -----------------------------------------------------------------------
 
     #[test]
     fn resolve_url_prefers_positional() {
@@ -484,16 +430,8 @@ mod tests {
         assert!(s.contains("DATABASE_URL") || s.contains("no database URL"));
     }
 
-    // -----------------------------------------------------------------------
-    // resolve_inspect_url (infallible Option-returning variant used by lint)
-    // -----------------------------------------------------------------------
-
     #[test]
     fn resolve_inspect_url_returns_none_when_no_url_configured() {
-        // With no env vars set (we use a fresh config with no database_url),
-        // the function should return None — the "silently skip" signal.
-        // We can't unset env vars safely in parallel tests, so we test the
-        // helper directly via resolve_url_inner_opt.
         let result = resolve_url_inner_opt(None, None, None);
         assert!(result.is_none());
     }
@@ -523,7 +461,6 @@ mod tests {
     #[test]
     fn resolve_inspect_url_returns_none_from_empty_config() {
         let config: Option<InspectConfig> = Some(InspectConfig::default());
-        // With no env vars (we control the inner function), this is None.
         let result = resolve_url_inner_opt(None, None, config.as_ref().and_then(|c| c.database_url.as_deref()));
         assert!(result.is_none());
     }
@@ -537,10 +474,6 @@ mod tests {
         let result = resolve_url_inner_opt(None, None, config.database_url.as_deref());
         assert_eq!(result.as_deref(), Some("postgres://from-config/db"));
     }
-
-    // -----------------------------------------------------------------------
-    // print_explanation
-    // -----------------------------------------------------------------------
 
     #[test]
     fn explain_known_id_prints_body() {
@@ -584,10 +517,6 @@ mod tests {
         assert!(msg.contains("SC-INS04"));
         assert!(msg.contains("mysql"));
     }
-
-    // -----------------------------------------------------------------------
-    // build_driver_with_config_dispatches_by_engine
-    // -----------------------------------------------------------------------
 
     #[test]
     fn build_driver_with_config_dispatches_by_engine() {

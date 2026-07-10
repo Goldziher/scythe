@@ -7,16 +7,10 @@
 use assert_cmd::Command;
 
 // ---------------------------------------------------------------------------
-// Helper
-// ---------------------------------------------------------------------------
 
 fn scythe() -> Command {
     Command::cargo_bin("scythe").expect("scythe binary must exist")
 }
-
-// ---------------------------------------------------------------------------
-// 1. list_checks_prints_thirteen_rows
-// ---------------------------------------------------------------------------
 
 /// `scythe inspect --list-checks` must exit 0 and list all 13 canonical
 /// SC-INS* checks.
@@ -26,7 +20,6 @@ fn list_checks_prints_thirteen_rows() {
 
     let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
 
-    // All 13 canonical IDs must be present.
     for id in [
         "SC-INS01", "SC-INS02", "SC-INS03", "SC-INS04", "SC-INS05", "SC-INS06", "SC-INS07", "SC-INS08", "SC-INS09",
         "SC-INS10", "SC-INS11", "SC-INS12", "SC-INS13",
@@ -37,10 +30,6 @@ fn list_checks_prints_thirteen_rows() {
         );
     }
 }
-
-// ---------------------------------------------------------------------------
-// 2. list_checks_with_dialect_mysql_says_no_checks
-// ---------------------------------------------------------------------------
 
 /// `scythe inspect --list-checks --dialect mysql` — exits 0 and emits the
 /// "no checks available" message (MySQL checks are stubbed in Phase 1).
@@ -53,23 +42,16 @@ fn list_checks_with_dialect_mysql_says_no_checks() {
 
     let stdout = std::str::from_utf8(&assert.get_output().stdout).unwrap();
 
-    // The output must either be empty or explicitly say no checks are available.
-    // Current impl emits a "no checks available for engine `mysql`" message.
     assert!(
         stdout.contains("no checks") || stdout.trim().is_empty(),
         "--list-checks --dialect mysql must say 'no checks' or produce empty output; got:\n{stdout}"
     );
 
-    // No SC-INS* checks must appear under the mysql dialect.
     assert!(
         !stdout.contains("SC-INS"),
         "mysql dialect must not list postgres-only SC-INS checks; got:\n{stdout}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// 3. explain_known_id_prints_body
-// ---------------------------------------------------------------------------
 
 /// `scythe inspect --explain SC-INS04` must exit 0 and print the check name,
 /// Explanation section, and Remediation section.
@@ -97,10 +79,6 @@ fn explain_known_id_prints_body() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// 4. explain_unknown_id_exits_nonzero
-// ---------------------------------------------------------------------------
-
 /// `scythe inspect --explain SC-NOPE` must exit ≠ 0 and stderr must mention
 /// the unknown id.
 #[test]
@@ -122,10 +100,6 @@ fn explain_unknown_id_exits_nonzero() {
         "stderr must mention the unknown id 'SC-NOPE'; got:\n{stderr}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// 5. explain_postgres_check_under_mysql_dialect_errors
-// ---------------------------------------------------------------------------
 
 /// `scythe inspect --dialect mysql --explain SC-INS04` — SC-INS04 is a
 /// postgres-only check.  Under the mysql dialect it must not be found, so the
@@ -151,10 +125,6 @@ fn explain_postgres_check_under_mysql_dialect_errors() {
     assert!(stderr.contains("mysql"), "stderr must mention 'mysql'; got:\n{stderr}");
 }
 
-// ---------------------------------------------------------------------------
-// 7. output_flag_writes_to_file
-// ---------------------------------------------------------------------------
-
 /// `scythe inspect --list-checks --output <path>` — exits 0 and creates the
 /// specified file; the file content must match what stdout would contain.
 #[test]
@@ -162,7 +132,6 @@ fn output_flag_writes_to_file() {
     let temp = tempfile::TempDir::new().expect("temp dir");
     let out_path = temp.path().join("inspect-list.txt");
 
-    // Run with --output to write to a file.
     scythe()
         .args(["inspect", "--list-checks", "--output", out_path.to_str().unwrap()])
         .assert()
@@ -184,7 +153,6 @@ fn output_flag_writes_to_file() {
         "output file must contain SC-INS13; got:\n{content}"
     );
 
-    // Run without --output and compare stdout.
     let stdout_run = scythe()
         .args(["inspect", "--list-checks"])
         .output()
@@ -193,10 +161,6 @@ fn output_flag_writes_to_file() {
 
     assert_eq!(content, stdout_content, "--output file content must match stdout");
 }
-
-// ---------------------------------------------------------------------------
-// 8. version_flag_or_inspect_help_shows_flags
-// ---------------------------------------------------------------------------
 
 /// `scythe inspect --help` must document every flag that the CLI surface
 /// exposes per `docs/guide/cli-reference.md`.
@@ -230,10 +194,6 @@ fn inspect_help_shows_expected_flags() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// 9. format_json_with_list_checks_errors_cleanly_or_works
-// ---------------------------------------------------------------------------
-
 /// `scythe inspect --list-checks --format json`:
 /// The `--format` flag applies to finding emission, not to `--list-checks`
 /// (which has its own table format).  The command must exit 0; `--list-checks`
@@ -262,10 +222,6 @@ fn format_json_with_list_checks_exits_zero_and_lists_checks() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Additional: list_checks_postgres_dialect_shows_all_checks
-// ---------------------------------------------------------------------------
-
 /// Explicit `--dialect postgres` must show all 13 checks — the same as the
 /// default.
 #[test]
@@ -287,20 +243,12 @@ fn list_checks_postgres_dialect_shows_all_checks() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Additional: inspect_without_db_url_and_no_list_checks_errors
-// ---------------------------------------------------------------------------
-
 /// `scythe inspect` without a DB URL and without `--list-checks` must exit
 /// non-zero with a diagnostic about the missing URL.
 #[test]
 fn inspect_without_db_url_exits_nonzero() {
-    // Unset known DB URL env vars by running with cleared env — we can't
-    // fully control the test runner's env, so instead we pass a deliberately
-    // invalid config with no database_url so we get the "missing URL" error.
     let temp = tempfile::TempDir::new().expect("temp dir");
     let config_path = temp.path().join("scythe.toml");
-    // Empty config — no [inspect].database_url
     std::fs::write(&config_path, "").unwrap();
 
     let output = scythe()

@@ -1,8 +1,5 @@
 schema_version = 1
 
-# SC-SEC01 — dangerous-function
-# Detects calls to functions that grant filesystem, network, or shell access.
-# CWE-78 (OS Command Injection), CWE-732 (Permissions).
 [[rule]]
 id = "SC-SEC01"
 name = "dangerous-function"
@@ -37,9 +34,6 @@ functions = [
     "load_extension",
 ]
 
-# SC-SEC02 — grant-all
-# GRANT ALL widens privilege blast radius.
-# CWE-269 (Improper Privilege Management).
 [[rule]]
 id = "SC-SEC02"
 name = "grant-all"
@@ -53,9 +47,6 @@ matcher = "grant_kind"
 [rule.matcher_args]
 kind = "all"
 
-# SC-SEC03 — grant-to-public
-# GRANT to PUBLIC exposes the privilege to every role.
-# CWE-269 (Improper Privilege Management).
 [[rule]]
 id = "SC-SEC03"
 name = "grant-to-public"
@@ -69,9 +60,6 @@ matcher = "grantee_includes"
 [rule.matcher_args]
 grantee = "public"
 
-# SC-SEC08 — cartesian-join
-# Unconstrained join produces a cartesian product.
-# CWE-400 (Uncontrolled Resource Consumption).
 [[rule]]
 id = "SC-SEC08"
 name = "cartesian-join"
@@ -82,9 +70,6 @@ description = "unconstrained join produces a cartesian product (CWE-400)"
 message = "{msg}"
 matcher = "cartesian_join"
 
-# SC-SEC09 — unbounded-like
-# LIKE pattern wildcarded on both sides — full scan, DoS-prone.
-# CWE-1333, CWE-400.
 [[rule]]
 id = "SC-SEC09"
 name = "unbounded-like"
@@ -95,9 +80,7 @@ description = "LIKE pattern wildcarded on both sides — full scan, DoS-prone (C
 message = "LIKE pattern \"{pattern}\" is wildcarded on both sides — use a trigram index or full-text search"
 matcher = "unbounded_pattern"
 
-# SC-SEC10 — security-definer-no-search-path
 # SECURITY DEFINER function without pinned search_path.
-# CWE-426 (Untrusted Search Path), CWE-269.
 [[rule]]
 id = "SC-SEC10"
 name = "security-definer-no-search-path"
@@ -109,9 +92,6 @@ description = "SECURITY DEFINER function without pinned search_path (CWE-426)"
 message = "SECURITY DEFINER function `{function_name}` does not pin search_path — add `SET search_path = pg_catalog, public` (or similar)"
 matcher = "security_definer_no_search_path"
 
-# SC-SEC04 — superuser-role
-# CREATE/ALTER ROLE with SUPERUSER or other high-privilege attribute.
-# CWE-269 (Improper Privilege Management).
 [[rule]]
 id = "SC-SEC04"
 name = "superuser-role"
@@ -126,9 +106,6 @@ matcher = "role_with_attribute"
 [rule.matcher_args]
 attributes = ["superuser", "createdb", "createrole", "replication", "bypassrls"]
 
-# SC-SEC05 — literal-password
-# Hard-coded literal password in CREATE/ALTER ROLE.
-# CWE-798 (Use of Hard-coded Credentials).
 [[rule]]
 id = "SC-SEC05"
 name = "literal-password"
@@ -140,9 +117,6 @@ description = "hard-coded literal password in CREATE/ALTER ROLE (CWE-798)"
 message = "role `{role}` has a literal password in SQL — load it from a secret manager and pass via parameter or environment"
 matcher = "role_password_literal"
 
-# SC-SEC06 — weak-hash-in-auth
-# Weak hash function (md5, sha1) applied to credential-like column.
-# CWE-327 (Use of Broken Algorithm), CWE-916.
 [[rule]]
 id = "SC-SEC06"
 name = "weak-hash-in-auth"
@@ -157,9 +131,6 @@ matcher = "weak_hash_over_sensitive_column"
 functions = ["md5", "sha1"]
 column_patterns = ["password", "passwd", "pwd", "secret", "token", "api_key", "auth_token"]
 
-# SC-SEC07 — select-star-pii
-# SELECT * against a table whose schema contains PII or credential columns.
-# CWE-200 (Information Exposure).
 [[rule]]
 id = "SC-SEC07"
 name = "select-star-pii"
@@ -187,9 +158,6 @@ column_patterns = [
     "api_key",
 ]
 
-# SC-SEC11 — session-mutation
-# SET ROLE / SET SESSION AUTHORIZATION inside application SQL.
-# CWE-269 (Improper Privilege Management).
 [[rule]]
 id = "SC-SEC11"
 name = "session-mutation"
@@ -204,14 +172,7 @@ matcher = "session_mutation"
 [rule.matcher_args]
 kinds = ["set_role", "set_session_authorization", "reset_role"]
 
-# SC-SEC12 — function-search-path-mutable
-# CREATE FUNCTION without a SET search_path option leaves the resolution of
-# unqualified identifiers up to the caller's session; an attacker with
-# CREATE on a schema earlier in the caller's search_path can shadow built-in
 # objects. SC-SEC10 owns the escalating SECURITY DEFINER case at `error`;
-# SC-SEC12 covers the general invoker case at `warn` for hygiene.
-# CWE-426 (Untrusted Search Path). Detection inspired by supabase/splinter
-# lint `0011_function_search_path_mutable` (see ATTRIBUTIONS.md).
 [[rule]]
 id = "SC-SEC12"
 name = "function-search-path-mutable"
@@ -223,14 +184,6 @@ description = "CREATE FUNCTION without an explicit SET search_path leaves identi
 message = "function `{function_name}` has no SET search_path — pin it (e.g. `SET search_path = pg_catalog, public`) so unqualified identifiers can't be shadowed by a caller-controlled schema"
 matcher = "function_search_path_mutable"
 
-# SC-RLS01 — policy-references-user-metadata
-# Supabase JWT carries `user_metadata` (end-user-editable) and
-# `app_metadata` (server-only). Any RLS policy whose USING / WITH CHECK
-# expression reads from `user_metadata` lets a signed-in user rewrite
-# their own permissions.
-# CWE-639 (Authorization Bypass Through User-Controlled Key).
-# Detection inspired by supabase/splinter lint
-# `0015_rls_references_user_metadata` (see ATTRIBUTIONS.md).
 [[rule]]
 id = "SC-RLS01"
 name = "policy-references-user-metadata"
@@ -242,15 +195,6 @@ description = "RLS policy reads from `user_metadata` — an end-user-editable JW
 message = "policy `{policy}` on `{table}` reads from `user_metadata` — use `app_metadata` (server-set) instead; `user_metadata` is end-user editable"
 matcher = "policy_references_user_metadata"
 
-# SC-RLS02 — policy-always-permissive
-# A permissive RLS policy with an always-true USING / WITH CHECK on
-# UPDATE / DELETE / INSERT / ALL grants unconditional write access to its
-# target roles. SELECT-only `USING (true)` is excluded — that's the common
-# everyone-can-read pattern. Restrictive policies are excluded — an
-# always-true restrictive policy is a no-op, not a security hole.
-# CWE-285 (Improper Authorization).
-# Detection inspired by supabase/splinter lint
-# `0024_rls_policy_always_true` (see ATTRIBUTIONS.md).
 [[rule]]
 id = "SC-RLS02"
 name = "policy-always-permissive"
@@ -262,15 +206,6 @@ description = "permissive RLS policy with always-true USING / WITH CHECK on a wr
 message = "policy `{policy}` on `{table}` has an always-true {clause} clause on a write command — replace the tautology with an actual predicate before deploying"
 matcher = "policy_always_permissive"
 
-# SC-RLS03 — policy-uses-uncached-auth-function
-# Bare auth.uid() / auth.jwt() / auth.role() / auth.email() /
-# current_setting(...) inside a policy expression are re-evaluated per
-# candidate row, costing per-row planner overhead. Wrapping the call in
-# `(select …)` lets Postgres cache the result as an InitPlan and evaluate
-# it once per query.
-# CWE-405 (Asymmetric Resource Consumption).
-# Detection inspired by supabase/splinter lint
-# `0003_auth_rls_initplan` (see ATTRIBUTIONS.md).
 [[rule]]
 id = "SC-RLS03"
 name = "policy-uses-uncached-auth-function"

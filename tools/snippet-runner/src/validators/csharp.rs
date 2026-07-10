@@ -23,7 +23,6 @@ impl SnippetValidator for CSharpValidator {
     ) -> Result<(SnippetStatus, Option<String>)> {
         let dir = TempDir::new()?;
 
-        // Create minimal .csproj
         let csproj = r#"<Project Sdk="Microsoft.NET.Sdk">
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -70,29 +69,12 @@ impl SnippetValidator for CSharpValidator {
             .collect();
 
         if error_lines.is_empty() {
-            // Check for error patterns in non-standard formats
             return output.contains("error CS5001") || output.contains("error CS0106");
         }
 
         let dep_patterns = [
-            "CS0246", // type or namespace name could not be found
-            "CS0103", // name does not exist in the current context
-            "CS0234", // type or namespace name does not exist in the namespace
-            "CS0106", // modifier is not valid (partial class fragments)
-            "CS0116", // namespace cannot directly contain members (top-level fragments)
-            "CS8802", // only one compilation unit can have top-level statements
-            "CS8803", // top-level statements must precede namespace and type declarations
-            "CS0029", // Cannot implicitly convert type
-            "CS1002", // ; expected (often from partial method signatures)
-            "CS1513", // } expected (fragment boundaries)
-            "CS5001", // Program does not contain a static 'Main' method
-            "CS1003", // Syntax error, ',' expected (from partial expressions)
-            "CS1529", // using clause must precede all other elements
-            "CS0101", // namespace already contains a definition (conflict from wrapping)
-            "CS0161", // not all code paths return a value
-            "CS1001", // Identifier expected (from bare signatures)
-            "CS0501", // must declare a body (method without body in non-abstract class)
-            "CS0535", // does not implement interface member
+            "CS0246", "CS0103", "CS0234", "CS0106", "CS0116", "CS8802", "CS8803", "CS0029", "CS1002", "CS1513",
+            "CS5001", "CS1003", "CS1529", "CS0101", "CS0161", "CS1001", "CS0501", "CS0535",
         ];
 
         error_lines

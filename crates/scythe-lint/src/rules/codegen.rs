@@ -7,8 +7,6 @@ use crate::types::*;
 use scythe_core::parser::QueryCommand;
 
 // ---------------------------------------------------------------------------
-// SC-C01: MissingReturnsAnnotation
-// ---------------------------------------------------------------------------
 
 /// No-op rule — the parser already enforces @returns. Kept as a placeholder
 /// so the rule ID space is consistent.
@@ -31,10 +29,6 @@ impl LintRule for MissingReturnsAnnotation {
         "Query should have a @returns annotation (already enforced by parser)"
     }
 }
-
-// ---------------------------------------------------------------------------
-// SC-C02: ExecWithReturning
-// ---------------------------------------------------------------------------
 
 pub struct ExecWithReturning;
 
@@ -82,10 +76,6 @@ impl LintRule for ExecWithReturning {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SC-C03: DuplicateQueryNames
-// ---------------------------------------------------------------------------
-
 /// This rule is mostly handled at the engine level (build_report detects dups).
 /// The rule struct exists so it shows up in the registry but its check_query
 /// is a no-op — the engine does the cross-query dedup.
@@ -108,10 +98,6 @@ impl LintRule for DuplicateQueryNames {
         "Multiple queries share the same @name"
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -144,8 +130,6 @@ mod tests {
             dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
         }
     }
-
-    // SC-C02
 
     #[test]
     fn exec_with_returning_fires() {
@@ -185,8 +169,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-C01: MissingReturnsAnnotation is a no-op — always returns empty
-
     #[test]
     fn missing_returns_annotation_is_noop() {
         let cat = make_catalog();
@@ -206,8 +188,6 @@ mod tests {
         assert_eq!(rule.default_severity(), Severity::Off);
     }
 
-    // SC-C02: :exec_result with RETURNING should NOT fire (only :exec fires)
-
     #[test]
     fn exec_result_with_returning_ok() {
         let cat = make_catalog();
@@ -221,8 +201,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-C02: :many with RETURNING should NOT fire
-
     #[test]
     fn many_with_returning_ok() {
         let cat = make_catalog();
@@ -235,8 +213,6 @@ mod tests {
         let v = ExecWithReturning.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-C02: :exec with UPDATE RETURNING should fire
 
     #[test]
     fn exec_with_update_returning_fires() {
@@ -253,8 +229,6 @@ mod tests {
         assert!(v[0].fix.is_some());
     }
 
-    // SC-C02: :exec with DELETE RETURNING should fire
-
     #[test]
     fn exec_with_delete_returning_fires() {
         let cat = make_catalog();
@@ -267,8 +241,6 @@ mod tests {
         assert_eq!(v[0].rule_id, "SC-C02");
     }
 
-    // SC-C02: :exec with SELECT should not fire (SELECT is not INSERT/UPDATE/DELETE)
-
     #[test]
     fn exec_with_select_ok() {
         let cat = make_catalog();
@@ -278,8 +250,6 @@ mod tests {
         let v = ExecWithReturning.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-C03: DuplicateQueryNames is a no-op at query level
 
     #[test]
     fn duplicate_query_names_is_noop() {

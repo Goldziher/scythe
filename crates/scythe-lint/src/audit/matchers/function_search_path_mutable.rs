@@ -124,7 +124,6 @@ mod tests {
     #[test]
     fn no_match_security_definer_function_without_search_path() {
         // SECURITY DEFINER is owned by SC-SEC10 — SC-SEC12 must NOT fire here
-        // to avoid double-counting findings on the same statement.
         let sql = "CREATE FUNCTION admin_op() RETURNS void LANGUAGE sql SECURITY DEFINER AS $$ SELECT 1 $$;";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);

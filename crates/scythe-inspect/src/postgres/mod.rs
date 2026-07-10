@@ -137,16 +137,12 @@ impl DbDriver for PostgresDriver {
                 source: Box::new(e),
             })?;
 
-        // Drive the connection on the current runtime. Per-invocation CLI use
-        // means the spawned task lives only as long as `run_all` runs, which
-        // is acceptable for Phase 0.
         tokio::spawn(async move {
             if let Err(e) = connection.await {
                 eprintln!("scythe-inspect: postgres connection task error: {e}");
             }
         });
 
-        // Detect server version for min_pg_version gating.
         let version_row =
             client
                 .query_one("SHOW server_version_num", &[])
@@ -180,7 +176,6 @@ impl DbDriver for PostgresDriver {
 
         let pg_version = self.pg_version.unwrap_or(u32::MAX);
 
-        // Effective api_schemas: fall back to ["public"] when not configured.
         let effective_api_schemas: Vec<&str> = if self.api_schemas.is_empty() {
             vec!["public"]
         } else {
@@ -190,9 +185,6 @@ impl DbDriver for PostgresDriver {
         let mut all_pairs = Vec::new();
 
         for spec in self.registry.for_engine("postgres") {
-            // Skip checks that require a newer PG than what's connected.
-            // `min_pg_version` is a major version (12, 14, 15, 16); convert
-            // to `server_version_num` form for comparison.
             if let Some(min_major) = spec.min_pg_version
                 && pg_version < min_major.saturating_mul(10_000)
             {
@@ -202,9 +194,6 @@ impl DbDriver for PostgresDriver {
             let pairs = runner::run_check_with_bindings(client, spec).await?;
 
             for (finding, bindings) in pairs {
-                // SC-INS10 post-filter: only keep findings for schemas in the
-                // api_schemas list.  The SQL reports all user schemas; we narrow
-                // to the configured scope here.
                 if finding.rule_id == SC_INS10_ID
                     && let Some(schema) = bindings
                         .iter()
@@ -219,7 +208,6 @@ impl DbDriver for PostgresDriver {
             }
         }
 
-        // Apply suppression rules if configured.
         let findings = if let Some(sup) = &self.suppression {
             sup.filter(all_pairs)
         } else {
@@ -245,7 +233,6 @@ mod tests {
         let d = PostgresDriver::new();
         let catalog = d.checks();
         assert_eq!(catalog.len(), CANONICAL_CHECK_IDS.len());
-        // Verify the first three canonical IDs are present in order.
         assert_eq!(catalog[0].id, "SC-INS01");
         assert_eq!(catalog[1].id, "SC-INS02");
         assert_eq!(catalog[2].id, "SC-INS03");

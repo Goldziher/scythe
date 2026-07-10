@@ -44,7 +44,7 @@ fn exposed_column_fn(kotlin_type: &str) -> &str {
         "Long" => "long",
         "Float" => "float",
         "Double" => "double",
-        "String" => "varchar",
+        "String" => "text",
         "ByteArray" => "binary",
         _ if kotlin_type.contains("BigDecimal") => "decimal",
         _ if kotlin_type.contains("LocalDate") => "date",
@@ -90,8 +90,7 @@ fn exposed_column_type_class(kotlin_type: &str) -> &str {
         "Long" => "LongColumnType()",
         "Float" => "FloatColumnType()",
         "Double" => "DoubleColumnType()",
-        // TODO: varchar length 255 is hardcoded; see generate_model_struct TODO.
-        "String" => "VarCharColumnType(255)",
+        "String" => "TextColumnType()",
         "ByteArray" => "BinaryColumnType()",
         _ if kotlin_type.contains("BigDecimal") => "DecimalColumnType(10, 2)",
         _ if kotlin_type.contains("LocalDate") => "JavaLocalDateColumnType()",
@@ -118,8 +117,9 @@ impl CodegenBackend for KotlinExposedBackend {
     }
 
     fn file_header(&self) -> String {
-        // ktlint requires lexicographic order and no wildcard imports.
         "import org.jetbrains.exposed.dao.id.IntIdTable\n\
+         import org.jetbrains.exposed.dao.id.LongIdTable\n\
+         import org.jetbrains.exposed.dao.id.UUIDTable\n\
          import org.jetbrains.exposed.sql.BinaryColumnType\n\
          import org.jetbrains.exposed.sql.BooleanColumnType\n\
          import org.jetbrains.exposed.sql.ByteColumnType\n\
@@ -130,7 +130,6 @@ impl CodegenBackend for KotlinExposedBackend {
          import org.jetbrains.exposed.sql.LongColumnType\n\
          import org.jetbrains.exposed.sql.ShortColumnType\n\
          import org.jetbrains.exposed.sql.TextColumnType\n\
-         import org.jetbrains.exposed.sql.VarCharColumnType\n\
          import org.jetbrains.exposed.sql.javatime.JavaLocalDateColumnType\n\
          import org.jetbrains.exposed.sql.javatime.JavaLocalDateTimeColumnType\n\
          import org.jetbrains.exposed.sql.javatime.JavaLocalTimeColumnType\n\
@@ -154,29 +153,16 @@ impl CodegenBackend for KotlinExposedBackend {
         let name = to_pascal_case(table_name);
         let table_obj_name = format!("{}Table", name);
         let mut out = String::new();
-        // TODO: IntIdTable is hardcoded — detecting the actual PK type (LongIdTable,
-        // UUIDTable, etc.) from schema DDL requires propagating PK column info through
-        // the analyzer. Follow-up: https://github.com/scythe-sql/scythe/issues/XXX
-        let _ = writeln!(out, "object {} : IntIdTable(\"{}\") {{", table_obj_name, table_name);
+        let table_base = exposed_id_table_type(columns);
+        let _ = writeln!(out, "object {} : {}(\"{}\") {{", table_obj_name, table_base, table_name);
         for col in columns.iter() {
             let col_fn = exposed_column_fn(&col.lang_type);
             let nullable_suffix = if col.nullable { ".nullable()" } else { "" };
-            // TODO: varchar length is hardcoded to 255 — column lengths from schema DDL
-            // are not propagated through the analyzer yet. Follow-up needed to thread
-            // length/precision metadata from DDL columns to codegen.
-            if col_fn == "varchar" {
-                let _ = writeln!(
-                    out,
-                    "    val {} = varchar(\"{}\", 255){}",
-                    col.field_name, col.name, nullable_suffix
-                );
-            } else {
-                let _ = writeln!(
-                    out,
-                    "    val {} = {}(\"{}\"){}",
-                    col.field_name, col_fn, col.name, nullable_suffix
-                );
-            }
+            let _ = writeln!(
+                out,
+                "    val {} = {}(\"{}\"){}",
+                col.field_name, col_fn, col.name, nullable_suffix
+            );
         }
         let _ = writeln!(out, "}}");
         Ok(out)
@@ -197,9 +183,6 @@ impl CodegenBackend for KotlinExposedBackend {
 
         let mut out = String::new();
 
-        // Helper: write function signature with expression body.
-        // ktlint requires: expression body (`= expr`), and when the body is multiline
-        // the expression must start on a new line after `=`.
         let write_fn_sig = |out: &mut String, name: &str, ret: &str, params: &[ResolvedParam]| {
             let inline_params: String = params
                 .iter()
@@ -219,7 +202,6 @@ impl CodegenBackend for KotlinExposedBackend {
             let _ = writeln!(out, "    transaction {{");
         };
 
-        // Helper: build args list for exec()
         let build_args = |params: &[ResolvedParam]| -> String {
             if params.is_empty() {
                 return String::new();
@@ -377,7 +359,6 @@ impl CodegenBackend for KotlinExposedBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child data class first.
         let _ = writeln!(out, "data class {}(", child_struct_name);
         for col in child_columns {
             let _ = writeln!(out, "    val {}: {},", col.field_name, col.full_type);
@@ -385,7 +366,6 @@ impl CodegenBackend for KotlinExposedBackend {
         let _ = writeln!(out, ")");
         let _ = writeln!(out);
 
-        // Parent data class — parent columns then the mutable children list.
         let _ = writeln!(out, "data class {}(", parent_struct_name);
         for col in parent_columns {
             let _ = writeln!(out, "    val {}: {},", col.field_name, col.full_type);
@@ -417,7 +397,6 @@ impl CodegenBackend for KotlinExposedBackend {
             .unwrap_or(&parent_columns[0]);
         let key_type = key_col.full_type.trim_end_matches('?');
 
-        // Build the args list for exec() parameter binding.
         let args = if params.is_empty() {
             String::new()
         } else {
@@ -490,6 +469,17 @@ impl CodegenBackend for KotlinExposedBackend {
         let _ = write!(out, "    }}");
 
         Ok(out)
+    }
+}
+
+fn exposed_id_table_type(columns: &[ResolvedColumn]) -> &str {
+    let Some(id_column) = columns.iter().find(|column| column.name.eq_ignore_ascii_case("id")) else {
+        return "IntIdTable";
+    };
+    match id_column.lang_type.as_str() {
+        "Long" => "LongIdTable",
+        ty if ty.contains("UUID") => "UUIDTable",
+        _ => "IntIdTable",
     }
 }
 

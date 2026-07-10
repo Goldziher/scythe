@@ -8,25 +8,21 @@ use super::helpers::object_name_to_string;
 
 pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'static, str> {
     let lower = sql_type.to_lowercase();
-    // Strip precision suffixes like "timestamp with time zone(6)"
     let normalized = strip_precision(&lower);
 
     match normalized.as_str() {
-        // -- Integer types (PostgreSQL + MySQL + SQLite + Oracle) --
         "integer" | "int" | "int4" | "serial" => Cow::Borrowed("int32"),
         "smallint" | "int2" | "smallserial" => Cow::Borrowed("int16"),
         "bigint" | "int8" | "bigserial" => Cow::Borrowed("int64"),
         "tinyint" => Cow::Borrowed("int16"),
         "mediumint" => Cow::Borrowed("int32"),
-        "number" => Cow::Borrowed("int64"), // Oracle NUMBER defaults to int64
+        "number" => Cow::Borrowed("int64"),
 
-        // -- Float types --
         "real" | "float4" => Cow::Borrowed("float32"),
         "double precision" | "float8" | "double" => Cow::Borrowed("float64"),
         "float" => Cow::Borrowed("float32"),
         "numeric" | "decimal" => Cow::Borrowed("decimal"),
 
-        // -- String types --
         "text" | "character varying" | "character" | "varchar" | "char" | "varchar2" | "nvarchar2" => {
             Cow::Borrowed("string")
         }
@@ -34,17 +30,13 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "tinytext" | "mediumtext" | "longtext" | "clob" => Cow::Borrowed("string"),
         "set" => Cow::Borrowed("string"),
 
-        // -- Boolean --
         "boolean" | "bool" => Cow::Borrowed("bool"),
 
-        // -- Binary types --
         "bytea" => Cow::Borrowed("bytes"),
         "blob" | "tinyblob" | "mediumblob" | "longblob" | "binary" | "varbinary" => Cow::Borrowed("bytes"),
 
-        // -- UUID --
         "uuid" | "uniqueidentifier" => Cow::Borrowed("uuid"),
 
-        // -- Date/time types --
         "date" => Cow::Borrowed("date"),
         "time" | "time without time zone" => Cow::Borrowed("time"),
         "time with time zone" | "timetz" => Cow::Borrowed("time_tz"),
@@ -54,21 +46,16 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "datetimeoffset" => Cow::Borrowed("datetime_tz"),
         "interval" => Cow::Borrowed("interval"),
         "year" => Cow::Borrowed("int16"),
-        // -- Snowflake timestamp types --
         "timestamp_ntz" => Cow::Borrowed("datetime"),
         "timestamp_ltz" => Cow::Borrowed("datetime_tz"),
         "timestamp_tz" => Cow::Borrowed("datetime_tz"),
 
-        // -- JSON types --
         "json" | "jsonb" | "variant" | "super" => Cow::Borrowed("json"),
 
-        // -- Network types (PostgreSQL) --
         "inet" | "cidr" | "macaddr" => Cow::Borrowed("inet"),
 
-        // -- Bit types (MySQL) --
         "bit" => Cow::Borrowed("bool"),
 
-        // -- Array types (PostgreSQL) --
         "integer[]" | "int4[]" | "int[]" => Cow::Borrowed("array<int32>"),
         "text[]" | "character varying[]" | "varchar[]" => Cow::Borrowed("array<string>"),
         "boolean[]" | "bool[]" => Cow::Borrowed("array<bool>"),
@@ -80,7 +67,6 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "numeric[]" | "decimal[]" => Cow::Borrowed("array<decimal>"),
         "jsonb[]" | "json[]" => Cow::Borrowed("array<json>"),
 
-        // -- Range types (PostgreSQL) --
         "int4range" => Cow::Borrowed("range<int32>"),
         "int8range" => Cow::Borrowed("range<int64>"),
         "tstzrange" => Cow::Borrowed("range<datetime_tz>"),
@@ -88,31 +74,25 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "daterange" => Cow::Borrowed("range<date>"),
         "numrange" => Cow::Borrowed("range<decimal>"),
         _ => {
-            // Check for array types with brackets
             if let Some(inner) = normalized.strip_suffix("[]") {
                 let inner_neutral = sql_type_to_neutral(inner, catalog);
                 return Cow::Owned(format!("array<{}>", inner_neutral));
             }
-            // Check if it's a domain type and resolve to base type
             if let Some(base_type) = catalog.get_domain_base_type(&normalized) {
                 return sql_type_to_neutral(base_type, catalog);
             }
-            // Check enums
             if catalog.get_enum(&normalized).is_some() {
                 return Cow::Owned(format!("enum::{}", normalized));
             }
-            // Check composites
             if catalog.get_composite(&normalized).is_some() {
                 return Cow::Owned(format!("composite::{}", normalized));
             }
-            // Unknown type - return as-is
             Cow::Owned(normalized.to_string())
         }
     }
 }
 
 pub(super) fn strip_precision(s: &str) -> String {
-    // Remove trailing "(N)" from type names like "timestamp with time zone(6)"
     if let Some(idx) = s.rfind('(')
         && s.ends_with(')')
     {
@@ -158,7 +138,6 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
         DataType::TinyInt(_) => "int16".to_string(),
         DataType::MediumInt(_) => "int32".to_string(),
         DataType::Datetime(_) => "datetime".to_string(),
-        // Note: MySQL YEAR is parsed as custom type by sqlparser, handled in Custom arm
         DataType::Bit(_) => "bool".to_string(),
         DataType::Enum(_, _) => "string".to_string(),
         DataType::Set(_) => "string".to_string(),
@@ -195,14 +174,10 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
                 "serial" | "serial4" => "int32".to_string(),
                 "bigserial" | "serial8" => "int64".to_string(),
                 "smallserial" | "serial2" => "int16".to_string(),
-                // -- Snowflake timestamp types --
                 "timestamp_ntz" => "datetime".to_string(),
                 "timestamp_ltz" => "datetime_tz".to_string(),
                 "timestamp_tz" => "datetime_tz".to_string(),
                 "variant" => "json".to_string(),
-                // Oracle NUMBER(p,s) with a scale component maps to decimal;
-                // Oracle NUMBER(p) without scale falls through to sql_type_to_neutral
-                // which maps bare "number" to int64.
                 "number" if tokens.len() >= 2 => "decimal".to_string(),
                 _ => sql_type_to_neutral(&raw, catalog).into_owned(),
             }
@@ -222,7 +197,6 @@ mod tests {
         Catalog::from_ddl(&[]).unwrap()
     }
 
-    // ---- Integer types ----
     #[test]
     fn test_integer_types() {
         let c = empty_catalog();
@@ -238,7 +212,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("bigserial", &c), "int64");
     }
 
-    // ---- Float types ----
     #[test]
     fn test_float_types() {
         let c = empty_catalog();
@@ -250,7 +223,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("decimal", &c), "decimal");
     }
 
-    // ---- String types ----
     #[test]
     fn test_string_types() {
         let c = empty_catalog();
@@ -261,7 +233,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("char", &c), "string");
     }
 
-    // ---- Boolean ----
     #[test]
     fn test_boolean() {
         let c = empty_catalog();
@@ -269,7 +240,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("bool", &c), "bool");
     }
 
-    // ---- Temporal types ----
     #[test]
     fn test_temporal_types() {
         let c = empty_catalog();
@@ -285,14 +255,12 @@ mod tests {
         assert_eq!(sql_type_to_neutral("interval", &c), "interval");
     }
 
-    // ---- Binary types ----
     #[test]
     fn test_binary_types() {
         let c = empty_catalog();
         assert_eq!(sql_type_to_neutral("bytea", &c), "bytes");
     }
 
-    // ---- JSON types ----
     #[test]
     fn test_json_types() {
         let c = empty_catalog();
@@ -300,14 +268,12 @@ mod tests {
         assert_eq!(sql_type_to_neutral("jsonb", &c), "json");
     }
 
-    // ---- UUID ----
     #[test]
     fn test_uuid() {
         let c = empty_catalog();
         assert_eq!(sql_type_to_neutral("uuid", &c), "uuid");
     }
 
-    // ---- Network types ----
     #[test]
     fn test_network_types() {
         let c = empty_catalog();
@@ -316,7 +282,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("macaddr", &c), "inet");
     }
 
-    // ---- Array types ----
     #[test]
     fn test_array_types() {
         let c = empty_catalog();
@@ -332,7 +297,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("numeric[]", &c), "array<decimal>");
     }
 
-    // ---- Range types ----
     #[test]
     fn test_range_types() {
         let c = empty_catalog();
@@ -344,7 +308,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("numrange", &c), "range<decimal>");
     }
 
-    // ---- Unknown fallback ----
     #[test]
     fn test_unknown_type() {
         let c = empty_catalog();
@@ -352,7 +315,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("hstore", &c), "hstore");
     }
 
-    // ---- Case insensitivity ----
     #[test]
     fn test_case_insensitive() {
         let c = empty_catalog();
@@ -362,7 +324,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("TIMESTAMP WITH TIME ZONE", &c), "datetime_tz");
     }
 
-    // ---- Precision stripping ----
     #[test]
     fn test_strip_precision() {
         assert_eq!(
@@ -371,13 +332,10 @@ mod tests {
         );
         assert_eq!(strip_precision("numeric(10,2)"), "numeric");
         assert_eq!(strip_precision("varchar(255)"), "varchar");
-        // Non-numeric in parens should not be stripped
         assert_eq!(strip_precision("foo(bar)"), "foo(bar)");
-        // No parens: unchanged
         assert_eq!(strip_precision("integer"), "integer");
     }
 
-    // ---- Precision stripped types resolve correctly ----
     #[test]
     fn test_type_with_precision() {
         let c = empty_catalog();
@@ -385,7 +343,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("timestamp with time zone(6)", &c), "datetime_tz");
     }
 
-    // ---- Enum and composite lookups ----
     #[test]
     fn test_enum_type_lookup() {
         let c = Catalog::from_ddl(&["CREATE TYPE mood AS ENUM ('sad', 'ok', 'happy');"]).unwrap();
@@ -398,15 +355,12 @@ mod tests {
         assert_eq!(sql_type_to_neutral("address", &c), "composite::address");
     }
 
-    // ---- Generic array fallback via strip_suffix("[]") ----
     #[test]
     fn test_generic_array_fallback() {
         let c = empty_catalog();
-        // A type not explicitly listed but with [] suffix
         assert_eq!(sql_type_to_neutral("timestamptz[]", &c), "array<datetime_tz>");
     }
 
-    // ---- Snowflake-specific types ----
     #[test]
     fn test_snowflake_timestamp_types() {
         let c = empty_catalog();
@@ -421,7 +375,6 @@ mod tests {
         assert_eq!(sql_type_to_neutral("variant", &c), "json");
     }
 
-    // ---- MySQL-specific types ----
     #[test]
     fn test_mysql_integer_types() {
         let c = empty_catalog();
@@ -469,11 +422,9 @@ mod tests {
         assert_eq!(sql_type_to_neutral("bit", &c), "bool");
     }
 
-    // ---- SQLite-specific types ----
     #[test]
     fn test_sqlite_types() {
         let c = empty_catalog();
-        // SQLite types all map through existing or new entries
         assert_eq!(sql_type_to_neutral("integer", &c), "int32");
         assert_eq!(sql_type_to_neutral("real", &c), "float32");
         assert_eq!(sql_type_to_neutral("text", &c), "string");

@@ -24,10 +24,6 @@ use ahash::{AHashMap, AHashSet};
 /// The literal prefix that introduces a suppression annotation.
 const ANNOTATION_PREFIX: &str = "-- scythe-audit: ignore[";
 
-// ---------------------------------------------------------------------------
-// SuppressionSet
-// ---------------------------------------------------------------------------
-
 /// Set of per-line rule-ID suppressions parsed from inline annotations.
 #[derive(Debug, Default)]
 pub struct SuppressionSet {
@@ -41,45 +37,34 @@ impl SuppressionSet {
     pub fn parse(sql: &str) -> Self {
         let mut set = Self::default();
 
-        // Per-line classification.
         let lines: Vec<&str> = sql.split('\n').collect();
         let n = lines.len();
 
-        // Pending IDs collected from consecutive annotation lines; attached to
-        // the first following non-blank, non-comment line.
         let mut pending: AHashSet<String> = AHashSet::new();
 
         let mut i = 0;
         while i < n {
             let trimmed = lines[i].trim();
             if trimmed.is_empty() {
-                // Blank line — discard any pending suppressions that never
-                // found a target (annotation immediately followed by blank).
                 pending.clear();
                 i += 1;
                 continue;
             }
 
             if let Some(ids) = try_parse_annotation(trimmed) {
-                // This line is a scythe-audit annotation.
                 pending.extend(ids);
                 i += 1;
                 continue;
             }
 
             if trimmed.starts_with("--") {
-                // Ordinary SQL comment — does NOT consume the pending set; the
-                // suppression should still attach to the next statement line.
                 i += 1;
                 continue;
             }
 
-            // Non-blank, non-comment line: attach pending suppressions.
             if !pending.is_empty() {
                 let ids_to_attach: AHashSet<String> = pending.drain().collect();
 
-                // Suppress this line and every following line until a blank
-                // line or a line containing `;` (statement terminator).
                 let mut j = i;
                 loop {
                     let entry = set.by_line.entry(j + 1).or_default();
@@ -110,29 +95,21 @@ impl SuppressionSet {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Annotation parser
-// ---------------------------------------------------------------------------
-
 /// Attempt to parse a trimmed line as a `-- scythe-audit: ignore[ID,...]`
 /// annotation.  Returns `Some(ids)` on success; `None` if the line is not a
 /// matching annotation or the annotation is malformed.
 fn try_parse_annotation(trimmed: &str) -> Option<Vec<String>> {
-    // Must start with the exact prefix.
     let rest = trimmed.strip_prefix(ANNOTATION_PREFIX)?;
 
-    // Find the closing `]`.
     let close = rest.find(']')?;
     let id_part = &rest[..close];
 
-    // id_part must be non-empty and contain only valid ID characters and commas.
     if id_part.is_empty() {
         return None;
     }
 
     let ids: Vec<String> = id_part.split(',').map(|s| s.trim().to_string()).collect();
 
-    // Validate each ID: must match `[A-Z][A-Z0-9-]*`.
     for id in &ids {
         if !is_valid_rule_id(id) {
             return None;
@@ -151,10 +128,6 @@ fn is_valid_rule_id(s: &str) -> bool {
     }
     chars.all(|c| c.is_ascii_uppercase() || c.is_ascii_digit() || c == '-')
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -197,7 +170,6 @@ SELECT pg_read_file('foo');"#;
     fn multi_line_statement_suppresses_all_covered_lines() {
         let sql = "-- scythe-audit: ignore[SC-SEC08]\nSELECT *\nFROM a, b\nWHERE a.id = b.id;";
         let set = SuppressionSet::parse(sql);
-        // Lines 2, 3, 4 are all part of the statement.
         assert!(set.is_suppressed("SC-SEC08", 2));
         assert!(set.is_suppressed("SC-SEC08", 3));
         assert!(set.is_suppressed("SC-SEC08", 4));
@@ -207,14 +179,12 @@ SELECT pg_read_file('foo');"#;
     fn blank_line_terminates_suppression_scope() {
         let sql = "-- scythe-audit: ignore[SC-SEC02]\nGRANT ALL ON a TO x;\n\nGRANT ALL ON b TO y;";
         let set = SuppressionSet::parse(sql);
-        // Line 2 is suppressed; line 4 (after blank on line 3) is NOT.
         assert!(set.is_suppressed("SC-SEC02", 2));
         assert!(!set.is_suppressed("SC-SEC02", 4));
     }
 
     #[test]
     fn semicolon_terminates_statement() {
-        // Two statements on adjacent lines; only the first should be suppressed.
         let sql = "-- scythe-audit: ignore[SC-SEC02]\nGRANT ALL ON a TO x;\nGRANT ALL ON b TO y;";
         let set = SuppressionSet::parse(sql);
         assert!(set.is_suppressed("SC-SEC02", 2));
@@ -225,7 +195,6 @@ SELECT pg_read_file('foo');"#;
     fn annotation_at_eof_with_no_following_statement_is_harmless() {
         let sql = "SELECT 1;\n-- scythe-audit: ignore[SC-SEC02]";
         let set = SuppressionSet::parse(sql);
-        // No crash; nothing should be suppressed on line 1.
         assert!(!set.is_suppressed("SC-SEC02", 1));
     }
 
@@ -233,7 +202,6 @@ SELECT pg_read_file('foo');"#;
     fn ordinary_comment_does_not_consume_pending_suppression() {
         let sql = "-- scythe-audit: ignore[SC-SEC02]\n-- just a comment\nGRANT ALL ON x TO y;";
         let set = SuppressionSet::parse(sql);
-        // The annotation skips the ordinary comment and attaches to line 3.
         assert!(set.is_suppressed("SC-SEC02", 3));
     }
 

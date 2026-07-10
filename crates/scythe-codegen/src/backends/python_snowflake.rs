@@ -380,7 +380,6 @@ impl CodegenBackend for PythonSnowflakeBackend {
             }
         };
 
-        // snowflake.connector.SnowflakeConnection is long — always use multi-line sig.
         let sig = format!(
             "def {func_name}(conn: snowflake.connector.SnowflakeConnection{kw_sep}{param_list}) -> list[{parent_struct_name}]:"
         );

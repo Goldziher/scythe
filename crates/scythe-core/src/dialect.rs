@@ -123,7 +123,6 @@ mod tests {
 
     #[test]
     fn test_to_sqlparser_dialect() {
-        // Just verify they don't panic
         let _ = SqlDialect::PostgreSQL.to_sqlparser_dialect();
         let _ = SqlDialect::MySQL.to_sqlparser_dialect();
         let _ = SqlDialect::SQLite.to_sqlparser_dialect();

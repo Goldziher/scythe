@@ -36,7 +36,6 @@ use super::registry::MatcherRegistry;
 
 /// Register all canonical built-in matchers into `reg`.
 pub fn register_canonical(reg: &mut MatcherRegistry) {
-    // Security matchers (SC-SEC*)
     reg.register("function_name_in_set", function_name_in_set::match_function_name_in_set);
     reg.register("grant_kind", grant_kind::match_grant_kind);
     reg.register("grantee_includes", grantee_includes::match_grantee_includes);
@@ -77,7 +76,6 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
         policy_uses_uncached_auth_function::match_policy_uses_uncached_auth_function,
     );
 
-    // Migration matchers (SC-MIG*)
     reg.register("drop_statement", drop_statement::match_drop_statement);
     reg.register(
         "create_index_concurrency",
@@ -118,7 +116,6 @@ pub fn register_canonical(reg: &mut MatcherRegistry) {
         add_column_not_null_no_default::match_add_column_not_null_no_default,
     );
 
-    // Quality / antipattern matchers (SC-CHK*)
     reg.register(
         "check_constraint_always_true",
         check_constraint_always_true::match_check_constraint_always_true,

@@ -209,7 +209,6 @@ impl CodegenBackend for PhpPdoBackend {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
 
-        // Readonly class with constructor
         let _ = writeln!(out, "readonly class {} {{", struct_name);
         let _ = writeln!(out, "    public function __construct(");
         for c in columns.iter() {
@@ -219,7 +218,6 @@ impl CodegenBackend for PhpPdoBackend {
         let _ = writeln!(out, "    ) {{}}");
         let _ = writeln!(out);
 
-        // fromRow factory method
         let _ = writeln!(out, "    public static function fromRow(array $row): self {{");
         let _ = writeln!(out, "        return new self(");
         for c in columns.iter() {
@@ -230,7 +228,6 @@ impl CodegenBackend for PhpPdoBackend {
                 "date" | "time" | "time_tz" | "datetime" | "datetime_tz"
             );
             if is_enum {
-                // Enum columns: convert DB string to PHP backed enum via ::from()
                 let enum_type = &c.lang_type;
                 if c.nullable {
                     let _ = writeln!(
@@ -246,7 +243,6 @@ impl CodegenBackend for PhpPdoBackend {
                     );
                 }
             } else if is_datetime {
-                // DateTime columns: PDO returns strings, wrap in DateTimeImmutable
                 if c.nullable {
                     let _ = writeln!(
                         out,
@@ -302,10 +298,8 @@ impl CodegenBackend for PhpPdoBackend {
         );
         let mut out = String::new();
 
-        // Handle :batch separately
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}Batch", func_name);
-            // PHPDoc for batch function
             let _ = writeln!(out, "    /**");
             let _ = writeln!(out, "     * @param \\PDO $pdo");
             let _ = writeln!(out, "     * @param array<int, array<int, mixed>> $items");
@@ -327,7 +321,6 @@ impl CodegenBackend for PhpPdoBackend {
                 if use_positional {
                     let _ = writeln!(out, "                $stmt->execute($item);");
                 } else {
-                    // Named params — build mapping from item array
                     let bindings = params
                         .iter()
                         .enumerate()
@@ -347,7 +340,6 @@ impl CodegenBackend for PhpPdoBackend {
             return Ok(out);
         }
 
-        // Build PHP parameter list
         let param_list = params
             .iter()
             .map(|p| format!("{} ${}", p.full_type, p.field_name))
@@ -355,7 +347,6 @@ impl CodegenBackend for PhpPdoBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Return type depends on command
         let return_type = match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => format!("?{}", struct_name),
             QueryCommand::Many => "\\Generator".to_string(),
@@ -367,7 +358,6 @@ impl CodegenBackend for PhpPdoBackend {
             }
         };
 
-        // PHPDoc block
         let _ = writeln!(out, "    /**");
         let _ = writeln!(out, "     * @param \\PDO $pdo");
         for p in params {
@@ -399,12 +389,8 @@ impl CodegenBackend for PhpPdoBackend {
             func_name, sep, param_list, return_type
         );
 
-        // Prepare statement
         let _ = writeln!(out, "        $stmt = $pdo->prepare(\"{}\");", sql);
 
-        // Build execute params
-        // If the SQL contains `?` placeholders (MySQL/SQLite), use positional array.
-        // If it contains `:pN` placeholders (PostgreSQL), use named array.
         if params.is_empty() {
             let _ = writeln!(out, "        $stmt->execute();");
         } else {
@@ -439,9 +425,7 @@ impl CodegenBackend for PhpPdoBackend {
                 let _ = writeln!(out, "            yield {}::fromRow($row);", struct_name);
                 let _ = writeln!(out, "        }}");
             }
-            QueryCommand::Exec => {
-                // nothing else needed
-            }
+            QueryCommand::Exec => {}
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "        return $stmt->rowCount();");
             }
@@ -465,7 +449,6 @@ impl CodegenBackend for PhpPdoBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child class — defined first so the parent's `@var Child[]` annotation resolves.
         let _ = writeln!(out, "readonly class {} {{", child_struct_name);
         let _ = writeln!(out, "    public function __construct(");
         for c in child_columns.iter() {
@@ -479,7 +462,6 @@ impl CodegenBackend for PhpPdoBackend {
         let _ = writeln!(out);
         let _ = writeln!(out);
 
-        // Parent class — all parent_columns plus a readonly `array $children`.
         let _ = writeln!(out, "readonly class {} {{", parent_struct_name);
         let _ = writeln!(out, "    public function __construct(");
         for c in parent_columns.iter() {
@@ -508,7 +490,6 @@ impl CodegenBackend for PhpPdoBackend {
         );
         let mut out = String::new();
 
-        // Build PHP parameter list (same pattern as generate_query_fn)
         let param_list = params
             .iter()
             .map(|p| format!("{} ${}", p.full_type, p.field_name))
@@ -516,7 +497,6 @@ impl CodegenBackend for PhpPdoBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // PHPDoc block
         let _ = writeln!(out, "    /**");
         let _ = writeln!(out, "     * @param \\PDO $pdo");
         for p in params {
@@ -531,10 +511,8 @@ impl CodegenBackend for PhpPdoBackend {
             func_name, sep, param_list
         );
 
-        // Prepare statement
         let _ = writeln!(out, "        $stmt = $pdo->prepare(\"{}\");", sql);
 
-        // Execute with params
         if params.is_empty() {
             let _ = writeln!(out, "        $stmt->execute();");
         } else {
@@ -559,8 +537,6 @@ impl CodegenBackend for PhpPdoBackend {
             let _ = writeln!(out, "        $stmt->execute([{}]);", bindings);
         }
 
-        // Fold state: index maps key → position, parentArgs stores decoded parent fields,
-        // childrenMap accumulates children per group. Parallel arrays iterate in insertion order.
         let _ = writeln!(out, "        /** @var array<int|string, int> $parentIndex */");
         let _ = writeln!(out, "        $parentIndex = [];");
         let _ = writeln!(out, "        /** @var array<int, array<string, mixed>> $parentArgs */");
@@ -572,7 +548,6 @@ impl CodegenBackend for PhpPdoBackend {
         );
         let _ = writeln!(out, "        $childrenMap = [];");
 
-        // Row-by-row fold
         let _ = writeln!(out, "        while ($row = $stmt->fetch(\\PDO::FETCH_ASSOC)) {{");
         let _ = writeln!(out, "            $key = $row['{}'];", key_column);
         let _ = writeln!(out, "            if (!isset($parentIndex[$key])) {{");
@@ -594,8 +569,6 @@ impl CodegenBackend for PhpPdoBackend {
         );
         let _ = writeln!(out, "        }}");
 
-        // Build result array. Named-argument spread (...$args) unpacks the parent fields
-        // dict into constructor parameters; readonly class requires PHP 8.1+.
         let _ = writeln!(out, "        $result = [];");
         let _ = writeln!(out, "        foreach ($parentArgs as $pos => $args) {{");
         let _ = writeln!(
@@ -628,7 +601,6 @@ impl CodegenBackend for PhpPdoBackend {
         let _ = writeln!(out, "readonly class {} {{", name);
         let _ = writeln!(out, "    public function __construct(");
         if composite.fields.is_empty() {
-            // empty constructor
         } else {
             for field in &composite.fields {
                 let field_type = resolve_type(&field.neutral_type, &self.manifest, false)
@@ -713,17 +685,14 @@ mod tests {
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let row_struct = result.row_struct.as_deref().unwrap();
 
-        // Child class must appear before parent class
         assert!(
             row_struct.contains("readonly class GetUsersWithOrdersChildRow"),
             "missing child class; got:\n{row_struct}"
         );
-        // Child must have fromRow factory with correct column conversions
         assert!(
             row_struct.contains("public static function fromRow"),
             "child missing fromRow; got:\n{row_struct}"
         );
-        // Parent class must include children array
         assert!(
             row_struct.contains("readonly class GetUsersWithOrdersRow"),
             "missing parent class; got:\n{row_struct}"
@@ -736,7 +705,6 @@ mod tests {
             row_struct.contains("@var GetUsersWithOrdersChildRow[]"),
             "parent missing @var annotation for children; got:\n{row_struct}"
         );
-        // Ordering: child must be defined before parent
         let child_pos = row_struct.find("readonly class GetUsersWithOrdersChildRow").unwrap();
         let parent_pos = row_struct.find("readonly class GetUsersWithOrdersRow").unwrap();
         assert!(child_pos < parent_pos, "child must precede parent; got:\n{row_struct}");
@@ -749,7 +717,6 @@ mod tests {
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
 
-        // Correct function name and PDO parameter
         assert!(
             query_fn.contains("getUsersWithOrders"),
             "missing function name; got:\n{query_fn}"
@@ -762,7 +729,6 @@ mod tests {
             query_fn.contains("): array"),
             "wrong return type (expected array); got:\n{query_fn}"
         );
-        // Fold data structures
         assert!(
             query_fn.contains("$parentIndex"),
             "missing fold index; got:\n{query_fn}"
@@ -771,12 +737,10 @@ mod tests {
             query_fn.contains("$childrenMap"),
             "missing children map; got:\n{query_fn}"
         );
-        // Children folded via child struct's fromRow
         assert!(
             query_fn.contains("GetUsersWithOrdersChildRow::fromRow($row)"),
             "must fold children via fromRow; got:\n{query_fn}"
         );
-        // Parent constructed with named-argument spread (PHP 8.1+)
         assert!(
             query_fn.contains("new GetUsersWithOrdersRow(...$args, children: $childrenMap[$pos])"),
             "must build parent with named-arg spread; got:\n{query_fn}"

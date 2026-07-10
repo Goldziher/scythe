@@ -42,11 +42,6 @@ pub struct RunAuditOpts {
 }
 
 pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
-    // ------------------------------------------------------------------
-    // Discovery flags: --list-rules / --explain operate on the rule
-    // catalog (including any user rules loaded via scythe.toml) and exit
-    // before any SQL is audited.
-    // ------------------------------------------------------------------
     if opts.list_rules || opts.explain.is_some() {
         let registry = load_registry_for_discovery(&opts.config_path)?;
         let mut out: Box<dyn Write> = open_output(opts.output.as_deref())?;
@@ -85,7 +80,6 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut out: Box<dyn Write> = open_output(opts.output.as_deref())?;
     emit_findings(format, TOOL_NAME, TOOL_VERSION, &findings, out.as_mut())?;
-    // Ensure file-backed writers flush before we potentially exit.
     out.flush().ok();
 
     let error_count = findings
@@ -93,8 +87,6 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
         .filter(|f| matches!(f.severity, Severity::Error))
         .count();
     if error_count > 0 && !opts.exit_zero {
-        // Distinct exit code so CI can tell apart "lint warnings" from
-        // "security violations". 2 = audit failure.
         std::process::exit(2);
     }
     Ok(())
@@ -123,13 +115,11 @@ fn load_registry_for_discovery(config_path: &str) -> Result<RuleRegistry, Box<dy
     }
     let config_str = std::fs::read_to_string(config_path)?;
     let parsed: toml::Value = toml::from_str(&config_str)?;
-    // Apply [lint] severity overrides if present.
     if let Some(lint_section) = parsed.get("lint")
         && let Ok(lint_config) = lint_section.clone().try_into::<scythe_lint::types::LintConfig>()
     {
         registry.apply_config(&lint_config);
     }
-    // Load user rules from [audit] section if present.
     if let Some(audit_section) = parsed.get("audit") {
         let config_dir = Path::new(config_path).parent().unwrap_or(Path::new("."));
         let matcher_registry = MatcherRegistry::canonical();
@@ -269,13 +259,9 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         registry.apply_config(lint_config);
     }
 
-    // ------------------------------------------------------------------
-    // User-supplied rules
-    // ------------------------------------------------------------------
     let config_dir = Path::new(config_path).parent().unwrap_or_else(|| Path::new("."));
     let matcher_registry = MatcherRegistry::canonical();
 
-    // Collect (spec, source) pairs from inline [[audit.rule]] stanzas.
     let mut user_specs: Vec<(RuleSpec, String)> = config
         .audit
         .rules
@@ -283,7 +269,6 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         .map(|spec| (spec, config_path.to_string()))
         .collect();
 
-    // Collect specs from extra_rules files.
     for rel_path in &config.audit.extra_rules {
         let abs_path = config_dir.join(rel_path);
         let path_str = abs_path.display().to_string();
@@ -313,7 +298,6 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
 
-        // Run security rules against schema files (DDL: GRANT, CREATE FUNCTION, etc.)
         for (path, content) in schema_files.iter().zip(schema_contents.iter()) {
             findings.extend(run_security_rules_over_sql(
                 path,
@@ -325,7 +309,6 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
             ));
         }
 
-        // Run security rules against query files (DML).
         let query_files = resolve_globs(&sql_config.queries)?;
         for query_file in &query_files {
             let content = std::fs::read_to_string(query_file)
@@ -358,8 +341,6 @@ pub(crate) fn audit_explicit_files(
 ) -> Result<Vec<Finding>, Box<dyn std::error::Error>> {
     let sql_dialect = SqlDialect::from_str(engine).unwrap_or(SqlDialect::PostgreSQL);
 
-    // No schema context — security rules don't strictly need a populated
-    // catalog (none of the Phase 1 rules consult catalog tables).
     let catalog = Catalog::from_ddl_with_dialect(&[], &sql_dialect)
         .unwrap_or_else(|_| Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog"));
 
@@ -400,9 +381,6 @@ pub(crate) fn run_security_rules_over_sql(
 ) -> Vec<Finding> {
     let mut findings = Vec::new();
 
-    // Build suppression set once for the whole file. When --ignore-suppressions
-    // is set, we still parse (cheap, and we may surface diagnostics later) but
-    // skip the application step below.
     let suppressions = SuppressionSet::parse(sql);
 
     let parser_dialect = dialect.to_sqlparser_dialect();
@@ -414,11 +392,6 @@ pub(crate) fn run_security_rules_over_sql(
         }
     };
 
-    // Compute per-statement start lines via the tokenizer so we have accurate
-    // line info without unsafe `;` splitting. We tokenize once and walk
-    // the token stream in parallel with the statement list. Because
-    // sqlparser's `Parser` consumes tokens left-to-right, each statement
-    // corresponds to a contiguous prefix of the token stream.
     let stmt_start_lines = compute_stmt_start_lines(sql, parser_dialect.as_ref(), statements.len());
 
     let empty_annotations = Annotations::default();
@@ -444,9 +417,6 @@ pub(crate) fn run_security_rules_over_sql(
                 continue;
             }
             for violation in rule.check_query(&ctx) {
-                // Apply suppression: if the rule is suppressed on the statement
-                // start line, drop this finding. Skip entirely under
-                // --ignore-suppressions.
                 if !ignore_suppressions
                     && !suppressions.is_empty()
                     && suppressions.is_suppressed(&violation.rule_id, stmt_line)
@@ -462,8 +432,6 @@ pub(crate) fn run_security_rules_over_sql(
                     rule_description: Some(rule.description().to_string()),
                     severity: *severity,
                     message: violation.message,
-                    // line is tracked internally for suppression but not
-                    // emitted to preserve byte-identical baseline output.
                     line: None,
                     column: None,
                     cwe: extract_cwe(rule.description()),
@@ -495,19 +463,17 @@ fn compute_stmt_start_lines(sql: &str, dialect: &dyn sqlparser::dialect::Dialect
 
     let tokens = match Tokenizer::new(dialect, sql).tokenize_with_location() {
         Ok(t) => t,
-        // On tokenizer failure fall back to line 1 for every statement.
         Err(_) => return start_lines,
     };
 
     let mut stmt_idx: usize = 0;
-    let mut recorded = false; // have we recorded the first token for stmt_idx?
+    let mut recorded = false;
 
     for tok_with_span in &tokens {
         let line = tok_with_span.span.start.line as usize;
         let token = &tok_with_span.token;
 
         match token {
-            // Whitespace and comments are not the "first meaningful token".
             Token::Whitespace(_) => continue,
             Token::SemiColon => {
                 stmt_idx += 1;

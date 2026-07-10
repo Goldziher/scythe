@@ -21,10 +21,6 @@ pub use spec::{
 };
 pub use suppression::SuppressionSet;
 
-// ---------------------------------------------------------------------------
-// User-rule registration
-// ---------------------------------------------------------------------------
-
 /// Register user-supplied rules into an existing `RuleRegistry`.
 ///
 /// Each entry in `user_specs` is a `(RuleSpec, source_path)` pair where
@@ -60,10 +56,6 @@ pub fn register_user_rules(
     }
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// Canonical spec loader
-// ---------------------------------------------------------------------------
 
 const SECURITY_TOML: &str = include_str!("rules/security.toml");
 const MIGRATION_TOML: &str = include_str!("rules/migration.toml");

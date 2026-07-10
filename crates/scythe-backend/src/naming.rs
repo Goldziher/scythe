@@ -30,21 +30,18 @@ pub fn to_pascal_case(s: &str) -> Cow<'_, str> {
         }
     } else if let Some(first) = s.chars().next() {
         if first.is_lowercase() {
-            // Single word, lowercase: capitalize first letter
             let mut chars = s.chars();
             if let Some(first) = chars.next() {
                 result.extend(first.to_uppercase());
                 result.push_str(chars.as_str());
             }
         } else if s.chars().all(|c| c.is_uppercase() || c == '_') {
-            // ALL CAPS word like "ACTIVE" → "Active"
             let mut chars = s.chars();
             if let Some(first) = chars.next() {
                 result.extend(first.to_uppercase());
                 result.push_str(&chars.as_str().to_lowercase());
             }
         } else {
-            // Already PascalCase
             return Cow::Borrowed(s);
         }
     } else {
@@ -68,7 +65,6 @@ pub fn to_snake_case(s: &str) -> Cow<'_, str> {
         return Cow::Owned(lower);
     }
 
-    // Check if already all lowercase with no uppercase
     if s.chars().all(|c| !c.is_uppercase()) {
         return Cow::Borrowed(s);
     }
@@ -168,7 +164,6 @@ fn sanitize_for_identifier(s: &str) -> String {
             result.push('_');
         }
     }
-    // If the result starts with a digit, prefix with 'V'
     if result.starts_with(|c: char| c.is_ascii_digit()) {
         result.insert(0, 'V');
     }
@@ -208,7 +203,6 @@ mod tests {
 
     #[test]
     fn test_to_pascal_case_borrows_when_unchanged() {
-        // Already PascalCase should return Cow::Borrowed
         assert!(matches!(to_pascal_case("UserStatus"), Cow::Borrowed(_)));
     }
 
@@ -222,7 +216,6 @@ mod tests {
 
     #[test]
     fn test_to_snake_case_borrows_when_unchanged() {
-        // Already snake_case should return Cow::Borrowed
         assert!(matches!(to_snake_case("user_status"), Cow::Borrowed(_)));
     }
 

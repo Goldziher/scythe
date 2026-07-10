@@ -17,19 +17,11 @@ pub const SCHEMA_VERSION: u32 = 1;
 
 /// The canonical built-in rule IDs that users cannot override or reuse.
 pub const CANONICAL_RULE_IDS: &[&str] = &[
-    // Security
     "SC-SEC01", "SC-SEC02", "SC-SEC03", "SC-SEC04", "SC-SEC05", "SC-SEC06", "SC-SEC07", "SC-SEC08", "SC-SEC09",
-    "SC-SEC10", "SC-SEC11", "SC-SEC12", // RLS (also security category)
-    "SC-RLS01", "SC-RLS02", "SC-RLS03", // Migration
-    "SC-MIG01", "SC-MIG02", "SC-MIG03", "SC-MIG04", "SC-MIG05", "SC-MIG06", "SC-MIG07", "SC-MIG08", "SC-MIG09",
-    "SC-MIG10", "SC-MIG11", "SC-MIG12", "SC-MIG13", "SC-MIG14", "SC-MIG15", "SC-MIG16", "SC-MIG17", "SC-MIG18",
-    "SC-MIG19", // Quality / antipattern
-    "SC-CHK01",
+    "SC-SEC10", "SC-SEC11", "SC-SEC12", "SC-RLS01", "SC-RLS02", "SC-RLS03", "SC-MIG01", "SC-MIG02", "SC-MIG03",
+    "SC-MIG04", "SC-MIG05", "SC-MIG06", "SC-MIG07", "SC-MIG08", "SC-MIG09", "SC-MIG10", "SC-MIG11", "SC-MIG12",
+    "SC-MIG13", "SC-MIG14", "SC-MIG15", "SC-MIG16", "SC-MIG17", "SC-MIG18", "SC-MIG19", "SC-CHK01",
 ];
-
-// ---------------------------------------------------------------------------
-// Serde helpers
-// ---------------------------------------------------------------------------
 
 fn default_category() -> RuleCategory {
     RuleCategory::Security
@@ -49,10 +41,6 @@ fn default_dialects() -> Vec<SqlDialect> {
     Vec::new()
 }
 
-// ---------------------------------------------------------------------------
-// Top-level TOML container
-// ---------------------------------------------------------------------------
-
 /// Top-level structure of a rule TOML file.
 #[derive(Debug, Deserialize)]
 pub struct RuleFile {
@@ -62,10 +50,6 @@ pub struct RuleFile {
     #[serde(rename = "rule")]
     pub rules: Vec<RuleSpec>,
 }
-
-// ---------------------------------------------------------------------------
-// RuleSpec
-// ---------------------------------------------------------------------------
 
 /// Metadata for a single matcher-based lint rule, as stored in TOML.
 #[derive(Debug, Clone, Deserialize)]
@@ -119,10 +103,6 @@ impl RuleSpec {
     }
 }
 
-// ---------------------------------------------------------------------------
-// AuditConfigError
-// ---------------------------------------------------------------------------
-
 /// Errors that can arise while loading or validating user-supplied audit rules.
 #[derive(Debug, thiserror::Error)]
 pub enum AuditConfigError {
@@ -147,10 +127,6 @@ pub enum AuditConfigError {
         reason: String,
     },
 }
-
-// ---------------------------------------------------------------------------
-// File-loading helpers
-// ---------------------------------------------------------------------------
 
 /// Parse a TOML rule file from an in-memory string.
 ///

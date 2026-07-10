@@ -10,7 +10,6 @@ impl PythonValidator {
     fn patch_code(code: &str) -> String {
         let trimmed = code.trim();
 
-        // Detect indented fragments (code that starts with whitespace) — dedent
         if trimmed.starts_with(' ') || trimmed.starts_with('\t') {
             let min_indent = trimmed
                 .lines()
@@ -47,22 +46,18 @@ impl PythonValidator {
         while i < lines.len() {
             output.push(lines[i].to_string());
 
-            // Check if this line or the next ends a function/class signature
             let trimmed = lines[i].trim();
             let is_def_start =
                 trimmed.starts_with("def ") || trimmed.starts_with("async def ") || trimmed.starts_with("class ");
 
             if is_def_start {
-                // Find end of signature (might be multi-line)
                 let mut sig_end = i;
-                let mut has_inline_body = false; // body on the same line as colon
+                let mut has_inline_body = false;
                 while sig_end < lines.len() {
                     let t = lines[sig_end].trim();
                     if t.ends_with(':') {
                         break;
                     }
-                    // Check for colon followed by body on the same line
-                    // e.g. `def foo() -> int: ...` or `def foo(): pass`
                     if let Some(arrow_pos) = t.find("->") {
                         let after_arrow = &t[arrow_pos + 2..];
                         if let Some(colon_pos) = after_arrow.find(':') {
@@ -71,22 +66,18 @@ impl PythonValidator {
                                 has_inline_body = true;
                                 break;
                             }
-                            // Just ends with colon after return type
                             break;
                         }
-                        // Bare return type annotation without colon — like `) -> Type`
                         let last = output.len() - 1;
                         if sig_end == i {
                             output[last] = format!("{}:", lines[sig_end]);
                         }
                         break;
                     }
-                    // Check for ): body pattern (no return type)
                     if t.contains("): ") || t.contains("):\t") {
                         has_inline_body = true;
                         break;
                     }
-                    // Bare signature ending with ) but no colon — like `def foo(x)`
                     if t.ends_with(')') && sig_end > i {
                         let last = output.len() - 1;
                         output[last] = format!("{}:", output[last]);
@@ -98,9 +89,7 @@ impl PythonValidator {
                     sig_end += 1;
                 }
 
-                // If we ran past the end without finding ':' — it's a bare signature
                 if sig_end >= lines.len() {
-                    // Ensure last output line ends with ':'
                     let last = output.len() - 1;
                     if !output[last].trim().ends_with(':') {
                         output[last] = format!("{}:", output[last]);
@@ -112,13 +101,11 @@ impl PythonValidator {
                     continue;
                 }
 
-                // If the body is inline (on the same line as the colon), skip body generation
                 if has_inline_body {
                     i = sig_end + 1;
                     continue;
                 }
 
-                // Check if next non-empty line is indented (has a body)
                 let next_content = (sig_end + 1..lines.len())
                     .find(|&j| !lines[j].trim().is_empty())
                     .map(|j| lines[j]);
@@ -126,10 +113,8 @@ impl PythonValidator {
                 let has_body = next_content.is_some_and(|l| l.starts_with(' ') || l.starts_with('\t'));
 
                 if !has_body {
-                    // Add `...` as body
                     let indent = lines[i].chars().take_while(|c| c.is_whitespace()).count();
                     let body_indent = " ".repeat(indent + 4);
-                    // Ensure last line of signature ends with ':'
                     let last = output.len() - 1;
                     if !output[last].trim().ends_with(':') {
                         output[last] = format!("{}:", output[last]);
@@ -219,8 +204,6 @@ except SyntaxError as e:
     }
 
     fn is_dependency_error(&self, output: &str) -> bool {
-        // Python syntax errors from ast.parse are always real syntax errors,
-        // but some common patterns from incomplete snippets should be treated as dep errors
         output.contains("unexpected indent") || output.contains("was never closed")
     }
 }
@@ -254,8 +237,6 @@ mod tests {
         for (i, line) in patched.lines().enumerate() {
             eprintln!("  {:3} | {}", i + 1, line);
         }
-        // The patched code should be identical to the input
-        // (class has a body, methods have inline bodies)
         assert_eq!(patched.trim(), code.trim());
     }
 }

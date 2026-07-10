@@ -192,7 +192,7 @@ impl CodegenBackend for CsharpOracleBackend {
                 } else {
                     "item".to_string()
                 };
-                let _ = format!("{}", i); // suppress unused i warning
+                let _ = format!("{}", i);
                 let _ = writeln!(
                     out,
                     "            cmd.Parameters.Add(new OracleParameter {{ Value = (object){} ?? DBNull.Value }});",
@@ -228,8 +228,6 @@ impl CodegenBackend for CsharpOracleBackend {
             format!("Task<{}>", return_type)
         };
 
-        // For Oracle RETURNING queries, the SQL must include "INTO :out0, :out1, …" so that
-        // Oracle binds the output values. Compute the effective SQL before emitting any code.
         let is_one_returning = matches!(analyzed.command, QueryCommand::One | QueryCommand::Opt)
             && sql.to_uppercase().contains("RETURNING");
 
@@ -267,8 +265,6 @@ impl CodegenBackend for CsharpOracleBackend {
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 if is_one_returning {
-                    // Add output parameters and execute without a reader.
-                    // VARCHAR2 output params need an explicit size or Oracle ODP.NET returns empty strings.
                     for (i, col) in columns.iter().enumerate() {
                         let db_type = oracle_db_type(&col.neutral_type);
                         let size_part = if db_type == "OracleDbType.Varchar2" {
@@ -426,7 +422,6 @@ impl CodegenBackend for CsharpOracleBackend {
         let _ = writeln!(out, "    var result = new List<{parent_struct_name}>();");
         let _ = writeln!(out, "    while (await reader.ReadAsync()) {{");
 
-        // Oracle uses reader_method inline — no column_read_expr helper defined
         let key_method = reader_method(&key_col.neutral_type);
         if key_col.nullable {
             let _ = writeln!(

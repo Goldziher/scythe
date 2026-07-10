@@ -21,8 +21,6 @@ impl SnippetValidator for RubyValidator {
         level: ValidationLevel,
         timeout_secs: u64,
     ) -> Result<(SnippetStatus, Option<String>)> {
-        // Detect YARD-style API signatures (not executable Ruby)
-        // Pattern: `Module.method(args) -> ReturnType`
         let trimmed = snippet.code.trim();
         if is_api_signature(trimmed) {
             return Ok((SnippetStatus::Pass, None));
@@ -65,9 +63,7 @@ impl SnippetValidator for RubyValidator {
 /// `Kreuzberg.extract_file_sync(path, config: nil) -> Kreuzberg::Result`
 fn is_api_signature(code: &str) -> bool {
     let lines: Vec<&str> = code.lines().collect();
-    // Single-line or very short (1-3 lines) with `->` return type
     if lines.len() <= 3 && code.contains(" -> ") {
-        // Looks like: Module.method(...) -> Type
         return true;
     }
     false

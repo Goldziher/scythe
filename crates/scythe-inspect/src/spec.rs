@@ -24,10 +24,6 @@ pub const CANONICAL_CHECK_IDS: &[&str] = &[
     "SC-INS10", "SC-INS11", "SC-INS12", "SC-INS13",
 ];
 
-// ---------------------------------------------------------------------------
-// CheckCategory
-// ---------------------------------------------------------------------------
-
 /// Broad category for a live-DB check.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -53,10 +49,6 @@ impl std::fmt::Display for CheckCategory {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Top-level TOML container
-// ---------------------------------------------------------------------------
-
 /// Top-level structure of a check TOML file.
 #[derive(Debug, Deserialize)]
 pub struct CheckFile {
@@ -66,10 +58,6 @@ pub struct CheckFile {
     #[serde(rename = "check")]
     pub checks: Vec<CheckSpec>,
 }
-
-// ---------------------------------------------------------------------------
-// CheckSpec
-// ---------------------------------------------------------------------------
 
 /// Metadata for a single live-DB catalog check, as stored in TOML.
 #[derive(Debug, Clone, Deserialize)]
@@ -113,10 +101,6 @@ pub struct CheckSpec {
     pub min_pg_version: Option<u32>,
 }
 
-// ---------------------------------------------------------------------------
-// Validation errors
-// ---------------------------------------------------------------------------
-
 /// Validation error for a user-supplied or canonical [`CheckSpec`].
 #[derive(Debug, thiserror::Error)]
 pub enum SpecValidationError {
@@ -157,10 +141,6 @@ impl CheckSpec {
         Ok(())
     }
 }
-
-// ---------------------------------------------------------------------------
-// Message-binding validation
-// ---------------------------------------------------------------------------
 
 /// Extract all `{var}` placeholder names from a message template string.
 fn extract_message_placeholders(message: &str) -> Vec<String> {
@@ -228,13 +208,10 @@ pub fn validate_message_bindings(spec: &CheckSpec) -> Result<(), SpecValidationE
     let select = match *query.body {
         SetExpr::Select(s) => s,
         _ => {
-            // Can't inspect a UNION/VALUES body statically — skip validation.
             return Ok(());
         }
     };
 
-    // If any projection item is a wildcard or multi-alias we can't enumerate
-    // columns statically — skip validation.
     let has_wildcard = select.projection.iter().any(|item| {
         matches!(
             item,
@@ -251,7 +228,6 @@ pub fn validate_message_bindings(spec: &CheckSpec) -> Result<(), SpecValidationE
         .map(|item| match item {
             SelectItem::ExprWithAlias { alias, .. } => alias.value.to_ascii_lowercase(),
             SelectItem::UnnamedExpr(expr) => expr_to_name(expr),
-            // wildcard / multi-alias handled above
             _ => String::new(),
         })
         .filter(|s| !s.is_empty())
@@ -271,10 +247,6 @@ pub fn validate_message_bindings(spec: &CheckSpec) -> Result<(), SpecValidationE
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// ConfigError — mirrors AuditConfigError shape
-// ---------------------------------------------------------------------------
 
 /// Errors that can arise while loading or validating a user-supplied check
 /// TOML file.
@@ -301,10 +273,6 @@ pub enum ConfigError {
         reason: String,
     },
 }
-
-// ---------------------------------------------------------------------------
-// File-loading helpers
-// ---------------------------------------------------------------------------
 
 /// Parse a TOML check file from an in-memory string.
 ///
@@ -335,10 +303,6 @@ pub fn load_checks_from_file(path: &Path) -> Result<Vec<CheckSpec>, ConfigError>
     })?;
     parse_check_file(&content, &path_str)
 }
-
-// ---------------------------------------------------------------------------
-// Unit tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -415,13 +379,8 @@ mod tests {
     #[test]
     fn validate_user_check_rejects_canonical_collision() {
         let spec = make_spec("SC-INS01", "msg", "SELECT 1 AS x");
-        // SC-INS01 doesn't start with USER-INS- so it hits MissingUserPrefix first.
-        // Test the canonical collision path with a USER-INS- prefixed but canonical ID:
-        // (canonical IDs are all SC-INS*, so a USER-INS- can't actually collide — but
-        // the method guards against it defensively)
         let result = spec.validate_user_check();
         assert!(result.is_err());
-        // The error should be MissingUserPrefix since "SC-INS01" doesn't start with "USER-INS-"
         assert!(matches!(result.unwrap_err(), SpecValidationError::MissingUserPrefix(_)));
     }
 

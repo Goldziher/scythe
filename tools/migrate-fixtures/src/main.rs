@@ -5,7 +5,6 @@ use std::fs;
 
 fn build_type_map() -> AHashMap<&'static str, &'static str> {
     let mut m = AHashMap::new();
-    // Scalars
     m.insert("bool", "bool");
     m.insert("i16", "int16");
     m.insert("i32", "int32");
@@ -24,7 +23,6 @@ fn build_type_map() -> AHashMap<&'static str, &'static str> {
     m.insert("sqlx::postgres::types::PgInterval", "interval");
     m.insert("serde_json::Value", "json");
     m.insert("ipnetwork::IpNetwork", "inet");
-    // Compound types
     m.insert("Vec<i32>", "array<int32>");
     m.insert("Vec<String>", "array<string>");
     m.insert("UserStatus", "enum::user_status");
@@ -42,7 +40,6 @@ fn build_type_map() -> AHashMap<&'static str, &'static str> {
 /// Returns (inner_type, was_option).
 fn strip_option(rust_type: &str) -> (&str, bool) {
     if let Some(inner) = rust_type.strip_prefix("Option<") {
-        // Find the last '>' which closes the Option
         if let Some(pos) = inner.rfind('>') {
             (&inner[..pos], true)
         } else {
@@ -54,12 +51,10 @@ fn strip_option(rust_type: &str) -> (&str, bool) {
 }
 
 fn map_rust_type(rust_type: &str, type_map: &AHashMap<&str, &str>) -> Option<String> {
-    // First try direct lookup
     if let Some(neutral) = type_map.get(rust_type) {
         return Some(neutral.to_string());
     }
 
-    // Try stripping Option<>
     let (inner, was_option) = strip_option(rust_type);
     if was_option && let Some(neutral) = type_map.get(inner) {
         return Some(neutral.to_string());
@@ -80,12 +75,10 @@ fn migrate_params_or_columns(arr: &mut [Value], type_map: &AHashMap<&str, &str>,
                     }
                     None => {
                         unmapped.push(rust_type_str.to_string());
-                        // Put it back so we don't lose data
                         obj.insert("rust_type".to_string(), rust_type_val);
                     }
                 }
             } else {
-                // Not a string, put it back
                 obj.insert("rust_type".to_string(), rust_type_val);
             }
         }
@@ -135,7 +128,6 @@ fn main() {
 
         let mut modified = false;
 
-        // Migrate expected.query.params[] and expected.query.columns[]
         if let Some(expected) = root.get_mut("expected") {
             if let Some(query) = expected.get_mut("query") {
                 if let Some(params) = query.get_mut("params")
@@ -158,7 +150,6 @@ fn main() {
                 }
             }
 
-            // Migrate expected.generated_rust → expected.generated_code.rust-sqlx
             if let Some(generated_rust) = expected.as_object_mut().and_then(|o| o.remove("generated_rust")) {
                 let Some(expected_obj) = expected.as_object_mut() else {
                     continue;
@@ -173,7 +164,6 @@ fn main() {
             }
         }
 
-        // Migrate config.type_overrides[].rust_type → lang_type
         if let Some(config) = root.get_mut("config")
             && let Some(overrides) = config.get_mut("type_overrides")
             && let Some(arr) = overrides.as_array_mut()
@@ -195,7 +185,6 @@ fn main() {
         }
     }
 
-    // Deduplicate unmapped types
     unmapped_types.sort();
     unmapped_types.dedup();
 

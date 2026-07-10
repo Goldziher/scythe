@@ -7,8 +7,6 @@ use super::types::{LintContext, Severity, Violation};
 use scythe_core::catalog::Catalog;
 
 // ---------------------------------------------------------------------------
-// Public types
-// ---------------------------------------------------------------------------
 
 #[derive(Debug)]
 pub struct QueryViolation {
@@ -34,10 +32,6 @@ impl LintReport {
         self.violations.iter().any(|v| matches!(v.severity, Severity::Warn))
     }
 }
-
-// ---------------------------------------------------------------------------
-// LintEngine
-// ---------------------------------------------------------------------------
 
 pub struct LintEngine {
     registry: RuleRegistry,
@@ -85,13 +79,11 @@ impl LintEngine {
         for ctx in queries {
             queries_checked += 1;
 
-            // Track duplicate query names
             let qname = ctx.analyzed.name.clone();
             if !seen_names.insert(qname.clone()) {
                 duplicate_names.push(qname.clone());
             }
 
-            // Run per-query rules
             for (rule, sev) in &active {
                 for v in rule.check_query(&ctx) {
                     violations.push(QueryViolation {
@@ -104,7 +96,6 @@ impl LintEngine {
             }
         }
 
-        // Emit duplicate-name violations (handled at engine level)
         for dup in &duplicate_names {
             violations.push(QueryViolation {
                 query_name: dup.clone(),
@@ -114,7 +105,6 @@ impl LintEngine {
             });
         }
 
-        // Catalog-level checks
         for (rule, sev) in &active {
             for v in rule.check_catalog(catalog) {
                 violations.push(QueryViolation {
@@ -147,8 +137,6 @@ mod tests {
     use sqlparser::dialect::PostgreSqlDialect;
     use sqlparser::parser::Parser;
     use std::borrow::Cow;
-
-    // -- Helpers ---------------------------------------------------------------
 
     /// A test rule that always emits one query-level violation.
     struct AlwaysWarnRule;
@@ -286,13 +274,10 @@ mod tests {
         }
     }
 
-    // -- Tests -----------------------------------------------------------------
-
     #[test]
     fn lint_engine_new_creates_engine() {
         let reg = RuleRegistry::new();
         let engine = LintEngine::new(reg);
-        // Engine is created successfully; no rules registered
         let catalog = empty_catalog();
         let report = engine.build_report(std::iter::empty(), &catalog);
         assert_eq!(report.rules_active, 0);
@@ -355,7 +340,7 @@ mod tests {
     #[test]
     fn build_report_counts_errors_vs_warnings() {
         let mut reg = RuleRegistry::new();
-        reg.register(Box::new(AlwaysWarnRule)); // default Warn
+        reg.register(Box::new(AlwaysWarnRule));
         let engine = LintEngine::new(reg);
 
         let sql = "SELECT 1";
@@ -375,9 +360,9 @@ mod tests {
     #[test]
     fn build_report_with_mixed_severities() {
         let mut reg = RuleRegistry::new();
-        reg.register(Box::new(AlwaysWarnRule)); // Warn
-        reg.register(Box::new(CatalogRule)); // Error (catalog-level)
-        reg.register(Box::new(SilentRule)); // Warn but never fires
+        reg.register(Box::new(AlwaysWarnRule));
+        reg.register(Box::new(CatalogRule));
+        reg.register(Box::new(SilentRule));
         let engine = LintEngine::new(reg);
 
         let sql = "SELECT 1";
@@ -390,16 +375,15 @@ mod tests {
         let report = engine.build_report(std::iter::once(ctx), &catalog);
         assert_eq!(report.queries_checked, 1);
         assert_eq!(report.rules_active, 3);
-        assert!(report.has_warnings()); // from AlwaysWarnRule
-        assert!(report.has_errors()); // from CatalogRule
-        // AlwaysWarnRule fires 1 query violation, CatalogRule fires 1 catalog violation
+        assert!(report.has_warnings());
+        assert!(report.has_errors());
         assert_eq!(report.violations.len(), 2);
     }
 
     #[test]
     fn build_report_duplicate_query_names() {
         let mut reg = RuleRegistry::new();
-        reg.register(Box::new(SilentRule)); // no per-query violations
+        reg.register(Box::new(SilentRule));
         let engine = LintEngine::new(reg);
 
         let sql = "SELECT 1";
@@ -422,7 +406,6 @@ mod tests {
         let report = engine.build_report(queries.into_iter(), &catalog);
         assert_eq!(report.queries_checked, 3);
 
-        // Should detect one duplicate for "dup_name"
         let dup_violations: Vec<_> = report.violations.iter().filter(|v| v.rule_id == "SC-C03").collect();
         assert_eq!(dup_violations.len(), 1);
         assert_eq!(dup_violations[0].query_name, "dup_name");

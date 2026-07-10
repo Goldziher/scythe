@@ -21,10 +21,6 @@ use scythe_lint::{
     extract_cwe, load_rules_from_file, register_user_rules,
 };
 
-// ---------------------------------------------------------------------------
-// Shared helper: run security rules over raw SQL, respecting suppressions.
-// ---------------------------------------------------------------------------
-
 fn run_rules(path: &str, sql: &str, dialect: &SqlDialect, catalog: &Catalog, registry: &RuleRegistry) -> Vec<Finding> {
     use sqlparser::tokenizer::{Token, Tokenizer};
 
@@ -106,18 +102,12 @@ fn run_rules(path: &str, sql: &str, dialect: &SqlDialect, catalog: &Catalog, reg
     findings
 }
 
-// ---------------------------------------------------------------------------
-// Test 1: suppression — one suppressed, one unsuppressed GRANT ALL
-// ---------------------------------------------------------------------------
-
 #[test]
 fn suppression_drops_annotated_grant_and_keeps_plain_grant() {
     let dialect = SqlDialect::PostgreSQL;
     let catalog = Catalog::from_ddl_with_dialect(&[], &dialect).expect("empty catalog");
     let registry = default_registry();
 
-    // The first GRANT ALL has no annotation — should fire SC-SEC02.
-    // The second is preceded by an ignore annotation — should be suppressed.
     let sql = concat!(
         "GRANT ALL ON users TO bob;\n",
         "\n",
@@ -136,10 +126,6 @@ fn suppression_drops_annotated_grant_and_keeps_plain_grant() {
         sec02
     );
 }
-
-// ---------------------------------------------------------------------------
-// Test 2: user rule fires for custom function
-// ---------------------------------------------------------------------------
 
 #[test]
 fn user_rule_fires_for_custom_function() {
@@ -180,10 +166,6 @@ fn user_rule_fires_for_custom_function() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Test 3: canonical ID collision returns AuditConfigError::InvalidRule
-// ---------------------------------------------------------------------------
-
 #[test]
 fn user_rule_with_canonical_id_returns_error() {
     let mut registry = default_registry();
@@ -195,7 +177,7 @@ fn user_rule_with_canonical_id_returns_error() {
         toml::Value::Array(vec![toml::Value::String("bad_fn".to_string())]),
     );
     let spec = RuleSpec {
-        id: "SC-SEC01".to_string(), // canonical — must be rejected
+        id: "SC-SEC01".to_string(),
         name: "collision-test".to_string(),
         category: RuleCategory::Security,
         severity: Severity::Error,
@@ -222,10 +204,6 @@ fn user_rule_with_canonical_id_returns_error() {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Test 4: missing USER- prefix returns error
-// ---------------------------------------------------------------------------
-
 #[test]
 fn user_rule_without_user_prefix_returns_error() {
     let mut registry = default_registry();
@@ -237,7 +215,7 @@ fn user_rule_without_user_prefix_returns_error() {
         toml::Value::Array(vec![toml::Value::String("bad_fn".to_string())]),
     );
     let spec = RuleSpec {
-        id: "NOPRE-001".to_string(), // no USER- prefix
+        id: "NOPRE-001".to_string(),
         name: "prefix-test".to_string(),
         category: RuleCategory::Security,
         severity: Severity::Error,
@@ -259,19 +237,12 @@ fn user_rule_without_user_prefix_returns_error() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Test 5: a single inline suppression covering multiple rule IDs silences all
-// of them on the next statement.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn multi_rule_suppression_silences_every_listed_id() {
     let dialect = SqlDialect::PostgreSQL;
     let catalog = Catalog::from_ddl_with_dialect(&[], &dialect).expect("empty catalog");
     let registry = default_registry();
 
-    // Both GRANT ALL (SC-SEC02) and GRANT TO PUBLIC (SC-SEC03) would fire on
-    // this statement. The annotation lists both — both must be silenced.
     let sql = concat!(
         "-- scythe-audit: ignore[SC-SEC02,SC-SEC03]\n",
         "GRANT ALL ON users TO PUBLIC;\n",
@@ -289,11 +260,6 @@ fn multi_rule_suppression_silences_every_listed_id() {
         sec02_03
     );
 }
-
-// ---------------------------------------------------------------------------
-// Test 6: load_rules_from_file reads a separate TOML file referenced by the
-// `extra_rules` mechanism; loaded specs can be registered as USER- rules.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn extra_rules_file_loads_and_registers() {
@@ -343,11 +309,6 @@ functions = ["extra_fn"]
     );
 }
 
-// ---------------------------------------------------------------------------
-// Test 7: malformed TOML rule file produces a clear error containing the
-// offending path.
-// ---------------------------------------------------------------------------
-
 #[test]
 fn malformed_extra_rules_file_returns_error_with_path() {
     let tmp = tempfile::TempDir::new().unwrap();
@@ -361,11 +322,6 @@ fn malformed_extra_rules_file_returns_error_with_path() {
         "error message should reference the offending path; got: {msg}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Test 8: a Postgres-only rule (SC-SEC10) does not fire when the dialect is
-// SQLite.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn pg_only_rule_skipped_on_non_pg_dialect() {
@@ -382,9 +338,6 @@ fn pg_only_rule_skipped_on_non_pg_dialect() {
         pg_findings
     );
 
-    // The same CREATE FUNCTION won't even parse under SQLite, so we use a
-    // statement that *would* fire SC-SEC11 (SET ROLE) on Postgres but is
-    // skipped under SQLite because the rule declares dialects = ["postgres"].
     let set_role_sql = "SET ROLE admin;";
     let pg_set = run_rules("pg2.sql", set_role_sql, &SqlDialect::PostgreSQL, &catalog_pg, &registry);
     assert!(

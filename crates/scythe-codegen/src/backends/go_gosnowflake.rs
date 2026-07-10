@@ -266,7 +266,6 @@ impl CodegenBackend for GoGosnowflakeBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child struct defined first (no forward declarations in Go).
         let _ = writeln!(out, "type {} struct {{", child_struct_name);
         for col in child_columns {
             let field = to_pascal_case(&col.field_name);
@@ -275,7 +274,6 @@ impl CodegenBackend for GoGosnowflakeBackend {
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
 
-        // Parent struct with Children slice.
         let _ = writeln!(out, "type {} struct {{", parent_struct_name);
         for col in parent_columns {
             let field = to_pascal_case(&col.field_name);
@@ -301,7 +299,6 @@ impl CodegenBackend for GoGosnowflakeBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        // Snowflake uses ? placeholders.
         let sql = super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
@@ -412,10 +409,6 @@ impl CodegenBackend for GoGosnowflakeBackend {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
@@ -509,7 +502,6 @@ mod tests {
             row_struct.contains("Children []GetUsersWithOrdersChildRow"),
             "parent struct missing Children field; got:\n{row_struct}"
         );
-        // Child must appear before parent.
         let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
         let parent_pos = row_struct.find("type GetUsersWithOrdersRow struct").unwrap();
         assert!(

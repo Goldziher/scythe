@@ -118,7 +118,6 @@ impl CodegenBackend for CsharpSnowflakeBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Handle :batch separately
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}Batch", func_name);
             if params.len() > 1 {

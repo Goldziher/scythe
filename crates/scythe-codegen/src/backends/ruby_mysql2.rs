@@ -239,7 +239,6 @@ impl CodegenBackend for RubyMysql2Backend {
             .collect::<Vec<_>>()
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
-        // mysql2 stmt.execute takes positional args (no brackets)
         let execute_args = params
             .iter()
             .map(|p| p.field_name.clone())

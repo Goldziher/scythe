@@ -1,6 +1,8 @@
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 
+use crate::GeneratedCode;
+
 /// Information needed to generate an RBS type signature file.
 #[derive(Debug, Clone)]
 pub struct RbsGenerationContext {
@@ -108,6 +110,14 @@ pub trait CodegenBackend: Send + Sync {
     /// Returns an empty string by default; backends may override.
     fn file_header(&self) -> String {
         String::new()
+    }
+
+    /// Generate a file-level header using already generated code as context.
+    ///
+    /// Backends with conditional imports can inspect generated fragments and avoid
+    /// broad engine-level import guesses. The default preserves existing behavior.
+    fn file_header_for_results(&self, _generated: &[GeneratedCode]) -> String {
+        self.file_header()
     }
 
     /// Generate a file-level footer (closing braces, etc).

@@ -225,8 +225,6 @@ impl CodegenBackend for KotlinJdbcBackend {
     }
 
     fn file_header(&self) -> String {
-        // Only import UUID when uuid type actually resolves to java.util.UUID.
-        // Some engines (e.g. MariaDB) map uuid to String, making the import unused.
         let uuid_type = self
             .manifest
             .types
@@ -284,13 +282,10 @@ impl CodegenBackend for KotlinJdbcBackend {
 
         let use_multiline_params = !params.is_empty();
         let ext = self.extension_functions;
-        // When using extension functions, `this` is the implicit Connection receiver.
-        // When not, `conn` is the explicit Connection parameter.
         let receiver = if ext { "this" } else { "conn" };
 
         let mut out = String::new();
 
-        // Helper: write param setters (ps must already be in scope)
         let engine = &self.engine;
         let write_setters = |out: &mut String, params: &[ResolvedParam]| {
             for (i, param) in params.iter().enumerate() {
@@ -312,13 +307,6 @@ impl CodegenBackend for KotlinJdbcBackend {
             }
         };
 
-        // Helper: write function signature.
-        //
-        // When `ext` is true:
-        //   `fun Connection.name(params...): Ret {` (block body)
-        //   `fun Connection.name(params...): Ret =` (expression body, when `expr` is true)
-        // When `ext` is false:
-        //   `fun name(conn: Connection, params...): Ret {`
         let write_fn_sig =
             |out: &mut String, name: &str, ret: &str, multiline: bool, params: &[ResolvedParam], expr: bool| {
                 if ext {
@@ -351,8 +339,6 @@ impl CodegenBackend for KotlinJdbcBackend {
 
         match &analyzed.command {
             QueryCommand::Exec => {
-                // :exec is Unit-returning: always block body (expression body would
-                // infer Int/Long from executeUpdate(), not Unit).
                 write_fn_sig(&mut out, &func_name, "", use_multiline_params, params, false);
                 let _ = writeln!(out, "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                 write_setters(&mut out, params);
@@ -362,7 +348,6 @@ impl CodegenBackend for KotlinJdbcBackend {
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 if ext {
-                    // Expression body: `): Int = this.prepareStatement(...).use { ps -> ... }`
                     write_fn_sig(&mut out, &func_name, ": Int", use_multiline_params, params, true);
                     let _ = writeln!(out, "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
@@ -382,9 +367,6 @@ impl CodegenBackend for KotlinJdbcBackend {
                 let is_oracle_returning = self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
                 let is_mariadb_returning = self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
                 if is_mariadb_returning {
-                    // MySQL Connector/J rejects executeQuery() for DML statements.
-                    // MariaDB RETURNING works via execute() + getResultSet() instead.
-                    // Expression body not applicable here (multi-statement body).
                     write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params, false);
                     let _ = writeln!(out, "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
@@ -420,16 +402,11 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                 } else if is_oracle_returning {
-                    // Oracle RETURNING … INTO requires a PL/SQL BEGIN…END block so that
-                    // the JDBC driver correctly maps the OUT parameters from a DML statement.
-                    // Plain prepareCall on a bare DML RETURNING INTO raises ORA-17173.
                     let into_placeholders = columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
                     let full_sql = format!("BEGIN {sql} INTO {into_placeholders}; END;");
                     let use_multiline = !params.is_empty();
-                    // Oracle RETURNING has multi-statement body; no expression body here.
                     write_fn_sig(&mut out, &func_name, &ret, use_multiline, params, false);
                     let _ = writeln!(out, "    {receiver}.prepareCall(\"{full_sql}\").use {{ cs ->");
-                    // Write setters using cs (not ps) for CallableStatement
                     for (i, param) in params.iter().enumerate() {
                         let setter = ps_setter(&param.lang_type);
                         let _ = writeln!(out, "        cs.{}({}, {})", setter, i + 1, param.field_name);
@@ -453,7 +430,6 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                 } else if ext {
-                    // Extension + expression body: `): Ret = this.prepareStatement(...).use { ... }`
                     write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params, true);
                     let _ = writeln!(out, "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
@@ -586,9 +562,6 @@ impl CodegenBackend for KotlinJdbcBackend {
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
-                // Batch uses the connection (receiver or conn) directly for autoCommit etc.
-                // Extension form: `fun Connection.fooBarBatch(items: ...)`.
-                // Block body only — multi-statement body with try/finally.
                 if params.len() > 1 {
                     let params_class_name = format!("{}BatchParams", to_pascal_case(&analyzed.name));
                     let _ = writeln!(out, "data class {}(", params_class_name);
@@ -701,7 +674,6 @@ impl CodegenBackend for KotlinJdbcBackend {
             QueryCommand::Many => {
                 let ret = format!(": List<{}>", struct_name);
                 if ext {
-                    // Expression body for :many
                     write_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params, true);
                     let _ = writeln!(out, "    {receiver}.prepareStatement(\"{sql}\").use {{ ps ->",);
                     write_setters(&mut out, params);
@@ -882,7 +854,6 @@ impl CodegenBackend for KotlinJdbcBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child data class first.
         let _ = writeln!(out, "data class {}(", child_struct_name);
         for col in child_columns {
             let _ = writeln!(out, "    val {}: {},", col.field_name, col.full_type);
@@ -890,7 +861,6 @@ impl CodegenBackend for KotlinJdbcBackend {
         let _ = writeln!(out, ")");
         let _ = writeln!(out);
 
-        // Parent data class — parent columns then the mutable children list.
         let _ = writeln!(out, "data class {}(", parent_struct_name);
         for col in parent_columns {
             let _ = writeln!(out, "    val {}: {},", col.field_name, col.full_type);
@@ -924,13 +894,11 @@ impl CodegenBackend for KotlinJdbcBackend {
             .iter()
             .find(|c| c.name == key_column)
             .unwrap_or(&parent_columns[0]);
-        // Strip trailing `?` to get the non-null key type for the map.
         let key_type = key_col.full_type.trim_end_matches('?');
 
         let mut out = String::new();
         let ret = format!(": List<{parent_struct_name}>");
 
-        // Function signature
         let engine = &self.engine;
         let write_setters = |out: &mut String| {
             for (i, param) in params.iter().enumerate() {
@@ -983,16 +951,12 @@ impl CodegenBackend for KotlinJdbcBackend {
         let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
         let _ = writeln!(out, "            while (rs.next()) {{");
 
-        // Nullable preamble for child columns
         write_kt_nullable_preamble(&mut out, child_columns, "                ");
-        // Nullable preamble for parent columns
         write_kt_nullable_preamble(&mut out, parent_columns, "                ");
 
-        // Extract key
         let key_expr = kt_rs_expr(key_col);
         let _ = writeln!(out, "                val key = {key_expr}");
 
-        // Build child
         let _ = writeln!(out, "                val child = {child_struct_name}(");
         for col in child_columns {
             let expr = kt_rs_expr(col);
@@ -1000,7 +964,6 @@ impl CodegenBackend for KotlinJdbcBackend {
         }
         let _ = writeln!(out, "                )");
 
-        // Fold
         let _ = writeln!(out, "                if (lookup.containsKey(key)) {{");
         let _ = writeln!(out, "                    lookup[key]!!.children.add(child)");
         let _ = writeln!(out, "                }} else {{");

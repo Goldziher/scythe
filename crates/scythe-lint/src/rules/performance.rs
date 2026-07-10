@@ -6,7 +6,6 @@ use crate::rule::LintRule;
 use crate::types::*;
 
 // ---------------------------------------------------------------------------
-// SC-P01: OrderWithoutLimit
 // ---------------------------------------------------------------------------
 
 pub struct OrderWithoutLimit;
@@ -43,10 +42,6 @@ impl LintRule for OrderWithoutLimit {
         Vec::new()
     }
 }
-
-// ---------------------------------------------------------------------------
-// SC-P02: LikeStartsWithWildcard
-// ---------------------------------------------------------------------------
 
 pub struct LikeStartsWithWildcard;
 
@@ -87,10 +82,6 @@ impl LintRule for LikeStartsWithWildcard {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SC-P03: NotInSubquery
-// ---------------------------------------------------------------------------
-
 pub struct NotInSubquery;
 
 impl LintRule for NotInSubquery {
@@ -124,10 +115,6 @@ impl LintRule for NotInSubquery {
         violations
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 fn extract_string_value(expr: &Expr) -> Option<&str> {
     match expr {
@@ -219,10 +206,6 @@ fn walk_expr(expr: &Expr, visitor: &mut dyn FnMut(&Expr)) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -250,8 +233,6 @@ mod tests {
         }
     }
 
-    // SC-P01
-
     #[test]
     fn order_without_limit_fires() {
         let cat = make_catalog();
@@ -274,8 +255,6 @@ mod tests {
         let v = OrderWithoutLimit.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-P02
 
     #[test]
     fn like_leading_wildcard_fires() {
@@ -300,8 +279,6 @@ mod tests {
         let v = LikeStartsWithWildcard.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-P03
 
     #[test]
     fn not_in_subquery_fires() {
@@ -329,8 +306,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-P01 additional tests
-
     #[test]
     fn order_with_limit_clean() {
         let cat = make_catalog();
@@ -351,7 +326,6 @@ mod tests {
         .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        // The outer query has LIMIT, so the rule should not fire on the outer query
         let v = OrderWithoutLimit.check_query(&ctx);
         assert!(v.is_empty());
     }
@@ -365,12 +339,9 @@ mod tests {
         .unwrap();
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
-        // Outer query has no ORDER BY, so P01 should not fire
         let v = OrderWithoutLimit.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-P02 additional tests
 
     #[test]
     fn like_suffix_wildcard_clean() {
@@ -406,8 +377,6 @@ mod tests {
         let v = LikeStartsWithWildcard.check_query(&ctx);
         assert_eq!(v.len(), 1);
     }
-
-    // SC-P03 additional tests
 
     #[test]
     fn not_in_values_list_clean() {

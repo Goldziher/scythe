@@ -101,7 +101,6 @@ impl CodegenBackend for TypescriptPgBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
 
-        // Build parameter list
         let param_list = params
             .iter()
             .map(|p| format!("{}: {}", p.field_name, p.full_type))
@@ -109,10 +108,8 @@ impl CodegenBackend for TypescriptPgBackend {
             .join(", ");
         let _sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Clean SQL — pg uses $1, $2 positional params natively
         let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
 
-        // Build array of param values
         let _param_array: String = if params.is_empty() {
             String::new()
         } else {
@@ -120,15 +117,12 @@ impl CodegenBackend for TypescriptPgBackend {
             format!(", [{}]", args.join(", "))
         };
 
-        // Build inline params string for line-length checking
         let inline_params = if params.is_empty() {
             "client: PoolClient".to_string()
         } else {
             format!("client: PoolClient, {}", param_list)
         };
 
-        // Helper: write a typed query call (with generic type annotation).
-        // Biome always breaks `client.query<T>(...)` to multi-line.
         let write_typed_query =
             |out: &mut String, prefix: &str, type_name: &str, sql: &str, params: &[ResolvedParam]| {
                 let _ = writeln!(out, "{}client.query<{}>(", prefix, type_name);
@@ -140,7 +134,6 @@ impl CodegenBackend for TypescriptPgBackend {
                 let _ = writeln!(out, "\t);");
             };
 
-        // Helper: write an untyped query call. Inline if short, multi-line if long.
         let write_untyped_query = |out: &mut String, prefix: &str, sql: &str, params: &[ResolvedParam]| {
             let param_str = if params.is_empty() {
                 String::new()
@@ -149,7 +142,6 @@ impl CodegenBackend for TypescriptPgBackend {
                 format!(", [{}]", args.join(", "))
             };
             let oneliner = format!("{}client.query(`{}`{});", prefix, sql, param_str);
-            // Use tab width of 4 for line length estimation
             let estimated_len = oneliner.replace('\t', "    ").len();
             if estimated_len <= 80 {
                 let _ = writeln!(out, "{}", oneliner);
@@ -164,7 +156,6 @@ impl CodegenBackend for TypescriptPgBackend {
             }
         };
 
-        // Helper: write function signature, inline or multi-line based on length
         let write_fn_sig = |out: &mut String, name: &str, params_inline: &str, ret: &str| {
             let oneliner = format!("export async function {}({}): {} {{", name, params_inline, ret);
             if oneliner.len() <= 80 {
@@ -201,7 +192,6 @@ impl CodegenBackend for TypescriptPgBackend {
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}Batch", func_name);
-                // Build params interface
                 if params.len() > 1 {
                     let params_type_name = format!("{}BatchParams", struct_name);
                     let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
@@ -347,7 +337,6 @@ impl CodegenBackend for TypescriptPgBackend {
         };
         let ret = format!("Promise<{parent_struct_name}[]>");
 
-        // Function signature
         let oneliner = format!("export async function {func_name}({inline_params}): {ret} {{");
         if oneliner.len() <= 80 {
             let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
@@ -362,7 +351,6 @@ impl CodegenBackend for TypescriptPgBackend {
             let _ = writeln!(out, "): {ret} {{");
         }
 
-        // Fetch flat rows — no typed generic so rows are Record<string, any>
         let _ = writeln!(out, "\tconst {{ rows: flatRows }} = await client.query(");
         let _ = writeln!(out, "\t\t`{sql}`,");
         if !params.is_empty() {
@@ -371,7 +359,6 @@ impl CodegenBackend for TypescriptPgBackend {
         }
         let _ = writeln!(out, "\t);");
 
-        // Fold — rows are Record<string, any>, so dot-access returns any (no cast needed)
         let fold = generate_ts_grouped_fold_body(
             parent_struct_name,
             child_struct_name,
@@ -413,7 +400,6 @@ impl CodegenBackend for TypescriptPgBackend {
         let _ = writeln!(out, "/** Composite type {}. */", composite.sql_name);
         let _ = writeln!(out, "export interface {} {{", name);
         if composite.fields.is_empty() {
-            // empty interface
         } else {
             for field in &composite.fields {
                 let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)

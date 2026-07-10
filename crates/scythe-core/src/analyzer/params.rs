@@ -21,8 +21,6 @@ impl<'a> Analyzer<'a> {
             self.positional_param_counter += 1;
             Some(self.positional_param_counter)
         } else {
-            // Named placeholders such as `:bucket` are not supported.
-            // Use $N for PostgreSQL or ? for MySQL/SQLite instead.
             self.type_errors.push(format!(
                 "unsupported placeholder \"{placeholder}\": named placeholders are not supported; \
                  use $N (PostgreSQL) or ? (MySQL/SQLite) instead",
@@ -66,7 +64,6 @@ impl<'a> Analyzer<'a> {
                 | BinaryOperator::GtEq => {
                     self.try_bind_param_from_comparison(left, right, scope, Some(op));
                     self.try_bind_param_from_comparison(right, left, scope, Some(op));
-                    // Type mismatch detection: store for validation
                     let left_ti = self.infer_expr_type(left, scope);
                     let right_ti = self.infer_expr_type(right, scope);
                     if left_ti.neutral_type != "unknown"
@@ -175,8 +172,6 @@ impl<'a> Analyzer<'a> {
             }
             Expr::Function(func) => {
                 let _ = self.infer_function_type(func, scope);
-                // Also recurse into function args to collect params
-                // (e.g., SUM(CASE WHEN col >= $1 THEN ...))
                 let args = self.get_function_args(func);
                 for arg in &args {
                     self.collect_params_from_where(arg, scope);
@@ -209,7 +204,6 @@ impl<'a> Analyzer<'a> {
                 {
                     let col_ti = self.infer_expr_type(col_side, scope);
                     let col_name = expr_to_name(col_side);
-                    // Add prefix for aggregate comparisons in HAVING
                     let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
                     self.register_param(pos, Some(param_name), Some(col_ti.neutral_type), false);
                 }
@@ -282,10 +276,6 @@ impl<'a> Analyzer<'a> {
                     self.collect_param_from_expr_with_type_nullable(inner, type_str, name, nullable);
                 }
             }
-            // Recurse into compound expressions so placeholders nested inside an
-            // assignment RHS such as `credits = credits + $2` are still collected.
-            // Subqueries are intentionally not walked here — they are analysed by a
-            // dedicated sub-analyzer that owns their param scope (see `scope.rs`).
             Expr::Nested(inner) => {
                 self.collect_param_from_expr_with_type_nullable(inner, type_str, name, nullable);
             }
@@ -305,7 +295,6 @@ impl<'a> Analyzer<'a> {
             && let Some(p) = value_is_placeholder(vws)
             && let Some(pos) = self.resolve_placeholder_position(p)
         {
-            // Give semantic names for certain types
             let name = match neutral_type {
                 "interval" => Some("duration".to_string()),
                 _ => None,
@@ -338,7 +327,6 @@ impl<'a> Analyzer<'a> {
             }
             Expr::Nested(inner) => self.collect_param_from_any(inner, left_ti, left_name),
             Expr::Array(arr) => {
-                // Handle ARRAY[$1, $2, $3] - extract params from array elements
                 for (i, elem) in arr.elem.iter().enumerate() {
                     if let Expr::Value(vws) = elem
                         && let Some(p) = value_is_placeholder(vws)
@@ -383,7 +371,6 @@ mod tests {
         })
     }
 
-    // ---- register_param ----
     #[test]
     fn test_register_param_new() {
         let catalog = empty_catalog();
@@ -400,13 +387,11 @@ mod tests {
     fn test_register_param_dedup_fills_missing() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        // First registration: no name or type
         analyzer.register_param(1, None, None, false);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, None);
         assert_eq!(analyzer.params[0].neutral_type, None);
 
-        // Second registration with the same position: fills in name and type
         analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
@@ -418,7 +403,6 @@ mod tests {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
         analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false);
-        // Re-register with different name/type should NOT overwrite
         analyzer.register_param(1, Some("new_name".to_string()), Some("string".to_string()), true);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
@@ -436,7 +420,6 @@ mod tests {
         assert_eq!(analyzer.params[1].position, 2);
     }
 
-    // ---- try_bind_param_from_comparison ----
     #[test]
     fn test_try_bind_param_from_comparison_basic() {
         let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER NOT NULL, name TEXT NOT NULL);"]).unwrap();
@@ -477,7 +460,6 @@ mod tests {
         assert_eq!(analyzer.params[0].neutral_type, Some("int32".to_string()));
     }
 
-    // ---- collect_param_type_from_cast ----
     #[test]
     fn test_collect_param_type_from_cast_placeholder() {
         let catalog = empty_catalog();
@@ -508,8 +490,6 @@ mod tests {
         assert_eq!(analyzer.params.len(), 0, "non-placeholder should not register a param");
     }
 
-    // ---- resolve_placeholder_position ----
-
     #[test]
     fn test_resolve_placeholder_position_dollar_n() {
         let catalog = empty_catalog();
@@ -530,8 +510,6 @@ mod tests {
 
     #[test]
     fn test_resolve_placeholder_position_named_param_errors() {
-        // `:bucket` is a named placeholder not supported by scythe.
-        // It must push to type_errors and return None.
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
         let result = analyzer.resolve_placeholder_position(":bucket");
@@ -547,7 +525,6 @@ mod tests {
         );
     }
 
-    // ---- collect_param_from_expr ----
     #[test]
     fn test_collect_param_from_expr_placeholder() {
         let catalog = empty_catalog();

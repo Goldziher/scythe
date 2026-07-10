@@ -116,13 +116,9 @@ impl CodegenBackend for RubyTrilogyBackend {
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
-                // Trilogy does not support parameterized queries, so we use string interpolation
-                // Replace ? placeholders with #{param_name} for Ruby string interpolation
-                // String types need to be quoted for SQL
                 let mut sql_interpolated = sql.clone();
                 for param in params.iter() {
                     if let Some(pos) = sql_interpolated.find('?') {
-                        // Quote strings for SQL, keep numbers unquoted
                         let _param_expr = if param.neutral_type.starts_with("enum::") || param.neutral_type == "string"
                         {
                             format!("\\\"#{{{}}}\\\"\"\n                             ", param.field_name)
@@ -165,13 +161,11 @@ impl CodegenBackend for RubyTrilogyBackend {
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}_batch", func_name);
-                // Batch writes its own function signature (not the outer one)
                 let _ = writeln!(out, "  def self.{}(client, items)", batch_fn_name);
                 let _ = writeln!(out, "    items.each do |item|");
                 if params.is_empty() {
                     let _ = writeln!(out, "      client.query(\"{}\")", sql);
                 } else if params.len() > 1 {
-                    // Multiple params: destructure from tuple/array
                     let mut sql_with_params = sql.clone();
                     for (i, param) in params.iter().enumerate() {
                         if let Some(pos) = sql_with_params.find('?') {
@@ -185,7 +179,6 @@ impl CodegenBackend for RubyTrilogyBackend {
                     }
                     let _ = writeln!(out, "      client.query(\"{}\")", sql_with_params);
                 } else {
-                    // Single param
                     let mut sql_with_param = sql.clone();
                     if let Some(pos) = sql_with_param.find('?') {
                         let param = &params[0];
@@ -203,8 +196,6 @@ impl CodegenBackend for RubyTrilogyBackend {
             }
             QueryCommand::Many => {
                 let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
-                // Replace ? placeholders with #{param_name} for Ruby string interpolation
-                // String types need to be quoted for SQL
                 let mut sql_interpolated = sql.clone();
                 for param in params.iter() {
                     if let Some(pos) = sql_interpolated.find('?') {
@@ -240,8 +231,6 @@ impl CodegenBackend for RubyTrilogyBackend {
             }
             QueryCommand::Exec => {
                 let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
-                // Replace ? placeholders with #{param_name} for Ruby string interpolation
-                // String types need to be quoted for SQL
                 let mut sql_interpolated = sql.clone();
                 for param in params.iter() {
                     if let Some(pos) = sql_interpolated.find('?') {
@@ -262,8 +251,6 @@ impl CodegenBackend for RubyTrilogyBackend {
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
-                // Replace ? placeholders with #{param_name} for Ruby string interpolation
-                // String types need to be quoted for SQL
                 let mut sql_interpolated = sql.clone();
                 for param in params.iter() {
                     if let Some(pos) = sql_interpolated.find('?') {
@@ -325,7 +312,6 @@ impl CodegenBackend for RubyTrilogyBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Apply Ruby string interpolation for any ? placeholders (trilogy style).
         let mut sql_interpolated = sql.clone();
         for param in params.iter() {
             if let Some(pos) = sql_interpolated.find('?') {
@@ -533,7 +519,6 @@ mod tests {
             query_fn.contains("client.query("),
             "must use client.query; got:\n{query_fn}"
         );
-        // Positional index access
         assert!(
             query_fn.contains("key = row[0]"),
             "must access key by index; got:\n{query_fn}"

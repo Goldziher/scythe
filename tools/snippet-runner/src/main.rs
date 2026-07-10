@@ -99,7 +99,6 @@ fn main() -> ExitCode {
                 Ok(found) => {
                     output::print_snippet_list(&found);
 
-                    // Print language breakdown
                     println!();
                     let counts = discovery::count_by_language(&found);
                     for (lang, count) in &counts {
@@ -140,7 +139,6 @@ fn main() -> ExitCode {
                 }
             };
 
-            // Apply include glob filter
             if let Some(pattern) = &include {
                 found.retain(|s| {
                     let path_str = s.path.to_string_lossy();

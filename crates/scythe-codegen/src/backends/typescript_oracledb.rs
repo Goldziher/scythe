@@ -116,7 +116,6 @@ impl CodegenBackend for TypescriptOracledbBackend {
             )
         };
 
-        // Check if this is a DML with RETURNING (INSERT/UPDATE/DELETE RETURNING)
         let has_returning = sql.to_uppercase().contains("RETURNING");
 
         let mut out = String::new();
@@ -130,8 +129,6 @@ impl CodegenBackend for TypescriptOracledbBackend {
                 );
 
                 if has_returning {
-                    // Oracle RETURNING requires output bind variables via INTO clause.
-                    // node-oracledb uses { dir: oracledb.BIND_OUT, type: oracledb.NUMBER/STRING/DATE }
                     let out_bind_entries: Vec<String> = columns
                         .iter()
                         .map(|col| {
@@ -184,7 +181,6 @@ impl CodegenBackend for TypescriptOracledbBackend {
                     let _ = writeln!(out, "\tconst row = result.rows[0] as Record<string, unknown>;");
                     let _ = writeln!(out, "\treturn {{");
                     for col in columns {
-                        // Oracle returns column names as uppercase by default for unquoted identifiers.
                         let _ = writeln!(
                             out,
                             "\t\t{}: row[\"{}\"] as {},",
@@ -213,7 +209,6 @@ impl CodegenBackend for TypescriptOracledbBackend {
                 let _ = writeln!(out, "\t}}");
                 let _ = writeln!(out, "\treturn result.rows.map((row: Record<string, unknown>) => ({{",);
                 for col in columns {
-                    // Oracle returns column names as uppercase by default for unquoted identifiers.
                     let _ = writeln!(
                         out,
                         "\t\t{}: row[\"{}\"] as {},",
@@ -288,7 +283,6 @@ impl CodegenBackend for TypescriptOracledbBackend {
         child_columns: &[ResolvedColumn],
         _key_column: &str,
     ) -> Result<String, ScytheError> {
-        // Oracle has no Zod row_type option — always emit plain interfaces
         Ok(generate_grouped_interface_structs(
             child_struct_name,
             parent_struct_name,
@@ -338,7 +332,6 @@ impl CodegenBackend for TypescriptOracledbBackend {
             let _ = writeln!(out, "): {ret} {{");
         }
 
-        // Build bind object; Oracle uses positional object { 1: val } or array
         if params.is_empty() {
             let _ = writeln!(out, "\tconst result = await conn.execute(");
             let _ = writeln!(out, "\t\t`{sql}`,");
@@ -356,7 +349,6 @@ impl CodegenBackend for TypescriptOracledbBackend {
             "\tconst flatRows = (result.rows ?? []) as unknown as Record<string, unknown>[];"
         );
 
-        // Fold — Oracle returns UPPERCASE column names; must use name.to_uppercase() in key access
         let fold = generate_ts_grouped_fold_body(
             parent_struct_name,
             child_struct_name,
@@ -493,7 +485,6 @@ mod tests {
             query_fn.contains("OUT_FORMAT_OBJECT"),
             "must set outFormat; got:\n{query_fn}"
         );
-        // Oracle UPPERCASE column access
         assert!(
             query_fn.contains("row['ID']"),
             "must use UPPERCASE key for Oracle; got:\n{query_fn}"

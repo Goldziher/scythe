@@ -5,7 +5,6 @@ use super::{Catalog, Column, Table};
 
 impl Catalog {
     // -----------------------------------------------------------------------
-    // CREATE VIEW / CREATE MATERIALIZED VIEW
     // -----------------------------------------------------------------------
 
     pub(super) fn process_create_view(
@@ -17,7 +16,6 @@ impl Catalog {
     ) -> Result<(), crate::errors::ScytheError> {
         let view_key = object_name_to_key(&name);
 
-        // If explicit column list is provided with types, use those
         if !view_columns.is_empty() {
             let columns: Vec<Column> = view_columns
                 .iter()
@@ -43,7 +41,6 @@ impl Catalog {
             return Ok(());
         }
 
-        // Try to resolve column types from the view's query
         let columns = self.resolve_view_columns(&query);
         self.tables.insert(view_key, Table { columns });
         Ok(())
@@ -54,8 +51,7 @@ impl Catalog {
         use sqlparser::ast::{SelectItem, SetExpr, TableFactor};
 
         if let SetExpr::Select(select) = query.body.as_ref() {
-            // Build a map of alias/table -> columns from FROM clause
-            let mut source_cols: Vec<(String, String, Vec<Column>)> = Vec::new(); // (alias, table_name, columns)
+            let mut source_cols: Vec<(String, String, Vec<Column>)> = Vec::new();
             for twj in &select.from {
                 if let TableFactor::Table { name, alias, .. } = &twj.relation {
                     let table_name = object_name_to_key(name);
@@ -192,7 +188,6 @@ impl Catalog {
                     "sum" => (name, "bigint".to_string(), true),
                     "avg" => (name, "numeric".to_string(), true),
                     "min" | "max" => {
-                        // Try to get arg type
                         if let sqlparser::ast::FunctionArguments::List(args) = &func.args
                             && let Some(first) = args.args.first()
                             && let sqlparser::ast::FunctionArg::Unnamed(sqlparser::ast::FunctionArgExpr::Expr(e)) =

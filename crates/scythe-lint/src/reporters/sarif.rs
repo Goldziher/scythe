@@ -110,7 +110,6 @@ struct SarifProperties<'a> {
 }
 
 pub fn emit(tool_name: &str, tool_version: &str, findings: &[Finding], out: &mut dyn Write) -> io::Result<()> {
-    // Build the rule descriptor set deterministically (sorted by rule id).
     let mut rules_seen: BTreeMap<&str, (Option<&str>, Option<&str>)> = BTreeMap::new();
     for f in findings {
         rules_seen

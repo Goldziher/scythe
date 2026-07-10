@@ -13,10 +13,6 @@ use crate::types::{LintContext, RuleCategory, Severity, Violation};
 use super::registry::{MatcherFn, MatcherHit};
 use super::spec::RuleSpec;
 
-// ---------------------------------------------------------------------------
-// render_template
-// ---------------------------------------------------------------------------
-
 /// Single-pass `{ident}` substitution.
 ///
 /// Scans `template` left-to-right using byte offsets (safe because `{` and `}`
@@ -31,30 +27,23 @@ pub fn render_template(template: &str, bindings: &ahash::AHashMap<String, String
     let mut i = 0;
 
     while i < len {
-        if bytes[i] == b'{' {
-            // Find the matching closing brace
-            if let Some(close_offset) = bytes[i + 1..].iter().position(|&b| b == b'}') {
-                let close = i + 1 + close_offset;
-                let key = &template[i + 1..close];
-                // Only substitute if the key is a valid identifier-ish token
-                if !key.is_empty()
-                    && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
-                    && let Some(value) = bindings.get(key)
-                {
-                    out.push_str(value);
-                    i = close + 1;
-                    continue;
-                }
-                // Not a known binding — emit the literal `{key}`
-                out.push_str(&template[i..=close]);
+        if bytes[i] == b'{'
+            && let Some(close_offset) = bytes[i + 1..].iter().position(|&b| b == b'}')
+        {
+            let close = i + 1 + close_offset;
+            let key = &template[i + 1..close];
+            if !key.is_empty()
+                && key.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_')
+                && let Some(value) = bindings.get(key)
+            {
+                out.push_str(value);
                 i = close + 1;
                 continue;
             }
+            out.push_str(&template[i..=close]);
+            i = close + 1;
+            continue;
         }
-        // Not a `{` byte.  Advance by one UTF-8 character to handle multi-byte
-        // sequences correctly.  `{` (0x7B) and `}` (0x7D) are ASCII and cannot
-        // appear as continuation bytes (0x80–0xBF), so the byte scan above is
-        // always on a character boundary when it sees `{`.
         let ch_len = utf8_char_len(bytes[i]);
         out.push_str(&template[i..i + ch_len]);
         i += ch_len;
@@ -74,22 +63,17 @@ pub fn render_template(template: &str, bindings: &ahash::AHashMap<String, String
 /// - `0xF0–0xF7`: 4 bytes
 fn utf8_char_len(b: u8) -> usize {
     match b {
-        0x00..=0xBF => 1, // ASCII or (unexpected) continuation byte
+        0x00..=0xBF => 1,
         0xC0..=0xDF => 2,
         0xE0..=0xEF => 3,
         _ => 4,
     }
 }
 
-// ---------------------------------------------------------------------------
-// MatcherRule
-// ---------------------------------------------------------------------------
-
 /// A `LintRule` backed by a TOML `RuleSpec` and a `MatcherFn`.
 pub struct MatcherRule {
     spec: RuleSpec,
     matcher_fn: MatcherFn,
-    // Leaked because LintRule::id / name / description return &'static str.
     id_leaked: &'static str,
     name_leaked: &'static str,
     description_leaked: &'static str,
@@ -138,8 +122,6 @@ impl LintRule for MatcherRule {
     }
 
     fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
-        // Dialect filtering: if the spec restricts dialects and the context
-        // dialect is not in the list, skip this rule.
         if !self.spec.dialects.is_empty() && !self.spec.dialects.contains(&ctx.dialect) {
             return Vec::new();
         }
@@ -155,16 +137,10 @@ impl LintRule for MatcherRule {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
     use ahash::AHashMap;
-
-    // -- render_template tests --------------------------------------------------
 
     #[test]
     fn render_literal_passthrough() {
@@ -191,12 +167,9 @@ mod tests {
     #[test]
     fn render_brace_in_bound_value_not_rescanned() {
         let mut b = AHashMap::new();
-        // If the value contains `{pattern}` it must NOT be expanded again.
         b.insert("func".to_string(), "{pattern}".to_string());
         b.insert("pattern".to_string(), "SHOULD_NOT_APPEAR".to_string());
         let result = render_template("call to {func}", &b);
-        // The substituted value `{pattern}` is in the output but NOT further
-        // expanded — the result must not contain "SHOULD_NOT_APPEAR".
         assert_eq!(result, "call to {pattern}");
         assert!(!result.contains("SHOULD_NOT_APPEAR"));
     }
@@ -208,8 +181,6 @@ mod tests {
         b.insert("reason".to_string(), "dangerous".to_string());
         assert_eq!(render_template("{func} is {reason}", &b), "xp_cmdshell is dangerous");
     }
-
-    // -- MatcherRule end-to-end test -------------------------------------------
 
     use scythe_core::analyzer::AnalyzedQuery;
     use scythe_core::catalog::Catalog;
@@ -322,7 +293,7 @@ mod tests {
     #[test]
     fn matcher_rule_dialect_filter_skips_when_not_matching() {
         let mut spec = minimal_spec("SC-TEST02", "msg", Severity::Warn);
-        spec.dialects = vec![SqlDialect::MySQL]; // only MySQL
+        spec.dialects = vec![SqlDialect::MySQL];
 
         let rule = MatcherRule::new(spec, always_fires);
 
@@ -331,7 +302,6 @@ mod tests {
         let catalog = empty_catalog();
         let analyzed = dummy_analyzed();
         let annotations = dummy_annotations();
-        // Context is PostgreSQL — rule should be skipped
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let violations = rule.check_query(&ctx);
         assert!(violations.is_empty());

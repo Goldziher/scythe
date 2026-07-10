@@ -13,10 +13,6 @@ use crate::errors::ScytheError;
 
 use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key};
 
-// ---------------------------------------------------------------------------
-// Public data structures
-// ---------------------------------------------------------------------------
-
 #[derive(Debug)]
 pub struct Catalog {
     tables: AHashMap<String, Table>,
@@ -62,10 +58,6 @@ pub struct CompositeField {
     pub sql_type: String,
 }
 
-// ---------------------------------------------------------------------------
-// Constructor & accessors
-// ---------------------------------------------------------------------------
-
 impl Catalog {
     pub fn from_ddl(schema_sql: &[&str]) -> Result<Catalog, ScytheError> {
         Self::from_ddl_with_dialect(schema_sql, &SqlDialect::PostgreSQL)
@@ -82,10 +74,6 @@ impl Catalog {
         let parser_dialect = dialect.to_sqlparser_dialect();
 
         for sql in schema_sql {
-            // Pre-process: strip psql client meta-commands (e.g. \restrict /
-            // \unrestrict emitted by pg_dump 18+ and dbmate), then extract
-            // statements that sqlparser cannot handle, and feed the remainder
-            // to sqlparser.
             let filtered = Self::strip_psql_meta_commands(sql);
             let cleaned = catalog.extract_unsupported_statements(&filtered, dialect);
 
@@ -108,11 +96,9 @@ impl Catalog {
     pub fn get_table(&self, name: &str) -> Option<&Table> {
         let lower = name.to_lowercase();
         self.tables.get(&lower).or_else(|| {
-            // Try stripping schema prefix for lookup
             if let Some((_schema, table)) = lower.split_once('.') {
                 self.tables.get(table)
             } else {
-                // Try finding with any schema prefix
                 self.tables
                     .iter()
                     .find(|(k, _)| k.ends_with(&format!(".{}", lower)) || k.as_str() == lower)
@@ -182,40 +168,30 @@ impl Catalog {
     }
 }
 
-// ---------------------------------------------------------------------------
-// CREATE DOMAIN manual parsing (sqlparser 0.55 doesn't support it)
-// ---------------------------------------------------------------------------
-
 impl Catalog {
     /// Pre-process a SQL string to extract statements that sqlparser cannot handle
     /// (CREATE DOMAIN, CREATE SCHEMA). Processes them internally and returns the
     /// remaining SQL with those statements removed.
     fn extract_unsupported_statements(&mut self, sql: &str, dialect: &SqlDialect) -> String {
         let mut result = String::with_capacity(sql.len());
-        // Split on semicolons, but be careful about content within parentheses and quotes
         for raw_stmt in Self::split_top_level_statements(sql) {
             let trimmed = raw_stmt.trim();
             if trimmed.is_empty() || trimmed.starts_with("--") && !trimmed.contains('\n') {
                 result.push_str(raw_stmt);
                 continue;
             }
-            // Strip leading comments to check the actual statement
             let no_comments = Self::strip_leading_comments(trimmed);
             let upper = no_comments.to_uppercase();
             if upper.starts_with("CREATE DOMAIN") {
                 self.try_parse_create_domain(no_comments, dialect);
-                // Replace with empty to remove from output
             } else if upper.starts_with("CREATE SCHEMA") {
-                // Silently ignore
             } else {
-                // For Redshift/MSSQL, strip IDENTITY(seed,step) patterns that PostgreSQL parser doesn't support
                 let stmt_to_add = if matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::MsSql) {
                     Self::strip_identity_patterns(raw_stmt)
                 } else {
                     raw_stmt.to_string()
                 };
                 result.push_str(&stmt_to_add);
-                // Ensure there's a semicolon separator if the original had one
                 if !stmt_to_add.ends_with(';') {
                     result.push(';');
                 }
@@ -233,9 +209,7 @@ impl Catalog {
         let mut i = 0;
 
         while i < bytes.len() {
-            // Check for "IDENTITY" keyword (case-insensitive) at word boundary
             if i + 8 <= bytes.len() && Self::matches_identity_keyword(bytes, i) {
-                // Verify this is a word boundary (not preceded by alphanumeric/underscore)
                 let is_start_boundary = i == 0 || !(bytes[i - 1].is_ascii_alphanumeric() || bytes[i - 1] == b'_');
                 if !is_start_boundary {
                     result.push(bytes[i] as char);
@@ -243,50 +217,39 @@ impl Catalog {
                     continue;
                 }
 
-                // Skip past "IDENTITY"
                 i += 8;
-                // Skip whitespace
                 while i < bytes.len() && bytes[i].is_ascii_whitespace() {
                     i += 1;
                 }
-                // Check for opening parenthesis
                 if i < bytes.len() && bytes[i] == b'(' {
-                    // Try to parse IDENTITY(N,N)
                     let mut j = i + 1;
                     let mut found_valid_pattern = false;
 
-                    // Skip whitespace after opening paren
                     while j < bytes.len() && bytes[j].is_ascii_whitespace() {
                         j += 1;
                     }
-                    // Try to parse first number
                     let num_start = j;
                     while j < bytes.len() && bytes[j].is_ascii_digit() {
                         j += 1;
                     }
                     if j > num_start {
-                        // Found first number, now look for comma
                         while j < bytes.len() && bytes[j].is_ascii_whitespace() {
                             j += 1;
                         }
                         if j < bytes.len() && bytes[j] == b',' {
                             j += 1;
-                            // Skip whitespace after comma
                             while j < bytes.len() && bytes[j].is_ascii_whitespace() {
                                 j += 1;
                             }
-                            // Try to parse second number
                             let num_start2 = j;
                             while j < bytes.len() && bytes[j].is_ascii_digit() {
                                 j += 1;
                             }
                             if j > num_start2 {
-                                // Found second number, now look for closing paren
                                 while j < bytes.len() && bytes[j].is_ascii_whitespace() {
                                     j += 1;
                                 }
                                 if j < bytes.len() && bytes[j] == b')' {
-                                    // Valid IDENTITY(N,N) pattern found - skip it
                                     i = j + 1;
                                     found_valid_pattern = true;
                                 }
@@ -295,13 +258,11 @@ impl Catalog {
                     }
 
                     if !found_valid_pattern {
-                        // Not a valid IDENTITY pattern, output the opening paren
                         result.push_str("IDENTITY");
                         result.push('(');
                         i += 9;
                     }
                 } else {
-                    // No opening paren after IDENTITY, just output it
                     result.push_str("IDENTITY");
                 }
             } else {
@@ -329,7 +290,6 @@ impl Catalog {
             return true;
         }
 
-        // Check for mixed case
         bytes[i..i + 8]
             .iter()
             .zip(IDENTITY_UPPER.iter())
@@ -367,7 +327,7 @@ impl Catalog {
             if in_single_quote {
                 if bytes[i] == b'\'' {
                     if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
-                        i += 2; // escaped quote
+                        i += 2;
                     } else {
                         in_single_quote = false;
                         i += 1;
@@ -435,15 +395,12 @@ impl Catalog {
         let mut out = String::with_capacity(sql.len());
         for line in sql.split('\n') {
             if line.trim_start().starts_with('\\') {
-                // Replace with empty line to keep line numbers stable
                 out.push('\n');
             } else {
                 out.push_str(line);
                 out.push('\n');
             }
         }
-        // Remove the single trailing newline we always append so callers get
-        // back a string with the same trailing-newline behaviour as the input.
         if !sql.ends_with('\n') && out.ends_with('\n') {
             out.pop();
         }
@@ -482,19 +439,15 @@ impl Catalog {
         if !upper.starts_with("CREATE DOMAIN") {
             return false;
         }
-        // Strip trailing semicolons
         let trimmed = trimmed.trim_end_matches(';').trim();
-        // Pattern: CREATE DOMAIN <name> AS <type> [NOT NULL] [CHECK (...)]
-        // Find "AS" keyword
         let upper = trimmed.to_uppercase();
         let as_pos = match upper.find(" AS ") {
             Some(p) => p,
-            None => return true, // It's a CREATE DOMAIN but malformed; skip
+            None => return true,
         };
         let domain_name = trimmed["CREATE DOMAIN".len()..as_pos].trim().to_lowercase();
         let rest = trimmed[as_pos + 4..].trim();
 
-        // Extract base type: everything before NOT NULL or CHECK
         let rest_upper = rest.to_uppercase();
         let end_pos = rest_upper
             .find(" NOT NULL")
@@ -505,7 +458,6 @@ impl Catalog {
 
         let not_null = rest_upper.contains("NOT NULL");
 
-        // Parse the base type through sqlparser to normalize it
         let parser_dialect = dialect.to_sqlparser_dialect();
         let normalized = match Parser::parse_sql(
             parser_dialect.as_ref(),
@@ -537,10 +489,6 @@ impl Catalog {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Statement processing
-// ---------------------------------------------------------------------------
-
 impl Catalog {
     fn process_statement(&mut self, stmt: Statement, dialect: &SqlDialect) -> Result<(), ScytheError> {
         match stmt {
@@ -555,14 +503,9 @@ impl Catalog {
             }
             Statement::AlterType(alter_type) => self.process_alter_type(alter_type.name, alter_type.operation),
             Statement::CreateView(cv) => self.process_create_view(cv.name, cv.columns, *cv.query, cv.materialized),
-            // Silently ignore statements we don't handle
             _ => Ok(()),
         }
     }
-
-    // -----------------------------------------------------------------------
-    // CREATE TABLE
-    // -----------------------------------------------------------------------
 
     fn process_create_table(
         &mut self,
@@ -576,11 +519,8 @@ impl Catalog {
             let col_name = ident_to_lower(&col_def.name);
             let (sql_type, is_serial) = normalize_data_type(&col_def.data_type, &self.domains);
 
-            // Handle MySQL/SQLite inline ENUM: if the data type is an Enum variant,
-            // register it in the catalog and use the enum type name.
             let sql_type = if let sqlparser::ast::DataType::Enum(variants, _bits) = &col_def.data_type {
                 if matches!(dialect, SqlDialect::MySQL | SqlDialect::SQLite) && !variants.is_empty() {
-                    // Synthesize an enum name from table_name + col_name
                     let enum_key = format!("{}_{}", table_name.replace('.', "_"), col_name);
                     let values: Vec<String> = variants
                         .iter()
@@ -598,7 +538,7 @@ impl Catalog {
                 sql_type
             };
 
-            let mut nullable = !is_serial; // serial types are NOT NULL
+            let mut nullable = !is_serial;
             let mut default: Option<String> = None;
             let mut primary_key = false;
             let mut is_auto_increment = false;
@@ -626,7 +566,6 @@ impl Catalog {
                         default = Some(format!("GENERATED ALWAYS AS ({})", expr));
                     }
                     ColumnOption::DialectSpecific(tokens) => {
-                        // Detect AUTO_INCREMENT (MySQL) and AUTOINCREMENT (SQLite)
                         let joined: String = tokens
                             .iter()
                             .map(|t| t.to_string().to_uppercase())
@@ -641,7 +580,6 @@ impl Catalog {
                 }
             }
 
-            // AUTO_INCREMENT / AUTOINCREMENT implies NOT NULL
             if is_auto_increment {
                 nullable = false;
             }
@@ -655,7 +593,6 @@ impl Catalog {
             });
         }
 
-        // Process table-level constraints
         for constraint in &ct.constraints {
             if let TableConstraint::PrimaryKey(pk_constraint) = constraint {
                 for idx_col in &pk_constraint.columns {
@@ -671,10 +608,6 @@ impl Catalog {
         self.tables.insert(table_name, Table { columns });
         Ok(())
     }
-
-    // -----------------------------------------------------------------------
-    // ALTER TABLE
-    // -----------------------------------------------------------------------
 
     fn process_alter_table(
         &mut self,
@@ -748,7 +681,6 @@ impl Catalog {
                     if let Some(table) = self.tables.remove(&table_key) {
                         self.tables.insert(new_key, table);
                     } else {
-                        // try bare name
                         let bare = bare_name(&table_key).to_string();
                         if let Some(table) = self.tables.remove(&bare) {
                             self.tables.insert(new_key, table);
@@ -803,10 +735,6 @@ impl Catalog {
         Ok(())
     }
 
-    // -----------------------------------------------------------------------
-    // CREATE TYPE
-    // -----------------------------------------------------------------------
-
     fn process_create_type(
         &mut self,
         name: ObjectName,
@@ -837,10 +765,6 @@ impl Catalog {
 
         Ok(())
     }
-
-    // -----------------------------------------------------------------------
-    // ALTER TYPE
-    // -----------------------------------------------------------------------
 
     fn process_alter_type(&mut self, name: ObjectName, operation: AlterTypeOperation) -> Result<(), ScytheError> {
         let type_key = object_name_to_key(&name);
@@ -873,10 +797,6 @@ impl Catalog {
         Ok(())
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 fn get_table_mut<'a>(tables: &'a mut AHashMap<String, Table>, key: &str) -> Option<&'a mut Table> {
     if tables.contains_key(key) {
@@ -1042,10 +962,6 @@ mod tests {
         assert_eq!(table.columns[2].sql_type, "timestamptz");
     }
 
-    // -----------------------------------------------------------------------
-    // MySQL dialect tests
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_mysql_basic_create_table() {
         let catalog = Catalog::from_ddl_with_dialect(
@@ -1106,7 +1022,6 @@ mod tests {
         let table = catalog.get_table("t").unwrap();
         assert_eq!(table.columns[0].name, "status");
         assert!(!table.columns[0].nullable);
-        // The inline enum should have been registered in the catalog
         let enum_type = catalog.get_enum("t_status").unwrap();
         assert_eq!(enum_type.values, vec!["active", "inactive", "pending"]);
     }
@@ -1130,10 +1045,6 @@ mod tests {
         let table = catalog.get_table("t").unwrap();
         assert_eq!(table.columns.len(), 7);
     }
-
-    // -----------------------------------------------------------------------
-    // SQLite dialect tests
-    // -----------------------------------------------------------------------
 
     #[test]
     fn test_sqlite_basic_create_table() {
@@ -1180,24 +1091,14 @@ mod tests {
         assert_eq!(table.columns.len(), 6);
     }
 
-    // -----------------------------------------------------------------------
-    // Dialect backward compat: from_ddl still works
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_from_ddl_backward_compat() {
-        // Ensure the original from_ddl signature still works
         let catalog = Catalog::from_ddl(&["CREATE TABLE t (id INTEGER);"]).unwrap();
         assert!(catalog.get_table("t").is_some());
     }
 
-    // -----------------------------------------------------------------------
-    // Redshift IDENTITY support
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_redshift_identity_stripping() {
-        // Test that IDENTITY(1,1) is stripped for Redshift (which maps to PostgreSQL dialect)
         let catalog = Catalog::from_ddl_with_dialect(
             &["CREATE TABLE users (
                 id INTEGER IDENTITY(1,1) PRIMARY KEY,
@@ -1222,7 +1123,6 @@ mod tests {
 
     #[test]
     fn test_mssql_identity_stripping() {
-        // Test that IDENTITY(seed,step) is stripped for MSSQL
         let catalog = Catalog::from_ddl_with_dialect(
             &["CREATE TABLE products (
                 id INT IDENTITY(100, 5) PRIMARY KEY,
@@ -1242,7 +1142,6 @@ mod tests {
 
     #[test]
     fn test_identity_with_whitespace() {
-        // Test IDENTITY with various whitespace patterns
         let catalog = Catalog::from_ddl_with_dialect(
             &["CREATE TABLE test (
                 id INTEGER IDENTITY  (  1  ,  1  ) NOT NULL
@@ -1258,7 +1157,6 @@ mod tests {
 
     #[test]
     fn test_redshift_full_schema() {
-        // Test parsing the full Redshift integration test schema
         let catalog = Catalog::from_ddl_with_dialect(
             &["CREATE TABLE users (
                     id INTEGER IDENTITY(1,1) NOT NULL,
@@ -1289,13 +1187,11 @@ mod tests {
         )
         .unwrap();
 
-        // Verify all tables were parsed
         assert!(catalog.get_table("users").is_some());
         assert!(catalog.get_table("orders").is_some());
         assert!(catalog.get_table("tags").is_some());
         assert!(catalog.get_table("user_tags").is_some());
 
-        // Verify users table
         let users = catalog.get_table("users").unwrap();
         assert_eq!(users.columns.len(), 5);
         assert_eq!(users.columns[0].name, "id");
@@ -1305,7 +1201,6 @@ mod tests {
         assert_eq!(users.columns[2].name, "email");
         assert!(users.columns[2].nullable);
 
-        // Verify orders table
         let orders = catalog.get_table("orders").unwrap();
         assert_eq!(orders.columns.len(), 5);
         assert_eq!(orders.columns[0].name, "id");
@@ -1314,7 +1209,6 @@ mod tests {
 
     #[test]
     fn test_identity_case_insensitive() {
-        // Test that IDENTITY works regardless of case
         let catalog = Catalog::from_ddl_with_dialect(
             &["CREATE TABLE test (
                 id INT Identity(1,1) NOT NULL
@@ -1328,14 +1222,8 @@ mod tests {
         assert_eq!(table.columns[0].name, "id");
     }
 
-    // -----------------------------------------------------------------------
-    // psql meta-command stripping (issue #49)
-    // -----------------------------------------------------------------------
-
     #[test]
     fn test_skips_psql_restrict_meta_command() {
-        // Full pg_dump-18 / dbmate repro: leading comment block, \restrict token,
-        // SET statements, CREATE TABLE, ALTER TABLE, trailing \unrestrict token.
         let schema = "\
 -- PostgreSQL database dump\n\
 -- Dumped from database version 18.0\n\
@@ -1375,8 +1263,6 @@ ALTER TABLE ONLY public.t\n\
 
     #[test]
     fn test_skips_leading_backslash_line() {
-        // A file whose very first line is a psql meta-command followed by a
-        // normal CREATE TABLE must parse without error.
         let schema = "\\restrict dbmate\nCREATE TABLE items (id SERIAL PRIMARY KEY, name TEXT NOT NULL);";
         let catalog = Catalog::from_ddl(&[schema]).expect("parse must succeed");
 
@@ -1392,8 +1278,6 @@ ALTER TABLE ONLY public.t\n\
 
     #[test]
     fn test_normal_ddl_without_backslash_unaffected() {
-        // A plain CREATE TABLE with no backslash lines must continue to parse
-        // identically before and after the psql-strip pre-filter.
         let schema = "CREATE TABLE products (id INTEGER PRIMARY KEY, price NUMERIC(10,2) NOT NULL);";
         let catalog = Catalog::from_ddl(&[schema]).expect("parse must succeed");
 

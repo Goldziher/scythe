@@ -192,7 +192,6 @@ impl CodegenBackend for PhpAmphpBackend {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
 
-        // Readonly class with constructor
         let _ = writeln!(out, "readonly class {} {{", struct_name);
         let _ = writeln!(out, "    public function __construct(");
         for c in columns.iter() {
@@ -202,7 +201,6 @@ impl CodegenBackend for PhpAmphpBackend {
         let _ = writeln!(out, "    ) {{}}");
         let _ = writeln!(out);
 
-        // fromRow factory method
         let _ = writeln!(out, "    public static function fromRow(array $row): self {{");
         let _ = writeln!(out, "        return new self(");
         for c in columns.iter() {
@@ -283,7 +281,6 @@ impl CodegenBackend for PhpAmphpBackend {
         );
         let mut out = String::new();
 
-        // Build PHP parameter list
         let param_list = params
             .iter()
             .map(|p| format!("{} ${}", p.full_type, p.field_name))
@@ -291,10 +288,8 @@ impl CodegenBackend for PhpAmphpBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Handle :batch separately
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}Batch", func_name);
-            // PHPDoc for batch function
             let _ = writeln!(out, "    /**");
             let _ = writeln!(out, "     * @param \\Amp\\Sql\\SqlConnectionPool $pool");
             let _ = writeln!(out, "     * @param array<int, array<int, mixed>> $items");
@@ -324,7 +319,6 @@ impl CodegenBackend for PhpAmphpBackend {
             return Ok(out);
         }
 
-        // Return type depends on command
         let return_type = match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => format!("?{}", struct_name),
             QueryCommand::Many => "\\Generator".to_string(),
@@ -336,7 +330,6 @@ impl CodegenBackend for PhpAmphpBackend {
             }
         };
 
-        // PHPDoc block
         let _ = writeln!(out, "    /**");
         let _ = writeln!(out, "     * @param \\Amp\\Sql\\SqlConnectionPool $pool");
         for p in params {
@@ -368,9 +361,7 @@ impl CodegenBackend for PhpAmphpBackend {
             func_name, sep, param_list, return_type
         );
 
-        // Build execute params
         // NOTE: This prepares the statement on every call for simplicity.
-        // For hot paths, consider caching the prepared statement outside this method.
         if params.is_empty() {
             let _ = writeln!(out, "        $result = $pool->prepare(\"{}\")->execute([]);", sql);
         } else {
@@ -404,9 +395,7 @@ impl CodegenBackend for PhpAmphpBackend {
                 let _ = writeln!(out, "            yield {}::fromRow($row);", struct_name);
                 let _ = writeln!(out, "        }}");
             }
-            QueryCommand::Exec => {
-                // nothing else needed
-            }
+            QueryCommand::Exec => {}
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(out, "        return $result->getRowCount();");
             }
@@ -430,7 +419,6 @@ impl CodegenBackend for PhpAmphpBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child class — defined first so the parent's `@var Child[]` annotation resolves.
         let _ = writeln!(out, "readonly class {} {{", child_struct_name);
         let _ = writeln!(out, "    public function __construct(");
         for c in child_columns.iter() {
@@ -444,7 +432,6 @@ impl CodegenBackend for PhpAmphpBackend {
         let _ = writeln!(out);
         let _ = writeln!(out);
 
-        // Parent class — all parent_columns plus a readonly `array $children`.
         let _ = writeln!(out, "readonly class {} {{", parent_struct_name);
         let _ = writeln!(out, "    public function __construct(");
         for c in parent_columns.iter() {
@@ -473,7 +460,6 @@ impl CodegenBackend for PhpAmphpBackend {
         );
         let mut out = String::new();
 
-        // Build PHP parameter list (same pattern as generate_query_fn)
         let param_list = params
             .iter()
             .map(|p| format!("{} ${}", p.full_type, p.field_name))
@@ -481,7 +467,6 @@ impl CodegenBackend for PhpAmphpBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // PHPDoc block
         let _ = writeln!(out, "    /**");
         let _ = writeln!(out, "     * @param \\Amp\\Sql\\SqlConnectionPool $pool");
         for p in params {
@@ -496,7 +481,6 @@ impl CodegenBackend for PhpAmphpBackend {
             func_name, sep, param_list
         );
 
-        // Execute query — use $resultSet to avoid name collision with the $result array below.
         if params.is_empty() {
             let _ = writeln!(out, "        $resultSet = $pool->prepare(\"{}\")->execute([]);", sql);
         } else {
@@ -518,8 +502,6 @@ impl CodegenBackend for PhpAmphpBackend {
             );
         }
 
-        // Fold state: index maps key → position, parentArgs stores decoded parent fields,
-        // childrenMap accumulates children per group. Parallel arrays iterate in insertion order.
         let _ = writeln!(out, "        /** @var array<int|string, int> $parentIndex */");
         let _ = writeln!(out, "        $parentIndex = [];");
         let _ = writeln!(out, "        /** @var array<int, array<string, mixed>> $parentArgs */");
@@ -531,7 +513,6 @@ impl CodegenBackend for PhpAmphpBackend {
         );
         let _ = writeln!(out, "        $childrenMap = [];");
 
-        // Row-by-row fold
         let _ = writeln!(out, "        foreach ($resultSet as $row) {{");
         let _ = writeln!(out, "            $key = $row['{}'];", key_column);
         let _ = writeln!(out, "            if (!isset($parentIndex[$key])) {{");
@@ -553,8 +534,6 @@ impl CodegenBackend for PhpAmphpBackend {
         );
         let _ = writeln!(out, "        }}");
 
-        // Build result array. Named-argument spread (...$args) unpacks the parent fields
-        // dict into constructor parameters; readonly class requires PHP 8.1+.
         let _ = writeln!(out, "        $result = [];");
         let _ = writeln!(out, "        foreach ($parentArgs as $pos => $args) {{");
         let _ = writeln!(
@@ -587,7 +566,6 @@ impl CodegenBackend for PhpAmphpBackend {
         let _ = writeln!(out, "readonly class {} {{", name);
         let _ = writeln!(out, "    public function __construct(");
         if composite.fields.is_empty() {
-            // empty constructor
         } else {
             for field in &composite.fields {
                 let _ = writeln!(out, "        public mixed ${},", field.name);
@@ -669,17 +647,14 @@ mod tests {
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let row_struct = result.row_struct.as_deref().unwrap();
 
-        // Child class must appear before parent class
         assert!(
             row_struct.contains("readonly class GetUsersWithOrdersChildRow"),
             "missing child class; got:\n{row_struct}"
         );
-        // Child must have fromRow factory
         assert!(
             row_struct.contains("public static function fromRow"),
             "child missing fromRow; got:\n{row_struct}"
         );
-        // Parent class must include children array
         assert!(
             row_struct.contains("readonly class GetUsersWithOrdersRow"),
             "missing parent class; got:\n{row_struct}"
@@ -692,7 +667,6 @@ mod tests {
             row_struct.contains("@var GetUsersWithOrdersChildRow[]"),
             "parent missing @var annotation for children; got:\n{row_struct}"
         );
-        // Ordering: child must be defined before parent
         let child_pos = row_struct.find("readonly class GetUsersWithOrdersChildRow").unwrap();
         let parent_pos = row_struct.find("readonly class GetUsersWithOrdersRow").unwrap();
         assert!(child_pos < parent_pos, "child must precede parent; got:\n{row_struct}");
@@ -705,7 +679,6 @@ mod tests {
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
 
-        // Correct function name and Amp pool parameter
         assert!(
             query_fn.contains("getUsersWithOrders"),
             "missing function name; got:\n{query_fn}"
@@ -718,7 +691,6 @@ mod tests {
             query_fn.contains("): array"),
             "wrong return type (expected array); got:\n{query_fn}"
         );
-        // Fold data structures
         assert!(
             query_fn.contains("$parentIndex"),
             "missing fold index; got:\n{query_fn}"
@@ -727,17 +699,14 @@ mod tests {
             query_fn.contains("$childrenMap"),
             "missing children map; got:\n{query_fn}"
         );
-        // Amp uses foreach over a result set
         assert!(
             query_fn.contains("foreach ($resultSet as $row)"),
             "must use foreach over resultSet; got:\n{query_fn}"
         );
-        // Children folded via child struct's fromRow
         assert!(
             query_fn.contains("GetUsersWithOrdersChildRow::fromRow($row)"),
             "must fold children via fromRow; got:\n{query_fn}"
         );
-        // Parent constructed with named-argument spread
         assert!(
             query_fn.contains("new GetUsersWithOrdersRow(...$args, children: $childrenMap[$pos])"),
             "must build parent with named-arg spread; got:\n{query_fn}"

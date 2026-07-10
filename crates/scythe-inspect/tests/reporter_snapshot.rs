@@ -9,10 +9,6 @@ use scythe_inspect::CheckRegistry;
 use scythe_lint::reporters::Format;
 use scythe_lint::{Finding, Severity, emit_findings};
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /// Build a canonical, deterministic Finding for snapshot tests.
 fn canonical_finding() -> Finding {
     Finding {
@@ -36,10 +32,6 @@ fn emit_to_string(format: Format, findings: &[Finding]) -> String {
     String::from_utf8(buf).expect("output must be valid UTF-8")
 }
 
-// ---------------------------------------------------------------------------
-// JSON snapshot
-// ---------------------------------------------------------------------------
-
 #[test]
 fn json_snapshot_contains_required_fields() {
     let finding = canonical_finding();
@@ -61,7 +53,6 @@ fn json_snapshot_contains_required_fields() {
         "message must match; got: {obj}"
     );
     assert_eq!(obj["source"], "inspect", "source field must be 'inspect'; got: {obj}");
-    // file is empty string — must be present in JSON
     assert_eq!(obj["file"], "", "empty file field must be present; got: {obj}");
 }
 
@@ -74,10 +65,6 @@ fn json_snapshot_empty_findings_emits_empty_array() {
         "no findings → empty JSON array"
     );
 }
-
-// ---------------------------------------------------------------------------
-// SARIF snapshot
-// ---------------------------------------------------------------------------
 
 #[test]
 fn sarif_snapshot_has_version_and_runs() {
@@ -104,7 +91,6 @@ fn sarif_snapshot_has_version_and_runs() {
         "warn severity maps to SARIF 'warning' level; got: {}",
         results[0]
     );
-    // message.text must be present
     assert_eq!(
         results[0]["message"]["text"], "public.accounts has no primary key",
         "SARIF message.text must match; got: {}",
@@ -134,10 +120,6 @@ fn sarif_snapshot_empty_findings_has_empty_results() {
     let results = parsed["runs"][0]["results"].as_array().expect("results array");
     assert!(results.is_empty(), "no findings → empty SARIF results");
 }
-
-// ---------------------------------------------------------------------------
-// Human snapshot
-// ---------------------------------------------------------------------------
 
 #[test]
 fn human_snapshot_contains_source_tag_severity_rule_and_message() {
@@ -171,12 +153,6 @@ fn human_snapshot_empty_findings_says_no_findings() {
         "empty findings must produce 'No findings.' (got: {output:?})"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Registry round-trip — check that SC-INS04 is in the canonical registry with
-// the expected shape so snapshot tests use data that actually reflects what
-// scythe-inspect ships.
-// ---------------------------------------------------------------------------
 
 #[test]
 fn canonical_registry_sc_ins04_has_expected_shape() {

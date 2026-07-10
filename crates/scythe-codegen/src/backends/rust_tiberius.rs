@@ -257,7 +257,6 @@ impl CodegenBackend for RustTiberiusBackend {
             return_type
         );
 
-        // Build parameter slice for tiberius query
         let param_slice: String = if params.is_empty() {
             "&[]".to_string()
         } else {
@@ -266,14 +265,12 @@ impl CodegenBackend for RustTiberiusBackend {
                 .map(|p| {
                     let bt = &p.borrowed_type;
                     if bt == "&str" || bt == "Option<&str>" {
-                        // str is unsized, convert to String for ToSql
                         if bt == "Option<&str>" {
                             format!("&{}.map(|s| s.to_string()) as &dyn tiberius::ToSql", p.field_name)
                         } else {
                             format!("&{}.to_string() as &dyn tiberius::ToSql", p.field_name)
                         }
                     } else if bt.starts_with('&') {
-                        // Already a reference
                         format!("{} as &dyn tiberius::ToSql", p.field_name)
                     } else {
                         format!("&{} as &dyn tiberius::ToSql", p.field_name)
@@ -385,7 +382,6 @@ impl CodegenBackend for RustTiberiusBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child struct with from_row (defined first — no forward references).
         let _ = writeln!(out, "#[derive(Debug, Clone)]");
         let _ = writeln!(out, "pub struct {} {{", child_struct_name);
         for col in child_columns {
@@ -408,7 +404,6 @@ impl CodegenBackend for RustTiberiusBackend {
 
         let _ = writeln!(out);
 
-        // Parent struct — no from_row because the children field is not a DB column.
         let _ = writeln!(out, "#[derive(Debug, Clone)]");
         let _ = writeln!(out, "pub struct {} {{", parent_struct_name);
         for col in parent_columns {
@@ -439,20 +434,17 @@ impl CodegenBackend for RustTiberiusBackend {
             let _ = writeln!(out, "#[deprecated(note = \"{msg}\")]");
         }
 
-        // Build parameter list.
         let mut param_parts: Vec<String> =
             vec!["client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>".to_string()];
         for param in params {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
 
-        // Clean SQL and rewrite PG placeholders to @pN for MSSQL.
         let sql = super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
         );
 
-        // Build parameter slice for tiberius.
         let param_slice: String = if params.is_empty() {
             "&[]".to_string()
         } else {
@@ -476,14 +468,12 @@ impl CodegenBackend for RustTiberiusBackend {
             format!("&[{}]", refs.join(", "))
         };
 
-        // Find the key column type for the explicit annotation.
         let key_col_type = parent_columns
             .iter()
             .find(|c| c.name == key_column || c.field_name == key_field)
             .map(|c| c.full_type.as_str())
             .unwrap_or("i64");
 
-        // Function signature.
         let _ = writeln!(
             out,
             "pub async fn {}({}) -> Result<Vec<{}>, tiberius::error::Error> {{",
@@ -492,7 +482,6 @@ impl CodegenBackend for RustTiberiusBackend {
             parent_struct_name
         );
 
-        // Fetch flat rows.
         let _ = writeln!(
             out,
             "    let stream = client.query(r#\"{}\"#, {}).await?;",
@@ -502,19 +491,15 @@ impl CodegenBackend for RustTiberiusBackend {
         let _ = writeln!(out, "    let mut result: Vec<{}> = Vec::new();", parent_struct_name);
         let _ = writeln!(out, "    for row in &rows {{");
 
-        // Decode all parent columns.
         for col in parent_columns {
             let decode = Self::tiberius_decode_col(col);
             let _ = writeln!(out, "        let {}: {} = {decode};", col.field_name, col.full_type);
         }
 
-        // Clone the key for comparison.
         let _ = writeln!(out, "        let key: {key_col_type} = {key_field}.clone();");
 
-        // Build child struct by calling from_row on the flat row.
         let _ = writeln!(out, "        let child = {}::from_row(row)?;", child_struct_name);
 
-        // Fold: search from the end for an existing parent with this key.
         let _ = writeln!(
             out,
             "        if let Some(parent) = result.iter_mut().rev().find(|p| p.{key_field} == key) {{"
@@ -553,10 +538,6 @@ impl CodegenBackend for RustTiberiusBackend {
         Ok(out)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -659,12 +640,10 @@ mod tests {
             row_struct.contains("pub children: Vec<GetUsersWithOrdersChildRow>"),
             "parent struct missing children field; got:\n{row_struct}"
         );
-        // Child struct must appear BEFORE parent struct (no forward references).
         let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
         let parent_pos = row_struct.find("pub struct GetUsersWithOrdersRow").unwrap();
         assert!(child_pos < parent_pos, "child struct must appear before parent struct");
 
-        // Child struct has a from_row; parent struct does not.
         assert!(
             row_struct.contains("fn from_row(row: &tiberius::Row)"),
             "child struct should include from_row; got:\n{row_struct}"

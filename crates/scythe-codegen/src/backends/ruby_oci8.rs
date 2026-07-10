@@ -111,14 +111,11 @@ impl CodegenBackend for RubyOci8Backend {
             )
         };
 
-        // Check if this is a DML with RETURNING (INSERT/UPDATE/DELETE RETURNING)
         let has_returning = sql.to_uppercase().contains("RETURNING");
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 if has_returning {
-                    // Oracle RETURNING requires output bind variables via INTO clause.
-                    // ruby-oci8 uses cursor.parse + cursor.bind_param(N, nil, Type) for outputs.
                     let _ = writeln!(out, "    cursor = conn.parse(\"{}\")", {
                         let into_clause = columns
                             .iter()
@@ -237,7 +234,6 @@ impl CodegenBackend for RubyOci8Backend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        // OCI8 uses :N positional placeholders.
         let sql = super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
@@ -269,7 +265,6 @@ impl CodegenBackend for RubyOci8Backend {
         let _ = writeln!(out, "    cursor = conn.exec(\"{}\"{})", sql, bind_vars);
         let _ = writeln!(out, "    _index = {{}}");
         let _ = writeln!(out, "    _entries = []");
-        // OCI8 uses while-fetch rather than .each
         let _ = writeln!(out, "    while (row = cursor.fetch)");
         let _ = writeln!(out, "      key = row[{}]", key_idx);
         let _ = writeln!(out, "      unless _index.key?(key)");
@@ -277,7 +272,6 @@ impl CodegenBackend for RubyOci8Backend {
         let _ = writeln!(out, "        _entries << {{");
         for col in parent_columns {
             let col_idx = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
-            // OCI8 returns typed Ruby values — no coercions needed.
             let _ = writeln!(out, "          {}: row[{}],", col.field_name, col_idx);
         }
         let _ = writeln!(out, "          children: []");
@@ -435,7 +429,6 @@ mod tests {
             query_fn.contains("cursor = conn.exec("),
             "must use conn.exec; got:\n{query_fn}"
         );
-        // OCI8 uses while-fetch iteration
         assert!(
             query_fn.contains("while (row = cursor.fetch)"),
             "must use while-fetch; got:\n{query_fn}"

@@ -125,21 +125,17 @@ impl CodegenBackend for TokioPostgresBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
 
-        // Deprecated annotation
         if let Some(ref msg) = analyzed.deprecated {
             let _ = writeln!(out, "#[deprecated(note = \"{}\")]", msg);
         }
 
-        // Build parameter list
         let mut param_parts: Vec<String> = vec![CLIENT_PARAM.to_string()];
         for param in params {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
 
-        // Clean SQL
         let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
 
-        // Handle :batch separately
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}_batch", func_name);
 
@@ -201,7 +197,6 @@ impl CodegenBackend for TokioPostgresBackend {
             return Ok(out);
         }
 
-        // Return type for non-batch commands
         let return_type = match &analyzed.command {
             QueryCommand::One => struct_name.to_string(),
             QueryCommand::Opt => format!("Option<{}>", struct_name),
@@ -224,7 +219,6 @@ impl CodegenBackend for TokioPostgresBackend {
             ERROR_TYPE
         );
 
-        // Build param references for the query call
         let param_refs: String = if params.is_empty() {
             "&[]".to_string()
         } else {
@@ -292,7 +286,6 @@ impl CodegenBackend for TokioPostgresBackend {
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
 
-        // impl Display for serialization
         let _ = writeln!(out, "impl std::fmt::Display for {} {{", type_name);
         let _ = writeln!(
             out,
@@ -312,7 +305,6 @@ impl CodegenBackend for TokioPostgresBackend {
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
 
-        // impl FromStr for deserialization
         let _ = writeln!(out, "impl std::str::FromStr for {} {{", type_name);
         let _ = writeln!(out, "    type Err = String;");
         let _ = writeln!(out, "    fn from_str(s: &str) -> Result<Self, Self::Err> {{");
@@ -327,7 +319,6 @@ impl CodegenBackend for TokioPostgresBackend {
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
 
-        // impl FromSql for tokio-postgres row deserialization
         let _ = writeln!(out, "impl<'a> tokio_postgres::types::FromSql<'a> for {} {{", type_name);
         let _ = writeln!(
             out,
@@ -350,7 +341,6 @@ impl CodegenBackend for TokioPostgresBackend {
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
 
-        // impl ToSql for tokio-postgres parameter serialization
         let _ = writeln!(out, "impl tokio_postgres::types::ToSql for {} {{", type_name);
         let _ = writeln!(
             out,
@@ -383,7 +373,6 @@ impl CodegenBackend for TokioPostgresBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child struct with from_row (defined first, no forward references).
         out.push_str(&generate_struct_with_from_row(
             child_struct_name,
             child_columns,
@@ -392,7 +381,6 @@ impl CodegenBackend for TokioPostgresBackend {
         let _ = writeln!(out);
         let _ = writeln!(out);
 
-        // Parent struct — no from_row because the children field is not a DB column.
         let _ = writeln!(out, "{}", self.struct_derives());
         let _ = writeln!(out, "pub struct {} {{", parent_struct_name);
         for col in parent_columns {
@@ -419,21 +407,17 @@ impl CodegenBackend for TokioPostgresBackend {
         let key_field = to_snake_case(key_column);
         let mut out = String::new();
 
-        // Deprecated annotation.
         if let Some(ref msg) = analyzed.deprecated {
             let _ = writeln!(out, "#[deprecated(note = \"{msg}\")]");
         }
 
-        // Build parameter list: client first, then query params.
         let mut param_parts: Vec<String> = vec![CLIENT_PARAM.to_string()];
         for param in params {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
 
-        // Clean SQL.
         let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
 
-        // Build param refs for the query call.
         let param_refs: String = if params.is_empty() {
             "&[]".to_string()
         } else {
@@ -441,14 +425,12 @@ impl CodegenBackend for TokioPostgresBackend {
             format!("&[{}]", refs.join(", "))
         };
 
-        // Find the key column type for the explicit let annotation.
         let key_col_type = parent_columns
             .iter()
             .find(|c| c.name == key_column || c.field_name == key_field)
             .map(|c| c.full_type.as_str())
             .unwrap_or("i64");
 
-        // Function signature — returns Vec<ParentStruct>.
         let _ = writeln!(
             out,
             "pub async fn {}({}) -> Result<Vec<{}>, {}> {{",
@@ -458,7 +440,6 @@ impl CodegenBackend for TokioPostgresBackend {
             ERROR_TYPE
         );
 
-        // Fetch flat rows.
         let _ = writeln!(
             out,
             "    let rows = client.query(r#\"{}\"#, {}).await?;",
@@ -467,7 +448,6 @@ impl CodegenBackend for TokioPostgresBackend {
         let _ = writeln!(out, "    let mut result: Vec<{}> = Vec::new();", parent_struct_name);
         let _ = writeln!(out, "    for row in &rows {{");
 
-        // Decode all parent columns as owned variables (each typed to enable generic inference).
         for col in parent_columns {
             let _ = writeln!(
                 out,
@@ -476,13 +456,10 @@ impl CodegenBackend for TokioPostgresBackend {
             );
         }
 
-        // Clone the key before any moves.
         let _ = writeln!(out, "        let key: {key_col_type} = {key_field}.clone();");
 
-        // Build child struct via the from_row method that the child struct generates.
         let _ = writeln!(out, "        let child = {}::from_row(row);", child_struct_name);
 
-        // Fold: search from the end for an existing parent with this key.
         let _ = writeln!(
             out,
             "        if let Some(parent) = result.iter_mut().rev().find(|p| p.{key_field} == key) {{"
@@ -522,10 +499,6 @@ impl CodegenBackend for TokioPostgresBackend {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Internal helpers
-// ---------------------------------------------------------------------------
-
 /// Generate a struct with a `from_row` method for tokio-postgres.
 ///
 /// When no enum columns exist, `from_row` is infallible (panics on type mismatch
@@ -546,7 +519,6 @@ fn generate_struct_with_from_row(
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
 
-    // from_row is infallible — matches tokio-postgres row.get() convention (panics on mismatch)
     let _ = writeln!(out, "impl {} {{", struct_name);
     let _ = writeln!(out, "    pub fn from_row(row: &tokio_postgres::Row) -> Self {{");
     let _ = writeln!(out, "        Self {{");
@@ -559,10 +531,6 @@ fn generate_struct_with_from_row(
 
     Ok(out)
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -665,12 +633,10 @@ mod tests {
             row_struct.contains("pub children: Vec<GetUsersWithOrdersChildRow>"),
             "parent struct missing children field; got:\n{row_struct}"
         );
-        // Child must be defined before parent (no forward references).
         let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
         let parent_pos = row_struct.find("pub struct GetUsersWithOrdersRow").unwrap();
         assert!(child_pos < parent_pos, "child struct must appear before parent struct");
 
-        // Child struct has from_row; parent struct does not.
         assert!(
             row_struct.contains("tokio_postgres::Row"),
             "child struct should include from_row"

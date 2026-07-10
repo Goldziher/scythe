@@ -117,7 +117,6 @@ pub(crate) fn rewrite_optional_params(sql: &str, optional_params: &[String], par
         };
         let placeholder = format!("${}", param.position);
 
-        // Try each comparison operator
         for op in &[">=", "<=", "<>", "!=", ">", "<", "=", "ILIKE", "ilike", "LIKE", "like"] {
             result = rewrite_comparison(&result, &placeholder, op);
         }
@@ -135,14 +134,12 @@ fn rewrite_comparison(sql: &str, placeholder: &str, op: &str) -> String {
     let mut i = 0;
 
     while i < len {
-        // Try to match `identifier <op> $N` at this position
         if let Some((_start, col, end)) = try_match_col_op_ph(&chars, i, op, placeholder) {
             result.push_str(&format!("({placeholder} IS NULL OR {col} {op} {placeholder})"));
             i = end;
             continue;
         }
 
-        // Try to match `$N <op> identifier` at this position
         if let Some((end, col)) = try_match_ph_op_col(&chars, i, op, placeholder) {
             result.push_str(&format!("({placeholder} IS NULL OR {col} {op} {placeholder})"));
             i = end;
@@ -159,16 +156,13 @@ fn rewrite_comparison(sql: &str, placeholder: &str, op: &str) -> String {
 /// Try to match `identifier <ws>* <op> <ws>* placeholder` starting at position `i`.
 /// Returns `(match_start, column_name, match_end)` if found.
 fn try_match_col_op_ph(chars: &[char], i: usize, op: &str, placeholder: &str) -> Option<(usize, String, usize)> {
-    // Must start with an identifier character (word char)
     if !is_ident_char(chars[i]) {
         return None;
     }
-    // Must not be preceded by another ident char (whole-word boundary)
     if i > 0 && is_ident_char(chars[i - 1]) {
         return None;
     }
 
-    // Read the identifier
     let ident_start = i;
     let mut j = i;
     while j < chars.len() && is_ident_char(chars[j]) {
@@ -176,12 +170,10 @@ fn try_match_col_op_ph(chars: &[char], i: usize, op: &str, placeholder: &str) ->
     }
     let ident: String = chars[ident_start..j].iter().collect();
 
-    // Skip whitespace
     while j < chars.len() && chars[j].is_whitespace() {
         j += 1;
     }
 
-    // Match operator
     let op_chars: Vec<char> = op.chars().collect();
     if j + op_chars.len() > chars.len() {
         return None;
@@ -193,12 +185,10 @@ fn try_match_col_op_ph(chars: &[char], i: usize, op: &str, placeholder: &str) ->
     }
     j += op_chars.len();
 
-    // Skip whitespace
     while j < chars.len() && chars[j].is_whitespace() {
         j += 1;
     }
 
-    // Match placeholder
     let ph_chars: Vec<char> = placeholder.chars().collect();
     if j + ph_chars.len() > chars.len() {
         return None;
@@ -210,7 +200,6 @@ fn try_match_col_op_ph(chars: &[char], i: usize, op: &str, placeholder: &str) ->
     }
     j += ph_chars.len();
 
-    // Ensure placeholder is not followed by a digit (e.g., $1 vs $10)
     if j < chars.len() && chars[j].is_ascii_digit() {
         return None;
     }
@@ -226,12 +215,10 @@ fn try_match_ph_op_col(chars: &[char], i: usize, op: &str, placeholder: &str) ->
         return None;
     }
 
-    // Must not be preceded by $ or digit (boundary check)
     if i > 0 && (chars[i - 1] == '$' || chars[i - 1].is_ascii_digit()) {
         return None;
     }
 
-    // Match placeholder
     for (k, pc) in ph_chars.iter().enumerate() {
         if chars[i + k] != *pc {
             return None;
@@ -239,17 +226,14 @@ fn try_match_ph_op_col(chars: &[char], i: usize, op: &str, placeholder: &str) ->
     }
     let mut j = i + ph_chars.len();
 
-    // Ensure placeholder is not followed by a digit
     if j < chars.len() && chars[j].is_ascii_digit() {
         return None;
     }
 
-    // Skip whitespace
     while j < chars.len() && chars[j].is_whitespace() {
         j += 1;
     }
 
-    // Match operator
     let op_chars: Vec<char> = op.chars().collect();
     if j + op_chars.len() > chars.len() {
         return None;
@@ -261,12 +245,10 @@ fn try_match_ph_op_col(chars: &[char], i: usize, op: &str, placeholder: &str) ->
     }
     j += op_chars.len();
 
-    // Skip whitespace
     while j < chars.len() && chars[j].is_whitespace() {
         j += 1;
     }
 
-    // Read the identifier
     if j >= chars.len() || !is_ident_char(chars[j]) {
         return None;
     }
@@ -276,7 +258,6 @@ fn try_match_ph_op_col(chars: &[char], i: usize, op: &str, placeholder: &str) ->
     }
     let ident: String = chars[ident_start..j].iter().collect();
 
-    // Avoid matching "NULL" (from already-rewritten text)
     if ident == "NULL" {
         return None;
     }
@@ -352,9 +333,6 @@ pub(crate) fn rewrite_pg_placeholders(sql: &str, formatter: impl Fn(u32) -> Stri
 /// The `engine` parameter (e.g., "postgresql", "mysql", "sqlite") determines
 /// which manifest is loaded for type mappings. PG-only backends reject non-PG engines.
 pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, ScytheError> {
-    // Normalize engine aliases (e.g., "cockroachdb" -> "postgresql") before
-    // passing to backend constructors so each backend only needs to match
-    // canonical engine names.
     let canonical_engine = normalize_engine(engine);
     let backend: Box<dyn CodegenBackend> = match name {
         "rust-sqlx" | "sqlx" | "rust" => Box::new(sqlx::SqlxBackend::new(canonical_engine)?),
@@ -401,7 +379,6 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "ruby-trilogy" | "trilogy" => Box::new(ruby_trilogy::RubyTrilogyBackend::new(canonical_engine)?),
         "php-pdo" | "php" => Box::new(php_pdo::PhpPdoBackend::new(canonical_engine)?),
         "php-amphp" | "amphp" => Box::new(php_amphp::PhpAmphpBackend::new(canonical_engine)?),
-        // MSSQL backends
         "rust-tiberius" | "tiberius" => Box::new(rust_tiberius::RustTiberiusBackend::new(canonical_engine)?),
         "python-pyodbc" | "pyodbc" => Box::new(python_pyodbc::PythonPyodbcBackend::new(canonical_engine)?),
         "typescript-mssql" | "tedious" => Box::new(typescript_mssql::TypescriptMssqlBackend::new(canonical_engine)?),
@@ -410,7 +387,6 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
             Box::new(ruby_tiny_tds::RubyTinyTdsBackend::new(canonical_engine)?)
         }
         "elixir-tds" | "tds" => Box::new(elixir_tds::ElixirTdsBackend::new(canonical_engine)?),
-        // Oracle backends
         "rust-sibyl" | "sibyl" => Box::new(rust_sibyl::RustSibylBackend::new(canonical_engine)?),
         "python-oracledb" | "oracledb" => Box::new(python_oracledb::PythonOracledbBackend::new(canonical_engine)?),
         "typescript-oracledb" => Box::new(typescript_oracledb::TypescriptOracledbBackend::new(canonical_engine)?),
@@ -418,7 +394,6 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "csharp-oracle" => Box::new(csharp_oracle::CsharpOracleBackend::new(canonical_engine)?),
         "ruby-oci8" | "oci8" => Box::new(ruby_oci8::RubyOci8Backend::new(canonical_engine)?),
         "elixir-jamdb" | "jamdb" => Box::new(elixir_jamdb::ElixirJamdbBackend::new(canonical_engine)?),
-        // Snowflake backends
         "python-snowflake" => Box::new(python_snowflake::PythonSnowflakeBackend::new(canonical_engine)?),
         "typescript-snowflake" => Box::new(typescript_snowflake::TypescriptSnowflakeBackend::new(canonical_engine)?),
         "go-gosnowflake" | "gosnowflake" => Box::new(go_gosnowflake::GoGosnowflakeBackend::new(canonical_engine)?),
@@ -431,7 +406,6 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         }
     };
 
-    // Validate engine is supported by this backend
     if !backend
         .supported_engines()
         .iter()
@@ -488,7 +462,6 @@ mod tests {
 
     #[test]
     fn test_get_backend_cockroachdb_with_pg_backends() {
-        // CockroachDB should work with all PostgreSQL-compatible backends
         let pg_backends = [
             "rust-sqlx",
             "rust-tokio-postgres",
@@ -639,11 +612,9 @@ mod tests {
 
     #[test]
     fn test_rewrite_does_not_match_similar_placeholder() {
-        // $1 should not match $10
         let sql = "SELECT * FROM users WHERE status = $10";
         let params = vec![param("status", 1)];
         let result = rewrite_optional_params(sql, &["status".to_string()], &params);
-        // $1 placeholder doesn't appear, so no rewrite
         assert_eq!(result, sql);
     }
 

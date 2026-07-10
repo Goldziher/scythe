@@ -3,7 +3,6 @@ use serde::{Deserialize, Serialize};
 use std::path::Path;
 
 // ---------------------------------------------------------------------------
-// Top-level fixture
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -32,10 +31,6 @@ pub struct Fixture {
     #[serde(skip)]
     pub file_path: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// Config section
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FixtureConfig {
@@ -98,10 +93,6 @@ pub struct NamingConfig {
     pub row_suffix: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Expected section
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Expected {
     pub success: bool,
@@ -117,8 +108,6 @@ pub struct Expected {
     pub lint: Option<ExpectedLint>,
 }
 
-// -- Lint -------------------------------------------------------------------
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpectedLint {
     #[serde(default)]
@@ -131,8 +120,6 @@ pub struct ExpectedLintViolation {
     #[serde(default)]
     pub message_contains: Option<String>,
 }
-
-// -- Catalog ----------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpectedCatalog {
@@ -175,8 +162,6 @@ pub struct ExpectedCompositeField {
     pub name: String,
     pub sql_type: String,
 }
-
-// -- Query ------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpectedQuery {
@@ -235,8 +220,6 @@ pub struct ExpectedReturnColumn {
     pub note: Option<String>,
 }
 
-// -- Generated Code (keyed by backend name) ---------------------------------
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpectedGeneratedCode {
     #[serde(default)]
@@ -249,8 +232,6 @@ pub struct ExpectedGeneratedCode {
     pub model_struct: Option<String>,
 }
 
-// -- Error ------------------------------------------------------------------
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExpectedError {
     #[serde(default)]
@@ -258,10 +239,6 @@ pub struct ExpectedError {
     #[serde(default)]
     pub message_contains: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// Source & sqlc comparison
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -279,10 +256,6 @@ pub struct SqlcComparison {
     pub scythe_improvement: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// Loader
-// ---------------------------------------------------------------------------
-
 /// Recursively loads all `.json` fixture files from `dir`, excluding
 /// `00-FIXTURE-SCHEMA.json`. Returns fixtures sorted by (category, name).
 pub fn load_fixtures(dir: &Path) -> Result<Vec<Fixture>, Box<dyn std::error::Error>> {
@@ -293,7 +266,6 @@ pub fn load_fixtures(dir: &Path) -> Result<Vec<Fixture>, Box<dyn std::error::Err
     for entry in glob::glob(&pattern)? {
         let path = entry?;
 
-        // Skip the schema file itself.
         if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
             && file_name == "00-FIXTURE-SCHEMA.json"
         {
@@ -309,11 +281,9 @@ pub fn load_fixtures(dir: &Path) -> Result<Vec<Fixture>, Box<dyn std::error::Err
 
     fixtures.sort_by(|a, b| a.category.cmp(&b.category).then_with(|| a.name.cmp(&b.name)));
 
-    // Detect duplicate fixture names (globally unique, not just adjacent).
     let mut seen = AHashSet::new();
     for fixture in &fixtures {
         if !seen.insert(&fixture.name) {
-            // find the first occurrence for the error message
             let first_path = fixtures
                 .iter()
                 .find(|f| f.name == fixture.name && f.file_path != fixture.file_path)

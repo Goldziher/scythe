@@ -21,10 +21,6 @@ fn schema_dir(relative: &str) -> PathBuf {
     workspace_root().join("tests/schemas").join(relative)
 }
 
-// ---------------------------------------------------------------------------
-// Help
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_help_exits_zero() {
     let output = scythe_bin()
@@ -51,10 +47,6 @@ fn test_version_exits_zero() {
     let stdout = String::from_utf8_lossy(&output.stdout);
     assert!(stdout.contains("scythe"), "version output should contain 'scythe'");
 }
-
-// ---------------------------------------------------------------------------
-// Check command
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_check_basemind_exits_zero() {
@@ -95,17 +87,12 @@ fn test_check_pagila_exits_zero() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Generate command
-// ---------------------------------------------------------------------------
-
 #[test]
 fn test_generate_writes_file() {
     let dir = schema_dir("simple/basemind");
     let temp = tempfile::TempDir::new().unwrap();
     let output_dir = temp.path().join("generated");
 
-    // Create a config that writes to our temp directory
     let config_content = format!(
         r#"[scythe]
 version = "1"
@@ -136,7 +123,6 @@ output = "{}"
         stderr
     );
 
-    // Verify output file was created
     let generated_file = output_dir.join("queries.rs");
     assert!(
         generated_file.exists(),
@@ -162,8 +148,6 @@ fn test_generate_pagila_writes_file() {
     let temp = tempfile::TempDir::new().unwrap();
     let output_dir = temp.path().join("generated");
 
-    // Use only the query files that don't trigger known limitations
-    // (e.g. analytics.sql uses ANY($1) which produces an unresolvable param type)
     let config_content = format!(
         r#"[scythe]
 version = "1"
@@ -198,17 +182,12 @@ output = "{}"
     assert!(generated_file.exists(), "should create queries.rs for pagila");
 
     let content = std::fs::read_to_string(&generated_file).unwrap();
-    // Pagila has many queries, should produce substantial output
     assert!(
         content.len() > 500,
         "pagila should generate substantial code, got {} bytes",
         content.len()
     );
 }
-
-// ---------------------------------------------------------------------------
-// Error cases
-// ---------------------------------------------------------------------------
 
 #[test]
 fn test_missing_config_exits_nonzero() {
@@ -226,10 +205,6 @@ fn test_no_subcommand_exits_nonzero() {
 
     assert!(!output.status.success(), "scythe with no subcommand should fail");
 }
-
-// ---------------------------------------------------------------------------
-// Audit subcommand: discovery flags + filters + exit-code controls
-// ---------------------------------------------------------------------------
 
 /// Write a small SQL file that fires SC-SEC02 (GRANT ALL) and returns its path.
 fn write_grant_all_sql(temp: &tempfile::TempDir) -> PathBuf {
@@ -283,7 +258,6 @@ fn test_audit_exit_zero_overrides_error_exit_code() {
     let temp = tempfile::TempDir::new().unwrap();
     let sql_path = write_grant_all_sql(&temp);
 
-    // Sanity: without --exit-zero the SC-SEC02 finding should exit 2.
     let base = scythe_bin()
         .args(["audit", sql_path.to_str().unwrap()])
         .output()
@@ -295,7 +269,6 @@ fn test_audit_exit_zero_overrides_error_exit_code() {
         String::from_utf8_lossy(&base.stderr)
     );
 
-    // With --exit-zero we still see the finding but the process exits 0.
     let lenient = scythe_bin()
         .args(["audit", "--exit-zero", sql_path.to_str().unwrap()])
         .output()
@@ -352,7 +325,6 @@ fn test_audit_ignore_suppressions_resurfaces_finding() {
     )
     .unwrap();
 
-    // Default: suppression honoured → no SC-SEC02 finding, exit 0.
     let suppressed = scythe_bin()
         .args(["audit", sql_path.to_str().unwrap()])
         .output()
@@ -363,7 +335,6 @@ fn test_audit_ignore_suppressions_resurfaces_finding() {
         String::from_utf8_lossy(&suppressed.stderr)
     );
 
-    // With --ignore-suppressions: finding resurfaces, exit 2.
     let strict = scythe_bin()
         .args(["audit", "--ignore-suppressions", sql_path.to_str().unwrap()])
         .output()
@@ -384,7 +355,6 @@ fn test_audit_ignore_suppressions_resurfaces_finding() {
 #[test]
 fn test_audit_severity_filter_drops_warnings() {
     let temp = tempfile::TempDir::new().unwrap();
-    // SC-SEC09 unbounded-like is warn. SC-SEC02 grant-all is error. Both fire.
     let sql_path = temp.path().join("mixed.sql");
     std::fs::write(
         &sql_path,
@@ -392,7 +362,6 @@ fn test_audit_severity_filter_drops_warnings() {
     )
     .unwrap();
 
-    // --severity error drops the warn-level SC-SEC09 finding.
     let output = scythe_bin()
         .args([
             "audit",
@@ -418,8 +387,6 @@ fn test_audit_severity_filter_drops_warnings() {
 #[test]
 fn test_audit_dialect_flag_skips_pg_only_rule_on_sqlite() {
     let temp = tempfile::TempDir::new().unwrap();
-    // SET ROLE trips SC-SEC11 on Postgres but the rule is tagged dialects=["postgres"]
-    // and must no-op on SQLite.
     let sql_path = temp.path().join("set_role.sql");
     std::fs::write(&sql_path, "SET ROLE admin;\n").unwrap();
 

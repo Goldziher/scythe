@@ -14,9 +14,7 @@ const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-tiny-tds.
 /// Check if a neutral type should not be escaped (numeric or boolean types).
 /// Neutral types are core type identifiers like "int32", "bool", "decimal".
 fn is_numeric_or_bool_type(neutral_type: &str) -> bool {
-    // Remove container wrappers and check the base type
     let base_type = if neutral_type.contains('<') {
-        // Handle Array<T> or similar generic types
         neutral_type.split('<').next().unwrap_or("")
     } else {
         neutral_type
@@ -51,10 +49,6 @@ fn generate_inline_value(neutral_type: &str, var_access: &str, nullable: bool) -
     } else if is_numeric_or_bool_type(neutral_type) {
         format!("#{{{}}}", var_access)
     } else if nullable {
-        // Nullable string: emit SQL NULL literal or a quoted, escaped value.
-        // Ruby evaluates the ternary at runtime: nil → NULL, otherwise → 'escaped_value'.
-        // The inner double-quoted string `"'#{client.escape(...)}'"`  uses its own interpolation,
-        // which Ruby handles correctly even when nested inside the outer string's #{} block.
         format!(
             "#{{ {}.nil? ? 'NULL' : \"'#{{client.escape({})}}'\"}}",
             var_access, var_access
@@ -67,7 +61,6 @@ fn generate_inline_value(neutral_type: &str, var_access: &str, nullable: bool) -
 /// Replace `@p1`, `@p2`, ... placeholders in the SQL string with inline Ruby interpolations.
 fn inline_params(sql: &str, params: &[(String, String, bool)]) -> String {
     let mut result = sql.to_string();
-    // Replace in reverse order so that @p10 is replaced before @p1
     for (index, (neutral_type, var_access, nullable)) in params.iter().enumerate().rev() {
         let placeholder = format!("@p{}", index + 1);
         let value = generate_inline_value(neutral_type, var_access, *nullable);
@@ -162,9 +155,6 @@ impl CodegenBackend for RubyTinyTdsBackend {
         let sep = if param_list.is_empty() { "" } else { ", " };
 
         // WARNING: TinyTDS does not support native parameterized queries.
-        // We use Ruby string interpolation with client.escape() for SQL injection prevention.
-        // client.escape() handles string values; callers must ensure numeric types are validated.
-        // Consider sp_executesql for stronger parameterization if needed.
         if !matches!(analyzed.command, QueryCommand::Batch) {
             let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
         }
@@ -307,7 +297,6 @@ impl CodegenBackend for RubyTinyTdsBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // tiny_tds uses @p1-style placeholders; replace in SQL.
         let sql_with_placeholders = {
             let mut s = sql.clone();
             let mut n = 1u32;
@@ -321,7 +310,6 @@ impl CodegenBackend for RubyTinyTdsBackend {
             s
         };
 
-        // Build the inline SQL string.
         let final_sql = if params.is_empty() {
             sql_with_placeholders.clone()
         } else {
@@ -334,7 +322,6 @@ impl CodegenBackend for RubyTinyTdsBackend {
             let _ = writeln!(out, "    results = client.execute(\"{}\")", final_sql);
         } else {
             let _ = writeln!(out, "    sql = \"{}\"", final_sql);
-            // Inline param substitution the tiny_tds way: bind via execute with params hash.
             let params_hash = params
                 .iter()
                 .enumerate()
@@ -351,7 +338,6 @@ impl CodegenBackend for RubyTinyTdsBackend {
         let _ = writeln!(out, "        _index[key] = _entries.size");
         let _ = writeln!(out, "        _entries << {{");
         for col in parent_columns {
-            // tiny_tds returns typed Ruby values — no coercions needed.
             let _ = writeln!(out, "          {}: row[\"{}\"],", col.field_name, col.name);
         }
         let _ = writeln!(out, "          children: []");
@@ -508,7 +494,6 @@ mod tests {
             query_fn.contains("client.execute("),
             "must use client.execute; got:\n{query_fn}"
         );
-        // String key access
         assert!(
             query_fn.contains("key = row[\"id\"]"),
             "must access key by string; got:\n{query_fn}"

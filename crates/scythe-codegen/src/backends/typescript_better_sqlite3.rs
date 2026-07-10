@@ -115,7 +115,6 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
             format!("db: Database, {}", param_list)
         };
 
-        // Helper: write function signature (sync, no async)
         let write_fn_sig = |out: &mut String, name: &str, params_inline: &str, ret: &str| {
             let oneliner = format!("export function {}({}): {} {{", name, params_inline, ret);
             if oneliner.len() <= 80 {
@@ -133,7 +132,6 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
             }
         };
 
-        // Build param args for .get()/.all()/.run()
         let param_args = if params.is_empty() {
             String::new()
         } else {
@@ -312,7 +310,6 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
         } else {
             format!("db: Database, {}", param_list)
         };
-        // better-sqlite3 is synchronous — no Promise wrapper
         let ret = format!("{parent_struct_name}[]");
 
         let mut out = String::new();
@@ -330,7 +327,6 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
             let _ = writeln!(out, "): {ret} {{");
         }
 
-        // Fetch flat rows synchronously; cast to Record<string, unknown>[] for fold
         let _ = writeln!(out, "\tconst stmt = db.prepare(`{sql}`);");
         if params.is_empty() {
             let _ = writeln!(out, "\tconst flatRows = stmt.all() as Record<string, unknown>[];");
@@ -343,7 +339,6 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
             );
         }
 
-        // Fold — rows are Record<string, unknown>, use bracket access + as-cast
         let fold = generate_ts_grouped_fold_body(
             parent_struct_name,
             child_struct_name,
@@ -365,7 +360,6 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
                 &enum_info.values,
             ));
         }
-        // SQLite has no native ENUM type; generate a string union type instead
         let mut out = String::new();
         let variants: Vec<String> = enum_info.values.iter().map(|v| format!("\"{}\"", v)).collect();
         let _ = write!(out, "export type {} = {};", type_name, variants.join(" | "));
@@ -482,7 +476,6 @@ mod tests {
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
 
-        // Must be synchronous — no async/await
         assert!(
             !query_fn.contains("async function"),
             "better-sqlite3 is sync; got:\n{query_fn}"

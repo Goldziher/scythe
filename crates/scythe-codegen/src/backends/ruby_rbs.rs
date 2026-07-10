@@ -16,7 +16,6 @@ pub(crate) fn generate_grouped_structs_ruby(
 ) -> String {
     let mut out = String::new();
 
-    // Child struct — must appear before parent so type checkers see it in scope.
     let child_fields = child_columns
         .iter()
         .map(|c| format!(":{}", c.field_name))
@@ -25,7 +24,6 @@ pub(crate) fn generate_grouped_structs_ruby(
     let _ = writeln!(out, "  {child_struct_name} = Data.define({child_fields})");
     let _ = writeln!(out);
 
-    // Parent struct — all parent columns plus :children (Array of child structs).
     let mut parent_field_parts: Vec<String> = parent_columns.iter().map(|c| format!(":{}", c.field_name)).collect();
     parent_field_parts.push(":children".to_string());
     let parent_fields = parent_field_parts.join(", ");
@@ -83,7 +81,6 @@ pub fn generate_rbs_content(context: &RbsGenerationContext, connection_type: &st
     let _ = writeln!(out);
     let _ = writeln!(out, "module Queries");
 
-    // Enum modules
     for enum_info in &context.enums {
         let _ = writeln!(out, "  module {}", enum_info.type_name);
         for value in &enum_info.values {
@@ -94,9 +91,7 @@ pub fn generate_rbs_content(context: &RbsGenerationContext, connection_type: &st
         let _ = writeln!(out);
     }
 
-    // Row struct classes and query method signatures
     for query in &context.queries {
-        // Generate Data.define class if there are columns
         if let Some(ref struct_name) = query.struct_name
             && !query.columns.is_empty()
         {
@@ -104,13 +99,11 @@ pub fn generate_rbs_content(context: &RbsGenerationContext, connection_type: &st
             let _ = writeln!(out);
         }
 
-        // Generate method signature
         write_rbs_method(&mut out, query, connection_type);
         let _ = writeln!(out);
     }
 
     let _ = write!(out, "end");
-    // Ensure trailing newline
     out.push('\n');
     out
 }
@@ -123,7 +116,6 @@ fn write_rbs_data_class(out: &mut String, struct_name: &str, columns: &[Resolved
         let _ = writeln!(out, "    attr_reader {}: {}", col.field_name, rbs_type);
     }
 
-    // Constructor signature
     let ctor_params: Vec<String> = columns
         .iter()
         .map(|col| {
@@ -165,7 +157,6 @@ fn write_rbs_method(out: &mut String, query: &RbsQueryInfo, connection_type: &st
         QueryCommand::Exec => "void".to_string(),
         QueryCommand::ExecResult | QueryCommand::ExecRows => "Integer".to_string(),
         QueryCommand::Batch => {
-            // Batch has a different signature: (conn, Array[...]) -> void
             let item_type = if query.params.len() > 1 {
                 let inner: Vec<String> = query
                     .params

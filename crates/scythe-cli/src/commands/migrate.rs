@@ -8,8 +8,6 @@ use serde::Deserialize;
 use scythe_core::errors::{ErrorCode, ScytheError};
 
 // ---------------------------------------------------------------------------
-// sqlc config model
-// ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
 struct SqlcConfig {
@@ -20,7 +18,6 @@ struct SqlcConfig {
     plugins: Vec<SqlcPlugin>,
     #[serde(default)]
     sql: Vec<SqlcSqlEntry>,
-    // v1 format
     #[serde(default)]
     packages: Vec<SqlcPackage>,
 }
@@ -142,10 +139,6 @@ struct SqlcPackage {
     engine: Option<String>,
 }
 
-// ---------------------------------------------------------------------------
-// scythe config model (for serialisation via toml)
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, serde::Serialize)]
 struct ScytheConfig {
     scythe: ScytheMeta,
@@ -184,10 +177,6 @@ struct ScytheTypeOverride {
     type_name: String,
 }
 
-// ---------------------------------------------------------------------------
-// helpers
-// ---------------------------------------------------------------------------
-
 /// Turn a path that might be a directory into a glob pattern for .sql files.
 fn ensure_glob_pattern(p: &str) -> String {
     if p.contains('*') || p.ends_with(".sql") {
@@ -201,17 +190,12 @@ fn internal(msg: impl Into<String>) -> ScytheError {
     ScytheError::new(ErrorCode::InternalError, msg)
 }
 
-// ---------------------------------------------------------------------------
-// config conversion
-// ---------------------------------------------------------------------------
-
 fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheError> {
     let mut sql_blocks: Vec<ScytheSqlBlock> = Vec::new();
 
     let version = sqlc.version.as_deref().unwrap_or("2");
 
     if version == "1" || (!sqlc.packages.is_empty() && sqlc.sql.is_empty()) {
-        // v1 format: packages
         for (idx, pkg) in sqlc.packages.iter().enumerate() {
             let name = pkg.name.clone().unwrap_or_else(|| {
                 if sqlc.packages.len() == 1 {
@@ -240,7 +224,6 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
             });
         }
     } else {
-        // v2 format
         for (idx, entry) in sqlc.sql.iter().enumerate() {
             let engine = entry.engine.clone().unwrap_or_else(|| "postgresql".to_string());
 
@@ -259,7 +242,6 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
             let mut gen_map: BTreeMap<String, ScytheGenTarget> = BTreeMap::new();
             let mut overrides: Vec<ScytheTypeOverride> = Vec::new();
 
-            // Extract from codegen entries (v2 with plugins)
             for cg in &entry.codegen {
                 if let Some(out) = &cg.out {
                     output = out.clone();
@@ -293,7 +275,6 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
                 }
             }
 
-            // Fall back: older `gen:` block within v2
             if output.is_empty()
                 && let Some(g) = &entry.gen_block
             {
@@ -352,10 +333,6 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
     Ok(dest.display().to_string())
 }
 
-// ---------------------------------------------------------------------------
-// query file conversion
-// ---------------------------------------------------------------------------
-
 struct ConvertStats {
     files: usize,
     queries: usize,
@@ -374,13 +351,11 @@ fn convert_query_files(query_paths: &[String], base_dir: &Path) -> Result<Conver
         let pattern = base_dir.join(qp);
         let pattern_str = pattern.display().to_string();
 
-        // If it is a directory (no glob), add glob suffix
         let glob_pattern = if pattern_str.contains('*') {
             pattern_str.clone()
         } else if Path::new(&pattern_str).is_dir() {
             format!("{pattern_str}/*.sql")
         } else {
-            // Might be a single file
             pattern_str.clone()
         };
 
@@ -408,10 +383,8 @@ fn convert_single_file(path: &Path) -> Result<(usize, usize), ScytheError> {
     let (converted, query_count, param_count) = convert_query_content(&content)?;
 
     if converted != content {
-        // Create backup
         let bak = path.with_extension("sql.bak");
         fs::write(&bak, &content).map_err(|e| internal(format!("backup {}: {e}", bak.display())))?;
-        // Write converted file
         fs::write(path, &converted).map_err(|e| internal(format!("write {}: {e}", path.display())))?;
     }
 
@@ -431,14 +404,12 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
 
     let sqlc_narg_re = Regex::new(r"sqlc\.narg\((\w+)\)").map_err(|e| internal(format!("regex: {e}")))?;
 
-    // Regex to find existing positional parameters like $1, $2, etc.
     let positional_re = Regex::new(r"\$(\d+)").map_err(|e| internal(format!("regex: {e}")))?;
 
     let mut output = String::with_capacity(input.len());
     let mut query_count: usize = 0;
     let mut param_rename_count: usize = 0;
 
-    // Find all annotation positions
     let mut match_positions: Vec<(usize, usize, String, String)> = Vec::new();
     for caps in annotation_re.captures_iter(input) {
         let m = caps.get(0).unwrap();
@@ -448,11 +419,9 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
     }
 
     if match_positions.is_empty() {
-        // No sqlc annotations found, return as-is.
         return Ok((input.to_string(), 0, 0));
     }
 
-    // Text before first annotation
     if match_positions[0].0 > 0 {
         output.push_str(&input[..match_positions[0].0]);
     }
@@ -460,7 +429,6 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
     for (i, (_, end, name, return_type)) in match_positions.iter().enumerate() {
         query_count += 1;
 
-        // The SQL body runs from end of annotation to start of next annotation (or EOF)
         let body_end = if i + 1 < match_positions.len() {
             match_positions[i + 1].0
         } else {
@@ -468,7 +436,6 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
         };
         let body = &input[*end..body_end];
 
-        // Find highest existing positional parameter in the body
         let mut max_positional: usize = 0;
         for caps in positional_re.captures_iter(body) {
             if let Ok(n) = caps[1].parse::<usize>()
@@ -478,12 +445,10 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
             }
         }
 
-        // Replace sqlc.arg(name) and sqlc.narg(name) with $N
         let mut next_param = max_positional + 1;
         let mut param_names: Vec<String> = Vec::new();
         let mut converted_body = body.to_string();
 
-        // Process one match at a time (leftmost first) to assign sequential numbers.
         loop {
             let arg_match = sqlc_arg_re.find(&converted_body);
             let narg_match = sqlc_narg_re.find(&converted_body);
@@ -501,7 +466,6 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
                 (None, None) => break,
             };
 
-            // Determine which regex matched to extract the capture
             let matched_text = m.as_str();
             let pname = if let Some(caps) = sqlc_arg_re.captures(matched_text) {
                 caps[1].to_string()
@@ -511,7 +475,6 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
                 break;
             };
 
-            // Check if this param was already seen (reuse its number)
             let param_num = if let Some(pos) = param_names.iter().position(|n| n == &pname) {
                 max_positional + 1 + pos
             } else {
@@ -532,7 +495,6 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
             );
         }
 
-        // Build scythe annotations
         output.push_str(&format!("-- @name {name}\n"));
         output.push_str(&format!("-- @returns :{return_type}\n"));
 
@@ -545,10 +507,6 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
 
     Ok((output, query_count, param_rename_count))
 }
-
-// ---------------------------------------------------------------------------
-// public entry point
-// ---------------------------------------------------------------------------
 
 pub fn run_migrate(sqlc_config_path: &Path) -> Result<(), ScytheError> {
     if !sqlc_config_path.exists() {
@@ -569,11 +527,9 @@ pub fn run_migrate(sqlc_config_path: &Path) -> Result<(), ScytheError> {
 
     let base_dir = sqlc_config_path.parent().unwrap_or_else(|| Path::new("."));
 
-    // 1. Convert config file
     let config_dest = convert_config(&sqlc, base_dir)?;
     println!("Generated config: {config_dest}");
 
-    // 2. Collect all query paths from sql entries
     let mut all_query_paths: Vec<String> = Vec::new();
 
     let version = sqlc.version.as_deref().unwrap_or("2");
@@ -593,7 +549,6 @@ pub fn run_migrate(sqlc_config_path: &Path) -> Result<(), ScytheError> {
         }
     }
 
-    // 3. Convert query files
     let stats = convert_query_files(&all_query_paths, base_dir)?;
 
     println!(
@@ -603,10 +558,6 @@ pub fn run_migrate(sqlc_config_path: &Path) -> Result<(), ScytheError> {
 
     Ok(())
 }
-
-// ---------------------------------------------------------------------------
-// tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -696,7 +647,6 @@ SELECT * FROM t WHERE a = sqlc.arg(x) AND b = sqlc.arg(x);
 ";
         let (out, _qc, pc) = convert_query_content(input).unwrap();
         assert_eq!(pc, 2);
-        // Both should map to $1
         assert!(out.contains("a = $1 AND b = $1"), "got: {out}");
         // Only one @param line
         let param_count = out.matches("-- @param x").count();
@@ -720,7 +670,6 @@ WHERE a = sqlc.arg(foo) AND b = sqlc.narg(bar) AND c = $1;
 ";
         let (out, _, pc) = convert_query_content(input).unwrap();
         assert_eq!(pc, 2);
-        // $1 is existing, sqlc.arg(foo) -> $2, sqlc.narg(bar) -> $3
         assert!(out.contains("a = $2"), "got: {out}");
         assert!(out.contains("b = $3"), "got: {out}");
         assert!(out.contains("c = $1"), "got: {out}");

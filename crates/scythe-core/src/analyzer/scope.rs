@@ -61,7 +61,6 @@ impl<'a> Analyzer<'a> {
                         .unwrap_or_else(|| table_name.clone())
                 });
 
-                // Look up in CTEs first
                 let scope_cols = if let Some(cte_cols) = self.ctes.get(&table_name) {
                     cte_cols.clone()
                 } else if let Some(table) = self.catalog.get_table(&table_name) {
@@ -75,7 +74,6 @@ impl<'a> Analyzer<'a> {
                         })
                         .collect()
                 } else {
-                    // Check if this is a known set-returning function (table functions)
                     let known_functions = [
                         "generate_series",
                         "unnest",
@@ -95,7 +93,6 @@ impl<'a> Analyzer<'a> {
                         "string_to_table",
                     ];
                     if known_functions.contains(&table_name.as_str()) {
-                        // Return function-specific columns
                         match table_name.as_str() {
                             "jsonb_array_elements" | "json_array_elements" => vec![ScopeColumn {
                                 name: "value".to_string(),
@@ -149,11 +146,6 @@ impl<'a> Analyzer<'a> {
                 });
             }
             TableFactor::Derived { subquery, alias, .. } => {
-                // Analyze subquery to get columns. A separate sub_analyzer is used
-                // to keep CTE scoping isolated (inner CTEs must not leak to outer scope),
-                // but params and the positional counter MUST be merged back so that any
-                // $N / ? placeholder inside the derived table is registered on the outer
-                // analyzer — fixing the silent-drop bug (#52 Case C).
                 let mut sub_analyzer = Analyzer {
                     catalog: self.catalog,
                     params: Vec::new(),
@@ -163,7 +155,6 @@ impl<'a> Analyzer<'a> {
                 };
                 let sub_cols = sub_analyzer.analyze_query(subquery)?;
 
-                // Merge params, counter, and any type errors back into the outer analyzer.
                 self.params.extend(sub_analyzer.params);
                 self.positional_param_counter = sub_analyzer.positional_param_counter;
                 self.type_errors.extend(sub_analyzer.type_errors);
@@ -281,7 +272,6 @@ impl<'a> Analyzer<'a> {
                     _ => Vec::new(),
                 };
 
-                // If alias has column definitions, use those
                 let cols = if let Some(a) = alias {
                     if !a.columns.is_empty() {
                         a.columns
@@ -315,7 +305,6 @@ impl<'a> Analyzer<'a> {
     pub(super) fn build_scope_for_table(&self, table_name: &str) -> Result<Scope, ScytheError> {
         let mut scope = Scope { sources: Vec::new() };
 
-        // Check CTEs first
         if let Some(cte_cols) = self.ctes.get(table_name) {
             scope.sources.push(ScopeSource {
                 alias: table_name.to_string(),
@@ -405,9 +394,6 @@ mod tests {
         sel.from.clone()
     }
 
-    // -----------------------------------------------------------------------
-    // 1. build_scope_for_table
-    // -----------------------------------------------------------------------
     #[test]
     fn test_build_scope_for_table_columns_and_types() {
         let catalog = make_catalog(&["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);"]);
@@ -420,14 +406,13 @@ mod tests {
         assert_eq!(src.table_name, "users");
         assert!(!src.nullable_from_join);
 
-        // Check columns
         assert_eq!(src.columns.len(), 3);
         assert_eq!(src.columns[0].name, "id");
-        assert!(!src.columns[0].base_nullable); // serial PK
+        assert!(!src.columns[0].base_nullable);
         assert_eq!(src.columns[1].name, "name");
-        assert!(!src.columns[1].base_nullable); // NOT NULL
+        assert!(!src.columns[1].base_nullable);
         assert_eq!(src.columns[2].name, "email");
-        assert!(src.columns[2].base_nullable); // nullable
+        assert!(src.columns[2].base_nullable);
     }
 
     #[test]
@@ -438,9 +423,6 @@ mod tests {
         assert_eq!(scope.sources.len(), 0);
     }
 
-    // -----------------------------------------------------------------------
-    // 2. build_scope_from_from — single table
-    // -----------------------------------------------------------------------
     #[test]
     fn test_build_scope_from_from_single_table() {
         let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT NOT NULL);"]);
@@ -457,9 +439,6 @@ mod tests {
         assert!(!src.nullable_from_join);
     }
 
-    // -----------------------------------------------------------------------
-    // 3. build_scope_from_from with alias
-    // -----------------------------------------------------------------------
     #[test]
     fn test_build_scope_from_from_with_alias() {
         let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT NOT NULL);"]);
@@ -472,9 +451,6 @@ mod tests {
         assert_eq!(scope.sources[0].table_name, "users");
     }
 
-    // -----------------------------------------------------------------------
-    // 4. INNER JOIN — both sides non-nullable
-    // -----------------------------------------------------------------------
     #[test]
     fn test_build_scope_from_from_inner_join() {
         let catalog = make_catalog(&[
@@ -486,13 +462,10 @@ mod tests {
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
         assert_eq!(scope.sources.len(), 2);
-        assert!(!scope.sources[0].nullable_from_join); // users
-        assert!(!scope.sources[1].nullable_from_join); // orders
+        assert!(!scope.sources[0].nullable_from_join);
+        assert!(!scope.sources[1].nullable_from_join);
     }
 
-    // -----------------------------------------------------------------------
-    // 5. LEFT JOIN — right side marked nullable
-    // -----------------------------------------------------------------------
     #[test]
     fn test_build_scope_from_from_left_join() {
         let catalog = make_catalog(&[
@@ -504,13 +477,10 @@ mod tests {
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
         assert_eq!(scope.sources.len(), 2);
-        assert!(!scope.sources[0].nullable_from_join); // users — left side stays non-nullable
-        assert!(scope.sources[1].nullable_from_join); // orders — right side becomes nullable
+        assert!(!scope.sources[0].nullable_from_join);
+        assert!(scope.sources[1].nullable_from_join);
     }
 
-    // -----------------------------------------------------------------------
-    // 6. RIGHT JOIN — left side marked nullable
-    // -----------------------------------------------------------------------
     #[test]
     fn test_build_scope_from_from_right_join() {
         let catalog = make_catalog(&[
@@ -522,13 +492,10 @@ mod tests {
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
         assert_eq!(scope.sources.len(), 2);
-        assert!(scope.sources[0].nullable_from_join); // users — left side becomes nullable
-        assert!(!scope.sources[1].nullable_from_join); // orders — right side stays non-nullable
+        assert!(scope.sources[0].nullable_from_join);
+        assert!(!scope.sources[1].nullable_from_join);
     }
 
-    // -----------------------------------------------------------------------
-    // FULL OUTER JOIN — both sides nullable
-    // -----------------------------------------------------------------------
     #[test]
     fn test_build_scope_from_from_full_outer_join() {
         let catalog = make_catalog(&[
@@ -540,13 +507,10 @@ mod tests {
         let scope = analyzer.build_scope_from_from(&from).unwrap();
 
         assert_eq!(scope.sources.len(), 2);
-        assert!(scope.sources[0].nullable_from_join); // both sides nullable
+        assert!(scope.sources[0].nullable_from_join);
         assert!(scope.sources[1].nullable_from_join);
     }
 
-    // -----------------------------------------------------------------------
-    // 7. Subquery in FROM
-    // -----------------------------------------------------------------------
     #[test]
     fn test_add_table_factor_subquery() {
         let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT NOT NULL);"]);
@@ -561,13 +525,8 @@ mod tests {
         assert_eq!(scope.sources[0].columns[1].name, "name");
     }
 
-    // -----------------------------------------------------------------------
-    // Derived table param propagation — regression for #52 Case C
-    // -----------------------------------------------------------------------
     #[test]
     fn test_derived_table_params_propagate_to_outer_analyzer() {
-        // $1 is inside a CROSS JOIN derived table; it must end up in the outer
-        // analyzer's params list after build_scope_from_from returns.
         let catalog = make_catalog(&["CREATE TABLE posts (id INT NOT NULL, user_id INT NOT NULL);"]);
         let mut analyzer = make_analyzer(&catalog);
         let from = parse_from("SELECT * FROM posts p CROSS JOIN (SELECT $1::text AS bucket) b");
@@ -582,15 +541,11 @@ mod tests {
         );
     }
 
-    // -----------------------------------------------------------------------
-    // 8. CTE reference in scope
-    // -----------------------------------------------------------------------
     #[test]
     fn test_cte_reference_in_build_scope_for_table() {
         let catalog = make_catalog(&[]);
         let mut analyzer = make_analyzer(&catalog);
 
-        // Simulate a CTE being registered
         analyzer.ctes.insert(
             "my_cte".to_string(),
             vec![
@@ -636,9 +591,6 @@ mod tests {
         assert_eq!(scope.sources[0].columns[0].name, "val");
     }
 
-    // -----------------------------------------------------------------------
-    // 9. get_column_type
-    // -----------------------------------------------------------------------
     #[test]
     fn test_get_column_type_found() {
         let catalog = make_catalog(&["CREATE TABLE users (id INT NOT NULL, name TEXT);"]);
@@ -662,9 +614,6 @@ mod tests {
         assert!(analyzer.get_column_type("nonexistent", "id").is_none());
     }
 
-    // -----------------------------------------------------------------------
-    // Unknown table in FROM should error
-    // -----------------------------------------------------------------------
     #[test]
     fn test_unknown_table_errors() {
         let catalog = make_catalog(&[]);
@@ -674,9 +623,6 @@ mod tests {
         assert!(result.is_err());
     }
 
-    // -----------------------------------------------------------------------
-    // Known set-returning functions
-    // -----------------------------------------------------------------------
     #[test]
     fn test_known_function_jsonb_array_elements() {
         let catalog = make_catalog(&[]);
@@ -684,7 +630,6 @@ mod tests {
         let from = parse_from("SELECT * FROM jsonb_array_elements('[1,2]')");
         let scope = analyzer.build_scope_from_from(&from).unwrap();
         assert_eq!(scope.sources.len(), 1);
-        // The function should produce a "value" column
         assert!(scope.sources[0].columns.iter().any(|c| c.name == "value"));
     }
 }

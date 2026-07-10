@@ -7,7 +7,6 @@ use super::DomainDef;
 /// Returns (type_string, is_serial).
 pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, DomainDef>) -> (String, bool) {
     match dt {
-        // Custom types (includes serial, timestamptz, and user-defined types)
         DataType::Custom(name, tokens) => {
             let raw = object_name_to_key(name);
             match raw.as_str() {
@@ -16,28 +15,21 @@ pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, Doma
                 "smallserial" | "serial2" => return ("smallint".to_string(), true),
                 "timestamptz" => return ("timestamptz".to_string(), false),
                 "timetz" => return ("timetz".to_string(), false),
-                // Oracle NUMBER(p,s) with a scale component maps to numeric (decimal).
-                // Oracle NUMBER(p) without scale stays as "number" (resolves to int64).
-                // Oracle NUMBER without any qualifier also stays as "number".
                 "number" if tokens.len() >= 2 => return ("numeric".to_string(), false),
                 _ => {}
             }
-            // Check if it's a domain
             if let Some(domain) = domains.get(&raw) {
                 return (domain.base_type.clone(), domain.not_null);
             }
             (raw, false)
         }
 
-        // Integer family
         DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) => ("integer".to_string(), false),
         DataType::SmallInt(_) | DataType::Int2(_) => ("smallint".to_string(), false),
         DataType::BigInt(_) | DataType::Int8(_) => ("bigint".to_string(), false),
 
-        // Boolean
         DataType::Bool | DataType::Boolean => ("boolean".to_string(), false),
 
-        // Float family
         DataType::Real | DataType::Float4 => ("real".to_string(), false),
         DataType::DoublePrecision | DataType::Float8 => ("double precision".to_string(), false),
         DataType::Float(info) => {
@@ -51,7 +43,6 @@ pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, Doma
             }
         }
 
-        // Character types
         DataType::Varchar(len) | DataType::CharVarying(len) | DataType::CharacterVarying(len) => match len {
             Some(sqlparser::ast::CharacterLength::IntegerLength { length, .. }) => {
                 (format!("varchar({})", length), false)
@@ -64,14 +55,12 @@ pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, Doma
         },
         DataType::Text => ("text".to_string(), false),
 
-        // MSSQL-specific character types (treated as text/varchar)
         DataType::Nvarchar(len) => match len {
             Some(sqlparser::ast::CharacterLength::IntegerLength { length, .. }) => {
                 (format!("varchar({})", length), false)
             }
             _ => ("text".to_string(), false),
         },
-        // Numeric
         DataType::Numeric(info) | DataType::Decimal(info) | DataType::Dec(info) => {
             use sqlparser::ast::ExactNumberInfo;
             match info {
@@ -81,7 +70,6 @@ pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, Doma
             }
         }
 
-        // Date/time
         DataType::Date => ("date".to_string(), false),
         DataType::Time(prec, tz) => {
             let base = match tz {
@@ -105,19 +93,13 @@ pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, Doma
         }
         DataType::Interval { .. } => ("interval".to_string(), false),
 
-        // MSSQL-specific datetime types
-
-        // JSON
         DataType::JSON => ("json".to_string(), false),
         DataType::JSONB => ("jsonb".to_string(), false),
 
-        // Binary
         DataType::Bytea => ("bytea".to_string(), false),
 
-        // UUID
         DataType::Uuid => ("uuid".to_string(), false),
 
-        // Array types
         DataType::Array(elem) => {
             let inner = match elem {
                 ArrayElemTypeDef::SquareBracket(inner_dt, _) => {
@@ -134,7 +116,6 @@ pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, Doma
                 }
                 ArrayElemTypeDef::None => "unknown".to_string(),
             };
-            // Use short forms for common array element types
             let short = match inner.as_str() {
                 "integer" => "int",
                 "character varying" => "text",
@@ -143,11 +124,9 @@ pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, Doma
             (format!("{}[]", short), false)
         }
 
-        // Bit types
         DataType::Bit(_) => ("bit".to_string(), false),
         DataType::BitVarying(_) | DataType::VarBit(_) => ("bit varying".to_string(), false),
 
-        // Fallback: use the Display impl and lowercase it
         other => (other.to_string().to_lowercase(), false),
     }
 }
@@ -164,7 +143,6 @@ pub(crate) fn object_name_to_key(name: &ObjectName) -> String {
 }
 
 pub(crate) fn ident_to_lower(ident: &sqlparser::ast::Ident) -> String {
-    // Preserve case for double-quoted identifiers
     if ident.quote_style.is_some() {
         ident.value.clone()
     } else {

@@ -12,10 +12,6 @@ use std::path::Path;
 use scythe_inspect::{CheckRegistry, parse_inspect_section};
 use scythe_lint::Severity;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /// Write `content` to a file named `scythe.toml` inside a freshly created
 /// `TempDir`.  Returns the guard (keep alive for the test) and the path to
 /// the config file.
@@ -26,10 +22,6 @@ fn write_scythe_toml(content: &str) -> (tempfile::TempDir, std::path::PathBuf) {
     f.write_all(content.as_bytes()).expect("write");
     (dir, config_path)
 }
-
-// ---------------------------------------------------------------------------
-// severity_override_off_silences_check
-// ---------------------------------------------------------------------------
 
 /// `[inspect.severity_overrides] "SC-INS04" = "off"` — the registry built
 /// from that config must NOT include SC-INS04.
@@ -45,31 +37,23 @@ fn severity_override_off_silences_check() {
         .expect("parse must succeed")
         .expect("must have [inspect] block");
 
-    // Build the registry with overrides applied.
     let mut registry = CheckRegistry::canonical();
     registry.apply_severity_overrides(&cfg.severity_overrides);
 
-    // SC-INS04 must be absent.
     assert!(
         registry.get("SC-INS04").is_none(),
         "SC-INS04 must be removed by severity override 'off'"
     );
-    // Other checks must still be present.
     assert!(
         registry.get("SC-INS01").is_some(),
         "SC-INS01 must still be in the registry"
     );
-    // Confirm the engine listing doesn't include it.
     let ids: Vec<_> = registry.for_engine("postgres").map(|s| s.id.as_str()).collect();
     assert!(
         !ids.contains(&"SC-INS04"),
         "SC-INS04 must not appear in for_engine('postgres'); ids: {ids:?}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// severity_override_warn_to_error_changes_severity
-// ---------------------------------------------------------------------------
 
 /// `[inspect.severity_overrides] "SC-INS01" = "error"` — after the override
 /// the SC-INS01 spec's severity must be `Error`.
@@ -99,10 +83,6 @@ fn severity_override_warn_to_error_changes_severity() {
         spec.severity
     );
 }
-
-// ---------------------------------------------------------------------------
-// user_check_appears_in_list
-// ---------------------------------------------------------------------------
 
 /// An inline `[[inspect.check]]` with a valid `USER-INS-` id must be loaded
 /// and appear in `registry.for_engine("postgres")`.
@@ -140,16 +120,11 @@ sql         = "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_
         ids.contains(&"USER-INS-001"),
         "USER-INS-001 must appear in for_engine('postgres'); ids: {ids:?}"
     );
-    // Canonical checks must also be there.
     assert!(
         ids.contains(&"SC-INS01"),
         "canonical SC-INS01 must still appear; ids: {ids:?}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// invalid_user_check_id_errors_clearly
-// ---------------------------------------------------------------------------
 
 /// An inline `[[inspect.check]]` whose id does NOT start with `USER-INS-` must
 /// cause `parse_inspect_section` to return a `ConfigError::InvalidCheck` that
@@ -178,10 +153,6 @@ sql         = "SELECT 1 AS x"
     );
 }
 
-// ---------------------------------------------------------------------------
-// extra_rules_file_loaded_relative_to_config_dir
-// ---------------------------------------------------------------------------
-
 /// `extra_rules = ["./extra.toml"]` — the path must be resolved relative to
 /// `scythe.toml`'s directory, NOT the current working directory.
 ///
@@ -197,7 +168,6 @@ fn extra_rules_file_loaded_relative_to_config_dir() {
     let cfg_dir = outer.path().join("cfg");
     std::fs::create_dir(&cfg_dir).expect("create cfg subdir");
 
-    // extra.toml — valid user check TOML
     let extra_toml = r#"schema_version = 1
 
 [[check]]
@@ -212,7 +182,6 @@ sql         = "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_
 "#;
     std::fs::write(cfg_dir.join("extra.toml"), extra_toml).expect("write extra.toml");
 
-    // scythe.toml references extra.toml relative to its own directory
     let scythe_toml = r#"
 [inspect]
 extra_rules = ["./extra.toml"]
@@ -220,13 +189,10 @@ extra_rules = ["./extra.toml"]
     let config_path = cfg_dir.join("scythe.toml");
     std::fs::write(&config_path, scythe_toml).expect("write scythe.toml");
 
-    // parse_inspect_section must succeed — it resolves ./extra.toml relative
-    // to cfg/, not relative to the caller's CWD.
     let cfg = parse_inspect_section(&config_path)
         .expect("parse must succeed")
         .expect("must have [inspect] block");
 
-    // The resolved path is absolute — just check it's non-empty.
     assert_eq!(cfg.extra_rules.len(), 1, "one extra_rules entry expected");
     assert!(
         cfg.extra_rules[0].contains("extra.toml"),
@@ -234,8 +200,6 @@ extra_rules = ["./extra.toml"]
         cfg.extra_rules[0]
     );
 
-    // Now build the full registry with the extra rules to confirm USER-INS-002
-    // ends up in it.
     let registry = CheckRegistry::canonical()
         .with_user_checks(Path::new(&cfg.extra_rules[0]))
         .expect("with_user_checks must succeed");
@@ -244,16 +208,11 @@ extra_rules = ["./extra.toml"]
         registry.get("USER-INS-002").is_some(),
         "USER-INS-002 from extra.toml must be in the registry"
     );
-    // Canonical checks must also be present.
     assert!(
         registry.get("SC-INS01").is_some(),
         "SC-INS01 must still be present alongside extra rules"
     );
 }
-
-// ---------------------------------------------------------------------------
-// multiple_overrides_applied_together
-// ---------------------------------------------------------------------------
 
 /// Verify that multiple overrides can be applied in a single pass: one check
 /// removed, one bumped to error.

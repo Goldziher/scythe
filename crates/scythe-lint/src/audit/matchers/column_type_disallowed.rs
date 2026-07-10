@@ -205,8 +205,6 @@ mod tests {
 
     #[test]
     fn no_false_positive_on_bigint() {
-        // `int` is disallowed but `bigint` must NOT fire — prefix-match `int`
-        // would falsely match `bigint` if we used substring checks.
         let sql = "CREATE TABLE t (id bigint)";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);

@@ -221,14 +221,12 @@ impl CodegenBackend for JavaR2dbcBackend {
 
         let mut out = String::new();
 
-        // Helper: write .bind() calls for R2DBC (0-based indexing)
         let write_binds = |out: &mut String, indent: &str| {
             for (i, param) in params.iter().enumerate() {
                 let _ = writeln!(out, "{}.bind({}, {});", indent, i, param.field_name);
             }
         };
 
-        // Helper: write row mapping expression
         let write_row_map = |out: &mut String, indent: &str| {
             let _ = writeln!(out, "{}new {}(", indent, struct_name);
             for (i, col) in columns.iter().enumerate() {
@@ -490,7 +488,6 @@ impl CodegenBackend for JavaR2dbcBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child record first.
         let _ = writeln!(out, "public record {}(", child_struct_name);
         for (i, c) in child_columns.iter().enumerate() {
             let field_type = java_field_type(c);
@@ -504,7 +501,6 @@ impl CodegenBackend for JavaR2dbcBackend {
         let _ = writeln!(out, ") {{}}");
         let _ = writeln!(out);
 
-        // Parent record — parent columns then the children collection.
         let _ = writeln!(out, "public record {}(", parent_struct_name);
         for c in parent_columns {
             let field_type = java_field_type(c);
@@ -557,7 +553,6 @@ impl CodegenBackend for JavaR2dbcBackend {
         for (i, param) in params.iter().enumerate() {
             let _ = writeln!(out, "            stmt.bind({i}, {});", param.field_name);
         }
-        // Decode each row into an Object[] to escape the Row validity window.
         let _ = writeln!(out, "            return Flux.from(stmt.execute())");
         let _ = writeln!(
             out,
@@ -581,12 +576,10 @@ impl CodegenBackend for JavaR2dbcBackend {
         );
         let _ = writeln!(out, "        for (var raw : rows) {{");
 
-        // Key extraction — use ordinal in all_columns
         let key_ordinal = all_columns.iter().position(|c| c.name == key_column).unwrap_or(0);
         let key_cast = box_primitive(&key_col.lang_type);
         let _ = writeln!(out, "            var key = ({key_cast}) raw[{key_ordinal}];");
 
-        // Build child
         let _ = writeln!(out, "            var child = new {child_struct_name}(");
         for (ci, col) in child_columns.iter().enumerate() {
             let ordinal = all_columns
@@ -599,7 +592,6 @@ impl CodegenBackend for JavaR2dbcBackend {
         }
         let _ = writeln!(out, "            );");
 
-        // Fold
         let _ = writeln!(out, "            if (lookup.containsKey(key)) {{");
         let _ = writeln!(out, "                lookup.get(key).children().add(child);");
         let _ = writeln!(out, "            }} else {{");

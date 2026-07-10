@@ -23,10 +23,6 @@ use scythe_lint::reporters::Finding;
 
 use crate::config::SuppressionRule;
 
-// ---------------------------------------------------------------------------
-// SuppressionEngine
-// ---------------------------------------------------------------------------
-
 /// Applies `[[inspect.suppression]]` rules to post-execution findings.
 pub struct SuppressionEngine {
     rules: Vec<SuppressionRule>,
@@ -50,9 +46,6 @@ impl SuppressionEngine {
                 continue;
             }
 
-            // Schema filter: look for a binding key that contains "schema"
-            // (e.g. `schema_name`). If the rule specifies a schema, that key's
-            // value must equal it; if no such key exists in bindings, skip.
             if let Some(expected_schema) = &rule.schema {
                 let schema_value = bindings
                     .iter()
@@ -64,9 +57,6 @@ impl SuppressionEngine {
                 }
             }
 
-            // Object filter: look for any binding key that contains "name"
-            // but NOT "schema" (to avoid re-matching schema_name).  Examples:
-            // table_name, extension_name, function_name, policy_name.
             if let Some(expected_object) = &rule.object {
                 let object_value = bindings
                     .iter()
@@ -78,7 +68,6 @@ impl SuppressionEngine {
                 }
             }
 
-            // All conditions matched — this finding is suppressed.
             return true;
         }
 
@@ -99,10 +88,6 @@ impl SuppressionEngine {
             .collect()
     }
 }
-
-// ---------------------------------------------------------------------------
-// Unit tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -129,10 +114,6 @@ mod tests {
         pairs.iter().map(|(k, v)| (k.to_string(), v.to_string())).collect()
     }
 
-    // -----------------------------------------------------------------------
-    // suppresses_matching_rule_only
-    // -----------------------------------------------------------------------
-
     #[test]
     fn suppresses_matching_rule_only() {
         let engine = SuppressionEngine::new(vec![SuppressionRule {
@@ -145,14 +126,9 @@ mod tests {
         let bindings = make_bindings(&[("extension_name", "pgtap"), ("schema_name", "public")]);
         assert!(engine.is_suppressed(&finding, &bindings));
 
-        // Different rule_id — must NOT be suppressed.
         let other = make_finding("SC-INS01", "fk without index");
         assert!(!engine.is_suppressed(&other, &bindings));
     }
-
-    // -----------------------------------------------------------------------
-    // suppresses_matching_rule_and_schema
-    // -----------------------------------------------------------------------
 
     #[test]
     fn suppresses_matching_rule_and_schema() {
@@ -162,20 +138,14 @@ mod tests {
             object: None,
         }]);
 
-        // Matching schema → suppressed.
         let f1 = make_finding("SC-INS09", "");
         let b1 = make_bindings(&[("schema_name", "public"), ("extension_name", "pgtap")]);
         assert!(engine.is_suppressed(&f1, &b1));
 
-        // Different schema → NOT suppressed.
         let f2 = make_finding("SC-INS09", "");
         let b2 = make_bindings(&[("schema_name", "other"), ("extension_name", "pgtap")]);
         assert!(!engine.is_suppressed(&f2, &b2));
     }
-
-    // -----------------------------------------------------------------------
-    // does_not_suppress_when_object_mismatches
-    // -----------------------------------------------------------------------
 
     #[test]
     fn does_not_suppress_when_object_mismatches() {
@@ -185,20 +155,14 @@ mod tests {
             object: Some("pgtap".to_string()),
         }]);
 
-        // Schema matches but object doesn't → NOT suppressed.
         let f = make_finding("SC-INS09", "");
         let b = make_bindings(&[("schema_name", "public"), ("extension_name", "uuid-ossp")]);
         assert!(!engine.is_suppressed(&f, &b));
 
-        // Both match → suppressed.
         let f2 = make_finding("SC-INS09", "");
         let b2 = make_bindings(&[("schema_name", "public"), ("extension_name", "pgtap")]);
         assert!(engine.is_suppressed(&f2, &b2));
     }
-
-    // -----------------------------------------------------------------------
-    // filter_returns_only_non_suppressed
-    // -----------------------------------------------------------------------
 
     #[test]
     fn filter_returns_only_non_suppressed() {

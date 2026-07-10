@@ -61,7 +61,6 @@ fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
             ord = ordinal
         )
     } else if col.neutral_type == "uuid" {
-        // MySqlConnector returns Guid for UUID columns; use GetValue().ToString() to get a string.
         format!("reader.GetValue({}).ToString()!", ordinal)
     } else {
         let method = reader_method(&col.neutral_type);
@@ -130,7 +129,6 @@ impl CodegenBackend for CsharpMysqlConnectorBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Handle :batch separately
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}Batch", func_name);
             if params.len() > 1 {

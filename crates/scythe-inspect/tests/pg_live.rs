@@ -261,10 +261,6 @@ async fn sc_ins03_silent_when_indexes_are_distinct() {
     client.batch_execute("DROP SCHEMA sc_ins03_neg CASCADE").await.ok();
 }
 
-// ---------------------------------------------------------------------------
-// SC-INS04 — Tables without a PRIMARY KEY
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn sc_ins04_fires_when_violation_present() {
     let client = raw_client().await;
@@ -313,10 +309,6 @@ async fn sc_ins04_skips_when_violation_absent() {
 
     client.batch_execute("DROP SCHEMA sc_ins04_negative CASCADE").await.ok();
 }
-
-// ---------------------------------------------------------------------------
-// SC-INS05 — RLS enabled but no policies defined
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn sc_ins05_fires_when_violation_present() {
@@ -369,10 +361,6 @@ async fn sc_ins05_skips_when_violation_absent() {
 
     client.batch_execute("DROP SCHEMA sc_ins05_negative CASCADE").await.ok();
 }
-
-// ---------------------------------------------------------------------------
-// SC-INS06 — Multiple PERMISSIVE policies for the same (table, role, command)
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn sc_ins06_fires_when_violation_present() {
@@ -433,10 +421,6 @@ async fn sc_ins06_skips_when_violation_absent() {
 
     client.batch_execute("DROP SCHEMA sc_ins06_negative CASCADE").await.ok();
 }
-
-// ---------------------------------------------------------------------------
-// SC-INS07 — Security-definer view (PG 15+ only)
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn sc_ins07_fires_when_violation_present() {
@@ -503,9 +487,7 @@ async fn sc_ins07_skips_when_violation_absent() {
     client.batch_execute("DROP SCHEMA sc_ins07_negative CASCADE").await.ok();
 }
 
-// ---------------------------------------------------------------------------
 // SC-INS08 — SECURITY DEFINER function without fixed search_path
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn sc_ins08_fires_when_violation_present() {
@@ -568,10 +550,6 @@ async fn sc_ins08_skips_when_violation_absent() {
     client.batch_execute("DROP SCHEMA sc_ins08_negative CASCADE").await.ok();
 }
 
-// ---------------------------------------------------------------------------
-// SC-INS09 — Extension installed in the public schema
-// ---------------------------------------------------------------------------
-
 /// Pick the first available test extension and install it in the requested
 /// schema. Returns the extension name on success, `None` if no benign
 /// extension is available (CI build without contrib modules).
@@ -589,9 +567,6 @@ async fn install_test_extension_in_schema(client: &tokio_postgres::Client, schem
 async fn sc_ins09_fires_when_violation_present() {
     let client = raw_client().await;
 
-    // Install a benign extension in public. Findings are filtered by extension
-    // name so any pre-existing public-schema extensions don't pollute the
-    // assertion.
     let Some(ext) = install_test_extension_in_schema(&client, "public").await else {
         println!(
             "skipping sc_ins09_fires_when_violation_present: \
@@ -622,16 +597,12 @@ async fn sc_ins09_fires_when_violation_present() {
 async fn sc_ins09_skips_when_violation_absent() {
     let client = raw_client().await;
 
-    // Install the extension in a non-public schema. Use a unique schema name
-    // so the test does not collide with the positive test running in parallel.
     let schema = "sc_ins09_neg_ext_schema";
     client
         .batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"))
         .await
         .expect("create non-public schema");
     let Some(ext) = install_test_extension_in_schema(&client, schema).await else {
-        // No benign extension available — negative assertion is still
-        // meaningful: confirm no SC-INS09 finding mentions our schema.
         let findings = run_all_findings().await;
         let leaked: Vec<_> = findings
             .iter()
@@ -649,9 +620,6 @@ async fn sc_ins09_skips_when_violation_absent() {
     };
 
     let findings = run_all_findings().await;
-    // Scope the assertion to the extension we installed — pre-existing
-    // public-schema extensions (e.g. pg_stat_statements on managed PG) must
-    // not cause a false negative.
     let leaked: Vec<_> = findings
         .iter()
         .filter(|f| f.rule_id == "SC-INS09" && f.message.contains(ext) && f.message.contains("public"))
@@ -670,14 +638,9 @@ async fn sc_ins09_skips_when_violation_absent() {
         .ok();
 }
 
-// ---------------------------------------------------------------------------
-// SC-INS10 — Tables in the public schema with RLS disabled
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn sc_ins10_fires_when_violation_present() {
     let client = raw_client().await;
-    // Create a uniquely named table in public with RLS off (the default).
     client
         .batch_execute(
             "
@@ -708,7 +671,6 @@ async fn sc_ins10_fires_when_violation_present() {
 #[tokio::test]
 async fn sc_ins10_skips_when_violation_absent() {
     let client = raw_client().await;
-    // Create a table in public WITH RLS enabled — should not fire.
     client
         .batch_execute(
             "
@@ -732,10 +694,6 @@ async fn sc_ins10_skips_when_violation_absent() {
         .await
         .ok();
 }
-
-// ---------------------------------------------------------------------------
-// SC-INS11 — UNLOGGED table in user schema
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn sc_ins11_fires_on_unlogged_table() {
@@ -791,10 +749,6 @@ async fn sc_ins11_silent_on_logged_table() {
 
     client.batch_execute("DROP SCHEMA sc_ins11_neg CASCADE").await.ok();
 }
-
-// ---------------------------------------------------------------------------
-// SC-INS12 — Partitioned table without a DEFAULT partition
-// ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn sc_ins12_fires_on_partition_without_default() {
@@ -857,10 +811,6 @@ async fn sc_ins12_silent_when_default_partition_exists() {
     client.batch_execute("DROP SCHEMA sc_ins12_neg CASCADE").await.ok();
 }
 
-// ---------------------------------------------------------------------------
-// SC-INS13 — Sequence overflow risk (>70 % consumed)
-// ---------------------------------------------------------------------------
-
 #[tokio::test]
 async fn sc_ins13_fires_on_sequence_over_70_percent() {
     let client = raw_client().await;
@@ -886,7 +836,6 @@ async fn sc_ins13_fires_on_sequence_over_70_percent() {
         findings.iter().filter(|f| f.rule_id == "SC-INS13").collect::<Vec<_>>()
     );
     assert_eq!(hit.unwrap().severity, Severity::Warn);
-    // The message must carry the percent_used value
     assert!(
         hit.unwrap().message.contains("80"),
         "expected percent_used=80 in message, got: {}",

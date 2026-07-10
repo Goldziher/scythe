@@ -22,7 +22,6 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
         "elixir-postgrex" | "elixir-ecto" => validate_elixir(code),
         "ruby-pg" | "ruby-mysql2" | "ruby-sqlite3" | "ruby-trilogy" => validate_ruby(code),
         "php-pdo" | "php-amphp" => validate_php(code),
-        // Rust backends are validated by syn, not here.
         "rust-sqlx" | "rust-tokio-postgres" => vec![],
         _ => vec![format!("unknown backend: {}", backend_name)],
     }
@@ -31,7 +30,6 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
 fn validate_python(code: &str) -> Vec<String> {
     let mut errors = Vec::new();
 
-    // Check for pre-3.10 typing imports (should NOT be used)
     if code.contains("from __future__ import annotations") {
         errors.push("unnecessary `from __future__ import annotations` — target is Python 3.10+".into());
     }
@@ -40,11 +38,8 @@ fn validate_python(code: &str) -> Vec<String> {
         || code.contains("(BaseModel)")
         || code.contains("(msgspec.Struct)")
         || code.contains("class ");
-    if !has_struct {
-        // No struct -- at least a function must be present.
-        if !code.contains("async def ") && !code.contains("def ") {
-            errors.push("missing `@dataclass`/`class` and `def ` -- no meaningful output".into());
-        }
+    if !has_struct && !code.contains("async def ") && !code.contains("def ") {
+        errors.push("missing `@dataclass`/`class` and `def ` -- no meaningful output".into());
     }
 
     if !code.contains("async def ") && !code.contains("def ") {
@@ -67,11 +62,10 @@ fn validate_python(code: &str) -> Vec<String> {
         errors.push("contains `Dict[` (use lowercase `dict[`)".into());
     }
 
-    // Check for proper indentation: 4 spaces, no tabs
     for (i, line) in code.lines().enumerate() {
         if line.starts_with('\t') {
             errors.push(format!("line {} uses tab indentation (should use 4 spaces)", i + 1));
-            break; // one error is enough
+            break;
         }
     }
 
@@ -83,8 +77,6 @@ fn validate_typescript(code: &str) -> Vec<String> {
 
     let has_function = code.contains("export async function") || code.contains("export function");
 
-    // Structs are only required when the code is NOT exec-only (i.e. when
-    // there is something beyond a bare function).
     let has_zod = code.contains("z.object(") || code.contains("z.infer<");
     if !code.contains("export interface") && !code.contains("export type") && !has_zod && !has_function {
         errors.push("missing `export interface` or `export type` (for DTOs)".into());
@@ -94,10 +86,8 @@ fn validate_typescript(code: &str) -> Vec<String> {
         errors.push("missing `export async function` or `export function`".into());
     }
 
-    // Check for `any` type usage -- but avoid false positives in words like "many"
     for line in code.lines() {
         let trimmed = line.trim();
-        // Look for `: any` or `<any>` or `any;` or `any,` patterns
         if trimmed.contains(": any")
             || trimmed.contains("<any>")
             || trimmed.contains("any;")
@@ -121,8 +111,6 @@ fn validate_go(code: &str) -> Vec<String> {
     let has_func = code.contains("func ");
     let has_struct = code.contains("type ") && code.contains("struct {");
 
-    // Structs are only required when the code has one; exec-only queries
-    // produce just a function.
     if !has_struct && !has_func {
         errors.push("missing `type ... struct {` (for structs)".into());
     }
@@ -135,7 +123,6 @@ fn validate_go(code: &str) -> Vec<String> {
         errors.push("missing `context.Context` as first param".into());
     }
 
-    // Go uses tabs for indentation
     let has_indented_lines = code.lines().any(|l| l.starts_with('\t') || l.starts_with("  "));
     if has_indented_lines {
         let uses_spaces = code.lines().any(|l| l.starts_with("    ") && !l.trim().is_empty());
@@ -144,7 +131,6 @@ fn validate_go(code: &str) -> Vec<String> {
         }
     }
 
-    // json tags only required when struct is present
     if has_struct && !code.contains("json:\"") {
         errors.push("missing `json:\"` tags on struct fields".into());
     }
@@ -157,8 +143,6 @@ fn validate_java(code: &str) -> Vec<String> {
 
     let has_static = code.contains("public static ");
 
-    // Records are only required when a struct was generated; exec-only
-    // queries produce just a method.
     if !code.contains("public record ") && !has_static {
         errors.push("missing `public record ` (for DTOs)".into());
     }
@@ -183,7 +167,6 @@ fn validate_kotlin(code: &str) -> Vec<String> {
 
     let has_fun = code.contains("fun ");
 
-    // data class only required when a struct was generated
     if !code.contains("data class ") && !has_fun {
         errors.push("missing `data class ` (for DTOs)".into());
     }
@@ -204,7 +187,6 @@ fn validate_kotlin_exposed(code: &str) -> Vec<String> {
 
     let has_fun = code.contains("fun ");
 
-    // data class or object Table only required when a struct was generated
     if !code.contains("data class ") && !code.contains("object ") && !has_fun {
         errors.push("missing `data class ` or `object ` (for DTOs/Tables)".into());
     }
@@ -261,7 +243,6 @@ fn validate_kotlin_r2dbc(code: &str) -> Vec<String> {
         errors.push("missing `ConnectionFactory` parameter".into());
     }
 
-    // Should use either suspend fun or Flow
     if !code.contains("suspend fun") && !code.contains("Flow<") {
         errors.push("missing `suspend fun` or `Flow<` (coroutine/reactive types)".into());
     }
@@ -274,7 +255,6 @@ fn validate_csharp(code: &str) -> Vec<String> {
 
     let has_async = code.contains("async Task<") || code.contains("async Task ");
 
-    // Records are only required when a struct was generated
     if !code.contains("public record ") && !has_async {
         errors.push("missing `public record ` (for DTOs)".into());
     }
@@ -295,13 +275,10 @@ fn validate_elixir(code: &str) -> Vec<String> {
 
     let has_def = code.contains("def ") || code.contains("defp ");
 
-    // defmodule is only required when a struct was generated; exec-only
-    // queries produce just a function.
     if !code.contains("defmodule ") && !has_def {
         errors.push("missing `defmodule ` (for modules)".into());
     }
 
-    // defstruct is only required when a struct was generated
     if !code.contains("defstruct") && !has_def {
         errors.push("missing `defstruct` (for structs)".into());
     }
@@ -322,7 +299,6 @@ fn validate_ruby(code: &str) -> Vec<String> {
 
     let has_method = code.contains("def self.");
 
-    // Data.define only required when a struct was generated
     if !code.contains("Data.define") && !has_method {
         errors.push("missing `Data.define` (for DTOs)".into());
     }
@@ -347,7 +323,6 @@ fn validate_php(code: &str) -> Vec<String> {
 
     let has_function = code.contains("function ");
 
-    // readonly class only required when a struct was generated
     if !code.contains("readonly class ") && !has_function {
         errors.push("missing `readonly class ` (for DTOs)".into());
     }
@@ -391,7 +366,6 @@ fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
         format!("scythe_validate_{n}")
     };
     let path = std::env::temp_dir().join(format!("{basename}{ext}"));
-    // Trim trailing whitespace/newlines to avoid tool complaints about blank lines at EOF
     let trimmed = format!("{}\n", code.trim_end());
     std::fs::write(&path, trimmed).ok()?;
     Some(path)
@@ -404,7 +378,6 @@ fn validate_python_tools(code: &str) -> Option<Vec<String>> {
     let path = write_temp(code, ".py")?;
     let mut errors = vec![];
 
-    // ast.parse — syntax check
     let out = Command::new("python3")
         .args(["-c", &format!("import ast; ast.parse(open({:?}).read())", path)])
         .output()
@@ -416,7 +389,6 @@ fn validate_python_tools(code: &str) -> Option<Vec<String>> {
         ));
     }
 
-    // ruff check
     if Command::new("ruff").arg("--version").output().is_ok() {
         let out = Command::new("ruff")
             .args([

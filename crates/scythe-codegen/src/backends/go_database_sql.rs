@@ -8,6 +8,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::GeneratedCode;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
 pub struct GoDatabaseSqlBackend {
@@ -55,17 +56,11 @@ impl CodegenBackend for GoDatabaseSqlBackend {
     }
 
     fn file_header(&self) -> String {
-        // TODO: determine uses_time from actual column types instead of engine
-        let uses_time = matches!(
-            self.engine.as_str(),
-            "mysql" | "mariadb" | "duckdb" | "mssql" | "snowflake"
-        );
-        let mut header = String::from("package queries\n\nimport (\n\t\"context\"\n\t\"database/sql\"");
-        if uses_time {
-            header.push_str("\n\t\"time\"");
-        }
-        header.push_str("\n)\n");
-        header
+        go_file_header(false)
+    }
+
+    fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
+        go_file_header(generated.iter().any(generated_code_uses_time))
     }
 
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
@@ -96,7 +91,6 @@ impl CodegenBackend for GoDatabaseSqlBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut sql =
             super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        // MSSQL requires @pN placeholders instead of ?
         if self.engine == "mssql" {
             sql = super::rewrite_pg_placeholders(&sql, |n| format!("@p{n}"));
         }
@@ -287,7 +281,6 @@ impl CodegenBackend for GoDatabaseSqlBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child struct defined first (no forward declarations in Go).
         let _ = writeln!(out, "type {} struct {{", child_struct_name);
         for col in child_columns {
             let field = to_pascal_case(&col.field_name);
@@ -296,7 +289,6 @@ impl CodegenBackend for GoDatabaseSqlBackend {
         let _ = writeln!(out, "}}");
         let _ = writeln!(out);
 
-        // Parent struct with Children slice.
         let _ = writeln!(out, "type {} struct {{", parent_struct_name);
         for col in parent_columns {
             let field = to_pascal_case(&col.field_name);
@@ -433,9 +425,26 @@ impl CodegenBackend for GoDatabaseSqlBackend {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
+fn go_file_header(uses_time: bool) -> String {
+    let mut header = String::from("package queries\n\nimport (\n\t\"context\"\n\t\"database/sql\"");
+    if uses_time {
+        header.push_str("\n\t\"time\"");
+    }
+    header.push_str("\n)\n");
+    header
+}
+
+fn generated_code_uses_time(code: &GeneratedCode) -> bool {
+    [
+        code.enum_def.as_deref(),
+        code.model_struct.as_deref(),
+        code.row_struct.as_deref(),
+        code.query_fn.as_deref(),
+    ]
+    .into_iter()
+    .flatten()
+    .any(|fragment| fragment.contains("time."))
+}
 
 #[cfg(test)]
 mod tests {
@@ -530,7 +539,6 @@ mod tests {
             row_struct.contains("Children []GetUsersWithOrdersChildRow"),
             "parent struct missing Children field; got:\n{row_struct}"
         );
-        // Child must appear before parent.
         let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
         let parent_pos = row_struct.find("type GetUsersWithOrdersRow struct").unwrap();
         assert!(

@@ -10,7 +10,6 @@ pub fn split_query_file(content: &str) -> Vec<String> {
         let is_annotation = trimmed.starts_with("-- name:") || trimmed.starts_with("-- @name");
 
         if is_annotation {
-            // Flush previous block
             if let Some(block) = current_block.take() {
                 blocks.push(block);
             }
@@ -19,10 +18,8 @@ pub fn split_query_file(content: &str) -> Vec<String> {
             block.push('\n');
             block.push_str(line);
         }
-        // Lines before the first annotation are silently dropped.
     }
 
-    // Flush the last block
     if let Some(block) = current_block {
         blocks.push(block);
     }

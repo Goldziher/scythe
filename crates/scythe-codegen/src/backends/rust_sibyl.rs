@@ -68,7 +68,6 @@ impl RustSibylBackend {
     /// Rewrite positional `:N` placeholders in SQL to named `:PARAM_NAME` form.
     fn sql_with_named_params(sql: &str, params: &[ResolvedParam]) -> String {
         let mut result = sql.to_string();
-        // Replace in reverse order so :10 is replaced before :1.
         for (i, p) in params.iter().enumerate().rev() {
             let positional = format!(":{}", i + 1);
             let named = format!(":{}", p.field_name.to_uppercase());
@@ -84,12 +83,9 @@ impl RustSibylBackend {
             .iter()
             .map(|c| format!(":OUT_{}", c.field_name.to_uppercase()))
             .collect();
-        // Remove any existing RETURNING clause — we'll rebuild it with the INTO.
-        // The base SQL may already contain "RETURNING col1, col2" without "INTO".
         let upper = base_sql.to_uppercase();
         if let Some(ret_pos) = upper.find("RETURNING") {
             let prefix = &base_sql[..ret_pos];
-            // Extract column list between RETURNING and end (or INTO)
             let rest = &base_sql[ret_pos + "RETURNING".len()..];
             let col_list = if let Some(into_pos) = rest.to_uppercase().find(" INTO ") {
                 rest[..into_pos].trim()
@@ -98,7 +94,6 @@ impl RustSibylBackend {
             };
             format!("{}RETURNING {} INTO {}", prefix, col_list, out_names.join(", "))
         } else {
-            // No RETURNING in SQL — shouldn't happen, but handle gracefully
             base_sql.to_string()
         }
     }
@@ -117,12 +112,9 @@ impl RustSibylBackend {
                 format!("    let mut out_{}: f64 = 0.0;", col.field_name)
             }
             "date" | "datetime" | "datetime_tz" => {
-                // Use sibyl Date to receive the value, then convert to chrono.
                 format!("    let mut out_{} = Date::new(session);", col.field_name)
             }
             _ => {
-                // Both nullable and non-nullable strings use `String` as bind buffer.
-                // Nullable case: checked via stmt.is_null() after execute.
                 format!("    let mut out_{} = String::new();", col.field_name)
             }
         }
@@ -144,7 +136,6 @@ impl RustSibylBackend {
                 format!("    let {} = out_{};", col.field_name, col.field_name)
             }
             "date" | "datetime" | "datetime_tz" => {
-                // Convert sibyl Date to chrono::NaiveDateTime via date_and_time().
                 format!(
                     "    let {name} = {{ let (y, mo, d, h, mi, s) = out_{name}.date_and_time(); chrono::NaiveDate::from_ymd_opt(y as i32, mo as u32, d as u32).and_then(|dt| dt.and_hms_opt(h as u32, mi as u32, s as u32)).expect(\"invalid date from Oracle\") }};",
                     name = col.field_name
@@ -152,7 +143,6 @@ impl RustSibylBackend {
             }
             _ => {
                 if col.nullable {
-                    // Nullable string: check is_null() on the named param to produce Option.
                     format!(
                         "    let {name} = if stmt.is_null(\"{placeholder}\")? {{ None }} else {{ Some(out_{name}) }};",
                         name = col.field_name,
@@ -173,8 +163,6 @@ impl RustSibylBackend {
     fn emit_row_get(col: &ResolvedColumn, index: usize, indent: &str) -> String {
         match col.neutral_type.as_str() {
             "date" | "datetime" | "datetime_tz" => {
-                // Oracle DATE → sibyl Date<'_>, then chrono.
-                // For nullable dates: get Option<Date<'_>> then convert the inner value.
                 if col.nullable {
                     format!(
                         "{indent}let {name}: {ty} = row.get::<Option<Date<'_>>, _>({i})?.map(|d| {{ let (y, mo, d2, h, mi, s) = d.date_and_time(); chrono::NaiveDate::from_ymd_opt(y as i32, mo as u32, d2 as u32).and_then(|dt| dt.and_hms_opt(h as u32, mi as u32, s as u32)).expect(\"invalid date from Oracle\") }});",
@@ -195,8 +183,6 @@ impl RustSibylBackend {
                 }
             }
             _ => {
-                // Integers, floats, strings — direct get with LHS type annotation.
-                // Use full_type (which includes Option<> wrapper for nullable columns).
                 format!(
                     "{indent}let {name}: {ty} = row.get({i})?;",
                     indent = indent,
@@ -255,7 +241,6 @@ impl CodegenBackend for RustSibylBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        // Rewrite $N placeholders to :N (Oracle positional), then rewrite to named :PARAM_NAME.
         let positional_sql = super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
@@ -269,7 +254,6 @@ impl CodegenBackend for RustSibylBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Check if this is a DML with RETURNING (INSERT/UPDATE/DELETE RETURNING)
         let has_returning = sql.to_uppercase().contains("RETURNING");
 
         let mut out = String::new();
@@ -283,15 +267,11 @@ impl CodegenBackend for RustSibylBackend {
                 );
 
                 if has_returning {
-                    // sibyl 0.7 RETURNING: SQL has RETURNING cols INTO :OUT_COL_NAME ...
-                    // execute() args tuple includes `(":OUT_COL_NAME", &mut out_col)`.
                     let full_sql = Self::sql_with_returning(&sql, columns);
                     let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", full_sql);
-                    // Declare out variables.
                     for col in columns {
                         let _ = writeln!(out, "{}", Self::emit_out_var_decl_typed(col));
                     }
-                    // Build execute args combining IN params and &mut OUT vars.
                     let in_pairs: Vec<String> = params
                         .iter()
                         .map(|p| format!("(\"{}\", {})", Self::named_placeholder(&p.field_name), p.field_name))
@@ -313,7 +293,6 @@ impl CodegenBackend for RustSibylBackend {
                         format!("({})", all_pairs.join(", "))
                     };
                     let _ = writeln!(out, "    stmt.execute({}).await?;", args_expr);
-                    // Convert out vars to target types.
                     for col in columns {
                         let _ = writeln!(out, "{}", Self::emit_out_var_conversion(col));
                     }
@@ -468,8 +447,6 @@ impl CodegenBackend for RustSibylBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child struct (defined first — no forward references).
-        // Sibyl row structs carry no from_row method; callers decode fields via row.get(index).
         let _ = writeln!(out, "#[derive(Debug, Clone)]");
         let _ = writeln!(out, "pub struct {} {{", child_struct_name);
         for col in child_columns {
@@ -479,7 +456,6 @@ impl CodegenBackend for RustSibylBackend {
 
         let _ = writeln!(out);
 
-        // Parent struct — no from_row because the children field is not a DB column.
         let _ = writeln!(out, "#[derive(Debug, Clone)]");
         let _ = writeln!(out, "pub struct {} {{", parent_struct_name);
         for col in parent_columns {
@@ -507,7 +483,6 @@ impl CodegenBackend for RustSibylBackend {
         let key_field = to_snake_case(key_column);
         let mut out = String::new();
 
-        // Rewrite positional $N → :N, then :N → :PARAM_NAME for Oracle named params.
         let positional_sql = super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
@@ -523,7 +498,6 @@ impl CodegenBackend for RustSibylBackend {
 
         let args_expr = Self::build_in_args(params);
 
-        // Function signature — returns Vec<ParentStruct> using sibyl lifetimes.
         let _ = writeln!(
             out,
             "pub async fn {}<'a>(session: &'a Session<'a>{}{}) -> sibyl::Result<Vec<{}>> {{",
@@ -535,28 +509,23 @@ impl CodegenBackend for RustSibylBackend {
         let _ = writeln!(out, "    let mut result: Vec<{}> = Vec::new();", parent_struct_name);
         let _ = writeln!(out, "    while let Some(row) = rows.next().await? {{");
 
-        // Decode parent columns (indices 0..parent_columns.len()-1 in the flat SELECT).
         for (i, col) in parent_columns.iter().enumerate() {
             let _ = writeln!(out, "{}", Self::emit_row_get(col, i, "        "));
         }
 
-        // Clone the key before any moves.
         let _ = writeln!(out, "        let key = {key_field}.clone();");
 
-        // Decode child columns (indices parent_columns.len()..all_columns.len()-1).
         let parent_len = parent_columns.len();
         for (j, col) in child_columns.iter().enumerate() {
             let _ = writeln!(out, "{}", Self::emit_row_get(col, parent_len + j, "        "));
         }
 
-        // Construct the child struct from the decoded child variables.
         let _ = writeln!(out, "        let child = {} {{", child_struct_name);
         for col in child_columns {
             let _ = writeln!(out, "            {},", col.field_name);
         }
         let _ = writeln!(out, "        }};");
 
-        // Fold: search from the end for an existing parent with this key.
         let _ = writeln!(
             out,
             "        if let Some(parent) = result.iter_mut().rev().find(|p| p.{key_field} == key) {{"
@@ -594,10 +563,6 @@ impl CodegenBackend for RustSibylBackend {
         Ok(out)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {
@@ -700,7 +665,6 @@ mod tests {
             row_struct.contains("pub children: Vec<GetUsersWithOrdersChildRow>"),
             "parent struct missing children field; got:\n{row_struct}"
         );
-        // Child struct must appear BEFORE parent struct (no forward references).
         let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
         let parent_pos = row_struct.find("pub struct GetUsersWithOrdersRow").unwrap();
         assert!(child_pos < parent_pos, "child struct must appear before parent struct");

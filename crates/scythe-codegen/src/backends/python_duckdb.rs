@@ -105,7 +105,6 @@ impl PythonDuckdbBackend {
         let pad = " ".repeat(indent);
         let first_line = sql.lines().next().unwrap_or("");
         let sql_is_single = !sql.contains('\n');
-        // indent + `"""` + sql + `""",`  = indent + 3 + len + 3 + 1
         let inline_fits = sql_is_single && (indent + 3 + first_line.len() + 3 + 1) <= 88;
 
         if inline_fits {
@@ -418,8 +417,6 @@ impl CodegenBackend for PythonDuckdbBackend {
             Some(format!("[{}]", args.join(", ")))
         };
 
-        // Grouped fn: duckdb uses a synchronous API.
-        // Signature is always multi-line because `duckdb.DuckDBPyConnection` is long.
         let _ = writeln!(out, "def {func_name}(");
         let _ = writeln!(out, "    conn: duckdb.DuckDBPyConnection,");
         if !params.is_empty() {
@@ -431,8 +428,6 @@ impl CodegenBackend for PythonDuckdbBackend {
         let _ = writeln!(out, ") -> list[{parent_struct_name}]:");
         let _ = writeln!(out, "    \"\"\"Execute {} grouped query.\"\"\"", analyzed.name);
 
-        // Use the newline-first SQL format so that SQL lines appear at column 0,
-        // keeping all source lines ≤ 88 characters regardless of SQL length.
         let _ = writeln!(out, "    rows = conn.execute(");
         let _ = writeln!(out, "        \"\"\"");
         for line in sql.lines() {
@@ -588,7 +583,6 @@ mod tests {
             row_struct.contains("children: list[GetUsersWithOrdersChildRow]"),
             "parent class missing children field; got:\n{row_struct}"
         );
-        // Child must appear before parent
         let child_pos = row_struct.find("GetUsersWithOrdersChildRow").unwrap();
         let parent_pos = row_struct.find("class GetUsersWithOrdersRow").unwrap();
         assert!(

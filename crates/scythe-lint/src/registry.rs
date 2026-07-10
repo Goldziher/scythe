@@ -6,7 +6,6 @@ use super::rules;
 use super::types::{LintConfig, RuleCategory, Severity};
 
 // ---------------------------------------------------------------------------
-// RuleRegistry
 // ---------------------------------------------------------------------------
 
 pub struct RuleRegistry {
@@ -47,11 +46,9 @@ impl RuleRegistry {
 
     /// Return the effective severity for a given rule.
     pub fn effective_severity(&self, rule: &dyn LintRule) -> Severity {
-        // Per-rule override takes priority
         if let Some(&sev) = self.severity_overrides.get(rule.id()) {
             return sev;
         }
-        // Category override
         if let Some(&sev) = self.category_overrides.get(&rule.category()) {
             return sev;
         }
@@ -74,14 +71,9 @@ impl RuleRegistry {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Default registry with all 22 built-in rules
-// ---------------------------------------------------------------------------
-
 pub fn default_registry() -> RuleRegistry {
     let mut reg = RuleRegistry::new();
 
-    // Safety rules
     reg.register(Box::new(rules::safety::UpdateWithoutWhere));
     reg.register(Box::new(rules::safety::DeleteWithoutWhere));
     reg.register(Box::new(rules::safety::NoSelectStar));
@@ -90,33 +82,27 @@ pub fn default_registry() -> RuleRegistry {
     reg.register(Box::new(rules::safety::AmbiguousColumnInJoin));
     reg.register(Box::new(rules::safety::UnboundSqlParam));
 
-    // Codegen rules
     reg.register(Box::new(rules::codegen::MissingReturnsAnnotation));
     reg.register(Box::new(rules::codegen::ExecWithReturning));
     reg.register(Box::new(rules::codegen::DuplicateQueryNames));
 
-    // Naming rules
     reg.register(Box::new(rules::naming::PreferSnakeCaseColumns));
     reg.register(Box::new(rules::naming::PreferSnakeCaseTables));
     reg.register(Box::new(rules::naming::QueryNameConvention));
     reg.register(Box::new(rules::naming::ConsistentAliasCasing));
 
-    // Antipattern rules
     reg.register(Box::new(rules::antipattern::NotEqualNull));
     reg.register(Box::new(rules::antipattern::ImplicitTypeCoercion));
     reg.register(Box::new(rules::antipattern::OrInJoinCondition));
 
-    // Performance rules
     reg.register(Box::new(rules::performance::OrderWithoutLimit));
     reg.register(Box::new(rules::performance::LikeStartsWithWildcard));
     reg.register(Box::new(rules::performance::NotInSubquery));
 
-    // Style rules
     reg.register(Box::new(rules::style::PreferExplicitJoin));
     reg.register(Box::new(rules::style::PreferCoalesceOverCase));
     reg.register(Box::new(rules::style::PreferCountStar));
 
-    // Security rules — loaded from embedded TOML via the matcher registry.
     let matcher_reg = audit::MatcherRegistry::canonical();
     for spec in audit::canonical_specs() {
         let matcher_fn = matcher_reg
@@ -226,7 +212,6 @@ mod tests {
         config.rules.insert("TR-01".to_string(), Severity::Error);
         reg.apply_config(&config);
 
-        // Rule-level override wins over category override
         assert_eq!(reg.effective_severity(&rule), Severity::Error);
     }
 

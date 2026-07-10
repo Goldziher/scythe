@@ -1,10 +1,7 @@
 schema_version = 1
 
 # ---------------------------------------------------------------------------
-# SC-INS01 — Foreign-key columns without a covering index
 # ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0001
-# (unindexed_foreign_keys). See ATTRIBUTIONS.md.
 [[check]]
 id = "SC-INS01"
 name = "missing-fk-index"
@@ -39,11 +36,6 @@ GROUP BY n.nspname, cl.relname, c.conname
 ORDER BY n.nspname, cl.relname, c.conname
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS02 — Tables with CREATE POLICY but RLS disabled
-# ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0007
-# (policy_exists_rls_disabled). See ATTRIBUTIONS.md.
 [[check]]
 id = "SC-INS02"
 name = "policy-exists-rls-disabled"
@@ -68,11 +60,6 @@ GROUP BY n.nspname, c.relname
 ORDER BY n.nspname, c.relname
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS03 — Indexes with identical definitions modulo name
-# ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0009
-# (duplicate_index). See ATTRIBUTIONS.md.
 [[check]]
 id = "SC-INS03"
 name = "duplicate-index"
@@ -96,11 +83,6 @@ HAVING count(*) > 1
 ORDER BY schemaname, tablename
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS04 — Tables without a PRIMARY KEY
-# ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0004
-# (no_primary_key). See ATTRIBUTIONS.md.
 [[check]]
 id = "SC-INS04"
 name = "no-primary-key"
@@ -133,11 +115,6 @@ WHERE  c.relkind = 'r'
 ORDER BY n.nspname, c.relname
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS05 — RLS enabled but no policies defined
-# ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0008
-# (rls_enabled_no_policy). See ATTRIBUTIONS.md.
 [[check]]
 id = "SC-INS05"
 name = "rls-enabled-no-policy"
@@ -165,11 +142,6 @@ WHERE  c.relkind         = 'r'
 ORDER BY n.nspname, c.relname
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS06 — Multiple PERMISSIVE policies for the same (table, role, command)
-# ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0006
-# (multiple_permissive_policies). See ATTRIBUTIONS.md.
 [[check]]
 id = "SC-INS06"
 name = "multiple-permissive-policies"
@@ -212,12 +184,6 @@ HAVING count(*) > 1
 ORDER BY n.nspname, c.relname, r.rolname, p.polcmd
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS07 — Views without security_invoker=true (security-definer semantics)
-# ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0010
-# (security_definer_view). See ATTRIBUTIONS.md.
-# Requires PG 15+ for reloptions security_invoker check.
 [[check]]
 id = "SC-INS07"
 name = "security-definer-view"
@@ -245,12 +211,7 @@ WHERE  v.schemaname NOT IN ('pg_catalog', 'information_schema')
 ORDER BY v.schemaname, v.viewname
 """
 
-# ---------------------------------------------------------------------------
 # SC-INS08 — SECURITY DEFINER functions without a fixed search_path
-# ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0011
-# (function_search_path_mutable). Live counterpart of static SC-SEC12.
-# See ATTRIBUTIONS.md.
 [[check]]
 id = "SC-INS08"
 name = "function-search-path-mutable-live"
@@ -281,11 +242,6 @@ WHERE  p.prosecdef = true
 ORDER BY n.nspname, p.proname
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS09 — Extensions installed in the public schema
-# ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0014
-# (extension_in_public). See ATTRIBUTIONS.md.
 [[check]]
 id = "SC-INS09"
 name = "extension-in-public"
@@ -306,11 +262,6 @@ WHERE  n.nspname = 'public'
 ORDER BY e.extname
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS10 — Tables in the public schema with RLS disabled
-# ---------------------------------------------------------------------------
-# Detection pattern inspired by supabase/splinter lint 0013
-# (rls_disabled_in_public). See ATTRIBUTIONS.md.
 [[check]]
 id = "SC-INS10"
 name = "rls-disabled-in-public"
@@ -340,10 +291,6 @@ WHERE  c.relkind        = 'r'
 ORDER BY n.nspname, c.relname
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS11 — UNLOGGED tables in user schemas
-# ---------------------------------------------------------------------------
-# Scythe-original check — no prior art. Derived from pg_class.relpersistence.
 [[check]]
 id = "SC-INS11"
 name = "unlogged-table-in-prod"
@@ -368,10 +315,6 @@ WHERE c.relpersistence = 'u'
 ORDER BY n.nspname, c.relname
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS12 — Partitioned tables with no DEFAULT partition
-# ---------------------------------------------------------------------------
-# Scythe-original check — no prior art. Derived from pg_inherits + pg_get_expr.
 [[check]]
 id = "SC-INS12"
 name = "partition-without-default"
@@ -400,11 +343,6 @@ WHERE parent.relkind = 'p'
 ORDER BY n.nspname, parent.relname
 """
 
-# ---------------------------------------------------------------------------
-# SC-INS13 — Sequences approaching overflow (>70 % consumed)
-# ---------------------------------------------------------------------------
-# Scythe-original check — no prior art. Derived from pg_sequences catalog view
-# (available since PG 10).
 [[check]]
 id = "SC-INS13"
 name = "sequence-overflow-risk"

@@ -147,7 +147,6 @@ impl CodegenBackend for PythonAiomysqlBackend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         let cleaned = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        // Rewrite $N (PG-style) placeholders to %s, then also rewrite ? (MySQL-style) to %s
         let sql = super::rewrite_pg_placeholders(&cleaned, |_| "%s".to_string()).replace('?', "%s");
 
         let args_tuple = if params.is_empty() {
@@ -394,7 +393,6 @@ impl CodegenBackend for PythonAiomysqlBackend {
             }
         };
 
-        // Signature: wrap to multi-line if it would exceed 88 chars.
         let sig = format!(
             "async def {func_name}(conn: aiomysql.Connection{kw_sep}{param_list}) -> list[{parent_struct_name}]:"
         );

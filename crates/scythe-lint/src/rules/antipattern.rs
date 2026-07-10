@@ -6,7 +6,6 @@ use crate::rule::LintRule;
 use crate::types::*;
 
 // ---------------------------------------------------------------------------
-// SC-A01: NotEqualNull
 // ---------------------------------------------------------------------------
 
 pub struct NotEqualNull;
@@ -54,10 +53,6 @@ impl LintRule for NotEqualNull {
     }
 }
 
-// ---------------------------------------------------------------------------
-// SC-A02: ImplicitTypeCoercion
-// ---------------------------------------------------------------------------
-
 /// Complementary to the analyzer's type checking. Currently a no-op placeholder
 /// since the analyzer already flags type mismatches.
 pub struct ImplicitTypeCoercion;
@@ -79,10 +74,6 @@ impl LintRule for ImplicitTypeCoercion {
         "Implicit type coercion may cause unexpected behavior"
     }
 }
-
-// ---------------------------------------------------------------------------
-// SC-A03: OrInJoinCondition
-// ---------------------------------------------------------------------------
 
 pub struct OrInJoinCondition;
 
@@ -117,10 +108,6 @@ impl LintRule for OrInJoinCondition {
         violations
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 fn is_null_literal(expr: &Expr) -> bool {
     matches!(expr, Expr::Value(v) if v.value == Value::Null)
@@ -166,7 +153,6 @@ fn walk_set_expr_exprs(set_expr: &SetExpr, visitor: &mut dyn FnMut(&Expr)) {
             if let Some(ref having) = select.having {
                 walk_expr(having, visitor);
             }
-            // Walk join conditions
             for twj in &select.from {
                 for join in &twj.joins {
                     if let Some(expr) = join_constraint_expr(&join.join_operator) {
@@ -249,10 +235,6 @@ fn join_constraint_expr(op: &JoinOperator) -> Option<&Expr> {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -284,8 +266,6 @@ mod tests {
         }
     }
 
-    // SC-A01
-
     #[test]
     fn equal_null_fires() {
         let cat = make_catalog();
@@ -305,8 +285,6 @@ mod tests {
         let v = NotEqualNull.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-A03
 
     #[test]
     fn or_in_join_fires() {
@@ -333,8 +311,6 @@ mod tests {
         let v = OrInJoinCondition.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-A01 additional tests
 
     #[test]
     fn not_equal_null_fires() {
@@ -377,8 +353,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-A02
-
     #[test]
     fn implicit_type_coercion_returns_empty() {
         let cat = make_catalog();
@@ -388,8 +362,6 @@ mod tests {
         let v = ImplicitTypeCoercion.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-A03 additional tests
 
     #[test]
     fn or_with_multiple_conditions_in_join_fires() {

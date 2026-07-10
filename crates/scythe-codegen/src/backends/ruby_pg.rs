@@ -95,7 +95,6 @@ impl CodegenBackend for RubyPgBackend {
         let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let mut out = String::new();
 
-        // Parameter list
         let param_list = params
             .iter()
             .map(|p| p.field_name.clone())
@@ -103,12 +102,10 @@ impl CodegenBackend for RubyPgBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        // Batch generates its own function signature, so skip the generic one
         if !matches!(analyzed.command, QueryCommand::Batch) {
             let _ = writeln!(out, "  def self.{}(conn{}{})", func_name, sep, param_list);
         }
 
-        // Build exec_params call
         let param_array = if params.is_empty() {
             "[]".to_string()
         } else {
@@ -128,7 +125,6 @@ impl CodegenBackend for RubyPgBackend {
                 let _ = writeln!(out, "    return nil if result.ntuples.zero?");
                 let _ = writeln!(out, "    row = result[0]");
 
-                // Build struct constructor
                 let fields = columns
                     .iter()
                     .map(|c| {
@@ -306,7 +302,6 @@ impl CodegenBackend for RubyPgBackend {
             let variant = enum_variant_name(value, &self.manifest.naming);
             let _ = writeln!(out, "    {} = \"{}\"", variant, value);
         }
-        // ALL constant
         let all_values = enum_info
             .values
             .iter()

@@ -13,8 +13,6 @@ categories = ["development-tools", "database"]
 
 [features]
 default = []
-# Enable to run tests/pg_live.rs against a real Postgres at
-# $SCYTHE_TEST_DATABASE_URL. Off by default — `cargo test` stays DB-free.
 live-tests = []
 
 [dependencies]

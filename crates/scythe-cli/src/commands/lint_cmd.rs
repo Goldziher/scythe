@@ -33,20 +33,15 @@ pub fn run_lint(
     dialect: Option<&str>,
     files: &[String],
 ) -> Result<(), Box<dyn std::error::Error>> {
-    // Determine if we have a config file available
     let has_config = Path::new(config_path).exists();
 
     if !files.is_empty() {
-        // Files explicitly provided: try config dialect, CLI flag overrides
         let config_dialect = if has_config {
             super::shared::dialect_from_config(config_path)
         } else {
             None
         };
         let d = dialect.unwrap_or_else(|| config_dialect.as_deref().unwrap_or("ansi"));
-        // Even in files-only mode, auto-run inspect when a DB URL is configured
-        // via [inspect].database_url or env vars. Matches the plan's
-        // "lint always tries inspect when a URL is available" rule.
         return lint_files(files, d, fix, config_path);
     }
 
@@ -58,8 +53,6 @@ pub fn run_lint(
         .into());
     }
 
-    // Run full lint: scythe rules + sqruff rules using config
-    // dialect from config engine will be used, CLI flag overrides
     lint_from_config(config_path, dialect, fix)
 }
 
@@ -110,9 +103,6 @@ fn lint_files(files: &[String], dialect: &str, fix: bool, config_path: &str) -> 
         }
     }
 
-    // Auto-run inspect when a DB URL is configured. config_path may not exist
-    // (files-only mode without scythe.toml) — try_run_inspect handles that
-    // case and falls back to env-var URL resolution.
     let inspect_violations = try_run_inspect(config_path);
     all_violations.extend(inspect_violations);
 
@@ -153,14 +143,12 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
-    // Build lint engine
     let mut registry = default_registry();
     if let Some(ref lint_config) = config.lint {
         registry.apply_config(lint_config);
     }
     let engine = LintEngine::new(registry);
 
-    // Extract sqruff config from lint config
     let sqruff_config = config.lint.as_ref().and_then(|lc| lc.sqruff.as_ref());
 
     let mut all_violations: Vec<FileViolation> = Vec::new();
@@ -168,10 +156,8 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
     for sql_config in &config.sql {
         eprintln!("[{}] Parsing schema...", sql_config.name);
 
-        // Derive sqruff dialect from config engine, CLI flag takes precedence
         let sqruff_dialect = cli_dialect.unwrap_or_else(|| engine_to_sqruff_dialect(&sql_config.engine));
 
-        // Resolve schema files
         let schema_files = resolve_globs(&sql_config.schema)?;
         let schema_contents: Vec<String> = schema_files
             .iter()
@@ -182,14 +168,12 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
         let sql_dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
 
-        // Resolve query files
         let query_files = resolve_globs(&sql_config.queries)?;
 
         for query_file in &query_files {
             let content = std::fs::read_to_string(query_file)
                 .map_err(|e| format!("failed to read query file '{}': {}", query_file, e))?;
 
-            // Run sqruff on the entire file
             if fix {
                 let (sq_violations, fixed) = sqruff_adapter::lint_and_fix_sql(&content, sqruff_dialect, sqruff_config);
                 for sv in &sq_violations {
@@ -225,7 +209,6 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
                 }
             }
 
-            // Run scythe rules on individual query blocks
             let blocks = split_query_file(&content);
             for block in &blocks {
                 let parsed = match parse_query_with_dialect(block, &sql_dialect) {
@@ -271,7 +254,6 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
             }
         }
 
-        // Catalog-level checks
         let cat_violations = engine.check_catalog(&catalog);
         for (v, sev) in cat_violations {
             all_violations.push(FileViolation {
@@ -287,9 +269,6 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
         }
     }
 
-    // ------------------------------------------------------------------
-    // Auto-run inspect when a database URL is configured.
-    // ------------------------------------------------------------------
     let inspect_findings = try_run_inspect(config_path);
     all_violations.extend(inspect_findings);
 
@@ -308,13 +287,11 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
 /// Inspect findings that do come back carry `source: Some("inspect")` so
 /// mixed output is distinguishable.
 fn try_run_inspect(config_path: &str) -> Vec<FileViolation> {
-    // Load [inspect] config (best-effort; None if absent or unparsable).
     let inspect_config = parse_inspect_section(Path::new(config_path)).unwrap_or_else(|e| {
         tracing::debug!("scythe lint: could not parse [inspect] config: {e}");
         None
     });
 
-    // Resolve DB URL.  Returns None → silently skip.
     let url = match resolve_inspect_url(&inspect_config) {
         Some(u) => u,
         None => {
@@ -323,10 +300,8 @@ fn try_run_inspect(config_path: &str) -> Vec<FileViolation> {
         }
     };
 
-    // Only postgres is supported as a live engine right now.
     let engine = "postgres";
 
-    // Build registry (user checks + severity overrides included).
     let registry = match build_registry(config_path, engine, &inspect_config) {
         Ok(r) => r,
         Err(e) => {
@@ -337,8 +312,6 @@ fn try_run_inspect(config_path: &str) -> Vec<FileViolation> {
 
     let mut driver = build_driver_with_config(engine, registry, &inspect_config);
 
-    // Build a single-threaded Tokio runtime per invocation — keeps the lint
-    // command synchronous.
     let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
         Ok(r) => r,
         Err(e) => {
@@ -349,9 +322,6 @@ fn try_run_inspect(config_path: &str) -> Vec<FileViolation> {
 
     let findings = rt.block_on(async {
         if let Err(e) = driver.connect(&url).await {
-            // Extract just the host from the URL for the warning — never log
-            // credentials (which may appear in the userinfo or password
-            // position of the connection string).
             let host = url
                 .split("://")
                 .nth(1)
@@ -395,7 +365,6 @@ fn print_violations(violations: &[FileViolation]) -> Result<(), Box<dyn std::err
     let mut error_count = 0usize;
     let mut warning_count = 0usize;
 
-    // Group by file
     let mut current_file: Option<&str> = None;
     for v in violations {
         let file = v.file.as_str();

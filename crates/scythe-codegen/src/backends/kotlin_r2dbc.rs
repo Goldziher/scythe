@@ -103,9 +103,6 @@ impl CodegenBackend for KotlinR2dbcBackend {
     }
 
     fn file_header(&self) -> String {
-        // ktlint requires lexicographic order with java.* imports at the end.
-        // When extension_functions is true, the caller owns the Connection, so we
-        // import io.r2dbc.spi.Connection instead of ConnectionFactory.
         if self.extension_functions {
             "import io.r2dbc.spi.Connection\n\
              import kotlinx.coroutines.flow.Flow\n\
@@ -178,14 +175,12 @@ impl CodegenBackend for KotlinR2dbcBackend {
 
         let mut out = String::new();
 
-        // Helper: write .bind() calls for R2DBC (0-based indexing)
         let write_binds = |out: &mut String, indent: &str| {
             for (i, param) in params.iter().enumerate() {
                 let _ = writeln!(out, "{}.bind({}, {})", indent, i, param.field_name);
             }
         };
 
-        // Helper: write row mapping expression for Kotlin
         let write_row_map = |out: &mut String, indent: &str| {
             let _ = writeln!(out, "{}{}(", indent, struct_name);
             for col in columns.iter() {
@@ -199,9 +194,6 @@ impl CodegenBackend for KotlinR2dbcBackend {
             let _ = write!(out, "{})", indent);
         };
 
-        // Helper: write suspend function signature.
-        // When ext=true:  `suspend fun Connection.name(params...) { `
-        // When ext=false: `suspend fun name(cf: ConnectionFactory, params...) { `
         let write_suspend_fn_sig =
             |out: &mut String, name: &str, ret: &str, multiline: bool, params: &[ResolvedParam]| {
                 if ext {
@@ -230,7 +222,6 @@ impl CodegenBackend for KotlinR2dbcBackend {
             QueryCommand::Exec => {
                 write_suspend_fn_sig(&mut out, &func_name, "", use_multiline_params, params);
                 if ext {
-                    // Caller owns the connection; operate on `this` directly.
                     let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
                     write_binds(&mut out, "    stmt");
                     let _ = writeln!(
@@ -320,11 +311,8 @@ impl CodegenBackend for KotlinR2dbcBackend {
                 }
             }
             QueryCommand::Many => {
-                // :many returns Flow<T> (non-suspend function, expression body)
                 let ret = format!(": Flow<{}>", struct_name);
                 if ext {
-                    // Extension: caller owns the connection; no ConnectionFactory needed.
-                    // Emit `fun Connection.name(params...): Flow<T> =` expression body.
                     if use_multiline_params {
                         let _ = writeln!(out, "fun Connection.{}(", func_name);
                         for p in params {
@@ -395,7 +383,6 @@ impl CodegenBackend for KotlinR2dbcBackend {
                     }
                     let _ = writeln!(out, ") {{");
                     if ext {
-                        // Caller owns the connection; no acquire/close.
                         let _ = writeln!(out, "    Mono.from(beginTransaction()).awaitFirstOrNull()");
                         let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
                         let _ = writeln!(out, "    var first = true");
@@ -555,7 +542,6 @@ impl CodegenBackend for KotlinR2dbcBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child data class first.
         let _ = writeln!(out, "data class {}(", child_struct_name);
         for col in child_columns {
             let _ = writeln!(out, "    val {}: {},", col.field_name, col.full_type);
@@ -563,7 +549,6 @@ impl CodegenBackend for KotlinR2dbcBackend {
         let _ = writeln!(out, ")");
         let _ = writeln!(out);
 
-        // Parent data class — parent columns then the mutable children list.
         let _ = writeln!(out, "data class {}(", parent_struct_name);
         for col in parent_columns {
             let _ = writeln!(out, "    val {}: {},", col.field_name, col.full_type);
@@ -606,7 +591,6 @@ impl CodegenBackend for KotlinR2dbcBackend {
         let mut out = String::new();
         let ret = format!(": List<{parent_struct_name}>");
 
-        // Suspend function signature
         if ext {
             if use_multiline_params {
                 let _ = writeln!(out, "suspend fun Connection.{}(", func_name);
@@ -643,7 +627,6 @@ impl CodegenBackend for KotlinR2dbcBackend {
 
         let stmt_indent = if ext { "    " } else { "        " };
 
-        // Decode rows to Array<Any?> inside the Flux map to escape Row validity window.
         let _ = writeln!(out, "{stmt_indent}val rawRows = Flux.from(stmt.execute())");
         let _ = writeln!(out, "{stmt_indent}    .flatMap {{ result ->");
         let _ = writeln!(out, "{stmt_indent}        result.map {{ row, _ ->");
@@ -669,7 +652,6 @@ impl CodegenBackend for KotlinR2dbcBackend {
         let _ = writeln!(out, "{stmt_indent}for (raw in rawRows) {{");
         let _ = writeln!(out, "{stmt_indent}    val key = raw[{key_ordinal}] as {key_type}");
 
-        // Build child
         let _ = writeln!(out, "{stmt_indent}    val child = {child_struct_name}(");
         for (ci, col) in child_columns.iter().enumerate() {
             let ordinal = all_columns
@@ -685,7 +667,6 @@ impl CodegenBackend for KotlinR2dbcBackend {
         }
         let _ = writeln!(out, "{stmt_indent}    )");
 
-        // Fold
         let _ = writeln!(out, "{stmt_indent}    if (lookup.containsKey(key)) {{");
         let _ = writeln!(out, "{stmt_indent}        lookup[key]!!.children.add(child)");
         let _ = writeln!(out, "{stmt_indent}    }} else {{");

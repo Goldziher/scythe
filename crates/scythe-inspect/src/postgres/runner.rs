@@ -18,10 +18,6 @@ fn placeholder_regex() -> &'static Regex {
     RE.get_or_init(|| Regex::new(r"\{(\w+)\}").expect("placeholder regex is valid"))
 }
 
-// ---------------------------------------------------------------------------
-// Row → column map
-// ---------------------------------------------------------------------------
-
 /// Extract all columns from a [`tokio_postgres::Row`] as a `String → String`
 /// map.
 ///
@@ -39,48 +35,36 @@ fn row_to_map(row: &tokio_postgres::Row) -> HashMap<String, String> {
     for col in row.columns() {
         let name = col.name().to_string();
 
-        // Try text types first (covers TEXT, VARCHAR, NAME, BPCHAR, etc.)
         if let Ok(v) = row.try_get::<&str, &str>(&*name) {
             map.insert(name, v.to_string());
             continue;
         }
 
-        // Text array (e.g. `array_agg(attname)` → `TEXT[]`)
         if let Ok(v) = row.try_get::<&str, Vec<String>>(&*name) {
             map.insert(name, v.join(", "));
             continue;
         }
 
-        // Bigint (e.g. `count(*)::bigint`)
         if let Ok(v) = row.try_get::<&str, i64>(&*name) {
             map.insert(name, v.to_string());
             continue;
         }
 
-        // Integer
         if let Ok(v) = row.try_get::<&str, i32>(&*name) {
             map.insert(name, v.to_string());
             continue;
         }
 
-        // Boolean
         if let Ok(v) = row.try_get::<&str, bool>(&*name) {
             map.insert(name, v.to_string());
             continue;
         }
 
-        // Defensive: leave the column in the map as an empty string rather
-        // than omitting it, so downstream binding substitution can report a
-        // clear error if the placeholder was expected.
         map.insert(name, String::new());
     }
 
     map
 }
-
-// ---------------------------------------------------------------------------
-// Message rendering
-// ---------------------------------------------------------------------------
 
 /// Render a message template by substituting `{var}` placeholders with bound
 /// column values.
@@ -114,10 +98,6 @@ fn render_message(template: &str, bindings: &HashMap<String, String>, check_id: 
     output.push_str(&template[last_end..]);
     Ok(output)
 }
-
-// ---------------------------------------------------------------------------
-// Public runner entry points
-// ---------------------------------------------------------------------------
 
 /// Execute `spec.sql` against `client` and return one `(Finding, bindings)`
 /// pair per result row.
@@ -186,10 +166,6 @@ pub async fn run_check(client: &Client, spec: &CheckSpec) -> Result<Vec<Finding>
     let pairs = run_check_with_bindings(client, spec).await?;
     Ok(pairs.into_iter().map(|(f, _)| f).collect())
 }
-
-// ---------------------------------------------------------------------------
-// Unit tests (no DB required)
-// ---------------------------------------------------------------------------
 
 #[cfg(test)]
 mod tests {

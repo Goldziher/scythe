@@ -69,13 +69,9 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
 
     let catalog = Catalog::from_ddl_with_dialect(&[schema], dialect).unwrap();
 
-    let mut full = backend.file_header();
-    full.push('\n');
-
     let class_header = backend.query_class_header();
     let use_class_wrapper = !class_header.is_empty();
 
-    // Collect all generated code first
     let mut all_codes = Vec::new();
     for query_sql in queries {
         let parsed = parse_query_with_dialect(query_sql, dialect).unwrap();
@@ -88,8 +84,10 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
         }
     }
 
+    let mut full = backend.file_header_for_results(&all_codes);
+    full.push('\n');
+
     if use_class_wrapper {
-        // Emit type definitions (enums, structs) first, outside the class
         for code in &all_codes {
             if let Some(ref s) = code.enum_def {
                 full.push_str(s);
@@ -104,17 +102,14 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
                 full.push('\n');
             }
         }
-        // Open the class
         full.push_str(&class_header);
         full.push('\n');
-        // Emit query functions inside the class
         for code in &all_codes {
             if let Some(ref s) = code.query_fn {
                 full.push_str(s);
                 full.push('\n');
             }
         }
-        // Close the class via file footer
         let footer = backend.file_footer();
         if !footer.is_empty() {
             full.push_str(&footer);
@@ -160,10 +155,8 @@ macro_rules! backend_test {
                 $backend
             );
 
-            // Print generated code for inspection
             eprintln!("\n=== {} ===\n{}\n=== END ===\n", $backend, code);
 
-            // Structural validation
             let structural_errors = validate_structural(&code, $backend);
             assert!(
                 structural_errors.is_empty(),
@@ -172,7 +165,6 @@ macro_rules! backend_test {
                 structural_errors
             );
 
-            // Real tool validation
             if let Some(tool_errors) = validate_with_tools(&code, $backend) {
                 assert!(
                     tool_errors.is_empty(),
@@ -199,10 +191,8 @@ macro_rules! backend_test_with_options {
                 $backend
             );
 
-            // Print generated code for inspection
             eprintln!("\n=== {} (with options) ===\n{}\n=== END ===\n", $backend, code);
 
-            // Structural validation
             let structural_errors = validate_structural(&code, $backend);
             assert!(
                 structural_errors.is_empty(),
@@ -211,7 +201,6 @@ macro_rules! backend_test_with_options {
                 structural_errors
             );
 
-            // Real tool validation
             if let Some(tool_errors) = validate_with_tools(&code, $backend) {
                 assert!(
                     tool_errors.is_empty(),
@@ -236,10 +225,8 @@ macro_rules! mysql_backend_test {
                 $backend
             );
 
-            // Print generated code for inspection
             eprintln!("\n=== {} ===\n{}\n=== END ===\n", $backend, code);
 
-            // Structural validation
             let structural_errors = validate_structural(&code, $backend);
             assert!(
                 structural_errors.is_empty(),
@@ -248,7 +235,6 @@ macro_rules! mysql_backend_test {
                 structural_errors
             );
 
-            // Real tool validation
             if let Some(tool_errors) = validate_with_tools(&code, $backend) {
                 assert!(
                     tool_errors.is_empty(),
@@ -264,7 +250,6 @@ macro_rules! mysql_backend_test {
 
 fn generate_full_file_duckdb(backend_name: &str) -> String {
     let backend = get_backend(backend_name, "duckdb").unwrap();
-    // DuckDB uses PostgreSQL-compatible SQL dialect for parsing.
     generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::PostgreSQL)
 }
 
@@ -279,10 +264,8 @@ macro_rules! duckdb_backend_test {
                 $backend
             );
 
-            // Print generated code for inspection
             eprintln!("\n=== {} ===\n{}\n=== END ===\n", $backend, code);
 
-            // Structural validation
             let structural_errors = validate_structural(&code, $backend);
             assert!(
                 structural_errors.is_empty(),
@@ -291,7 +274,6 @@ macro_rules! duckdb_backend_test {
                 structural_errors
             );
 
-            // Real tool validation
             if let Some(tool_errors) = validate_with_tools(&code, $backend) {
                 assert!(
                     tool_errors.is_empty(),
@@ -305,7 +287,6 @@ macro_rules! duckdb_backend_test {
     };
 }
 
-// --- Default backend tests (PostgreSQL) ---
 backend_test!(test_rust_sqlx, "rust-sqlx");
 backend_test!(test_rust_tokio_postgres, "rust-tokio-postgres");
 backend_test!(test_python_psycopg3, "python-psycopg3");
@@ -325,22 +306,17 @@ backend_test!(test_php_pdo, "php-pdo");
 backend_test!(test_php_amphp, "php-amphp");
 backend_test!(test_kotlin_exposed, "kotlin-exposed");
 
-// --- DuckDB backend tests ---
 duckdb_backend_test!(test_python_duckdb, "python-duckdb");
 duckdb_backend_test!(test_typescript_duckdb, "typescript-duckdb");
 
-// --- MySQL backend tests ---
 mysql_backend_test!(test_ruby_trilogy, "ruby-trilogy");
 
-// --- Row type variant tests ---
 backend_test_with_options!(test_python_psycopg3_pydantic, "python-psycopg3", "row_type" => "pydantic");
 backend_test_with_options!(test_python_psycopg3_msgspec, "python-psycopg3", "row_type" => "msgspec");
 backend_test_with_options!(test_python_asyncpg_pydantic, "python-asyncpg", "row_type" => "pydantic");
 backend_test_with_options!(test_typescript_pg_zod, "typescript-pg", "row_type" => "zod");
 backend_test_with_options!(test_typescript_postgres_zod, "typescript-postgres", "row_type" => "zod");
 
-// --- Issue #48: uuid / Any import tests ---
-// Schema with uuid PK + jsonb column to force both uuid.UUID and dict[str, Any] in the output.
 const SCHEMA_UUID_JSONB: &str = "CREATE TABLE items (\
     id UUID PRIMARY KEY, \
     name TEXT NOT NULL, \
@@ -398,7 +374,6 @@ fn test_python_asyncpg_header_contains_uuid_and_any_imports() {
 
 #[test]
 fn test_python_aiomysql_header_contains_any_but_not_uuid_import() {
-    // aiomysql maps uuid to str, so import uuid is not needed; jsonb maps to dict[str, Any].
     let header = generate_header_for_uuid_jsonb_schema_mysql("python-aiomysql");
     eprintln!("aiomysql header:\n{}", header);
     assert!(
@@ -412,8 +387,6 @@ fn test_python_aiomysql_header_contains_any_but_not_uuid_import() {
         header
     );
 }
-
-// --- PHP namespace option tests ---
 
 #[test]
 fn test_php_pdo_default_namespace() {
@@ -515,19 +488,16 @@ fn test_php_amphp_empty_namespace() {
     );
 }
 
-// --- Kotlin extension function tests ---
 #[test]
 fn test_kotlin_jdbc_extension_functions_signature() {
     let mut options = std::collections::HashMap::new();
     options.insert("extension_functions".to_string(), "true".to_string());
     let code = generate_full_file_with_options("kotlin-jdbc", &options);
 
-    // Extension function syntax: receiver is Connection, no conn param
     assert!(
         code.contains("fun Connection."),
         "kotlin-jdbc ext: expected 'fun Connection.' in output\n\nGenerated:\n{code}"
     );
-    // No `conn: Connection` param in function signatures
     assert!(
         !code.contains("conn: Connection"),
         "kotlin-jdbc ext: unexpected 'conn: Connection' param\n\nGenerated:\n{code}"
@@ -540,13 +510,10 @@ fn test_kotlin_jdbc_extension_functions_expression_body() {
     options.insert("extension_functions".to_string(), "true".to_string());
     let code = generate_full_file_with_options("kotlin-jdbc", &options);
 
-    // :many function uses expression body: `): List<...> =\n    this.prepareStatement`
-    // (return type between `)` and `=`, so we check for "> =\n    this.prepareStatement")
     assert!(
         code.contains("): List<") && code.contains("> =\n    this.prepareStatement"),
         "kotlin-jdbc ext: expected expression body for :many with 'this.prepareStatement'\n\nGenerated:\n{code}"
     );
-    // :one also uses expression body: return type ends with `?` then ` =`
     assert!(
         code.contains("? =\n    this.prepareStatement"),
         "kotlin-jdbc ext: expected expression body for :one with 'this.prepareStatement'\n\nGenerated:\n{code}"
@@ -559,8 +526,6 @@ fn test_kotlin_jdbc_extension_functions_exec_block_body() {
     options.insert("extension_functions".to_string(), "true".to_string());
     let code = generate_full_file_with_options("kotlin-jdbc", &options);
 
-    // :exec (Unit-returning) keeps a block body — look for the deleteUser block form
-    // The Exec function should have `fun Connection.deleteUser(` with a block body `{`
     assert!(
         code.contains(") {\n    this.prepareStatement"),
         "kotlin-jdbc ext: expected block body for :exec with 'this.prepareStatement'\n\nGenerated:\n{code}"
@@ -569,7 +534,6 @@ fn test_kotlin_jdbc_extension_functions_exec_block_body() {
 
 #[test]
 fn test_kotlin_jdbc_extension_functions_default_off() {
-    // With the flag OFF (default), output must be unchanged — no `fun Connection.`
     let code = generate_full_file("kotlin-jdbc");
     assert!(
         !code.contains("fun Connection."),
@@ -587,17 +551,14 @@ fn test_kotlin_r2dbc_extension_functions_signature() {
     options.insert("extension_functions".to_string(), "true".to_string());
     let code = generate_full_file_with_options("kotlin-r2dbc", &options);
 
-    // Suspend extension functions on Connection
     assert!(
         code.contains("suspend fun Connection.") || code.contains("fun Connection."),
         "kotlin-r2dbc ext: expected 'fun Connection.' or 'suspend fun Connection.' in output\n\nGenerated:\n{code}"
     );
-    // No ConnectionFactory param
     assert!(
         !code.contains("cf: ConnectionFactory"),
         "kotlin-r2dbc ext: unexpected 'cf: ConnectionFactory' param\n\nGenerated:\n{code}"
     );
-    // No cf.create() acquire call
     assert!(
         !code.contains("cf.create()"),
         "kotlin-r2dbc ext: unexpected 'cf.create()' in body\n\nGenerated:\n{code}"
@@ -610,7 +571,6 @@ fn test_kotlin_r2dbc_extension_functions_header() {
     options.insert("extension_functions".to_string(), "true".to_string());
     let code = generate_full_file_with_options("kotlin-r2dbc", &options);
 
-    // Header imports Connection, not ConnectionFactory
     assert!(
         code.contains("import io.r2dbc.spi.Connection\n"),
         "kotlin-r2dbc ext: expected 'import io.r2dbc.spi.Connection' in header\n\nGenerated:\n{code}"
@@ -623,7 +583,6 @@ fn test_kotlin_r2dbc_extension_functions_header() {
 
 #[test]
 fn test_kotlin_r2dbc_extension_functions_default_off() {
-    // With the flag OFF (default), output must be unchanged — ConnectionFactory path
     let code = generate_full_file("kotlin-r2dbc");
     assert!(
         code.contains("cf: ConnectionFactory"),

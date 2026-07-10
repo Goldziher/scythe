@@ -11,7 +11,6 @@ impl RustValidator {
     /// e.g. `pub fn extract_file_sync(...) -> Result<ExtractionResult>`
     fn is_bare_signature(code: &str) -> bool {
         let trimmed = code.trim();
-        // Contains fn declaration but no braces at all
         trimmed.contains("fn ") && !trimmed.contains('{')
     }
 
@@ -23,7 +22,6 @@ impl RustValidator {
         if !trimmed.starts_with("use ") {
             return false;
         }
-        // After the `use` block, is there statement-level code (let, println, etc.)?
         let mut past_uses = false;
         for line in trimmed.lines() {
             let t = line.trim();
@@ -34,7 +32,6 @@ impl RustValidator {
                 continue;
             }
             past_uses = true;
-            // Statement-level code starts with these
             if t.starts_with("let ")
                 || t.starts_with("println!")
                 || t.starts_with("eprintln!")
@@ -50,7 +47,6 @@ impl RustValidator {
             {
                 return true;
             }
-            // If we see a top-level item, it's not use+statements
             return false;
         }
         false
@@ -77,24 +73,19 @@ impl RustValidator {
 
     fn wrap_if_fragment(code: &str) -> String {
         let trimmed = code.trim();
-        // Already has main — complete file
         if trimmed.contains("fn main()") {
             return code.to_string();
         }
 
-        // Bare function signatures (API docs) — skip validation complexity
         if Self::is_bare_signature(trimmed) {
-            // Just treat as top-level items with empty main
             return format!("{code}\n\nfn main() {{}}");
         }
 
-        // Special case: `use` statements followed by statement-level code
         if Self::has_use_then_statements(code) {
             let (uses, body) = Self::split_uses(code);
             return format!("{uses}\n\nfn main() {{\n{body}\n}}");
         }
 
-        // Has top-level items — these need main but the items should stay at top level
         let has_top_level_items = trimmed.starts_with("use ")
             || trimmed.starts_with("fn ")
             || trimmed.starts_with("pub ")
@@ -111,10 +102,8 @@ impl RustValidator {
             || trimmed.starts_with("unsafe ");
 
         if has_top_level_items {
-            // Items are already top-level — add main at the end
             format!("{code}\n\nfn main() {{}}")
         } else {
-            // Statement-level code — wrap in main
             format!("fn main() {{\n{code}\n}}")
         }
     }
@@ -139,7 +128,6 @@ impl SnippetValidator for RustValidator {
         let src_dir = dir.path().join("src");
         std::fs::create_dir_all(&src_dir)?;
 
-        // Write Cargo.toml
         let cargo_toml = r#"[package]
 name = "snippet-check"
 version = "0.1.0"
@@ -149,7 +137,6 @@ edition = "2024"
 "#;
         std::fs::write(dir.path().join("Cargo.toml"), cargo_toml)?;
 
-        // Write source
         let code = Self::wrap_if_fragment(&snippet.code);
         let mut file = std::fs::File::create(src_dir.join("main.rs"))?;
         file.write_all(code.as_bytes())?;
@@ -177,28 +164,10 @@ edition = "2024"
 
     fn is_dependency_error(&self, output: &str) -> bool {
         let dep_patterns = [
-            "E0432", // unresolved import
-            "E0433", // failed to resolve: use of undeclared crate
-            "E0412", // cannot find type
-            "E0405", // cannot find trait
-            "E0425", // cannot find value
-            "E0463", // can't find crate
-            "E0277", // trait bound not satisfied (cascades from missing types)
-            "E0599", // no method found (cascades from missing types)
-            "E0752", // main cannot be async (from wrapping async code)
-            "E0308", // mismatched types (cascades from unresolved types)
-            "E0107", // wrong number of type arguments (missing generic defs)
-            "E0609", // no field on type (cascades from unresolved types)
-            "E0061", // this function takes N arguments (cascades)
-            "E0574", // expected struct, variant or union type, found ...
-            "E0583", // file not found for module
-            "E0282", // type annotations needed (cascades from missing types)
-            "E0728", // `await` is only allowed inside `async` functions (wrapping)
-            "E0423", // expected value, found ... (cascades)
+            "E0432", "E0433", "E0412", "E0405", "E0425", "E0463", "E0277", "E0599", "E0752", "E0308", "E0107", "E0609",
+            "E0061", "E0574", "E0583", "E0282", "E0728", "E0423",
         ];
 
-        // Only match actual error diagnostic lines, not source code context.
-        // Rust compiler error lines start with "error" or contain "error[E".
         let lines_with_error: Vec<&str> = output
             .lines()
             .filter(|l| {
@@ -214,26 +183,23 @@ edition = "2024"
             return false;
         }
 
-        // Use any() instead of all(): if ANY error is a dependency error, treat the
-        // entire snippet as dependency-limited. Cascading errors from missing crates/types
-        // produce unpredictable secondary messages that can't all be enumerated.
         lines_with_error.iter().any(|line| {
             dep_patterns.iter().any(|p| line.contains(p))
                 || line.contains("unresolved import")
                 || line.contains("cannot find")
                 || line.contains("not found in")
-                || line.contains("could not compile") // summary line
+                || line.contains("could not compile")
                 || line.contains("aborting due to")
                 || line.contains("For more information")
                 || line.contains("Some errors have")
-                || line.contains("derive macro") // cannot find derive macro
-                || line.contains("proc-macro") // proc macro errors
-                || line.contains("main function not found") // wrapping artifacts
-                || line.contains("functions are not allowed in") // wrapping artifact
-                || line.contains("expected one of") // bare signatures / wrapping
-                || line.contains("expected parameter name") // bare signature wrapping
-                || line.contains("not allowed to be `async`") // async main from wrapping
-                || line.contains("expected item, found") // statement treated as top-level
+                || line.contains("derive macro")
+                || line.contains("proc-macro")
+                || line.contains("main function not found")
+                || line.contains("functions are not allowed in")
+                || line.contains("expected one of")
+                || line.contains("expected parameter name")
+                || line.contains("not allowed to be `async`")
+                || line.contains("expected item, found")
         })
     }
 }

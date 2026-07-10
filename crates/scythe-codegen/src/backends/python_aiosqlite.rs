@@ -389,7 +389,6 @@ impl CodegenBackend for PythonAiosqliteBackend {
             }
         };
 
-        // Signature: wrap to multi-line if it would exceed 88 chars.
         let sig = format!(
             "async def {func_name}(conn: aiosqlite.Connection{kw_sep}{param_list}) -> list[{parent_struct_name}]:"
         );
@@ -408,7 +407,6 @@ impl CodegenBackend for PythonAiosqliteBackend {
         }
         let _ = writeln!(out, "    \"\"\"Execute {} grouped query.\"\"\"", analyzed.name);
 
-        // Use newline-first SQL format so SQL content stays at column 0.
         let _ = writeln!(out, "    async with conn.execute(");
         let _ = writeln!(out, "        \"\"\"");
         for line in sql.lines() {

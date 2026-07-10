@@ -1,12 +1,5 @@
 schema_version = 1
 
-# SC-CHK01 — check-constraint-always-true
-# A CHECK constraint whose expression is a tautology (`true`, `1 = 1`,
-# `NULL`, or a parenthesised variant) enforces nothing — the constraint
-# is a no-op that almost always signals a copy-paste mistake or an
-# unfinished migration. Covers column-level CHECK in CREATE TABLE,
-# table-level CHECK in CREATE TABLE, and ALTER TABLE … ADD CONSTRAINT …
-# CHECK.
 [[rule]]
 id = "SC-CHK01"
 name = "check-constraint-always-true"

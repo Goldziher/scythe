@@ -59,7 +59,6 @@ fn generate_for_schema(relative_path: &str) -> GenerationResult {
         .map(|s| schema_dir.join(s.as_str().unwrap()).display().to_string())
         .collect();
 
-    // Read schema files and build catalog
     let schema_contents: Vec<String> = schema_files
         .iter()
         .map(|p| std::fs::read_to_string(p).unwrap())
@@ -67,7 +66,6 @@ fn generate_for_schema(relative_path: &str) -> GenerationResult {
     let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
     let catalog = scythe_core::catalog::Catalog::from_ddl(&schema_refs).unwrap();
 
-    // Resolve query files via glob
     let mut query_file_paths = Vec::new();
     for pattern in &query_patterns {
         for entry in glob::glob(pattern).unwrap() {
@@ -107,7 +105,6 @@ fn generate_for_schema(relative_path: &str) -> GenerationResult {
 
             let query_name = analyzed.name.clone();
 
-            // Collect enum definitions (deduplicated)
             for e in &analyzed.enums {
                 if seen_enums.insert(e.sql_name.clone()) {
                     let def = scythe_codegen::generate_single_enum_def(e, &manifest);
@@ -195,7 +192,6 @@ fn validate_fragments(fragments: &[CodeFragment]) -> (usize, Vec<String>) {
     let header = "#![allow(dead_code, unused_imports, clippy::all)]\n";
 
     for frag in fragments {
-        // Wrap the fragment in a file-level context for syn to parse
         let test_code = format!("{}{}", header, frag.code);
         match syn::parse_file(&test_code) {
             Ok(_) => valid += 1,
@@ -222,12 +218,10 @@ fn test_basemind_generates_valid_rust() {
     let (valid, invalid) = validate_fragments(&result.fragments);
     let total = result.fragments.len();
 
-    // Report invalid fragments for debugging
     for msg in &invalid {
         eprintln!("INVALID: {}", msg);
     }
 
-    // At least 90% of fragments should be valid Rust
     let valid_pct = (valid as f64 / total as f64) * 100.0;
     assert!(
         valid_pct >= 90.0,
@@ -237,7 +231,6 @@ fn test_basemind_generates_valid_rust() {
         total
     );
 
-    // Should generate a substantial number of items
     assert!(valid > 10, "should have many valid items, got {}", valid);
 }
 
@@ -269,7 +262,6 @@ fn test_pagila_generates_valid_rust() {
 fn test_generated_code_contains_expected_structs() {
     let result = generate_for_schema("simple/basemind");
 
-    // Basemind schema has user_account queries
     assert!(
         result.combined.contains("fn create_user_account") || result.combined.contains("CreateUserAccount"),
         "should generate code for CreateUserAccount query"
@@ -289,7 +281,6 @@ fn test_generated_code_contains_expected_structs() {
 fn test_pagila_generated_code_contains_enums() {
     let result = generate_for_schema("medium/pagila");
 
-    // Pagila schema has mpaa_rating enum
     assert!(
         result.combined.contains("MpaaRating") || result.combined.contains("mpaa_rating"),
         "should generate enum for mpaa_rating type"

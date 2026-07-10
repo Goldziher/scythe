@@ -47,10 +47,6 @@ use scythe_lint::types::Severity;
 
 use crate::spec::{CheckSpec, ConfigError, load_checks_from_file, validate_message_bindings};
 
-// ---------------------------------------------------------------------------
-// SuppressionRule
-// ---------------------------------------------------------------------------
-
 /// A single suppression rule from `[[inspect.suppression]]`.
 ///
 /// A finding is suppressed when ALL fields that are `Some` match:
@@ -70,10 +66,6 @@ pub struct SuppressionRule {
     #[serde(default)]
     pub object: Option<String>,
 }
-
-// ---------------------------------------------------------------------------
-// InspectConfig
-// ---------------------------------------------------------------------------
 
 /// Deserialized representation of the `[inspect]` section in `scythe.toml`.
 ///
@@ -115,10 +107,6 @@ pub struct InspectConfig {
     #[serde(default, rename = "check")]
     pub check: Vec<CheckSpec>,
 }
-
-// ---------------------------------------------------------------------------
-// Loader
-// ---------------------------------------------------------------------------
 
 /// Read `scythe.toml` at `config_path`, extract the `[inspect]` block (if
 /// any), validate every user check in `inspect.check` and in `extra_rules`
@@ -166,9 +154,6 @@ pub fn parse_inspect_section(config_path: &Path) -> Result<Option<InspectConfig>
 
     let config_dir = config_path.parent().unwrap_or(Path::new("."));
 
-    // ------------------------------------------------------------------
-    // Validate inline [[inspect.check]] specs.
-    // ------------------------------------------------------------------
     for spec in &config.check {
         spec.validate_user_check().map_err(|e| ConfigError::InvalidCheck {
             path: config_path.display().to_string(),
@@ -182,12 +167,6 @@ pub fn parse_inspect_section(config_path: &Path) -> Result<Option<InspectConfig>
         })?;
     }
 
-    // ------------------------------------------------------------------
-    // Load and validate extra_rules files.
-    // ------------------------------------------------------------------
-    // Resolve each path relative to config_path's directory and replace
-    // the string list with absolute-ish paths so callers don't need to
-    // repeat the resolution.
     let mut resolved_extra_rules: Vec<String> = Vec::new();
     for rel_path in &config.extra_rules {
         let abs_path = config_dir.join(rel_path);
@@ -214,10 +193,6 @@ pub fn parse_inspect_section(config_path: &Path) -> Result<Option<InspectConfig>
     Ok(Some(config))
 }
 
-// ---------------------------------------------------------------------------
-// Unit tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -238,10 +213,6 @@ mod tests {
         f.write_all(content.as_bytes()).expect("write");
         (path, f)
     }
-
-    // -----------------------------------------------------------------------
-    // parses_inspect_section_full
-    // -----------------------------------------------------------------------
 
     #[test]
     fn parses_inspect_section_full() {
@@ -287,10 +258,6 @@ sql         = "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_
         assert_eq!(cfg.check[0].id, "USER-INS-001");
     }
 
-    // -----------------------------------------------------------------------
-    // parses_inspect_section_minimal
-    // -----------------------------------------------------------------------
-
     #[test]
     fn parses_inspect_section_minimal() {
         let toml = "[inspect]\n";
@@ -307,10 +274,6 @@ sql         = "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_
         assert!(cfg.check.is_empty());
     }
 
-    // -----------------------------------------------------------------------
-    // returns_none_when_no_inspect_block
-    // -----------------------------------------------------------------------
-
     #[test]
     fn returns_none_when_no_inspect_block() {
         let toml = "[audit]\nextra_rules = []\n";
@@ -319,24 +282,14 @@ sql         = "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_
         assert!(result.is_none());
     }
 
-    // -----------------------------------------------------------------------
-    // returns_none_when_file_missing
-    // -----------------------------------------------------------------------
-
     #[test]
     fn returns_none_when_file_missing() {
         let result = parse_inspect_section(Path::new("/tmp/nonexistent-scythe-abc123.toml")).expect("ok");
         assert!(result.is_none());
     }
 
-    // -----------------------------------------------------------------------
-    // rejects_canonical_id_in_user_check
-    // -----------------------------------------------------------------------
-
     #[test]
     fn rejects_canonical_id_in_user_check() {
-        // SC-INS01 doesn't have the USER-INS- prefix, so the error is
-        // MissingUserPrefix (wrapped in ConfigError::InvalidCheck).
         let toml = r#"
 [inspect]
 [[inspect.check]]
@@ -358,10 +311,6 @@ sql         = "SELECT 1 AS x"
             other => panic!("expected InvalidCheck, got {other:?}"),
         }
     }
-
-    // -----------------------------------------------------------------------
-    // rejects_missing_user_prefix
-    // -----------------------------------------------------------------------
 
     #[test]
     fn rejects_missing_user_prefix() {
@@ -388,13 +337,8 @@ sql         = "SELECT 1 AS x"
         }
     }
 
-    // -----------------------------------------------------------------------
-    // rejects_user_check_with_invalid_binding
-    // -----------------------------------------------------------------------
-
     #[test]
     fn rejects_user_check_with_invalid_binding() {
-        // message has {foo} but SQL only projects `bar`
         let toml = r#"
 [inspect]
 [[inspect.check]]

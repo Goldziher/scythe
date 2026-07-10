@@ -127,8 +127,6 @@ mod tests {
 
     #[test]
     fn unnamed_index_uses_placeholder_binding() {
-        // CREATE INDEX without an explicit name is valid in some dialects;
-        // we surface a placeholder rather than crashing.
         let sql = "CREATE INDEX ON users(email);";
         let (stmt, analyzed, catalog, annotations) = make_parts(sql);
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);

@@ -13,10 +13,6 @@ categories = ["database", "parser-implementations"]
 
 [features]
 default = []
-# Adds `Serialize` / `Deserialize` derives to the public IR types
-# (`AnalyzedQuery`, `Annotations`, `CustomAnnotation`, etc.). Off by default so
-# scythe-core's footprint stays minimal; crate consumers that need IR
-# serialization opt in.
 serde = ["dep:serde"]
 
 [dependencies]

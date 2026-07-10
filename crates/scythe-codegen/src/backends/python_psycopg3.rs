@@ -92,10 +92,6 @@ impl CodegenBackend for PythonPsycopg3Backend {
                  \n",
             )
         } else {
-            // Third-party imports: `import` before `from`, sorted by module.
-            // msgspec uses `import msgspec` (bare import, comes first).
-            // pydantic uses `from pydantic import BaseModel` (from import,
-            //   sorted after `from psycopg`).
             let third_party = self
                 .row_type
                 .sorted_third_party_imports("from psycopg import AsyncConnection  # noqa: F401");
@@ -147,7 +143,6 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
 
-        // Build parameter list (keyword-only after conn)
         let param_list = params
             .iter()
             .map(|p| format!("{}: {}", p.field_name, p.full_type))
@@ -155,7 +150,6 @@ impl CodegenBackend for PythonPsycopg3Backend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        // Clean and rewrite SQL
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let name_map: std::collections::HashMap<u32, String> = analyzed
             .params
@@ -174,7 +168,6 @@ impl CodegenBackend for PythonPsycopg3Backend {
                     func_name, kw_sep, param_list, struct_name
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
-                // Build params dict
                 if params.is_empty() {
                     let _ = writeln!(out, "    cur = await conn.execute(");
                     let _ = writeln!(out, "        \"\"\"{}\"\"\",", sql);
@@ -192,7 +185,6 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 let _ = writeln!(out, "    row = await cur.fetchone()");
                 let _ = writeln!(out, "    if row is None:");
                 let _ = writeln!(out, "        return None");
-                // Construct dataclass from positional row
                 let field_assignments: Vec<String> = columns
                     .iter()
                     .enumerate()
@@ -256,7 +248,6 @@ impl CodegenBackend for PythonPsycopg3Backend {
             }
             QueryCommand::Batch => {
                 let batch_fn_name = format!("{}_batch", func_name);
-                // Build the items type annotation
                 let items_type = if params.len() > 1 {
                     let tuple_types: Vec<String> = params.iter().map(|p| p.full_type.clone()).collect();
                     format!("list[tuple[{}]]", tuple_types.join(", "))
@@ -282,7 +273,6 @@ impl CodegenBackend for PythonPsycopg3Backend {
                     let _ = writeln!(out, "            \"\"\"{}\"\"\",", sql);
                     let _ = writeln!(out, "        )");
                 } else {
-                    // Use executemany with named params dict list
                     let dict_entries: Vec<String> = params
                         .iter()
                         .enumerate()
@@ -445,8 +435,6 @@ impl CodegenBackend for PythonPsycopg3Backend {
             format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))
         });
 
-        // Signature: psycopg3 uses `AsyncConnection` (short enough to fit in 88 chars
-        // for the test fixture name; fall back to multi-line for longer names).
         let sig =
             format!("async def {func_name}(conn: AsyncConnection{kw_sep}{param_list}) -> list[{parent_struct_name}]:");
         if sig.len() <= 88 {
@@ -464,8 +452,6 @@ impl CodegenBackend for PythonPsycopg3Backend {
         }
         let _ = writeln!(out, "    \"\"\"Execute {} grouped query.\"\"\"", analyzed.name);
 
-        // Use the newline-first SQL format so the SQL content appears at column 0,
-        // keeping every generated line ≤ 88 characters.
         let _ = writeln!(out, "    cur = await conn.execute(");
         let _ = writeln!(out, "        \"\"\"");
         for line in sql.lines() {
@@ -612,7 +598,6 @@ mod tests {
             "fn must construct parent; got:\n{query_fn}"
         );
         assert!(query_fn.contains("_index"), "fn must use _index dict; got:\n{query_fn}");
-        // Every generated line must be <= 88 chars (ruff E501 compliance).
         for line in query_fn.lines() {
             assert!(
                 line.len() <= 88,

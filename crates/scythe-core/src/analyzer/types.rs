@@ -1,7 +1,6 @@
 use crate::parser::{CustomAnnotation, QueryCommand};
 
 // ---------------------------------------------------------------------------
-// Public output types
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Clone, Default)]
@@ -79,10 +78,6 @@ pub struct AnalyzedParam {
     pub position: i64,
 }
 
-// ---------------------------------------------------------------------------
-// Internal scope types
-// ---------------------------------------------------------------------------
-
 #[derive(Debug, Clone)]
 pub(super) struct ScopeSource {
     pub(super) alias: String,
@@ -130,10 +125,6 @@ impl TypeInfo {
         Self::new("unknown", true)
     }
 }
-
-// ---------------------------------------------------------------------------
-// Analyzer context
-// ---------------------------------------------------------------------------
 
 use ahash::AHashMap;
 

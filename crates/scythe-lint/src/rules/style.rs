@@ -6,7 +6,6 @@ use crate::rule::LintRule;
 use crate::types::*;
 
 // ---------------------------------------------------------------------------
-// SC-T01: PreferExplicitJoin
 // ---------------------------------------------------------------------------
 
 pub struct PreferExplicitJoin;
@@ -39,15 +38,13 @@ impl LintRule for PreferExplicitJoin {
 
 fn walk_set_expr_for_implicit_join(set_expr: &SetExpr, violations: &mut Vec<Violation>, rule_id: &'static str) {
     match set_expr {
-        SetExpr::Select(select)
-            // Multiple tables in FROM with no JOINs = implicit join
-            if select.from.len() > 1 && select.from.iter().all(|twj| twj.joins.is_empty()) => {
-                violations.push(Violation {
-                    rule_id: Cow::Borrowed(rule_id),
-                    message: "implicit join (comma-separated tables) — prefer explicit JOIN".into(),
-                    fix: None,
-                });
-            }
+        SetExpr::Select(select) if select.from.len() > 1 && select.from.iter().all(|twj| twj.joins.is_empty()) => {
+            violations.push(Violation {
+                rule_id: Cow::Borrowed(rule_id),
+                message: "implicit join (comma-separated tables) — prefer explicit JOIN".into(),
+                fix: None,
+            });
+        }
         SetExpr::Query(query) => {
             walk_set_expr_for_implicit_join(&query.body, violations, rule_id);
         }
@@ -58,10 +55,6 @@ fn walk_set_expr_for_implicit_join(set_expr: &SetExpr, violations: &mut Vec<Viol
         _ => {}
     }
 }
-
-// ---------------------------------------------------------------------------
-// SC-T02: PreferCoalesceOverCase
-// ---------------------------------------------------------------------------
 
 pub struct PreferCoalesceOverCase;
 
@@ -110,7 +103,6 @@ fn is_coalesce_pattern(expr: &Expr) -> bool {
     {
         let cond = &conditions[0].condition;
         if let Expr::IsNull(tested) = cond {
-            // Check that else_result == tested expression
             let tested_str = format!("{}", tested);
             let else_str = format!("{}", else_expr);
             return tested_str == else_str;
@@ -118,10 +110,6 @@ fn is_coalesce_pattern(expr: &Expr) -> bool {
     }
     false
 }
-
-// ---------------------------------------------------------------------------
-// SC-T03: PreferCountStar
-// ---------------------------------------------------------------------------
 
 pub struct PreferCountStar;
 
@@ -167,10 +155,6 @@ impl LintRule for PreferCountStar {
         violations
     }
 }
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 fn walk_exprs(stmt: &Statement, visitor: &mut dyn FnMut(&Expr)) {
     if let Statement::Query(q) = stmt {
@@ -263,10 +247,6 @@ fn walk_expr(expr: &Expr, visitor: &mut dyn FnMut(&Expr)) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -298,8 +278,6 @@ mod tests {
         }
     }
 
-    // SC-T01
-
     #[test]
     fn implicit_join_fires() {
         let cat = make_catalog();
@@ -325,8 +303,6 @@ mod tests {
         let v = PreferExplicitJoin.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // SC-T02
 
     #[test]
     fn case_is_null_pattern_fires() {
@@ -354,8 +330,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // SC-T03
-
     #[test]
     fn count_1_fires() {
         let cat = make_catalog();
@@ -375,8 +349,6 @@ mod tests {
         let v = PreferCountStar.check_query(&ctx);
         assert!(v.is_empty());
     }
-
-    // --- Additional SC-T01 tests ---
 
     #[test]
     fn implicit_join_three_tables_fires() {
@@ -406,8 +378,6 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    // --- Additional SC-T02 tests ---
-
     #[test]
     fn case_is_not_null_pattern_clean() {
         let cat = make_catalog();
@@ -418,7 +388,6 @@ mod tests {
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferCoalesceOverCase.check_query(&ctx);
-        // IS NOT NULL is not the same pattern as IS NULL, so should not fire
         assert!(v.is_empty());
     }
 
@@ -445,11 +414,8 @@ mod tests {
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferCoalesceOverCase.check_query(&ctx);
-        // Inner CASE matches the coalesce pattern, outer does not
         assert_eq!(v.len(), 1);
     }
-
-    // --- Additional SC-T03 tests ---
 
     #[test]
     fn count_column_name_clean() {
@@ -459,7 +425,6 @@ mod tests {
         let a = analyzer::analyze(&cat, &q).unwrap();
         let ctx = make_ctx(&q, &a, &cat);
         let v = PreferCountStar.check_query(&ctx);
-        // COUNT(column_name) has different semantics (excludes NULLs), should NOT fire
         assert!(v.is_empty());
     }
 

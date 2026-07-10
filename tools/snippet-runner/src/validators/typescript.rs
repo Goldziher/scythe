@@ -38,7 +38,6 @@ impl TypeScriptValidator {
         let trimmed = code.trim();
         let lines: Vec<&str> = trimmed.lines().collect();
 
-        // Short snippets that are just function signatures without bodies
         if lines.len() <= 6 {
             let has_fn_decl = trimmed.starts_with("function ")
                 || trimmed.starts_with("async function ")
@@ -69,12 +68,10 @@ impl SnippetValidator for TypeScriptValidator {
         level: ValidationLevel,
         timeout_secs: u64,
     ) -> Result<(SnippetStatus, Option<String>)> {
-        // Skip bare function signatures (API docs)
         if Self::is_api_signature(&snippet.code) {
             return Ok((SnippetStatus::Pass, None));
         }
 
-        // Skip markdown admonitions/content that isn't code
         let trimmed_code = snippet.code.trim();
         if trimmed_code.starts_with("!!!") || trimmed_code.starts_with("???") {
             return Ok((SnippetStatus::Pass, None));
@@ -82,7 +79,6 @@ impl SnippetValidator for TypeScriptValidator {
 
         let dir = TempDir::new()?;
 
-        // Write tsconfig.json for type checking
         let tsconfig = r#"{
   "compilerOptions": {
     "strict": true,
@@ -96,7 +92,6 @@ impl SnippetValidator for TypeScriptValidator {
 }"#;
         std::fs::write(dir.path().join("tsconfig.json"), tsconfig)?;
 
-        // Dedent indented snippets (from markdown indentation)
         let code = Self::dedent(&snippet.code);
         let file_path = dir.path().join("snippet.ts");
         let mut file = std::fs::File::create(&file_path)?;
@@ -130,35 +125,9 @@ impl SnippetValidator for TypeScriptValidator {
 
     fn is_dependency_error(&self, output: &str) -> bool {
         let dep_patterns = [
-            "TS2307",  // Cannot find module
-            "TS2304",  // Cannot find name
-            "TS2305",  // has no exported member
-            "TS2306",  // not a module
-            "TS2322",  // Type is not assignable (from unresolved types)
-            "TS2345",  // Argument type not assignable (from unresolved types)
-            "TS2339",  // Property does not exist
-            "TS2351",  // Cannot use 'new'
-            "TS2552",  // Cannot find name, did you mean
-            "TS2314",  // Generic type requires N arguments
-            "TS2391",  // Function implementation is missing
-            "TS2693",  // only refers to a type
-            "TS7016",  // Could not find a declaration file
-            "TS2371",  // Parameter initializer only allowed in function (cascades from bare sig)
-            "TS2580",  // Cannot find name 'module' / 'require'
-            "TS1375",  // 'await' only allowed at top level of module
-            "TS2792",  // Cannot find module (different form)
-            "TS2503",  // Cannot find namespace
-            "TS7006",  // Parameter implicitly has an 'any' type
-            "TS2769",  // No overload matches this call
-            "TS1128",  // Declaration or statement expected (bare static methods)
-            "TS1005",  // ',' expected (partial expressions from signatures)
-            "TS18046", // is of type 'unknown' (cascading from missing types)
-            "TS18047", // is possibly 'null' (strict null checks)
-            "TS2531",  // Object is possibly 'null'
-            "TS2532",  // Object is possibly 'undefined'
-            "TS2451",  // Cannot redeclare block-scoped variable
-            "TS2591",  // Cannot find name (needs @types/node for fs, process, module, etc.)
-            "TS2390",  // Constructor implementation is missing (bare class signatures)
+            "TS2307", "TS2304", "TS2305", "TS2306", "TS2322", "TS2345", "TS2339", "TS2351", "TS2552", "TS2314",
+            "TS2391", "TS2693", "TS7016", "TS2371", "TS2580", "TS1375", "TS2792", "TS2503", "TS7006", "TS2769",
+            "TS1128", "TS1005", "TS18046", "TS18047", "TS2531", "TS2532", "TS2451", "TS2591", "TS2390",
         ];
 
         let error_lines: Vec<&str> = output.lines().filter(|l| l.contains("error TS")).collect();

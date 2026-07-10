@@ -17,10 +17,6 @@ use std::fs;
 use assert_cmd::Command;
 use tempfile::TempDir;
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
 /// Spawn `scythe lint --config <path>` with a clean environment: both
 /// `DATABASE_URL` and `SCYTHE_DATABASE_URL` removed from the child's env.
 /// Returns the `assert_cmd::assert::Assert` for further assertions.
@@ -38,8 +34,6 @@ fn scythe_lint_no_db(config_path: &str) -> assert_cmd::assert::Assert {
 ///
 /// Returns the `TempDir` that owns the files (must be kept alive).
 fn write_benign_fixture(dir: &TempDir) -> String {
-    // A simple SELECT with no violations: no GRANT ALL, no unbounded LIKE,
-    // no cartesian join, no security issues.
     let sql_content = "-- @name GetUser\nSELECT id, name FROM users WHERE id = $1;\n";
     let schema_content = "CREATE TABLE users (id bigint PRIMARY KEY, name text NOT NULL);\n";
 
@@ -95,10 +89,6 @@ database_url = "{database_url}"
     config_path.to_string_lossy().into_owned()
 }
 
-// ---------------------------------------------------------------------------
-// Test 1 (no DB gate): scythe lint without any DB URL emits zero inspect findings
-// ---------------------------------------------------------------------------
-
 /// When neither `DATABASE_URL` nor `SCYTHE_DATABASE_URL` is set, and the
 /// `scythe.toml` has no `[inspect].database_url`, `scythe lint` must:
 /// - Exit 0 (no violations in the benign fixture).
@@ -115,19 +105,16 @@ fn lint_without_db_url_emits_zero_inspect_findings() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let stdout = String::from_utf8_lossy(&output.stdout);
 
-    // Exit 0: benign fixture has no violations.
     assert!(
         output.status.success(),
         "lint on a clean fixture must exit 0; stderr: {stderr}"
     );
 
-    // Must print the v0.10 "no violations" message — byte-level check.
     assert!(
         stderr.contains("No lint violations found."),
         "expected 'No lint violations found.' on stderr; got: {stderr}"
     );
 
-    // No inspect source tag anywhere.
     for line in stderr.lines().chain(stdout.lines()) {
         assert!(
             !line.contains("[inspect]"),
@@ -139,10 +126,6 @@ fn lint_without_db_url_emits_zero_inspect_findings() {
         );
     }
 }
-
-// ---------------------------------------------------------------------------
-// Test 2 (live gate): scythe lint with [inspect].database_url emits inspect findings
-// ---------------------------------------------------------------------------
 
 /// When `scythe.toml` contains `[inspect].database_url` pointing at a live PG
 /// with a table missing a primary key (SC-INS04), `scythe lint` must emit a
@@ -159,7 +142,6 @@ fn lint_with_db_url_emits_inspect_findings() {
         }
     };
 
-    // Seed a table without a primary key in a unique schema so we can clean up.
     let schema_name = "lint_integ_test_t2";
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
@@ -187,8 +169,6 @@ fn lint_with_db_url_emits_inspect_findings() {
     let dir = TempDir::new().expect("tempdir");
     let config_path = write_fixture_with_inspect_url(&dir, &url);
 
-    // Run lint with DATABASE_URL and SCYTHE_DATABASE_URL removed so the ONLY
-    // URL source is [inspect].database_url in the config.
     let output = Command::cargo_bin("scythe")
         .expect("scythe binary")
         .args(["lint", "--config", &config_path])
@@ -199,7 +179,6 @@ fn lint_with_db_url_emits_inspect_findings() {
 
     let stderr = String::from_utf8_lossy(&output.stderr);
 
-    // Cleanup before asserting so we don't leak the schema on failure.
     rt.block_on(async {
         let (client, conn) = tokio_postgres::connect(&url, tokio_postgres::NoTls)
             .await
@@ -226,10 +205,6 @@ fn lint_with_db_url_emits_inspect_findings() {
         "finding message must reference the seeded schema {schema_name}; stderr: {stderr}"
     );
 }
-
-// ---------------------------------------------------------------------------
-// Test 3 (live gate): scythe lint with DATABASE_URL env var emits inspect findings
-// ---------------------------------------------------------------------------
 
 /// Same as Test 2 but the URL is passed via the `DATABASE_URL` environment
 /// variable rather than `[inspect].database_url` in the config.  Verifies the
@@ -271,7 +246,6 @@ fn lint_with_db_url_via_env_var_emits_inspect_findings() {
             .expect("seed schema");
     });
 
-    // scythe.toml has NO [inspect] section — URL comes only from DATABASE_URL.
     let dir = TempDir::new().expect("tempdir");
     let config_path = write_benign_fixture(&dir);
 
@@ -312,10 +286,6 @@ fn lint_with_db_url_via_env_var_emits_inspect_findings() {
     );
 }
 
-// ---------------------------------------------------------------------------
-// Test 4 (live gate): misconfigured DB URL never fails lint
-// ---------------------------------------------------------------------------
-
 /// When `DATABASE_URL` points at a non-existent host, `scythe lint` must:
 /// - Exit 0 (benign fixture, no lint/audit violations).
 /// - Emit NO `[inspect]` tag (connection was skipped silently after warn).
@@ -325,8 +295,6 @@ fn lint_with_db_url_via_env_var_emits_inspect_findings() {
 /// a proxy for "a live-capable environment").
 #[test]
 fn lint_with_misconfigured_db_url_does_not_fail() {
-    // Only run this when the env var is present so it's grouped with the other
-    // live-capable tests.  The test itself uses a deliberately bad URL.
     if std::env::var("SCYTHE_TEST_DATABASE_URL").is_err() {
         eprintln!("lint_with_misconfigured_db_url_does_not_fail: skipping (SCYTHE_TEST_DATABASE_URL not set)");
         return;
@@ -347,14 +315,11 @@ fn lint_with_misconfigured_db_url_does_not_fail() {
     let stderr = String::from_utf8_lossy(&output.stderr);
     let exit_code = output.status.code();
 
-    // The benign fixture has no violations, so exit must be 0 or 1 (never 2).
-    // A misconfigured DB URL must not push the exit code to 2.
     assert!(
         exit_code != Some(2),
         "misconfigured DB URL must not cause exit 2; exit: {exit_code:?}; stderr: {stderr}"
     );
 
-    // No inspect findings should appear.
     for line in stderr.lines() {
         assert!(
             !line.contains("[inspect]"),

@@ -115,7 +115,6 @@ impl CodegenBackend for ElixirJamdbBackend {
             )
         };
 
-        // Build @spec
         let param_specs = if params.is_empty() {
             String::new()
         } else {
@@ -123,7 +122,6 @@ impl CodegenBackend for ElixirJamdbBackend {
             format!(", {}", specs.join(", "))
         };
 
-        // Check if this is a DML with RETURNING (INSERT/UPDATE/DELETE RETURNING)
         let has_returning = sql.to_uppercase().contains("RETURNING");
 
         match &analyzed.command {
@@ -190,8 +188,6 @@ impl CodegenBackend for ElixirJamdbBackend {
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 if has_returning {
-                    // Oracle RETURNING INTO requires output bind variables appended to params.
-                    // jamdb_oracle accepts {:out, type} tuples for output slots.
                     let out_type_atoms: Vec<&str> = columns
                         .iter()
                         .map(|col| match col.neutral_type.as_str() {
@@ -203,7 +199,6 @@ impl CodegenBackend for ElixirJamdbBackend {
                         .collect();
                     let out_tuples: Vec<String> = out_type_atoms.iter().map(|t| format!("{{:out, {}}}", t)).collect();
 
-                    // Append INTO :N+1, :N+2, ... placeholders to SQL
                     let into_placeholders: Vec<String> = (0..columns.len())
                         .map(|i| format!(":{}", params.len() + i + 1))
                         .collect();
@@ -366,7 +361,6 @@ impl CodegenBackend for ElixirJamdbBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        // Child struct — defined first so the parent's @type can reference it.
         let _ = writeln!(out, "defmodule {} do", child_struct_name);
         let _ = writeln!(out, "  @moduledoc \"Child row type for grouped query.\"");
         let _ = writeln!(out);
@@ -385,7 +379,6 @@ impl CodegenBackend for ElixirJamdbBackend {
         let _ = writeln!(out, "end");
         let _ = writeln!(out);
 
-        // Parent struct — all parent columns plus a `children` list.
         let _ = writeln!(out, "defmodule {} do", parent_struct_name);
         let _ = writeln!(out, "  @moduledoc \"Parent row type for grouped query.\"");
         let _ = writeln!(out);
@@ -420,7 +413,6 @@ impl CodegenBackend for ElixirJamdbBackend {
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let key_field = to_snake_case(key_column);
-        // Oracle uses :N positional placeholders
         let sql = super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
@@ -613,7 +605,6 @@ mod tests {
             row_struct.contains("children: [GetUsersWithOrdersChildRow.t()]"),
             "parent struct missing children field; got:\n{row_struct}"
         );
-        // Child must appear before parent.
         let child_pos = row_struct.find("GetUsersWithOrdersChildRow do").unwrap();
         let parent_pos = row_struct.find("GetUsersWithOrdersRow do").unwrap();
         assert!(child_pos < parent_pos, "child struct must appear before parent struct");
