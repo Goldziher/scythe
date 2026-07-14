@@ -881,11 +881,27 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
 
       - run: pip install uv
+      - run: npm install -g pnpm@10
 
       - name: Test python-snowflake
         working-directory: integration_tests/python-snowflake
         env:
           SNOWFLAKE_USE_FAKESNOW: "1"
         run: uv run python test_integration.py
+
+      - name: Test typescript-snowflake
+        working-directory: integration_tests/typescript-snowflake
+        env:
+          SNOWFLAKE_URL: snowflake://fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http
+        run: |
+          uv run fakesnow_server.py &
+          fakesnow_pid=$!
+          trap 'kill "$fakesnow_pid"' EXIT
+          curl --retry 30 --retry-all-errors --retry-delay 1 --silent --output /dev/null http://127.0.0.1:64616/
+          pnpm install --frozen-lockfile
+          pnpm exec tsx test.ts

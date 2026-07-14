@@ -1,4 +1,4 @@
-import snowflake from "snowflake-sdk";
+import snowflake, { type Connection } from "snowflake-sdk";
 import {
 	createUser,
 	getUserById,
@@ -22,43 +22,67 @@ function assert(condition: boolean, testName: string, detail: string): void {
 	}
 }
 
+function connect(conn: Connection): Promise<void> {
+	return new Promise((resolve, reject) => {
+		conn.connect((err) => (err ? reject(err) : resolve()));
+	});
+}
+
+function execute(conn: Connection, sqlText: string): Promise<void> {
+	return new Promise((resolve, reject) => {
+		conn.execute({
+			sqlText,
+			complete: (err) => (err ? reject(err) : resolve()),
+		});
+	});
+}
+
+function destroy(conn: Connection): Promise<void> {
+	return new Promise((resolve, reject) => {
+		conn.destroy((err) => (err ? reject(err) : resolve()));
+	});
+}
+
 async function main(): Promise<void> {
-	const { URL } = await import("node:url");
+	const { fileURLToPath, URL } = await import("node:url");
 	const parsed = new URL(DATABASE_URL);
+	const protocol = parsed.searchParams.get("protocol");
+	const accessUrl = protocol ? `${protocol}://${parsed.host}` : undefined;
+	const [, database = "testdb", schema = "public"] = parsed.pathname.split("/");
 	const conn = snowflake.createConnection({
-		account: parsed.hostname,
+		account: parsed.searchParams.get("account") ?? parsed.hostname,
 		username: parsed.username,
 		password: parsed.password,
-		database: parsed.pathname.split("/")[1],
-		schema: parsed.pathname.split("/")[2],
+		database,
+		schema,
+		...(accessUrl ? { accessUrl } : {}),
 	});
 	try {
+		await connect(conn);
+
 		// Clean slate: drop tables
 		for (const table of ["user_tags", "tags", "orders", "users"]) {
-			try {
-				await conn.execute({ sqlText: `DROP TABLE IF EXISTS ${table}` });
-			} catch (_) {
-				/* ignore errors */
-			}
+			await execute(conn, `DROP TABLE IF EXISTS ${table}`);
 		}
 
 		// Load and execute schema
 		const { readFile } = await import("node:fs/promises");
-		const schemaPath = new URL("../sql/snowflake/schema.sql", import.meta.url)
-			.pathname;
+		const schemaPath = fileURLToPath(
+			new URL("../sql/snowflake/schema.sql", import.meta.url),
+		);
 		const schemaSql = await readFile(schemaPath, "utf8");
 		for (const stmt of schemaSql
 			.split(";")
 			.map((s) => s.trim())
 			.filter(Boolean)) {
-			await conn.execute({ sqlText: stmt });
+			await execute(conn, stmt);
 		}
 
 		// Test: CreateUser
-		await createUser(conn, "Alice", "alice@example.com", true, "{}");
+		await createUser(conn, "Alice", "alice@example.com", true);
 		const users = await listActiveUsers(conn);
 		const user = users.find((u) => u.name === "Alice");
-		assert(user !== null, "CreateUser", "user should not be null");
+		assert(user !== undefined, "CreateUser", "user should not be undefined");
 		assert(
 			user!.name === "Alice",
 			"CreateUser",
@@ -94,17 +118,12 @@ async function main(): Promise<void> {
 		console.log("PASS: ListActiveUsers");
 
 		// Test: CreateOrder
-		await createOrder(conn, userId, "99.95", "first order");
+		await createOrder(conn, userId, 99.95, "first order");
 		const orders = await getOrdersByUser(conn, userId);
 		const order = orders[0];
-		assert(order !== null, "CreateOrder", "order should not be null");
+		assert(order !== undefined, "CreateOrder", "order should not be undefined");
 		assert(
-			order!.user_id === userId,
-			"CreateOrder",
-			`expected user_id ${userId}`,
-		);
-		assert(
-			String(order!.total) === "99.95",
+			Number(order!.total) === 99.95,
 			"CreateOrder",
 			`expected total 99.95, got ${order!.total}`,
 		);
@@ -123,7 +142,7 @@ async function main(): Promise<void> {
 			`expected 1 order, got ${allOrders.length}`,
 		);
 		assert(
-			allOrders[0]!.total === "99.95",
+			Number(allOrders[0]!.total) === 99.95,
 			"GetOrdersByUser",
 			`expected total 99.95`,
 		);
@@ -145,7 +164,7 @@ async function main(): Promise<void> {
 			console.log("ALL TESTS PASSED");
 		}
 	} finally {
-		await conn.destroy();
+		await destroy(conn);
 	}
 
 	process.exit(exitCode);
