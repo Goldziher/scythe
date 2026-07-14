@@ -2,6 +2,12 @@
 
 import type { Connection } from "snowflake-sdk";
 
+function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
+	return Object.fromEntries(
+		Object.entries(row).map(([key, value]) => [key.toLowerCase(), value]),
+	);
+}
+
 /** Execute a query returning no rows. */
 export async function createOrder(
 	conn: Connection,
@@ -12,7 +18,7 @@ export async function createOrder(
 	await new Promise<void>((resolve, reject) => {
 		conn.execute({
 			sqlText: `INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)`,
-			binds: [[user_id, total, notes]],
+			binds: [user_id, total, notes] as any[],
 			complete: (err) => (err ? reject(err) : resolve()),
 		});
 	});
@@ -34,10 +40,10 @@ export async function getOrdersByUser(
 	const rows = await new Promise<any[]>((resolve, reject) => {
 		conn.execute({
 			sqlText: `SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC`,
-			binds: [[user_id]],
+			binds: [user_id] as any[],
 			complete: (err, _stmt, rows) => {
 				if (err) reject(err);
-				else resolve(rows ?? []);
+				else resolve((rows ?? []).map(normalizeRow));
 			},
 		});
 	});
@@ -57,10 +63,10 @@ export async function getOrderTotal(
 	const rows = await new Promise<any[]>((resolve, reject) => {
 		conn.execute({
 			sqlText: `SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`,
-			binds: [[user_id]],
+			binds: [user_id] as any[],
 			complete: (err, _stmt, rows) => {
 				if (err) reject(err);
-				else resolve(rows ?? []);
+				else resolve((rows ?? []).map(normalizeRow));
 			},
 		});
 	});
@@ -75,7 +81,7 @@ export async function deleteOrdersByUser(
 	const count = await new Promise<number>((resolve, reject) => {
 		conn.execute({
 			sqlText: `DELETE FROM orders WHERE id IN (SELECT id FROM orders WHERE user_id = ?)`,
-			binds: [[user_id]],
+			binds: [user_id] as any[],
 			complete: (err, stmt) => {
 				if (err) reject(err);
 				else resolve(stmt?.getNumUpdatedRows() ?? 0);
@@ -104,10 +110,10 @@ export async function getUserById(
 	const rows = await new Promise<any[]>((resolve, reject) => {
 		conn.execute({
 			sqlText: `SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?`,
-			binds: [[id]],
+			binds: [id] as any[],
 			complete: (err, _stmt, rows) => {
 				if (err) reject(err);
-				else resolve(rows ?? []);
+				else resolve((rows ?? []).map(normalizeRow));
 			},
 		});
 	});
@@ -128,10 +134,10 @@ export async function listActiveUsers(
 	const rows = await new Promise<any[]>((resolve, reject) => {
 		conn.execute({
 			sqlText: `SELECT id, name, email FROM users WHERE active = TRUE`,
-			binds: [],
+			binds: [] as any[],
 			complete: (err, _stmt, rows) => {
 				if (err) reject(err);
-				else resolve(rows ?? []);
+				else resolve((rows ?? []).map(normalizeRow));
 			},
 		});
 	});
@@ -148,7 +154,7 @@ export async function createUser(
 	await new Promise<void>((resolve, reject) => {
 		conn.execute({
 			sqlText: `INSERT INTO users (name, email, active) VALUES (?, ?, ?)`,
-			binds: [[name, email, active]],
+			binds: [name, email, active] as any[],
 			complete: (err) => (err ? reject(err) : resolve()),
 		});
 	});
@@ -163,7 +169,7 @@ export async function updateUserEmail(
 	await new Promise<void>((resolve, reject) => {
 		conn.execute({
 			sqlText: `UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP() WHERE id = ?`,
-			binds: [[email, id]],
+			binds: [email, id] as any[],
 			complete: (err) => (err ? reject(err) : resolve()),
 		});
 	});
@@ -174,7 +180,7 @@ export async function deleteUser(conn: Connection, id: number): Promise<void> {
 	await new Promise<void>((resolve, reject) => {
 		conn.execute({
 			sqlText: `DELETE FROM users WHERE id = ?`,
-			binds: [[id]],
+			binds: [id] as any[],
 			complete: (err) => (err ? reject(err) : resolve()),
 		});
 	});
@@ -195,10 +201,10 @@ export async function searchUsers(
 	const rows = await new Promise<any[]>((resolve, reject) => {
 		conn.execute({
 			sqlText: `SELECT id, name, email FROM users WHERE name LIKE ?`,
-			binds: [[name]],
+			binds: [name] as any[],
 			complete: (err, _stmt, rows) => {
 				if (err) reject(err);
-				else resolve(rows ?? []);
+				else resolve((rows ?? []).map(normalizeRow));
 			},
 		});
 	});
