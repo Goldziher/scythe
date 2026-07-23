@@ -91,7 +91,20 @@ tasks:
       - echo "All crate versions updated to {{.VERSION}}"
 
   update:
-    desc: Update dependencies
+    desc: Update dependencies (workspace + dev tooling + integration tests)
     cmds:
       - cargo upgrade --incompatible
       - cargo update
+      - uv lock --upgrade
+      - task: update:integration
+
+  update:integration:
+    desc: Update lock files in all integration test projects
+    cmds:
+      - for f in integration_tests/*/Cargo.lock; do (cd "${f%/*}" && cargo update); done
+      - for f in integration_tests/*/uv.lock; do (cd "${f%/*}" && uv lock --upgrade); done
+      - for f in integration_tests/*/pnpm-lock.yaml; do (cd "${f%/*}" && pnpm update --lockfile-only); done
+      - for f in integration_tests/*/go.sum; do (cd "${f%/*}" && go get -u ./... && go mod tidy); done
+      - for f in integration_tests/*/Gemfile.lock; do (cd "${f%/*}" && bundle lock --update); done
+      - for f in integration_tests/*/mix.lock; do (cd "${f%/*}" && mix deps.update --all); done
+      - for f in integration_tests/*/composer.lock; do (cd "${f%/*}" && composer update --no-install); done
