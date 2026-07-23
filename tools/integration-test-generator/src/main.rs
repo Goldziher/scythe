@@ -113,7 +113,10 @@ fn language_outputs(language: &str) -> LanguageOutputs {
             test_filename: "test.ts",
             dep_template: "package.json.jinja".into(),
             dep_filename: "package.json",
-            extra: vec![("tsconfig.json.jinja", "tsconfig.json")],
+            extra: vec![
+                ("tsconfig.json.jinja", "tsconfig.json"),
+                ("pnpm-workspace.yaml.jinja", "pnpm-workspace.yaml"),
+            ],
         },
         "go" => LanguageOutputs {
             test_template: "go.go.jinja".into(),
