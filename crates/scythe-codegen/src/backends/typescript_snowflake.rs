@@ -9,8 +9,8 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_zod_grouped_structs,
-    generate_zod_row_struct, TsRowType,
+    TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_zod_grouped_structs,
+    generate_zod_row_struct,
 };
 use crate::singularize;
 
@@ -130,8 +130,6 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
         };
 
         let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
-        // snowflake-sdk's Bind type excludes runtime-supported values such as
-        // null and boolean, so generated scalar binds need a narrow escape hatch.
         let binds = format!("[{}] as any[]", args.join(", "));
 
         let emit_execute = |out: &mut String, sql: &str, binds: &str, result_var: &str| {

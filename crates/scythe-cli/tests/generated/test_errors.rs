@@ -15,7 +15,8 @@ fn test_ambiguous_column() {
         "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC(10,2) NOT NULL);",
     ];
 
-    let query_sql = "-- @name GetAmbiguous\n-- @returns :many\nSELECT id FROM users u JOIN orders o ON u.id = o.user_id;";
+    let query_sql =
+        "-- @name GetAmbiguous\n-- @returns :many\nSELECT id FROM users u JOIN orders o ON u.id = o.user_id;";
 
     let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
     if let Ok(catalog) = catalog_result {
@@ -77,10 +78,10 @@ fn test_ambiguous_column() {
 fn test_error_circular_cte() {
     // From: testing_data/errors/circular_cte/01_circular_cte.json
     // "Recursive CTE with no proper base case should produce an error"
-    let schema_sql =
-        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
-    let query_sql = "-- @name CircularCte\n-- @returns :many\nWITH RECURSIVE inf AS (SELECT * FROM inf) SELECT * FROM inf";
+    let query_sql =
+        "-- @name CircularCte\n-- @returns :many\nWITH RECURSIVE inf AS (SELECT * FROM inf) SELECT * FROM inf";
 
     let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
     if let Ok(catalog) = catalog_result {
@@ -142,11 +143,9 @@ fn test_error_circular_cte() {
 fn test_error_duplicate_column_alias() {
     // From: testing_data/errors/duplicate_column_alias/01_duplicate_alias.json
     // "Duplicate column aliases in SELECT should produce an error"
-    let schema_sql =
-        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
-    let query_sql =
-        "-- @name DuplicateAlias\n-- @returns :many\nSELECT id AS x, name AS x FROM users";
+    let query_sql = "-- @name DuplicateAlias\n-- @returns :many\nSELECT id AS x, name AS x FROM users";
 
     let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
     if let Ok(catalog) = catalog_result {
@@ -400,10 +399,10 @@ fn test_missing_returns_annotation() {
 fn test_error_union_column_mismatch() {
     // From: testing_data/errors/invalid_union/01_column_count_mismatch.json
     // "UNION with different column counts should produce an error"
-    let schema_sql =
-        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
-    let query_sql = "-- @name UnionMismatch\n-- @returns :many\nSELECT id, name, email FROM users UNION SELECT id, name FROM users";
+    let query_sql =
+        "-- @name UnionMismatch\n-- @returns :many\nSELECT id, name, email FROM users UNION SELECT id, name FROM users";
 
     let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
     if let Ok(catalog) = catalog_result {
@@ -533,8 +532,7 @@ fn test_type_mismatch() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT NOW());",
     ];
 
-    let query_sql =
-        "-- @name GetTypeMismatch\n-- @returns :many\nSELECT id, name FROM users WHERE id = name;";
+    let query_sql = "-- @name GetTypeMismatch\n-- @returns :many\nSELECT id, name FROM users WHERE id = name;";
 
     let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
     if let Ok(catalog) = catalog_result {
@@ -596,8 +594,7 @@ fn test_type_mismatch() {
 fn test_unknown_column() {
     // From: testing_data/errors/unknown_column/01_unknown_column.json
     // "Reference a nonexistent column in SELECT, expecting an error"
-    let schema_sql =
-        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
     let query_sql = "-- @name GetNonexistent\n-- @returns :many\nSELECT nonexistent FROM users;";
 
@@ -661,8 +658,7 @@ fn test_unknown_column() {
 fn test_error_unknown_function() {
     // From: testing_data/errors/unknown_function/01_unknown_function.json
     // "Calling a nonexistent function should produce an error"
-    let schema_sql =
-        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
 
     let query_sql = "-- @name UnknownFunc\n-- @returns :many\nSELECT id, nonexistent_func(name) AS result FROM users";
 

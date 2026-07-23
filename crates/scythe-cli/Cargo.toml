@@ -35,7 +35,7 @@ tracing = "0.1"
 
 [dev-dependencies]
 assert_cmd = "2"
-syn = { version = "2", features = ["full", "parsing"] }
+syn = { version = "3", features = ["full", "parsing"] }
 tempfile = "3"
 tokio = { version = "1", features = ["rt", "macros"] }
 tokio-postgres = "0.7"

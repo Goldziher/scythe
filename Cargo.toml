@@ -1,14 +1,14 @@
 [workspace]
 resolver = "3"
 members = [
-    "crates/scythe-backend",
-    "crates/scythe-cli",
-    "crates/scythe-codegen",
-    "crates/scythe-core",
-    "crates/scythe-inspect",
-    "crates/scythe-lint",
-    "tools/integration-test-generator",
-    "tools/migrate-fixtures",
-    "tools/snippet-runner",
-    "tools/test-generator",
+  "crates/scythe-backend",
+  "crates/scythe-cli",
+  "crates/scythe-codegen",
+  "crates/scythe-core",
+  "crates/scythe-inspect",
+  "crates/scythe-lint",
+  "tools/integration-test-generator",
+  "tools/migrate-fixtures",
+  "tools/snippet-runner",
+  "tools/test-generator",
 ]

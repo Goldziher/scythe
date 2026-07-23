@@ -7,7 +7,6 @@ Prerequisites:
 - Rust (latest stable)
 - [Task](https://taskfile.dev/) runner
 - Docker (for integration tests only)
-- [prek](https://github.com/Goldziher/prek) (pre-commit hook manager)
 
 ```bash
 git clone https://github.com/Goldziher/scythe.git

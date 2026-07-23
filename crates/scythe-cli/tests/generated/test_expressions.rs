@@ -28,10 +28,7 @@ fn test_case_numeric_branches() {
         analyzed.columns[0].neutral_type, "int32",
         "column neutral_type for adjusted"
     );
-    assert!(
-        !analyzed.columns[0].nullable,
-        "column nullable for adjusted"
-    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for adjusted");
 
     // Codegen verification: all backends should produce valid output
     let all_backends = [
@@ -96,8 +93,7 @@ fn test_case_numeric_branches() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -210,8 +206,7 @@ fn test_case_type_from_branches() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -245,7 +240,8 @@ fn test_cast_preserves_nullability() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];
 
-    let query_sql = "-- @name GetShortBio\n-- @returns :one\nSELECT bio::varchar(100) AS short_bio FROM users WHERE id = $1";
+    let query_sql =
+        "-- @name GetShortBio\n-- @returns :one\nSELECT bio::varchar(100) AS short_bio FROM users WHERE id = $1";
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
@@ -255,10 +251,7 @@ fn test_cast_preserves_nullability() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(
-        analyzed.params[0].neutral_type, "int32",
-        "param neutral_type for id"
-    );
+    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
     assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 1, "column count");
@@ -267,10 +260,7 @@ fn test_cast_preserves_nullability() {
         analyzed.columns[0].neutral_type, "string",
         "column neutral_type for short_bio"
     );
-    assert!(
-        analyzed.columns[0].nullable,
-        "column nullable for short_bio"
-    );
+    assert!(analyzed.columns[0].nullable, "column nullable for short_bio");
 
     // Codegen verification: all backends should produce valid output
     let all_backends = [
@@ -335,8 +325,7 @@ fn test_cast_preserves_nullability() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -380,10 +369,7 @@ fn test_cast_text() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(
-        analyzed.params[0].neutral_type, "int32",
-        "param neutral_type for id"
-    );
+    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
     assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 1, "column count");
@@ -457,8 +443,7 @@ fn test_cast_text() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -502,10 +487,7 @@ fn test_explicit_cast() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(
-        analyzed.params[0].neutral_type, "int32",
-        "param neutral_type for id"
-    );
+    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
     assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 1, "column count");
@@ -579,8 +561,7 @@ fn test_explicit_cast() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -625,10 +606,7 @@ fn test_cast_composite_field_access() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "street", "column name");
     assert_eq!(
@@ -706,8 +684,7 @@ fn test_cast_composite_field_access() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -751,10 +728,7 @@ fn test_cast_pg_double_colon() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "big_id", "column name");
     assert_eq!(
@@ -767,10 +741,7 @@ fn test_cast_pg_double_colon() {
         analyzed.columns[2].neutral_type, "string",
         "column neutral_type for short_name"
     );
-    assert!(
-        !analyzed.columns[2].nullable,
-        "column nullable for short_name"
-    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for short_name");
 
     // Codegen verification: all backends should produce valid output
     let all_backends = [
@@ -835,8 +806,7 @@ fn test_cast_pg_double_colon() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -871,7 +841,8 @@ fn test_cast_union_type_widening() {
         "CREATE TABLE big_nums (val BIGINT NOT NULL);",
     ];
 
-    let query_sql = "-- @name GetAllNums\n-- @returns :many\nSELECT val FROM small_nums UNION ALL SELECT val FROM big_nums";
+    let query_sql =
+        "-- @name GetAllNums\n-- @returns :many\nSELECT val FROM small_nums UNION ALL SELECT val FROM big_nums";
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
@@ -881,10 +852,7 @@ fn test_cast_union_type_widening() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "val", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int64",
-        "column neutral_type for val"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int64", "column neutral_type for val");
     assert!(!analyzed.columns[0].nullable, "column nullable for val");
 
     // Codegen verification: all backends should produce valid output
@@ -950,8 +918,7 @@ fn test_cast_union_type_widening() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -995,10 +962,7 @@ fn test_coalesce_preserves_type() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(
-        analyzed.params[0].neutral_type, "int32",
-        "param neutral_type for id"
-    );
+    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
     assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 1, "column count");
@@ -1072,8 +1036,7 @@ fn test_coalesce_preserves_type() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -1117,18 +1080,12 @@ fn test_coalesce_type_inference() {
     assert_eq!(analyzed.command.to_string(), "one", "query command");
     assert_eq!(analyzed.params.len(), 1, "param count");
     assert_eq!(analyzed.params[0].name, "id", "param name");
-    assert_eq!(
-        analyzed.params[0].neutral_type, "int32",
-        "param neutral_type for id"
-    );
+    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
     assert!(!analyzed.params[0].nullable, "param nullable for id");
     assert_eq!(analyzed.params[0].position, 1, "param position for id");
     assert_eq!(analyzed.columns.len(), 1, "column count");
     assert_eq!(analyzed.columns[0].name, "age", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for age"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for age");
     assert!(!analyzed.columns[0].nullable, "column nullable for age");
 
     // Codegen verification: all backends should produce valid output
@@ -1194,8 +1151,7 @@ fn test_coalesce_type_inference() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -1225,11 +1181,11 @@ fn test_coalesce_type_inference() {
 fn test_date_age_interval() {
     // From: testing_data/expressions/date_functions/04_age_interval.json
     // "AGE function returns PgInterval, non-nullable when both arguments are non-null"
-    let schema_sql = &[
-        "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"];
 
-    let query_sql = "-- @name AgeInterval\n-- @returns :many\nSELECT id, AGE(NOW(), occurred_at) AS elapsed FROM events";
+    let query_sql =
+        "-- @name AgeInterval\n-- @returns :many\nSELECT id, AGE(NOW(), occurred_at) AS elapsed FROM events";
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
@@ -1239,10 +1195,7 @@ fn test_date_age_interval() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "elapsed", "column name");
     assert_eq!(
@@ -1314,8 +1267,7 @@ fn test_date_age_interval() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -1345,9 +1297,8 @@ fn test_date_age_interval() {
 fn test_date_current_functions() {
     // From: testing_data/expressions/date_functions/01_current_date_timestamp.json
     // "CURRENT_DATE, CURRENT_TIMESTAMP, and NOW() return non-nullable date/time values"
-    let schema_sql = &[
-        "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"];
 
     let query_sql = "-- @name CurrentDateTimestamp\n-- @returns :one\nSELECT CURRENT_DATE AS today, CURRENT_TIMESTAMP AS now_ts, NOW() AS now_fn";
 
@@ -1440,8 +1391,7 @@ fn test_date_current_functions() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -1471,9 +1421,8 @@ fn test_date_current_functions() {
 fn test_date_extract() {
     // From: testing_data/expressions/date_functions/02_extract.json
     // "EXTRACT returns double precision (f64) for year and month parts"
-    let schema_sql = &[
-        "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"];
 
     let query_sql = "-- @name ExtractDateParts\n-- @returns :many\nSELECT id, EXTRACT(YEAR FROM occurred_at) AS yr, EXTRACT(MONTH FROM occurred_at) AS mo FROM events";
 
@@ -1485,10 +1434,7 @@ fn test_date_extract() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "yr", "column name");
     assert_eq!(
@@ -1566,8 +1512,7 @@ fn test_date_extract() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -1597,9 +1542,8 @@ fn test_date_extract() {
 fn test_date_trunc() {
     // From: testing_data/expressions/date_functions/03_date_trunc.json
     // "DATE_TRUNC preserves the timezone type of the input timestamp"
-    let schema_sql = &[
-        "CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE events (id SERIAL PRIMARY KEY, name TEXT NOT NULL, occurred_at TIMESTAMPTZ NOT NULL);"];
 
     let query_sql = "-- @name DateTruncMonth\n-- @returns :many\nSELECT id, DATE_TRUNC('month', occurred_at) AS month_start FROM events";
 
@@ -1611,20 +1555,14 @@ fn test_date_trunc() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "month_start", "column name");
     assert_eq!(
         analyzed.columns[1].neutral_type, "datetime_tz",
         "column neutral_type for month_start"
     );
-    assert!(
-        !analyzed.columns[1].nullable,
-        "column nullable for month_start"
-    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for month_start");
 
     // Codegen verification: all backends should produce valid output
     let all_backends = [
@@ -1689,8 +1627,7 @@ fn test_date_trunc() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -1734,10 +1671,7 @@ fn test_math_abs_ceil_floor() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 4, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "abs_qty", "column name");
     assert_eq!(
@@ -1750,19 +1684,13 @@ fn test_math_abs_ceil_floor() {
         analyzed.columns[2].neutral_type, "float64",
         "column neutral_type for ceil_val"
     );
-    assert!(
-        !analyzed.columns[2].nullable,
-        "column nullable for ceil_val"
-    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for ceil_val");
     assert_eq!(analyzed.columns[3].name, "floor_val", "column name");
     assert_eq!(
         analyzed.columns[3].neutral_type, "float64",
         "column neutral_type for floor_val"
     );
-    assert!(
-        !analyzed.columns[3].nullable,
-        "column nullable for floor_val"
-    );
+    assert!(!analyzed.columns[3].nullable, "column nullable for floor_val");
 
     // Codegen verification: all backends should produce valid output
     let all_backends = [
@@ -1827,8 +1755,7 @@ fn test_math_abs_ceil_floor() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -1872,10 +1799,7 @@ fn test_math_power_sqrt() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "squared", "column name");
     assert_eq!(
@@ -1953,8 +1877,7 @@ fn test_math_power_sqrt() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -1988,7 +1911,8 @@ fn test_math_round() {
         "CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION NOT NULL, quantity INTEGER NOT NULL);",
     ];
 
-    let query_sql = "-- @name RoundValue\n-- @returns :many\nSELECT id, ROUND(value::numeric, 2) AS rounded FROM measurements";
+    let query_sql =
+        "-- @name RoundValue\n-- @returns :many\nSELECT id, ROUND(value::numeric, 2) AS rounded FROM measurements";
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
@@ -1998,10 +1922,7 @@ fn test_math_round() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "rounded", "column name");
     assert_eq!(
@@ -2073,8 +1994,7 @@ fn test_math_round() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -2108,7 +2028,8 @@ fn test_nullif_always_nullable() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];
 
-    let query_sql = "-- @name GetActiveStatus\n-- @returns :many\nSELECT NULLIF(status, 'inactive') AS active_status FROM users";
+    let query_sql =
+        "-- @name GetActiveStatus\n-- @returns :many\nSELECT NULLIF(status, 'inactive') AS active_status FROM users";
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
@@ -2122,10 +2043,7 @@ fn test_nullif_always_nullable() {
         analyzed.columns[0].neutral_type, "string",
         "column neutral_type for active_status"
     );
-    assert!(
-        analyzed.columns[0].nullable,
-        "column nullable for active_status"
-    );
+    assert!(analyzed.columns[0].nullable, "column nullable for active_status");
 
     // Codegen verification: all backends should produce valid output
     let all_backends = [
@@ -2190,8 +2108,7 @@ fn test_nullif_always_nullable() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -2225,8 +2142,7 @@ fn test_nullif_on_non_null() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];
 
-    let query_sql =
-        "-- @name GetNonEmptyName\n-- @returns :many\nSELECT NULLIF(name, '') AS name FROM users";
+    let query_sql = "-- @name GetNonEmptyName\n-- @returns :many\nSELECT NULLIF(name, '') AS name FROM users";
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
@@ -2305,8 +2221,7 @@ fn test_nullif_on_non_null() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -2354,10 +2269,7 @@ fn test_arithmetic() {
         analyzed.columns[0].neutral_type, "int32",
         "column neutral_type for line_total"
     );
-    assert!(
-        !analyzed.columns[0].nullable,
-        "column nullable for line_total"
-    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for line_total");
 
     // Codegen verification: all backends should produce valid output
     let all_backends = [
@@ -2422,8 +2334,7 @@ fn test_arithmetic() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -2536,8 +2447,7 @@ fn test_arithmetic_with_nullable() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -2571,7 +2481,8 @@ fn test_string_concat() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];
 
-    let query_sql = "-- @name GetUserDisplay\n-- @returns :many\nSELECT name || ' <' || email || '>' AS display FROM users";
+    let query_sql =
+        "-- @name GetUserDisplay\n-- @returns :many\nSELECT name || ' <' || email || '>' AS display FROM users";
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
@@ -2650,8 +2561,7 @@ fn test_string_concat() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -2685,7 +2595,8 @@ fn test_like_returns_bool() {
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT, age INTEGER, score NUMERIC, status TEXT NOT NULL DEFAULT 'active', created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];
 
-    let query_sql = "-- @name GetUsersStartingWithA\n-- @returns :many\nSELECT id, name LIKE 'A%' AS starts_with_a FROM users";
+    let query_sql =
+        "-- @name GetUsersStartingWithA\n-- @returns :many\nSELECT id, name LIKE 'A%' AS starts_with_a FROM users";
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
@@ -2695,20 +2606,14 @@ fn test_like_returns_bool() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "starts_with_a", "column name");
     assert_eq!(
         analyzed.columns[1].neutral_type, "bool",
         "column neutral_type for starts_with_a"
     );
-    assert!(
-        !analyzed.columns[1].nullable,
-        "column nullable for starts_with_a"
-    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for starts_with_a");
 
     // Codegen verification: all backends should produce valid output
     let all_backends = [
@@ -2773,8 +2678,7 @@ fn test_like_returns_bool() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -2804,11 +2708,11 @@ fn test_like_returns_bool() {
 fn test_string_concat_function() {
     // From: testing_data/expressions/string_functions/02_concat.json
     // "CONCAT function never returns null, coerces null arguments to empty string"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);"];
 
-    let query_sql = "-- @name ConcatDisplay\n-- @returns :many\nSELECT id, CONCAT(name, ' <', email, '>') AS display FROM users";
+    let query_sql =
+        "-- @name ConcatDisplay\n-- @returns :many\nSELECT id, CONCAT(name, ' <', email, '>') AS display FROM users";
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
@@ -2818,10 +2722,7 @@ fn test_string_concat_function() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "display", "column name");
     assert_eq!(
@@ -2893,8 +2794,7 @@ fn test_string_concat_function() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -2924,9 +2824,8 @@ fn test_string_concat_function() {
 fn test_string_length_trim() {
     // From: testing_data/expressions/string_functions/04_length_trim.json
     // "LENGTH returns i32 and TRIM returns String, both non-nullable on NOT NULL input"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);"];
 
     let query_sql = "-- @name LengthTrimNames\n-- @returns :many\nSELECT id, LENGTH(name) AS name_len, TRIM(name) AS trimmed FROM users";
 
@@ -2938,20 +2837,14 @@ fn test_string_length_trim() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "name_len", "column name");
     assert_eq!(
         analyzed.columns[1].neutral_type, "int32",
         "column neutral_type for name_len"
     );
-    assert!(
-        !analyzed.columns[1].nullable,
-        "column nullable for name_len"
-    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name_len");
     assert_eq!(analyzed.columns[2].name, "trimmed", "column name");
     assert_eq!(
         analyzed.columns[2].neutral_type, "string",
@@ -3022,8 +2915,7 @@ fn test_string_length_trim() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -3053,11 +2945,11 @@ fn test_string_length_trim() {
 fn test_string_substring() {
     // From: testing_data/expressions/string_functions/03_substring.json
     // "SUBSTRING function on a NOT NULL column returns non-nullable String"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);"];
 
-    let query_sql = "-- @name SubstringPrefix\n-- @returns :many\nSELECT id, SUBSTRING(name FROM 1 FOR 3) AS prefix FROM users";
+    let query_sql =
+        "-- @name SubstringPrefix\n-- @returns :many\nSELECT id, SUBSTRING(name FROM 1 FOR 3) AS prefix FROM users";
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
@@ -3067,10 +2959,7 @@ fn test_string_substring() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "prefix", "column name");
     assert_eq!(
@@ -3142,8 +3031,7 @@ fn test_string_substring() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
@@ -3173,9 +3061,8 @@ fn test_string_substring() {
 fn test_string_upper_lower() {
     // From: testing_data/expressions/string_functions/01_upper_lower.json
     // "UPPER and LOWER string functions preserve non-nullability of input"
-    let schema_sql = &[
-        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);",
-    ];
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, bio TEXT);"];
 
     let query_sql = "-- @name UpperLowerNames\n-- @returns :many\nSELECT id, UPPER(name) AS upper_name, LOWER(name) AS lower_name FROM users";
 
@@ -3187,29 +3074,20 @@ fn test_string_upper_lower() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(
-        analyzed.columns[0].neutral_type, "int32",
-        "column neutral_type for id"
-    );
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "upper_name", "column name");
     assert_eq!(
         analyzed.columns[1].neutral_type, "string",
         "column neutral_type for upper_name"
     );
-    assert!(
-        !analyzed.columns[1].nullable,
-        "column nullable for upper_name"
-    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for upper_name");
     assert_eq!(analyzed.columns[2].name, "lower_name", "column name");
     assert_eq!(
         analyzed.columns[2].neutral_type, "string",
         "column neutral_type for lower_name"
     );
-    assert!(
-        !analyzed.columns[2].nullable,
-        "column nullable for lower_name"
-    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for lower_name");
 
     // Codegen verification: all backends should produce valid output
     let all_backends = [
@@ -3274,8 +3152,7 @@ fn test_string_upper_lower() {
                     );
                 } else {
                     // Structural validation for non-Rust backends
-                    let errors =
-                        scythe_codegen::validation::validate_structural(&code, backend_name);
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
                     assert!(
                         errors.is_empty(),
                         "backend {} structural validation failed for {}: {:?}",
