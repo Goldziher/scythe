@@ -1,24 +1,24 @@
 { "name": "scythe-integration-test-{{ driver }}{% if options.row_type %}-{{ options.row_type }}{% endif %}", "version":
 "0.1.0", "private": true, "type": "module", "scripts": { "test": "tsx test.ts" }, "dependencies": {
 {%- if driver == "pg" %}
-  "pg": "^8.13.0"{% if options.row_type == "zod" %}, "zod": "^3.23.0"{% endif %}
+  "pg": "^8.22.0"{% if options.row_type == "zod" %}, "zod": "^3.25.76"{% endif %}
 {%- elif driver == "postgres" %}
-  "postgres": "^3.4.5"
+  "postgres": "^3.4.9"
 {%- elif driver == "mysql2" %}
-  "mysql2": "^3.11.0"
+  "mysql2": "^3.23.1"
 {%- elif driver == "better-sqlite3" %}
-  "better-sqlite3": "^11.0.0"
+  "better-sqlite3": "^11.10.0"
 {%- elif driver == "oracledb" %}
-  "oracledb": "^6.0.0"
+  "oracledb": "^6.10.0"
 {%- elif driver == "mssql" %}
-  "mssql": "^11"
+  "mssql": "^11.0.1"
 {%- elif driver == "snowflake" %}
-  "snowflake-sdk": "^2.0.4"
+  "snowflake-sdk": "^2.4.3"
 {%- endif %}
 }, "devDependencies": {
 {%- if driver == "pg" %}
-  "@types/pg": "^8.11.0",
+  "@types/pg": "^8.20.0",
 {%- elif driver == "better-sqlite3" %}
-  "@types/better-sqlite3": "^7.6.0",
+  "@types/better-sqlite3": "^7.6.13",
 {%- endif %}
-"tsx": "^4.19.0", "typescript": "^5.6.0" } }
+"tsx": "^4.23.1", "typescript": "^5.9.3" } }

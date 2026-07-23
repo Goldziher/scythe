@@ -20,4 +20,4 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "aiosqlite", specifier = ">=0.19" }]
+requires-dist = [{ name = "aiosqlite", specifier = ">=0.20" }]

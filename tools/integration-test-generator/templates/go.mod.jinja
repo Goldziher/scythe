@@ -1,17 +1,20 @@
 module scythe-integration/{{ backend_name }}
 
-go 1.22 require (
+go 1.24.0
+
+require (
 {%- if driver == "pgx" %}
-  github.com/jackc/pgx/v5 v5.7.4 github.com/shopspring/decimal v1.4.0
+  github.com/jackc/pgx/v5 v5.10.0
+  github.com/shopspring/decimal v1.4.0
 {%- elif driver == "database-sql" and engine == "mysql" %}
-  github.com/go-sql-driver/mysql v1.8.1 github.com/shopspring/decimal v1.4.0
+  github.com/go-sql-driver/mysql v1.10.0
 {%- elif driver == "database-sql" and engine == "sqlite" %}
-  github.com/mattn/go-sqlite3 v1.14.24
+  github.com/mattn/go-sqlite3 v1.14.48
 {%- elif driver == "database-sql" and engine == "mssql" %}
-  github.com/microsoft/go-mssqldb v1.8.0
+  github.com/microsoft/go-mssqldb v1.10.0
 {%- elif driver == "database-sql" and engine == "snowflake" %}
-  github.com/snowflakedb/gosnowflake v1.10.1
+  github.com/snowflakedb/gosnowflake v1.19.1
 {%- elif driver == "godror" %}
-  github.com/godror/godror v0.44.2
+  github.com/godror/godror v0.51.0
 {%- endif %}
 )

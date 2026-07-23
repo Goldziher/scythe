@@ -7,12 +7,12 @@
 		"test": "tsx test.ts"
 	},
 	"dependencies": {
-		"pg": "^8.13.0",
-		"zod": "^3.23.0"
+		"pg": "^8.22.0",
+		"zod": "^3.25.76"
 	},
 	"devDependencies": {
-		"@types/pg": "^8.11.0",
-		"tsx": "^4.19.0",
-		"typescript": "^5.6.0"
+		"@types/pg": "^8.20.0",
+		"tsx": "^4.23.1",
+		"typescript": "^5.9.3"
 	}
 }

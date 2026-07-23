@@ -1,8 +1,8 @@
 GEM
   remote: https://rubygems.org/
   specs:
-    bigdecimal (4.1.1)
-    trilogy (2.12.3)
+    bigdecimal (4.1.2)
+    trilogy (2.12.6)
       bigdecimal
 
 PLATFORMS
@@ -13,8 +13,8 @@ DEPENDENCIES
   trilogy
 
 CHECKSUMS
-  bigdecimal (4.1.1) sha256=1c09efab961da45203c8316b0cdaec0ff391dfadb952dd459584b63ebf8054ca
-  trilogy (2.12.3) sha256=1473da7ed7e204121929ba3dfa39c1365161f960fd4fe833a1dde4a61ff66fea
+  bigdecimal (4.1.2) sha256=53d217666027eab4280346fba98e7d5b66baaae1b9c3c1c0ffe89d48188a3fbd
+  trilogy (2.12.6) sha256=2e0f97092150c92fec41acc304c382ad52f5ea98e1eb11073e4f501f80159cf7
 
 BUNDLED WITH
   4.0.7
