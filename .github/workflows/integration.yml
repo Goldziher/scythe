@@ -460,6 +460,7 @@ jobs:
           sudo alien -i oracle-instantclient-basic-*.rpm
           sudo alien -i oracle-instantclient-sqlplus-*.rpm
           sudo alien -i oracle-instantclient-devel-*.rpm
+          sudo ln -sf libclntsh.so.23.1 /usr/lib/oracle/23/client64/lib/libclntsh.so
           echo "/usr/lib/oracle/23/client64/lib" | sudo tee /etc/ld.so.conf.d/oracle.conf
           sudo ldconfig
           export LD_LIBRARY_PATH="/usr/lib/oracle/23/client64/lib:${LD_LIBRARY_PATH:-}"
@@ -496,6 +497,7 @@ jobs:
       - name: Set Oracle library paths
         run: |
           echo "LD_LIBRARY_PATH=/usr/lib/oracle/23/client64/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=-L/usr/lib/oracle/23/client64/lib" >> "$GITHUB_ENV"
           echo "/usr/lib/oracle/23/client64/bin" >> "$GITHUB_PATH"
 
       - name: Test python-oracledb-oracle
