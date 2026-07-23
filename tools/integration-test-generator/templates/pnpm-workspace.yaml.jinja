@@ -1,5 +1,7 @@
 allowBuilds:
 {%- if driver == "better-sqlite3" %}
   better-sqlite3: true
+{%- elif driver == "oracledb" %}
+  oracledb: true
 {%- endif %}
   esbuild: true
