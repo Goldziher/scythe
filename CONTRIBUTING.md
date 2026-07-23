@@ -107,7 +107,7 @@ All 275+ existing fixtures will automatically test the new backend through snaps
 |---|---|
 | `task test` | Unit tests + snapshot tests + fixture-generated tests |
 | `task test:verbose` | Same, with `--nocapture` output |
-| `task lint` | All linters via prek (fmt, clippy, cargo-deny, cargo-machete, etc.) |
+| `task lint` | All linters via poly (fmt, clippy, cargo-deny, cargo-machete, etc.) |
 | `task check` | Lint + test combined |
 | `task snippets:validate` | Validate documentation code snippets at syntax level |
 | `task snippets:validate:compile` | Validate documentation code snippets at compile level |

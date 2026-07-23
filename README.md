@@ -45,7 +45,7 @@ brew install Goldziher/tap/scythe  # uses pre-built binaries for faster install
 
 ## Pre-commit / prek
 
-Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.com/Goldziher/prek) hooks for SQL formatting and linting:
+Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.com/j178/prek) hooks for SQL formatting and linting:
 
 ```yaml
 repos:

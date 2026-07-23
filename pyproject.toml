@@ -5,7 +5,7 @@ description = "Development dependencies for scythe"
 requires-python = ">=3.12"
 
 [dependency-groups]
-dev = ["prek>=0.2.21", "pyproject-fmt>=2.11.1", "ruff>=0.14.8"]
+dev = ["pyproject-fmt>=2.11.1", "ruff>=0.14.8"]
 doc = ["zensical"]
 
 [tool.uv]

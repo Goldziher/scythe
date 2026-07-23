@@ -1,6 +1,6 @@
 # Pre-commit Hooks
 
-Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.com/Goldziher/prek) hooks for SQL formatting, linting, code generation, and validation.
+Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.com/j178/prek) hooks for SQL formatting, linting, code generation, and validation.
 
 ## Setup
 

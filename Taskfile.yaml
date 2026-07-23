@@ -29,14 +29,14 @@ tasks:
       - cargo test --workspace -- --nocapture
 
   lint:
-    desc: Run all linters and formatters via prek
+    desc: Run all linters via poly
     cmds:
-      - prek run --all-files
+      - poly lint .
 
   format:
-    desc: Format all code
+    desc: Format all code via poly
     cmds:
-      - cargo fmt --all
+      - poly fmt --fix .
 
   check:
     desc: Run all checks (lint + test)
@@ -95,4 +95,3 @@ tasks:
     cmds:
       - cargo upgrade --incompatible
       - cargo update
-      - prek autoupdate
