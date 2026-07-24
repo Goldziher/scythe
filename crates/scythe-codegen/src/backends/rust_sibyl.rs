@@ -115,7 +115,10 @@ impl RustSibylBackend {
                 format!("    let mut out_{} = Date::new(session);", col.field_name)
             }
             _ => {
-                format!("    let mut out_{} = String::new();", col.field_name)
+                // sibyl sizes the OCI out-buffer from the String's capacity; a zero-capacity
+                // String silently truncates the returned value. 4000 bytes covers Oracle's
+                // standard VARCHAR2 maximum.
+                format!("    let mut out_{} = String::with_capacity(4000);", col.field_name)
             }
         }
     }

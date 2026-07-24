@@ -20,7 +20,7 @@ pub async fn create_order<'a>(
     let mut out_id: i64 = 0;
     let mut out_user_id: i64 = 0;
     let mut out_total: f64 = 0.0;
-    let mut out_notes = String::new();
+    let mut out_notes = String::with_capacity(4000);
     let mut out_created_at = Date::new(session);
     stmt.execute((
         (":USER_ID", user_id),
@@ -64,11 +64,10 @@ pub struct GetOrdersByUserRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-pub async fn get_orders_by_user<'a>(
-    session: &'a Session<'a>,
-    user_id: i64,
-) -> sibyl::Result<Vec<GetOrdersByUserRow>> {
-    let stmt = session.prepare("SELECT id, total, notes, created_at FROM orders WHERE user_id = :USER_ID ORDER BY created_at DESC").await?;
+pub async fn get_orders_by_user<'a>(session: &'a Session<'a>, user_id: i64) -> sibyl::Result<Vec<GetOrdersByUserRow>> {
+    let stmt = session
+        .prepare("SELECT id, total, notes, created_at FROM orders WHERE user_id = :USER_ID ORDER BY created_at DESC")
+        .await?;
     let rows = stmt.query((":USER_ID", user_id)).await?;
     let mut results = Vec::new();
     while let Some(row) = rows.next().await? {
@@ -97,31 +96,21 @@ pub struct GetOrderTotalRow {
     pub total_sum: Option<f64>,
 }
 
-pub async fn get_order_total<'a>(
-    session: &'a Session<'a>,
-    user_id: i64,
-) -> sibyl::Result<Option<GetOrderTotalRow>> {
+pub async fn get_order_total<'a>(session: &'a Session<'a>, user_id: i64) -> sibyl::Result<Option<GetOrderTotalRow>> {
     let stmt = session
         .prepare("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :USER_ID")
         .await?;
     let rows = stmt.query((":USER_ID", user_id)).await?;
     if let Some(row) = rows.next().await? {
         let total_sum: Option<f64> = row.get(0)?;
-        Ok(Some(GetOrderTotalRow {
-            total_sum: total_sum,
-        }))
+        Ok(Some(GetOrderTotalRow { total_sum: total_sum }))
     } else {
         Ok(None)
     }
 }
 
-pub async fn delete_orders_by_user<'a>(
-    session: &'a Session<'a>,
-    user_id: i64,
-) -> sibyl::Result<usize> {
-    let stmt = session
-        .prepare("DELETE FROM orders WHERE user_id = :USER_ID")
-        .await?;
+pub async fn delete_orders_by_user<'a>(session: &'a Session<'a>, user_id: i64) -> sibyl::Result<usize> {
+    let stmt = session.prepare("DELETE FROM orders WHERE user_id = :USER_ID").await?;
     let num_rows = stmt.execute((":USER_ID", user_id)).await?;
     Ok(num_rows)
 }
@@ -135,10 +124,7 @@ pub struct GetUserByIdRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-pub async fn get_user_by_id<'a>(
-    session: &'a Session<'a>,
-    id: i64,
-) -> sibyl::Result<Option<GetUserByIdRow>> {
+pub async fn get_user_by_id<'a>(session: &'a Session<'a>, id: i64) -> sibyl::Result<Option<GetUserByIdRow>> {
     let stmt = session
         .prepare("SELECT id, name, email, active, created_at FROM users WHERE id = :ID")
         .await?;
@@ -174,9 +160,7 @@ pub struct ListActiveUsersRow {
     pub email: Option<String>,
 }
 
-pub async fn list_active_users<'a>(
-    session: &'a Session<'a>,
-) -> sibyl::Result<Vec<ListActiveUsersRow>> {
+pub async fn list_active_users<'a>(session: &'a Session<'a>) -> sibyl::Result<Vec<ListActiveUsersRow>> {
     let stmt = session
         .prepare("SELECT id, name, email FROM users WHERE active = 1")
         .await?;
@@ -212,8 +196,8 @@ pub async fn create_user<'a>(
 ) -> sibyl::Result<Option<CreateUserRow>> {
     let stmt = session.prepare("INSERT INTO users (name, email, active) VALUES (:NAME, :EMAIL, :ACTIVE) RETURNING id, name, email, active, created_at INTO :OUT_ID, :OUT_NAME, :OUT_EMAIL, :OUT_ACTIVE, :OUT_CREATED_AT").await?;
     let mut out_id: i64 = 0;
-    let mut out_name = String::new();
-    let mut out_email = String::new();
+    let mut out_name = String::with_capacity(4000);
+    let mut out_email = String::with_capacity(4000);
     let mut out_active: i64 = 0;
     let mut out_created_at = Date::new(session);
     stmt.execute((
@@ -250,11 +234,7 @@ pub async fn create_user<'a>(
     }))
 }
 
-pub async fn update_user_email<'a>(
-    session: &'a Session<'a>,
-    email: &str,
-    id: i64,
-) -> sibyl::Result<()> {
+pub async fn update_user_email<'a>(session: &'a Session<'a>, email: &str, id: i64) -> sibyl::Result<()> {
     let stmt = session
         .prepare("UPDATE users SET email = :EMAIL WHERE id = :ID")
         .await?;
@@ -275,10 +255,7 @@ pub struct SearchUsersRow {
     pub email: Option<String>,
 }
 
-pub async fn search_users<'a>(
-    session: &'a Session<'a>,
-    name: &str,
-) -> sibyl::Result<Vec<SearchUsersRow>> {
+pub async fn search_users<'a>(session: &'a Session<'a>, name: &str) -> sibyl::Result<Vec<SearchUsersRow>> {
     let stmt = session
         .prepare("SELECT id, name, email FROM users WHERE name LIKE :NAME")
         .await?;
