@@ -39,6 +39,8 @@ Scythe compiles annotated SQL into type-safe database access code. You write SQL
 
 ```bash
 cargo install scythe-cli
+# or, using pre-built binaries for a faster install:
+cargo binstall scythe-cli
 # or
 brew install Goldziher/tap/scythe  # uses pre-built binaries for faster install
 ```

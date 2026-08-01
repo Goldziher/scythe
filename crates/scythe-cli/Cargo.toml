@@ -11,6 +11,15 @@ authors = ["Na'aman Hirschfeld"]
 keywords = ["sql", "codegen", "cli", "database", "sqlc"]
 categories = ["command-line-utilities", "database"]
 
+# ~keep cargo-binstall support: goreleaser names assets `scythe-{target}` (ProjectName,
+# ~keep not the `scythe-cli` crate name) and ships tar.gz on unix but a .zip on windows,
+# ~keep so pin the URL and bin-dir explicitly and let `{ archive-suffix }` pick the right
+# ~keep extension per target. Binary sits at the archive root.
+# ~keep See https://github.com/cargo-bins/cargo-binstall/blob/main/SUPPORT.md
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/scythe-{ target }{ archive-suffix }"
+bin-dir = "{ bin }{ binary-ext }"
+
 [[bin]]
 name = "scythe"
 path = "src/main.rs"

@@ -173,3 +173,22 @@ jobs:
           sleep 30
 
           publish_crate scythe-cli
+
+  verify-binstall:
+    name: Verify cargo-binstall install
+    needs: [meta, release_assets]
+    if: needs.meta.outputs.release_assets_exist != 'true'
+    uses: xberg-io/actions/.github/workflows/reusable-binstall-verify.yml@v1
+    with:
+      package-name: scythe-cli
+      binary-name: scythe
+      manifest-path: crates/scythe-cli
+      checkout-ref: ${{ needs.meta.outputs.tag }}
+      targets: |
+        [
+          {"os": "ubuntu-latest", "target": "x86_64-unknown-linux-gnu"},
+          {"os": "macos-latest", "target": "aarch64-apple-darwin"},
+          {"os": "windows-latest", "target": "x86_64-pc-windows-gnu"}
+        ]
+      smoke-command: |
+        scythe --version
