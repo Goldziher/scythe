@@ -14,7 +14,7 @@ metadata:
 
 # Scythe SQL-to-Code Generator
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries with annotations, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 70+ backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries with annotations, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 70+ backend drivers. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
 
 Use this skill when:
 
@@ -388,7 +388,7 @@ Common PostgreSQL extension mappings:
 
 ## Linting
 
-22 built-in scythe rules + 71 sqruff rules = 93 total.
+23 built-in scythe lint rules + 35 audit rules = 58 built-in, plus sqruff's 69 style rules via integration.
 
 ### Rule categories
 
@@ -444,7 +444,7 @@ Detailed reference files for specific topics:
 - **[Configuration Reference](references/configuration.md)** -- Full scythe.toml reference
 - **[Annotations Reference](references/annotations.md)** -- All annotations with examples
 - **[Backends Reference](references/backends.md)** -- All 70+ backends with engine support
-- **[Lint Rules Reference](references/lint-rules.md)** -- All 93 rules with codes and examples
+- **[Lint Rules Reference](references/lint-rules.md)** -- All rules with codes and examples
 - **[CLI Reference](references/cli-reference.md)** -- All commands, flags, exit codes
 
 Full documentation: <https://goldziher.github.io/scythe>

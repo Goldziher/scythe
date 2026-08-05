@@ -1,8 +1,10 @@
 # Lint Rules
 
-Scythe includes 22 built-in rules and integrates sqruff for additional SQL style and formatting rules.
+Scythe includes 23 built-in lint rules and integrates sqruff for additional SQL style and formatting
+rules. The `scythe audit` security scanner adds a further 35 rules -- see the [audit
+guide](../guide/audit.md) for those.
 
-## Scythe rules (22)
+## Scythe rules (23)
 
 ### Safety
 
@@ -14,6 +16,7 @@ Scythe includes 22 built-in rules and integrates sqruff for additional SQL style
 | `SC-S04` | `unused-params` | Declared parameter placeholders ($N) not all used | Warn |
 | `SC-S05` | `missing-returning` | DML with :one/:opt/:many command should have a RETURNING clause | Warn |
 | `SC-S06` | `ambiguous-column-in-join` | SELECT with JOIN has unqualified column references | Warn |
+| `SC-S07` | `unbound-sql-param` | SQL placeholder $N present in query body but absent from the generated parameter signature | Error |
 
 ### Codegen
 

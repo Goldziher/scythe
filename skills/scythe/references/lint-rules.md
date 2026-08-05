@@ -1,6 +1,6 @@
 # Lint Rules Reference
 
-Scythe has 22 built-in rules plus 71 sqruff rules (93 total).
+Scythe has 23 built-in lint rules and 35 audit rules (58 built-in), plus sqruff's 69 style rules via integration.
 
 ## Scythe Rules
 

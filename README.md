@@ -33,7 +33,7 @@
 
 ---
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 70+ backend drivers. Built-in linting (93 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 70+ backend drivers. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
 
 ## Installation
 
@@ -338,7 +338,7 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 - **10 languages** -- Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP
 - **10 databases** -- PostgreSQL, MySQL, SQLite, DuckDB, CockroachDB, MSSQL, Oracle, MariaDB, Redshift, Snowflake
 - **70+ backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, pgx, JDBC, R2DBC, Exposed, Npgsql, PDO, tiberius, oracledb, pyodbc, and more
-- **93 lint rules** -- UPDATE without WHERE, SELECT *, NULL comparisons, leading wildcard LIKE, plus 71 sqruff rules
+- **58 built-in rules** -- 23 lint rules (UPDATE without WHERE, SELECT *, NULL comparisons, leading wildcard LIKE) and 35 audit rules, plus sqruff's 69 style rules via integration
 - **`scythe audit`** -- security scanner for SQL: dangerous functions, GRANT ALL, GRANT to PUBLIC, cartesian joins, unbounded LIKE, SECURITY DEFINER without pinned `search_path`, role privilege escalation, literal passwords, weak hashes over credential columns, SELECT * over PII, session-state mutation. Emits human / SARIF / JSON for CI integration
 - **`scythe inspect`** -- live-database operational health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. Connects via `tokio-postgres`, emits the same human / SARIF / JSON reports as audit. (Postgres only at v0.10; MySQL in Phase 3.)
 - **SQL formatting** -- consistent style via sqruff integration
@@ -378,7 +378,7 @@ Full documentation at [goldziher.github.io/scythe](https://goldziher.github.io/s
 - [Custom Types](https://goldziher.github.io/scythe/guide/custom-types/) -- type overrides for PostgreSQL extensions
 - [Configuration](https://goldziher.github.io/scythe/guide/configuration/) -- full scythe.toml reference
 - [Annotations](https://goldziher.github.io/scythe/guide/annotations/) -- @name, @returns, @optional, @nullable, @json, and more
-- [Lint Rules](https://goldziher.github.io/scythe/reference/lint-rules/) -- all 93 rules with codes and examples
+- [Lint Rules](https://goldziher.github.io/scythe/reference/lint-rules/) -- all rules with codes and examples
 - [Audit (security)](https://goldziher.github.io/scythe/guide/audit/) -- the `scythe audit` subcommand, suppressions, user-defined rules, and CI integration
 - [Inspect (live database)](https://goldziher.github.io/scythe/guide/inspect/) -- the `scythe inspect` subcommand, check catalog, CI integration, phased roadmap
 

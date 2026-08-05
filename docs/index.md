@@ -8,7 +8,7 @@ Write SQL. Get type-safe code. In any language.
 
 - **10 languages, 70+ backend drivers** -- Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP
 - **10 databases** -- PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, Redshift, SQL Server, Oracle, Snowflake
-- **93 lint rules (22 custom + 71 sqruff)** -- catch bugs before they ship
+- **58 built-in rules (23 lint + 35 audit)** -- plus sqruff's 69 style rules; catch bugs before they ship
 - **SQL formatting** -- via sqruff integration
 - **Smart type inference** -- nullability from JOINs, COALESCE, window functions, aggregates
 - **Configurable row types** -- Pydantic, msgspec, Zod, or language defaults per backend
