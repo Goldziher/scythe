@@ -112,7 +112,7 @@ row_suffix = "Row"
 
 ## Available Backends
 
-25 backends across 10 languages and 3 database engines. See [Backend Overview](backends/overview.md) for the full list organized by engine.
+70+ backends across 10 languages and 10 databases (PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, Redshift, SQL Server, Oracle, Snowflake), resolved through 6 parser dialects. See [Backend Overview](backends/overview.md) for the full list organized by engine. The table below shows the three primary engines; see the overview for the rest.
 
 | Language | PostgreSQL | MySQL | SQLite |
 |----------|-----------|-------|--------|
