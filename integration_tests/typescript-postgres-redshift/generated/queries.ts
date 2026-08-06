@@ -2,6 +2,7 @@
 
 import type { Sql } from "postgres";
 
+
 /** Row type for CreateOrder queries. */
 export interface CreateOrderRow {
 	id: number;

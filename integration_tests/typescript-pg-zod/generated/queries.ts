@@ -3,6 +3,7 @@
 import type { PoolClient } from "pg";
 import { z } from "zod";
 
+
 export const UserStatusSchema = z.enum(["active", "inactive", "banned"]);
 
 export type UserStatus = z.infer<typeof UserStatusSchema>;
@@ -79,14 +80,34 @@ export async function getOrderTotal(
 	return rows[0] ?? null;
 }
 
+/** Row type for GetOrderWeightTotal queries. */
+export const GetOrderWeightTotalRowSchema = z.object({
+	weight_total: z.number().nullable(),
+});
+
+export type GetOrderWeightTotalRow = z.infer<typeof GetOrderWeightTotalRowSchema>;
+
+/** Fetch a single GetOrderWeightTotalRow or null. */
+export async function getOrderWeightTotal(
+	client: PoolClient,
+	user_id: number,
+): Promise<GetOrderWeightTotalRow | null> {
+	const { rows } = await client.query<GetOrderWeightTotalRow>(
+		`SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = $1`,
+		[user_id],
+	);
+	return rows[0] ?? null;
+}
+
 /** Execute a query and return the number of affected rows. */
 export async function deleteOrdersByUser(
 	client: PoolClient,
 	user_id: number,
 ): Promise<number> {
-	const result = await client.query(`DELETE FROM orders WHERE user_id = $1`, [
-		user_id,
-	]);
+	const result = await client.query(
+		`DELETE FROM orders WHERE user_id = $1`,
+		[user_id],
+	);
 	return result.rowCount ?? 0;
 }
 
@@ -165,7 +186,10 @@ export async function updateUserEmail(
 	email: string,
 	id: number,
 ): Promise<void> {
-	await client.query(`UPDATE users SET email = $1 WHERE id = $2`, [email, id]);
+	await client.query(
+		`UPDATE users SET email = $1 WHERE id = $2`,
+		[email, id],
+	);
 }
 
 /** Execute a query returning no rows. */

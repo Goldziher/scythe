@@ -16,9 +16,9 @@ export async function createAttachment(conn: oracledb.Connection, order_id: numb
 	}
 	const outBinds = result.outBinds as unknown[][];
 	return {
-		id: outBinds[0][0] as number,
-		order_id: outBinds[1][0] as number,
-		filename: outBinds[2][0] as string,
+		id: (outBinds[0] ?? [])[0] as number,
+		order_id: (outBinds[1] ?? [])[0] as number,
+		filename: (outBinds[2] ?? [])[0] as string,
 	};
 }
 
@@ -36,13 +36,16 @@ export async function getAttachmentsByOrder(conn: oracledb.Connection, order_id:
 	if (!result.rows) {
 		return [];
 	}
-	return result.rows.map((row: Record<string, unknown>) => ({
-		id: row["ID"] as number,
-		order_id: row["ORDER_ID"] as number,
-		filename: row["FILENAME"] as string,
-		payload: row["PAYLOAD"] as Buffer,
-		description: row["DESCRIPTION"] as string,
-	}));
+	return result.rows.map((rawRow) => {
+		const row = rawRow as Record<string, unknown>;
+		return {
+			id: row["ID"] as number,
+			order_id: row["ORDER_ID"] as number,
+			filename: row["FILENAME"] as string,
+			payload: row["PAYLOAD"] as Buffer,
+			description: row["DESCRIPTION"] as string,
+		};
+	});
 }
 
 /** Row type for GetAttachmentById queries. */
@@ -90,11 +93,11 @@ export async function createOrder(conn: oracledb.Connection, user_id: number, to
 	}
 	const outBinds = result.outBinds as unknown[][];
 	return {
-		id: outBinds[0][0] as number,
-		user_id: outBinds[1][0] as number,
-		total: outBinds[2][0] as number,
-		notes: outBinds[3][0] as string,
-		created_at: outBinds[4][0] as Date,
+		id: (outBinds[0] ?? [])[0] as number,
+		user_id: (outBinds[1] ?? [])[0] as number,
+		total: (outBinds[2] ?? [])[0] as number,
+		notes: (outBinds[3] ?? [])[0] as string,
+		created_at: (outBinds[4] ?? [])[0] as Date,
 	};
 }
 
@@ -111,12 +114,15 @@ export async function getOrdersByUser(conn: oracledb.Connection, user_id: number
 	if (!result.rows) {
 		return [];
 	}
-	return result.rows.map((row: Record<string, unknown>) => ({
-		id: row["ID"] as number,
-		total: row["TOTAL"] as number,
-		notes: row["NOTES"] as string,
-		created_at: row["CREATED_AT"] as Date,
-	}));
+	return result.rows.map((rawRow) => {
+		const row = rawRow as Record<string, unknown>;
+		return {
+			id: row["ID"] as number,
+			total: row["TOTAL"] as number,
+			notes: row["NOTES"] as string,
+			created_at: row["CREATED_AT"] as Date,
+		};
+	});
 }
 
 /** Row type for GetOrderTotal queries. */
@@ -176,11 +182,14 @@ export async function listActiveUsers(conn: oracledb.Connection): Promise<ListAc
 	if (!result.rows) {
 		return [];
 	}
-	return result.rows.map((row: Record<string, unknown>) => ({
-		id: row["ID"] as number,
-		name: row["NAME"] as string,
-		email: row["EMAIL"] as string,
-	}));
+	return result.rows.map((rawRow) => {
+		const row = rawRow as Record<string, unknown>;
+		return {
+			id: row["ID"] as number,
+			name: row["NAME"] as string,
+			email: row["EMAIL"] as string,
+		};
+	});
 }
 
 /** Row type for CreateUser queries. */
@@ -199,11 +208,11 @@ export async function createUser(conn: oracledb.Connection, name: string, email:
 	}
 	const outBinds = result.outBinds as unknown[][];
 	return {
-		id: outBinds[0][0] as number,
-		name: outBinds[1][0] as string,
-		email: outBinds[2][0] as string,
-		active: outBinds[3][0] as number,
-		created_at: outBinds[4][0] as Date,
+		id: (outBinds[0] ?? [])[0] as number,
+		name: (outBinds[1] ?? [])[0] as string,
+		email: (outBinds[2] ?? [])[0] as string,
+		active: (outBinds[3] ?? [])[0] as number,
+		created_at: (outBinds[4] ?? [])[0] as Date,
 	};
 }
 
@@ -227,9 +236,12 @@ export async function searchUsers(conn: oracledb.Connection, name: string): Prom
 	if (!result.rows) {
 		return [];
 	}
-	return result.rows.map((row: Record<string, unknown>) => ({
-		id: row["ID"] as number,
-		name: row["NAME"] as string,
-		email: row["EMAIL"] as string,
-	}));
+	return result.rows.map((rawRow) => {
+		const row = rawRow as Record<string, unknown>;
+		return {
+			id: row["ID"] as number,
+			name: row["NAME"] as string,
+			email: row["EMAIL"] as string,
+		};
+	});
 }

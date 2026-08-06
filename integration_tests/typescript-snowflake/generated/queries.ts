@@ -8,6 +8,7 @@ function normalizeRow(row: Record<string, unknown>): Record<string, unknown> {
 	);
 }
 
+
 /** Execute a query returning no rows. */
 export async function createOrder(
 	conn: Connection,
@@ -16,11 +17,7 @@ export async function createOrder(
 	notes: string | null,
 ): Promise<void> {
 	await new Promise<void>((resolve, reject) => {
-		conn.execute({
-			sqlText: `INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)`,
-			binds: [user_id, total, notes] as any[],
-			complete: (err) => (err ? reject(err) : resolve()),
-		});
+		conn.execute({ sqlText: `INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)`, binds: [user_id, total, notes] as any[], complete: (err) => err ? reject(err) : resolve() });
 	});
 }
 
@@ -38,14 +35,10 @@ export async function getOrdersByUser(
 	user_id: number,
 ): Promise<GetOrdersByUserRow[]> {
 	const rows = await new Promise<any[]>((resolve, reject) => {
-		conn.execute({
-			sqlText: `SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC`,
-			binds: [user_id] as any[],
-			complete: (err, _stmt, rows) => {
-				if (err) reject(err);
-				else resolve((rows ?? []).map(normalizeRow));
-			},
-		});
+		conn.execute({ sqlText: `SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC`, binds: [user_id] as any[], complete: (err, _stmt, rows) => {
+			if (err) reject(err);
+			else resolve((rows ?? []).map(normalizeRow));
+		}});
 	});
 	return rows as GetOrdersByUserRow[];
 }
@@ -61,14 +54,10 @@ export async function getOrderTotal(
 	user_id: number,
 ): Promise<GetOrderTotalRow | null> {
 	const rows = await new Promise<any[]>((resolve, reject) => {
-		conn.execute({
-			sqlText: `SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`,
-			binds: [user_id] as any[],
-			complete: (err, _stmt, rows) => {
-				if (err) reject(err);
-				else resolve((rows ?? []).map(normalizeRow));
-			},
-		});
+		conn.execute({ sqlText: `SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`, binds: [user_id] as any[], complete: (err, _stmt, rows) => {
+			if (err) reject(err);
+			else resolve((rows ?? []).map(normalizeRow));
+		}});
 	});
 	return rows.length > 0 ? (rows[0] as GetOrderTotalRow) : null;
 }
@@ -79,14 +68,10 @@ export async function deleteOrdersByUser(
 	user_id: number,
 ): Promise<number> {
 	const count = await new Promise<number>((resolve, reject) => {
-		conn.execute({
-			sqlText: `DELETE FROM orders WHERE id IN (SELECT id FROM orders WHERE user_id = ?)`,
-			binds: [user_id] as any[],
-			complete: (err, stmt) => {
-				if (err) reject(err);
-				else resolve(stmt?.getNumUpdatedRows() ?? 0);
-			},
-		});
+		conn.execute({ sqlText: `DELETE FROM orders WHERE id IN (SELECT id FROM orders WHERE user_id = ?)`, binds: [user_id] as any[], complete: (err, stmt) => {
+			if (err) reject(err);
+			else resolve(stmt?.getNumUpdatedRows() ?? 0);
+		}});
 	});
 	return count;
 }
@@ -108,14 +93,10 @@ export async function getUserById(
 	id: number,
 ): Promise<GetUserByIdRow | null> {
 	const rows = await new Promise<any[]>((resolve, reject) => {
-		conn.execute({
-			sqlText: `SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?`,
-			binds: [id] as any[],
-			complete: (err, _stmt, rows) => {
-				if (err) reject(err);
-				else resolve((rows ?? []).map(normalizeRow));
-			},
-		});
+		conn.execute({ sqlText: `SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?`, binds: [id] as any[], complete: (err, _stmt, rows) => {
+			if (err) reject(err);
+			else resolve((rows ?? []).map(normalizeRow));
+		}});
 	});
 	return rows.length > 0 ? (rows[0] as GetUserByIdRow) : null;
 }
@@ -132,14 +113,10 @@ export async function listActiveUsers(
 	conn: Connection,
 ): Promise<ListActiveUsersRow[]> {
 	const rows = await new Promise<any[]>((resolve, reject) => {
-		conn.execute({
-			sqlText: `SELECT id, name, email FROM users WHERE active = TRUE`,
-			binds: [] as any[],
-			complete: (err, _stmt, rows) => {
-				if (err) reject(err);
-				else resolve((rows ?? []).map(normalizeRow));
-			},
-		});
+		conn.execute({ sqlText: `SELECT id, name, email FROM users WHERE active = TRUE`, binds: [] as any[], complete: (err, _stmt, rows) => {
+			if (err) reject(err);
+			else resolve((rows ?? []).map(normalizeRow));
+		}});
 	});
 	return rows as ListActiveUsersRow[];
 }
@@ -152,11 +129,7 @@ export async function createUser(
 	active: boolean,
 ): Promise<void> {
 	await new Promise<void>((resolve, reject) => {
-		conn.execute({
-			sqlText: `INSERT INTO users (name, email, active) VALUES (?, ?, ?)`,
-			binds: [name, email, active] as any[],
-			complete: (err) => (err ? reject(err) : resolve()),
-		});
+		conn.execute({ sqlText: `INSERT INTO users (name, email, active) VALUES (?, ?, ?)`, binds: [name, email, active] as any[], complete: (err) => err ? reject(err) : resolve() });
 	});
 }
 
@@ -167,22 +140,14 @@ export async function updateUserEmail(
 	id: number,
 ): Promise<void> {
 	await new Promise<void>((resolve, reject) => {
-		conn.execute({
-			sqlText: `UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP() WHERE id = ?`,
-			binds: [email, id] as any[],
-			complete: (err) => (err ? reject(err) : resolve()),
-		});
+		conn.execute({ sqlText: `UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP() WHERE id = ?`, binds: [email, id] as any[], complete: (err) => err ? reject(err) : resolve() });
 	});
 }
 
 /** Execute a query returning no rows. */
 export async function deleteUser(conn: Connection, id: number): Promise<void> {
 	await new Promise<void>((resolve, reject) => {
-		conn.execute({
-			sqlText: `DELETE FROM users WHERE id = ?`,
-			binds: [id] as any[],
-			complete: (err) => (err ? reject(err) : resolve()),
-		});
+		conn.execute({ sqlText: `DELETE FROM users WHERE id = ?`, binds: [id] as any[], complete: (err) => err ? reject(err) : resolve() });
 	});
 }
 
@@ -199,14 +164,10 @@ export async function searchUsers(
 	name: string,
 ): Promise<SearchUsersRow[]> {
 	const rows = await new Promise<any[]>((resolve, reject) => {
-		conn.execute({
-			sqlText: `SELECT id, name, email FROM users WHERE name LIKE ?`,
-			binds: [name] as any[],
-			complete: (err, _stmt, rows) => {
-				if (err) reject(err);
-				else resolve((rows ?? []).map(normalizeRow));
-			},
-		});
+		conn.execute({ sqlText: `SELECT id, name, email FROM users WHERE name LIKE ?`, binds: [name] as any[], complete: (err, _stmt, rows) => {
+			if (err) reject(err);
+			else resolve((rows ?? []).map(normalizeRow));
+		}});
 	});
 	return rows as SearchUsersRow[];
 }

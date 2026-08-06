@@ -123,24 +123,28 @@ jobs:
         working-directory: integration_tests/typescript-postgres
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test typescript-pg
         working-directory: integration_tests/typescript-pg
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test typescript-pg-zod
         working-directory: integration_tests/typescript-pg-zod
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test typescript-kysely
         working-directory: integration_tests/typescript-kysely
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test java-jdbc
@@ -270,6 +274,7 @@ jobs:
         working-directory: integration_tests/typescript-mysql2
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test java-jdbc-mysql
@@ -392,6 +397,7 @@ jobs:
         working-directory: integration_tests/typescript-mysql2-mariadb
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test java-jdbc-mariadb
@@ -514,6 +520,7 @@ jobs:
         working-directory: integration_tests/typescript-oracledb-oracle
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test go-godror-oracle
@@ -628,6 +635,7 @@ jobs:
         working-directory: integration_tests/typescript-mssql
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test go-database-sql-mssql
@@ -730,6 +738,7 @@ jobs:
         working-directory: integration_tests/typescript-better-sqlite3
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test java-jdbc-sqlite
@@ -844,12 +853,14 @@ jobs:
         working-directory: integration_tests/typescript-pg-redshift
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test typescript-postgres-redshift
         working-directory: integration_tests/typescript-postgres-redshift
         run: |
           pnpm install
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test go-pgx-redshift
@@ -929,6 +940,7 @@ jobs:
           SNOWFLAKE_URL: snowflake://fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http
         run: |
           pnpm install --frozen-lockfile
+          pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
       - name: Test go-gosnowflake

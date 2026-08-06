@@ -172,6 +172,7 @@ tasks:
     dir: typescript-postgres
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
   test:typescript-pg:
@@ -179,6 +180,7 @@ tasks:
     dir: typescript-pg
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
   test:typescript-pg-zod:
@@ -186,6 +188,7 @@ tasks:
     dir: typescript-pg-zod
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
   test:typescript-kysely:
@@ -193,6 +196,7 @@ tasks:
     dir: typescript-kysely
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
   test:java-jdbc:
@@ -273,6 +277,7 @@ tasks:
     dir: typescript-mysql2
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
   test:java-jdbc-mysql:
@@ -346,6 +351,7 @@ tasks:
     dir: typescript-mysql2-mariadb
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
   test:java-jdbc-mariadb:
@@ -405,6 +411,7 @@ tasks:
     dir: typescript-oracledb-oracle
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
   test:go-godror-oracle:
@@ -477,6 +484,7 @@ tasks:
     dir: typescript-better-sqlite3
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
   test:java-jdbc-sqlite:

@@ -2,14 +2,14 @@
 
 import type { PoolClient } from "pg";
 
+
 export const UserStatusValues = {
 	Active: "active",
 	Inactive: "inactive",
 	Banned: "banned",
 } as const;
 
-export type UserStatus =
-	(typeof UserStatusValues)[keyof typeof UserStatusValues];
+export type UserStatus = typeof UserStatusValues[keyof typeof UserStatusValues];
 
 /** Row type for CreateOrder queries. */
 export interface CreateOrderRow {
@@ -71,14 +71,32 @@ export async function getOrderTotal(
 	return rows[0] ?? null;
 }
 
+/** Row type for GetOrderWeightTotal queries. */
+export interface GetOrderWeightTotalRow {
+	weight_total: number | null;
+}
+
+/** Fetch a single GetOrderWeightTotalRow or null. */
+export async function getOrderWeightTotal(
+	client: PoolClient,
+	user_id: number,
+): Promise<GetOrderWeightTotalRow | null> {
+	const { rows } = await client.query<GetOrderWeightTotalRow>(
+		`SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = $1`,
+		[user_id],
+	);
+	return rows[0] ?? null;
+}
+
 /** Execute a query and return the number of affected rows. */
 export async function deleteOrdersByUser(
 	client: PoolClient,
 	user_id: number,
 ): Promise<number> {
-	const result = await client.query(`DELETE FROM orders WHERE user_id = $1`, [
-		user_id,
-	]);
+	const result = await client.query(
+		`DELETE FROM orders WHERE user_id = $1`,
+		[user_id],
+	);
 	return result.rowCount ?? 0;
 }
 
@@ -151,7 +169,10 @@ export async function updateUserEmail(
 	email: string,
 	id: number,
 ): Promise<void> {
-	await client.query(`UPDATE users SET email = $1 WHERE id = $2`, [email, id]);
+	await client.query(
+		`UPDATE users SET email = $1 WHERE id = $2`,
+		[email, id],
+	);
 }
 
 /** Execute a query returning no rows. */

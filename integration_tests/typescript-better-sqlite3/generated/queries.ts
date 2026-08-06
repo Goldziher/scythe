@@ -2,16 +2,15 @@
 
 import type Database from "better-sqlite3";
 
+
 /** Execute a query returning no rows. */
 export function createOrder(
-	db: Database,
+	db: Database.Database,
 	user_id: number,
 	total: number,
 	notes: string | null,
 ): void {
-	const stmt = db.prepare(
-		`INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)`,
-	);
+	const stmt = db.prepare(`INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)`);
 	stmt.run(user_id, total, notes);
 }
 
@@ -25,12 +24,10 @@ export interface GetOrdersByUserRow {
 
 /** Fetch all GetOrdersByUserRow rows. */
 export function getOrdersByUser(
-	db: Database,
+	db: Database.Database,
 	user_id: number,
 ): GetOrdersByUserRow[] {
-	const stmt = db.prepare(
-		`SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC`,
-	);
+	const stmt = db.prepare(`SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC`);
 	return stmt.all(user_id) as GetOrdersByUserRow[];
 }
 
@@ -41,18 +38,19 @@ export interface GetOrderTotalRow {
 
 /** Fetch a single GetOrderTotalRow or null. */
 export function getOrderTotal(
-	db: Database,
+	db: Database.Database,
 	user_id: number,
 ): GetOrderTotalRow | null {
-	const stmt = db.prepare(
-		`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`,
-	);
+	const stmt = db.prepare(`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`);
 	const row = stmt.get(user_id) as GetOrderTotalRow | undefined;
 	return row ?? null;
 }
 
 /** Execute a query and return the number of affected rows. */
-export function deleteOrdersByUser(db: Database, user_id: number): number {
+export function deleteOrdersByUser(
+	db: Database.Database,
+	user_id: number,
+): number {
 	const stmt = db.prepare(`DELETE FROM orders WHERE user_id = ?`);
 	const result = stmt.run(user_id);
 	return result.changes;
@@ -68,10 +66,11 @@ export interface GetUserByIdRow {
 }
 
 /** Fetch a single GetUserByIdRow or null. */
-export function getUserById(db: Database, id: number): GetUserByIdRow | null {
-	const stmt = db.prepare(
-		`SELECT id, name, email, status, created_at FROM users WHERE id = ?`,
-	);
+export function getUserById(
+	db: Database.Database,
+	id: number,
+): GetUserByIdRow | null {
+	const stmt = db.prepare(`SELECT id, name, email, status, created_at FROM users WHERE id = ?`);
 	const row = stmt.get(id) as GetUserByIdRow | undefined;
 	return row ?? null;
 }
@@ -85,7 +84,7 @@ export interface ListActiveUsersRow {
 
 /** Fetch all ListActiveUsersRow rows. */
 export function listActiveUsers(
-	db: Database,
+	db: Database.Database,
 	status: string,
 ): ListActiveUsersRow[] {
 	const stmt = db.prepare(`SELECT id, name, email FROM users WHERE status = ?`);
@@ -94,25 +93,27 @@ export function listActiveUsers(
 
 /** Execute a query returning no rows. */
 export function createUser(
-	db: Database,
+	db: Database.Database,
 	name: string,
 	email: string | null,
 	status: string,
 ): void {
-	const stmt = db.prepare(
-		`INSERT INTO users (name, email, status) VALUES (?, ?, ?)`,
-	);
+	const stmt = db.prepare(`INSERT INTO users (name, email, status) VALUES (?, ?, ?)`);
 	stmt.run(name, email, status);
 }
 
 /** Execute a query returning no rows. */
-export function updateUserEmail(db: Database, email: string, id: number): void {
+export function updateUserEmail(
+	db: Database.Database,
+	email: string,
+	id: number,
+): void {
 	const stmt = db.prepare(`UPDATE users SET email = ? WHERE id = ?`);
 	stmt.run(email, id);
 }
 
 /** Execute a query returning no rows. */
-export function deleteUser(db: Database, id: number): void {
+export function deleteUser(db: Database.Database, id: number): void {
 	const stmt = db.prepare(`DELETE FROM users WHERE id = ?`);
 	stmt.run(id);
 }
@@ -125,9 +126,10 @@ export interface SearchUsersRow {
 }
 
 /** Fetch all SearchUsersRow rows. */
-export function searchUsers(db: Database, name: string): SearchUsersRow[] {
-	const stmt = db.prepare(
-		`SELECT id, name, email FROM users WHERE name LIKE ?`,
-	);
+export function searchUsers(
+	db: Database.Database,
+	name: string,
+): SearchUsersRow[] {
+	const stmt = db.prepare(`SELECT id, name, email FROM users WHERE name LIKE ?`);
 	return stmt.all(name) as SearchUsersRow[];
 }

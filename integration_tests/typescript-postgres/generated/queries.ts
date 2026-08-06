@@ -2,6 +2,7 @@
 
 import type { Sql } from "postgres";
 
+
 export enum UserStatus {
 	Active = "active",
 	Inactive = "inactive",
@@ -61,6 +62,22 @@ export async function getOrderTotal(
 ): Promise<GetOrderTotalRow | null> {
 	const rows = await sql<GetOrderTotalRow[]>`
     SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ${user_id}
+  `;
+	return rows[0] ?? null;
+}
+
+/** Row type for GetOrderWeightTotal queries. */
+export interface GetOrderWeightTotalRow {
+	weight_total: number | null;
+}
+
+/** Fetch a single GetOrderWeightTotalRow or null. */
+export async function getOrderWeightTotal(
+	sql: Sql,
+	user_id: number,
+): Promise<GetOrderWeightTotalRow | null> {
+	const rows = await sql<GetOrderWeightTotalRow[]>`
+    SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ${user_id}
   `;
 	return rows[0] ?? null;
 }

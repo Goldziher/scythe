@@ -2,6 +2,7 @@
 
 import type { Pool, RowDataPacket } from "mysql2/promise";
 
+
 export enum UsersStatus {
 	Active = "active",
 	Inactive = "inactive",
@@ -25,8 +26,7 @@ export async function createOrder(
 	notes: string | null,
 ): Promise<CreateOrderRow | null> {
 	const [rows] = await pool.execute<CreateOrderRow[]>(
-		`INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at`,
-		[user_id, total, notes],
+		`INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at`, [user_id, total, notes],
 	);
 	return rows[0] ?? null;
 }
@@ -45,8 +45,7 @@ export async function getOrdersByUser(
 	user_id: string,
 ): Promise<GetOrdersByUserRow[]> {
 	const [rows] = await pool.execute<GetOrdersByUserRow[]>(
-		`SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC`,
-		[user_id],
+		`SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC`, [user_id],
 	);
 	return rows;
 }
@@ -62,8 +61,7 @@ export async function getOrderTotal(
 	user_id: string,
 ): Promise<GetOrderTotalRow | null> {
 	const [rows] = await pool.execute<GetOrderTotalRow[]>(
-		`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`,
-		[user_id],
+		`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`, [user_id],
 	);
 	return rows[0] ?? null;
 }
@@ -73,9 +71,9 @@ export async function deleteOrdersByUser(
 	pool: Pool,
 	user_id: string,
 ): Promise<number> {
-	const [result] = await pool.execute(`DELETE FROM orders WHERE user_id = ?`, [
-		user_id,
-	]);
+	const [result] = await pool.execute(
+		`DELETE FROM orders WHERE user_id = ?`, [user_id],
+	);
 	return (result as { affectedRows: number }).affectedRows;
 }
 
@@ -94,8 +92,7 @@ export async function getUserById(
 	id: string,
 ): Promise<GetUserByIdRow | null> {
 	const [rows] = await pool.execute<GetUserByIdRow[]>(
-		`SELECT id, name, email, status, created_at FROM users WHERE id = ?`,
-		[id],
+		`SELECT id, name, email, status, created_at FROM users WHERE id = ?`, [id],
 	);
 	return rows[0] ?? null;
 }
@@ -113,8 +110,7 @@ export async function listActiveUsers(
 	status: UsersStatus,
 ): Promise<ListActiveUsersRow[]> {
 	const [rows] = await pool.execute<ListActiveUsersRow[]>(
-		`SELECT id, name, email FROM users WHERE status = ?`,
-		[status],
+		`SELECT id, name, email FROM users WHERE status = ?`, [status],
 	);
 	return rows;
 }
@@ -134,8 +130,7 @@ export async function createUser(
 	status: UsersStatus,
 ): Promise<CreateUserRow | null> {
 	const [rows] = await pool.execute<CreateUserRow[]>(
-		`INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email`,
-		[name, email, status],
+		`INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email`, [name, email, status],
 	);
 	return rows[0] ?? null;
 }
@@ -146,12 +141,16 @@ export async function updateUserEmail(
 	email: string,
 	id: string,
 ): Promise<void> {
-	await pool.execute(`UPDATE users SET email = ? WHERE id = ?`, [email, id]);
+	await pool.execute(
+		`UPDATE users SET email = ? WHERE id = ?`, [email, id],
+	);
 }
 
 /** Execute a query returning no rows. */
 export async function deleteUser(pool: Pool, id: string): Promise<void> {
-	await pool.execute(`DELETE FROM users WHERE id = ? RETURNING id`, [id]);
+	await pool.execute(
+		`DELETE FROM users WHERE id = ? RETURNING id`, [id],
+	);
 }
 
 /** Row type for SearchUsers queries. */
@@ -167,8 +166,7 @@ export async function searchUsers(
 	name: string,
 ): Promise<SearchUsersRow[]> {
 	const [rows] = await pool.execute<SearchUsersRow[]>(
-		`SELECT id, name, email FROM users WHERE name LIKE ?`,
-		[name],
+		`SELECT id, name, email FROM users WHERE name LIKE ?`, [name],
 	);
 	return rows;
 }

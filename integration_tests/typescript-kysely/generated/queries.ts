@@ -62,6 +62,20 @@ export async function getOrderTotal<DB = any>(
 	return result.rows[0] ?? null;
 }
 
+/** Row type for GetOrderWeightTotal queries. */
+export interface GetOrderWeightTotalRow {
+	weight_total: number | null;
+}
+
+/** Fetch a single GetOrderWeightTotalRow or null. */
+export async function getOrderWeightTotal<DB = any>(
+	db: Kysely<DB>,
+	user_id: number,
+): Promise<GetOrderWeightTotalRow | null> {
+	const result = await sql<GetOrderWeightTotalRow>`SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ${user_id}`.execute(db);
+	return result.rows[0] ?? null;
+}
+
 /** Execute a query and return the number of affected rows. */
 export async function deleteOrdersByUser<DB = any>(
 	db: Kysely<DB>,

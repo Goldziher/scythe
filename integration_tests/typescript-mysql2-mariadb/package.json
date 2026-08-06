@@ -4,12 +4,14 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"test": "tsx test.ts"
+		"test": "tsx test.ts",
+		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
 		"mysql2": "^3.23.2"
 	},
 	"devDependencies": {
+		"@types/node": "^26.1.2",
 		"tsx": "^4.23.7",
 		"typescript": "^5.9.3"
 	}

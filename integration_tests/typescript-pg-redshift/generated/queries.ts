@@ -2,6 +2,7 @@
 
 import type { PoolClient } from "pg";
 
+
 /** Row type for CreateOrder queries. */
 export interface CreateOrderRow {
 	id: number;
@@ -69,9 +70,10 @@ export async function deleteOrdersByUser(
 	client: PoolClient,
 	user_id: number,
 ): Promise<number> {
-	const result = await client.query(`DELETE FROM orders WHERE user_id = $1`, [
-		user_id,
-	]);
+	const result = await client.query(
+		`DELETE FROM orders WHERE user_id = $1`,
+		[user_id],
+	);
 	return result.rowCount ?? 0;
 }
 
@@ -150,7 +152,10 @@ export async function updateUserEmail(
 	email: string,
 	id: number,
 ): Promise<void> {
-	await client.query(`UPDATE users SET email = $1 WHERE id = $2`, [email, id]);
+	await client.query(
+		`UPDATE users SET email = $1 WHERE id = $2`,
+		[email, id],
+	);
 }
 
 /** Execute a query returning no rows. */

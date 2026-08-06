@@ -2,6 +2,7 @@
 
 import sql from "mssql";
 
+
 /** Row type for CreateOrder queries. */
 export interface CreateOrderRow {
 	id: number;
@@ -24,8 +25,7 @@ export async function createOrder(
 	request.input("p2", sql.Int, user_id);
 	request.input("p3", sql.VarChar, total);
 	request.input("p4", sql.NVarChar, notes);
-	const result =
-		await request.query<CreateOrderRow>(`INSERT INTO orders (id, user_id, total, notes)
+	const result = await request.query<CreateOrderRow>(`INSERT INTO orders (id, user_id, total, notes)
 OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at
 VALUES (@p1, @p2, @p3, @p4)`);
 	return result.recordset[0] ?? null;
@@ -46,9 +46,7 @@ export async function getOrdersByUser(
 ): Promise<GetOrdersByUserRow[]> {
 	const request = pool.request();
 	request.input("p1", sql.Int, user_id);
-	const result = await request.query<GetOrdersByUserRow>(
-		`SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC`,
-	);
+	const result = await request.query<GetOrdersByUserRow>(`SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC`);
 	return result.recordset;
 }
 
@@ -64,9 +62,7 @@ export async function getOrderTotal(
 ): Promise<GetOrderTotalRow | null> {
 	const request = pool.request();
 	request.input("p1", sql.Int, user_id);
-	const result = await request.query<GetOrderTotalRow>(
-		`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1`,
-	);
+	const result = await request.query<GetOrderTotalRow>(`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1`);
 	return result.recordset[0] ?? null;
 }
 
@@ -97,9 +93,7 @@ export async function getUserById(
 ): Promise<GetUserByIdRow | null> {
 	const request = pool.request();
 	request.input("p1", sql.Int, id);
-	const result = await request.query<GetUserByIdRow>(
-		`SELECT id, name, email, active, created_at FROM users WHERE id = @p1`,
-	);
+	const result = await request.query<GetUserByIdRow>(`SELECT id, name, email, active, created_at FROM users WHERE id = @p1`);
 	return result.recordset[0] ?? null;
 }
 
@@ -115,9 +109,7 @@ export async function listActiveUsers(
 	pool: sql.ConnectionPool,
 ): Promise<ListActiveUsersRow[]> {
 	const request = pool.request();
-	const result = await request.query<ListActiveUsersRow>(
-		`SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT)`,
-	);
+	const result = await request.query<ListActiveUsersRow>(`SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT)`);
 	return result.recordset;
 }
 
@@ -143,8 +135,7 @@ export async function createUser(
 	request.input("p2", sql.NVarChar, name);
 	request.input("p3", sql.NVarChar, email);
 	request.input("p4", sql.Bit, active);
-	const result =
-		await request.query<CreateUserRow>(`INSERT INTO users (id, name, email, active)
+	const result = await request.query<CreateUserRow>(`INSERT INTO users (id, name, email, active)
 OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at
 VALUES (@p1, @p2, @p3, @p4)`);
 	return result.recordset[0] ?? null;
@@ -186,8 +177,6 @@ export async function searchUsers(
 ): Promise<SearchUsersRow[]> {
 	const request = pool.request();
 	request.input("p1", sql.NVarChar, name);
-	const result = await request.query<SearchUsersRow>(
-		`SELECT id, name, email FROM users WHERE name LIKE @p1`,
-	);
+	const result = await request.query<SearchUsersRow>(`SELECT id, name, email FROM users WHERE name LIKE @p1`);
 	return result.recordset;
 }
