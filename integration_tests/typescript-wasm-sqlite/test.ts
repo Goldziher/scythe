@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 import {
 	createUser,
 	getUserById,
@@ -13,7 +13,8 @@ const DATABASE_URL =
 	process.env["SQLITE_PATH"] ??
 	"test.db";
 
-const db = new Database(DATABASE_URL);
+const sqlite3 = await sqlite3InitModule();
+const db = new sqlite3.oo1.DB(DATABASE_URL, "c");
 
 let exitCode = 0;
 
@@ -40,8 +41,8 @@ async function main(): Promise<void> {
 
 		// Test: CreateUser
 		createUser(db, "Alice", "alice@example.com", "active");
-		const insertedUserId = db.prepare("SELECT last_insert_rowid() as id").get() as { id: number };
-		const userId = insertedUserId.id;
+		const insertedUser = db.selectObject("SELECT last_insert_rowid() as id") as unknown as { id: number };
+		const userId = insertedUser.id;
 		const user = getUserById(db, userId);
 		assert(user !== null, "CreateUser", "user should not be null");
 		assert(
@@ -79,8 +80,8 @@ async function main(): Promise<void> {
 
 		// Test: CreateOrder
 		createOrder(db, userId, 99.95, "first order");
-		const insertedOrderId = db.prepare("SELECT last_insert_rowid() as id").get() as { id: number };
-		const orderId = insertedOrderId.id;
+		const insertedOrder = db.selectObject("SELECT last_insert_rowid() as id") as unknown as { id: number };
+		const orderId = insertedOrder.id;
 		assert(orderId !== null, "CreateOrder", "order id should not be null");
 		console.log("PASS: CreateOrder");
 

@@ -1,5 +1,5 @@
 {
-	"name": "scythe-integration-test-better-sqlite3",
+	"name": "scythe-integration-test-wasm-sqlite",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
@@ -8,10 +8,9 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"better-sqlite3": "^12.11.1"
+		"@sqlite.org/sqlite-wasm": "^3.53.0-build1"
 	},
 	"devDependencies": {
-		"@types/better-sqlite3": "^7.6.13",
 		"@types/node": "^26.1.2",
 		"tsx": "^4.23.7",
 		"typescript": "^5.9.3"

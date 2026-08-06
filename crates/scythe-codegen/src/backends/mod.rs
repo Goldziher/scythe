@@ -47,10 +47,12 @@ pub(crate) mod typescript_duckdb;
 pub(crate) mod typescript_kysely;
 pub(crate) mod typescript_mssql;
 pub(crate) mod typescript_mysql2;
+pub(crate) mod typescript_node_sqlite;
 pub(crate) mod typescript_oracledb;
 pub(crate) mod typescript_pg;
 pub(crate) mod typescript_postgres;
 pub(crate) mod typescript_snowflake;
+pub(crate) mod typescript_wasm_sqlite;
 
 use scythe_backend::manifest::BackendManifest;
 use scythe_core::analyzer::AnalyzedParam;
@@ -354,6 +356,12 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
             canonical_engine,
         )?),
         "typescript-duckdb" => Box::new(typescript_duckdb::TypescriptDuckdbBackend::new(canonical_engine)?),
+        "typescript-node-sqlite" => Box::new(typescript_node_sqlite::TypescriptNodeSqliteBackend::new(
+            canonical_engine,
+        )?),
+        "typescript-wasm-sqlite" => Box::new(typescript_wasm_sqlite::TypescriptWasmSqliteBackend::new(
+            canonical_engine,
+        )?),
         "typescript-kysely" | "kysely" => Box::new(typescript_kysely::TypescriptKyselyBackend::new(canonical_engine)?),
         "go-database-sql" => Box::new(go_database_sql::GoDatabaseSqlBackend::new(canonical_engine)?),
         "go-pgx" | "go" => Box::new(go_pgx::GoPgxBackend::new(canonical_engine)?),

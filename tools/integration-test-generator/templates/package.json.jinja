@@ -22,10 +22,12 @@
 		"kysely": "^0.28.17",
 		"mysql2": "^3.23.2"
 {%- elif driver == "better-sqlite3" %}
-		"better-sqlite3": "^11.10.0"
+		"better-sqlite3": "^12.11.1"
 {%- elif driver == "kysely-sqlite" %}
-		"better-sqlite3": "^11.10.0",
+		"better-sqlite3": "^12.11.1",
 		"kysely": "^0.28.17"
+{%- elif driver == "wasm-sqlite" %}
+		"@sqlite.org/sqlite-wasm": "^3.53.0-build1"
 {%- elif driver == "oracledb" %}
 		"oracledb": "^6.10.0"
 {%- elif driver == "mssql" %}

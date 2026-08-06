@@ -15,6 +15,10 @@ import Database from "better-sqlite3";
 {%- elif driver == "kysely-sqlite" -%}
 import { Kysely, SqliteDialect, sql } from "kysely";
 import Database from "better-sqlite3";
+{%- elif driver == "node-sqlite" -%}
+import { DatabaseSync } from "node:sqlite";
+{%- elif driver == "wasm-sqlite" -%}
+import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
 {%- elif driver == "oracledb" -%}
 import oracledb from "oracledb";
 {%- elif driver == "mssql" -%}
@@ -78,6 +82,13 @@ const db = new Kysely<any>({
 const db = new Kysely<any>({
 	dialect: new SqliteDialect({ database: new Database(DATABASE_URL) }),
 });
+{%- elif driver == "better-sqlite3" %}
+const db = new Database(DATABASE_URL);
+{%- elif driver == "node-sqlite" %}
+const db = new DatabaseSync(DATABASE_URL);
+{%- elif driver == "wasm-sqlite" %}
+const sqlite3 = await sqlite3InitModule();
+const db = new sqlite3.oo1.DB(DATABASE_URL, "c");
 {%- elif driver == "kysely-mssql" %}
 const mssqlUrl = new URL(DATABASE_URL);
 const db = new Kysely<any>({
@@ -955,6 +966,188 @@ async function main(): Promise<void> {
 		}
 	} finally {
 		await db.destroy();
+	}
+{%- elif driver == "node-sqlite" or driver == "better-sqlite3" %}
+	try {
+		// Clean slate
+		db.exec("DROP TABLE IF EXISTS user_tags");
+		db.exec("DROP TABLE IF EXISTS tags");
+		db.exec("DROP TABLE IF EXISTS orders");
+		db.exec("DROP TABLE IF EXISTS users");
+
+		const schemaPath = new URL("../sql/sqlite/schema.sql", import.meta.url).pathname;
+		const { readFile } = await import("node:fs/promises");
+		const schemaSql = await readFile(schemaPath, "utf8");
+		db.exec(schemaSql);
+
+		// Test: CreateUser
+		createUser(db, "Alice", "alice@example.com", "active");
+		const insertedUserId = db.prepare("SELECT last_insert_rowid() as id").get() as { id: number };
+		const userId = insertedUserId.id;
+		const user = getUserById(db, userId);
+		assert(user !== null, "CreateUser", "user should not be null");
+		assert(
+			user!.name === "Alice",
+			"CreateUser",
+			`expected name Alice, got ${user!.name}`,
+		);
+		assert(
+			user!.email === "alice@example.com",
+			"CreateUser",
+			`expected email alice@example.com`,
+		);
+		console.log("PASS: CreateUser");
+
+		// Test: GetUserById
+		const fetched = getUserById(db, userId);
+		assert(fetched !== null, "GetUserById", "user should not be null");
+		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
+		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
+		console.log("PASS: GetUserById");
+
+		// Test: ListActiveUsers
+		const activeUsers = listActiveUsers(db, "active");
+		assert(
+			activeUsers.length > 0,
+			"ListActiveUsers",
+			"should have at least one user",
+		);
+		assert(
+			activeUsers[0]!.name === "Alice",
+			"ListActiveUsers",
+			"first user should be Alice",
+		);
+		console.log("PASS: ListActiveUsers");
+
+		// Test: CreateOrder
+		createOrder(db, userId, 99.95, "first order");
+		const insertedOrderId = db.prepare("SELECT last_insert_rowid() as id").get() as { id: number };
+		const orderId = insertedOrderId.id;
+		assert(orderId !== null, "CreateOrder", "order id should not be null");
+		console.log("PASS: CreateOrder");
+
+		// Test: GetOrdersByUser
+		const orders = getOrdersByUser(db, userId);
+		assert(
+			orders.length === 1,
+			"GetOrdersByUser",
+			`expected 1 order, got ${orders.length}`,
+		);
+		assert(
+			Number(orders[0]!.total) === 99.95,
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
+		console.log("PASS: GetOrdersByUser");
+
+		// Test: DeleteUser
+		const deletedOrders = deleteOrdersByUser(db, userId);
+		assert(
+			deletedOrders === 1,
+			"DeleteUser",
+			`expected 1 deleted order, got ${deletedOrders}`,
+		);
+		deleteUser(db, userId);
+		const gone = getUserById(db, userId);
+		assert(gone === null, "DeleteUser", "user should be null after deletion");
+		console.log("PASS: DeleteUser");
+
+		if (exitCode === 0) {
+			console.log("ALL TESTS PASSED");
+		}
+	} finally {
+		db.close();
+	}
+{%- elif driver == "wasm-sqlite" %}
+	try {
+		// Clean slate
+		db.exec("DROP TABLE IF EXISTS user_tags");
+		db.exec("DROP TABLE IF EXISTS tags");
+		db.exec("DROP TABLE IF EXISTS orders");
+		db.exec("DROP TABLE IF EXISTS users");
+
+		const schemaPath = new URL("../sql/sqlite/schema.sql", import.meta.url).pathname;
+		const { readFile } = await import("node:fs/promises");
+		const schemaSql = await readFile(schemaPath, "utf8");
+		db.exec(schemaSql);
+
+		// Test: CreateUser
+		createUser(db, "Alice", "alice@example.com", "active");
+		const insertedUser = db.selectObject("SELECT last_insert_rowid() as id") as unknown as { id: number };
+		const userId = insertedUser.id;
+		const user = getUserById(db, userId);
+		assert(user !== null, "CreateUser", "user should not be null");
+		assert(
+			user!.name === "Alice",
+			"CreateUser",
+			`expected name Alice, got ${user!.name}`,
+		);
+		assert(
+			user!.email === "alice@example.com",
+			"CreateUser",
+			`expected email alice@example.com`,
+		);
+		console.log("PASS: CreateUser");
+
+		// Test: GetUserById
+		const fetched = getUserById(db, userId);
+		assert(fetched !== null, "GetUserById", "user should not be null");
+		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
+		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
+		console.log("PASS: GetUserById");
+
+		// Test: ListActiveUsers
+		const activeUsers = listActiveUsers(db, "active");
+		assert(
+			activeUsers.length > 0,
+			"ListActiveUsers",
+			"should have at least one user",
+		);
+		assert(
+			activeUsers[0]!.name === "Alice",
+			"ListActiveUsers",
+			"first user should be Alice",
+		);
+		console.log("PASS: ListActiveUsers");
+
+		// Test: CreateOrder
+		createOrder(db, userId, 99.95, "first order");
+		const insertedOrder = db.selectObject("SELECT last_insert_rowid() as id") as unknown as { id: number };
+		const orderId = insertedOrder.id;
+		assert(orderId !== null, "CreateOrder", "order id should not be null");
+		console.log("PASS: CreateOrder");
+
+		// Test: GetOrdersByUser
+		const orders = getOrdersByUser(db, userId);
+		assert(
+			orders.length === 1,
+			"GetOrdersByUser",
+			`expected 1 order, got ${orders.length}`,
+		);
+		assert(
+			Number(orders[0]!.total) === 99.95,
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
+		console.log("PASS: GetOrdersByUser");
+
+		// Test: DeleteUser
+		const deletedOrders = deleteOrdersByUser(db, userId);
+		assert(
+			deletedOrders === 1,
+			"DeleteUser",
+			`expected 1 deleted order, got ${deletedOrders}`,
+		);
+		deleteUser(db, userId);
+		const gone = getUserById(db, userId);
+		assert(gone === null, "DeleteUser", "user should be null after deletion");
+		console.log("PASS: DeleteUser");
+
+		if (exitCode === 0) {
+			console.log("ALL TESTS PASSED");
+		}
+	} finally {
+		db.close();
 	}
 {%- elif driver == "oracledb" %}
 	const { URL } = await import("node:url");

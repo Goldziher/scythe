@@ -1,4 +1,4 @@
-import Database from "better-sqlite3";
+import { DatabaseSync } from "node:sqlite";
 import {
 	createUser,
 	getUserById,
@@ -13,7 +13,7 @@ const DATABASE_URL =
 	process.env["SQLITE_PATH"] ??
 	"test.db";
 
-const db = new Database(DATABASE_URL);
+const db = new DatabaseSync(DATABASE_URL);
 
 let exitCode = 0;
 

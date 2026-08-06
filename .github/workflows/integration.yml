@@ -717,7 +717,7 @@ jobs:
           python-version: "3.12"
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
+          node-version: "24"
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -764,6 +764,20 @@ jobs:
 
       - name: Test typescript-kysely-sqlite
         working-directory: integration_tests/typescript-kysely-sqlite
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
+      - name: Test typescript-node-sqlite
+        working-directory: integration_tests/typescript-node-sqlite
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
+      - name: Test typescript-wasm-sqlite
+        working-directory: integration_tests/typescript-wasm-sqlite
         run: |
           pnpm install
           pnpm exec tsc --noEmit

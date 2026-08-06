@@ -117,6 +117,8 @@ tasks:
           - python-aiosqlite
           - typescript-better-sqlite3
           - typescript-kysely-sqlite
+          - typescript-node-sqlite
+          - typescript-wasm-sqlite
           - java-jdbc-sqlite
           - kotlin-jdbc-sqlite
           - csharp-microsoft-sqlite
@@ -515,6 +517,22 @@ tasks:
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
+  test:typescript-node-sqlite:
+    desc: Run typescript-node-sqlite integration test
+    dir: typescript-node-sqlite
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
+  test:typescript-wasm-sqlite:
+    desc: Run typescript-wasm-sqlite integration test
+    dir: typescript-wasm-sqlite
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
   test:java-jdbc-sqlite:
     desc: Run java-jdbc-sqlite integration test
     dir: java-jdbc-sqlite
@@ -640,6 +658,8 @@ tasks:
       - task: test:python-aiosqlite
       - task: test:typescript-better-sqlite3
       - task: test:typescript-kysely-sqlite
+      - task: test:typescript-node-sqlite
+      - task: test:typescript-wasm-sqlite
       - task: test:java-jdbc-sqlite
       - task: test:kotlin-jdbc-sqlite
       - task: test:csharp-microsoft-sqlite

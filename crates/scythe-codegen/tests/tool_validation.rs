@@ -42,6 +42,23 @@ const MYSQL_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
 const MYSQL_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
     DELETE FROM users WHERE id = ?;";
 
+const SQLITE_SCHEMA: &str = "CREATE TABLE users (\
+    id INTEGER PRIMARY KEY AUTOINCREMENT, \
+    name TEXT NOT NULL, \
+    email TEXT, \
+    status TEXT NOT NULL DEFAULT 'active', \
+    created_at TEXT NOT NULL\
+);";
+
+const SQLITE_QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
+    SELECT id, name, email, status, created_at FROM users WHERE id = ?;";
+
+const SQLITE_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
+    SELECT id, name, email FROM users ORDER BY name;";
+
+const SQLITE_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
+    DELETE FROM users WHERE id = ?;";
+
 fn generate_full_file(backend_name: &str) -> String {
     let backend = get_backend(backend_name, "postgresql").unwrap();
     generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::PostgreSQL)
@@ -58,13 +75,16 @@ fn generate_full_file_mysql(backend_name: &str) -> String {
     generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::MySQL)
 }
 
+fn generate_full_file_sqlite(backend_name: &str) -> String {
+    let backend = get_backend(backend_name, "sqlite").unwrap();
+    generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::SQLite)
+}
+
 fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBackend, dialect: &SqlDialect) -> String {
-    let is_mysql = matches!(dialect, SqlDialect::MySQL);
-    let schema = if is_mysql { MYSQL_SCHEMA } else { SCHEMA };
-    let queries = if is_mysql {
-        [MYSQL_QUERY_ONE, MYSQL_QUERY_MANY, MYSQL_QUERY_EXEC]
-    } else {
-        [QUERY_ONE, QUERY_MANY, QUERY_EXEC]
+    let (schema, queries) = match dialect {
+        SqlDialect::MySQL => (MYSQL_SCHEMA, [MYSQL_QUERY_ONE, MYSQL_QUERY_MANY, MYSQL_QUERY_EXEC]),
+        SqlDialect::SQLite => (SQLITE_SCHEMA, [SQLITE_QUERY_ONE, SQLITE_QUERY_MANY, SQLITE_QUERY_EXEC]),
+        _ => (SCHEMA, [QUERY_ONE, QUERY_MANY, QUERY_EXEC]),
     };
 
     let catalog = Catalog::from_ddl_with_dialect(&[schema], dialect).unwrap();
@@ -287,6 +307,40 @@ macro_rules! duckdb_backend_test {
     };
 }
 
+macro_rules! sqlite_backend_test {
+    ($name:ident, $backend:expr) => {
+        #[test]
+        fn $name() {
+            let code = generate_full_file_sqlite($backend);
+            assert!(
+                !code.trim().is_empty(),
+                "generated code is empty for {}",
+                $backend
+            );
+
+            eprintln!("\n=== {} ===\n{}\n=== END ===\n", $backend, code);
+
+            let structural_errors = validate_structural(&code, $backend);
+            assert!(
+                structural_errors.is_empty(),
+                "{} structural: {:?}",
+                $backend,
+                structural_errors
+            );
+
+            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
+                assert!(
+                    tool_errors.is_empty(),
+                    "{} tool validation: {:?}\n\nGenerated code:\n{}",
+                    $backend,
+                    tool_errors,
+                    code
+                );
+            }
+        }
+    };
+}
+
 backend_test!(test_rust_sqlx, "rust-sqlx");
 backend_test!(test_rust_tokio_postgres, "rust-tokio-postgres");
 backend_test!(test_python_psycopg3, "python-psycopg3");
@@ -306,6 +360,10 @@ backend_test!(test_ruby_pg, "ruby-pg");
 backend_test!(test_php_pdo, "php-pdo");
 backend_test!(test_php_amphp, "php-amphp");
 backend_test!(test_kotlin_exposed, "kotlin-exposed");
+
+sqlite_backend_test!(test_typescript_better_sqlite3, "typescript-better-sqlite3");
+sqlite_backend_test!(test_typescript_node_sqlite, "typescript-node-sqlite");
+sqlite_backend_test!(test_typescript_wasm_sqlite, "typescript-wasm-sqlite");
 
 duckdb_backend_test!(test_python_duckdb, "python-duckdb");
 duckdb_backend_test!(test_typescript_duckdb, "typescript-duckdb");

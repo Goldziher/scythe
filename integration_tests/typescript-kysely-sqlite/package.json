@@ -8,7 +8,7 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-		"better-sqlite3": "^11.10.0",
+		"better-sqlite3": "^12.11.1",
 		"kysely": "^0.28.17"
 	},
 	"devDependencies": {
