@@ -17,15 +17,25 @@ pub struct ElixirTdsBackend {
 }
 
 /// Map a neutral SQL type to its `Tds.Parameter` type atom.
+///
+/// Only matches neutral types — the vocabulary produced by
+/// `scythe_core::analyzer::type_conversion::sql_type_to_neutral`. That
+/// function collapses both the MSSQL `DATETIME` and `DATETIME2` SQL types
+/// into the single neutral type `"datetime"`, and `ResolvedParam` (unlike
+/// `ResolvedColumn`) does not carry the raw `sql_type` a param was inferred
+/// from, so a `"datetime2"` (or `"text"`, similarly collapsed to `"string"`)
+/// arm here could never match live data. Do not add either back without
+/// first plumbing the raw SQL type through `AnalyzedParam`/`ResolvedParam` —
+/// see `ResolvedColumn::sql_type` for the equivalent that already exists for
+/// columns.
 fn tds_param_type_atom(neutral_type: &str) -> &'static str {
     match neutral_type {
         "bool" => ":boolean",
         "int16" | "int32" | "int64" => ":integer",
         "float32" | "float64" => ":float",
         "decimal" => ":decimal",
-        "string" | "text" => ":string",
+        "string" => ":string",
         "date" => ":date",
-        "datetime2" => ":datetime2",
         "datetime" | "datetime_tz" => ":datetime",
         "uuid" => ":uuid",
         _ => ":string",
@@ -44,9 +54,15 @@ fn format_tds_param_args(params: &[ResolvedParam]) -> String {
             .map(|(i, p)| {
                 // tds's :boolean encoder (encode_binary_type) accepts integers or
                 // bitstrings, not Elixir booleans, so coerce true/false to 1/0 on
-                // the wire while keeping the public API boolean()-typed.
+                // the wire while keeping the public API boolean()-typed. `nil` is
+                // falsy in Elixir too, so guard for it explicitly and pass it
+                // through unchanged — otherwise a NULL boolean param would
+                // silently encode as `0` (false) instead of SQL NULL.
                 let value_expr = if p.neutral_type == "bool" {
-                    format!("(if {}, do: 1, else: 0)", p.field_name)
+                    format!(
+                        "(if is_nil({0}), do: nil, else: (if {0}, do: 1, else: 0))",
+                        p.field_name
+                    )
                 } else {
                     p.field_name.clone()
                 };
@@ -489,8 +505,80 @@ mod tests {
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
 
-    use super::ElixirTdsBackend;
+    use super::{ElixirTdsBackend, format_tds_param_args, tds_param_type_atom};
+    use crate::backend_trait::ResolvedParam;
     use crate::generate_with_backend;
+
+    fn param(field_name: &str, neutral_type: &str) -> ResolvedParam {
+        ResolvedParam {
+            name: field_name.to_string(),
+            field_name: field_name.to_string(),
+            lang_type: String::new(),
+            full_type: String::new(),
+            borrowed_type: String::new(),
+            neutral_type: neutral_type.to_string(),
+            nullable: false,
+        }
+    }
+
+    #[test]
+    fn test_tds_param_type_atom_every_neutral_type() {
+        assert_eq!(tds_param_type_atom("bool"), ":boolean");
+        assert_eq!(tds_param_type_atom("int16"), ":integer");
+        assert_eq!(tds_param_type_atom("int32"), ":integer");
+        assert_eq!(tds_param_type_atom("int64"), ":integer");
+        assert_eq!(tds_param_type_atom("float32"), ":float");
+        assert_eq!(tds_param_type_atom("float64"), ":float");
+        assert_eq!(tds_param_type_atom("decimal"), ":decimal");
+        assert_eq!(tds_param_type_atom("string"), ":string");
+        assert_eq!(tds_param_type_atom("date"), ":date");
+        assert_eq!(tds_param_type_atom("datetime"), ":datetime");
+        assert_eq!(tds_param_type_atom("datetime_tz"), ":datetime");
+        assert_eq!(tds_param_type_atom("uuid"), ":uuid");
+    }
+
+    #[test]
+    fn test_tds_param_type_atom_unknown_falls_back_to_string() {
+        // "datetime2" and "text" are SQL type names, not neutral types --
+        // sql_type_to_neutral collapses both into "datetime"/"string" before
+        // this function ever sees them, so they must fall through to the
+        // default rather than getting their own (dead) match arm.
+        assert_eq!(tds_param_type_atom("datetime2"), ":string");
+        assert_eq!(tds_param_type_atom("text"), ":string");
+        assert_eq!(tds_param_type_atom("totally_unknown"), ":string");
+    }
+
+    #[test]
+    fn test_format_tds_param_args_empty() {
+        assert_eq!(format_tds_param_args(&[]), "[]");
+    }
+
+    #[test]
+    fn test_format_tds_param_args_boolean_guards_nil_before_coercing() {
+        let params = vec![param("active", "bool")];
+        let args = format_tds_param_args(&params);
+        assert_eq!(
+            args,
+            "[%Tds.Parameter{name: \"@1\", value: (if is_nil(active), do: nil, else: (if active, do: 1, else: 0)), type: :boolean}]"
+        );
+    }
+
+    #[test]
+    fn test_format_tds_param_args_non_boolean_passes_value_through() {
+        let params = vec![param("user_id", "int32")];
+        let args = format_tds_param_args(&params);
+        assert_eq!(args, "[%Tds.Parameter{name: \"@1\", value: user_id, type: :integer}]");
+    }
+
+    #[test]
+    fn test_format_tds_param_args_datetime() {
+        let params = vec![param("created_at", "datetime")];
+        let args = format_tds_param_args(&params);
+        assert_eq!(
+            args,
+            "[%Tds.Parameter{name: \"@1\", value: created_at, type: :datetime}]"
+        );
+    }
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![
