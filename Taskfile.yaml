@@ -109,6 +109,9 @@ tasks:
       - cargo update
       - uv lock --upgrade
       - task: update:integration
+      # cargo rewrites Cargo.toml with its own 4-space indent, which poly then
+      # rejects. Reformat here so a dependency bump cannot leave CI red.
+      - poly fmt --fix .
 
   update:integration:
     desc: Update lock files in all integration test projects
