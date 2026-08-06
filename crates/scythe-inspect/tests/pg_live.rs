@@ -2,7 +2,13 @@
 //! enabled AND `$SCYTHE_TEST_DATABASE_URL` is set.
 //!
 //! Each test creates its own schema, runs the relevant check, and drops the
-//! schema on the way out, so they're safe to run against a shared PG.
+//! schema on the way out.
+//!
+//! These tests must run serially (`--test-threads=1`, as the CI workflow does).
+//! The per-test schema bounds the *fixture*, not the *assertion*: `run_all()`
+//! inspects every schema in the database, so a concurrently-running test's
+//! fixture shows up in another test's findings.  SC-INS09 cannot be isolated by
+//! schema at all — installing an extension is database-global.
 //!
 //! ## PG-version compatibility
 //!

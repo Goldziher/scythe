@@ -359,7 +359,7 @@ SELECT schemaname                                                         AS sch
        sequencename                                                        AS sequence_name,
        last_value,
        max_value,
-       round((last_value::float8 / max_value::float8) * 100, 1)::text    AS percent_used
+       round((last_value::numeric / max_value::numeric) * 100, 1)::text  AS percent_used
 FROM pg_sequences
 WHERE last_value IS NOT NULL
   AND last_value::float8 / max_value::float8 > 0.7

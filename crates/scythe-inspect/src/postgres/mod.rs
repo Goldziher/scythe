@@ -1,16 +1,57 @@
 //! PostgreSQL driver — connects via `tokio-postgres` and runs checks from the
 //! TOML-driven registry.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use scythe_lint::reporters::Finding;
+use scythe_lint::types::Severity;
 use tokio_postgres::{Client, NoTls};
 
 use crate::driver::{CheckCatalogEntry, DbDriver};
 use crate::error::InspectError;
 use crate::registry::CheckRegistry;
+use crate::spec::CheckSpec;
 use crate::suppression::SuppressionEngine;
 
 pub mod runner;
+
+/// Build the [`Finding`] reported when a check's SQL cannot be executed.
+///
+/// A check may fail for reasons that have nothing to do with the schema under
+/// inspection: a catalog view missing on an unusual build, a role without
+/// permission to read it, or a bug in the check's own SQL.  Reporting the
+/// failure as a warning keeps the remaining checks useful instead of losing the
+/// whole run to one bad query.
+///
+/// The finding keeps the failing check's `rule_id` so existing suppression
+/// rules continue to address it by ID.
+fn check_failure_finding(spec: &CheckSpec, error: &InspectError) -> Finding {
+    // `tokio_postgres::Error` renders as a bare "db error"; the SQLSTATE and
+    // server message live further down the `source()` chain, so walk it or the
+    // finding tells the user nothing actionable.
+    let mut detail = error.to_string();
+    let mut cause: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(error);
+    while let Some(current) = cause {
+        detail.push_str(": ");
+        detail.push_str(&current.to_string());
+        cause = current.source();
+    }
+
+    Finding {
+        file: String::new(),
+        query_name: None,
+        rule_id: spec.id.clone(),
+        rule_name: Some(format!("{}-check-failed", spec.name)),
+        rule_description: Some(spec.description.clone()),
+        severity: Severity::Warn,
+        message: format!("check `{}` could not be executed: {detail}", spec.id),
+        line: None,
+        column: None,
+        cwe: Vec::new(),
+        source: Some("inspect".to_string()),
+    }
+}
 
 /// The check ID for SC-INS10 (rls-disabled-in-public). When `api_schemas` is
 /// configured, the post-run filter restricts SC-INS10 findings to schemas in
@@ -191,7 +232,13 @@ impl DbDriver for PostgresDriver {
                 continue;
             }
 
-            let pairs = runner::run_check_with_bindings(client, spec).await?;
+            let pairs = match runner::run_check_with_bindings(client, spec).await {
+                Ok(pairs) => pairs,
+                Err(error) => {
+                    all_pairs.push((check_failure_finding(spec, &error), HashMap::new()));
+                    continue;
+                }
+            };
 
             for (finding, bindings) in pairs {
                 if finding.rule_id == SC_INS10_ID
@@ -236,6 +283,46 @@ mod tests {
         assert_eq!(catalog[0].id, "SC-INS01");
         assert_eq!(catalog[1].id, "SC-INS02");
         assert_eq!(catalog[2].id, "SC-INS03");
+    }
+
+    /// Regression guard for the SC-INS13 outage: PostgreSQL only defines the
+    /// two-argument `round(v, s)` for `numeric`, so `round(float8, int)` fails
+    /// with SQLSTATE 42883 on every server version.  Because `run_all` used to
+    /// abort on the first failing check, this single expression took the entire
+    /// `scythe inspect` command down.
+    #[test]
+    fn no_check_calls_two_arg_round_on_a_float() {
+        let registry = CheckRegistry::canonical();
+        for spec in registry.for_engine("postgres") {
+            assert!(
+                !spec.sql.contains("round((last_value::float8"),
+                "check {} calls round() on a float8 — PostgreSQL has no round(double precision, integer)",
+                spec.id
+            );
+        }
+    }
+
+    /// A check whose SQL the server rejects must degrade to a single warning
+    /// rather than aborting the run, so the remaining checks still report.
+    #[test]
+    fn failed_check_becomes_a_warning_finding() {
+        let registry = CheckRegistry::canonical();
+        let spec = registry.for_engine("postgres").next().expect("at least one check");
+
+        let error = InspectError::MessageBindingMissing {
+            check_id: spec.id.clone(),
+            binding: "schema_name".to_string(),
+        };
+        let finding = check_failure_finding(spec, &error);
+
+        assert_eq!(finding.rule_id, spec.id);
+        assert_eq!(finding.severity, Severity::Warn);
+        assert_eq!(finding.source.as_deref(), Some("inspect"));
+        assert!(
+            finding.message.contains("could not be executed"),
+            "message should explain the check did not run: {}",
+            finding.message
+        );
     }
 
     #[tokio::test]
