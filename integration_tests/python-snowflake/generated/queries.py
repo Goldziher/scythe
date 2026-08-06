@@ -8,8 +8,9 @@ from enum import Enum  # noqa: F401
 import snowflake.connector  # noqa: F401
 
 
-
-def create_order(conn: snowflake.connector.SnowflakeConnection, *, user_id: int, total: int, notes: str | None) -> None:
+def create_order(
+    conn: snowflake.connector.SnowflakeConnection, *, user_id: int, total: decimal.Decimal, notes: str | None
+) -> None:
     """Execute CreateOrder query."""
     cur = conn.cursor()
     cur.execute("""INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)""", (user_id, total, notes))
@@ -20,7 +21,7 @@ class GetOrdersByUserRow:
     """Row type for GetOrdersByUser query."""
 
     id: int
-    total: int
+    total: decimal.Decimal
     notes: str | None
     created_at: datetime.datetime
 
@@ -28,7 +29,9 @@ class GetOrdersByUserRow:
 def get_orders_by_user(conn: snowflake.connector.SnowflakeConnection, *, user_id: int) -> list[GetOrdersByUserRow]:
     """Execute GetOrdersByUser query."""
     cur = conn.cursor()
-    cur.execute("""SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC""", (user_id,))
+    cur.execute(
+        """SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC""", (user_id,)
+    )
     rows = cur.fetchall()
     return [
         GetOrdersByUserRow(
@@ -45,7 +48,7 @@ def get_orders_by_user(conn: snowflake.connector.SnowflakeConnection, *, user_id
 class GetOrderTotalRow:
     """Row type for GetOrderTotal query."""
 
-    total_sum: int | None
+    total_sum: decimal.Decimal | None
 
 
 def get_order_total(conn: snowflake.connector.SnowflakeConnection, *, user_id: int) -> GetOrderTotalRow | None:

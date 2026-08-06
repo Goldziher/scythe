@@ -12,12 +12,12 @@ import java.time.OffsetTime
 fun createOrder(
     conn: Connection,
     user_id: Int,
-    total: Long,
+    total: java.math.BigDecimal,
     notes: String?,
 ) {
     conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)").use { ps ->
         ps.setInt(1, user_id)
-        ps.setLong(2, total)
+        ps.setBigDecimal(2, total)
         ps.setString(3, notes)
         ps.executeUpdate()
     }
@@ -26,7 +26,7 @@ fun createOrder(
 
 data class GetOrdersByUserRow(
     val id: Int,
-    val total: Long,
+    val total: java.math.BigDecimal,
     val notes: String?,
     val created_at: java.time.LocalDateTime,
 )
@@ -46,7 +46,7 @@ fun getOrdersByUser(
                 result.add(
                     GetOrdersByUserRow(
                         id = rs.getInt("id"),
-                        total = rs.getLong("total"),
+                        total = rs.getBigDecimal("total"),
                         notes = notes,
                         created_at = rs.getObject("created_at", LocalDateTime::class.java),
                     ),
@@ -59,7 +59,7 @@ fun getOrdersByUser(
 
 
 data class GetOrderTotalRow(
-    val total_sum: Long?,
+    val total_sum: java.math.BigDecimal?,
 )
 
 
@@ -71,7 +71,7 @@ fun getOrderTotal(
         ps.setInt(1, user_id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
-                val total_sumValue = rs.getLong("total_sum")
+                val total_sumValue = rs.getBigDecimal("total_sum")
                 val total_sum = if (rs.wasNull()) null else total_sumValue
                 GetOrderTotalRow(
                     total_sum = total_sum,

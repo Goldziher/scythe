@@ -182,7 +182,7 @@ PASSED") }
     fmt.Errorf("creating schema: %w", err) } return nil }
   {%- elif engine == "snowflake" %}
     func runMigration(ctx context.Context, db *sql.DB) error { _, thisFile, _, _ := runtime.Caller(0) schemaPath :=
-    filepath.Join(filepath.Dir(thisFile), "..", "sql", "snowflake", "schema_emu.sql") schema, err :=
+    filepath.Join(filepath.Dir(thisFile), "..", "sql", "snowflake", "schema.sql") schema, err :=
     os.ReadFile(schemaPath) if err != nil { return fmt.Errorf("reading schema file at %s: %w", schemaPath, err) }
     dropStatements := []string{ "DROP TABLE IF EXISTS user_tags", "DROP TABLE IF EXISTS tags", "DROP TABLE IF EXISTS
     orders", "DROP TABLE IF EXISTS users", } for _, stmt := range dropStatements { if _, err := db.ExecContext(ctx,
@@ -242,7 +242,7 @@ PASSED") }
     if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
     return }
   {%- elif engine == "snowflake" %}
-    if err := queries.CreateOrder(ctx, db, createdUserID, int64(9995), &notes); err != nil { fail(name, err) return }
+    if err := queries.CreateOrder(ctx, db, createdUserID, 9995.00, &notes); err != nil { fail(name, err) return }
     orders, err := queries.GetOrdersByUser(ctx, db, createdUserID) if err != nil { fail(name, err) return } if
     !assertf(name, len(orders) >= 1, "expected at least 1 order, got %d", len(orders)) { return }
   {%- elif engine == "mariadb" %}

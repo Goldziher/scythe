@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- `typescript-kysely` backend targeting [Kysely](https://kysely.dev)'s `sql` template tag instead of a specific driver. Generated functions take a `Kysely<DB>` handle and execute through `sql\`...\`.execute(db)`, so the same generated code runs against any Kysely dialect — the four built-ins (PostgreSQL, MySQL, SQLite, MSSQL) as well as third-party dialects scythe never enumerates, such as wasm-sqlite and `node:sqlite` wrappers. Supports the same `row_type` (interface/zod) and `outer_join_unions` options as the other TypeScript backends — the latter making scythe's Kysely output strictly more precise than a hand-written Kysely query can express, since Kysely itself has no way to know a joined column's nullability is correlated with its schema `NOT NULL` constraint ([#66](https://github.com/Goldziher/scythe/issues/66))
+- `go-gosnowflake` now runs in CI against the shared fakesnow server (`protocol=http&insecureMode=true`), joining `python-snowflake` and `typescript-snowflake` ([#27](https://github.com/Goldziher/scythe/issues/27))
+
+### Fixed
+
+- Snowflake `NUMBER(p, s)` with a non-zero scale now maps to `numeric(p,s)` instead of a bare `numeric`, which every backend was widening to an integer — a `NUMBER(10, 2)` money column generated `int64` in Go, `long` in Java/Kotlin/C#, and `int` in Python/PHP, silently truncating the fractional part. Regenerated output now uses the decimal type for each language (`float64`, `java.math.BigDecimal`, `decimal`, `decimal.Decimal`, `string`) across all seven Snowflake integration projects. Same class of bug fixed for Oracle in 0.11.0, now covered for Snowflake's `NUMBER` too
+- `go-gosnowflake`'s generated harness pointed at `sql/snowflake/schema_emu.sql` (a leftover from an earlier Docker-emulator plan that lacked `AUTOINCREMENT` support); it now uses `sql/snowflake/schema.sql` like every other Snowflake backend
+
+### Changed
+
+- fakesnow's shared query-request wrapper (moved to `integration_tests/fakesnow/fakesnow_server.py`, see Removed) now always emits the plain Snowflake JSON rowset format — every JSON cell is stringified (matching real Snowflake's wire format, where even numbers/booleans arrive as strings) and `rowsetBase64`/`queryResultFormat: arrow` are dropped in favor of `queryResultFormat: json`, instead of only doing this for the Node driver. Query execution is now serialized with an `asyncio.Lock` to stop a client's HTTP retry from re-running a statement concurrently with the still-in-flight original. The login-request handler now advertises `CLIENT_RESULT_COLUMN_CASE_INSENSITIVE`, which snowflake-jdbc needs to resolve lowercase generated-code column lookups (`getInt("id")`) against fakesnow's uppercase column labels (`ID`)
+
+### Removed
+
+- `integration_tests/typescript-snowflake/fakesnow_server.py` moved to `integration_tests/fakesnow/fakesnow_server.py` — it's shared infrastructure for every non-Python Snowflake driver, not a TypeScript-specific fixture
+
 ## [0.11.0] - 2026-07-04
 
 ### Added
@@ -209,14 +227,22 @@ The following backends have codegen support but are **not tested in CI** due to 
 
 **Snowflake** ([#27](https://github.com/Goldziher/scythe/issues/27)):
 
-- `go-gosnowflake` — no free Snowflake emulator with full Go driver support
-- `typescript-snowflake` — emulator doesn't support TS SDK protocol
-- `java-jdbc-snowflake` — emulator doesn't support JDBC protocol
-- `kotlin-jdbc-snowflake` — emulator doesn't support JDBC protocol
-- `csharp-snowflake` — emulator doesn't support .NET driver protocol
-- `php-pdo-snowflake` — emulator doesn't support PDO protocol
+`python-snowflake`, `typescript-snowflake`, and `go-gosnowflake` all run in CI against a shared
+[fakesnow](https://github.com/tekumara/fakesnow) server
+(`integration_tests/fakesnow/fakesnow_server.py`) — gosnowflake connects with `protocol=http&insecureMode=true`
+to skip TLS/OCSP the same way the Node driver does. The remaining three are still excluded:
 
-Only `python-snowflake` is tested via [fakesnow](https://github.com/tekumara/fakesnow) (in-process DuckDB).
+- `java-jdbc-snowflake` / `kotlin-jdbc-snowflake` — both use the snowflake-jdbc driver, which fakesnow forces
+  into its JSON result format (fakesnow has no Arrow chunk-download endpoint). snowflake-jdbc's JSON-format
+  `ResultSet` doesn't implement `getObject(int, LocalDateTime.class)`, so any query touching a `TIMESTAMP_NTZ`
+  column throws regardless of how the connection is configured. Enabling these needs an Arrow chunk-download
+  endpoint in `fakesnow_server.py`; the JDBC-side wiring (insecure TLS URL parameters) was deliberately not
+  landed, since it can't be verified end to end until that blocker is lifted.
+- `csharp-snowflake` — not attempted. The Snowflake.Data driver needs its own TLS/OCSP and result-format
+  investigation, which was not carried out, so no claim is made either way about whether it can work.
+- `php-pdo-snowflake` — genuinely uncoverable in CI: `composer.json` only declares `ext-pdo_odbc`, and the
+  proprietary `pdo_snowflake` PHP extension isn't installable through Composer, PECL, or any standard CI
+  package manager. It requires Snowflake's closed-source ODBC driver preinstalled on the runner.
 
 ## [0.6.7] - 2026-04-12
 

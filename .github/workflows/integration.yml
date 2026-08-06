@@ -898,6 +898,9 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: integration_tests/go-gosnowflake/go.mod
 
       - run: pip install uv
       - run: npm install -g pnpm@10
@@ -908,14 +911,40 @@ jobs:
           SNOWFLAKE_USE_FAKESNOW: "1"
         run: uv run python test_integration.py
 
+      # python-snowflake talks to fakesnow in-process. Every other driver
+      # below speaks the real Snowflake REST API over HTTP, so they share one
+      # fakesnow server (integration_tests/fakesnow/fakesnow_server.py) that
+      # translates fakesnow's native Arrow responses into the plain JSON wire
+      # format non-Python Snowflake drivers expect.
+      - name: Start shared fakesnow server
+        working-directory: integration_tests/fakesnow
+        run: |
+          uv run fakesnow_server.py &
+          echo $! > /tmp/fakesnow.pid
+          curl --retry 30 --retry-all-errors --retry-delay 1 --silent --output /dev/null http://127.0.0.1:64616/
+
       - name: Test typescript-snowflake
         working-directory: integration_tests/typescript-snowflake
         env:
           SNOWFLAKE_URL: snowflake://fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http
         run: |
-          uv run fakesnow_server.py &
-          fakesnow_pid=$!
-          trap 'kill "$fakesnow_pid"' EXIT
-          curl --retry 30 --retry-all-errors --retry-delay 1 --silent --output /dev/null http://127.0.0.1:64616/
           pnpm install --frozen-lockfile
           pnpm exec tsx test.ts
+
+      - name: Test go-gosnowflake
+        working-directory: integration_tests/go-gosnowflake
+        env:
+          SNOWFLAKE_URL: fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http&insecureMode=true
+        run: go run .
+
+      # java-jdbc-snowflake and kotlin-jdbc-snowflake are not run here: both use
+      # snowflake-jdbc, which fakesnow forces into its JSON result format because
+      # fakesnow has no Arrow chunk-download endpoint. That result format cannot
+      # read a TIMESTAMP_NTZ column into a LocalDateTime, so those queries fail no
+      # matter how the connection is configured. Enabling them needs an Arrow
+      # chunk-download endpoint in fakesnow_server.py first. csharp-snowflake is
+      # not run either: the Snowflake.Data driver has not been investigated.
+      # See CHANGELOG.md for details.
+      - name: Stop shared fakesnow server
+        if: always()
+        run: kill "$(cat /tmp/fakesnow.pid)" 2>/dev/null || true

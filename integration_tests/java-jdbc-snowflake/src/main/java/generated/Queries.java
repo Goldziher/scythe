@@ -11,10 +11,10 @@ import javax.annotation.Nullable;
 
 public class Queries {
 
-public static void createOrder(Connection conn, int user_id, long total, @Nullable String notes) throws SQLException {
+public static void createOrder(Connection conn, int user_id, @Nonnull java.math.BigDecimal total, @Nullable String notes) throws SQLException {
     try (var ps = conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")) {
         ps.setInt(1, user_id);
-        ps.setLong(2, total);
+        ps.setBigDecimal(2, total);
         ps.setString(3, notes);
         ps.executeUpdate();
     }
@@ -22,14 +22,14 @@ public static void createOrder(Connection conn, int user_id, long total, @Nullab
 
 public record GetOrdersByUserRow(
     int id,
-    long total,
+    java.math.BigDecimal total,
     @Nullable String notes,
     java.time.LocalDateTime created_at
 ) {
     public static GetOrdersByUserRow fromResultSet(ResultSet rs) throws SQLException {
         return new GetOrdersByUserRow(
             rs.getInt("id"),
-            rs.getLong("total"),
+            rs.getBigDecimal("total"),
             rs.getString("notes"),
             rs.getObject("created_at", LocalDateTime.class)
         );
@@ -50,13 +50,11 @@ public static List<GetOrdersByUserRow> getOrdersByUser(Connection conn, int user
 }
 
 public record GetOrderTotalRow(
-    @Nullable Long total_sum
+    @Nullable java.math.BigDecimal total_sum
 ) {
     public static GetOrderTotalRow fromResultSet(ResultSet rs) throws SQLException {
-        var total_sumRaw = rs.getLong("total_sum");
-        Long total_sum = rs.wasNull() ? null : total_sumRaw;
         return new GetOrderTotalRow(
-            total_sum
+            rs.getBigDecimal("total_sum")
         );
     }
 }

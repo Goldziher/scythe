@@ -6,7 +6,7 @@ using Snowflake.Data.Client;
 
 public static class Queries {
 
-public static async Task CreateOrder(SnowflakeDbConnection conn, int user_id, long total, string? notes) {
+public static async Task CreateOrder(SnowflakeDbConnection conn, int user_id, decimal total, string? notes) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)";
     cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", Value = user_id });
@@ -17,7 +17,7 @@ public static async Task CreateOrder(SnowflakeDbConnection conn, int user_id, lo
 
 public record GetOrdersByUserRow(
     int Id,
-    long Total,
+    decimal Total,
     string? Notes,
     DateTime CreatedAt
 );
@@ -31,7 +31,7 @@ public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(SnowflakeDbCo
     while (await reader.ReadAsync()) {
         results.Add(new GetOrdersByUserRow(
             reader.GetInt32(0),
-            reader.GetInt64(1),
+            reader.GetDecimal(1),
             reader.IsDBNull(2) ? null : reader.GetString(2),
             reader.GetDateTime(3)
         ));
@@ -40,7 +40,7 @@ public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(SnowflakeDbCo
 }
 
 public record GetOrderTotalRow(
-    long? TotalSum
+    decimal? TotalSum
 );
 
 public static async Task<GetOrderTotalRow?> GetOrderTotal(SnowflakeDbConnection conn, int user_id) {
@@ -50,7 +50,7 @@ public static async Task<GetOrderTotalRow?> GetOrderTotal(SnowflakeDbConnection 
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
     return new GetOrderTotalRow(
-        reader.IsDBNull(0) ? null : reader.GetInt64(0)
+        reader.IsDBNull(0) ? null : reader.GetDecimal(0)
     );
 }
 

@@ -7,16 +7,15 @@ import (
 	"time"
 )
 
-
-func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total int64, Notes *string) error {
+func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total float64, Notes *string) error {
 	_, err := db.ExecContext(ctx, "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)", UserId, Total, Notes)
 	return err
 }
 
 type GetOrdersByUserRow struct {
-	Id int32 `json:"id"`
-	Total int64 `json:"total"`
-	Notes *string `json:"notes"`
+	Id        int32     `json:"id"`
+	Total     float64   `json:"total"`
+	Notes     *string   `json:"notes"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -38,7 +37,7 @@ func GetOrdersByUser(ctx context.Context, db *sql.DB, UserId int32) ([]GetOrders
 }
 
 type GetOrderTotalRow struct {
-	TotalSum *int64 `json:"total_sum"`
+	TotalSum *float64 `json:"total_sum"`
 }
 
 func GetOrderTotal(ctx context.Context, db *sql.DB, UserId int32) (GetOrderTotalRow, error) {
@@ -57,12 +56,12 @@ func DeleteOrdersByUser(ctx context.Context, db *sql.DB, UserId int32) (int64, e
 }
 
 type GetUserByIdRow struct {
-	Id int32 `json:"id"`
-	Name string `json:"name"`
-	Email *string `json:"email"`
-	Active bool `json:"active"`
-	Metadata *string `json:"metadata"`
-	CreatedAt time.Time `json:"created_at"`
+	Id        int32      `json:"id"`
+	Name      string     `json:"name"`
+	Email     *string    `json:"email"`
+	Active    bool       `json:"active"`
+	Metadata  *string    `json:"metadata"`
+	CreatedAt time.Time  `json:"created_at"`
 	UpdatedAt *time.Time `json:"updated_at"`
 }
 
@@ -74,8 +73,8 @@ func GetUserById(ctx context.Context, db *sql.DB, Id int32) (GetUserByIdRow, err
 }
 
 type ListActiveUsersRow struct {
-	Id int32 `json:"id"`
-	Name string `json:"name"`
+	Id    int32   `json:"id"`
+	Name  string  `json:"name"`
 	Email *string `json:"email"`
 }
 
@@ -112,8 +111,8 @@ func DeleteUser(ctx context.Context, db *sql.DB, Id int32) error {
 }
 
 type SearchUsersRow struct {
-	Id int32 `json:"id"`
-	Name string `json:"name"`
+	Id    int32   `json:"id"`
+	Name  string  `json:"name"`
 	Email *string `json:"email"`
 }
 

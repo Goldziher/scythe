@@ -11,6 +11,7 @@ released fakesnow version.
 
 from __future__ import annotations
 
+import asyncio
 import gzip
 import importlib
 import json
@@ -26,6 +27,14 @@ from starlette.routing import Route
 
 server = importlib.import_module("fakesnow.server")
 
+# fakesnow shares one DuckDB connection across all requests. Some drivers
+# (e.g. gosnowflake) resend a statement on any transient HTTP hiccup, and
+# without serialization the resent copy can execute concurrently with the
+# still-running original against that shared connection, racing the
+# INTEGER PRIMARY KEY auto-increment fakesnow synthesizes and intermittently
+# inserting a NULL id. Executing one statement at a time avoids the race.
+_QUERY_LOCK = asyncio.Lock()
+
 
 class SafeJSONResponse(JSONResponse):
     """Serialize Snowflake values such as Decimal and datetime as strings."""
@@ -34,28 +43,47 @@ class SafeJSONResponse(JSONResponse):
         return json.dumps(content, default=str).encode("utf-8")
 
 
-def json_value(value: Any, column_type: str) -> Any:
-    """Convert fakesnow's Arrow timestamp struct to Snowflake JSON wire format."""
+def json_value(value: Any, column_type: str) -> str | None:
+    """Convert an Arrow-decoded cell to the Snowflake JSON wire format.
+
+    Snowflake's real JSON rowset always carries every cell as a string (or
+    null) regardless of its logical type, with `rowtype` metadata used by the
+    client driver to interpret it. Booleans are encoded as "1"/"0", and Arrow
+    timestamp structs are flattened to the `epoch[.fraction][ tz]` string
+    format documented by Snowflake.
+    """
     column_type = column_type.upper()
-    if value is None or not column_type.startswith("TIMESTAMP"):
-        return value
-    if value["epoch"] is None:
+    if value is None:
         return None
+    if column_type.startswith("TIMESTAMP"):
+        if value["epoch"] is None:
+            return None
+        timestamp = f"{value['epoch']}.{value['fraction']:09d}"
+        if column_type == "TIMESTAMP_TZ":
+            return f"{timestamp} {value['timezone']}"
+        return timestamp
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    return str(value)
 
-    timestamp = f"{value['epoch']}.{value['fraction']:09d}"
-    if column_type == "TIMESTAMP_TZ":
-        return f"{timestamp} {value['timezone']}"
-    return timestamp
 
+async def inline_json_query_request(request: Request) -> JSONResponse:
+    """Add the inline JSON rowset expected by non-Python Snowflake drivers.
 
-async def node_query_request(request: Request) -> JSONResponse:
-    """Add the inline JSON rowset expected by the Node.js driver."""
+    fakesnow's real query-request handler serves Arrow-encoded results
+    (`rowsetBase64`) which only the Python connector decodes natively. Every
+    other client driver we test against (Node, Go, JDBC, .NET) speaks the
+    plain JSON `rowset` wire format instead, so this decodes the Arrow batch
+    once and republishes it as the inline JSON array Snowflake's REST API
+    would normally return.
+    """
     request_body = await request.body()
     if request.headers.get("Content-Encoding") == "gzip":
         request_body = gzip.decompress(request_body)
     sql_text = json.loads(request_body)["sqlText"]
 
-    response = await server.query_request(request)
+    async with _QUERY_LOCK:
+        response = await server.query_request(request)
     payload = json.loads(response.body)
     if response.status_code != 200 or not payload.get("success"):
         return response
@@ -66,17 +94,20 @@ async def node_query_request(request: Request) -> JSONResponse:
         table = pa.ipc.open_stream(b64decode(encoded_rowset)).read_all()
         column_types = [column["type"] for column in data["rowtype"]]
         rows = [
-            [
-                json_value(row[column], column_types[index])
-                for index, column in enumerate(table.column_names)
-            ]
+            [json_value(row[column], column_types[index]) for index, column in enumerate(table.column_names)]
             for row in table.to_pylist()
         ]
     else:
         rows = []
 
+    # Drop the Arrow payload and force the JSON result format. Some drivers
+    # (notably snowflake-jdbc) trust `queryResultFormat`/`rowsetBase64` over
+    # the inline `rowset` we inject and will decode Arrow directly using its
+    # own schema if we leave those fields in place, ignoring our rows.
+    data.pop("rowsetBase64", None)
     data.update(
         {
+            "queryResultFormat": "json",
             "chunks": [],
             "returned": len(rows),
             "rowset": rows,
@@ -96,12 +127,33 @@ async def node_query_request(request: Request) -> JSONResponse:
     return SafeJSONResponse(payload)
 
 
-routes = [
-    Route(route.path, node_query_request, methods=["POST"])
-    if isinstance(route, Route) and route.path == "/queries/v1/query-request"
-    else route
-    for route in server.app.routes
-]
+async def case_insensitive_login_request(request: Request) -> JSONResponse:
+    """Advertise case-insensitive column lookups to the JDBC driver.
+
+    Real Snowflake always includes CLIENT_RESULT_COLUMN_CASE_INSENSITIVE in
+    the login response's session parameters, which snowflake-jdbc relies on
+    to make `ResultSet.getXxx("column")` match its own unquoted-identifier
+    uppercasing convention (e.g. `getInt("id")` against a column labeled
+    "ID"). fakesnow's login handler omits it, so the driver falls back to an
+    exact-case match and every generated lowercase-name lookup fails with
+    "Column not found".
+    """
+    response = await server.login_request(request)
+    payload = json.loads(response.body)
+    if response.status_code == 200 and payload.get("success"):
+        payload["data"]["parameters"].append({"name": "CLIENT_RESULT_COLUMN_CASE_INSENSITIVE", "value": True})
+    return SafeJSONResponse(payload)
+
+
+def _wrap(route: Route) -> Route:
+    if route.path == "/queries/v1/query-request":
+        return Route(route.path, inline_json_query_request, methods=["POST"])
+    if route.path == "/session/v1/login-request":
+        return Route(route.path, case_insensitive_login_request, methods=["POST"])
+    return route
+
+
+routes = [_wrap(route) if isinstance(route, Route) else route for route in server.app.routes]
 app = Starlette(routes=routes)
 
 

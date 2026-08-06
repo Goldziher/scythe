@@ -74,7 +74,7 @@ func main() {
 
 func runMigration(ctx context.Context, db *sql.DB) error {
 	_, thisFile, _, _ := runtime.Caller(0)
-	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "snowflake", "schema_emu.sql")
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "snowflake", "schema.sql")
 
 	schema, err := os.ReadFile(schemaPath)
 	if err != nil {
@@ -145,7 +145,7 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
-	if err := queries.CreateOrder(ctx, db, createdUserID, int64(9995), &notes); err != nil {
+	if err := queries.CreateOrder(ctx, db, createdUserID, 9995.00, &notes); err != nil {
 		fail(name, err)
 		return
 	}
