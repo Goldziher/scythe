@@ -6,7 +6,6 @@ requires-python = ">=3.12"
 
 [dependency-groups]
 dev = ["pyproject-fmt>=2.11.1", "ruff>=0.14.8"]
-doc = ["zensical"]
 
 [tool.uv]
 cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "Cargo.lock" }]

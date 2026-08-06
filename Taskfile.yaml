@@ -53,27 +53,39 @@ tasks:
     desc: List all documentation snippets
     deps: [snippets:build]
     cmds:
-      - ./target/release/snippet-runner list -s docs/snippets -r docs
+      - ./target/release/snippet-runner list -s website/snippets -r website/src/content/docs
 
   snippets:validate:
     desc: Validate documentation snippets (syntax level)
     deps: [snippets:build]
     cmds:
-      - ./target/release/snippet-runner validate -s docs/snippets -r docs -L syntax
+      - ./target/release/snippet-runner validate -s website/snippets -r website/src/content/docs -L syntax
 
   snippets:validate:compile:
     desc: Validate documentation snippets (compile level)
     deps: [snippets:build]
     cmds:
-      - ./target/release/snippet-runner validate -s docs/snippets -r docs -L compile
+      - ./target/release/snippet-runner validate -s website/snippets -r website/src/content/docs -L compile
 
   snippets:validate:lang:
     desc: Validate specific language snippets
     deps: [snippets:build]
     cmds:
-      - ./target/release/snippet-runner validate -s docs/snippets -r docs -L {{.LEVEL | default "syntax"}} -l {{.LANGUAGES}}
+      - ./target/release/snippet-runner validate -s website/snippets -r website/src/content/docs -L {{.LEVEL | default "syntax"}} -l {{.LANGUAGES}}
     requires:
       vars: [LANGUAGES]
+
+  docs:build:
+    desc: Build the documentation site
+    cmds:
+      - npm --prefix website install
+      - npm --prefix website run build
+
+  docs:serve:
+    desc: Run the documentation site locally with live reload
+    cmds:
+      - npm --prefix website install
+      - npm --prefix website run dev
 
   clean:
     desc: Clean build artifacts

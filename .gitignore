@@ -50,3 +50,8 @@ AGENTS.md
 CLAUDE.md
 # END ai-rulez
 poly.local.toml
+
+# Astro docs site
+website/node_modules/
+website/dist/
+website/.astro/

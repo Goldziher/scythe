@@ -56,6 +56,13 @@ impl PythonValidator {
                 while sig_end < lines.len() {
                     let t = lines[sig_end].trim();
                     if t.ends_with(':') {
+                        // The signature ends here. Continuation lines are pushed
+                        // as the loop walks them, but this closing line has not
+                        // been pushed yet — dropping it silently corrupts a
+                        // multi-line signature into invalid syntax.
+                        if sig_end > i {
+                            output.push(lines[sig_end].to_string());
+                        }
                         break;
                     }
                     if let Some(arrow_pos) = t.find("->") {
@@ -211,6 +218,24 @@ except SyntaxError as e:
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A signature split across lines must survive patching intact.
+    ///
+    /// The loop pushes continuation lines as it walks them, so the closing
+    /// line — the one that actually ends with `:` — used to be dropped,
+    /// silently turning valid code into a syntax error at the docstring.
+    #[test]
+    fn keeps_the_closing_line_of_a_multi_line_signature() {
+        let code = "async def get_user_by_id(\n    conn: AsyncConnection, *, id: int\n) -> Row | None:\n    \"\"\"Doc.\"\"\"\n    return None";
+
+        let patched = PythonValidator::patch_code(code);
+
+        assert!(
+            patched.contains(") -> Row | None:"),
+            "the closing signature line must be preserved, got:\n{patched}"
+        );
+        assert_eq!(patched, code, "a complete definition needs no patching");
+    }
 
     #[test]
     fn test_patch_class_with_inline_methods() {

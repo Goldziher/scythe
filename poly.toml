@@ -20,12 +20,12 @@ exclude = [
   ".basemind/**",
   "artifacts/**",
   "dist/**",
-  "docs/snippets/**",
+  "website/snippets/**",
   "integration_tests/**",
   "node_modules/**",
   "target/**",
   "vendor/**",
-  "docs/snippets",
+  "website/snippets",
   "integration_tests",
   "crates/*-ffi/include/*.h",
   "packages/go/include/*.h",
@@ -113,7 +113,7 @@ file_safety = { exclude = [
   ".basemind/**",
   "artifacts/**",
   "dist/**",
-  "docs/snippets/**",
+  "website/snippets/**",
   "integration_tests/**",
   "node_modules/**",
   "target/**",
@@ -134,7 +134,7 @@ lint = { exclude = [
   ".basemind/**",
   "artifacts/**",
   "dist/**",
-  "docs/snippets/**",
+  "website/snippets/**",
   "integration_tests/**",
   "node_modules/**",
   "target/**",
@@ -154,7 +154,7 @@ fmt = { exclude = [
   ".basemind/**",
   "artifacts/**",
   "dist/**",
-  "docs/snippets/**",
+  "website/snippets/**",
   "integration_tests/**",
   "node_modules/**",
   "target/**",
@@ -177,7 +177,7 @@ enabled = true
 "**/e2e/**" = ["comment", "doc-comment"]
 "test_apps/**" = ["comment", "doc-comment"]
 "**/test_apps/**" = ["comment", "doc-comment"]
-"docs/assets/**" = ["comment", "doc-comment"]
+"website/src/assets/**" = ["comment", "doc-comment"]
 "**/generated/**" = ["comment", "doc-comment"]
 "**/*.generated.*" = ["comment", "doc-comment"]
 "**/*.g.*" = ["comment", "doc-comment"]

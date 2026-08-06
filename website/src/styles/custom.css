@@ -1,0 +1,88 @@
+:root {
+  --sl-color-accent-low: #0b3d3a;
+  --sl-color-accent: #2dd4bf;
+  --sl-color-accent-high: #99f6e4;
+
+  --sl-color-white: #f1f5f4;
+  --sl-color-gray-1: #dbe4e2;
+  --sl-color-gray-2: #b3c2c0;
+  --sl-color-gray-3: #8a9997;
+  --sl-color-gray-4: #5f6b6a;
+  --sl-color-gray-5: #3c4544;
+  --sl-color-gray-6: #232b2a;
+  --sl-color-black: #121615;
+
+  --sc-teal: #2dd4bf;
+  --sc-amber: #f0b429;
+  --sc-slate: #64748b;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #ccf3ee;
+  --sl-color-accent: #0f8f83;
+  --sl-color-accent-high: #063f3a;
+
+  --sl-color-white: #121615;
+  --sl-color-gray-1: #232b2a;
+  --sl-color-gray-2: #3c4544;
+  --sl-color-gray-3: #5f6b6a;
+  --sl-color-gray-4: #8a9997;
+  --sl-color-gray-5: #c3d0ce;
+  --sl-color-gray-6: #e2ebe9;
+  --sl-color-gray-7: #f3f8f7;
+  --sl-color-black: #ffffff;
+}
+
+[data-has-hero] .page {
+  background:
+    radial-gradient(60ch 40ch at 15% -10%, color-mix(in oklch, var(--sc-teal) 16%, transparent), transparent 70%),
+    radial-gradient(50ch 32ch at 88% -6%, color-mix(in oklch, var(--sc-amber) 12%, transparent), transparent 70%);
+}
+
+.hero h1,
+.hero .tagline {
+  font-feature-settings: "ss01";
+}
+
+.hero .stack a[data-variant="primary"] {
+  background: linear-gradient(120deg, var(--sc-teal), var(--sc-slate) 55%, var(--sc-amber));
+  border: none;
+  color: #08130f;
+  box-shadow: 0 8px 30px -12px color-mix(in oklch, var(--sc-teal) 80%, transparent);
+}
+
+.hero .stack a[data-variant="primary"]:hover {
+  filter: brightness(1.08);
+}
+
+.card {
+  background: color-mix(in oklch, var(--sl-color-gray-6) 60%, transparent);
+  border: 1px solid var(--sl-color-gray-5);
+  transition: border-color 0.2s ease, transform 0.2s ease;
+}
+.card:hover {
+  border-color: color-mix(in oklch, var(--sc-teal) 60%, var(--sl-color-gray-5));
+  transform: translateY(-2px);
+}
+.card .icon {
+  color: var(--sc-teal);
+  background: color-mix(in oklch, var(--sc-teal) 12%, transparent);
+}
+
+.site-title img {
+  height: 1.75rem;
+  width: auto;
+}
+
+.hero > img,
+.hero .hero-html {
+  max-width: 200px;
+  margin-inline: auto;
+}
+
+.sl-markdown-content table {
+  font-size: var(--sl-text-sm);
+}
+.sl-markdown-content th {
+  color: var(--sl-color-white);
+}

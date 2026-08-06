@@ -1,0 +1,191 @@
+---
+title: Scythe
+description: Polyglot SQL-to-code generator with built-in linting and formatting
+template: splash
+hero:
+  title: Scythe
+  tagline: >-
+    Write SQL. Get type-safe code. In any language.
+  image:
+    file: ../../assets/mark.svg
+  actions:
+    - text: Quickstart
+      link: /scythe/getting-started/quickstart/
+      icon: right-arrow
+      variant: primary
+    - text: View on GitHub
+      link: https://github.com/Goldziher/scythe
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+
+**Polyglot SQL-to-code generator with built-in linting and formatting.**
+
+Write SQL. Get type-safe code. In any language.
+
+## Why Scythe
+
+<CardGrid>
+    <Card title="10 languages, 70+ backend drivers" icon="seti:rust">
+        Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP.
+    </Card>
+    <Card title="10 databases" icon="seti:db">
+        PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, Redshift, SQL Server, Oracle, Snowflake.
+    </Card>
+    <Card title="58 built-in rules" icon="magnifier">
+        23 lint + 35 audit rules -- plus sqruff's 69 style rules -- catch bugs before they ship.
+    </Card>
+    <Card title="Smart type inference" icon="approve-check">
+        Nullability from JOINs, COALESCE, window functions, and aggregates.
+    </Card>
+    <Card title="Configurable row types" icon="setting">
+        Pydantic, msgspec, Zod, or language defaults per backend.
+    </Card>
+    <Card title="@optional parameters" icon="pencil">
+        SQL rewriting for conditional filters without dynamic query building.
+    </Card>
+</CardGrid>
+
+## Quick Install
+
+```bash
+cargo install scythe-cli
+# or
+brew install Goldziher/tap/scythe
+```
+
+## 30-Second Example
+
+```sql
+-- @name GetUserOrders
+-- @returns :many
+SELECT u.id, u.name, o.total, o.notes
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+WHERE u.status = $1;
+```
+
+Scythe knows `o.total` and `o.notes` are nullable (right side of LEFT JOIN) and generates type-safe code:
+
+<Tabs syncKey="lang">
+    <TabItem label="Rust">
+        ```rust
+        pub struct GetUserOrdersRow {
+            pub id: i32,
+            pub name: String,
+            pub total: Option<rust_decimal::Decimal>,
+            pub notes: Option<String>,
+        }
+        ```
+    </TabItem>
+    <TabItem label="Python">
+        ```python
+        @dataclass
+        class GetUserOrdersRow:
+            id: int
+            name: str
+            total: decimal.Decimal | None
+            notes: str | None
+        ```
+    </TabItem>
+    <TabItem label="TypeScript">
+        ```typescript
+        interface GetUserOrdersRow {
+            id: number;
+            name: string;
+            total: string | null;
+            notes: string | null;
+        }
+        ```
+    </TabItem>
+    <TabItem label="Go">
+        ```go
+        type GetUserOrdersRow struct {
+            ID    int32    `json:"id"`
+            Name  string   `json:"name"`
+            Total *string  `json:"total"`
+            Notes *string  `json:"notes"`
+        }
+        ```
+    </TabItem>
+    <TabItem label="Java">
+        ```java
+        public record GetUserOrdersRow(
+            int id,
+            String name,
+            @Nullable BigDecimal total,
+            @Nullable String notes
+        ) {}
+        ```
+    </TabItem>
+    <TabItem label="Kotlin">
+        ```kotlin
+        data class GetUserOrdersRow(
+            val id: Int,
+            val name: String,
+            val total: java.math.BigDecimal?,
+            val notes: String?,
+        )
+        ```
+    </TabItem>
+    <TabItem label="C#">
+        ```csharp
+        public record GetUserOrdersRow(
+            int Id,
+            string Name,
+            decimal? Total,
+            string? Notes
+        );
+        ```
+    </TabItem>
+    <TabItem label="Elixir">
+        ```elixir
+        defmodule GetUserOrdersRow do
+          @type t :: %__MODULE__{
+            id: integer(),
+            name: String.t(),
+            total: Decimal.t() | nil,
+            notes: String.t() | nil
+          }
+          defstruct [:id, :name, :total, :notes]
+        end
+        ```
+    </TabItem>
+    <TabItem label="Ruby">
+        ```ruby
+        module Queries
+          GetUserOrdersRow = Data.define(
+            :id, :name, :total, :notes
+          )
+        end
+        ```
+    </TabItem>
+    <TabItem label="PHP">
+        ```php
+        readonly class GetUserOrdersRow {
+            public function __construct(
+                public int $id,
+                public string $name,
+                public ?string $total,
+                public ?string $notes,
+            ) {}
+        }
+        ```
+    </TabItem>
+</Tabs>
+
+## Learn More
+
+<CardGrid>
+    <Card title="Quickstart" icon="rocket">
+        [From zero to generated code in 5 minutes](/scythe/getting-started/quickstart/)
+    </Card>
+    <Card title="Philosophy" icon="open-book">
+        [Why compile SQL instead of using an ORM](/scythe/philosophy/)
+    </Card>
+    <Card title="Alternatives" icon="comment">
+        [How scythe compares to sqlc, SQLDelight, jOOQ, and ORMs](/scythe/comparisons/alternatives/)
+    </Card>
+</CardGrid>
