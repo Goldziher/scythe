@@ -286,6 +286,28 @@ impl<'a> Analyzer<'a> {
                 self.collect_param_from_expr_with_type_nullable(left, type_str, name, nullable);
                 self.collect_param_from_expr_with_type_nullable(right, type_str, name, nullable);
             }
+            Expr::Function(func) => {
+                for arg in self.get_function_args(func) {
+                    self.collect_param_from_expr_with_type_nullable(&arg, type_str, name, nullable);
+                }
+            }
+            Expr::Case {
+                operand,
+                conditions,
+                else_result,
+                ..
+            } => {
+                if let Some(op) = operand {
+                    self.collect_param_from_expr_with_type_nullable(op, type_str, name, nullable);
+                }
+                for case_when in conditions {
+                    self.collect_param_from_expr_with_type_nullable(&case_when.condition, type_str, name, nullable);
+                    self.collect_param_from_expr_with_type_nullable(&case_when.result, type_str, name, nullable);
+                }
+                if let Some(else_expr) = else_result {
+                    self.collect_param_from_expr_with_type_nullable(else_expr, type_str, name, nullable);
+                }
+            }
             _ => {}
         }
     }

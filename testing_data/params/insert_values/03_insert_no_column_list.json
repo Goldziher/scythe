@@ -1,0 +1,49 @@
+{
+  "category": "params/insert_values",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Insert without a column list binds values positionally to the table's catalog columns, so params must be typed and named from that ordering",
+  "expected": {
+    "query": {
+      "columns": [],
+      "command": "exec",
+      "name": "CreateUserNoColumns",
+      "params": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32",
+          "position": 1
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string",
+          "position": 2
+        },
+        {
+          "name": "email",
+          "nullable": false,
+          "type": "string",
+          "position": 3
+        },
+        {
+          "name": "age",
+          "nullable": true,
+          "type": "int32",
+          "position": 4
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "insert_no_column_list_positional_binding",
+  "query_sql": "-- @name CreateUserNoColumns\n-- @returns :exec\nINSERT INTO users VALUES ($1, $2, $3, $4);",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, age INTEGER);"],
+  "source": "sqlc",
+  "tags": ["param", "insert", "no_column_list", "regression"]
+}

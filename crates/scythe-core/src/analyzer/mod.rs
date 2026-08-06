@@ -336,6 +336,126 @@ INSERT INTO users (name, email) VALUES ($1, $2) RETURNING id, name, email;",
         assert_eq!(result.params[1].neutral_type, "string");
     }
 
+    /// `INSERT INTO t VALUES (...)` with no column list binds positionally to
+    /// every column of the table in catalog order. Placeholders must be typed
+    /// and named from that ordering, not dropped (regression: F2 — params in a
+    /// column-list-less INSERT were silently lost).
+    #[test]
+    fn test_insert_without_column_list_binds_to_catalog_columns() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name CreateUserFull
+-- @returns :exec
+INSERT INTO users VALUES ($1, $2, $3, $4, $5, $6, $7, $8);",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 8, "all 8 placeholders must be registered");
+        let names: Vec<&str> = result.params.iter().map(|p| p.name.as_str()).collect();
+        assert_eq!(
+            names,
+            ["id", "name", "email", "age", "active", "created_at", "bio", "score"]
+        );
+        assert_eq!(result.params[0].neutral_type, "int32");
+        assert_eq!(result.params[1].neutral_type, "string");
+        assert_eq!(result.params[3].neutral_type, "int32");
+        assert_eq!(result.params[4].neutral_type, "bool");
+        assert_eq!(result.params[5].neutral_type, "datetime_tz");
+        assert_eq!(result.params[7].neutral_type, "decimal");
+        assert!(!result.params[1].nullable, "name is NOT NULL");
+        assert!(result.params[3].nullable, "age is nullable");
+        assert!(result.params[6].nullable, "bio is nullable");
+    }
+
+    /// When neither a column list nor a catalog entry is available, params in a
+    /// column-list-less INSERT must still be registered with an inferred type
+    /// rather than silently dropped.
+    #[test]
+    fn test_insert_without_column_list_unknown_table_registers_inferred_params() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name InsertNoSchema
+-- @returns :exec
+INSERT INTO t VALUES ($1, $2::text);",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 2, "$1 and $2 must both be registered");
+        assert_eq!(result.params[0].position, 1);
+        assert_eq!(result.params[0].name, "p1");
+        assert_eq!(result.params[1].position, 2);
+        assert_eq!(result.params[1].neutral_type, "string", "$2::text must infer as string");
+    }
+
+    /// An explicit column list still names params even when the table has no
+    /// catalog entry — only the type falls back to inference.
+    #[test]
+    fn test_insert_explicit_columns_unknown_table_keeps_declared_names() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name InsertNoSchemaCols
+-- @returns :exec
+INSERT INTO t (a, b) VALUES ($1, $2);",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 2);
+        assert_eq!(result.params[0].name, "a");
+        assert_eq!(result.params[1].name, "b");
+    }
+
+    /// Placeholders nested inside function calls in INSERT VALUES must be
+    /// collected (regression: F10 — the `_ => {}` arm swallowed them).
+    #[test]
+    fn test_insert_coalesce_param_collected() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name InsertBio
+-- @returns :exec
+INSERT INTO users (bio) VALUES (COALESCE($1, 'unknown'));",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 1, "$1 inside COALESCE must be registered");
+        assert_eq!(result.params[0].name, "bio");
+        assert_eq!(result.params[0].neutral_type, "string");
+        assert!(result.params[0].nullable, "bio is nullable");
+    }
+
+    /// Placeholders inside CASE branches of INSERT VALUES must be collected.
+    #[test]
+    fn test_insert_case_param_collected() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name InsertName
+-- @returns :exec
+INSERT INTO users (name) VALUES (CASE WHEN $1 THEN 'x' ELSE 'y' END);",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 1, "$1 inside CASE must be registered");
+        assert_eq!(result.params[0].name, "name");
+        assert_eq!(result.params[0].neutral_type, "string");
+    }
+
+    /// Placeholders nested in function calls in UPDATE SET must be collected.
+    #[test]
+    fn test_update_function_arg_param_collected() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name RenameUser
+-- @returns :exec
+UPDATE users SET name = LOWER(CONCAT($1, '_suffix')) WHERE id = $2;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 2, "$1 in nested function args must be registered");
+        assert_eq!(result.params[0].name, "name");
+        assert_eq!(result.params[0].neutral_type, "string");
+        assert_eq!(result.params[1].name, "id");
+        assert_eq!(result.params[1].neutral_type, "int32");
+    }
+
     #[test]
     fn test_coalesce_nullability() {
         let catalog = make_catalog();

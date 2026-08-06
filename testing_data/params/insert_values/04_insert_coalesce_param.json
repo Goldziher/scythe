@@ -1,0 +1,31 @@
+{
+  "category": "params/insert_values",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "description": "Insert whose value expression wraps a placeholder inside a function call: the param must still be collected and typed from the target column",
+  "expected": {
+    "query": {
+      "columns": [],
+      "command": "exec",
+      "name": "InsertBio",
+      "params": [
+        {
+          "name": "bio",
+          "nullable": true,
+          "type": "string",
+          "position": 1
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "insert_coalesce_param_collected",
+  "query_sql": "-- @name InsertBio\n-- @returns :exec\nINSERT INTO users (bio) VALUES (COALESCE($1, 'unknown'));",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);"],
+  "source": "sqlc",
+  "tags": ["param", "insert", "coalesce", "regression"]
+}

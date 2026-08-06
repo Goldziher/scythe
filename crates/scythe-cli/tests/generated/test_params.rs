@@ -1274,6 +1274,230 @@ fn test_insert_all_columns() {
 }
 
 #[test]
+fn test_insert_coalesce_param_collected() {
+    // From: testing_data/params/insert_values/04_insert_coalesce_param.json
+    // "Insert whose value expression wraps a placeholder inside a function call: the param must still be collected and typed from the target column"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);"];
+
+    let query_sql = "-- @name InsertBio\n-- @returns :exec\nINSERT INTO users (bio) VALUES (COALESCE($1, 'unknown'));";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "InsertBio", "query name");
+    assert_eq!(analyzed.command.to_string(), "exec", "query command");
+    assert_eq!(analyzed.params.len(), 1, "param count");
+    assert_eq!(analyzed.params[0].name, "bio", "param name");
+    assert_eq!(analyzed.params[0].neutral_type, "string", "param neutral_type for bio");
+    assert!(analyzed.params[0].nullable, "param nullable for bio");
+    assert_eq!(analyzed.params[0].position, 1, "param position for bio");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "insert_coalesce_param_collected"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "insert_coalesce_param_collected",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "insert_coalesce_param_collected"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_insert_no_column_list_positional_binding() {
+    // From: testing_data/params/insert_values/03_insert_no_column_list.json
+    // "Insert without a column list binds values positionally to the table's catalog columns, so params must be typed and named from that ordering"
+    let schema_sql =
+        &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, age INTEGER);"];
+
+    let query_sql = "-- @name CreateUserNoColumns\n-- @returns :exec\nINSERT INTO users VALUES ($1, $2, $3, $4);";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "CreateUserNoColumns", "query name");
+    assert_eq!(analyzed.command.to_string(), "exec", "query command");
+    assert_eq!(analyzed.params.len(), 4, "param count");
+    assert_eq!(analyzed.params[0].name, "id", "param name");
+    assert_eq!(analyzed.params[0].neutral_type, "int32", "param neutral_type for id");
+    assert!(!analyzed.params[0].nullable, "param nullable for id");
+    assert_eq!(analyzed.params[0].position, 1, "param position for id");
+    assert_eq!(analyzed.params[1].name, "name", "param name");
+    assert_eq!(analyzed.params[1].neutral_type, "string", "param neutral_type for name");
+    assert!(!analyzed.params[1].nullable, "param nullable for name");
+    assert_eq!(analyzed.params[1].position, 2, "param position for name");
+    assert_eq!(analyzed.params[2].name, "email", "param name");
+    assert_eq!(
+        analyzed.params[2].neutral_type, "string",
+        "param neutral_type for email"
+    );
+    assert!(!analyzed.params[2].nullable, "param nullable for email");
+    assert_eq!(analyzed.params[2].position, 3, "param position for email");
+    assert_eq!(analyzed.params[3].name, "age", "param name");
+    assert_eq!(analyzed.params[3].neutral_type, "int32", "param neutral_type for age");
+    assert!(analyzed.params[3].nullable, "param nullable for age");
+    assert_eq!(analyzed.params[3].position, 4, "param position for age");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "insert_no_column_list_positional_binding"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "insert_no_column_list_positional_binding",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "insert_no_column_list_positional_binding"
+            );
+        }
+    }
+}
+
+#[test]
 fn test_insert_basic_returning() {
     // From: testing_data/params/insert_values/01_insert_basic.json
     // "Insert with two string params and RETURNING id"
