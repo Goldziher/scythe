@@ -1,9 +1,9 @@
 ---
 title: Alternatives
-description: How scythe compares to sqlc, SQLDelight, jOOQ, and ORMs.
+description: How scythe compares to sqlc, SQLDelight, PgTyped, sqlx, jOOQ, aiosql, and ORMs.
 ---
 
-Scythe is a SQL-first code generator. This page compares it to the tool it is most similar to (sqlc), other SQL-first tools (SQLDelight, jOOQ), and ORMs (Hibernate, SQLAlchemy, ActiveRecord, and others).
+Scythe is a SQL-first code generator. This page compares it to the tool it is most similar to (sqlc), to the [wider SQL-first landscape](#the-wider-sql-first-landscape) (SQLDelight, PgTyped, sqlx, aiosql, PugSQL, HugSQL, go-jet, SQLBoiler, Kysely, MyBatis and others), and to ORMs (Hibernate, SQLAlchemy, ActiveRecord, and more).
 
 ## Overview
 
@@ -26,6 +26,82 @@ Scythe is a SQL-first code generator. This page compares it to the tool it is mo
 | Build integration | CLI (any build system) | CLI | Gradle plugin | Maven/Gradle | Language-specific |
 | Licensing | MIT | MIT (core), BSD | Apache 2.0 | Apache 2.0 (open DBs), Commercial (Oracle, MSSQL, etc.) | Varies |
 | When SQL runs | Compiled at build time | Compiled at build time | Compiled at build time | DSL builds SQL at runtime | Generated at runtime |
+
+## The wider SQL-first landscape
+
+Scythe is one point in a crowded space. The tools below all reject "let an ORM write your SQL", but
+they disagree on **where the types come from** and **whether you write SQL or build queries in your
+host language** — usually the two decisions that actually separate them.
+
+### SQL files compiled to typed code
+
+The same category as scythe: `.sql` files are the source of truth and a build step emits typed functions.
+
+| Tool | Languages | Types derived from | Notes |
+|---|---|---|---|
+| **scythe** | 10 | Static analysis of schema + query | No database needed to generate |
+| [sqlc](https://sqlc.dev) | Go, plus Python/Kotlin/TypeScript plugins | Static analysis | The direct inspiration; strongest in Go |
+| [SQLDelight](https://sqldelight.github.io/sqldelight/) | Kotlin (JVM/Native/JS) | Static analysis of `.sq` files | Reactive queries via Flow, IntelliJ plugin |
+| [PgTyped](https://pgtyped.dev) | TypeScript | **A running Postgres** | Types come from the server, not a parser |
+| [aiosql](https://nackjicholson.github.io/aiosql/) | Python | Not typed | SQL files become callable functions |
+| [PugSQL](https://pugsql.org) | Python | Not typed | Python port of HugSQL |
+| [HugSQL](https://hugsql.org) / [Yesql](https://github.com/krisajenkins/yesql) | Clojure | Not typed | Where this pattern started |
+
+aiosql, PugSQL, HugSQL and Yesql give you SQL as the source of truth *without* types. scythe, sqlc,
+SQLDelight and PgTyped add the type layer. If all you want is your SQL out of string literals, the
+untyped tools are smaller and simpler.
+
+### Verified against a live database
+
+These check queries against a real server, so a parser that has drifted from the engine cannot fool
+them — at the cost of needing that server available at build time.
+
+| Tool | Languages | How |
+|---|---|---|
+| [sqlx](https://github.com/launchbadge/sqlx) | Rust | `query!` macros check against `DATABASE_URL` at compile time; `cargo sqlx prepare` caches metadata into `.sqlx/*.json` for offline and CI builds |
+| [PgTyped](https://pgtyped.dev) | TypeScript | Generates types from a running Postgres |
+| [SafeQL](https://safeql.dev) | TypeScript | ESLint rule validating inline SQL against a live database |
+
+This is the sharpest trade-off against scythe, and worth being honest about. Live-database checking is
+authoritative about column types; static analysis is not, and a parser lagging a dialect can be
+confidently wrong. What the database does *not* hand you is nullability for arbitrary query columns —
+Postgres describes result columns as type OIDs with no nullability — so outer-join and aggregate
+nullability still has to be inferred either way. Scythe takes the static route so generation needs no
+database at all. Cross-checking that inference against a live server is
+[open work](https://github.com/Goldziher/scythe/issues/65), not a shipped feature.
+
+### Schema-first code generation
+
+Here the *schema* is introspected and a typed query builder is generated; you compose queries in the
+host language rather than writing SQL.
+
+| Tool | Languages | Notes |
+|---|---|---|
+| [jOOQ](https://www.jooq.org) | Java, Kotlin | See [below](#vs-jooq); commercial licence for Oracle/SQL Server/DB2 |
+| [go-jet](https://github.com/go-jet/jet) | Go | Type-safe builder plus result mapping; PostgreSQL, MySQL, MariaDB, SQLite |
+| [SQLBoiler](https://github.com/aarondl/sqlboiler) | Go | Database-first ORM generated from your schema |
+| [xo](https://github.com/xo/xo) | Go | Idiomatic Go for PostgreSQL, MySQL, SQLite, Oracle, SQL Server |
+| [Kysely](https://kysely.dev) + `kysely-codegen` | TypeScript | Builder with types generated from the schema |
+| [Prisma](https://www.prisma.io), [Drizzle](https://orm.drizzle.team) | TypeScript | Schema-first, closer to the ORM end |
+| [Exposed](https://github.com/JetBrains/Exposed), [Ktorm](https://www.ktorm.org) | Kotlin | DSL over a typed schema |
+| [QueryDSL](http://querydsl.com) | Java | Generated metamodel, fluent queries |
+
+The difference is what you write. These generate the *vocabulary* for building queries; scythe
+generates the *queries themselves* from SQL you already wrote. Builders win on dynamic composition,
+which scythe deliberately does not do. Scythe does ship `typescript-kysely` and `kotlin-exposed`
+backends, if you want generated code that lands inside those ecosystems rather than replacing them.
+
+### SQL mapping frameworks
+
+| Tool | Languages | Notes |
+|---|---|---|
+| [MyBatis](https://mybatis.org) | Java | SQL in XML or annotations, mapped to objects; no generated types |
+| [Dapper](https://github.com/DapperLib/Dapper) | C# | Micro-ORM; you write SQL, it maps rows onto types you declare |
+| [JDBI](https://jdbi.org) | Java | Fluent and declarative SQL object APIs |
+
+These keep SQL first-class but leave the result types to you — you declare them by hand and they are
+checked at runtime, if at all. A hand-written type drifting from its query is the specific failure
+scythe exists to prevent.
 
 ---
 
