@@ -67,6 +67,22 @@ pub fn dialect_from_config(config_path: &str) -> Option<String> {
         .map(|e| engine_to_sqruff_dialect(e).to_string())
 }
 
+/// Redact the password component of a connection URL like
+/// `postgres://user:secret@host:5432/db` before it is printed to stderr, a
+/// log line, or a CI console — never the URL itself.
+///
+/// Only the password between `:` and `@` in the userinfo component is
+/// replaced with `***`; the scheme, username, host, port, path, and query
+/// string are left intact so the message stays useful for debugging. URLs
+/// with no `user:password@` component (or non-URL strings) are returned
+/// unchanged since there is nothing to redact.
+pub fn redact_url_password(url: &str) -> String {
+    let Ok(re) = regex::Regex::new(r"(?P<prefix>://[^:/?#@\s]+):[^@/?#\s]+@") else {
+        return url.to_string();
+    };
+    re.replace(url, "${prefix}:***@").into_owned()
+}
+
 pub fn resolve_globs(patterns: &[String]) -> Result<Vec<String>, Box<dyn std::error::Error>> {
     let mut paths = Vec::new();
     for pattern in patterns {
@@ -79,4 +95,34 @@ pub fn resolve_globs(patterns: &[String]) -> Result<Vec<String>, Box<dyn std::er
         }
     }
     Ok(paths)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn redact_url_password_masks_password_only() {
+        let redacted = redact_url_password("postgres://scythe:hunter2@localhost:5432/mydb?sslmode=disable");
+        assert_eq!(redacted, "postgres://scythe:***@localhost:5432/mydb?sslmode=disable");
+        assert!(!redacted.contains("hunter2"), "password must not survive redaction");
+    }
+
+    #[test]
+    fn redact_url_password_leaves_urls_without_password_unchanged() {
+        assert_eq!(
+            redact_url_password("postgres://localhost:5432/mydb"),
+            "postgres://localhost:5432/mydb"
+        );
+        assert_eq!(
+            redact_url_password("postgres://scythe@localhost:5432/mydb"),
+            "postgres://scythe@localhost:5432/mydb"
+        );
+    }
+
+    #[test]
+    fn redact_url_password_leaves_non_url_strings_unchanged() {
+        assert_eq!(redact_url_password("not a url at all"), "not a url at all");
+        assert_eq!(redact_url_password(""), "");
+    }
 }

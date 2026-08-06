@@ -15,7 +15,7 @@ use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::{QueryCommand, parse_query_with_dialect};
 
-use super::shared::{resolve_globs, split_query_file};
+use super::shared::{redact_url_password, resolve_globs, split_query_file};
 
 #[derive(Debug, Deserialize)]
 struct ScytheConfig {
@@ -524,8 +524,10 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
 
     let mut all_violations: Vec<QueryViolation> = Vec::new();
     // Queries are grouped per `[[sql]]` block so verification connects once and
-    // labels findings with the block's engine.
-    let mut verifiable: Vec<(String, Vec<scythe_core::analyzer::AnalyzedQuery>)> = Vec::new();
+    // labels findings with the block's engine. `engine` is carried alongside
+    // the queries so `verify_against_database` can skip non-PostgreSQL blocks
+    // instead of running every query through the PostgreSQL wire protocol.
+    let mut verifiable: Vec<VerifiableBlock> = Vec::new();
 
     for sql_config in &config.sql {
         eprintln!("[{}] Parsing schema...", sql_config.name);
@@ -581,7 +583,11 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
             analyzed_queries.push(analyzed);
         }
 
-        verifiable.push((sql_config.name.clone(), analyzed_queries));
+        verifiable.push(VerifiableBlock {
+            name: sql_config.name.clone(),
+            engine: sql_config.engine.clone(),
+            queries: analyzed_queries,
+        });
 
         let cat_violations = engine.check_catalog(&catalog);
         for (v, sev) in cat_violations {
@@ -660,6 +666,31 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// A `[[sql]]` block queued for live-database verification: its display
+/// name, its configured engine (still in whatever alias form the user wrote
+/// in `scythe.toml`, e.g. `"pg"` or `"cockroachdb"`), and its analyzed
+/// queries.
+#[derive(Debug)]
+struct VerifiableBlock {
+    name: String,
+    engine: String,
+    queries: Vec<scythe_core::analyzer::AnalyzedQuery>,
+}
+
+/// Split verifiable blocks into ones whose engine speaks the PostgreSQL wire
+/// protocol (eligible for live verification via `tokio-postgres`) and ones
+/// that must be skipped.
+///
+/// Pure and database-free by design: `verify_against_database` is the only
+/// caller that needs a live connection, so the classification logic that
+/// decides *which* blocks reach it is kept separate and unit-testable
+/// without a database.
+fn partition_verifiable_blocks(blocks: &[VerifiableBlock]) -> (Vec<&VerifiableBlock>, Vec<&VerifiableBlock>) {
+    blocks
+        .iter()
+        .partition(|b| scythe_codegen::backends::normalize_engine(&b.engine) == "postgresql")
+}
+
 /// Prepare every analyzed query against a live database and report where the
 /// server disagrees with static inference.
 ///
@@ -669,14 +700,28 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
 /// stays harmless in a mixed-engine config.
 fn verify_against_database(
     url: &str,
-    verifiable: &[(String, Vec<scythe_core::analyzer::AnalyzedQuery>)],
+    verifiable: &[VerifiableBlock],
 ) -> Result<Vec<scythe_lint::reporters::Finding>, Box<dyn std::error::Error>> {
+    let (pg_blocks, skipped_blocks) = partition_verifiable_blocks(verifiable);
+
+    for block in &skipped_blocks {
+        eprintln!(
+            "[{}] Skipping database verification: engine '{}' is not PostgreSQL-compatible \
+             (only PostgreSQL supports live verification); --database-url is ignored for this block.",
+            block.name, block.engine
+        );
+    }
+
+    if pg_blocks.is_empty() {
+        return Ok(Vec::new());
+    }
+
     let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
 
     runtime.block_on(async {
         let (client, connection) = tokio_postgres::connect(url, tokio_postgres::NoTls)
             .await
-            .map_err(|e| format!("failed to connect to '{}': {}", url, e))?;
+            .map_err(|e| format!("failed to connect to '{}': {}", redact_url_password(url), e))?;
 
         tokio::spawn(async move {
             if let Err(e) = connection.await {
@@ -685,9 +730,13 @@ fn verify_against_database(
         });
 
         let mut findings = Vec::new();
-        for (name, queries) in verifiable {
-            eprintln!("[{}] Verifying {} queries against the database...", name, queries.len());
-            findings.extend(scythe_inspect::verify_queries(&client, name, queries).await);
+        for block in pg_blocks {
+            eprintln!(
+                "[{}] Verifying {} queries against the database...",
+                block.name,
+                block.queries.len()
+            );
+            findings.extend(scythe_inspect::verify_queries(&client, &block.name, &block.queries).await);
         }
         Ok(findings)
     })
@@ -773,5 +822,75 @@ SELECT * FROM users WHERE id = $1;
         let content = "-- just a comment\n";
         let blocks = split_query_file(content);
         assert_eq!(blocks.len(), 0);
+    }
+
+    fn verifiable_block(name: &str, engine: &str) -> VerifiableBlock {
+        VerifiableBlock {
+            name: name.to_string(),
+            engine: engine.to_string(),
+            queries: Vec::new(),
+        }
+    }
+
+    /// A mixed-engine config (one postgres block, one mysql block) must keep
+    /// the postgres block eligible for verification and route the mysql
+    /// block to the skip list — never to the live-DB path. This is the pure,
+    /// database-free half of the mixed-engine regression: it proves the
+    /// filtering logic itself is correct, independent of a running database.
+    #[test]
+    fn partition_verifiable_blocks_splits_postgres_from_other_engines() {
+        let blocks = vec![
+            verifiable_block("pg_block", "postgresql"),
+            verifiable_block("mysql_block", "mysql"),
+        ];
+
+        let (pg, skipped) = partition_verifiable_blocks(&blocks);
+
+        assert_eq!(pg.len(), 1, "exactly one block must be eligible for verification");
+        assert_eq!(pg[0].name, "pg_block");
+
+        assert_eq!(skipped.len(), 1, "exactly one block must be skipped");
+        assert_eq!(skipped[0].name, "mysql_block");
+    }
+
+    /// `postgres`, `pg`, and `cockroachdb` are aliases for the same
+    /// PostgreSQL-wire-compatible engine and must all be treated as
+    /// verifiable, matching `scythe-codegen`'s `normalize_engine` table.
+    #[test]
+    fn partition_verifiable_blocks_treats_postgres_aliases_as_verifiable() {
+        let blocks = vec![
+            verifiable_block("a", "postgres"),
+            verifiable_block("b", "pg"),
+            verifiable_block("c", "postgresql"),
+            verifiable_block("d", "cockroachdb"),
+        ];
+
+        let (pg, skipped) = partition_verifiable_blocks(&blocks);
+
+        assert_eq!(
+            pg.len(),
+            4,
+            "all four postgres aliases must be verifiable, got: {:?}",
+            pg
+        );
+        assert!(skipped.is_empty());
+    }
+
+    /// Non-PostgreSQL engines (mysql, sqlite, mssql, oracle, ...) must never
+    /// reach live verification, since `verify_against_database` only speaks
+    /// the PostgreSQL wire protocol.
+    #[test]
+    fn partition_verifiable_blocks_skips_non_postgres_engines() {
+        let blocks = vec![
+            verifiable_block("a", "mysql"),
+            verifiable_block("b", "sqlite"),
+            verifiable_block("c", "mssql"),
+            verifiable_block("d", "oracle"),
+        ];
+
+        let (pg, skipped) = partition_verifiable_blocks(&blocks);
+
+        assert!(pg.is_empty(), "no non-postgres engine may be verifiable, got: {:?}", pg);
+        assert_eq!(skipped.len(), 4);
     }
 }

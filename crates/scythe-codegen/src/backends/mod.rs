@@ -428,7 +428,12 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
 }
 
 /// Normalize engine name to canonical form.
-fn normalize_engine(engine: &str) -> &str {
+///
+/// Public so callers outside this crate (e.g. `scythe-cli`) can classify a
+/// `[[sql]]` block's configured engine without duplicating the alias table —
+/// for example, to decide whether a block is PostgreSQL-wire-compatible
+/// before attempting live-database verification.
+pub fn normalize_engine(engine: &str) -> &str {
     match engine {
         "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb" => "postgresql",
         "mysql" => "mysql",

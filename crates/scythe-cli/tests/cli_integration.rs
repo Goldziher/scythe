@@ -63,9 +63,12 @@ fn test_check_basemind_exits_zero() {
         "scythe check on basemind should exit 0.\nstderr: {}",
         stderr
     );
+    // `run_check` reports per-`[[sql]]`-block success as "[<name>] All queries
+    // valid." (see crates/scythe-cli/src/commands/generate.rs); it never
+    // prints "Check passed.".
     assert!(
-        stderr.contains("Check passed") || stderr.contains("valid") || stderr.contains("All queries valid"),
-        "check should report success.\nstderr: {}",
+        stderr.contains("All queries valid."),
+        "check should report success for the block.\nstderr: {}",
         stderr
     );
 }

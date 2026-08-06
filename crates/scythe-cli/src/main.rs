@@ -44,7 +44,7 @@ enum Commands {
         /// Output format: human, sarif, or json
         #[arg(long, default_value = "human")]
         format: String,
-        /// Write findings to a file instead of stderr
+        /// Write findings to a file instead of stdout
         #[arg(short, long)]
         output: Option<String>,
     },
