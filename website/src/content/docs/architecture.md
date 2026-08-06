@@ -108,7 +108,6 @@ nullable = "Option<{T}>"
 
 [naming]
 struct_case = "PascalCase"
-field_case = "snake_case"
 fn_case = "snake_case"
 row_suffix = "Row"
 ```

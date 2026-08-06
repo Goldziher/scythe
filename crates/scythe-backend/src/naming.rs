@@ -6,7 +6,6 @@ use serde::Deserialize;
 #[derive(Debug, Clone, Deserialize)]
 pub struct NamingConfig {
     pub struct_case: String,
-    pub field_case: String,
     pub fn_case: String,
     pub enum_variant_case: String,
     pub row_suffix: String,
@@ -186,7 +185,6 @@ mod tests {
     fn test_config() -> NamingConfig {
         NamingConfig {
             struct_case: "PascalCase".to_string(),
-            field_case: "snake_case".to_string(),
             fn_case: "snake_case".to_string(),
             enum_variant_case: "PascalCase".to_string(),
             row_suffix: "Row".to_string(),
@@ -295,7 +293,6 @@ mod tests {
     fn test_enum_variant_name_screaming_snake() {
         let config = NamingConfig {
             struct_case: "PascalCase".to_string(),
-            field_case: "snake_case".to_string(),
             fn_case: "snake_case".to_string(),
             enum_variant_case: "SCREAMING_SNAKE_CASE".to_string(),
             row_suffix: "Row".to_string(),

@@ -50,7 +50,7 @@ export interface ListUsersRow {
 }
 ```
 
-Note: field names mirror the SQL column names (`snake_case` in this example) -- the manifest's `field_case = "camelCase"` setting is not applied to row struct fields. Function names (`getUser`, `listUsers`) are `camelCase`, per `fn_case`.
+Note: generated field names mirror the SQL column names in `snake_case`. Function names (`getUser`, `listUsers`) are `camelCase`, per `fn_case`.
 
 ## postgres.js
 

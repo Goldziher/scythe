@@ -33,7 +33,6 @@ json_typed = "{T}"
 
 [naming]
 struct_case = "PascalCase"
-field_case = "PascalCase"
 fn_case = "PascalCase"
 enum_variant_case = "PascalCase"
 row_suffix = "Row"

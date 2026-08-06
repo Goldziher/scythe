@@ -55,7 +55,7 @@ output = "src/generated"
 | `INT` | `int32` | |
 | `BIGINT` | `int64` | |
 | `SMALLINT` | `int16` | |
-| `TINYINT` | `int8` | Unsigned 0-255 |
+| `TINYINT` | `int16` | Unsigned 0-255 |
 | `BIT` | `bool` | |
 | `REAL` | `float32` | |
 | `FLOAT` | `float64` | |

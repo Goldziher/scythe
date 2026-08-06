@@ -31,7 +31,6 @@ json_typed = "sqlx::types::Json<{T}>"
 
 [naming]
 struct_case = "PascalCase"
-field_case = "snake_case"
 fn_case = "snake_case"
 enum_variant_case = "PascalCase"
 row_suffix = "Row"
