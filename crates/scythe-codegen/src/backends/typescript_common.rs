@@ -287,6 +287,14 @@ fn column_to_zod_with_nullable(col: &ResolvedColumn, nullable: bool) -> String {
         } else {
             schema_name
         }
+    } else if col.neutral_type == "bytes" {
+        // The runtime type of a binary column is backend-specific: `Buffer` for
+        // the Node driver backends, `Uint8Array` for node:sqlite and
+        // sqlite-wasm. Hardcoding `Buffer` mis-validates on those two and is
+        // unresolvable in a browser, where `Buffer` does not exist at all.
+        // `lang_type` already carries the manifest's mapping, so use it.
+        let base = format!("z.instanceof({})", col.lang_type);
+        if nullable { format!("{base}.nullable()") } else { base }
     } else {
         neutral_to_zod(&col.neutral_type, nullable)
     }
@@ -401,7 +409,7 @@ pub fn generate_zod_grouped_structs(
     let _ = writeln!(out, "/** Child row type for grouped query. */");
     let _ = writeln!(out, "export const {child_schema} = z.object({{");
     for col in child_columns {
-        let zod = neutral_to_zod(&col.neutral_type, col.nullable);
+        let zod = column_to_zod(col);
         let _ = writeln!(out, "\t{}: {},", col.field_name, zod);
     }
     let _ = writeln!(out, "}});");
@@ -411,7 +419,7 @@ pub fn generate_zod_grouped_structs(
     let _ = writeln!(out, "/** Parent row type for grouped query. */");
     let _ = writeln!(out, "export const {parent_schema} = z.object({{");
     for col in parent_columns {
-        let zod = neutral_to_zod(&col.neutral_type, col.nullable);
+        let zod = column_to_zod(col);
         let _ = writeln!(out, "\t{}: {},", col.field_name, zod);
     }
     let _ = writeln!(out, "\tchildren: z.array({child_schema}),");
@@ -674,5 +682,81 @@ mod tests {
             );
             assert!(message.contains(value), "error should include the bad value: {message}");
         }
+    }
+
+    fn bytes_column(name: &str, lang_type: &str, nullable: bool) -> ResolvedColumn {
+        ResolvedColumn {
+            name: name.to_string(),
+            field_name: name.to_string(),
+            lang_type: lang_type.to_string(),
+            full_type: if nullable {
+                format!("{lang_type} | null")
+            } else {
+                lang_type.to_string()
+            },
+            neutral_type: "bytes".to_string(),
+            sql_type: "bytea".to_string(),
+            nullable,
+            join_group: None,
+            nullable_before_join: false,
+        }
+    }
+
+    /// A binary column's runtime type is backend-specific. Hardcoding `Buffer`
+    /// mis-validates on the backends whose driver yields `Uint8Array`, and is
+    /// unresolvable in a browser where `Buffer` does not exist.
+    #[test]
+    fn test_zod_bytes_schema_follows_the_backend_runtime_type() {
+        let buffer_schema =
+            generate_zod_row_struct("GetBlobRow", "GetBlob", &[bytes_column("payload", "Buffer", false)]);
+        assert!(
+            buffer_schema.contains("z.instanceof(Buffer)"),
+            "Buffer backends keep Buffer; got:\n{buffer_schema}"
+        );
+
+        let uint8_schema =
+            generate_zod_row_struct("GetBlobRow", "GetBlob", &[bytes_column("payload", "Uint8Array", false)]);
+        assert!(
+            uint8_schema.contains("z.instanceof(Uint8Array)"),
+            "Uint8Array backends must not emit Buffer; got:\n{uint8_schema}"
+        );
+        assert!(
+            !uint8_schema.contains("Buffer"),
+            "Uint8Array backends must not reference Buffer at all; got:\n{uint8_schema}"
+        );
+    }
+
+    #[test]
+    fn test_zod_bytes_schema_preserves_nullability() {
+        let schema = generate_zod_row_struct("GetBlobRow", "GetBlob", &[bytes_column("payload", "Uint8Array", true)]);
+        assert!(
+            schema.contains("z.instanceof(Uint8Array).nullable()"),
+            "nullable bytes must stay nullable; got:\n{schema}"
+        );
+    }
+
+    /// The grouped Zod emitter used to call `neutral_to_zod` directly, which
+    /// has no column context — so an enum column degraded to a bare
+    /// `z.string()` and a bytes column always claimed `Buffer`.
+    #[test]
+    fn test_grouped_zod_structs_use_column_aware_schemas() {
+        let mut enum_col = column("status", "UserStatus", false, None, false);
+        enum_col.neutral_type = "enum::user_status".to_string();
+
+        let grouped = generate_zod_grouped_structs(
+            "GetUsersWithOrdersChildRow",
+            "GetUsersWithOrdersRow",
+            &[bytes_column("avatar", "Uint8Array", false)],
+            &[enum_col],
+        );
+
+        assert!(
+            grouped.contains("UserStatusSchema"),
+            "grouped enum must use its enum schema, not z.string(); got:\n{grouped}"
+        );
+        assert!(
+            grouped.contains("z.instanceof(Uint8Array)"),
+            "grouped bytes must follow the backend type; got:\n{grouped}"
+        );
     }
 }
