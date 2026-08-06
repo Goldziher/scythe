@@ -15,7 +15,9 @@ pub(crate) fn normalize_data_type(dt: &DataType, domains: &AHashMap<String, Doma
                 "smallserial" | "serial2" => return ("smallint".to_string(), true),
                 "timestamptz" => return ("timestamptz".to_string(), false),
                 "timetz" => return ("timetz".to_string(), false),
-                "number" if tokens.len() >= 2 => return ("numeric".to_string(), false),
+                "number" if tokens.len() >= 2 => {
+                    return (format!("numeric({},{})", tokens[0], tokens[1]), false);
+                }
                 _ => {}
             }
             if let Some(domain) = domains.get(&raw) {
