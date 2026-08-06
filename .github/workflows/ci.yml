@@ -63,6 +63,33 @@ jobs:
       - name: Build
         run: cargo build --workspace --release
 
+  generated-freshness:
+    name: "Validate: Generated Integration Code"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+      - name: Build scythe
+        run: |
+          cargo build --release -p scythe-cli
+          echo "$GITHUB_WORKSPACE/target/release" >> "$GITHUB_PATH"
+      - name: Regenerate integration code
+        working-directory: integration_tests
+        run: task generate
+      # The integration jobs test the committed files and never regenerate, so
+      # drift here means CI is validating output no current build produces.
+      - name: Fail if regeneration changed anything
+        run: |
+          if ! git diff --exit-code -- integration_tests/; then
+            echo "::error::Committed integration code is stale. Run 'cd integration_tests && task generate' and commit the result."
+            exit 1
+          fi
+
   validate-snippets:
     name: "Validate: Documentation Snippets"
     runs-on: ubuntu-latest
