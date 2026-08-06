@@ -476,6 +476,7 @@ mod tests {
             "python-asyncpg",
             "typescript-postgres",
             "typescript-pg",
+            "typescript-kysely",
             "go-pgx",
             "ruby-pg",
             "elixir-postgrex",

@@ -293,6 +293,7 @@ backend_test!(test_python_psycopg3, "python-psycopg3");
 backend_test!(test_python_asyncpg, "python-asyncpg");
 backend_test!(test_typescript_postgres, "typescript-postgres");
 backend_test!(test_typescript_pg, "typescript-pg");
+backend_test!(test_typescript_kysely, "typescript-kysely");
 backend_test!(test_go_pgx, "go-pgx");
 backend_test!(test_java_jdbc, "java-jdbc");
 backend_test!(test_java_r2dbc, "java-r2dbc");
@@ -315,6 +316,7 @@ backend_test_with_options!(test_python_psycopg3_pydantic, "python-psycopg3", "ro
 backend_test_with_options!(test_python_psycopg3_msgspec, "python-psycopg3", "row_type" => "msgspec");
 backend_test_with_options!(test_python_asyncpg_pydantic, "python-asyncpg", "row_type" => "pydantic");
 backend_test_with_options!(test_typescript_pg_zod, "typescript-pg", "row_type" => "zod");
+backend_test_with_options!(test_typescript_kysely_zod, "typescript-kysely", "row_type" => "zod");
 backend_test_with_options!(test_typescript_postgres_zod, "typescript-postgres", "row_type" => "zod");
 
 const SCHEMA_UUID_JSONB: &str = "CREATE TABLE items (\
