@@ -65,10 +65,15 @@ was never migrated.
 | `SC-VER04` | Parameter count differs from inference |
 | `SC-VER05` | A parameter's type differs from inference |
 
-Type comparison is deliberately permissive within a family — integer widths,
-float against decimal, enum against string. Static inference cannot always
-recover the exact width the server picks, and flagging those would bury the
-real mismatches.
+Type comparison is deliberately permissive within a family — integer widths
+against each other, float widths against each other, enum against string,
+and an inferred `string` against a more specific type the server reports
+(`uuid`, `json`, `inet`). Static inference cannot always recover the exact
+width the server picks, and flagging those would bury the real mismatches.
+`decimal` is held to exact equality against the float widths, and `uuid`,
+`json`, and `inet` are held to exact equality against each other — these are
+different types, not width variants, so a mismatch there is exactly the
+wrongly-mapped catalog type this check exists to catch.
 
 :::note
 This cannot verify **nullability**. The server's describe response carries

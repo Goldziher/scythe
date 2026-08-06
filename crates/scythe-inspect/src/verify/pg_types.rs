@@ -29,6 +29,14 @@ pub fn neutral_type_for(pg_type: &Type) -> Option<String> {
         return Some(format!("enum::{}", pg_type.name()));
     }
 
+    // A domain is a constrained alias over a base type (e.g. `CREATE DOMAIN
+    // us_zip AS text CHECK (...)`) and carries no representation of its own
+    // on the wire — resolve it to whatever its base type maps to, so a
+    // domain over `uuid` compares the same way a plain `uuid` column would.
+    if let Kind::Domain(base) = pg_type.kind() {
+        return neutral_type_for(base);
+    }
+
     let neutral = match *pg_type {
         Type::BOOL => "bool",
         Type::INT2 => "int16",
@@ -47,6 +55,13 @@ pub fn neutral_type_for(pg_type: &Type) -> Option<String> {
         Type::TIMESTAMPTZ => "datetime_tz",
         Type::INTERVAL => "interval",
         Type::JSON | Type::JSONB => "json",
+        // Mirrors `scythe_core::analyzer::type_conversion::sql_type_to_neutral`,
+        // which collapses `macaddr` into `inet` too. Kept consistent
+        // deliberately rather than fixed here in isolation — see that
+        // module for the same wart. `types_are_compatible` below does not
+        // treat `inet` as interchangeable with anything else, so a real
+        // macaddr/inet confusion at the SQL layer still surfaces as a
+        // mismatch against whatever neutral type static inference produced.
         Type::INET | Type::CIDR | Type::MACADDR => "inet",
         Type::INT4_RANGE => "range<int32>",
         Type::INT8_RANGE => "range<int64>",
@@ -63,31 +78,60 @@ pub fn neutral_type_for(pg_type: &Type) -> Option<String> {
 /// Whether a statically-inferred neutral type is compatible with what the
 /// server reported.
 ///
-/// This is deliberately more permissive than string equality.  Static
-/// inference works from DDL and cannot always recover the exact width the
-/// server will choose — an integer literal, a `count(*)`, or an untyped
-/// parameter are all cases where scythe and PostgreSQL can legitimately
-/// disagree on width while agreeing on meaning.  Flagging those would bury the
-/// real mismatches, which are the point of the check.
+/// This is deliberately more permissive than string equality, but only in
+/// the specific places where static inference genuinely cannot recover what
+/// the server will report while still agreeing on meaning:
+///
+/// - **Integer widths** (`int16`/`int32`/`int64`) against each other, and
+///   **float widths** (`float32`/`float64`) against each other: the server's
+///   choice is authoritative and a narrower static guess (an integer
+///   literal, a `count(*)`, an untyped parameter) is not a defect.
+/// - **Enum vs `string`**: several drivers carry enum values as strings on
+///   the wire, so the two are treated as agreeing in either direction.
+/// - **Any type widening to `string`**: `string` is scythe's fallback when
+///   inference cannot pin down a more specific type (an untyped parameter,
+///   an expression it doesn't specialize). If the server then reports a more
+///   precise wire type — `uuid`, `json`, `inet` — that is inference being
+///   coarse, not a defect, so it is accepted. This direction only: if
+///   inference *committed* to `uuid`/`json`/`inet` (typically because DDL
+///   declared the column as such) but the server reports plain `string`,
+///   that is exactly the "wrongly mapped catalog type" case this check
+///   exists to catch (SC-VER03/SC-VER05), so it is flagged as a mismatch.
+///
+/// `uuid`, `json`, and `inet` are otherwise held to exact equality against
+/// each other — unlike integer/float widths, these are not narrower or wider
+/// views of the same value, they are different types on the wire, and
+/// conflating them would hide real catalog mis-mappings. `decimal` is
+/// likewise held to exact equality against `float32`/`float64`: `NUMERIC` is
+/// exact/arbitrary-precision while `float4`/`float8` are binary
+/// floating-point, a precision difference that matters and that static
+/// inference does have enough information to get right (the DDL says which
+/// one it is), so treating them as interchangeable would bury a real
+/// mismatch rather than a width guess.
 pub fn types_are_compatible(inferred: &str, reported: &str) -> bool {
     if inferred == reported {
         return true;
     }
 
-    // Integer and float widths: the server's choice is authoritative but a
-    // narrower static guess is not a defect worth reporting.
     const INTEGERS: [&str; 3] = ["int16", "int32", "int64"];
-    const FLOATS: [&str; 3] = ["float32", "float64", "decimal"];
-    const STRINGS: [&str; 4] = ["string", "uuid", "json", "inet"];
+    const FLOATS: [&str; 2] = ["float32", "float64"];
+    const STRING_WIDENABLE: [&str; 3] = ["uuid", "json", "inet"];
 
-    let both_in = |set: &[&str]| set.contains(&inferred) && set.contains(&reported);
-
-    if both_in(&INTEGERS) || both_in(&FLOATS) || both_in(&STRINGS) {
+    if INTEGERS.contains(&inferred) && INTEGERS.contains(&reported) {
+        return true;
+    }
+    if FLOATS.contains(&inferred) && FLOATS.contains(&reported) {
         return true;
     }
 
-    // An enum is carried as a string on the wire by several drivers, and a
-    // domain resolves to its base type, so treat those as agreeing.
+    // `string` is the coarse fallback; a more precise reported type is not a
+    // defect. The reverse (inferred is the specific type, reported is
+    // `string`) is intentionally NOT accepted here — see the doc comment.
+    if inferred == "string" && STRING_WIDENABLE.contains(&reported) {
+        return true;
+    }
+
+    // An enum is carried as a string on the wire by several drivers.
     if inferred.starts_with("enum::") && reported == "string" {
         return true;
     }
@@ -139,7 +183,6 @@ mod tests {
     fn width_differences_within_a_family_are_compatible() {
         assert!(types_are_compatible("int32", "int64"));
         assert!(types_are_compatible("float32", "float64"));
-        assert!(types_are_compatible("decimal", "float64"));
     }
 
     #[test]
@@ -148,11 +191,79 @@ mod tests {
         assert!(types_are_compatible("string", "enum::status"));
     }
 
+    /// `decimal` (`NUMERIC`, exact/arbitrary-precision) and the float widths
+    /// (binary floating-point) are genuinely different representations, and
+    /// the DDL gives static inference enough information to pick the right
+    /// one — unlike an integer literal's width, this is not a case where
+    /// inference is legitimately unable to recover the server's choice.
+    /// Treating them as interchangeable would bury a real catalog mismatch,
+    /// so they are held to exact equality in both directions.
+    #[test]
+    fn decimal_and_float_are_incompatible_because_precision_is_not_a_width_guess() {
+        assert!(!types_are_compatible("decimal", "float32"));
+        assert!(!types_are_compatible("float32", "decimal"));
+        assert!(!types_are_compatible("decimal", "float64"));
+    }
+
+    /// `uuid`, `json`, and `inet` are distinct wire types, not width variants
+    /// of one another. Treating them as interchangeable would hide exactly
+    /// the "wrongly mapped catalog type" bug SC-VER03 exists to catch — e.g.
+    /// a column inferred as `uuid` from DDL but the server actually reports
+    /// `json`, which is real schema drift, not an inference gap.
+    #[test]
+    fn uuid_json_and_inet_are_mutually_incompatible() {
+        assert!(!types_are_compatible("uuid", "json"));
+        assert!(!types_are_compatible("json", "uuid"));
+        assert!(!types_are_compatible("inet", "uuid"));
+        assert!(!types_are_compatible("uuid", "inet"));
+        assert!(!types_are_compatible("inet", "json"));
+    }
+
+    /// Static inference falls back to the generic `string` neutral type when
+    /// it cannot pin down anything more specific (an untyped parameter, an
+    /// expression it doesn't specialize). If the server then reports a more
+    /// precise wire type, that is inference being coarse, not a defect — so
+    /// this direction of widening is accepted.
+    #[test]
+    fn inferred_string_widens_to_uuid_json_or_inet_reported_by_the_server() {
+        assert!(types_are_compatible("string", "uuid"));
+        assert!(types_are_compatible("string", "json"));
+        assert!(types_are_compatible("string", "inet"));
+    }
+
+    /// The reverse of the widening above is NOT accepted: if inference
+    /// committed to a specific type (typically because DDL declared the
+    /// column that way) but the server reports plain `string`, that is a
+    /// real catalog mis-mapping, not a gap in inference.
+    #[test]
+    fn specific_inferred_type_does_not_widen_from_reported_string() {
+        assert!(!types_are_compatible("uuid", "string"));
+        assert!(!types_are_compatible("json", "string"));
+        assert!(!types_are_compatible("inet", "string"));
+    }
+
     #[test]
     fn genuinely_different_types_are_incompatible() {
         assert!(!types_are_compatible("int32", "string"));
         assert!(!types_are_compatible("bool", "int32"));
         assert!(!types_are_compatible("date", "datetime"));
         assert!(!types_are_compatible("string", "array<string>"));
+    }
+
+    #[test]
+    fn domain_over_text_resolves_to_the_base_type() {
+        // `pg_type` domains are constructed from catalog metadata that isn't
+        // reachable without a live connection, so this exercises
+        // `neutral_type_for`'s handling of `Kind::Domain` indirectly via the
+        // documented contract: it must recurse into the base type rather
+        // than falling through to `None`. `Type::new` lets us build a
+        // domain-kinded `Type` without a database.
+        let domain = Type::new(
+            "us_zip".to_string(),
+            0,
+            Kind::Domain(Type::TEXT),
+            "pg_catalog".to_string(),
+        );
+        assert_eq!(neutral_type_for(&domain).as_deref(), Some("string"));
     }
 }
