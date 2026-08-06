@@ -472,7 +472,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let total = Decimal::from_str("99.95").unwrap();
 {%- else %}
 {%- if engine == "sqlite" %}
-    let total: f32 = 99.95;
+    {# SQLite REAL is an 8-byte IEEE float, so generated columns are f64. #}
+    let total: f64 = 99.95;
 {%- else %}
     let total = Decimal::from_str("99.95").unwrap();
 {%- endif %}

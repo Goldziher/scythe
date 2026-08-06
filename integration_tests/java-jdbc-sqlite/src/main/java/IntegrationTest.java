@@ -74,7 +74,8 @@ public class IntegrationTest {
         }
     }
 
-    private static int createdUserId;
+    // SQLite INTEGER is 8-byte, so generated id columns are long.
+    private static long createdUserId;
 
     private static void testCreateUser(Connection conn) {
         String name = "CreateUser";

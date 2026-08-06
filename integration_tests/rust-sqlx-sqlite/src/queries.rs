@@ -3,7 +3,7 @@
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetOrdersByUserRow {
-    pub id: i32,
+    pub id: i64,
     pub total: f64,
     pub notes: Option<String>,
     pub created_at: String,
@@ -16,7 +16,7 @@ pub struct GetOrderTotalRow {
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetUserByIdRow {
-    pub id: i32,
+    pub id: i64,
     pub name: String,
     pub email: Option<String>,
     pub status: String,
@@ -25,14 +25,14 @@ pub struct GetUserByIdRow {
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ListActiveUsersRow {
-    pub id: i32,
+    pub id: i64,
     pub name: String,
     pub email: Option<String>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SearchUsersRow {
-    pub id: i32,
+    pub id: i64,
     pub name: String,
     pub email: Option<String>,
 }

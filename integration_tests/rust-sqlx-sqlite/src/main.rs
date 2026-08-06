@@ -99,7 +99,8 @@ let active_users: Vec<ListActiveUsersRow> =
 
     // Test: CreateOrder
 
-    let total: f32 = 99.95;
+    
+    let total: f64 = 99.95;
 sqlx::query("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")
         .bind(user_id)
         .bind(&total)

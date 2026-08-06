@@ -1405,7 +1405,8 @@ fun fail(name: String, e: Exception) {
     failed++
 }
 
-var createdUserId = 0
+// SQLite INTEGER is 8-byte, so generated id columns are Long.
+var createdUserId: Long = 0
 
 fun main() {
     DriverManager.getConnection("jdbc:sqlite::memory:").use { conn ->
@@ -1464,7 +1465,9 @@ fun testCreateUser(conn: java.sql.Connection) {
         val lastId = conn.createStatement().use { stmt ->
             stmt.executeQuery("SELECT last_insert_rowid()").use { rs ->
                 rs.next()
-                rs.getInt(1)
+                // last_insert_rowid() is a 64-bit rowid, and SQLite INTEGER
+                // columns generate as Long.
+                rs.getLong(1)
             }
         }
         val user = getUserById(conn, lastId)
