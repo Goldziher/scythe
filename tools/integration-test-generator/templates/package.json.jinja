@@ -4,7 +4,8 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"test": "tsx test.ts"
+		"test": "tsx test.ts",
+		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
 {%- if driver == "pg" %}
@@ -17,12 +18,22 @@
 		"postgres": "^3.4.9"
 {%- elif driver == "mysql2" %}
 		"mysql2": "^3.23.2"
+{%- elif driver == "kysely-mysql2" or driver == "kysely-mariadb" %}
+		"kysely": "^0.28.17",
+		"mysql2": "^3.23.2"
 {%- elif driver == "better-sqlite3" %}
 		"better-sqlite3": "^11.10.0"
+{%- elif driver == "kysely-sqlite" %}
+		"better-sqlite3": "^11.10.0",
+		"kysely": "^0.28.17"
 {%- elif driver == "oracledb" %}
 		"oracledb": "^6.10.0"
 {%- elif driver == "mssql" %}
 		"mssql": "^11.0.1"
+{%- elif driver == "kysely-mssql" %}
+		"kysely": "^0.28.17",
+		"tarn": "^3.1.2",
+		"tedious": "^20.0.0"
 {%- elif driver == "snowflake" %}
 		"snowflake-sdk": "^2.4.3"
 {%- endif %}
@@ -30,9 +41,14 @@
 	"devDependencies": {
 {%- if driver == "pg" or driver == "kysely-pg" %}
 		"@types/pg": "^8.20.4",
-{%- elif driver == "better-sqlite3" %}
+{%- elif driver == "better-sqlite3" or driver == "kysely-sqlite" %}
 		"@types/better-sqlite3": "^7.6.13",
+{%- elif driver == "mssql" %}
+		"@types/mssql": "^12.3.0",
+{%- elif driver == "oracledb" %}
+		"@types/oracledb": "^7.0.2",
 {%- endif %}
+		"@types/node": "^26.1.2",
 		"tsx": "^4.23.7",
 		"typescript": "^5.9.3"
 	}

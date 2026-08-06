@@ -7,12 +7,22 @@ import pg from "pg";
 import postgres from "postgres";
 {%- elif driver == "mysql2" -%}
 import mysql from "mysql2/promise";
+{%- elif driver == "kysely-mysql2" or driver == "kysely-mariadb" -%}
+import { Kysely, MysqlDialect, sql } from "kysely";
+import mysql from "mysql2";
 {%- elif driver == "better-sqlite3" -%}
+import Database from "better-sqlite3";
+{%- elif driver == "kysely-sqlite" -%}
+import { Kysely, SqliteDialect, sql } from "kysely";
 import Database from "better-sqlite3";
 {%- elif driver == "oracledb" -%}
 import oracledb from "oracledb";
 {%- elif driver == "mssql" -%}
 import sql from "mssql";
+{%- elif driver == "kysely-mssql" -%}
+import { Kysely, MssqlDialect, sql } from "kysely";
+import * as Tarn from "tarn";
+import * as Tedious from "tedious";
 {%- elif driver == "snowflake" -%}
 import snowflake, { type Connection } from "snowflake-sdk";
 {%- endif %}
@@ -34,11 +44,11 @@ import {
 	UserStatus,
 {%- endif %}
 {%- elif engine == "mysql" %}
-	UsersStatus,
+	{% if driver == "kysely-mysql2" %}UsersStatusValues{% else %}UsersStatus{% endif %},
 	getLastInsertUser,
 	getLastInsertOrder,
 {%- elif engine == "mariadb" %}
-	UsersStatus,
+	{% if driver == "kysely-mariadb" %}UsersStatusValues{% else %}UsersStatus{% endif %},
 {%- endif %}
 {%- if options.row_type == "zod" %}
 	CreateUserRowSchema,
@@ -60,6 +70,40 @@ const db = new Kysely<any>({
 });
 {%- elif driver == "postgres" %}
 const sql = postgres(DATABASE_URL);
+{%- elif driver == "kysely-mysql2" or driver == "kysely-mariadb" %}
+const db = new Kysely<any>({
+	dialect: new MysqlDialect({ pool: mysql.createPool(DATABASE_URL) }),
+});
+{%- elif driver == "kysely-sqlite" %}
+const db = new Kysely<any>({
+	dialect: new SqliteDialect({ database: new Database(DATABASE_URL) }),
+});
+{%- elif driver == "kysely-mssql" %}
+const mssqlUrl = new URL(DATABASE_URL);
+const db = new Kysely<any>({
+	dialect: new MssqlDialect({
+		tarn: { ...Tarn, options: { min: 0, max: 10 } },
+		tedious: {
+			...Tedious,
+			connectionFactory: () =>
+				new Tedious.Connection({
+					server: mssqlUrl.hostname,
+					authentication: {
+						type: "default",
+						options: {
+							userName: mssqlUrl.username,
+							password: decodeURIComponent(mssqlUrl.password),
+						},
+					},
+					options: {
+						port: parseInt(mssqlUrl.port) || 1433,
+						database: mssqlUrl.searchParams.get("database") || "master",
+						trustServerCertificate: true,
+					},
+				}),
+		},
+	}),
+});
 {%- endif %}
 
 let exitCode = 0;
@@ -702,6 +746,216 @@ async function main(): Promise<void> {
 	} finally {
 		await pool.end();
 	}
+{%- elif driver == "kysely-mysql2" or driver == "kysely-mariadb" %}
+	try {
+		// Clean slate
+		await sql.raw("DROP TABLE IF EXISTS user_tags").execute(db);
+		await sql.raw("DROP TABLE IF EXISTS tags").execute(db);
+		await sql.raw("DROP TABLE IF EXISTS orders").execute(db);
+		await sql.raw("DROP TABLE IF EXISTS users").execute(db);
+
+		const schemaPath = new URL(
+			"../sql/{% if engine == "mariadb" %}mariadb{% else %}mysql{% endif %}/schema.sql",
+			import.meta.url,
+		).pathname;
+		const { readFile } = await import("node:fs/promises");
+		const schemaSql = await readFile(schemaPath, "utf8");
+		for (const stmt of schemaSql.split(";").map((s) => s.trim()).filter(Boolean)) {
+			await sql.raw(stmt).execute(db);
+		}
+
+		// Test: CreateUser
+{%- if engine == "mysql" %}
+		await createUser(db, "Alice", "alice@example.com", UsersStatusValues.Active);
+		const user = await getLastInsertUser(db);
+{%- else %}
+		const user = await createUser(db, "Alice", "alice@example.com", UsersStatusValues.Active);
+{%- endif %}
+		assert(user !== null, "CreateUser", "user should not be null");
+		assert(
+			user!.name === "Alice",
+			"CreateUser",
+			`expected name Alice, got ${user!.name}`,
+		);
+		assert(
+			user!.email === "alice@example.com",
+			"CreateUser",
+			`expected email alice@example.com`,
+		);
+		const userId = user!.id;
+		console.log("PASS: CreateUser");
+
+		// Test: GetUserById
+		const fetched = await getUserById(db, userId);
+		assert(fetched !== null, "GetUserById", "user should not be null");
+		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
+		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
+		console.log("PASS: GetUserById");
+
+		// Test: ListActiveUsers
+		const activeUsers = await listActiveUsers(db, UsersStatusValues.Active);
+		assert(
+			activeUsers.length > 0,
+			"ListActiveUsers",
+			"should have at least one user",
+		);
+		assert(
+			activeUsers[0]!.name === "Alice",
+			"ListActiveUsers",
+			"first user should be Alice",
+		);
+		console.log("PASS: ListActiveUsers");
+
+		// Test: CreateOrder
+{%- if engine == "mysql" %}
+		await createOrder(db, userId, "99.95", "first order");
+		const order = await getLastInsertOrder(db);
+{%- else %}
+		const order = await createOrder(db, userId, "99.95", "first order");
+{%- endif %}
+		assert(order !== null, "CreateOrder", "order should not be null");
+		assert(
+			order!.user_id === userId,
+			"CreateOrder",
+			`expected user_id ${userId}`,
+		);
+		assert(
+			String(order!.total) === "99.95",
+			"CreateOrder",
+			`expected total 99.95, got ${order!.total}`,
+		);
+		assert(
+			order!.notes === "first order",
+			"CreateOrder",
+			`expected notes 'first order'`,
+		);
+		console.log("PASS: CreateOrder");
+
+		// Test: GetOrdersByUser
+		const orders = await getOrdersByUser(db, userId);
+		assert(
+			orders.length === 1,
+			"GetOrdersByUser",
+			`expected 1 order, got ${orders.length}`,
+		);
+		assert(
+			String(orders[0]!.total) === "99.95",
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
+		console.log("PASS: GetOrdersByUser");
+
+		// Test: DeleteUser
+		const deletedOrders = await deleteOrdersByUser(db, userId);
+		assert(
+			deletedOrders === 1,
+			"DeleteUser",
+			`expected 1 deleted order, got ${deletedOrders}`,
+		);
+		await deleteUser(db, userId);
+		const gone = await getUserById(db, userId);
+		assert(gone === null, "DeleteUser", "user should be null after deletion");
+		console.log("PASS: DeleteUser");
+
+		if (exitCode === 0) {
+			console.log("ALL TESTS PASSED");
+		}
+	} finally {
+		await db.destroy();
+	}
+{%- elif driver == "kysely-sqlite" %}
+	try {
+		// Clean slate
+		await sql.raw("DROP TABLE IF EXISTS user_tags").execute(db);
+		await sql.raw("DROP TABLE IF EXISTS tags").execute(db);
+		await sql.raw("DROP TABLE IF EXISTS orders").execute(db);
+		await sql.raw("DROP TABLE IF EXISTS users").execute(db);
+
+		const schemaPath = new URL("../sql/sqlite/schema.sql", import.meta.url).pathname;
+		const { readFile } = await import("node:fs/promises");
+		const schemaSql = await readFile(schemaPath, "utf8");
+		for (const stmt of schemaSql.split(";").map((s) => s.trim()).filter(Boolean)) {
+			await sql.raw(stmt).execute(db);
+		}
+
+		// Test: CreateUser
+		await createUser(db, "Alice", "alice@example.com", "active");
+		const insertedUserId = await sql<{ id: number }>`SELECT last_insert_rowid() as id`.execute(db);
+		const userId = insertedUserId.rows[0]!.id;
+		const user = await getUserById(db, userId);
+		assert(user !== null, "CreateUser", "user should not be null");
+		assert(
+			user!.name === "Alice",
+			"CreateUser",
+			`expected name Alice, got ${user!.name}`,
+		);
+		assert(
+			user!.email === "alice@example.com",
+			"CreateUser",
+			`expected email alice@example.com`,
+		);
+		console.log("PASS: CreateUser");
+
+		// Test: GetUserById
+		const fetched = await getUserById(db, userId);
+		assert(fetched !== null, "GetUserById", "user should not be null");
+		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
+		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
+		console.log("PASS: GetUserById");
+
+		// Test: ListActiveUsers
+		const activeUsers = await listActiveUsers(db, "active");
+		assert(
+			activeUsers.length > 0,
+			"ListActiveUsers",
+			"should have at least one user",
+		);
+		assert(
+			activeUsers[0]!.name === "Alice",
+			"ListActiveUsers",
+			"first user should be Alice",
+		);
+		console.log("PASS: ListActiveUsers");
+
+		// Test: CreateOrder
+		await createOrder(db, userId, 99.95, "first order");
+		const insertedOrderId = await sql<{ id: number }>`SELECT last_insert_rowid() as id`.execute(db);
+		const orderId = insertedOrderId.rows[0]!.id;
+		assert(orderId !== null, "CreateOrder", "order id should not be null");
+		console.log("PASS: CreateOrder");
+
+		// Test: GetOrdersByUser
+		const orders = await getOrdersByUser(db, userId);
+		assert(
+			orders.length === 1,
+			"GetOrdersByUser",
+			`expected 1 order, got ${orders.length}`,
+		);
+		assert(
+			Number(orders[0]!.total) === 99.95,
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
+		console.log("PASS: GetOrdersByUser");
+
+		// Test: DeleteUser
+		const deletedOrders = await deleteOrdersByUser(db, userId);
+		assert(
+			deletedOrders === 1,
+			"DeleteUser",
+			`expected 1 deleted order, got ${deletedOrders}`,
+		);
+		await deleteUser(db, userId);
+		const gone = await getUserById(db, userId);
+		assert(gone === null, "DeleteUser", "user should be null after deletion");
+		console.log("PASS: DeleteUser");
+
+		if (exitCode === 0) {
+			console.log("ALL TESTS PASSED");
+		}
+	} finally {
+		await db.destroy();
+	}
 {%- elif driver == "oracledb" %}
 	const { URL } = await import("node:url");
 	const parsed = new URL(DATABASE_URL);
@@ -919,6 +1173,109 @@ async function main(): Promise<void> {
 		}
 	} finally {
 		await pool.close();
+	}
+{%- elif driver == "kysely-mssql" %}
+	try {
+		// Clean slate
+		for (const table of ["user_tags", "tags", "orders", "users"]) {
+			await sql.raw(`IF OBJECT_ID('${table}', 'U') IS NOT NULL DROP TABLE ${table}`).execute(db);
+		}
+
+		const { readFile } = await import("node:fs/promises");
+		const schemaPath = new URL("../sql/mssql/schema.sql", import.meta.url).pathname;
+		const schemaSql = await readFile(schemaPath, "utf8");
+		for (const stmt of schemaSql.split(";").map((s) => s.trim()).filter(Boolean)) {
+			await sql.raw(stmt).execute(db);
+		}
+
+		// Test: CreateUser
+		const user = await createUser(db, 1, "Alice", "alice@example.com", true);
+		assert(user !== null, "CreateUser", "user should not be null");
+		assert(
+			user!.name === "Alice",
+			"CreateUser",
+			`expected name Alice, got ${user!.name}`,
+		);
+		assert(
+			user!.email === "alice@example.com",
+			"CreateUser",
+			`expected email alice@example.com`,
+		);
+		const userId = user!.id;
+		console.log("PASS: CreateUser");
+
+		// Test: GetUserById
+		const fetched = await getUserById(db, userId);
+		assert(fetched !== null, "GetUserById", "user should not be null");
+		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
+		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
+		console.log("PASS: GetUserById");
+
+		// Test: ListActiveUsers
+		const activeUsers = await listActiveUsers(db);
+		assert(
+			activeUsers.length > 0,
+			"ListActiveUsers",
+			"should have at least one user",
+		);
+		assert(
+			activeUsers[0]!.name === "Alice",
+			"ListActiveUsers",
+			"first user should be Alice",
+		);
+		console.log("PASS: ListActiveUsers");
+
+		// Test: CreateOrder
+		const order = await createOrder(db, 1, userId, "99.95", "first order");
+		assert(order !== null, "CreateOrder", "order should not be null");
+		assert(
+			order!.user_id === userId,
+			"CreateOrder",
+			`expected user_id ${userId}`,
+		);
+		assert(
+			String(order!.total) === "99.95",
+			"CreateOrder",
+			`expected total 99.95, got ${order!.total}`,
+		);
+		assert(
+			order!.notes === "first order",
+			"CreateOrder",
+			`expected notes 'first order'`,
+		);
+		console.log("PASS: CreateOrder");
+
+		// Test: GetOrdersByUser
+		const orders = await getOrdersByUser(db, userId);
+		assert(
+			orders.length === 1,
+			"GetOrdersByUser",
+			`expected 1 order, got ${orders.length}`,
+		);
+		assert(
+			String(orders[0]!.total) === "99.95",
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
+		console.log("PASS: GetOrdersByUser");
+
+		// Test: DeleteUser
+		const deletedOrders = await deleteOrdersByUser(db, userId);
+		assert(
+			deletedOrders === 1,
+			"DeleteUser",
+			`expected 1 deleted order, got ${deletedOrders}`,
+		);
+		await deleteUser(db, userId);
+		const gone = await getUserById(db, userId);
+		assert(gone === null, "DeleteUser", "user should be null after deletion");
+		console.log("PASS: DeleteUser");
+
+		if (exitCode === 0) {
+			console.log("ALL TESTS PASSED");
+		}
+	} finally {
+		await db.destroy();
 	}
 {%- elif driver == "snowflake" %}
 	const { fileURLToPath, URL } = await import("node:url");

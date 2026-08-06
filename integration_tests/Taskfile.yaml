@@ -80,6 +80,7 @@ tasks:
           - go-database-sql-mysql
           - python-aiomysql
           - typescript-mysql2
+          - typescript-kysely-mysql2
           - java-jdbc-mysql
           - kotlin-jdbc-mysql
           - csharp-mysqlconnector
@@ -92,6 +93,7 @@ tasks:
           - go-database-sql-mariadb
           - python-aiomysql-mariadb
           - typescript-mysql2-mariadb
+          - typescript-kysely-mariadb
           - java-jdbc-mariadb
           - kotlin-jdbc-mariadb
           - csharp-mysqlconnector-mariadb
@@ -114,6 +116,7 @@ tasks:
           - go-database-sql-sqlite
           - python-aiosqlite
           - typescript-better-sqlite3
+          - typescript-kysely-sqlite
           - java-jdbc-sqlite
           - kotlin-jdbc-sqlite
           - csharp-microsoft-sqlite
@@ -122,6 +125,7 @@ tasks:
           - php-pdo-sqlite
           # MSSQL
           - elixir-tds-mssql
+          - typescript-kysely-mssql
         cmd: cd {{.ITEM}} && scythe generate
 
   # --- PostgreSQL backends ---
@@ -280,6 +284,14 @@ tasks:
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
+  test:typescript-kysely-mysql2:
+    desc: Run typescript-kysely-mysql2 integration test
+    dir: typescript-kysely-mysql2
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
   test:java-jdbc-mysql:
     desc: Run java-jdbc-mysql integration test
     dir: java-jdbc-mysql
@@ -349,6 +361,14 @@ tasks:
   test:typescript-mysql2-mariadb:
     desc: Run typescript-mysql2-mariadb integration test
     dir: typescript-mysql2-mariadb
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
+  test:typescript-kysely-mariadb:
+    desc: Run typescript-kysely-mariadb integration test
+    dir: typescript-kysely-mariadb
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
       - pnpm exec tsc --noEmit
@@ -487,6 +507,14 @@ tasks:
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
+  test:typescript-kysely-sqlite:
+    desc: Run typescript-kysely-sqlite integration test
+    dir: typescript-kysely-sqlite
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
   test:java-jdbc-sqlite:
     desc: Run java-jdbc-sqlite integration test
     dir: java-jdbc-sqlite
@@ -529,6 +557,16 @@ tasks:
       - mix deps.get --quiet
       - mix run test/integration_test.exs
 
+  test:typescript-kysely-mssql:
+    desc: Run typescript-kysely-mssql integration test
+    dir: typescript-kysely-mssql
+    env:
+      MSSQL_URL: "{{.MSSQL_URL}}"
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
   test:php-pdo-sqlite:
     desc: Run php-pdo-sqlite integration test
     dir: php-pdo-sqlite
@@ -565,6 +603,7 @@ tasks:
       - task: test:go-database-sql-mysql
       - task: test:python-aiomysql
       - task: test:typescript-mysql2
+      - task: test:typescript-kysely-mysql2
       - task: test:java-jdbc-mysql
       - task: test:kotlin-jdbc-mysql
       - task: test:csharp-mysqlconnector
@@ -577,6 +616,7 @@ tasks:
       - task: test:go-database-sql-mariadb
       - task: test:python-aiomysql-mariadb
       - task: test:typescript-mysql2-mariadb
+      - task: test:typescript-kysely-mariadb
       - task: test:java-jdbc-mariadb
       - task: test:kotlin-jdbc-mariadb
       - task: test:csharp-mysqlconnector-mariadb
@@ -599,6 +639,7 @@ tasks:
       - task: test:go-database-sql-sqlite
       - task: test:python-aiosqlite
       - task: test:typescript-better-sqlite3
+      - task: test:typescript-kysely-sqlite
       - task: test:java-jdbc-sqlite
       - task: test:kotlin-jdbc-sqlite
       - task: test:csharp-microsoft-sqlite
@@ -607,3 +648,4 @@ tasks:
       - task: test:php-pdo-sqlite
       # MSSQL
       - task: test:elixir-tds-mssql
+      - task: test:typescript-kysely-mssql

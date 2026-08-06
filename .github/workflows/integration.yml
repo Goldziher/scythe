@@ -277,6 +277,13 @@ jobs:
           pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
+      - name: Test typescript-kysely-mysql2
+        working-directory: integration_tests/typescript-kysely-mysql2
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
       - name: Test java-jdbc-mysql
         working-directory: integration_tests/java-jdbc-mysql
         run: mvn -q compile exec:java
@@ -395,6 +402,13 @@ jobs:
 
       - name: Test typescript-mysql2-mariadb
         working-directory: integration_tests/typescript-mysql2-mariadb
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
+      - name: Test typescript-kysely-mariadb
+        working-directory: integration_tests/typescript-kysely-mariadb
         run: |
           pnpm install
           pnpm exec tsc --noEmit
@@ -638,6 +652,13 @@ jobs:
           pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
+      - name: Test typescript-kysely-mssql
+        working-directory: integration_tests/typescript-kysely-mssql
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
       - name: Test go-database-sql-mssql
         working-directory: integration_tests/go-database-sql-mssql
         run: go mod tidy && go run .
@@ -736,6 +757,13 @@ jobs:
 
       - name: Test typescript-better-sqlite3
         working-directory: integration_tests/typescript-better-sqlite3
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
+      - name: Test typescript-kysely-sqlite
+        working-directory: integration_tests/typescript-kysely-sqlite
         run: |
           pnpm install
           pnpm exec tsc --noEmit

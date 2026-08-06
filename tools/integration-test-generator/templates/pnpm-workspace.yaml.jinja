@@ -1,5 +1,5 @@
 allowBuilds:
-{%- if driver == "better-sqlite3" %}
+{%- if driver == "better-sqlite3" or driver == "kysely-sqlite" %}
   better-sqlite3: true
 {%- elif driver == "oracledb" %}
   oracledb: true

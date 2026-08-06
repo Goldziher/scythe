@@ -1,0 +1,20 @@
+{
+	"name": "scythe-integration-test-kysely-sqlite",
+	"version": "0.1.0",
+	"private": true,
+	"type": "module",
+	"scripts": {
+		"test": "tsx test.ts",
+		"typecheck": "tsc --noEmit"
+	},
+	"dependencies": {
+		"better-sqlite3": "^11.10.0",
+		"kysely": "^0.28.17"
+	},
+	"devDependencies": {
+		"@types/better-sqlite3": "^7.6.13",
+		"@types/node": "^26.1.2",
+		"tsx": "^4.23.7",
+		"typescript": "^5.9.3"
+	}
+}

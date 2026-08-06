@@ -1,0 +1,131 @@
+import { Kysely, SqliteDialect, sql } from "kysely";
+import Database from "better-sqlite3";
+import {
+	createUser,
+	getUserById,
+	listActiveUsers,
+	createOrder,
+	getOrdersByUser,
+	deleteOrdersByUser,
+	deleteUser,
+} from "./generated/queries.js";
+
+const DATABASE_URL =
+	process.env["SQLITE_PATH"] ??
+	"test.db";
+
+const db = new Kysely<any>({
+	dialect: new SqliteDialect({ database: new Database(DATABASE_URL) }),
+});
+
+let exitCode = 0;
+
+function assert(condition: boolean, testName: string, detail: string): void {
+	if (!condition) {
+		console.error(`FAIL: ${testName}: ${detail}`);
+		exitCode = 1;
+	}
+}
+
+
+async function main(): Promise<void> {
+	try {
+		// Clean slate
+		await sql.raw("DROP TABLE IF EXISTS user_tags").execute(db);
+		await sql.raw("DROP TABLE IF EXISTS tags").execute(db);
+		await sql.raw("DROP TABLE IF EXISTS orders").execute(db);
+		await sql.raw("DROP TABLE IF EXISTS users").execute(db);
+
+		const schemaPath = new URL("../sql/sqlite/schema.sql", import.meta.url).pathname;
+		const { readFile } = await import("node:fs/promises");
+		const schemaSql = await readFile(schemaPath, "utf8");
+		for (const stmt of schemaSql.split(";").map((s) => s.trim()).filter(Boolean)) {
+			await sql.raw(stmt).execute(db);
+		}
+
+		// Test: CreateUser
+		await createUser(db, "Alice", "alice@example.com", "active");
+		const insertedUserId = await sql<{ id: number }>`SELECT last_insert_rowid() as id`.execute(db);
+		const userId = insertedUserId.rows[0]!.id;
+		const user = await getUserById(db, userId);
+		assert(user !== null, "CreateUser", "user should not be null");
+		assert(
+			user!.name === "Alice",
+			"CreateUser",
+			`expected name Alice, got ${user!.name}`,
+		);
+		assert(
+			user!.email === "alice@example.com",
+			"CreateUser",
+			`expected email alice@example.com`,
+		);
+		console.log("PASS: CreateUser");
+
+		// Test: GetUserById
+		const fetched = await getUserById(db, userId);
+		assert(fetched !== null, "GetUserById", "user should not be null");
+		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
+		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
+		console.log("PASS: GetUserById");
+
+		// Test: ListActiveUsers
+		const activeUsers = await listActiveUsers(db, "active");
+		assert(
+			activeUsers.length > 0,
+			"ListActiveUsers",
+			"should have at least one user",
+		);
+		assert(
+			activeUsers[0]!.name === "Alice",
+			"ListActiveUsers",
+			"first user should be Alice",
+		);
+		console.log("PASS: ListActiveUsers");
+
+		// Test: CreateOrder
+		await createOrder(db, userId, 99.95, "first order");
+		const insertedOrderId = await sql<{ id: number }>`SELECT last_insert_rowid() as id`.execute(db);
+		const orderId = insertedOrderId.rows[0]!.id;
+		assert(orderId !== null, "CreateOrder", "order id should not be null");
+		console.log("PASS: CreateOrder");
+
+		// Test: GetOrdersByUser
+		const orders = await getOrdersByUser(db, userId);
+		assert(
+			orders.length === 1,
+			"GetOrdersByUser",
+			`expected 1 order, got ${orders.length}`,
+		);
+		assert(
+			Number(orders[0]!.total) === 99.95,
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
+		console.log("PASS: GetOrdersByUser");
+
+		// Test: DeleteUser
+		const deletedOrders = await deleteOrdersByUser(db, userId);
+		assert(
+			deletedOrders === 1,
+			"DeleteUser",
+			`expected 1 deleted order, got ${deletedOrders}`,
+		);
+		await deleteUser(db, userId);
+		const gone = await getUserById(db, userId);
+		assert(gone === null, "DeleteUser", "user should be null after deletion");
+		console.log("PASS: DeleteUser");
+
+		if (exitCode === 0) {
+			console.log("ALL TESTS PASSED");
+		}
+	} finally {
+		await db.destroy();
+	}
+
+	process.exit(exitCode);
+}
+
+main().catch((error) => {
+	console.error("Fatal error:", error);
+	process.exit(1);
+});
