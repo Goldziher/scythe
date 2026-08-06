@@ -7,15 +7,16 @@ import (
 	"time"
 )
 
+
 func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total float64, Notes *string) error {
 	_, err := db.ExecContext(ctx, "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)", UserId, Total, Notes)
 	return err
 }
 
 type GetOrdersByUserRow struct {
-	Id        int32     `json:"id"`
-	Total     float64   `json:"total"`
-	Notes     *string   `json:"notes"`
+	Id int32 `json:"id"`
+	Total float64 `json:"total"`
+	Notes *string `json:"notes"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
@@ -56,12 +57,12 @@ func DeleteOrdersByUser(ctx context.Context, db *sql.DB, UserId int32) (int64, e
 }
 
 type GetUserByIdRow struct {
-	Id        int32      `json:"id"`
-	Name      string     `json:"name"`
-	Email     *string    `json:"email"`
-	Active    bool       `json:"active"`
-	Metadata  *string    `json:"metadata"`
-	CreatedAt time.Time  `json:"created_at"`
+	Id int32 `json:"id"`
+	Name string `json:"name"`
+	Email *string `json:"email"`
+	Active bool `json:"active"`
+	Metadata *string `json:"metadata"`
+	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt *time.Time `json:"updated_at"`
 }
 
@@ -73,8 +74,8 @@ func GetUserById(ctx context.Context, db *sql.DB, Id int32) (GetUserByIdRow, err
 }
 
 type ListActiveUsersRow struct {
-	Id    int32   `json:"id"`
-	Name  string  `json:"name"`
+	Id int32 `json:"id"`
+	Name string `json:"name"`
 	Email *string `json:"email"`
 }
 
@@ -111,8 +112,8 @@ func DeleteUser(ctx context.Context, db *sql.DB, Id int32) error {
 }
 
 type SearchUsersRow struct {
-	Id    int32   `json:"id"`
-	Name  string  `json:"name"`
+	Id int32 `json:"id"`
+	Name string `json:"name"`
 	Email *string `json:"email"`
 }
 

@@ -23,9 +23,12 @@ class CreateOrderRow:
 def create_order(conn: pyodbc.Connection, *, id: int, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow | None:
     """Execute CreateOrder query."""
     cursor = conn.cursor()
-    cursor.execute("""INSERT INTO orders (id, user_id, total, notes)
+    cursor.execute(
+        """INSERT INTO orders (id, user_id, total, notes)
 OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at
-VALUES (?, ?, ?, ?)""", (id, user_id, total, notes))
+VALUES (?, ?, ?, ?)""",
+        (id, user_id, total, notes),
+    )
     row = cursor.fetchone()
     if row is None:
         return None
@@ -51,7 +54,10 @@ class GetOrdersByUserRow:
 def get_orders_by_user(conn: pyodbc.Connection, *, user_id: int) -> list[GetOrdersByUserRow]:
     """Execute GetOrdersByUser query."""
     cursor = conn.cursor()
-    cursor.execute("""SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC""", (user_id,))
+    cursor.execute(
+        """SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC""",
+        (user_id,),
+    )
     rows = cursor.fetchall()
     return [
         GetOrdersByUserRow(
@@ -74,7 +80,10 @@ class GetOrderTotalRow:
 def get_order_total(conn: pyodbc.Connection, *, user_id: int) -> GetOrderTotalRow | None:
     """Execute GetOrderTotal query."""
     cursor = conn.cursor()
-    cursor.execute("""SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?""", (user_id,))
+    cursor.execute(
+        """SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?""",
+        (user_id,),
+    )
     row = cursor.fetchone()
     if row is None:
         return None
@@ -103,7 +112,10 @@ class GetUserByIdRow:
 def get_user_by_id(conn: pyodbc.Connection, *, id: int) -> GetUserByIdRow | None:
     """Execute GetUserById query."""
     cursor = conn.cursor()
-    cursor.execute("""SELECT id, name, email, active, created_at FROM users WHERE id = ?""", (id,))
+    cursor.execute(
+        """SELECT id, name, email, active, created_at FROM users WHERE id = ?""",
+        (id,),
+    )
     row = cursor.fetchone()
     if row is None:
         return None
@@ -128,7 +140,9 @@ class ListActiveUsersRow:
 def list_active_users(conn: pyodbc.Connection) -> list[ListActiveUsersRow]:
     """Execute ListActiveUsers query."""
     cursor = conn.cursor()
-    cursor.execute("""SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT)""")
+    cursor.execute(
+        """SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT)""",
+    )
     rows = cursor.fetchall()
     return [ListActiveUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
 
@@ -147,9 +161,12 @@ class CreateUserRow:
 def create_user(conn: pyodbc.Connection, *, id: int, name: str, email: str | None, active: bool) -> CreateUserRow | None:
     """Execute CreateUser query."""
     cursor = conn.cursor()
-    cursor.execute("""INSERT INTO users (id, name, email, active)
+    cursor.execute(
+        """INSERT INTO users (id, name, email, active)
 OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at
-VALUES (?, ?, ?, ?)""", (id, name, email, active))
+VALUES (?, ?, ?, ?)""",
+        (id, name, email, active),
+    )
     row = cursor.fetchone()
     if row is None:
         return None
@@ -191,3 +208,4 @@ def search_users(conn: pyodbc.Connection, *, name: str) -> list[SearchUsersRow]:
     cursor.execute("""SELECT id, name, email FROM users WHERE name LIKE ?""", (name,))
     rows = cursor.fetchall()
     return [SearchUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
+

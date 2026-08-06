@@ -217,3 +217,4 @@ ORDER BY name""",
         status,
     )
     return [SearchUsersRow(id=r["id"], name=r["name"], email=r["email"]) for r in rows]
+

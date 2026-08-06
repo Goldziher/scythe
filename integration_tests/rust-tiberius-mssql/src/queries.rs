@@ -13,19 +13,43 @@ pub struct CreateOrderRow {
 impl CreateOrderRow {
     pub fn from_row(row: &tiberius::Row) -> Result<Self, tiberius::error::Error> {
         Ok(Self {
-            id: row.try_get("id")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into()))?,
-            user_id: row.try_get("user_id")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'user_id'".into()))?,
-            total: row.try_get("total")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'total'".into()))?,
+            id: row.try_get("id")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into())
+            })?,
+            user_id: row.try_get("user_id")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'user_id'".into())
+            })?,
+            total: row.try_get("total")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'total'".into())
+            })?,
             notes: row.try_get::<&str, _>("notes")?.map(|s| s.to_string()),
-            created_at: row.try_get("created_at")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'created_at'".into()))?,
+            created_at: row.try_get("created_at")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'created_at'".into())
+            })?,
         })
     }
 }
 
-pub async fn create_order(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, id: i32, user_id: i32, total: &rust_decimal::Decimal, notes: Option<&str>) -> Result<CreateOrderRow, tiberius::error::Error> {
-    let stream = client.query(r#"INSERT INTO orders (id, user_id, total, notes)
+pub async fn create_order(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    id: i32,
+    user_id: i32,
+    total: &rust_decimal::Decimal,
+    notes: Option<&str>,
+) -> Result<CreateOrderRow, tiberius::error::Error> {
+    let stream = client
+        .query(
+            r#"INSERT INTO orders (id, user_id, total, notes)
 OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at
-VALUES (@p1, @p2, @p3, @p4)"#, &[&id as &dyn tiberius::ToSql, &user_id as &dyn tiberius::ToSql, total as &dyn tiberius::ToSql, &notes.map(|s| s.to_string()) as &dyn tiberius::ToSql]).await?;
+VALUES (@p1, @p2, @p3, @p4)"#,
+            &[
+                &id as &dyn tiberius::ToSql,
+                &user_id as &dyn tiberius::ToSql,
+                total as &dyn tiberius::ToSql,
+                &notes.map(|s| s.to_string()) as &dyn tiberius::ToSql,
+            ],
+        )
+        .await?;
     let row = stream.into_row().await?.expect("expected one row");
     Ok(CreateOrderRow::from_row(&row)?)
 }
@@ -41,16 +65,30 @@ pub struct GetOrdersByUserRow {
 impl GetOrdersByUserRow {
     pub fn from_row(row: &tiberius::Row) -> Result<Self, tiberius::error::Error> {
         Ok(Self {
-            id: row.try_get("id")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into()))?,
-            total: row.try_get("total")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'total'".into()))?,
+            id: row.try_get("id")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into())
+            })?,
+            total: row.try_get("total")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'total'".into())
+            })?,
             notes: row.try_get::<&str, _>("notes")?.map(|s| s.to_string()),
-            created_at: row.try_get("created_at")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'created_at'".into()))?,
+            created_at: row.try_get("created_at")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'created_at'".into())
+            })?,
         })
     }
 }
 
-pub async fn get_orders_by_user(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, user_id: i32) -> Result<Vec<GetOrdersByUserRow>, tiberius::error::Error> {
-    let stream = client.query(r#"SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC"#, &[&user_id as &dyn tiberius::ToSql]).await?;
+pub async fn get_orders_by_user(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    user_id: i32,
+) -> Result<Vec<GetOrdersByUserRow>, tiberius::error::Error> {
+    let stream = client
+        .query(
+            r#"SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC"#,
+            &[&user_id as &dyn tiberius::ToSql],
+        )
+        .await?;
     let rows = stream.into_first_result().await?;
     rows.iter().map(GetOrdersByUserRow::from_row).collect()
 }
@@ -68,14 +106,30 @@ impl GetOrderTotalRow {
     }
 }
 
-pub async fn get_order_total(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, user_id: i32) -> Result<GetOrderTotalRow, tiberius::error::Error> {
-    let stream = client.query(r#"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1"#, &[&user_id as &dyn tiberius::ToSql]).await?;
+pub async fn get_order_total(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    user_id: i32,
+) -> Result<GetOrderTotalRow, tiberius::error::Error> {
+    let stream = client
+        .query(
+            r#"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1"#,
+            &[&user_id as &dyn tiberius::ToSql],
+        )
+        .await?;
     let row = stream.into_row().await?.expect("expected one row");
     Ok(GetOrderTotalRow::from_row(&row)?)
 }
 
-pub async fn delete_orders_by_user(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, user_id: i32) -> Result<u64, tiberius::error::Error> {
-    let result = client.execute(r#"DELETE FROM orders WHERE user_id = @p1"#, &[&user_id as &dyn tiberius::ToSql]).await?;
+pub async fn delete_orders_by_user(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    user_id: i32,
+) -> Result<u64, tiberius::error::Error> {
+    let result = client
+        .execute(
+            r#"DELETE FROM orders WHERE user_id = @p1"#,
+            &[&user_id as &dyn tiberius::ToSql],
+        )
+        .await?;
     Ok(result.total())
 }
 
@@ -91,17 +145,36 @@ pub struct GetUserByIdRow {
 impl GetUserByIdRow {
     pub fn from_row(row: &tiberius::Row) -> Result<Self, tiberius::error::Error> {
         Ok(Self {
-            id: row.try_get("id")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into()))?,
-            name: row.try_get::<&str, _>("name")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'name'".into()))?.to_string(),
+            id: row.try_get("id")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into())
+            })?,
+            name: row
+                .try_get::<&str, _>("name")?
+                .ok_or_else(|| {
+                    tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'name'".into())
+                })?
+                .to_string(),
             email: row.try_get::<&str, _>("email")?.map(|s| s.to_string()),
-            active: row.try_get("active")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'active'".into()))?,
-            created_at: row.try_get("created_at")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'created_at'".into()))?,
+            active: row.try_get("active")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'active'".into())
+            })?,
+            created_at: row.try_get("created_at")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'created_at'".into())
+            })?,
         })
     }
 }
 
-pub async fn get_user_by_id(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, id: i32) -> Result<GetUserByIdRow, tiberius::error::Error> {
-    let stream = client.query(r#"SELECT id, name, email, active, created_at FROM users WHERE id = @p1"#, &[&id as &dyn tiberius::ToSql]).await?;
+pub async fn get_user_by_id(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    id: i32,
+) -> Result<GetUserByIdRow, tiberius::error::Error> {
+    let stream = client
+        .query(
+            r#"SELECT id, name, email, active, created_at FROM users WHERE id = @p1"#,
+            &[&id as &dyn tiberius::ToSql],
+        )
+        .await?;
     let row = stream.into_row().await?.expect("expected one row");
     Ok(GetUserByIdRow::from_row(&row)?)
 }
@@ -116,15 +189,29 @@ pub struct ListActiveUsersRow {
 impl ListActiveUsersRow {
     pub fn from_row(row: &tiberius::Row) -> Result<Self, tiberius::error::Error> {
         Ok(Self {
-            id: row.try_get("id")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into()))?,
-            name: row.try_get::<&str, _>("name")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'name'".into()))?.to_string(),
+            id: row.try_get("id")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into())
+            })?,
+            name: row
+                .try_get::<&str, _>("name")?
+                .ok_or_else(|| {
+                    tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'name'".into())
+                })?
+                .to_string(),
             email: row.try_get::<&str, _>("email")?.map(|s| s.to_string()),
         })
     }
 }
 
-pub async fn list_active_users(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>) -> Result<Vec<ListActiveUsersRow>, tiberius::error::Error> {
-    let stream = client.query(r#"SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT)"#, &[]).await?;
+pub async fn list_active_users(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+) -> Result<Vec<ListActiveUsersRow>, tiberius::error::Error> {
+    let stream = client
+        .query(
+            r#"SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT)"#,
+            &[],
+        )
+        .await?;
     let rows = stream.into_first_result().await?;
     rows.iter().map(ListActiveUsersRow::from_row).collect()
 }
@@ -141,30 +228,71 @@ pub struct CreateUserRow {
 impl CreateUserRow {
     pub fn from_row(row: &tiberius::Row) -> Result<Self, tiberius::error::Error> {
         Ok(Self {
-            id: row.try_get("id")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into()))?,
-            name: row.try_get::<&str, _>("name")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'name'".into()))?.to_string(),
+            id: row.try_get("id")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into())
+            })?,
+            name: row
+                .try_get::<&str, _>("name")?
+                .ok_or_else(|| {
+                    tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'name'".into())
+                })?
+                .to_string(),
             email: row.try_get::<&str, _>("email")?.map(|s| s.to_string()),
-            active: row.try_get("active")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'active'".into()))?,
-            created_at: row.try_get("created_at")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'created_at'".into()))?,
+            active: row.try_get("active")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'active'".into())
+            })?,
+            created_at: row.try_get("created_at")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'created_at'".into())
+            })?,
         })
     }
 }
 
-pub async fn create_user(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, id: i32, name: &str, email: Option<&str>, active: bool) -> Result<CreateUserRow, tiberius::error::Error> {
-    let stream = client.query(r#"INSERT INTO users (id, name, email, active)
+pub async fn create_user(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    id: i32,
+    name: &str,
+    email: Option<&str>,
+    active: bool,
+) -> Result<CreateUserRow, tiberius::error::Error> {
+    let stream = client
+        .query(
+            r#"INSERT INTO users (id, name, email, active)
 OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at
-VALUES (@p1, @p2, @p3, @p4)"#, &[&id as &dyn tiberius::ToSql, &name.to_string() as &dyn tiberius::ToSql, &email.map(|s| s.to_string()) as &dyn tiberius::ToSql, &active as &dyn tiberius::ToSql]).await?;
+VALUES (@p1, @p2, @p3, @p4)"#,
+            &[
+                &id as &dyn tiberius::ToSql,
+                &name.to_string() as &dyn tiberius::ToSql,
+                &email.map(|s| s.to_string()) as &dyn tiberius::ToSql,
+                &active as &dyn tiberius::ToSql,
+            ],
+        )
+        .await?;
     let row = stream.into_row().await?.expect("expected one row");
     Ok(CreateUserRow::from_row(&row)?)
 }
 
-pub async fn update_user_email(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, email: &str, id: i32) -> Result<(), tiberius::error::Error> {
-    client.execute(r#"UPDATE users SET email = @p1 WHERE id = @p2"#, &[&email.to_string() as &dyn tiberius::ToSql, &id as &dyn tiberius::ToSql]).await?;
+pub async fn update_user_email(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    email: &str,
+    id: i32,
+) -> Result<(), tiberius::error::Error> {
+    client
+        .execute(
+            r#"UPDATE users SET email = @p1 WHERE id = @p2"#,
+            &[&email.to_string() as &dyn tiberius::ToSql, &id as &dyn tiberius::ToSql],
+        )
+        .await?;
     Ok(())
 }
 
-pub async fn delete_user(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, id: i32) -> Result<(), tiberius::error::Error> {
-    client.execute(r#"DELETE FROM users WHERE id = @p1"#, &[&id as &dyn tiberius::ToSql]).await?;
+pub async fn delete_user(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    id: i32,
+) -> Result<(), tiberius::error::Error> {
+    client
+        .execute(r#"DELETE FROM users WHERE id = @p1"#, &[&id as &dyn tiberius::ToSql])
+        .await?;
     Ok(())
 }
 
@@ -178,15 +306,30 @@ pub struct SearchUsersRow {
 impl SearchUsersRow {
     pub fn from_row(row: &tiberius::Row) -> Result<Self, tiberius::error::Error> {
         Ok(Self {
-            id: row.try_get("id")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into()))?,
-            name: row.try_get::<&str, _>("name")?.ok_or_else(|| tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'name'".into()))?.to_string(),
+            id: row.try_get("id")?.ok_or_else(|| {
+                tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'id'".into())
+            })?,
+            name: row
+                .try_get::<&str, _>("name")?
+                .ok_or_else(|| {
+                    tiberius::error::Error::Protocol("unexpected NULL for non-nullable column 'name'".into())
+                })?
+                .to_string(),
             email: row.try_get::<&str, _>("email")?.map(|s| s.to_string()),
         })
     }
 }
 
-pub async fn search_users(client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>, name: &str) -> Result<Vec<SearchUsersRow>, tiberius::error::Error> {
-    let stream = client.query(r#"SELECT id, name, email FROM users WHERE name LIKE @p1"#, &[&name.to_string() as &dyn tiberius::ToSql]).await?;
+pub async fn search_users(
+    client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>,
+    name: &str,
+) -> Result<Vec<SearchUsersRow>, tiberius::error::Error> {
+    let stream = client
+        .query(
+            r#"SELECT id, name, email FROM users WHERE name LIKE @p1"#,
+            &[&name.to_string() as &dyn tiberius::ToSql],
+        )
+        .await?;
     let rows = stream.into_first_result().await?;
     rows.iter().map(SearchUsersRow::from_row).collect()
 }

@@ -22,10 +22,20 @@ impl CreateOrderRow {
     }
 }
 
-pub async fn create_order(client: &(impl tokio_postgres::GenericClient + Sync), user_id: i32, total: &rust_decimal::Decimal, notes: Option<&str>) -> Result<CreateOrderRow, tokio_postgres::Error> {
-    let row = client.query_one(r#"INSERT INTO orders (user_id, total, notes)
+pub async fn create_order(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    user_id: i32,
+    total: &rust_decimal::Decimal,
+    notes: Option<&str>,
+) -> Result<CreateOrderRow, tokio_postgres::Error> {
+    let row = client
+        .query_one(
+            r#"INSERT INTO orders (user_id, total, notes)
 VALUES ($1, $2, $3)
-RETURNING id, user_id, total, notes, created_at"#, &[&user_id, &total, &notes]).await?;
+RETURNING id, user_id, total, notes, created_at"#,
+            &[&user_id, &total, &notes],
+        )
+        .await?;
     Ok(CreateOrderRow::from_row(&row))
 }
 
@@ -48,8 +58,16 @@ impl GetOrdersByUserRow {
     }
 }
 
-pub async fn get_orders_by_user(client: &(impl tokio_postgres::GenericClient + Sync), user_id: i32) -> Result<Vec<GetOrdersByUserRow>, tokio_postgres::Error> {
-    let rows = client.query(r#"SELECT id, total, notes, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC"#, &[&user_id]).await?;
+pub async fn get_orders_by_user(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    user_id: i32,
+) -> Result<Vec<GetOrdersByUserRow>, tokio_postgres::Error> {
+    let rows = client
+        .query(
+            r#"SELECT id, total, notes, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC"#,
+            &[&user_id],
+        )
+        .await?;
     Ok(rows.iter().map(GetOrdersByUserRow::from_row).collect())
 }
 
@@ -66,13 +84,26 @@ impl GetOrderTotalRow {
     }
 }
 
-pub async fn get_order_total(client: &(impl tokio_postgres::GenericClient + Sync), user_id: i32) -> Result<GetOrderTotalRow, tokio_postgres::Error> {
-    let row = client.query_one(r#"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1"#, &[&user_id]).await?;
+pub async fn get_order_total(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    user_id: i32,
+) -> Result<GetOrderTotalRow, tokio_postgres::Error> {
+    let row = client
+        .query_one(
+            r#"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1"#,
+            &[&user_id],
+        )
+        .await?;
     Ok(GetOrderTotalRow::from_row(&row))
 }
 
-pub async fn delete_orders_by_user(client: &(impl tokio_postgres::GenericClient + Sync), user_id: i32) -> Result<u64, tokio_postgres::Error> {
-    let rows_affected = client.execute(r#"DELETE FROM orders WHERE user_id = $1"#, &[&user_id]).await?;
+pub async fn delete_orders_by_user(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    user_id: i32,
+) -> Result<u64, tokio_postgres::Error> {
+    let rows_affected = client
+        .execute(r#"DELETE FROM orders WHERE user_id = $1"#, &[&user_id])
+        .await?;
     Ok(rows_affected)
 }
 
@@ -97,10 +128,18 @@ impl GetUserByIdRow {
     }
 }
 
-pub async fn get_user_by_id(client: &(impl tokio_postgres::GenericClient + Sync), id: i32) -> Result<GetUserByIdRow, tokio_postgres::Error> {
-    let row = client.query_one(r#"SELECT id, name, email, status, created_at
+pub async fn get_user_by_id(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    id: i32,
+) -> Result<GetUserByIdRow, tokio_postgres::Error> {
+    let row = client
+        .query_one(
+            r#"SELECT id, name, email, status, created_at
 FROM users
-WHERE id = $1"#, &[&id]).await?;
+WHERE id = $1"#,
+            &[&id],
+        )
+        .await?;
     Ok(GetUserByIdRow::from_row(&row))
 }
 
@@ -121,10 +160,18 @@ impl ListActiveUsersRow {
     }
 }
 
-pub async fn list_active_users(client: &(impl tokio_postgres::GenericClient + Sync), status: &str) -> Result<Vec<ListActiveUsersRow>, tokio_postgres::Error> {
-    let rows = client.query(r#"SELECT id, name, email
+pub async fn list_active_users(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    status: &str,
+) -> Result<Vec<ListActiveUsersRow>, tokio_postgres::Error> {
+    let rows = client
+        .query(
+            r#"SELECT id, name, email
 FROM users
-WHERE status = $1"#, &[&status]).await?;
+WHERE status = $1"#,
+            &[&status],
+        )
+        .await?;
     Ok(rows.iter().map(ListActiveUsersRow::from_row).collect())
 }
 
@@ -149,19 +196,38 @@ impl CreateUserRow {
     }
 }
 
-pub async fn create_user(client: &(impl tokio_postgres::GenericClient + Sync), name: &str, email: Option<&str>, status: &str) -> Result<CreateUserRow, tokio_postgres::Error> {
-    let row = client.query_one(r#"INSERT INTO users (name, email, status)
+pub async fn create_user(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    name: &str,
+    email: Option<&str>,
+    status: &str,
+) -> Result<CreateUserRow, tokio_postgres::Error> {
+    let row = client
+        .query_one(
+            r#"INSERT INTO users (name, email, status)
 VALUES ($1, $2, $3)
-RETURNING id, name, email, status, created_at"#, &[&name, &email, &status]).await?;
+RETURNING id, name, email, status, created_at"#,
+            &[&name, &email, &status],
+        )
+        .await?;
     Ok(CreateUserRow::from_row(&row))
 }
 
-pub async fn update_user_email(client: &(impl tokio_postgres::GenericClient + Sync), email: &str, id: i32) -> Result<(), tokio_postgres::Error> {
-    client.execute(r#"UPDATE users SET email = $1 WHERE id = $2"#, &[&email, &id]).await?;
+pub async fn update_user_email(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    email: &str,
+    id: i32,
+) -> Result<(), tokio_postgres::Error> {
+    client
+        .execute(r#"UPDATE users SET email = $1 WHERE id = $2"#, &[&email, &id])
+        .await?;
     Ok(())
 }
 
-pub async fn delete_user(client: &(impl tokio_postgres::GenericClient + Sync), id: i32) -> Result<(), tokio_postgres::Error> {
+pub async fn delete_user(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    id: i32,
+) -> Result<(), tokio_postgres::Error> {
     client.execute(r#"DELETE FROM users WHERE id = $1"#, &[&id]).await?;
     Ok(())
 }
@@ -183,10 +249,18 @@ impl SearchUsersRow {
     }
 }
 
-pub async fn search_users(client: &(impl tokio_postgres::GenericClient + Sync), status: &str) -> Result<Vec<SearchUsersRow>, tokio_postgres::Error> {
-    let rows = client.query(r#"SELECT id, name, email
+pub async fn search_users(
+    client: &(impl tokio_postgres::GenericClient + Sync),
+    status: &str,
+) -> Result<Vec<SearchUsersRow>, tokio_postgres::Error> {
+    let rows = client
+        .query(
+            r#"SELECT id, name, email
 FROM users
 WHERE status = $1
-ORDER BY name"#, &[&status]).await?;
+ORDER BY name"#,
+            &[&status],
+        )
+        .await?;
     Ok(rows.iter().map(SearchUsersRow::from_row).collect())
 }

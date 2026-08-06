@@ -38,7 +38,7 @@ CREATE TABLE users (
 | Affinity | Declared Types | Neutral Type |
 |----------|---------------|-------------|
 | INTEGER | `INTEGER`, `INT`, `SMALLINT`, `BIGINT`, `TINYINT`, `MEDIUMINT` | `int32` (or `int64` for BIGINT) |
-| REAL | `REAL`, `FLOAT`, `DOUBLE`, `DOUBLE PRECISION` | `float32` / `float64` |
+| REAL | `REAL`, `FLOAT`, `DOUBLE`, `DOUBLE PRECISION` | `float64` |
 | TEXT | `TEXT`, `VARCHAR`, `CHAR`, `CLOB` | `string` |
 | BLOB | `BLOB` | `bytes` |
 | NUMERIC | `NUMERIC`, `DECIMAL`, `BOOLEAN`, `DATE`, `DATETIME` | varies |
@@ -74,7 +74,7 @@ SQLite does not support:
 | `BIGINT` | `int64` |
 | `SMALLINT` / `TINYINT` | `int16` |
 | `MEDIUMINT` | `int32` |
-| `REAL` / `FLOAT` | `float32` |
+| `REAL` / `FLOAT` | `float64` |
 | `DOUBLE` / `DOUBLE PRECISION` | `float64` |
 | `TEXT` / `VARCHAR` / `CHAR` / `CLOB` | `string` |
 | `BLOB` | `bytes` |

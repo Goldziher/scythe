@@ -217,3 +217,4 @@ ORDER BY name""",
     )
     rows = await cur.fetchall()
     return [SearchUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
+

@@ -8,12 +8,20 @@ from enum import Enum  # noqa: F401
 import snowflake.connector  # noqa: F401
 
 
+
 def create_order(
-    conn: snowflake.connector.SnowflakeConnection, *, user_id: int, total: decimal.Decimal, notes: str | None
+    conn: snowflake.connector.SnowflakeConnection,
+    *,
+    user_id: int,
+    total: decimal.Decimal,
+    notes: str | None,
 ) -> None:
     """Execute CreateOrder query."""
     cur = conn.cursor()
-    cur.execute("""INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)""", (user_id, total, notes))
+    cur.execute(
+        """INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)""",
+        (user_id, total, notes),
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -26,11 +34,16 @@ class GetOrdersByUserRow:
     created_at: datetime.datetime
 
 
-def get_orders_by_user(conn: snowflake.connector.SnowflakeConnection, *, user_id: int) -> list[GetOrdersByUserRow]:
+def get_orders_by_user(
+    conn: snowflake.connector.SnowflakeConnection,
+    *,
+    user_id: int,
+) -> list[GetOrdersByUserRow]:
     """Execute GetOrdersByUser query."""
     cur = conn.cursor()
     cur.execute(
-        """SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC""", (user_id,)
+        """SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC""",
+        (user_id,),
     )
     rows = cur.fetchall()
     return [
@@ -51,20 +64,34 @@ class GetOrderTotalRow:
     total_sum: decimal.Decimal | None
 
 
-def get_order_total(conn: snowflake.connector.SnowflakeConnection, *, user_id: int) -> GetOrderTotalRow | None:
+def get_order_total(
+    conn: snowflake.connector.SnowflakeConnection,
+    *,
+    user_id: int,
+) -> GetOrderTotalRow | None:
     """Execute GetOrderTotal query."""
     cur = conn.cursor()
-    cur.execute("""SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?""", (user_id,))
+    cur.execute(
+        """SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?""",
+        (user_id,),
+    )
     row = cur.fetchone()
     if row is None:
         return None
     return GetOrderTotalRow(total_sum=row[0])
 
 
-def delete_orders_by_user(conn: snowflake.connector.SnowflakeConnection, *, user_id: int) -> int:
+def delete_orders_by_user(
+    conn: snowflake.connector.SnowflakeConnection,
+    *,
+    user_id: int,
+) -> int:
     """Execute DeleteOrdersByUser query."""
     cur = conn.cursor()
-    cur.execute("""DELETE FROM orders WHERE id IN (SELECT id FROM orders WHERE user_id = ?)""", (user_id,))
+    cur.execute(
+        """DELETE FROM orders WHERE id IN (SELECT id FROM orders WHERE user_id = ?)""",
+        (user_id,),
+    )
     return cur.rowcount
 
 
@@ -81,10 +108,17 @@ class GetUserByIdRow:
     updated_at: datetime.datetime | None
 
 
-def get_user_by_id(conn: snowflake.connector.SnowflakeConnection, *, id: int) -> GetUserByIdRow | None:
+def get_user_by_id(
+    conn: snowflake.connector.SnowflakeConnection,
+    *,
+    id: int,
+) -> GetUserByIdRow | None:
     """Execute GetUserById query."""
     cur = conn.cursor()
-    cur.execute("""SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?""", (id,))
+    cur.execute(
+        """SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?""",
+        (id,),
+    )
     row = cur.fetchone()
     if row is None:
         return None
@@ -108,7 +142,9 @@ class ListActiveUsersRow:
     email: str | None
 
 
-def list_active_users(conn: snowflake.connector.SnowflakeConnection) -> list[ListActiveUsersRow]:
+def list_active_users(
+    conn: snowflake.connector.SnowflakeConnection,
+) -> list[ListActiveUsersRow]:
     """Execute ListActiveUsers query."""
     cur = conn.cursor()
     cur.execute("""SELECT id, name, email FROM users WHERE active = TRUE""")
@@ -116,16 +152,33 @@ def list_active_users(conn: snowflake.connector.SnowflakeConnection) -> list[Lis
     return [ListActiveUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
 
 
-def create_user(conn: snowflake.connector.SnowflakeConnection, *, name: str, email: str | None, active: bool) -> None:
+def create_user(
+    conn: snowflake.connector.SnowflakeConnection,
+    *,
+    name: str,
+    email: str | None,
+    active: bool,
+) -> None:
     """Execute CreateUser query."""
     cur = conn.cursor()
-    cur.execute("""INSERT INTO users (name, email, active) VALUES (?, ?, ?)""", (name, email, active))
+    cur.execute(
+        """INSERT INTO users (name, email, active) VALUES (?, ?, ?)""",
+        (name, email, active),
+    )
 
 
-def update_user_email(conn: snowflake.connector.SnowflakeConnection, *, email: str, id: int) -> None:
+def update_user_email(
+    conn: snowflake.connector.SnowflakeConnection,
+    *,
+    email: str,
+    id: int,
+) -> None:
     """Execute UpdateUserEmail query."""
     cur = conn.cursor()
-    cur.execute("""UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP() WHERE id = ?""", (email, id))
+    cur.execute(
+        """UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP() WHERE id = ?""",
+        (email, id),
+    )
 
 
 def delete_user(conn: snowflake.connector.SnowflakeConnection, *, id: int) -> None:
@@ -143,9 +196,14 @@ class SearchUsersRow:
     email: str | None
 
 
-def search_users(conn: snowflake.connector.SnowflakeConnection, *, name: str) -> list[SearchUsersRow]:
+def search_users(
+    conn: snowflake.connector.SnowflakeConnection,
+    *,
+    name: str,
+) -> list[SearchUsersRow]:
     """Execute SearchUsers query."""
     cur = conn.cursor()
     cur.execute("""SELECT id, name, email FROM users WHERE name LIKE ?""", (name,))
     rows = cur.fetchall()
     return [SearchUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
+
