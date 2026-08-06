@@ -24,6 +24,15 @@ CREATE TABLE tags (
     name VARCHAR2(255) NOT NULL UNIQUE
 );
 
+CREATE TABLE attachments (
+    id NUMBER NOT NULL PRIMARY KEY,
+    order_id NUMBER NOT NULL,
+    filename VARCHAR2(255) NOT NULL,
+    payload BLOB NOT NULL,
+    description NCLOB,
+    CONSTRAINT fk_attachments_orders FOREIGN KEY (order_id) REFERENCES orders (id)
+);
+
 CREATE TABLE user_tags (
     user_id NUMBER NOT NULL,
     tag_id NUMBER NOT NULL,

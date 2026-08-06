@@ -74,3 +74,26 @@ CREATE TABLE user_tags (
     CONSTRAINT fk_user_tags_tags FOREIGN KEY (tag_id) REFERENCES tags (id)
 )
 /
+
+CREATE SEQUENCE attachments_seq START WITH 1 INCREMENT BY 1
+/
+
+CREATE TABLE attachments (
+    id NUMBER NOT NULL PRIMARY KEY,
+    order_id NUMBER NOT NULL,
+    filename VARCHAR2(255) NOT NULL,
+    payload BLOB NOT NULL,
+    description NCLOB,
+    CONSTRAINT fk_attachments_orders FOREIGN KEY (order_id) REFERENCES orders (id)
+)
+/
+
+CREATE OR REPLACE TRIGGER attachments_bi
+BEFORE INSERT ON attachments
+FOR EACH ROW
+BEGIN
+    IF :NEW.id IS NULL THEN
+        :NEW.id := attachments_seq.NEXTVAL;
+    END IF;
+END;
+/

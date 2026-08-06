@@ -27,13 +27,13 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
             Cow::Borrowed("string")
         }
         "nvarchar" | "nchar" | "ntext" => Cow::Borrowed("string"),
-        "tinytext" | "mediumtext" | "longtext" | "clob" => Cow::Borrowed("string"),
+        "tinytext" | "mediumtext" | "longtext" | "clob" | "nclob" => Cow::Borrowed("string"),
         "set" => Cow::Borrowed("string"),
 
         "boolean" | "bool" => Cow::Borrowed("bool"),
 
         "bytea" => Cow::Borrowed("bytes"),
-        "blob" | "tinyblob" | "mediumblob" | "longblob" | "binary" | "varbinary" => Cow::Borrowed("bytes"),
+        "blob" | "tinyblob" | "mediumblob" | "longblob" | "binary" | "varbinary" | "bfile" => Cow::Borrowed("bytes"),
 
         "uuid" | "uniqueidentifier" => Cow::Borrowed("uuid"),
 

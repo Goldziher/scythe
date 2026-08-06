@@ -1,10 +1,47 @@
+defmodule CreateAttachmentRow do
+  @moduledoc "Row type for CreateAttachment queries."
+
+  @type t :: %__MODULE__{
+    id: integer(),
+    order_id: integer(),
+    filename: String.t()
+  }
+  defstruct [:id, :order_id, :filename]
+end
+
+defmodule GetAttachmentsByOrderRow do
+  @moduledoc "Row type for GetAttachmentsByOrder queries."
+
+  @type t :: %__MODULE__{
+    id: integer(),
+    order_id: integer(),
+    filename: String.t(),
+    payload: binary(),
+    description: String.t() | nil
+  }
+  defstruct [:id, :order_id, :filename, :payload, :description]
+end
+
+defmodule GetAttachmentByIdRow do
+  @moduledoc "Row type for GetAttachmentById queries."
+
+  @type t :: %__MODULE__{
+    id: integer(),
+    order_id: integer(),
+    filename: String.t(),
+    payload: binary(),
+    description: String.t() | nil
+  }
+  defstruct [:id, :order_id, :filename, :payload, :description]
+end
+
 defmodule CreateOrderRow do
   @moduledoc "Row type for CreateOrder queries."
 
   @type t :: %__MODULE__{
     id: integer(),
     user_id: integer(),
-    total: integer(),
+    total: Decimal.t(),
     notes: String.t() | nil,
     created_at: NaiveDateTime.t()
   }
@@ -16,7 +53,7 @@ defmodule GetOrdersByUserRow do
 
   @type t :: %__MODULE__{
     id: integer(),
-    total: integer(),
+    total: Decimal.t(),
     notes: String.t() | nil,
     created_at: NaiveDateTime.t()
   }
@@ -27,7 +64,7 @@ defmodule GetOrderTotalRow do
   @moduledoc "Row type for GetOrderTotal queries."
 
   @type t :: %__MODULE__{
-    total_sum: integer() | nil
+    total_sum: Decimal.t() | nil
   }
   defstruct [:total_sum]
 end
@@ -82,22 +119,64 @@ end
 
 defmodule Scythe.Queries do
 
-@spec create_order(DBConnection.conn(), integer(), integer(), String.t() | nil) :: {:ok, %CreateOrderRow{}} | {:error, :not_found} | {:error, term()}
+@spec create_attachment(DBConnection.conn(), integer(), String.t(), binary(), String.t() | nil) :: {:ok, %CreateAttachmentRow{}} | {:error, :not_found} | {:error, term()}
+def create_attachment(conn, order_id, filename, payload, description) do
+  case Jamdb.Oracle.query(conn, "INSERT INTO attachments (order_id, filename, payload, description) VALUES (:1, :2, :3, :4) RETURNING id, order_id, filename INTO :5, :6, :7", [order_id, filename, payload, description, {:out, :integer}, {:out, :integer}, {:out, :varchar}]) do
+    {:ok, %{rows: [row | _]}} ->
+      [id, order_id, filename] = row
+      {:ok, %CreateAttachmentRow{id: id, order_id: order_id, filename: filename}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_attachments_by_order(DBConnection.conn(), integer()) :: {:ok, [%GetAttachmentsByOrderRow{}]} | {:error, term()}
+def get_attachments_by_order(conn, order_id) do
+  case Jamdb.Oracle.query(conn, "SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = :1 ORDER BY id", [order_id]) do
+    {:ok, %{rows: rows}} ->
+      results = Enum.map(rows, fn row ->
+        [id, order_id, filename, payload, description] = row
+        %GetAttachmentsByOrderRow{id: id, order_id: order_id, filename: filename, payload: payload, description: description}
+      end)
+      {:ok, results}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_attachment_by_id(DBConnection.conn(), integer()) :: {:ok, %GetAttachmentByIdRow{}} | {:error, :not_found} | {:error, term()}
+def get_attachment_by_id(conn, id) do
+  case Jamdb.Oracle.query(conn, "SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :1", [id]) do
+    {:ok, %{rows: [row | _]}} ->
+      [id, order_id, filename, payload, description] = row
+      {:ok, %GetAttachmentByIdRow{id: id, order_id: order_id, filename: filename, payload: payload, description: description}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec delete_attachments_by_order(DBConnection.conn(), integer()) :: {:ok, non_neg_integer()} | {:error, term()}
+def delete_attachments_by_order(conn, order_id) do
+  case Jamdb.Oracle.query(conn, "DELETE FROM attachments WHERE order_id = :1", [order_id]) do
+    {:ok, %{num_rows: n}} -> {:ok, n}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec create_order(DBConnection.conn(), integer(), Decimal.t(), String.t() | nil) :: {:ok, %CreateOrderRow{}} | {:error, :not_found} | {:error, term()}
 def create_order(conn, user_id, total, notes) do
-  query = %Jamdb.Oracle.Query{statement: "INSERT INTO orders (user_id, total, notes) VALUES (:1, :2, :3) RETURNING id, user_id, total, notes, created_at INTO :4, :5, :6, :7, :8"}
-  case DBConnection.execute(conn, query, [user_id, total, notes], out: [:integer, :integer, :integer, :varchar, :date]) do
-    {:ok, _, %{rows: [[id], [ret_user_id], [ret_total], [ret_notes], [created_at]]}} ->
-      {:ok, %CreateOrderRow{id: id, user_id: ret_user_id, total: ret_total, notes: ret_notes, created_at: created_at}}
-    {:ok, _, %{rows: []}} -> {:error, :not_found}
+  case Jamdb.Oracle.query(conn, "INSERT INTO orders (user_id, total, notes) VALUES (:1, :2, :3) RETURNING id, user_id, total, notes, created_at INTO :4, :5, :6, :7, :8", [user_id, total, notes, {:out, :integer}, {:out, :integer}, {:out, :number}, {:out, :varchar}, {:out, :date}]) do
+    {:ok, %{rows: [row | _]}} ->
+      [id, user_id, total, notes, created_at] = row
+      {:ok, %CreateOrderRow{id: id, user_id: user_id, total: total, notes: notes, created_at: created_at}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
 end
 
 @spec get_orders_by_user(DBConnection.conn(), integer()) :: {:ok, [%GetOrdersByUserRow{}]} | {:error, term()}
 def get_orders_by_user(conn, user_id) do
-  query = %Jamdb.Oracle.Query{statement: "SELECT id, total, notes, created_at FROM orders WHERE user_id = :1 ORDER BY created_at DESC"}
-  case DBConnection.execute(conn, query, [user_id], []) do
-    {:ok, _, %{rows: rows}} ->
+  case Jamdb.Oracle.query(conn, "SELECT id, total, notes, created_at FROM orders WHERE user_id = :1 ORDER BY created_at DESC", [user_id]) do
+    {:ok, %{rows: rows}} ->
       results = Enum.map(rows, fn row ->
         [id, total, notes, created_at] = row
         %GetOrdersByUserRow{id: id, total: total, notes: notes, created_at: created_at}
@@ -109,42 +188,38 @@ end
 
 @spec get_order_total(DBConnection.conn(), integer()) :: {:ok, %GetOrderTotalRow{}} | {:error, :not_found} | {:error, term()}
 def get_order_total(conn, user_id) do
-  query = %Jamdb.Oracle.Query{statement: "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :1"}
-  case DBConnection.execute(conn, query, [user_id], []) do
-    {:ok, _, %{rows: [row | _]}} ->
+  case Jamdb.Oracle.query(conn, "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :1", [user_id]) do
+    {:ok, %{rows: [row | _]}} ->
       [total_sum] = row
       {:ok, %GetOrderTotalRow{total_sum: total_sum}}
-    {:ok, _, %{rows: []}} -> {:error, :not_found}
+    {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
 end
 
 @spec delete_orders_by_user(DBConnection.conn(), integer()) :: {:ok, non_neg_integer()} | {:error, term()}
 def delete_orders_by_user(conn, user_id) do
-  query = %Jamdb.Oracle.Query{statement: "DELETE FROM orders WHERE user_id = :1"}
-  case DBConnection.execute(conn, query, [user_id], []) do
-    {:ok, _, %{num_rows: n}} -> {:ok, n}
+  case Jamdb.Oracle.query(conn, "DELETE FROM orders WHERE user_id = :1", [user_id]) do
+    {:ok, %{num_rows: n}} -> {:ok, n}
     {:error, err} -> {:error, err}
   end
 end
 
 @spec get_user_by_id(DBConnection.conn(), integer()) :: {:ok, %GetUserByIdRow{}} | {:error, :not_found} | {:error, term()}
 def get_user_by_id(conn, id) do
-  query = %Jamdb.Oracle.Query{statement: "SELECT id, name, email, active, created_at FROM users WHERE id = :1"}
-  case DBConnection.execute(conn, query, [id], []) do
-    {:ok, _, %{rows: [row | _]}} ->
-      [ret_id, name, email, active, created_at] = row
-      {:ok, %GetUserByIdRow{id: ret_id, name: name, email: email, active: active, created_at: created_at}}
-    {:ok, _, %{rows: []}} -> {:error, :not_found}
+  case Jamdb.Oracle.query(conn, "SELECT id, name, email, active, created_at FROM users WHERE id = :1", [id]) do
+    {:ok, %{rows: [row | _]}} ->
+      [id, name, email, active, created_at] = row
+      {:ok, %GetUserByIdRow{id: id, name: name, email: email, active: active, created_at: created_at}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
 end
 
 @spec list_active_users(DBConnection.conn()) :: {:ok, [%ListActiveUsersRow{}]} | {:error, term()}
 def list_active_users(conn) do
-  query = %Jamdb.Oracle.Query{statement: "SELECT id, name, email FROM users WHERE active = 1"}
-  case DBConnection.execute(conn, query, [], []) do
-    {:ok, _, %{rows: rows}} ->
+  case Jamdb.Oracle.query(conn, "SELECT id, name, email FROM users WHERE active = 1", []) do
+    {:ok, %{rows: rows}} ->
       results = Enum.map(rows, fn row ->
         [id, name, email] = row
         %ListActiveUsersRow{id: id, name: name, email: email}
@@ -156,41 +231,38 @@ end
 
 @spec create_user(DBConnection.conn(), String.t(), String.t() | nil, integer()) :: {:ok, %CreateUserRow{}} | {:error, :not_found} | {:error, term()}
 def create_user(conn, name, email, active) do
-  query = %Jamdb.Oracle.Query{statement: "INSERT INTO users (name, email, active) VALUES (:1, :2, :3) RETURNING id, name, email, active, created_at INTO :4, :5, :6, :7, :8"}
-  case DBConnection.execute(conn, query, [name, email, active], out: [:integer, :varchar, :varchar, :integer, :date]) do
-    {:ok, _, %{rows: [[id], [ret_name], [ret_email], [ret_active], [created_at]]}} ->
-      {:ok, %CreateUserRow{id: id, name: ret_name, email: ret_email, active: ret_active, created_at: created_at}}
-    {:ok, _, %{rows: []}} -> {:error, :not_found}
+  case Jamdb.Oracle.query(conn, "INSERT INTO users (name, email, active) VALUES (:1, :2, :3) RETURNING id, name, email, active, created_at INTO :4, :5, :6, :7, :8", [name, email, active, {:out, :integer}, {:out, :varchar}, {:out, :varchar}, {:out, :integer}, {:out, :date}]) do
+    {:ok, %{rows: [row | _]}} ->
+      [id, name, email, active, created_at] = row
+      {:ok, %CreateUserRow{id: id, name: name, email: email, active: active, created_at: created_at}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
 end
 
 @spec update_user_email(DBConnection.conn(), String.t(), integer()) :: :ok | {:error, term()}
 def update_user_email(conn, email, id) do
-  query = %Jamdb.Oracle.Query{statement: "UPDATE users SET email = :1 WHERE id = :2"}
-  case DBConnection.execute(conn, query, [email, id], []) do
-    {:ok, _, _} -> :ok
+  case Jamdb.Oracle.query(conn, "UPDATE users SET email = :1 WHERE id = :2", [email, id]) do
+    {:ok, _} -> :ok
     {:error, err} -> {:error, err}
   end
 end
 
 @spec delete_user(DBConnection.conn(), integer()) :: :ok | {:error, term()}
 def delete_user(conn, id) do
-  query = %Jamdb.Oracle.Query{statement: "DELETE FROM users WHERE id = :1"}
-  case DBConnection.execute(conn, query, [id], []) do
-    {:ok, _, _} -> :ok
+  case Jamdb.Oracle.query(conn, "DELETE FROM users WHERE id = :1", [id]) do
+    {:ok, _} -> :ok
     {:error, err} -> {:error, err}
   end
 end
 
 @spec search_users(DBConnection.conn(), String.t()) :: {:ok, [%SearchUsersRow{}]} | {:error, term()}
 def search_users(conn, name) do
-  query = %Jamdb.Oracle.Query{statement: "SELECT id, name, email FROM users WHERE name LIKE :1"}
-  case DBConnection.execute(conn, query, [name], []) do
-    {:ok, _, %{rows: rows}} ->
+  case Jamdb.Oracle.query(conn, "SELECT id, name, email FROM users WHERE name LIKE :1", [name]) do
+    {:ok, %{rows: rows}} ->
       results = Enum.map(rows, fn row ->
-        [id, ret_name, email] = row
-        %SearchUsersRow{id: id, name: ret_name, email: email}
+        [id, name, email] = row
+        %SearchUsersRow{id: id, name: name, email: email}
       end)
       {:ok, results}
     {:error, err} -> {:error, err}

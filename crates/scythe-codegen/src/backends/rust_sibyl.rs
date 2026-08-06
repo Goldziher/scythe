@@ -164,16 +164,20 @@ impl RustSibylBackend {
     /// For date/datetime: get as Date<'_> then convert via date_and_time().
     /// decimal maps to f64 in the manifest (OCI NUMBER → SQLT_BDOUBLE), so it's handled as float.
     ///
-    /// Oracle CLOB columns need special handling: sibyl's `FromSql<String>` only matches
-    /// `ColumnBuffer::Text` (VARCHAR2/CHAR) — a CLOB column's buffer is
-    /// `ColumnBuffer::CLOB` and reading it via `row.get::<String, _>(i)` fails at runtime
-    /// with `Interface("cannot return as a String")`. CLOB (and, by the same underlying
-    /// mechanism, BLOB/BFILE) must be fetched as a LOB locator and its content read
-    /// explicitly. `neutral_type` alone can't distinguish this (both CLOB and VARCHAR2
-    /// resolve to `"string"`), so this matches on `sql_type`, the raw source SQL type.
+    /// Oracle LOB columns need special handling: sibyl's `FromSql<String>` only matches
+    /// `ColumnBuffer::Text` (VARCHAR2/CHAR) — a CLOB/NCLOB/BLOB/BFILE column's buffer is a
+    /// LOB locator (`ColumnBuffer::CLOB`/`ColumnBuffer::BLOB`/...) and reading it via
+    /// `row.get::<String, _>(i)` fails at runtime with `Interface("cannot return as a
+    /// String")`. Every one of these four types must be fetched as a LOB locator and its
+    /// content read explicitly. `neutral_type` alone can't distinguish this (CLOB and
+    /// VARCHAR2 both resolve to `"string"`; BLOB and BFILE both resolve to `"bytes"`), so
+    /// this matches on `sql_type`, the raw source SQL type.
     fn emit_row_get(col: &ResolvedColumn, index: usize, indent: &str) -> String {
-        if col.sql_type == "clob" {
-            return Self::emit_row_get_clob(col, index, indent);
+        match col.sql_type.as_str() {
+            "clob" | "nclob" => return Self::emit_row_get_lob(col, index, indent, LobKind::Text),
+            "blob" => return Self::emit_row_get_lob(col, index, indent, LobKind::Blob),
+            "bfile" => return Self::emit_row_get_lob(col, index, indent, LobKind::BFile),
+            _ => {}
         }
         match col.neutral_type.as_str() {
             "date" | "datetime" | "datetime_tz" => {
@@ -208,40 +212,135 @@ impl RustSibylBackend {
         }
     }
 
-    /// Emit the row.get() call for an Oracle CLOB column. Fetches the LOB
-    /// locator, then reads its full text content into a `String` (sibyl's
-    /// `LOB::read` is the only way to materialize CLOB content — there is no
-    /// direct `ColumnBuffer::CLOB -> String` conversion).
-    fn emit_row_get_clob(col: &ResolvedColumn, index: usize, indent: &str) -> String {
+    /// Emit the row.get() call for an Oracle LOB column (CLOB, NCLOB, BLOB, or BFILE).
+    /// Fetches the LOB locator, then reads its full content via a loop that keeps
+    /// calling `LOB::read` until the accumulated read count reaches the LOB's reported
+    /// length.
+    ///
+    /// sibyl's `LOB::read(offset, len, buf)` issues a single `OCI_ONE_PIECE` OCI call and
+    /// returns the number of characters (CLOB/NCLOB) or bytes (BLOB/BFILE) actually read —
+    /// sibyl's own doc example demonstrates this can be *less* than `len` (it returns
+    /// whatever is available up to the LOB's current end, e.g. when the LOB shrinks
+    /// between the `len()` call and the `read()` call, or is read concurrently). Discarding
+    /// that count and trusting a single call to have read everything risks silent
+    /// truncation, so the generated code loops, re-requesting the remaining amount from the
+    /// new offset, until the full length is consumed. A call that makes zero progress
+    /// (returns 0 while data is still outstanding) is treated as a hard error rather than
+    /// spinning forever.
+    fn emit_row_get_lob(col: &ResolvedColumn, index: usize, indent: &str, kind: LobKind) -> String {
         let name = &col.field_name;
+        let locator_ty = kind.locator_ty();
+        let buf_init = kind.buf_init();
+        let unit = kind.unit();
+
         if col.nullable {
+            // Inside the `Some(lob) => { ... }` arm, the locator is always bound to `lob`.
+            let open_line = if kind.needs_open() {
+                format!("{indent}        lob.open_file().await?;\n")
+            } else {
+                String::new()
+            };
             format!(
-                "{indent}let {name}: {ty} = match row.get::<Option<CLOB<'_>>, _>({i})? {{\n\
+                "{indent}let {name}: {ty} = match row.get::<Option<{locator_ty}<'_>>, _>({i})? {{\n\
                  {indent}    Some(lob) => {{\n\
+                 {open_line}\
                  {indent}        let len = lob.len().await?;\n\
-                 {indent}        let mut buf = String::new();\n\
-                 {indent}        lob.read(0, len, &mut buf).await?;\n\
+                 {indent}        let mut buf = {buf_init};\n\
+                 {indent}        let mut read = 0usize;\n\
+                 {indent}        while read < len {{\n\
+                 {indent}            let n = lob.read(read, len - read, &mut buf).await?;\n\
+                 {indent}            if n == 0 {{\n\
+                 {indent}                return Err(sibyl::Error::Interface(format!(\"incomplete LOB read for column '{name}': expected {{}} {unit}, got {{}}\", len, read)));\n\
+                 {indent}            }}\n\
+                 {indent}            read += n;\n\
+                 {indent}        }}\n\
                  {indent}        Some(buf)\n\
                  {indent}    }}\n\
                  {indent}    None => None,\n\
                  {indent}}};",
                 indent = indent,
+                open_line = open_line,
                 name = name,
                 i = index,
-                ty = col.full_type
+                ty = col.full_type,
+                locator_ty = locator_ty,
+                buf_init = buf_init,
+                unit = unit,
             )
         } else {
+            let open_line = if kind.needs_open() {
+                format!("{indent}{name}_lob.open_file().await?;\n")
+            } else {
+                String::new()
+            };
             format!(
-                "{indent}let {name}_lob: CLOB<'_> = row.get({i})?;\n\
+                "{indent}let {name}_lob: {locator_ty}<'_> = row.get({i})?;\n\
+                 {open_line}\
                  {indent}let {name}_len = {name}_lob.len().await?;\n\
-                 {indent}let mut {name}: {ty} = String::new();\n\
-                 {indent}{name}_lob.read(0, {name}_len, &mut {name}).await?;",
+                 {indent}let mut {name}: {ty} = {buf_init};\n\
+                 {indent}let mut {name}_read = 0usize;\n\
+                 {indent}while {name}_read < {name}_len {{\n\
+                 {indent}    let {name}_n = {name}_lob.read({name}_read, {name}_len - {name}_read, &mut {name}).await?;\n\
+                 {indent}    if {name}_n == 0 {{\n\
+                 {indent}        return Err(sibyl::Error::Interface(format!(\"incomplete LOB read for column '{name}': expected {{}} {unit}, got {{}}\", {name}_len, {name}_read)));\n\
+                 {indent}    }}\n\
+                 {indent}    {name}_read += {name}_n;\n\
+                 {indent}}}",
                 indent = indent,
+                open_line = open_line,
                 name = name,
                 i = index,
-                ty = col.full_type
+                ty = col.full_type,
+                locator_ty = locator_ty,
+                buf_init = buf_init,
+                unit = unit,
             )
         }
+    }
+}
+
+/// Distinguishes the three sibyl LOB locator shapes so `emit_row_get_lob` can emit the
+/// right locator type, buffer type, and unit label. CLOB and NCLOB share sibyl's `CLOB<'_>`
+/// type (NCLOB is just a CLOB with a different charset form, resolved internally by
+/// sibyl's `charset_form()`), so they share `LobKind::Text`.
+#[derive(Clone, Copy)]
+enum LobKind {
+    /// CLOB / NCLOB — character data, `CLOB<'_>` locator, `String` buffer.
+    Text,
+    /// BLOB — binary data, `BLOB<'_>` locator, `Vec<u8>` buffer.
+    Blob,
+    /// BFILE — binary data via a read-only external-file locator; `BFile<'_>` locator,
+    /// `Vec<u8>` buffer. Must be opened with `open_file()` before it can be read.
+    BFile,
+}
+
+impl LobKind {
+    fn locator_ty(self) -> &'static str {
+        match self {
+            LobKind::Text => "CLOB",
+            LobKind::Blob => "BLOB",
+            LobKind::BFile => "BFile",
+        }
+    }
+
+    fn buf_init(self) -> &'static str {
+        match self {
+            LobKind::Text => "String::new()",
+            LobKind::Blob | LobKind::BFile => "Vec::new()",
+        }
+    }
+
+    fn unit(self) -> &'static str {
+        match self {
+            LobKind::Text => "characters",
+            LobKind::Blob | LobKind::BFile => "bytes",
+        }
+    }
+
+    /// BFILE locators must be opened with `open_file()` before they can be read;
+    /// CLOB/NCLOB/BLOB locators don't need this.
+    fn needs_open(self) -> bool {
+        matches!(self, LobKind::BFile)
     }
 }
 
@@ -805,12 +904,179 @@ mod tests {
             "CLOB column must be fetched as a LOB locator, not a String; got:\n{query_fn}"
         );
         assert!(
-            query_fn.contains(".read(0, len, &mut buf).await?"),
+            query_fn.contains("lob.read(read, len - read, &mut buf).await?"),
             "CLOB content must be read explicitly via LOB::read; got:\n{query_fn}"
         );
         assert!(
             !query_fn.contains("let notes: Option<String> = row.get(1)?;"),
             "CLOB column must not be read via the plain String path; got:\n{query_fn}"
+        );
+    }
+
+    /// Regression test: a discarded `LOB::read` return count risks silent truncation for
+    /// large LOBs (sibyl's own doc example shows `read()` can return fewer chars/bytes than
+    /// requested). Generated code must loop until the full reported length has been read,
+    /// and must error out — not spin forever — if a read call makes zero progress.
+    #[test]
+    fn test_clob_read_loops_until_full_length_consumed() {
+        let backend = RustSibylBackend::new("oracle").unwrap();
+        let query = AnalyzedQuery {
+            name: "GetOrdersByUser".to_string(),
+            command: QueryCommand::Many,
+            sql: "SELECT notes FROM orders".to_string(),
+            columns: vec![AnalyzedColumn {
+                name: "notes".to_string(),
+                sql_type: "clob".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let result = generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("let mut notes_read = 0usize;"),
+            "must track accumulated read progress; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("while notes_read < notes_len {"),
+            "must loop until the full LOB length is consumed; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("let notes_n = notes_lob.read(notes_read, notes_len - notes_read, &mut notes).await?;"),
+            "each iteration must request only the remaining amount from the new offset; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("if notes_n == 0 {") && query_fn.contains("return Err(sibyl::Error::Interface("),
+            "a zero-progress read must be treated as a hard error, not silently accepted or looped forever; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("notes_read += notes_n;"),
+            "progress must accumulate across iterations; got:\n{query_fn}"
+        );
+    }
+
+    /// BLOB columns must take the same LOB-locator path as CLOB (the doc comment on
+    /// `emit_row_get` has long promised this), but must decode into `Vec<u8>` — BLOB is
+    /// binary data, not text, and forcing it through `String` would corrupt non-UTF8 bytes.
+    #[test]
+    fn test_blob_column_reads_via_lob_locator_as_bytes() {
+        let backend = RustSibylBackend::new("oracle").unwrap();
+        let query = AnalyzedQuery {
+            name: "GetAttachment".to_string(),
+            command: QueryCommand::Opt,
+            sql: "SELECT payload FROM attachments".to_string(),
+            columns: vec![AnalyzedColumn {
+                name: "payload".to_string(),
+                sql_type: "blob".to_string(),
+                neutral_type: "bytes".to_string(),
+                nullable: false,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let result = generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("let payload_lob: BLOB<'_> = row.get(0)?;"),
+            "BLOB column must be fetched as a LOB locator; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("let mut payload: Vec<u8> = Vec::new();"),
+            "BLOB content must decode into Vec<u8>, not String; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("payload_lob.read(payload_read, payload_len - payload_read, &mut payload).await?"),
+            "BLOB content must be read explicitly, looping until fully consumed; got:\n{query_fn}"
+        );
+        assert!(
+            row_struct.contains("pub payload: Vec<u8>,"),
+            "row struct field must be Vec<u8> for a BLOB column; got:\n{row_struct}"
+        );
+    }
+
+    /// NCLOB shares sibyl's `CLOB<'_>` locator type (distinguished internally by charset
+    /// form), so it must take the same text LOB path as CLOB — not the broken String path.
+    #[test]
+    fn test_nclob_column_reads_via_lob_locator() {
+        let backend = RustSibylBackend::new("oracle").unwrap();
+        let query = AnalyzedQuery {
+            name: "GetDoc".to_string(),
+            command: QueryCommand::Opt,
+            sql: "SELECT body FROM docs".to_string(),
+            columns: vec![AnalyzedColumn {
+                name: "body".to_string(),
+                sql_type: "nclob".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: true,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let result = generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("row.get::<Option<CLOB<'_>>, _>(0)?"),
+            "NCLOB column must be fetched via the CLOB locator type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Some(buf)"),
+            "NCLOB column must produce Option<String> content; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("let body: Option<String> = row.get(0)?;"),
+            "NCLOB column must not be read via the plain String path; got:\n{query_fn}"
+        );
+    }
+
+    /// BFILE locators must be opened with `open_file()` before they can be read (sibyl
+    /// requires this — a fresh BFILE locator is not implicitly open), and read as bytes via
+    /// the `BFile<'_>` locator type, not the plain String path.
+    #[test]
+    fn test_bfile_column_opens_before_reading_as_bytes() {
+        let backend = RustSibylBackend::new("oracle").unwrap();
+        let query = AnalyzedQuery {
+            name: "GetExternalDoc".to_string(),
+            command: QueryCommand::Opt,
+            sql: "SELECT contents FROM external_docs".to_string(),
+            columns: vec![AnalyzedColumn {
+                name: "contents".to_string(),
+                sql_type: "bfile".to_string(),
+                neutral_type: "bytes".to_string(),
+                nullable: false,
+                ..Default::default()
+            }],
+            ..Default::default()
+        };
+
+        let result = generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("let contents_lob: BFile<'_> = row.get(0)?;"),
+            "BFILE column must be fetched as a BFile locator; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("contents_lob.open_file().await?;"),
+            "BFILE locator must be opened before reading; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("let mut contents: Vec<u8> = Vec::new();"),
+            "BFILE content must decode into Vec<u8>; got:\n{query_fn}"
+        );
+        let open_pos = query_fn.find("open_file().await?").unwrap();
+        let read_pos = query_fn.find("contents_lob.read(").unwrap();
+        assert!(
+            open_pos < read_pos,
+            "open_file() must happen before read(); got:\n{query_fn}"
         );
     }
 

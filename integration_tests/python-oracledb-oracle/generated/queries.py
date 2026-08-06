@@ -10,17 +10,83 @@ import oracledb  # noqa: F401
 
 
 @dataclass(frozen=True, slots=True)
+class CreateAttachmentRow:
+    """Row type for CreateAttachment query."""
+
+    id: int
+    order_id: int
+    filename: str
+
+
+async def create_attachment(conn: oracledb.AsyncConnection, *, order_id: int, filename: str, payload: bytes, description: str | None) -> CreateAttachmentRow | None:
+    """Execute CreateAttachment query."""
+    async with conn.cursor() as cur:
+        out_id = cur.var(oracledb.NUMBER)
+        out_order_id = cur.var(oracledb.NUMBER)
+        out_filename = cur.var(oracledb.STRING, 4000)
+        await cur.execute("""INSERT INTO attachments (order_id, filename, payload, description) VALUES (:1, :2, :3, :4) RETURNING id, order_id, filename INTO :5, :6, :7""", [order_id, filename, payload, description, out_id, out_order_id, out_filename])
+        return CreateAttachmentRow(id=out_id.getvalue()[0], order_id=out_order_id.getvalue()[0], filename=out_filename.getvalue()[0])
+
+
+@dataclass(frozen=True, slots=True)
+class GetAttachmentsByOrderRow:
+    """Row type for GetAttachmentsByOrder query."""
+
+    id: int
+    order_id: int
+    filename: str
+    payload: bytes
+    description: str | None
+
+
+async def get_attachments_by_order(conn: oracledb.AsyncConnection, *, order_id: int) -> list[GetAttachmentsByOrderRow]:
+    """Execute GetAttachmentsByOrder query."""
+    async with conn.cursor() as cur:
+        await cur.execute("""SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = :1 ORDER BY id""", [order_id])
+        rows = await cur.fetchall()
+        return [GetAttachmentsByOrderRow(id=r[0], order_id=r[1], filename=r[2], payload=r[3], description=r[4]) for r in rows]
+
+
+@dataclass(frozen=True, slots=True)
+class GetAttachmentByIdRow:
+    """Row type for GetAttachmentById query."""
+
+    id: int
+    order_id: int
+    filename: str
+    payload: bytes
+    description: str | None
+
+
+async def get_attachment_by_id(conn: oracledb.AsyncConnection, *, id: int) -> GetAttachmentByIdRow | None:
+    """Execute GetAttachmentById query."""
+    async with conn.cursor() as cur:
+        await cur.execute("""SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :1""", [id])
+        row = await cur.fetchone()
+        if row is None:
+            return None
+        return GetAttachmentByIdRow(id=row[0], order_id=row[1], filename=row[2], payload=row[3], description=row[4])
+
+
+async def delete_attachments_by_order(conn: oracledb.AsyncConnection, *, order_id: int) -> int:
+    """Execute DeleteAttachmentsByOrder query."""
+    async with conn.cursor() as cur:
+        await cur.execute("""DELETE FROM attachments WHERE order_id = :1""", [order_id])
+        return cur.rowcount
+
+
+@dataclass(frozen=True, slots=True)
 class CreateOrderRow:
     """Row type for CreateOrder query."""
 
     id: int
     user_id: int
-    total: int
+    total: decimal.Decimal
     notes: str | None
     created_at: datetime.datetime
 
 
-async def create_order(conn: oracledb.AsyncConnection, *, user_id: int, total: int, notes: str | None) -> CreateOrderRow | None:
+async def create_order(conn: oracledb.AsyncConnection, *, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow | None:
     """Execute CreateOrder query."""
     async with conn.cursor() as cur:
         out_id = cur.var(oracledb.NUMBER)
@@ -37,7 +103,7 @@ class GetOrdersByUserRow:
     """Row type for GetOrdersByUser query."""
 
     id: int
-    total: int
+    total: decimal.Decimal
     notes: str | None
     created_at: datetime.datetime
 
@@ -54,7 +120,7 @@ async def get_orders_by_user(conn: oracledb.AsyncConnection, *, user_id: int) ->
 class GetOrderTotalRow:
     """Row type for GetOrderTotal query."""
 
-    total_sum: int | None
+    total_sum: decimal.Decimal | None
 
 
 async def get_order_total(conn: oracledb.AsyncConnection, *, user_id: int) -> GetOrderTotalRow | None:
@@ -162,3 +228,4 @@ async def search_users(conn: oracledb.AsyncConnection, *, name: str) -> list[Sea
         await cur.execute("""SELECT id, name, email FROM users WHERE name LIKE :1""", [name])
         rows = await cur.fetchall()
         return [SearchUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
+

@@ -2,8 +2,8 @@
 mod queries;
 
 use queries::{
-    CreateOrderRow, CreateUserRow,
-    GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
+    CreateAttachmentRow, CreateOrderRow, CreateUserRow,
+    GetAttachmentByIdRow, GetAttachmentsByOrderRow, GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
 };
 use sibyl::Environment;
 use std::str::FromStr;
@@ -43,12 +43,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Clean slate: drop tables and sequences, ignore errors, then recreate
-    for table in &["user_tags", "tags", "orders", "users"] {
+    for table in &["attachments", "user_tags", "tags", "orders", "users"] {
         if let Ok(stmt) = session.prepare(&format!("DROP TABLE {}", table)).await {
             let _ = stmt.execute(()).await;
         }
     }
-    for seq in &["tags_seq", "orders_seq", "users_seq"] {
+    for seq in &["attachments_seq", "tags_seq", "orders_seq", "users_seq"] {
         if let Ok(stmt) = session.prepare(&format!("DROP SEQUENCE {}", seq)).await {
             let _ = stmt.execute(()).await;
         }
@@ -111,10 +111,55 @@ let order_total: f64 = 9999.0;
 let orders = queries::get_orders_by_user(&session, user_id).await?;
     assert_test!(orders.len() == 1, "GetOrdersByUser");
     assert_test!(orders[0].total == order_total, "GetOrdersByUser");
+    // Round-trips the CLOB `notes` column through the LOB-locator read path
+    // (regression coverage for the fixed row.get::<String> CLOB defect).
+    assert_test!(
+        orders[0].notes.as_deref() == Some("first order"),
+        "GetOrdersByUser"
+    );
     pass!("GetOrdersByUser");
 
-    // Test: DeleteUser (delete orders first due to FK)
-queries::delete_orders_by_user(&session, user_id).await?;
+    // Test: CreateAttachment / GetAttachmentsByOrder / GetAttachmentById.
+    // `payload` is BLOB (binary, non-UTF8-safe bytes) and `description` is
+    // NCLOB (multi-byte text); both must round-trip through the LOB-locator
+    // read loop, not the broken `row.get::<String>`/`row.get::<Vec<u8>>` path.
+    let payload: Vec<u8> = (0u16..8000).map(|i| (i % 256) as u8).collect();
+    let description = "attachment notes: caf\u{e9}, \u{1f600}, \u{4e2d}\u{6587}".repeat(50);
+    let attachment = queries::create_attachment(
+        &session,
+        order.id,
+        "report.bin",
+        &payload,
+        Some(description.as_str()),
+    )
+    .await?
+    .expect("create_attachment returned None");
+    assert_test!(attachment.order_id == order.id, "CreateAttachment");
+    assert_test!(attachment.filename == "report.bin", "CreateAttachment");
+    pass!("CreateAttachment");
+
+    let attachments = queries::get_attachments_by_order(&session, order.id).await?;
+    assert_test!(attachments.len() == 1, "GetAttachmentsByOrder");
+    assert_test!(attachments[0].payload == payload, "GetAttachmentsByOrder");
+    assert_test!(
+        attachments[0].description.as_deref() == Some(description.as_str()),
+        "GetAttachmentsByOrder"
+    );
+    pass!("GetAttachmentsByOrder");
+
+    let fetched_attachment = queries::get_attachment_by_id(&session, attachment.id)
+        .await?
+        .expect("get_attachment_by_id returned None");
+    assert_test!(fetched_attachment.payload == payload, "GetAttachmentById");
+    assert_test!(
+        fetched_attachment.description.as_deref() == Some(description.as_str()),
+        "GetAttachmentById"
+    );
+    pass!("GetAttachmentById");
+
+    // Test: DeleteUser (delete attachments, then orders, due to FK)
+queries::delete_attachments_by_order(&session, order.id).await?;
+    queries::delete_orders_by_user(&session, user_id).await?;
     queries::delete_user(&session, user_id).await?;
     // Verify user is gone
     let deleted = queries::get_user_by_id(&session, user_id).await?;

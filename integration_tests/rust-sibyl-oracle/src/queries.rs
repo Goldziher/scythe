@@ -2,6 +2,186 @@
 use sibyl::*;
 
 #[derive(Debug, Clone)]
+pub struct CreateAttachmentRow {
+    pub id: i64,
+    pub order_id: i64,
+    pub filename: String,
+}
+
+pub async fn create_attachment<'a>(
+    session: &'a Session<'a>,
+    order_id: i64,
+    filename: &str,
+    payload: &[u8],
+    description: Option<&str>,
+) -> sibyl::Result<Option<CreateAttachmentRow>> {
+    let stmt = session.prepare("INSERT INTO attachments (order_id, filename, payload, description) VALUES (:ORDER_ID, :FILENAME, :PAYLOAD, :DESCRIPTION) RETURNING id, order_id, filename INTO :OUT_ID, :OUT_ORDER_ID, :OUT_FILENAME").await?;
+    let mut out_id: i64 = 0;
+    let mut out_order_id: i64 = 0;
+    let mut out_filename = String::with_capacity(4000);
+    stmt.execute((
+        (":ORDER_ID", order_id),
+        (":FILENAME", filename),
+        (":PAYLOAD", payload),
+        (":DESCRIPTION", description),
+        (":OUT_ID", &mut out_id),
+        (":OUT_ORDER_ID", &mut out_order_id),
+        (":OUT_FILENAME", &mut out_filename),
+    ))
+    .await?;
+    let id = out_id;
+    let order_id = out_order_id;
+    let filename = out_filename;
+    Ok(Some(CreateAttachmentRow {
+        id: id,
+        order_id: order_id,
+        filename: filename,
+    }))
+}
+
+#[derive(Debug, Clone)]
+pub struct GetAttachmentsByOrderRow {
+    pub id: i64,
+    pub order_id: i64,
+    pub filename: String,
+    pub payload: Vec<u8>,
+    pub description: Option<String>,
+}
+
+pub async fn get_attachments_by_order<'a>(
+    session: &'a Session<'a>,
+    order_id: i64,
+) -> sibyl::Result<Vec<GetAttachmentsByOrderRow>> {
+    let stmt = session.prepare("SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = :ORDER_ID ORDER BY id").await?;
+    let rows = stmt.query((":ORDER_ID", order_id)).await?;
+    let mut results = Vec::new();
+    while let Some(row) = rows.next().await? {
+        let id: i64 = row.get(0)?;
+        let order_id: i64 = row.get(1)?;
+        let filename: String = row.get(2)?;
+        let payload_lob: BLOB<'_> = row.get(3)?;
+        let payload_len = payload_lob.len().await?;
+        let mut payload: Vec<u8> = Vec::new();
+        let mut payload_read = 0usize;
+        while payload_read < payload_len {
+            let payload_n = payload_lob
+                .read(payload_read, payload_len - payload_read, &mut payload)
+                .await?;
+            if payload_n == 0 {
+                return Err(sibyl::Error::Interface(format!(
+                    "incomplete LOB read for column 'payload': expected {} bytes, got {}",
+                    payload_len, payload_read
+                )));
+            }
+            payload_read += payload_n;
+        }
+        let description: Option<String> = match row.get::<Option<CLOB<'_>>, _>(4)? {
+            Some(lob) => {
+                let len = lob.len().await?;
+                let mut buf = String::new();
+                let mut read = 0usize;
+                while read < len {
+                    let n = lob.read(read, len - read, &mut buf).await?;
+                    if n == 0 {
+                        return Err(sibyl::Error::Interface(format!(
+                            "incomplete LOB read for column 'description': expected {} characters, got {}",
+                            len, read
+                        )));
+                    }
+                    read += n;
+                }
+                Some(buf)
+            }
+            None => None,
+        };
+        results.push(GetAttachmentsByOrderRow {
+            id: id,
+            order_id: order_id,
+            filename: filename,
+            payload: payload,
+            description: description,
+        });
+    }
+    Ok(results)
+}
+
+#[derive(Debug, Clone)]
+pub struct GetAttachmentByIdRow {
+    pub id: i64,
+    pub order_id: i64,
+    pub filename: String,
+    pub payload: Vec<u8>,
+    pub description: Option<String>,
+}
+
+pub async fn get_attachment_by_id<'a>(
+    session: &'a Session<'a>,
+    id: i64,
+) -> sibyl::Result<Option<GetAttachmentByIdRow>> {
+    let stmt = session
+        .prepare("SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :ID")
+        .await?;
+    let rows = stmt.query((":ID", id)).await?;
+    if let Some(row) = rows.next().await? {
+        let id: i64 = row.get(0)?;
+        let order_id: i64 = row.get(1)?;
+        let filename: String = row.get(2)?;
+        let payload_lob: BLOB<'_> = row.get(3)?;
+        let payload_len = payload_lob.len().await?;
+        let mut payload: Vec<u8> = Vec::new();
+        let mut payload_read = 0usize;
+        while payload_read < payload_len {
+            let payload_n = payload_lob
+                .read(payload_read, payload_len - payload_read, &mut payload)
+                .await?;
+            if payload_n == 0 {
+                return Err(sibyl::Error::Interface(format!(
+                    "incomplete LOB read for column 'payload': expected {} bytes, got {}",
+                    payload_len, payload_read
+                )));
+            }
+            payload_read += payload_n;
+        }
+        let description: Option<String> = match row.get::<Option<CLOB<'_>>, _>(4)? {
+            Some(lob) => {
+                let len = lob.len().await?;
+                let mut buf = String::new();
+                let mut read = 0usize;
+                while read < len {
+                    let n = lob.read(read, len - read, &mut buf).await?;
+                    if n == 0 {
+                        return Err(sibyl::Error::Interface(format!(
+                            "incomplete LOB read for column 'description': expected {} characters, got {}",
+                            len, read
+                        )));
+                    }
+                    read += n;
+                }
+                Some(buf)
+            }
+            None => None,
+        };
+        Ok(Some(GetAttachmentByIdRow {
+            id: id,
+            order_id: order_id,
+            filename: filename,
+            payload: payload,
+            description: description,
+        }))
+    } else {
+        Ok(None)
+    }
+}
+
+pub async fn delete_attachments_by_order<'a>(session: &'a Session<'a>, order_id: i64) -> sibyl::Result<usize> {
+    let stmt = session
+        .prepare("DELETE FROM attachments WHERE order_id = :ORDER_ID")
+        .await?;
+    let num_rows = stmt.execute((":ORDER_ID", order_id)).await?;
+    Ok(num_rows)
+}
+
+#[derive(Debug, Clone)]
 pub struct CreateOrderRow {
     pub id: i64,
     pub user_id: i64,
@@ -77,7 +257,17 @@ pub async fn get_orders_by_user<'a>(session: &'a Session<'a>, user_id: i64) -> s
             Some(lob) => {
                 let len = lob.len().await?;
                 let mut buf = String::new();
-                lob.read(0, len, &mut buf).await?;
+                let mut read = 0usize;
+                while read < len {
+                    let n = lob.read(read, len - read, &mut buf).await?;
+                    if n == 0 {
+                        return Err(sibyl::Error::Interface(format!(
+                            "incomplete LOB read for column 'notes': expected {} characters, got {}",
+                            len, read
+                        )));
+                    }
+                    read += n;
+                }
                 Some(buf)
             }
             None => None,

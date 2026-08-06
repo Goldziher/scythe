@@ -6,6 +6,49 @@ require 'oci8'
 
 module Queries
 
+  CreateAttachmentRow = Data.define(:id, :order_id, :filename)
+
+
+  def self.create_attachment(conn, order_id, filename, payload, description)
+    cursor = conn.parse("INSERT INTO attachments (order_id, filename, payload, description) VALUES (:1, :2, :3, :4) RETURNING id, order_id, filename INTO :5, :6, :7")
+    cursor.bind_param(1, order_id)
+    cursor.bind_param(2, filename)
+    cursor.bind_param(3, payload)
+    cursor.bind_param(4, description)
+    cursor.bind_param(5, nil, Integer)
+    cursor.bind_param(6, nil, Integer)
+    cursor.bind_param(7, nil, String)
+    cursor.exec
+    CreateAttachmentRow.new(id: cursor[5], order_id: cursor[6], filename: cursor[7])
+  end
+
+  GetAttachmentsByOrderRow = Data.define(:id, :order_id, :filename, :payload, :description)
+
+
+  def self.get_attachments_by_order(conn, order_id)
+    cursor = conn.exec("SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = :1 ORDER BY id", order_id)
+    results = []
+    while (row = cursor.fetch)
+      results << GetAttachmentsByOrderRow.new(id: row[0], order_id: row[1], filename: row[2], payload: row[3], description: row[4])
+    end
+    results
+  end
+
+  GetAttachmentByIdRow = Data.define(:id, :order_id, :filename, :payload, :description)
+
+
+  def self.get_attachment_by_id(conn, id)
+    cursor = conn.exec("SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :1", id)
+    row = cursor.fetch
+    return nil if row.nil?
+    GetAttachmentByIdRow.new(id: row[0], order_id: row[1], filename: row[2], payload: row[3], description: row[4])
+  end
+
+  def self.delete_attachments_by_order(conn, order_id)
+    cursor = conn.exec("DELETE FROM attachments WHERE order_id = :1", order_id)
+    cursor.row_count
+  end
+
   CreateOrderRow = Data.define(:id, :user_id, :total, :notes, :created_at)
 
 
@@ -16,7 +59,7 @@ module Queries
     cursor.bind_param(3, notes)
     cursor.bind_param(4, nil, Integer)
     cursor.bind_param(5, nil, Integer)
-    cursor.bind_param(6, nil, Integer)
+    cursor.bind_param(6, nil, Float)
     cursor.bind_param(7, nil, String)
     cursor.bind_param(8, nil, Time)
     cursor.exec

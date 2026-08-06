@@ -7,13 +7,125 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.OffsetTime
-import java.util.UUID
+
+
+data class CreateAttachmentRow(
+    val id: Long,
+    val order_id: Long,
+    val filename: String,
+)
+
+
+fun createAttachment(
+    conn: Connection,
+    order_id: Long,
+    filename: String,
+    payload: ByteArray,
+    description: String?,
+): CreateAttachmentRow? {
+    conn.prepareCall("BEGIN INSERT INTO attachments (order_id, filename, payload, description) VALUES (?, ?, ?, ?) RETURNING id, order_id, filename INTO ?, ?, ?; END;").use { cs ->
+        cs.setLong(1, order_id)
+        cs.setString(2, filename)
+        cs.setBytes(3, payload)
+        cs.setString(4, description)
+        cs.registerOutParameter(5, java.sql.Types.NUMERIC)
+        cs.registerOutParameter(6, java.sql.Types.NUMERIC)
+        cs.registerOutParameter(7, java.sql.Types.VARCHAR)
+        cs.execute()
+        return CreateAttachmentRow(
+            id = cs.getLong(5),
+            order_id = cs.getLong(6),
+            filename = cs.getString(7),
+        )
+    }
+}
+
+
+data class GetAttachmentsByOrderRow(
+    val id: Long,
+    val order_id: Long,
+    val filename: String,
+    val payload: ByteArray,
+    val description: String?,
+)
+
+
+fun getAttachmentsByOrder(
+    conn: Connection,
+    order_id: Long,
+): List<GetAttachmentsByOrderRow> {
+    conn.prepareStatement("SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = ? ORDER BY id").use { ps ->
+        ps.setLong(1, order_id)
+        ps.executeQuery().use { rs ->
+            val result = mutableListOf<GetAttachmentsByOrderRow>()
+            while (rs.next()) {
+                val descriptionValue = rs.getString("description")
+                val description = if (rs.wasNull()) null else descriptionValue
+                result.add(
+                    GetAttachmentsByOrderRow(
+                        id = rs.getLong("id"),
+                        order_id = rs.getLong("order_id"),
+                        filename = rs.getString("filename"),
+                        payload = rs.getBytes("payload"),
+                        description = description,
+                    ),
+                )
+            }
+            return result
+        }
+    }
+}
+
+
+data class GetAttachmentByIdRow(
+    val id: Long,
+    val order_id: Long,
+    val filename: String,
+    val payload: ByteArray,
+    val description: String?,
+)
+
+
+fun getAttachmentById(
+    conn: Connection,
+    id: Long,
+): GetAttachmentByIdRow? {
+    conn.prepareStatement("SELECT id, order_id, filename, payload, description FROM attachments WHERE id = ?").use { ps ->
+        ps.setLong(1, id)
+        ps.executeQuery().use { rs ->
+            return if (rs.next()) {
+                val descriptionValue = rs.getString("description")
+                val description = if (rs.wasNull()) null else descriptionValue
+                GetAttachmentByIdRow(
+                    id = rs.getLong("id"),
+                    order_id = rs.getLong("order_id"),
+                    filename = rs.getString("filename"),
+                    payload = rs.getBytes("payload"),
+                    description = description,
+                )
+            } else {
+                null
+            }
+        }
+    }
+}
+
+
+fun deleteAttachmentsByOrder(
+    conn: Connection,
+    order_id: Long,
+): Int {
+    return conn.prepareStatement("DELETE FROM attachments WHERE order_id = ?").use { ps ->
+        ps.setLong(1, order_id)
+        ps.executeUpdate()
+    }
+}
 
 
 data class CreateOrderRow(
     val id: Long,
     val user_id: Long,
-    val total: Long,
+    val total: java.math.BigDecimal,
     val notes: String?,
     val created_at: java.time.LocalDateTime,
 )
@@ -22,12 +134,12 @@ data class CreateOrderRow(
 fun createOrder(
     conn: Connection,
     user_id: Long,
-    total: Long,
+    total: java.math.BigDecimal,
     notes: String?,
 ): CreateOrderRow? {
     conn.prepareCall("BEGIN INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at INTO ?, ?, ?, ?, ?; END;").use { cs ->
         cs.setLong(1, user_id)
-        cs.setLong(2, total)
+        cs.setBigDecimal(2, total)
         cs.setString(3, notes)
         cs.registerOutParameter(4, java.sql.Types.NUMERIC)
         cs.registerOutParameter(5, java.sql.Types.NUMERIC)
@@ -38,7 +150,7 @@ fun createOrder(
         return CreateOrderRow(
             id = cs.getLong(4),
             user_id = cs.getLong(5),
-            total = cs.getLong(6),
+            total = cs.getBigDecimal(6),
             notes = cs.getString(7),
             created_at = cs.getObject(8, LocalDateTime::class.java),
         )
@@ -48,7 +160,7 @@ fun createOrder(
 
 data class GetOrdersByUserRow(
     val id: Long,
-    val total: Long,
+    val total: java.math.BigDecimal,
     val notes: String?,
     val created_at: java.time.LocalDateTime,
 )
@@ -68,7 +180,7 @@ fun getOrdersByUser(
                 result.add(
                     GetOrdersByUserRow(
                         id = rs.getLong("id"),
-                        total = rs.getLong("total"),
+                        total = rs.getBigDecimal("total"),
                         notes = notes,
                         created_at = rs.getObject("created_at", LocalDateTime::class.java),
                     ),
@@ -81,7 +193,7 @@ fun getOrdersByUser(
 
 
 data class GetOrderTotalRow(
-    val total_sum: Long?,
+    val total_sum: java.math.BigDecimal?,
 )
 
 
@@ -93,7 +205,7 @@ fun getOrderTotal(
         ps.setLong(1, user_id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
-                val total_sumValue = rs.getLong("total_sum")
+                val total_sumValue = rs.getBigDecimal("total_sum")
                 val total_sum = if (rs.wasNull()) null else total_sumValue
                 GetOrderTotalRow(
                     total_sum = total_sum,
@@ -269,3 +381,4 @@ fun searchUsers(
         }
     }
 }
+

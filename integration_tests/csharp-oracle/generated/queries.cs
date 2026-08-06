@@ -5,29 +5,105 @@ using Oracle.ManagedDataAccess.Client;
 
 public static class Queries {
 
+public record CreateAttachmentRow(
+    long Id,
+    long OrderId,
+    string Filename
+);
+
+public static async Task<CreateAttachmentRow?> CreateAttachment(OracleConnection conn, long order_id, string filename, byte[] payload, string? description) {
+    using var cmd = new OracleCommand("INSERT INTO attachments (order_id, filename, payload, description) VALUES (:1, :2, :3, :4) RETURNING id, order_id, filename INTO :out0, :out1, :out2", conn);
+    cmd.Parameters.Add(new OracleParameter { Value = (object)order_id ?? DBNull.Value });
+    cmd.Parameters.Add(new OracleParameter { Value = (object)filename ?? DBNull.Value });
+    cmd.Parameters.Add(new OracleParameter { Value = (object)payload ?? DBNull.Value });
+    cmd.Parameters.Add(new OracleParameter { Value = (object)description ?? DBNull.Value });
+    cmd.Parameters.Add(new OracleParameter { ParameterName = "out0", OracleDbType = OracleDbType.Int64, Direction = System.Data.ParameterDirection.Output });
+    cmd.Parameters.Add(new OracleParameter { ParameterName = "out1", OracleDbType = OracleDbType.Int64, Direction = System.Data.ParameterDirection.Output });
+    cmd.Parameters.Add(new OracleParameter { ParameterName = "out2", OracleDbType = OracleDbType.Varchar2, Size = 4000, Direction = System.Data.ParameterDirection.Output });
+    await cmd.ExecuteNonQueryAsync();
+    return new CreateAttachmentRow(
+        ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out0"].Value).ToInt64(),
+        ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out1"].Value).ToInt64(),
+        ((Oracle.ManagedDataAccess.Types.OracleString)cmd.Parameters["out2"].Value).Value
+    );
+}
+
+public record GetAttachmentsByOrderRow(
+    long Id,
+    long OrderId,
+    string Filename,
+    byte[] Payload,
+    string? Description
+);
+
+public static async Task<List<GetAttachmentsByOrderRow>> GetAttachmentsByOrder(OracleConnection conn, long order_id) {
+    using var cmd = new OracleCommand("SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = :1 ORDER BY id", conn);
+    cmd.Parameters.Add(new OracleParameter { Value = (object)order_id ?? DBNull.Value });
+    using var reader = await cmd.ExecuteReaderAsync();
+    var results = new List<GetAttachmentsByOrderRow>();
+    while (await reader.ReadAsync()) {
+        results.Add(new GetAttachmentsByOrderRow(
+            reader.GetInt64(0),
+            reader.GetInt64(1),
+            reader.GetString(2),
+            reader.GetValue(3),
+            reader.IsDBNull(4) ? null : reader.GetString(4)
+        ));
+    }
+    return results;
+}
+
+public record GetAttachmentByIdRow(
+    long Id,
+    long OrderId,
+    string Filename,
+    byte[] Payload,
+    string? Description
+);
+
+public static async Task<GetAttachmentByIdRow?> GetAttachmentById(OracleConnection conn, long id) {
+    using var cmd = new OracleCommand("SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :1", conn);
+    cmd.Parameters.Add(new OracleParameter { Value = (object)id ?? DBNull.Value });
+    using var reader = await cmd.ExecuteReaderAsync();
+    if (!await reader.ReadAsync()) return null;
+    return new GetAttachmentByIdRow(
+        reader.GetInt64(0),
+        reader.GetInt64(1),
+        reader.GetString(2),
+        reader.GetValue(3),
+        reader.IsDBNull(4) ? null : reader.GetString(4)
+    );
+}
+
+public static async Task<int> DeleteAttachmentsByOrder(OracleConnection conn, long order_id) {
+    using var cmd = new OracleCommand("DELETE FROM attachments WHERE order_id = :1", conn);
+    cmd.Parameters.Add(new OracleParameter { Value = (object)order_id ?? DBNull.Value });
+    return await cmd.ExecuteNonQueryAsync();
+}
+
 public record CreateOrderRow(
     long Id,
     long UserId,
-    long Total,
+    decimal Total,
     string? Notes,
     DateTime CreatedAt
 );
 
-public static async Task<CreateOrderRow?> CreateOrder(OracleConnection conn, long user_id, long total, string? notes) {
+public static async Task<CreateOrderRow?> CreateOrder(OracleConnection conn, long user_id, decimal total, string? notes) {
     using var cmd = new OracleCommand("INSERT INTO orders (user_id, total, notes) VALUES (:1, :2, :3) RETURNING id, user_id, total, notes, created_at INTO :out0, :out1, :out2, :out3, :out4", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)user_id ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)total ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)notes ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out0", OracleDbType = OracleDbType.Int64, Direction = System.Data.ParameterDirection.Output });
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out1", OracleDbType = OracleDbType.Int64, Direction = System.Data.ParameterDirection.Output });
-    cmd.Parameters.Add(new OracleParameter { ParameterName = "out2", OracleDbType = OracleDbType.Int64, Direction = System.Data.ParameterDirection.Output });
+    cmd.Parameters.Add(new OracleParameter { ParameterName = "out2", OracleDbType = OracleDbType.Decimal, Direction = System.Data.ParameterDirection.Output });
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out3", OracleDbType = OracleDbType.Varchar2, Size = 4000, Direction = System.Data.ParameterDirection.Output });
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out4", OracleDbType = OracleDbType.Date, Direction = System.Data.ParameterDirection.Output });
     await cmd.ExecuteNonQueryAsync();
     return new CreateOrderRow(
         ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out0"].Value).ToInt64(),
         ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out1"].Value).ToInt64(),
-        ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out2"].Value).ToInt64(),
+        ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out2"].Value).ToDecimal(),
         ((Oracle.ManagedDataAccess.Types.OracleString)cmd.Parameters["out3"].Value).Value,
         ((Oracle.ManagedDataAccess.Types.OracleDate)cmd.Parameters["out4"].Value).Value
     );
@@ -35,7 +111,7 @@ public static async Task<CreateOrderRow?> CreateOrder(OracleConnection conn, lon
 
 public record GetOrdersByUserRow(
     long Id,
-    long Total,
+    decimal Total,
     string? Notes,
     DateTime CreatedAt
 );
@@ -48,7 +124,7 @@ public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(OracleConnect
     while (await reader.ReadAsync()) {
         results.Add(new GetOrdersByUserRow(
             reader.GetInt64(0),
-            reader.GetInt64(1),
+            reader.GetDecimal(1),
             reader.IsDBNull(2) ? null : reader.GetString(2),
             reader.GetDateTime(3)
         ));
@@ -57,7 +133,7 @@ public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(OracleConnect
 }
 
 public record GetOrderTotalRow(
-    long? TotalSum
+    decimal? TotalSum
 );
 
 public static async Task<GetOrderTotalRow?> GetOrderTotal(OracleConnection conn, long user_id) {
@@ -66,7 +142,7 @@ public static async Task<GetOrderTotalRow?> GetOrderTotal(OracleConnection conn,
     using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
     return new GetOrderTotalRow(
-        reader.IsDBNull(0) ? null : reader.GetInt64(0)
+        reader.IsDBNull(0) ? null : reader.GetDecimal(0)
     );
 }
 
