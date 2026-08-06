@@ -66,6 +66,7 @@ tasks:
           - typescript-postgres
           - typescript-pg
           - typescript-pg-zod
+          - typescript-kysely
           - java-jdbc
           - kotlin-jdbc
           - csharp-npgsql
@@ -183,6 +184,13 @@ tasks:
   test:typescript-pg-zod:
     desc: Run typescript-pg-zod integration test
     dir: typescript-pg-zod
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsx test.ts
+
+  test:typescript-kysely:
+    desc: Run typescript-kysely integration test
+    dir: typescript-kysely
     cmds:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
       - pnpm exec tsx test.ts
@@ -535,6 +543,7 @@ tasks:
       - task: test:typescript-postgres
       - task: test:typescript-pg
       - task: test:typescript-pg-zod
+      - task: test:typescript-kysely
       - task: test:java-jdbc
       - task: test:kotlin-jdbc
       - task: test:csharp-npgsql

@@ -1,5 +1,14 @@
-[scythe] version = "1" [[sql]] name = "main" engine = "{{ engine }}" schema = ["{{ schema_dir }}/schema.sql"] queries =
-["{{ queries_dir }}/*.sql"] [[sql.gen]] backend = "{{ backend }}"
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "{{ engine }}"
+schema = ["{{ schema_dir }}/schema.sql"]
+queries = ["{{ queries_dir }}/*.sql"]
+
+[[sql.gen]]
+backend = "{{ backend }}"
 {%- if language == "java" %}
   output = "src/main/java/generated"
 {%- elif language == "kotlin" %}

@@ -271,6 +271,15 @@ fn build_backends() -> Vec<BackendConfig> {
             options: HashMap::from([("row_type".into(), "zod".into())]),
         },
         BackendConfig {
+            name: "typescript-kysely".into(),
+            language: "typescript".into(),
+            engine: "postgresql".into(),
+            driver: "kysely-pg".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "typescript-kysely".into(),
+            options: HashMap::new(),
+        },
+        BackendConfig {
             name: "typescript-mysql2".into(),
             language: "typescript".into(),
             engine: "mysql".into(),

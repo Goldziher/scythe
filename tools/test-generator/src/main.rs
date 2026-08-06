@@ -187,6 +187,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("        \"python-asyncpg\",\n");
     out.push_str("        \"typescript-postgres\",\n");
     out.push_str("        \"typescript-pg\",\n");
+    out.push_str("        \"typescript-kysely\",\n");
     out.push_str("        \"go-pgx\",\n");
     out.push_str("        \"java-jdbc\",\n");
     out.push_str("        \"java-r2dbc\",\n");

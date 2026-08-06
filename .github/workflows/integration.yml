@@ -137,6 +137,12 @@ jobs:
           pnpm install
           pnpm exec tsx test.ts
 
+      - name: Test typescript-kysely
+        working-directory: integration_tests/typescript-kysely
+        run: |
+          pnpm install
+          pnpm exec tsx test.ts
+
       - name: Test java-jdbc
         working-directory: integration_tests/java-jdbc
         run: mvn -q compile exec:java

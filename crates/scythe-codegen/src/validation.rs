@@ -11,7 +11,8 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
         | "typescript-pg"
         | "typescript-mysql2"
         | "typescript-better-sqlite3"
-        | "typescript-duckdb" => validate_typescript(code),
+        | "typescript-duckdb"
+        | "typescript-kysely" => validate_typescript(code),
         "go-pgx" | "go-database-sql" => validate_go(code),
         "java-jdbc" => validate_java(code),
         "java-r2dbc" => validate_java_r2dbc(code),

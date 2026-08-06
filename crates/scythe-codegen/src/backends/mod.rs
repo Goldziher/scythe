@@ -44,6 +44,7 @@ pub(crate) mod tokio_postgres;
 pub(crate) mod typescript_better_sqlite3;
 pub(crate) mod typescript_common;
 pub(crate) mod typescript_duckdb;
+pub(crate) mod typescript_kysely;
 pub(crate) mod typescript_mssql;
 pub(crate) mod typescript_mysql2;
 pub(crate) mod typescript_oracledb;
@@ -353,6 +354,7 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
             canonical_engine,
         )?),
         "typescript-duckdb" => Box::new(typescript_duckdb::TypescriptDuckdbBackend::new(canonical_engine)?),
+        "typescript-kysely" | "kysely" => Box::new(typescript_kysely::TypescriptKyselyBackend::new(canonical_engine)?),
         "go-database-sql" => Box::new(go_database_sql::GoDatabaseSqlBackend::new(canonical_engine)?),
         "go-pgx" | "go" => Box::new(go_pgx::GoPgxBackend::new(canonical_engine)?),
         "java-jdbc" | "java" => Box::new(java_jdbc::JavaJdbcBackend::new(canonical_engine)?),

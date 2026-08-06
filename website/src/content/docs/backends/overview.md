@@ -68,6 +68,7 @@ Scythe provides 70+ backends across 10 languages and 10 database engines. Some b
 | `python-asyncpg` | Python | asyncpg |
 | `typescript-postgres` | TypeScript | postgres.js |
 | `typescript-pg` | TypeScript | pg (node-postgres) |
+| `typescript-kysely` | TypeScript | Kysely (any dialect) |
 | `go-pgx` | Go | pgx v5 |
 | `java-jdbc` | Java | JDBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
@@ -86,6 +87,7 @@ Scythe provides 70+ backends across 10 languages and 10 database engines. Some b
 | `rust-sqlx` | Rust | sqlx |
 | `python-aiomysql` | Python | aiomysql |
 | `typescript-mysql2` | TypeScript | mysql2 |
+| `typescript-kysely` | TypeScript | Kysely (any dialect) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
@@ -101,6 +103,7 @@ Scythe provides 70+ backends across 10 languages and 10 database engines. Some b
 | `rust-sqlx` | Rust | sqlx |
 | `python-aiosqlite` | Python | aiosqlite |
 | `typescript-better-sqlite3` | TypeScript | better-sqlite3 |
+| `typescript-kysely` | TypeScript | Kysely (any SQLite dialect, incl. third-party ones) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
@@ -136,6 +139,7 @@ CockroachDB is wire-compatible with PostgreSQL. The following PostgreSQL backend
 | `rust-tiberius` | Rust | tiberius |
 | `python-pyodbc` | Python | pyodbc |
 | `typescript-mssql` | TypeScript | mssql (tedious) |
+| `typescript-kysely` | TypeScript | Kysely (any dialect) |
 | `go-mssqldb` | Go | go-mssqldb |
 | `java-jdbc` | Java | JDBC (Microsoft JDBC Driver) |
 | `java-r2dbc` | Java | R2DBC (r2dbc-mssql) |
@@ -172,6 +176,7 @@ MariaDB uses MySQL drivers with MariaDB-specific type resolution:
 | `rust-sqlx` | Rust | sqlx (MySQL driver) |
 | `python-aiomysql` | Python | aiomysql |
 | `typescript-mysql2` | TypeScript | mysql2 |
+| `typescript-kysely` | TypeScript | Kysely (any dialect) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC (MariaDB Connector/J) |
 | `kotlin-jdbc` | Kotlin | JDBC (MariaDB Connector/J) |
@@ -218,7 +223,7 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 |----------|-----------|-------|--------|--------|-------------|-------|--------|---------|----------|-----------|
 | Rust | sqlx, tokio-postgres | sqlx | sqlx | duckdb-rs | sqlx | tiberius | sibyl | sqlx | sqlx | -- |
 | Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3 | pyodbc | oracledb | aiomysql | psycopg3 | snowflake-connector |
-| TypeScript | postgres.js, pg | mysql2 | better-sqlite3 | duckdb-node | -- | mssql | oracledb | mysql2 | pg | snowflake-sdk |
+| TypeScript | postgres.js, pg, Kysely | mysql2, Kysely | better-sqlite3, Kysely | duckdb-node | -- | mssql, Kysely | oracledb | mysql2, Kysely | pg | snowflake-sdk |
 | Go | pgx | database/sql | database/sql | -- | pgx | go-mssqldb | godror | database/sql | pgx | gosnowflake |
 | Java | JDBC, R2DBC | JDBC | JDBC | -- | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
 | Kotlin | JDBC, R2DBC, Exposed | JDBC | JDBC | -- | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |

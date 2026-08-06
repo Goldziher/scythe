@@ -2,6 +2,8 @@
 "0.1.0", "private": true, "type": "module", "scripts": { "test": "tsx test.ts" }, "dependencies": {
 {%- if driver == "pg" %}
   "pg": "^8.22.0"{% if options.row_type == "zod" %}, "zod": "^3.25.76"{% endif %}
+{%- elif driver == "kysely-pg" %}
+  "kysely": "^0.28.9", "pg": "^8.22.0"
 {%- elif driver == "postgres" %}
   "postgres": "^3.4.9"
 {%- elif driver == "mysql2" %}
@@ -17,6 +19,8 @@
 {%- endif %}
 }, "devDependencies": {
 {%- if driver == "pg" %}
+  "@types/pg": "^8.20.0",
+{%- elif driver == "kysely-pg" %}
   "@types/pg": "^8.20.0",
 {%- elif driver == "better-sqlite3" %}
   "@types/better-sqlite3": "^7.6.13",
