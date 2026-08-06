@@ -11,6 +11,12 @@ exclude = [
   "**/*.lock",
   "**/*.svg",
   "**/*.jinja",
+  # cargo-sort (run by `poly lint`) rewrites Cargo.toml arrays with a 4-space
+  # indent, while poly's taplo formatter insists on 2. The two rewrite each
+  # other forever, and CI's `poly fmt --check` has gone red four times because
+  # of it. cargo-sort owns Cargo.toml; keep poly's formatter off it.
+  "Cargo.toml",
+  "**/Cargo.toml",
   "tests/schemas/**",
   "**/Cargo.lock",
   "**/go.sum",
@@ -146,6 +152,9 @@ fmt = { exclude = [
   "**/*.lock",
   "**/*.svg",
   "**/*.jinja",
+  # See the [discovery] exclude: cargo-sort owns Cargo.toml formatting.
+  "Cargo.toml",
+  "**/Cargo.toml",
   "**/Cargo.lock",
   "**/go.sum",
   "**/package-lock.json",
