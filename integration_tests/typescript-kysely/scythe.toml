@@ -9,4 +9,4 @@ queries = ["../sql/pg/queries/*.sql"]
 
 [[sql.gen]]
 backend = "typescript-kysely"
-  output = "generated"
+output = "generated"

@@ -52,7 +52,7 @@ reports are compared against what was inferred.
 scythe check --database-url postgres://user:pass@localhost/mydb
 ```
 
-This catches a mis-parsed projection, a wrongly mapped catalog type, a
+This catches a misparsed projection, a wrongly mapped catalog type, a
 parameter count or type mismatch, and a query the parser accepted but the
 server rejects — including schema drift, where the DDL declares a table that
 was never migrated.
