@@ -10,8 +10,8 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
-    generate_ts_union_row_struct, parse_bool_option,
+    TsRowType, escape_ts_double_quoted_literal, escape_ts_template_literal, generate_grouped_interface_structs,
+    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_union_row_struct, parse_bool_option,
 };
 use crate::singularize;
 
@@ -97,10 +97,12 @@ impl CodegenBackend for TypescriptOracledbBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        // `sql` here goes into a double-quoted JS string, not a template
+        // literal, so it needs double-quote escaping.
+        let sql = escape_ts_double_quoted_literal(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
-        );
+        ));
 
         let param_list = params
             .iter()
@@ -171,7 +173,11 @@ impl CodegenBackend for TypescriptOracledbBackend {
                     let _ = writeln!(out, "\tconst outBinds = result.outBinds as unknown[][];");
                     let _ = writeln!(out, "\treturn {{");
                     for (i, col) in columns.iter().enumerate() {
-                        let _ = writeln!(out, "\t\t{}: outBinds[{}][0] as {},", col.field_name, i, col.lang_type);
+                        let _ = writeln!(
+                            out,
+                            "\t\t{}: (outBinds[{}] ?? [])[0] as {},",
+                            col.field_name, i, col.lang_type
+                        );
                     }
                     let _ = writeln!(out, "\t}};");
                     let _ = write!(out, "}}");
@@ -213,17 +219,20 @@ impl CodegenBackend for TypescriptOracledbBackend {
                 let _ = writeln!(out, "\tif (!result.rows) {{");
                 let _ = writeln!(out, "\t\treturn [];");
                 let _ = writeln!(out, "\t}}");
-                let _ = writeln!(out, "\treturn result.rows.map((row: Record<string, unknown>) => ({{",);
+                let _ = writeln!(out, "\treturn result.rows.map((rawRow) => {{");
+                let _ = writeln!(out, "\t\tconst row = rawRow as Record<string, unknown>;");
+                let _ = writeln!(out, "\t\treturn {{");
                 for col in columns {
                     let _ = writeln!(
                         out,
-                        "\t\t{}: row[\"{}\"] as {},",
+                        "\t\t\t{}: row[\"{}\"] as {},",
                         col.field_name,
                         col.name.to_uppercase(),
                         col.lang_type
                     );
                 }
-                let _ = writeln!(out, "\t}}));");
+                let _ = writeln!(out, "\t\t}};");
+                let _ = writeln!(out, "\t}});");
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {
@@ -309,7 +318,10 @@ impl CodegenBackend for TypescriptOracledbBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql_clean =
             super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql = super::rewrite_pg_placeholders(&sql_clean, |n| format!(":{n}"));
+        // Unlike `generate_query_fn` above, this splices `sql` into a
+        // backtick template literal, so it needs
+        // `escape_ts_template_literal` rather than double-quote escaping.
+        let sql = escape_ts_template_literal(&super::rewrite_pg_placeholders(&sql_clean, |n| format!(":{n}")));
 
         let param_list = params
             .iter()
@@ -399,6 +411,58 @@ mod tests {
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
 
+    fn make_one_query(sql: &str) -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetUserById".to_string(),
+            command: QueryCommand::One,
+            sql: sql.to_string(),
+            columns: vec![AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                ..Default::default()
+            }],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// oracledb splices SQL into a double-quoted JS string, not a template
+    /// literal, so a literal `"` in the user's SQL must be escaped or it
+    /// terminates the string early. Backtick and `${` are inert in a
+    /// double-quoted string and must NOT be escaped.
+    #[test]
+    fn test_query_fn_escapes_user_double_quote_in_sql() {
+        let backend = TypescriptOracledbBackend::new("oracle").unwrap();
+        let query = make_one_query(r#"SELECT id FROM users WHERE name = "oops""#);
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r#"WHERE name = \"oops\""#),
+            "user double quotes must be escaped; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_query_fn_escapes_user_backslash_in_sql() {
+        let backend = TypescriptOracledbBackend::new("oracle").unwrap();
+        let query = make_one_query(r"SELECT id FROM users WHERE name = 'a\\b'");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"'a\\\\b'"),
+            "user backslash must be doubled; got:\n{query_fn}"
+        );
+    }
+
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![
             AnalyzedColumn {
@@ -449,6 +513,25 @@ mod tests {
             }),
             custom: vec![],
         }
+    }
+
+    /// The grouped query fn splices SQL into a backtick template literal
+    /// (unlike the plain query fn above, which uses a double-quoted
+    /// string), so it needs backtick escaping instead of quote escaping.
+    #[test]
+    fn test_grouped_query_fn_escapes_user_backtick_in_sql() {
+        let backend = TypescriptOracledbBackend::new("oracle").unwrap();
+        let mut query = make_grouped_query();
+        query.sql = "SELECT u.id, u.name, o.id AS order_id, o.total FROM users u JOIN orders o ON o.user_id = u.id \
+                     WHERE u.name = `oops`"
+            .to_string();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"WHERE u.name = \`oops\`"),
+            "user backtick must be escaped; got:\n{query_fn}"
+        );
     }
 
     #[test]

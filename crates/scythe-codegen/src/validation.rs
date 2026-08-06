@@ -89,12 +89,7 @@ fn validate_typescript(code: &str) -> Vec<String> {
 
     for line in code.lines() {
         let trimmed = line.trim();
-        if trimmed.contains(": any")
-            || trimmed.contains("<any>")
-            || trimmed.contains("any;")
-            || trimmed.contains("any,")
-            || trimmed.contains("any)")
-        {
+        if find_disallowed_any_usage(trimmed).is_some() {
             errors.push(format!(
                 "contains `any` type (should use `unknown` or specific): {}",
                 trimmed
@@ -104,6 +99,45 @@ fn validate_typescript(code: &str) -> Vec<String> {
     }
 
     errors
+}
+
+/// Scan a line of generated TypeScript for a standalone `any` type token.
+///
+/// This is token-aware (matches `any` at identifier boundaries) rather than
+/// the previous fixed set of punctuation suffixes (`: any`, `<any>`, `any;`,
+/// `any,`, `any)`), which happened to omit `any>` and let the Kysely
+/// backend's `<DB = any>` generic-default slip through undetected rather
+/// than deliberately allowed.
+///
+/// The Kysely `<DB = any>` idiom is explicitly allowlisted here: `DB` is a
+/// real generic type parameter threaded through `Kysely<DB>` in the
+/// function signature, not an escape hatch. A caller who supplies
+/// `Kysely<MyDB>` gets full column typing; the `= any` default only lets
+/// callers who don't care about DB-shape typing omit the type argument.
+fn find_disallowed_any_usage(trimmed: &str) -> Option<&str> {
+    let mut offset = 0;
+    while let Some(rel) = trimmed[offset..].find("any") {
+        let start = offset + rel;
+        let end = start + "any".len();
+        let before_is_ident = start > 0 && is_ident_byte(trimmed.as_bytes()[start - 1]);
+        let after_is_ident = end < trimmed.len() && is_ident_byte(trimmed.as_bytes()[end]);
+        if !before_is_ident && !after_is_ident && !is_kysely_db_generic_default(trimmed, start, end) {
+            return Some(trimmed);
+        }
+        offset = end;
+    }
+    None
+}
+
+fn is_ident_byte(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// True when the `any` token spanning `[start, end)` in `line` is the
+/// default of a `<DB = any>` generic type parameter, e.g.
+/// `export async function foo<DB = any>(db: Kysely<DB>): ... {`.
+fn is_kysely_db_generic_default(line: &str, start: usize, end: usize) -> bool {
+    line[..start].ends_with("<DB = ") && line[end..].starts_with('>')
 }
 
 fn validate_go(code: &str) -> Vec<String> {
@@ -581,6 +615,38 @@ export async function listUsers(): Promise<ListUsersRow[]> {
 "#;
         let errors = validate_structural(code, "typescript-postgres");
         assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+    }
+
+    #[test]
+    fn test_typescript_allows_kysely_db_generic_default() {
+        let code = r#"export async function listUsers<DB = any>(db: Kysely<DB>): Promise<ListUsersRow[]> {
+  return [];
+}
+"#;
+        let errors = validate_structural(code, "typescript-kysely");
+        assert!(
+            errors.is_empty(),
+            "the `<DB = any>` generic default must be allowlisted, got: {:?}",
+            errors
+        );
+    }
+
+    #[test]
+    fn test_typescript_rejects_any_before_closing_angle_bracket() {
+        // Regression test: the old suffix-list check (`: any`, `<any>`,
+        // `any;`, `any,`, `any)`) never looked for `any` immediately before
+        // `>`, so `Array<any>` (or any other non-Kysely-DB `any>` usage)
+        // slipped through undetected.
+        let code = r#"export async function listUsers(): Promise<Array<any>> {
+  return [];
+}
+"#;
+        let errors = validate_structural(code, "typescript-postgres");
+        assert!(
+            errors.iter().any(|e| e.contains("any")),
+            "expected an `any` violation, got: {:?}",
+            errors
+        );
     }
 
     #[test]

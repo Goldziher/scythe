@@ -43,6 +43,33 @@ pub fn parse_bool_option(option_name: &str, value: &str) -> Result<bool, ScytheE
     }
 }
 
+/// Escape a SQL string for safe splicing into a JS backtick template
+/// literal.
+///
+/// Order matters: backslash must be escaped first, so the backslashes this
+/// pass inserts ahead of a backtick or `${` are not themselves re-escaped by
+/// a later pass. Left unescaped, a backslash in the source SQL (e.g.
+/// `E'\n'`) would escape whatever JS character follows it; a literal
+/// backtick (idiomatic identifier quoting in MySQL/MariaDB — `` `users`.`id` ``)
+/// would terminate the template literal early; and a literal `${` would open
+/// a live JS interpolation — worse still inside a Kysely `sql` tag, where
+/// `${}` is a parameter binding.
+pub fn escape_ts_template_literal(sql: &str) -> String {
+    sql.replace('\\', "\\\\").replace('`', "\\`").replace("${", "\\${")
+}
+
+/// Escape a SQL string for safe splicing into a double-quoted JS string
+/// literal.
+///
+/// Used by the oracledb backend, which binds SQL text as a plain
+/// double-quoted string rather than a template literal, so `` ` `` and `${`
+/// are inert there but a literal `"` would terminate the string early.
+/// Backslash is escaped first for the same reason as
+/// [`escape_ts_template_literal`].
+pub fn escape_ts_double_quoted_literal(sql: &str) -> String {
+    sql.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
 /// Map a neutral type to its Zod v4 schema expression.
 /// Note: This does not handle enums - use column_to_zod for full column handling.
 pub fn neutral_to_zod(neutral_type: &str, nullable: bool) -> String {
@@ -233,6 +260,18 @@ pub fn generate_zod_row_struct(struct_name: &str, query_name: &str, columns: &[R
 
 /// Map a ResolvedColumn to its Zod schema expression, handling enums properly.
 fn column_to_zod(col: &ResolvedColumn) -> String {
+    column_to_zod_with_nullable(col, col.nullable)
+}
+
+/// As [`column_to_zod`], but with an explicit nullability instead of
+/// `col.nullable`.
+///
+/// Needed by [`generate_zod_union_row_struct`]: inside the "matched" branch
+/// of a discriminated union, a join-group column's schema nullability is
+/// `col.nullable_before_join` (its own nullability, independent of the
+/// join), not `col.nullable` (which the analyzer has already widened to
+/// `true` for every column in the group).
+fn column_to_zod_with_nullable(col: &ResolvedColumn, nullable: bool) -> String {
     if col.neutral_type.starts_with("enum::") {
         let base = if col.lang_type.starts_with("enum::") {
             col.lang_type
@@ -243,14 +282,79 @@ fn column_to_zod(col: &ResolvedColumn) -> String {
             col.lang_type.clone()
         };
         let schema_name = format!("{}Schema", base);
-        if col.nullable {
+        if nullable {
             format!("{schema_name}.nullable()")
         } else {
             schema_name
         }
     } else {
-        neutral_to_zod(&col.neutral_type, col.nullable)
+        neutral_to_zod(&col.neutral_type, nullable)
     }
+}
+
+/// Render a Zod schema that expresses outer-join nullability as a
+/// discriminated union instead of independent per-column optionals.
+///
+/// This is the Zod counterpart to [`generate_ts_union_row_struct`]: the
+/// inferred type of the generated schema matches the shape that function
+/// produces. Grouping is computed by the same [`discriminated_join_groups`]
+/// helper so the two can never drift apart on which joins qualify.
+///
+/// Falls back to [`generate_zod_row_struct`] when there is nothing to
+/// discriminate, so callers can use this unconditionally — matching the
+/// fallback behavior of `generate_ts_union_row_struct`.
+pub fn generate_zod_union_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
+    let groups = discriminated_join_groups(columns);
+    if groups.is_empty() {
+        return generate_zod_row_struct(struct_name, query_name, columns);
+    }
+
+    let schema_name = format!("{struct_name}Schema");
+    let mut out = String::new();
+    let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
+    let _ = writeln!(out, "export const {} = z.object({{", schema_name);
+    for col in columns.iter().filter(|c| c.join_group.is_none()) {
+        let zod_type = column_to_zod(col);
+        let _ = writeln!(out, "\t{}: {},", col.field_name, zod_type);
+    }
+    let _ = write!(out, "}})");
+
+    for group in &groups {
+        let members: Vec<&ResolvedColumn> = columns
+            .iter()
+            .filter(|c| c.join_group.as_ref() == Some(group))
+            .collect();
+
+        // Matched: the join found a row, so each column takes its own
+        // pre-join schema nullability.
+        let matched_fields: Vec<String> = members
+            .iter()
+            .map(|col| {
+                format!(
+                    "{}: {}",
+                    col.field_name,
+                    column_to_zod_with_nullable(col, col.nullable_before_join)
+                )
+            })
+            .collect();
+        // Unmatched: no row on the outer side, so every projected column is
+        // null together.
+        let unmatched_fields: Vec<String> = members
+            .iter()
+            .map(|col| format!("{}: z.null()", col.field_name))
+            .collect();
+
+        let _ = write!(
+            out,
+            ".and(z.union([z.object({{ {} }}), z.object({{ {} }})]))",
+            matched_fields.join(", "),
+            unmatched_fields.join(", "),
+        );
+    }
+    let _ = writeln!(out, ";");
+    let _ = writeln!(out);
+    let _ = write!(out, "export type {} = z.infer<typeof {}>;", struct_name, schema_name);
+    out
 }
 
 /// Generate paired child + parent TypeScript interfaces for a `:grouped` query.
@@ -505,6 +609,35 @@ mod tests {
         assert!(out.contains("| { addr: string }"), "{out}");
         assert!(out.contains("| { addr: null }"), "{out}");
         assert_eq!(out.matches(" & (").count(), 2, "one group per relation: {out}");
+    }
+
+    #[test]
+    fn escape_ts_template_literal_escapes_backtick_dollar_brace_and_backslash() {
+        let out = escape_ts_template_literal(r"a`b${c}d\e");
+        assert_eq!(out, r"a\`b\${c}d\\e");
+    }
+
+    /// Backslash must be escaped first: if `${` or `` ` `` were escaped
+    /// before backslash, the backslash this pass inserts ahead of them
+    /// would itself get doubled by the backslash pass, corrupting the
+    /// escape sequence.
+    #[test]
+    fn escape_ts_template_literal_does_not_double_escape_inserted_backslashes() {
+        let out = escape_ts_template_literal("`${x}");
+        // Exactly one backslash ahead of each special character, not two.
+        assert_eq!(out, r"\`\${x}");
+    }
+
+    #[test]
+    fn escape_ts_template_literal_leaves_plain_sql_untouched() {
+        let out = escape_ts_template_literal("SELECT id, name FROM users WHERE id = $1");
+        assert_eq!(out, "SELECT id, name FROM users WHERE id = $1");
+    }
+
+    #[test]
+    fn escape_ts_double_quoted_literal_escapes_quote_and_backslash() {
+        let out = escape_ts_double_quoted_literal(r#"a"b\c"#);
+        assert_eq!(out, r#"a\"b\\c"#);
     }
 
     #[test]

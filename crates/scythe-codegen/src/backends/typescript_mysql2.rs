@@ -11,9 +11,9 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body,
+    TsRowType, escape_ts_template_literal, generate_grouped_interface_structs, generate_ts_grouped_fold_body,
     generate_ts_interface_row_struct_with_base, generate_ts_union_row_struct, generate_zod_enum,
-    generate_zod_grouped_structs, generate_zod_row_struct, parse_bool_option,
+    generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
 };
 use crate::singularize;
 
@@ -75,6 +75,17 @@ impl CodegenBackend for TypescriptMysql2Backend {
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
+            if self.outer_join_unions {
+                let mut out = generate_zod_union_row_struct(&struct_name, query_name, columns);
+                let _ = writeln!(out);
+                let _ = writeln!(out);
+                // `interface extends` cannot extend a union, so use an
+                // intersection type alias instead; it stays valid even
+                // when there's no discriminant and the schema collapses
+                // back to a plain object.
+                let _ = write!(out, "export type {struct_name}Packet = RowDataPacket & {struct_name};");
+                return Ok(out);
+            }
             let mut out = generate_zod_row_struct(&struct_name, query_name, columns);
             let _ = writeln!(out);
             let _ = writeln!(out);
@@ -122,7 +133,11 @@ impl CodegenBackend for TypescriptMysql2Backend {
             .collect::<Vec<_>>()
             .join(", ");
 
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = escape_ts_template_literal(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         let inline_params = if params.is_empty() {
             "pool: Pool".to_string()
@@ -309,7 +324,11 @@ impl CodegenBackend for TypescriptMysql2Backend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = escape_ts_template_literal(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         let param_list = params
             .iter()
@@ -411,8 +430,158 @@ impl CodegenBackend for TypescriptMysql2Backend {
 #[cfg(test)]
 mod tests {
     use super::TypescriptMysql2Backend;
+    use crate::backend_trait::CodegenBackend;
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
+
+    fn discriminated_join_columns() -> Vec<crate::backend_trait::ResolvedColumn> {
+        use crate::backend_trait::ResolvedColumn;
+        vec![
+            ResolvedColumn {
+                name: "id".to_string(),
+                field_name: "id".to_string(),
+                lang_type: "number".to_string(),
+                full_type: "number".to_string(),
+                neutral_type: "int32".to_string(),
+                sql_type: "int".to_string(),
+                nullable: false,
+                join_group: None,
+                nullable_before_join: false,
+            },
+            ResolvedColumn {
+                name: "total".to_string(),
+                field_name: "total".to_string(),
+                lang_type: "string".to_string(),
+                full_type: "string | null".to_string(),
+                neutral_type: "decimal".to_string(),
+                sql_type: "decimal".to_string(),
+                nullable: true,
+                join_group: Some("o".to_string()),
+                nullable_before_join: false,
+            },
+        ]
+    }
+
+    /// Before the fix, `row_type = "zod"` returned before the
+    /// `outer_join_unions` branch was ever reached, silently discarding the
+    /// discriminated union. The `Packet` type must also switch from
+    /// `interface extends` to an intersection `type` alias, since TS
+    /// interfaces cannot extend a union.
+    #[test]
+    fn test_zod_row_type_combined_with_outer_join_unions_emits_a_real_union_schema() {
+        let mut backend = TypescriptMysql2Backend::new("mysql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("row_type".to_string(), "zod".to_string()),
+                ("outer_join_unions".to_string(), "true".to_string()),
+            ]))
+            .unwrap();
+
+        let row_struct = backend
+            .generate_row_struct("GetUserOrders", &discriminated_join_columns())
+            .unwrap();
+
+        assert!(
+            row_struct.contains(".and(z.union(["),
+            "must emit a real discriminated union; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("export type GetUserOrdersRowPacket = RowDataPacket & GetUserOrdersRow;"),
+            "Packet type must be an intersection, not `interface extends`, since TS \
+             interfaces cannot extend a union; got:\n{row_struct}"
+        );
+    }
+
+    #[test]
+    fn test_zod_row_type_without_outer_join_unions_is_unchanged() {
+        let mut backend = TypescriptMysql2Backend::new("mysql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "row_type".to_string(),
+                "zod".to_string(),
+            )]))
+            .unwrap();
+
+        let row_struct = backend
+            .generate_row_struct("GetUserOrders", &discriminated_join_columns())
+            .unwrap();
+
+        let mut expected = crate::backends::typescript_common::generate_zod_row_struct(
+            "GetUserOrdersRow",
+            "GetUserOrders",
+            &discriminated_join_columns(),
+        );
+        expected.push_str("\n\nexport interface GetUserOrdersRowPacket extends RowDataPacket, GetUserOrdersRow {}");
+        assert_eq!(row_struct, expected);
+    }
+
+    fn make_one_query(sql: &str) -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetUserById".to_string(),
+            command: QueryCommand::One,
+            sql: sql.to_string(),
+            columns: vec![AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                ..Default::default()
+            }],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// MySQL/MariaDB idiomatically backtick-quotes identifiers
+    /// (`` `users`.`id` ``). Unescaped, that backtick would terminate the
+    /// generated template literal early — this is reachable in real MySQL
+    /// SQL, not just adversarial input.
+    #[test]
+    fn test_query_fn_escapes_user_backtick_in_sql() {
+        let backend = TypescriptMysql2Backend::new("mysql").unwrap();
+        let query = make_one_query("SELECT `id` FROM `users`");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"SELECT \`id\` FROM \`users\`"),
+            "user backticks must be escaped; got:\n{query_fn}"
+        );
+    }
+
+    /// A literal `${` in the user's SQL must not become a live JS
+    /// interpolation.
+    #[test]
+    fn test_query_fn_escapes_user_dollar_brace_in_sql() {
+        let backend = TypescriptMysql2Backend::new("mysql").unwrap();
+        let query = make_one_query("SELECT id FROM users WHERE name = 'literal ${evil}'");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"'literal \${evil}'"),
+            "user's literal ${{}} must be escaped; got:\n{query_fn}"
+        );
+    }
+
+    /// A literal backslash in the user's SQL must be doubled.
+    #[test]
+    fn test_query_fn_escapes_user_backslash_in_sql() {
+        let backend = TypescriptMysql2Backend::new("mysql").unwrap();
+        let query = make_one_query(r"SELECT id FROM users WHERE name = 'a\\b'");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"'a\\\\b'"),
+            "user backslash must be doubled; got:\n{query_fn}"
+        );
+    }
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![

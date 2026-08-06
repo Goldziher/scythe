@@ -9,8 +9,9 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
-    generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct, parse_bool_option,
+    TsRowType, escape_ts_template_literal, generate_grouped_interface_structs, generate_ts_grouped_fold_body,
+    generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_grouped_structs,
+    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
 };
 use crate::singularize;
 
@@ -92,6 +93,9 @@ impl CodegenBackend for TypescriptMssqlBackend {
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
+            if self.outer_join_unions {
+                return Ok(generate_zod_union_row_struct(&struct_name, query_name, columns));
+            }
             return Ok(generate_zod_row_struct(&struct_name, query_name, columns));
         }
         if self.outer_join_unions {
@@ -116,10 +120,10 @@ impl CodegenBackend for TypescriptMssqlBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
 
-        let sql = super::rewrite_pg_placeholders(
+        let sql = escape_ts_template_literal(&super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
-        );
+        ));
 
         let param_list = params
             .iter()
@@ -322,7 +326,7 @@ impl CodegenBackend for TypescriptMssqlBackend {
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql = super::rewrite_pg_placeholders(&sql_clean, |n| format!("@p{n}"));
+        let sql = escape_ts_template_literal(&super::rewrite_pg_placeholders(&sql_clean, |n| format!("@p{n}")));
 
         let param_list = params
             .iter()
@@ -416,8 +420,142 @@ impl CodegenBackend for TypescriptMssqlBackend {
 #[cfg(test)]
 mod tests {
     use super::TypescriptMssqlBackend;
+    use crate::backend_trait::CodegenBackend;
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
+
+    fn discriminated_join_columns() -> Vec<crate::backend_trait::ResolvedColumn> {
+        use crate::backend_trait::ResolvedColumn;
+        vec![
+            ResolvedColumn {
+                name: "id".to_string(),
+                field_name: "id".to_string(),
+                lang_type: "number".to_string(),
+                full_type: "number".to_string(),
+                neutral_type: "int32".to_string(),
+                sql_type: "int4".to_string(),
+                nullable: false,
+                join_group: None,
+                nullable_before_join: false,
+            },
+            ResolvedColumn {
+                name: "total".to_string(),
+                field_name: "total".to_string(),
+                lang_type: "string".to_string(),
+                full_type: "string | null".to_string(),
+                neutral_type: "decimal".to_string(),
+                sql_type: "numeric".to_string(),
+                nullable: true,
+                join_group: Some("o".to_string()),
+                nullable_before_join: false,
+            },
+        ]
+    }
+
+    #[test]
+    fn test_zod_row_type_combined_with_outer_join_unions_emits_a_real_union_schema() {
+        let mut backend = TypescriptMssqlBackend::new("mssql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("row_type".to_string(), "zod".to_string()),
+                ("outer_join_unions".to_string(), "true".to_string()),
+            ]))
+            .unwrap();
+
+        let row_struct = backend
+            .generate_row_struct("GetUserOrders", &discriminated_join_columns())
+            .unwrap();
+
+        assert!(
+            row_struct.contains(".and(z.union(["),
+            "must emit a real discriminated union; got:\n{row_struct}"
+        );
+    }
+
+    #[test]
+    fn test_zod_row_type_without_outer_join_unions_is_unchanged() {
+        let mut backend = TypescriptMssqlBackend::new("mssql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "row_type".to_string(),
+                "zod".to_string(),
+            )]))
+            .unwrap();
+
+        let row_struct = backend
+            .generate_row_struct("GetUserOrders", &discriminated_join_columns())
+            .unwrap();
+
+        assert_eq!(
+            row_struct,
+            crate::backends::typescript_common::generate_zod_row_struct(
+                "GetUserOrdersRow",
+                "GetUserOrders",
+                &discriminated_join_columns()
+            )
+        );
+    }
+
+    fn make_one_query(sql: &str) -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetUserById".to_string(),
+            command: QueryCommand::One,
+            sql: sql.to_string(),
+            columns: vec![AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                ..Default::default()
+            }],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    #[test]
+    fn test_query_fn_escapes_user_backtick_in_sql() {
+        let backend = TypescriptMssqlBackend::new("mssql").unwrap();
+        let query = make_one_query("SELECT id FROM users WHERE name = `oops`");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"WHERE name = \`oops\`"),
+            "user backtick must be escaped; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_query_fn_escapes_user_dollar_brace_in_sql() {
+        let backend = TypescriptMssqlBackend::new("mssql").unwrap();
+        let query = make_one_query("SELECT id FROM users WHERE name = 'literal ${evil}'");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"'literal \${evil}'"),
+            "user's literal ${{}} must be escaped; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_query_fn_escapes_user_backslash_in_sql() {
+        let backend = TypescriptMssqlBackend::new("mssql").unwrap();
+        let query = make_one_query(r"SELECT id FROM users WHERE name = 'a\\b'");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"'a\\\\b'"),
+            "user backslash must be doubled; got:\n{query_fn}"
+        );
+    }
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![

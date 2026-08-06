@@ -12,9 +12,9 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
-    generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs, generate_zod_row_struct,
-    parse_bool_option,
+    TsRowType, escape_ts_template_literal, generate_grouped_interface_structs, generate_ts_grouped_fold_body,
+    generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
+    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
 };
 use crate::singularize;
 
@@ -79,6 +79,9 @@ impl CodegenBackend for TypescriptPgBackend {
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
+            if self.outer_join_unions {
+                return Ok(generate_zod_union_row_struct(&struct_name, query_name, columns));
+            }
             return Ok(generate_zod_row_struct(&struct_name, query_name, columns));
         }
         if self.outer_join_unions {
@@ -110,7 +113,11 @@ impl CodegenBackend for TypescriptPgBackend {
             .join(", ");
         let _sep = if param_list.is_empty() { "" } else { ", " };
 
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = escape_ts_template_literal(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         let _param_array: String = if params.is_empty() {
             String::new()
@@ -324,7 +331,11 @@ impl CodegenBackend for TypescriptPgBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = escape_ts_template_literal(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -430,8 +441,155 @@ impl CodegenBackend for TypescriptPgBackend {
 #[cfg(test)]
 mod tests {
     use super::TypescriptPgBackend;
+    use crate::backend_trait::CodegenBackend;
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
+
+    fn make_one_query(sql: &str) -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetUserById".to_string(),
+            command: QueryCommand::One,
+            sql: sql.to_string(),
+            columns: vec![AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                ..Default::default()
+            }],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// node-postgres passes the SQL text through as a plain template
+    /// literal (parameters are bound separately via the array argument), but
+    /// a literal backtick in the user's SQL would still terminate that
+    /// literal early and corrupt the generated file.
+    #[test]
+    fn test_query_fn_escapes_user_backtick_in_sql() {
+        let backend = TypescriptPgBackend::new("postgresql").unwrap();
+        let query = make_one_query("SELECT id FROM users WHERE name = `oops`");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"WHERE name = \`oops\`"),
+            "user backtick must be escaped; got:\n{query_fn}"
+        );
+    }
+
+    /// A literal `${` in the user's SQL must not become a live JS
+    /// interpolation of an undeclared identifier.
+    #[test]
+    fn test_query_fn_escapes_user_dollar_brace_in_sql() {
+        let backend = TypescriptPgBackend::new("postgresql").unwrap();
+        let query = make_one_query("SELECT id FROM users WHERE name = 'literal ${evil}'");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"'literal \${evil}'"),
+            "user's literal ${{}} must be escaped; got:\n{query_fn}"
+        );
+    }
+
+    /// A literal backslash in the user's SQL must be doubled so it stays a
+    /// single literal backslash in the generated JS template literal.
+    #[test]
+    fn test_query_fn_escapes_user_backslash_in_sql() {
+        let backend = TypescriptPgBackend::new("postgresql").unwrap();
+        let query = make_one_query(r"SELECT id FROM users WHERE name = E'a\\b'");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"E'a\\\\b'"),
+            "user backslash must be doubled; got:\n{query_fn}"
+        );
+    }
+
+    fn discriminated_join_columns() -> Vec<crate::backend_trait::ResolvedColumn> {
+        use crate::backend_trait::ResolvedColumn;
+        vec![
+            ResolvedColumn {
+                name: "id".to_string(),
+                field_name: "id".to_string(),
+                lang_type: "number".to_string(),
+                full_type: "number".to_string(),
+                neutral_type: "int32".to_string(),
+                sql_type: "int4".to_string(),
+                nullable: false,
+                join_group: None,
+                nullable_before_join: false,
+            },
+            ResolvedColumn {
+                name: "total".to_string(),
+                field_name: "total".to_string(),
+                lang_type: "string".to_string(),
+                full_type: "string | null".to_string(),
+                neutral_type: "decimal".to_string(),
+                sql_type: "numeric".to_string(),
+                nullable: true,
+                join_group: Some("o".to_string()),
+                nullable_before_join: false,
+            },
+        ]
+    }
+
+    /// Before the fix, `row_type = "zod"` returned before the
+    /// `outer_join_unions` branch was ever reached, silently discarding the
+    /// discriminated union.
+    #[test]
+    fn test_zod_row_type_combined_with_outer_join_unions_emits_a_real_union_schema() {
+        let mut backend = TypescriptPgBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("row_type".to_string(), "zod".to_string()),
+                ("outer_join_unions".to_string(), "true".to_string()),
+            ]))
+            .unwrap();
+
+        let row_struct = backend
+            .generate_row_struct("GetUserOrders", &discriminated_join_columns())
+            .unwrap();
+
+        assert!(
+            row_struct.contains(".and(z.union(["),
+            "must emit a real discriminated union; got:\n{row_struct}"
+        );
+    }
+
+    /// Zod without `outer_join_unions` must be byte-identical to the flat
+    /// schema — no regression from adding union support.
+    #[test]
+    fn test_zod_row_type_without_outer_join_unions_is_unchanged() {
+        let mut backend = TypescriptPgBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "row_type".to_string(),
+                "zod".to_string(),
+            )]))
+            .unwrap();
+
+        let row_struct = backend
+            .generate_row_struct("GetUserOrders", &discriminated_join_columns())
+            .unwrap();
+
+        assert_eq!(
+            row_struct,
+            crate::backends::typescript_common::generate_zod_row_struct(
+                "GetUserOrdersRow",
+                "GetUserOrders",
+                &discriminated_join_columns()
+            )
+        );
+    }
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![

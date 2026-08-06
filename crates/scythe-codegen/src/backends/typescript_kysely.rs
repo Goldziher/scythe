@@ -12,9 +12,9 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
-    generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs, generate_zod_row_struct,
-    parse_bool_option,
+    TsRowType, escape_ts_template_literal, generate_grouped_interface_structs, generate_ts_grouped_fold_body,
+    generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
+    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
 };
 use crate::singularize;
 
@@ -94,6 +94,14 @@ impl TypescriptKyselyBackend {
 /// MSSQL's native `@pN` is already rewritten to bare `?` by the core parser,
 /// the same form MySQL/SQLite queries use natively, and PostgreSQL keeps
 /// `$N`. [`super::rewrite_pg_placeholders`] recognises both.
+///
+/// `sql` must already have passed through [`escape_ts_template_literal`]
+/// before it reaches this function. Escaping afterwards would be wrong: it
+/// would also mangle the `${expr}` interpolations this function just
+/// inserted (turning a live parameter binding into inert escaped text), and
+/// it would still miss any `${` that was *already* live because the
+/// escaping pass ran too late. Escaping first guarantees only characters
+/// that came from the user's SQL are ever touched.
 fn interpolate_kysely_params(sql: &str, exprs: &[String]) -> String {
     super::rewrite_pg_placeholders(sql, |n| {
         let idx = n.saturating_sub(1) as usize;
@@ -130,6 +138,9 @@ impl CodegenBackend for TypescriptKyselyBackend {
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
+            if self.outer_join_unions {
+                return Ok(generate_zod_union_row_struct(&struct_name, query_name, columns));
+            }
             return Ok(generate_zod_row_struct(&struct_name, query_name, columns));
         }
         if self.outer_join_unions {
@@ -161,8 +172,11 @@ impl CodegenBackend for TypescriptKyselyBackend {
             .join(", ");
 
         let cleaned = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        // Escape the user's SQL before any of scythe's own `${}` bindings
+        // are interpolated into it (see `interpolate_kysely_params` doc).
+        let escaped = escape_ts_template_literal(&cleaned);
         let exprs: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
-        let sql_text = interpolate_kysely_params(&cleaned, &exprs);
+        let sql_text = interpolate_kysely_params(&escaped, &exprs);
 
         let inline_params = if params.is_empty() {
             "db: Kysely<DB>".to_string()
@@ -226,7 +240,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
                 if params.len() > 1 {
                     let params_type_name = format!("{}BatchParams", struct_name);
                     let item_exprs: Vec<String> = params.iter().map(|p| format!("item.{}", p.field_name)).collect();
-                    let batch_sql = interpolate_kysely_params(&cleaned, &item_exprs);
+                    let batch_sql = interpolate_kysely_params(&escaped, &item_exprs);
 
                     let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
                     let _ = writeln!(out, "export interface {} {{", params_type_name);
@@ -249,7 +263,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
                     let _ = writeln!(out, "\t}});");
                     let _ = write!(out, "}}");
                 } else if params.len() == 1 {
-                    let batch_sql = interpolate_kysely_params(&cleaned, &["item".to_string()]);
+                    let batch_sql = interpolate_kysely_params(&escaped, &["item".to_string()]);
 
                     let _ = writeln!(
                         out,
@@ -340,8 +354,9 @@ impl CodegenBackend for TypescriptKyselyBackend {
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let cleaned = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let escaped = escape_ts_template_literal(&cleaned);
         let exprs: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
-        let sql_text = interpolate_kysely_params(&cleaned, &exprs);
+        let sql_text = interpolate_kysely_params(&escaped, &exprs);
         let mut out = String::new();
 
         let param_list = params
@@ -608,6 +623,67 @@ mod tests {
         }
     }
 
+    /// Mysql/MariaDB idiomatically backtick-quotes identifiers
+    /// (`` `users`.`id` ``). Unescaped, that backtick would terminate the
+    /// `sql` tag's template literal early and corrupt the generated file.
+    #[test]
+    fn test_query_fn_escapes_user_backtick_in_sql() {
+        let backend = TypescriptKyselyBackend::new("mysql").unwrap();
+        let query = make_one_query("SELECT `id`, `name` FROM `users`", vec![]);
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"SELECT \`id\`, \`name\` FROM \`users\`"),
+            "user backticks must be escaped; got:\n{query_fn}"
+        );
+    }
+
+    /// A literal `${` in the user's SQL (e.g. inside a string literal) must
+    /// not become a live JS interpolation — and inside the Kysely `sql` tag
+    /// specifically, a live `${}` is a *parameter binding*, so an unescaped
+    /// literal `${` would silently corrupt bind positions.
+    #[test]
+    fn test_query_fn_escapes_user_dollar_brace_but_keeps_own_param_bindings_live() {
+        let backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        let query = make_one_query(
+            "SELECT id FROM users WHERE name = 'literal ${not_a_binding}' AND id = $1",
+            vec![AnalyzedParam {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                position: 1,
+            }],
+        );
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"'literal \${not_a_binding}'"),
+            "user's literal ${{}} must be escaped inert text; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("AND id = ${id}"),
+            "scythe's own param binding must stay a live interpolation; got:\n{query_fn}"
+        );
+    }
+
+    /// A backslash in the user's SQL (e.g. a Postgres escape string) must be
+    /// doubled so it stays a single literal backslash in the generated JS
+    /// string, rather than escaping whatever character follows it.
+    #[test]
+    fn test_query_fn_escapes_user_backslash_in_sql() {
+        let backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        let query = make_one_query(r"SELECT id FROM users WHERE name = E'a\\b'", vec![]);
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r"E'a\\\\b'"),
+            "user backslash must be doubled; got:\n{query_fn}"
+        );
+    }
+
     #[test]
     fn test_exec_result_reads_num_affected_rows() {
         let backend = TypescriptKyselyBackend::new("postgresql").unwrap();
@@ -723,6 +799,147 @@ mod tests {
             )]))
             .unwrap();
         assert!(backend.outer_join_unions);
+    }
+
+    /// Before the fix, `row_type = "zod"` returned before the
+    /// `outer_join_unions` branch was ever reached, so combining both
+    /// options silently discarded the discriminated union and fell back to
+    /// the flat Zod schema. This must produce a real `z.union([...])`.
+    #[test]
+    fn test_zod_row_type_combined_with_outer_join_unions_emits_a_real_union_schema() {
+        use crate::backend_trait::ResolvedColumn;
+
+        let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("row_type".to_string(), "zod".to_string()),
+                ("outer_join_unions".to_string(), "true".to_string()),
+            ]))
+            .unwrap();
+
+        let columns = vec![
+            ResolvedColumn {
+                name: "id".to_string(),
+                field_name: "id".to_string(),
+                lang_type: "number".to_string(),
+                full_type: "number".to_string(),
+                neutral_type: "int32".to_string(),
+                sql_type: "int4".to_string(),
+                nullable: false,
+                join_group: None,
+                nullable_before_join: false,
+            },
+            ResolvedColumn {
+                name: "total".to_string(),
+                field_name: "total".to_string(),
+                lang_type: "string".to_string(),
+                full_type: "string | null".to_string(),
+                neutral_type: "decimal".to_string(),
+                sql_type: "numeric".to_string(),
+                nullable: true,
+                join_group: Some("o".to_string()),
+                nullable_before_join: false,
+            },
+            ResolvedColumn {
+                name: "notes".to_string(),
+                field_name: "notes".to_string(),
+                lang_type: "string".to_string(),
+                full_type: "string | null".to_string(),
+                neutral_type: "string".to_string(),
+                sql_type: "text".to_string(),
+                nullable: true,
+                join_group: Some("o".to_string()),
+                nullable_before_join: true,
+            },
+        ];
+
+        let row_struct = backend.generate_row_struct("GetUserOrders", &columns).unwrap();
+
+        assert!(
+            row_struct.contains(".and(z.union(["),
+            "must emit a real discriminated union, not the flat schema; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("z.object({ total: z.string(), notes: z.string().nullable() })"),
+            "got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("z.object({ total: z.null(), notes: z.null() })"),
+            "got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("export type GetUserOrdersRow = z.infer<typeof GetUserOrdersRowSchema>;"),
+            "must still infer the row type from the schema; got:\n{row_struct}"
+        );
+    }
+
+    /// Without a discriminant, Zod + `outer_join_unions` must still fall
+    /// back to the flat schema.
+    #[test]
+    fn test_zod_row_type_combined_with_outer_join_unions_falls_back_without_a_discriminant() {
+        use crate::backend_trait::ResolvedColumn;
+
+        let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("row_type".to_string(), "zod".to_string()),
+                ("outer_join_unions".to_string(), "true".to_string()),
+            ]))
+            .unwrap();
+
+        let columns = vec![ResolvedColumn {
+            name: "id".to_string(),
+            field_name: "id".to_string(),
+            lang_type: "number".to_string(),
+            full_type: "number".to_string(),
+            neutral_type: "int32".to_string(),
+            sql_type: "int4".to_string(),
+            nullable: false,
+            join_group: None,
+            nullable_before_join: false,
+        }];
+
+        let row_struct = backend.generate_row_struct("GetUsers", &columns).unwrap();
+
+        assert!(
+            !row_struct.contains(".and("),
+            "no union without a discriminant; got:\n{row_struct}"
+        );
+        assert!(row_struct.contains("z.object({"), "got:\n{row_struct}");
+    }
+
+    /// Zod without `outer_join_unions` must be byte-identical to before this
+    /// change — a plain flat schema.
+    #[test]
+    fn test_zod_row_type_without_outer_join_unions_is_unchanged() {
+        use crate::backend_trait::ResolvedColumn;
+
+        let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "row_type".to_string(),
+                "zod".to_string(),
+            )]))
+            .unwrap();
+
+        let columns = vec![ResolvedColumn {
+            name: "id".to_string(),
+            field_name: "id".to_string(),
+            lang_type: "number".to_string(),
+            full_type: "number".to_string(),
+            neutral_type: "int32".to_string(),
+            sql_type: "int4".to_string(),
+            nullable: false,
+            join_group: None,
+            nullable_before_join: false,
+        }];
+
+        let row_struct = backend.generate_row_struct("GetUsers", &columns).unwrap();
+
+        assert_eq!(
+            row_struct,
+            crate::backends::typescript_common::generate_zod_row_struct("GetUsersRow", "GetUsers", &columns)
+        );
     }
 
     /// An unrecognized value must be reported, not silently treated as
