@@ -1,11 +1,11 @@
 ---
 title: TypeScript
-description: The typescript-postgres, typescript-pg, and typescript-kysely backends -- generated interfaces, queries, and type mappings.
+description: The typescript-postgres, typescript-pg, typescript-kysely, typescript-node-sqlite, and typescript-wasm-sqlite backends -- generated interfaces, queries, and type mappings.
 ---
 
-Backends: `typescript-postgres` (postgres.js), `typescript-pg` (node-postgres), `typescript-kysely` (Kysely) | Engine: PostgreSQL (`typescript-kysely` also targets MySQL, SQLite, and MSSQL -- see [Kysely](#kysely) below)
+Backends: `typescript-postgres` (postgres.js), `typescript-pg` (node-postgres), `typescript-kysely` (Kysely) | Engine: PostgreSQL (`typescript-kysely` also targets MySQL, SQLite, MSSQL, MariaDB, and Redshift -- see [Kysely](#kysely) below)
 
-All three backends share the same type mappings and TypeScript interfaces. They differ in query execution.
+All three backends share the same type mappings and TypeScript interfaces. They differ in query execution. Two further TypeScript backends, `typescript-node-sqlite` and `typescript-wasm-sqlite`, target SQLite only and generate synchronous code -- see [typescript-node-sqlite and typescript-wasm-sqlite](#typescript-node-sqlite-and-typescript-wasm-sqlite) below.
 
 ## SQL input
 
@@ -41,7 +41,7 @@ export interface GetUserRow {
   id: number;
   name: string;
   email: string | null;
-  createdAt: Date;
+  created_at: Date;
 }
 
 export interface ListUsersRow {
@@ -50,7 +50,7 @@ export interface ListUsersRow {
 }
 ```
 
-Note: field names use `camelCase` per the manifest naming convention.
+Note: field names mirror the SQL column names (`snake_case` in this example) -- the manifest's `field_case = "camelCase"` setting is not applied to row struct fields. Function names (`getUser`, `listUsers`) are `camelCase`, per `fn_case`.
 
 ## postgres.js
 
@@ -153,7 +153,9 @@ export async function createUser(
 
 ## Kysely
 
-`typescript-kysely` is dialect-parameterised, not driver-parameterised: generated functions take a `Kysely<DB>` handle and execute through Kysely's `sql` tagged-template. Kysely's own query compiler renders whatever placeholder syntax the connected `Dialect` needs at runtime, so the same generated call site works against every built-in Kysely dialect -- PostgreSQL, MySQL, SQLite, MSSQL -- and any third-party dialect scythe has never heard of, including `wasm-sqlite` and Node's built-in `node:sqlite` module.
+`typescript-kysely` is dialect-parameterised, not driver-parameterised: generated functions take a `Kysely<DB>` handle and execute through Kysely's `sql` tagged-template. Kysely's own query compiler renders whatever placeholder syntax the connected `Dialect` needs at runtime, so the same generated call site works against every Kysely dialect scythe pins and tests -- PostgreSQL, MySQL, SQLite, MSSQL, MariaDB, plus Redshift via the PostgreSQL dialect -- and, being wire-compatible, against third-party dialects scythe does not pin or test, such as libsql, PlanetScale, Cloudflare D1, Neon, PGlite, or a community `node:sqlite`/`wasm-sqlite` Kysely adapter.
+
+For synchronous SQLite access without Kysely or a Promise-based driver at all, see the dedicated [`typescript-node-sqlite`](#typescript-node-sqlite-and-typescript-wasm-sqlite) and [`typescript-wasm-sqlite`](#typescript-node-sqlite-and-typescript-wasm-sqlite) backends below.
 
 ```sql
 -- @name GetUser
@@ -220,6 +222,53 @@ export type GetUserOrdersRow = {
 |--------|--------|---------|--------|
 | `row_type` | `interface`, `zod` | `interface` | Emit plain TypeScript interfaces or Zod schemas + inferred types |
 | `outer_join_unions` | `true`, `false` | `false` | Discriminated unions for outer-join nullability instead of independent optionals |
+| `structs_only` | `true`, `false` | `false` | Emit only row types (interfaces/Zod schemas, enums, composites) -- no query functions, no driver import |
+
+`structs_only` is supported by every TypeScript backend, including `typescript-postgres`, `typescript-pg`, and `typescript-kysely`. Combined with `row_type = "zod"` it produces a types-only package with no driver dependency:
+
+```toml
+[[sql.gen]]
+backend = "typescript-pg"
+output = "src/generated/types"
+row_type = "zod"
+structs_only = "true"
+```
+
+## typescript-node-sqlite and typescript-wasm-sqlite
+
+Two TypeScript backends target SQLite only (`engine = "sqlite"`) and generate **synchronous** code -- no `async`, no `Promise` -- unlike every other TypeScript backend on this page:
+
+| Backend | Driver | Import |
+|---------|--------|--------|
+| `typescript-node-sqlite` | Node's built-in [`node:sqlite`](https://nodejs.org/api/sqlite.html) module (`DatabaseSync`), zero npm dependencies | `import type { DatabaseSync } from "node:sqlite";` |
+| `typescript-wasm-sqlite` | [`@sqlite.org/sqlite-wasm`](https://www.npmjs.com/package/@sqlite.org/sqlite-wasm), synchronous OO1 API | `import type { Database } from "@sqlite.org/sqlite-wasm";` |
+
+`node:sqlite` requires `--experimental-sqlite` on Node 22 and is unflagged from Node 23.4 onward -- generated code needs Node 23.4+ to run without the flag.
+
+Given:
+
+```sql
+-- @name GetOrdersByUser
+-- @returns :many
+SELECT id, total, notes, created_at FROM orders
+WHERE user_id = ? ORDER BY created_at DESC;
+```
+
+`typescript-node-sqlite` generates:
+
+```typescript
+export function getOrdersByUser(
+	db: DatabaseSync,
+	user_id: number,
+): GetOrdersByUserRow[] {
+	const stmt = db.prepare(`SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC`);
+	return stmt.all(user_id) as unknown as GetOrdersByUserRow[];
+}
+```
+
+`typescript-wasm-sqlite` generates the equivalent using `db.selectObjects(...)` instead of `db.prepare(...).all(...)`. Neither backend's `DatabaseSync`/`Database` handle has a `.transaction()` helper, so `:batch` queries wrap explicit `BEGIN`/`COMMIT`/`ROLLBACK` statements instead.
+
+Both backends support the same `row_type`, `outer_join_unions`, and `structs_only` options as the other TypeScript backends.
 
 ## Enum generation
 

@@ -28,8 +28,8 @@ scythe inspect --list-checks
 ```
 
 The connection URL is resolved in order: positional argument →
-`$DATABASE_URL` → `$SCYTHE_DATABASE_URL`. If none is set, `scythe inspect`
-exits with a clear error.
+`$DATABASE_URL` → `$SCYTHE_DATABASE_URL` → `[inspect].database_url` in
+`scythe.toml`. If none is set, `scythe inspect` exits with a clear error.
 
 ## Phase 0 check catalog
 
@@ -70,6 +70,63 @@ but stubbed — `scythe inspect --dialect mysql --list-checks` prints
 lands in Phase 3.
 
 Other engines (MSSQL, Snowflake, Oracle) are not yet wired.
+
+## Project configuration (`[inspect]` in `scythe.toml`)
+
+`scythe.toml` accepts an `[inspect]` section, mirroring the shape of
+`[audit]`:
+
+```toml
+[inspect]
+database_url = "postgres://localhost/dev"
+api_schemas  = ["public", "api"]
+extra_rules  = ["./inspect-rules.toml"]
+
+[inspect.severity_overrides]
+"SC-INS10" = "error"
+"SC-INS13" = "off"
+
+[[inspect.suppression]]
+rule   = "SC-INS09"
+schema = "public"
+object = "pgtap"
+
+[[inspect.check]]
+id          = "USER-INS-001"
+name        = "no-comments-on-tables"
+category    = "schema"
+severity    = "warn"
+engines     = ["postgres"]
+description = "tables must have COMMENT ON TABLE"
+message     = "table `{schema_name}.{table_name}` has no COMMENT"
+sql         = """
+SELECT n.nspname AS schema_name, c.relname AS table_name
+FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace
+WHERE c.relkind = 'r' AND n.nspname = 'app'
+  AND obj_description(c.oid, 'pg_class') IS NULL
+"""
+```
+
+- `database_url` — lowest-precedence URL source; see the resolution order
+  above.
+- `api_schemas` — schemas treated as the "API surface" for SC-INS10 (tables
+  without RLS). Defaults to `["public"]` when empty.
+- `extra_rules` — paths to additional check TOML files, resolved relative to
+  `scythe.toml`.
+- `[inspect.severity_overrides]` — per-check severity override keyed by
+  check ID. Value is `"warn"`, `"error"`, or `"off"`; `"off"` removes the
+  check from the active set.
+- `[[inspect.suppression]]` — suppresses matching findings. A finding is
+  suppressed when every `Some` field matches: `rule` (required), `schema`
+  (matches a row binding whose name contains `"schema"`), `object` (matches
+  a row binding whose name contains `"name"`).
+- `[[inspect.check]]` — inline user-defined checks. IDs must be prefixed
+  `USER-INS-`; every `{binding}` placeholder in `message` must exist as a
+  column in the check's `sql`. Both are validated when `scythe.toml` loads.
+
+`scythe inspect --explain <CHECK_ID>` prints a check's full rationale
+without connecting to a database, for both canonical `SC-INS*` and
+user-defined `USER-INS-*` checks.
 
 ## CI integration
 
@@ -112,22 +169,23 @@ jobs:
 
 ### Pre-commit hook (CI mode)
 
-The published `scythe-inspect` pre-commit hook is **CI-mode only** at
-Phase 0 — it requires `$DATABASE_URL` (or `$SCYTHE_DATABASE_URL`) to be set
-in the hook's environment. Local pre-commit runs without the variable fail
-loudly with the same error as the CLI.
+The published `scythe-inspect` pre-commit hook runs `scythe inspect` with no
+positional URL argument, so it resolves the connection URL the same way the
+CLI does: `$DATABASE_URL` → `$SCYTHE_DATABASE_URL` →
+`[inspect].database_url` in `scythe.toml`. Runs where none of the three is
+set fail loudly with the same error as the CLI.
 
 ```yaml
 - repo: https://github.com/Goldziher/scythe
-  rev: v0.10.0
+  rev: v0.12.0
   hooks:
     - id: scythe-inspect
       # args: [--exit-zero]    # uncomment for advisory CI integration
 ```
 
-Phase 1 (v0.11.0) will add a `[inspect]` section to `scythe.toml` so the URL
-can come from project config, making the hook viable for local pre-commit
-runs too.
+Set `[inspect].database_url` in `scythe.toml` (see above) to make the hook
+usable in ordinary local pre-commit runs, not just CI jobs that export
+`$DATABASE_URL`.
 
 ## What `scythe inspect` does **not** do (yet)
 
@@ -138,20 +196,19 @@ those, point a real observability stack (pganalyze, Datadog, Prometheus +
 postgres_exporter) at your database — `scythe inspect` is for the things you
 can catch with a single catalog snapshot.
 
-Also not in Phase 0:
+Also not implemented:
 
-- **Schema drift** (declared `scythe.toml` catalog vs live database) — Phase 2.
+- **Schema drift** (declared `scythe.toml` catalog vs live database) —
+  unscheduled.
 - **Stats-based checks** (unused indexes via `pg_stat_user_indexes`, slow
   queries via `pg_stat_statements`, bloat via `pgstattuple`) — Phase 4.
-- **User-defined inspect rules** — Phase 1.
-- **`[inspect]` section in `scythe.toml`** — Phase 1.
 
 ## Phased roadmap
 
 | Phase | Release | Theme | Engines | Checks |
 |---|---|---|---|---|
-| **0** | v0.10.0 | MVP — three Postgres checks | PG (MySQL stub) | SC-INS01..03 |
-| **1** | v0.11.0 | Full PG check pack + TOML rule registry + `--explain` + `[inspect]` config | PG | SC-INS04..10 |
-| **2** | v0.12.0 | Schema drift — declared catalog vs live | PG | SC-DFT01..05 |
+| **0** | v0.10.0 (shipped) | MVP — three Postgres checks | PG (MySQL stub) | SC-INS01..03 |
+| **1** | v0.11.0 (shipped) | Full PG check pack + TOML rule registry + `--explain` + `[inspect]` config | PG | SC-INS04..13 |
+| **2** | unscheduled | Schema drift — declared catalog vs live | PG | SC-DFT01..05 |
 | **3** | v0.13.0 | MySQL driver + initial MySQL check pack | PG + MySQL | SC-INS-MY01..06 |
 | **4** | v0.14.0 | Stats-based — unused indexes, slow queries via `pg_stat_*` | PG | SC-INS-STAT01..04 |

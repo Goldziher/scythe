@@ -14,7 +14,7 @@ metadata:
 
 # Scythe SQL-to-Code Generator
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries with annotations, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 70+ backend drivers. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries with annotations, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 52 backend drivers. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
 
 Use this skill when:
 
@@ -217,6 +217,18 @@ naming = "warn"
 | Python | `dataclass` (default), `pydantic`, `msgspec` |
 | TypeScript | `interface` (default), `zod` |
 
+### structs_only option
+
+`structs_only = "true"` emits only row types (interfaces/Zod schemas, enums, composites) and suppresses query functions and the driver import. Supported by `rust-sqlx` and every TypeScript backend (`typescript-postgres`, `typescript-pg`, `typescript-mysql2`, `typescript-better-sqlite3`, `typescript-node-sqlite`, `typescript-wasm-sqlite`, `typescript-duckdb`, `typescript-mssql`, `typescript-oracledb`, `typescript-snowflake`, `typescript-kysely`). Combine with `row_type = "zod"` for a types-only package with no driver dependency:
+
+```toml
+[[sql.gen]]
+backend = "typescript-pg"
+output = "src/generated/types"
+row_type = "zod"
+structs_only = "true"
+```
+
 ## Supported Backends
 
 ### PostgreSQL
@@ -229,6 +241,7 @@ naming = "warn"
 | `python-asyncpg` | Python | asyncpg |
 | `typescript-postgres` | TypeScript | postgres.js |
 | `typescript-pg` | TypeScript | pg |
+| `typescript-kysely` | TypeScript | Kysely (`PostgresDialect`) |
 | `go-pgx` | Go | pgx v5 |
 | `java-jdbc` | Java | JDBC |
 | `java-r2dbc` | Java | R2DBC |
@@ -237,6 +250,7 @@ naming = "warn"
 | `kotlin-exposed` | Kotlin | Exposed |
 | `csharp-npgsql` | C# | Npgsql |
 | `elixir-postgrex` | Elixir | Postgrex |
+| `elixir-ecto` | Elixir | Ecto |
 | `ruby-pg` | Ruby | pg |
 | `php-pdo` | PHP | PDO |
 
@@ -247,6 +261,7 @@ naming = "warn"
 | `rust-sqlx` | Rust | sqlx |
 | `python-aiomysql` | Python | aiomysql |
 | `typescript-mysql2` | TypeScript | mysql2 |
+| `typescript-kysely` | TypeScript | Kysely (`MysqlDialect`) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
@@ -262,6 +277,9 @@ naming = "warn"
 | `rust-sqlx` | Rust | sqlx |
 | `python-aiosqlite` | Python | aiosqlite |
 | `typescript-better-sqlite3` | TypeScript | better-sqlite3 |
+| `typescript-node-sqlite` | TypeScript | node:sqlite (sync, zero deps) |
+| `typescript-wasm-sqlite` | TypeScript | @sqlite.org/sqlite-wasm (sync) |
+| `typescript-kysely` | TypeScript | Kysely (`SqliteDialect`) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
@@ -270,18 +288,22 @@ naming = "warn"
 | `ruby-sqlite3` | Ruby | sqlite3 |
 | `php-pdo` | PHP | PDO |
 
+`typescript-node-sqlite` and `typescript-wasm-sqlite` generate synchronous code -- plain `export function`, no `async`, no `Promise` -- unlike every other TypeScript backend ([#66](https://github.com/Goldziher/scythe/issues/66)). `typescript-node-sqlite` requires `--experimental-sqlite` on Node 22 and is unflagged from Node 23.4 onward; generated code needs Node 23.4+ to run without the flag.
+
 ### DuckDB
 
 | Backend | Language | Library |
 |---------|----------|---------|
 | `python-duckdb` | Python | duckdb |
-| `rust-duckdb` | Rust | duckdb-rs |
 | `typescript-duckdb` | TypeScript | duckdb-node |
+| `go-database-sql` | Go | database/sql |
+| `java-jdbc` | Java | JDBC |
+| `kotlin-jdbc` | Kotlin | JDBC |
 
 ### CockroachDB
 
 CockroachDB uses PostgreSQL backends with `engine = "cockroachdb"`:
-`rust-sqlx`, `python-psycopg3`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`.
+`rust-sqlx`, `python-psycopg3`, `typescript-pg`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `ruby-pg`, `php-pdo`, `elixir-postgrex`.
 
 ### MSSQL
 
@@ -290,7 +312,8 @@ CockroachDB uses PostgreSQL backends with `engine = "cockroachdb"`:
 | `rust-tiberius` | Rust | tiberius |
 | `python-pyodbc` | Python | pyodbc |
 | `typescript-mssql` | TypeScript | mssql (tedious) |
-| `go-mssqldb` | Go | go-mssqldb |
+| `typescript-kysely` | TypeScript | Kysely (`MssqlDialect`, tedious+tarn) |
+| `go-database-sql` | Go | go-mssqldb |
 | `java-jdbc` | Java | JDBC |
 | `java-r2dbc` | Java | R2DBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
@@ -312,20 +335,21 @@ CockroachDB uses PostgreSQL backends with `engine = "cockroachdb"`:
 | `java-r2dbc` | Java | R2DBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
 | `kotlin-r2dbc` | Kotlin | R2DBC |
-| `csharp-odpnet` | C# | ODP.NET |
+| `csharp-oracle` | C# | ODP.NET |
 | `ruby-oci8` | Ruby | ruby-oci8 |
-| `php-pdo` | PHP | PDO |
-| `elixir-jamdb-oracle` | Elixir | jamdb_oracle |
+| `elixir-jamdb` | Elixir | jamdb_oracle |
+
+`php-pdo` does not support Oracle (no `oci` engine mapping) despite PDO's own OCI driver; there is no `php-pdo` Oracle backend.
 
 ### MariaDB
 
 MariaDB uses MySQL drivers with MariaDB-specific type resolution:
-`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`.
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`.
 
 ### Redshift
 
 Redshift uses PostgreSQL backends with `engine = "redshift"`:
-`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-pg`, `typescript-postgres`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `elixir-postgrex`, `ruby-pg`, `php-pdo`.
+`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-pg`, `typescript-postgres`, `typescript-kysely`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `elixir-postgrex`, `ruby-pg`, `php-pdo`.
 
 ### Snowflake
 
@@ -443,7 +467,7 @@ Detailed reference files for specific topics:
 
 - **[Configuration Reference](references/configuration.md)** -- Full scythe.toml reference
 - **[Annotations Reference](references/annotations.md)** -- All annotations with examples
-- **[Backends Reference](references/backends.md)** -- All 70+ backends with engine support
+- **[Backends Reference](references/backends.md)** -- All 52 backends with engine support
 - **[Lint Rules Reference](references/lint-rules.md)** -- All rules with codes and examples
 - **[CLI Reference](references/cli-reference.md)** -- All commands, flags, exit codes
 

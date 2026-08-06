@@ -12,7 +12,7 @@ Add scythe to your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.9.0  # use the latest release tag
+    rev: v0.12.0  # use the latest release tag
     hooks:
       - id: scythe-fmt
       - id: scythe-lint
@@ -36,7 +36,7 @@ prek install
 | `scythe-fmt` | Format SQL files in-place | Yes | No |
 | `scythe-lint` | Lint SQL files with auto-fix (includes audit rules) | Yes | No |
 | `scythe-audit` | SC-SEC*/SC-RLS*/SC-MIG*/SC-CHK* security/migration audit | No | No |
-| `scythe-inspect` | Live-DB health checks (SC-INS*) — CI mode, requires `$DATABASE_URL` | No | No |
+| `scythe-inspect` | Live-DB health checks (SC-INS*) — needs `$DATABASE_URL` or `[inspect].database_url` | No | No |
 | `scythe-generate` | Generate code from SQL schema and queries | Yes | Yes |
 | `scythe-check` | Validate SQL without generating code | No | Yes |
 
@@ -54,7 +54,7 @@ Static SQL audit — runs the canonical security, RLS, migration-safety, and CHE
 
 ### scythe-inspect
 
-**CI-mode hook.** Connects to a live Postgres database and runs the `SC-INS*` operational health checks (missing FK indexes, RLS misconfig with policies, duplicate indexes). Requires `$DATABASE_URL` (or `$SCYTHE_DATABASE_URL`) to be set in the hook's environment — local pre-commit runs without the variable fail loudly with the same error as the CLI. Designed for CI pre-merge gates and pre-deploy checks, not interactive commit blocking. Exits 2 on error-severity findings; pass `--exit-zero` via `args:` for advisory mode. Phase 1 (v0.11.0) will add `[inspect]` config sourcing so local pre-commit use becomes natural.
+Connects to a live Postgres database and runs the `SC-INS*` operational health checks (missing FK indexes, RLS misconfig with policies, duplicate indexes). Resolves the connection URL the same way `scythe inspect` does: `$DATABASE_URL`, then `$SCYTHE_DATABASE_URL`, then `[inspect].database_url` in `scythe.toml` (see the [Inspect guide](/scythe/guide/inspect/)). Runs where none of the three is set fail loudly with the same error as the CLI. Designed for CI pre-merge gates and pre-deploy checks, not interactive commit blocking. Exits 2 on error-severity findings; pass `--exit-zero` via `args:` for advisory mode.
 
 ### scythe-generate
 
@@ -71,7 +71,7 @@ Override default arguments in your `.pre-commit-config.yaml`:
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.6.0
+    rev: v0.12.0
     hooks:
       # Format with a specific SQL dialect
       - id: scythe-fmt

@@ -33,7 +33,7 @@
 
 ---
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 70+ backend drivers. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 52 backend drivers. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
 
 ## Installation
 
@@ -337,7 +337,9 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 
 - **10 languages** -- Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP
 - **10 databases** -- PostgreSQL, MySQL, SQLite, DuckDB, CockroachDB, MSSQL, Oracle, MariaDB, Redshift, Snowflake
-- **70+ backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, pgx, JDBC, R2DBC, Exposed, Npgsql, PDO, tiberius, oracledb, pyodbc, and more
+- **52 backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, Kysely, pgx, JDBC, R2DBC, Exposed, Npgsql, PDO, tiberius, oracledb, pyodbc, and more
+- **Dialect-agnostic TypeScript with Kysely** -- `typescript-kysely` compiles to Kysely's `sql` tag, which works unmodified against any Kysely dialect: five pinned dialects (PostgreSQL, MySQL, SQLite, MSSQL, MariaDB) plus a Redshift manifest, and wire-compatible (but unpinned/untested by scythe) third-party dialects such as libsql, PlanetScale, Cloudflare D1, Neon, and PGlite
+- **Synchronous TypeScript SQLite backends** -- `typescript-node-sqlite` (Node's built-in `node:sqlite`, zero npm dependencies, needs Node 23.4+ or `--experimental-sqlite` on Node 22) and `typescript-wasm-sqlite` (`@sqlite.org/sqlite-wasm`) emit plain `export function` calls with no `async`/`Promise`
 - **58 built-in rules** -- 23 lint rules (UPDATE without WHERE, SELECT *, NULL comparisons, leading wildcard LIKE) and 35 audit rules, plus sqruff's 69 style rules via integration
 - **`scythe audit`** -- security scanner for SQL: dangerous functions, GRANT ALL, GRANT to PUBLIC, cartesian joins, unbounded LIKE, SECURITY DEFINER without pinned `search_path`, role privilege escalation, literal passwords, weak hashes over credential columns, SELECT * over PII, session-state mutation. Emits human / SARIF / JSON for CI integration
 - **`scythe inspect`** -- live-database operational health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. Connects via `tokio-postgres`, emits the same human / SARIF / JSON reports as audit. (Postgres only at v0.10; MySQL in Phase 3.)
@@ -349,6 +351,7 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 - **R2DBC reactive backends** -- non-blocking database access for Java and Kotlin
 - **Kotlin Exposed** -- first-class Exposed ORM backend for Kotlin
 - **Configurable row types** -- Pydantic, msgspec, Zod, dataclass, interface per backend
+- **`structs_only` codegen option** -- emit only row types (interfaces/Zod schemas/enums/composites), no query functions and no driver import; supported by `rust-sqlx` and every TypeScript backend, combinable with `row_type = "zod"` for a types-only package
 - **CTEs and window functions** -- ROW_NUMBER, RANK, LAG, LEAD, recursive CTEs with correct type inference
 - **Enums, composites, arrays** -- PostgreSQL types mapped to language-native equivalents
 - **Custom type overrides** -- map ltree, citext, PostGIS geometry to any target type
@@ -359,14 +362,16 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 |------------|:----------:|:-----:|:------:|:------:|:-----------:|:-----:|:------:|:-------:|:--------:|:---------:|
 | Rust       | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx | tiberius | sibyl | sqlx | sqlx | -- |
 | Python     | psycopg3, asyncpg | aiomysql | aiosqlite | python-duckdb | psycopg3 | pyodbc | oracledb | aiomysql | psycopg3 | snowflake-connector |
-| TypeScript | pg, postgres.js | mysql2 | better-sqlite3 | typescript-duckdb | pg | mssql | oracledb | mysql2 | pg | snowflake-sdk |
+| TypeScript | pg, postgres.js, kysely | mysql2, kysely | better-sqlite3, node:sqlite, sqlite-wasm, kysely | typescript-duckdb | pg, kysely | mssql, kysely | oracledb | mysql2, kysely | pg, kysely | snowflake-sdk |
 | Go         | pgx | database/sql | database/sql | database/sql | pgx | go-mssqldb | godror | database/sql | pgx | gosnowflake |
 | Java       | JDBC, R2DBC | JDBC | JDBC | JDBC | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
 | Kotlin     | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
 | C#         | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | Npgsql | Microsoft.Data.SqlClient | ODP.NET | MySqlConnector | Npgsql | Snowflake.Data |
 | Ruby       | pg, Trilogy | mysql2, Trilogy | sqlite3 | -- | pg | tiny_tds | ruby-oci8 | mysql2 | pg | -- |
-| PHP        | PDO, AMPHP | PDO | PDO | -- | PDO | PDO | PDO | PDO | PDO | PDO |
+| PHP        | PDO, AMPHP | PDO | PDO | -- | PDO | PDO | -- | PDO | PDO | PDO |
 | Elixir     | Postgrex, Ecto | MyXQL | Exqlite | -- | Postgrex | tds | jamdb_oracle | MyXQL | Postgrex | -- |
+
+`kysely` (backend `typescript-kysely`) is dialect-parameterised rather than driver-parameterised: the same generated call site runs against any Kysely `Dialect`. Scythe pins and tests five dialects (PostgreSQL, MySQL, SQLite, MSSQL, MariaDB) plus a Redshift manifest that reuses the PostgreSQL dialect. Third-party dialects -- libsql, PlanetScale, Cloudflare D1, Neon, PGlite, and Node's `node:sqlite` / `@sqlite.org/sqlite-wasm` used as a Kysely dialect -- are wire-compatible but not pinned or tested by scythe.
 
 ## Documentation
 
