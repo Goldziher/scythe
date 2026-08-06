@@ -6,11 +6,12 @@ on:
     paths:
       - "website/**"
       - ".github/workflows/docs.yml"
+      - "CHANGELOG.md"
   workflow_dispatch: {}
 
 concurrency:
   group: pages
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 permissions:
   contents: read
