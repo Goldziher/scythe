@@ -13,7 +13,9 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::singularize;
 
-use super::python_common::{PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py};
+use super::python_common::{
+    PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, write_execute_call,
+};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-pyodbc.toml");
 
@@ -156,11 +158,8 @@ impl CodegenBackend for PythonPyodbcBackend {
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    cursor = conn.cursor()");
-                if params.is_empty() {
-                    let _ = writeln!(out, "    cursor.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "    cursor.execute(\"\"\"{}\"\"\", {})", sql, args_tuple);
-                }
+                let args = (!params.is_empty()).then_some(args_tuple.as_str());
+                write_execute_call(&mut out, "    ", "cursor.execute", &sql, args);
                 let _ = writeln!(out, "    row = cursor.fetchone()");
                 let _ = writeln!(out, "    if row is None:");
                 let _ = writeln!(out, "        return None");
@@ -204,13 +203,13 @@ impl CodegenBackend for PythonPyodbcBackend {
                 let _ = writeln!(out, "    cursor = conn.cursor()");
                 if params.is_empty() {
                     let _ = writeln!(out, "    for _ in range(count):");
-                    let _ = writeln!(out, "        cursor.execute(\"\"\"{}\"\"\")", sql);
+                    write_execute_call(&mut out, "        ", "cursor.execute", &sql, None);
                 } else if params.len() == 1 {
                     let _ = writeln!(out, "    for item in items:");
-                    let _ = writeln!(out, "        cursor.execute(\"\"\"{}\"\"\", (item,))", sql);
+                    write_execute_call(&mut out, "        ", "cursor.execute", &sql, Some("(item,)"));
                 } else {
                     let _ = writeln!(out, "    for item in items:");
-                    let _ = writeln!(out, "        cursor.execute(\"\"\"{}\"\"\", item)", sql);
+                    write_execute_call(&mut out, "        ", "cursor.execute", &sql, Some("item"));
                 }
                 let _ = writeln!(out, "    conn.commit()");
             }
@@ -222,11 +221,8 @@ impl CodegenBackend for PythonPyodbcBackend {
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    cursor = conn.cursor()");
-                if params.is_empty() {
-                    let _ = writeln!(out, "    cursor.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "    cursor.execute(\"\"\"{}\"\"\", {})", sql, args_tuple);
-                }
+                let args = (!params.is_empty()).then_some(args_tuple.as_str());
+                write_execute_call(&mut out, "    ", "cursor.execute", &sql, args);
                 let _ = writeln!(out, "    rows = cursor.fetchall()");
                 let field_assignments: Vec<String> = columns
                     .iter()
@@ -259,11 +255,8 @@ impl CodegenBackend for PythonPyodbcBackend {
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    cursor = conn.cursor()");
-                if params.is_empty() {
-                    let _ = writeln!(out, "    cursor.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "    cursor.execute(\"\"\"{}\"\"\", {})", sql, args_tuple);
-                }
+                let args = (!params.is_empty()).then_some(args_tuple.as_str());
+                write_execute_call(&mut out, "    ", "cursor.execute", &sql, args);
                 let _ = writeln!(out, "    conn.commit()");
             }
             QueryCommand::Grouped => unreachable!("grouped queries are routed to generate_grouped_query_fn"),
@@ -275,11 +268,8 @@ impl CodegenBackend for PythonPyodbcBackend {
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    cursor = conn.cursor()");
-                if params.is_empty() {
-                    let _ = writeln!(out, "    cursor.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "    cursor.execute(\"\"\"{}\"\"\", {})", sql, args_tuple);
-                }
+                let args = (!params.is_empty()).then_some(args_tuple.as_str());
+                write_execute_call(&mut out, "    ", "cursor.execute", &sql, args);
                 let _ = writeln!(out, "    conn.commit()");
                 let _ = writeln!(out, "    return cursor.rowcount");
             }

@@ -13,7 +13,10 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::singularize;
 
-use super::python_common::{PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py};
+use super::python_common::{
+    PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, write_def_signature,
+    write_execute_call,
+};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-snowflake.toml");
 
@@ -127,12 +130,11 @@ impl CodegenBackend for PythonSnowflakeBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
 
-        let param_list = params
+        let kw_params: Vec<(String, String)> = params
             .iter()
-            .map(|p| format!("{}: {}", p.field_name, p.full_type))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
+            .map(|p| (p.field_name.clone(), p.full_type.clone()))
+            .collect();
+        const CONN_PARAM: &str = "conn: snowflake.connector.SnowflakeConnection";
 
         let sql = super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
@@ -152,18 +154,12 @@ impl CodegenBackend for PythonSnowflakeBackend {
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
-                let _ = writeln!(
-                    out,
-                    "def {}(conn: snowflake.connector.SnowflakeConnection{}{}) -> {} | None:",
-                    func_name, kw_sep, param_list, struct_name
-                );
+                let ret = format!("{} | None", struct_name);
+                write_def_signature(&mut out, "def", &func_name, CONN_PARAM, &kw_params, &ret);
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    cur = conn.cursor()");
-                if params.is_empty() {
-                    let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\", {})", sql, args_tuple);
-                }
+                let args = (!params.is_empty()).then_some(args_tuple.as_str());
+                write_execute_call(&mut out, "    ", "cur.execute", &sql, args);
                 let _ = writeln!(out, "    row = cur.fetchone()");
                 let _ = writeln!(out, "    if row is None:");
                 let _ = writeln!(out, "        return None");
@@ -194,11 +190,8 @@ impl CodegenBackend for PythonSnowflakeBackend {
                     "int".to_string()
                 };
                 let items_or_count = if params.is_empty() { "count" } else { "items" };
-                let _ = writeln!(
-                    out,
-                    "def {}(conn: snowflake.connector.SnowflakeConnection, *, {}: {}) -> None:",
-                    batch_fn_name, items_or_count, items_type
-                );
+                let batch_kw_params = vec![(items_or_count.to_string(), items_type)];
+                write_def_signature(&mut out, "def", &batch_fn_name, CONN_PARAM, &batch_kw_params, "None");
                 let _ = writeln!(
                     out,
                     "    \"\"\"Execute {} query for each item in the batch.\"\"\"",
@@ -207,28 +200,22 @@ impl CodegenBackend for PythonSnowflakeBackend {
                 let _ = writeln!(out, "    cur = conn.cursor()");
                 if params.is_empty() {
                     let _ = writeln!(out, "    for _ in range(count):");
-                    let _ = writeln!(out, "        cur.execute(\"\"\"{}\"\"\")", sql);
+                    write_execute_call(&mut out, "        ", "cur.execute", &sql, None);
                 } else if params.len() == 1 {
                     let _ = writeln!(out, "    for item in items:");
-                    let _ = writeln!(out, "        cur.execute(\"\"\"{}\"\"\", (item,))", sql);
+                    write_execute_call(&mut out, "        ", "cur.execute", &sql, Some("(item,)"));
                 } else {
                     let _ = writeln!(out, "    for item in items:");
-                    let _ = writeln!(out, "        cur.execute(\"\"\"{}\"\"\", item)", sql);
+                    write_execute_call(&mut out, "        ", "cur.execute", &sql, Some("item"));
                 }
             }
             QueryCommand::Many => {
-                let _ = writeln!(
-                    out,
-                    "def {}(conn: snowflake.connector.SnowflakeConnection{}{}) -> list[{}]:",
-                    func_name, kw_sep, param_list, struct_name
-                );
+                let ret = format!("list[{}]", struct_name);
+                write_def_signature(&mut out, "def", &func_name, CONN_PARAM, &kw_params, &ret);
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    cur = conn.cursor()");
-                if params.is_empty() {
-                    let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\", {})", sql, args_tuple);
-                }
+                let args = (!params.is_empty()).then_some(args_tuple.as_str());
+                write_execute_call(&mut out, "    ", "cur.execute", &sql, args);
                 let _ = writeln!(out, "    rows = cur.fetchall()");
                 let field_assignments: Vec<String> = columns
                     .iter()
@@ -254,33 +241,19 @@ impl CodegenBackend for PythonSnowflakeBackend {
                 }
             }
             QueryCommand::Exec => {
-                let _ = writeln!(
-                    out,
-                    "def {}(conn: snowflake.connector.SnowflakeConnection{}{}) -> None:",
-                    func_name, kw_sep, param_list
-                );
+                write_def_signature(&mut out, "def", &func_name, CONN_PARAM, &kw_params, "None");
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    cur = conn.cursor()");
-                if params.is_empty() {
-                    let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\", {})", sql, args_tuple);
-                }
+                let args = (!params.is_empty()).then_some(args_tuple.as_str());
+                write_execute_call(&mut out, "    ", "cur.execute", &sql, args);
             }
             QueryCommand::Grouped => unreachable!("grouped queries are routed to generate_grouped_query_fn"),
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(
-                    out,
-                    "def {}(conn: snowflake.connector.SnowflakeConnection{}{}) -> int:",
-                    func_name, kw_sep, param_list
-                );
+                write_def_signature(&mut out, "def", &func_name, CONN_PARAM, &kw_params, "int");
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    cur = conn.cursor()");
-                if params.is_empty() {
-                    let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "    cur.execute(\"\"\"{}\"\"\", {})", sql, args_tuple);
-                }
+                let args = (!params.is_empty()).then_some(args_tuple.as_str());
+                write_execute_call(&mut out, "    ", "cur.execute", &sql, args);
                 let _ = writeln!(out, "    return cur.rowcount");
             }
         }

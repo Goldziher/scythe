@@ -59,6 +59,57 @@ const SQLITE_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
 const SQLITE_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
     DELETE FROM users WHERE id = ?;";
 
+const MSSQL_SCHEMA: &str = "CREATE TABLE users (\
+    id INT IDENTITY(1,1) PRIMARY KEY, \
+    name NVARCHAR(255) NOT NULL, \
+    email NVARCHAR(255), \
+    status NVARCHAR(50) NOT NULL DEFAULT 'active', \
+    created_at DATETIME2 NOT NULL\
+);";
+
+const MSSQL_QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
+    SELECT id, name, email, status, created_at FROM users WHERE id = @p1;";
+
+const MSSQL_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
+    SELECT id, name, email FROM users ORDER BY name;";
+
+const MSSQL_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
+    DELETE FROM users WHERE id = @p1;";
+
+const ORACLE_SCHEMA: &str = "CREATE TABLE users (\
+    id NUMBER(10) PRIMARY KEY, \
+    name VARCHAR2(255) NOT NULL, \
+    email VARCHAR2(255), \
+    status VARCHAR2(50) DEFAULT 'active' NOT NULL, \
+    created_at TIMESTAMP NOT NULL\
+);";
+
+const ORACLE_QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
+    SELECT id, name, email, status, created_at FROM users WHERE id = :1;";
+
+const ORACLE_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
+    SELECT id, name, email FROM users ORDER BY name;";
+
+const ORACLE_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
+    DELETE FROM users WHERE id = :1;";
+
+const SNOWFLAKE_SCHEMA: &str = "CREATE TABLE users (\
+    id INTEGER PRIMARY KEY, \
+    name VARCHAR(255) NOT NULL, \
+    email VARCHAR(255), \
+    status VARCHAR(50) NOT NULL DEFAULT 'active', \
+    created_at TIMESTAMP_NTZ NOT NULL\
+);";
+
+const SNOWFLAKE_QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
+    SELECT id, name, email, status, created_at FROM users WHERE id = ?;";
+
+const SNOWFLAKE_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
+    SELECT id, name, email FROM users ORDER BY name;";
+
+const SNOWFLAKE_QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
+    DELETE FROM users WHERE id = ?;";
+
 fn generate_full_file(backend_name: &str) -> String {
     let backend = get_backend(backend_name, "postgresql").unwrap();
     generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::PostgreSQL)
@@ -80,10 +131,31 @@ fn generate_full_file_sqlite(backend_name: &str) -> String {
     generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::SQLite)
 }
 
+fn generate_full_file_mssql(backend_name: &str) -> String {
+    let backend = get_backend(backend_name, "mssql").unwrap();
+    generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::MsSql)
+}
+
+fn generate_full_file_oracle(backend_name: &str) -> String {
+    let backend = get_backend(backend_name, "oracle").unwrap();
+    generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::Oracle)
+}
+
+fn generate_full_file_snowflake(backend_name: &str) -> String {
+    let backend = get_backend(backend_name, "snowflake").unwrap();
+    generate_full_file_from_backend(backend_name, &*backend, &SqlDialect::Snowflake)
+}
+
 fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBackend, dialect: &SqlDialect) -> String {
     let (schema, queries) = match dialect {
         SqlDialect::MySQL => (MYSQL_SCHEMA, [MYSQL_QUERY_ONE, MYSQL_QUERY_MANY, MYSQL_QUERY_EXEC]),
         SqlDialect::SQLite => (SQLITE_SCHEMA, [SQLITE_QUERY_ONE, SQLITE_QUERY_MANY, SQLITE_QUERY_EXEC]),
+        SqlDialect::MsSql => (MSSQL_SCHEMA, [MSSQL_QUERY_ONE, MSSQL_QUERY_MANY, MSSQL_QUERY_EXEC]),
+        SqlDialect::Oracle => (ORACLE_SCHEMA, [ORACLE_QUERY_ONE, ORACLE_QUERY_MANY, ORACLE_QUERY_EXEC]),
+        SqlDialect::Snowflake => (
+            SNOWFLAKE_SCHEMA,
+            [SNOWFLAKE_QUERY_ONE, SNOWFLAKE_QUERY_MANY, SNOWFLAKE_QUERY_EXEC],
+        ),
         _ => (SCHEMA, [QUERY_ONE, QUERY_MANY, QUERY_EXEC]),
     };
 
@@ -341,6 +413,108 @@ macro_rules! sqlite_backend_test {
     };
 }
 
+macro_rules! mssql_backend_test {
+    ($name:ident, $backend:expr) => {
+        #[test]
+        fn $name() {
+            let code = generate_full_file_mssql($backend);
+            assert!(
+                !code.trim().is_empty(),
+                "generated code is empty for {}",
+                $backend
+            );
+
+            eprintln!("\n=== {} ===\n{}\n=== END ===\n", $backend, code);
+
+            let structural_errors = validate_structural(&code, $backend);
+            assert!(
+                structural_errors.is_empty(),
+                "{} structural: {:?}",
+                $backend,
+                structural_errors
+            );
+
+            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
+                assert!(
+                    tool_errors.is_empty(),
+                    "{} tool validation: {:?}\n\nGenerated code:\n{}",
+                    $backend,
+                    tool_errors,
+                    code
+                );
+            }
+        }
+    };
+}
+
+macro_rules! oracle_backend_test {
+    ($name:ident, $backend:expr) => {
+        #[test]
+        fn $name() {
+            let code = generate_full_file_oracle($backend);
+            assert!(
+                !code.trim().is_empty(),
+                "generated code is empty for {}",
+                $backend
+            );
+
+            eprintln!("\n=== {} ===\n{}\n=== END ===\n", $backend, code);
+
+            let structural_errors = validate_structural(&code, $backend);
+            assert!(
+                structural_errors.is_empty(),
+                "{} structural: {:?}",
+                $backend,
+                structural_errors
+            );
+
+            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
+                assert!(
+                    tool_errors.is_empty(),
+                    "{} tool validation: {:?}\n\nGenerated code:\n{}",
+                    $backend,
+                    tool_errors,
+                    code
+                );
+            }
+        }
+    };
+}
+
+macro_rules! snowflake_backend_test {
+    ($name:ident, $backend:expr) => {
+        #[test]
+        fn $name() {
+            let code = generate_full_file_snowflake($backend);
+            assert!(
+                !code.trim().is_empty(),
+                "generated code is empty for {}",
+                $backend
+            );
+
+            eprintln!("\n=== {} ===\n{}\n=== END ===\n", $backend, code);
+
+            let structural_errors = validate_structural(&code, $backend);
+            assert!(
+                structural_errors.is_empty(),
+                "{} structural: {:?}",
+                $backend,
+                structural_errors
+            );
+
+            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
+                assert!(
+                    tool_errors.is_empty(),
+                    "{} tool validation: {:?}\n\nGenerated code:\n{}",
+                    $backend,
+                    tool_errors,
+                    code
+                );
+            }
+        }
+    };
+}
+
 backend_test!(test_rust_sqlx, "rust-sqlx");
 backend_test!(test_rust_tokio_postgres, "rust-tokio-postgres");
 backend_test!(test_python_psycopg3, "python-psycopg3");
@@ -369,6 +543,31 @@ duckdb_backend_test!(test_python_duckdb, "python-duckdb");
 duckdb_backend_test!(test_typescript_duckdb, "typescript-duckdb");
 
 mysql_backend_test!(test_ruby_trilogy, "ruby-trilogy");
+mysql_backend_test!(test_csharp_mysqlconnector, "csharp-mysqlconnector");
+mysql_backend_test!(test_elixir_myxql, "elixir-myxql");
+
+sqlite_backend_test!(test_csharp_microsoft_sqlite, "csharp-microsoft-sqlite");
+sqlite_backend_test!(test_elixir_exqlite, "elixir-exqlite");
+
+mssql_backend_test!(test_typescript_mssql, "typescript-mssql");
+mssql_backend_test!(test_csharp_sqlclient, "csharp-sqlclient");
+mssql_backend_test!(test_elixir_tds, "elixir-tds");
+mssql_backend_test!(test_python_pyodbc, "python-pyodbc");
+mssql_backend_test!(test_ruby_tiny_tds, "ruby-tiny-tds");
+mssql_backend_test!(test_rust_tiberius, "rust-tiberius");
+
+oracle_backend_test!(test_typescript_oracledb, "typescript-oracledb");
+oracle_backend_test!(test_csharp_oracle, "csharp-oracle");
+oracle_backend_test!(test_elixir_jamdb, "elixir-jamdb");
+oracle_backend_test!(test_python_oracledb, "python-oracledb");
+oracle_backend_test!(test_go_godror, "go-godror");
+oracle_backend_test!(test_ruby_oci8, "ruby-oci8");
+oracle_backend_test!(test_rust_sibyl, "rust-sibyl");
+
+snowflake_backend_test!(test_typescript_snowflake, "typescript-snowflake");
+snowflake_backend_test!(test_csharp_snowflake, "csharp-snowflake");
+snowflake_backend_test!(test_python_snowflake, "python-snowflake");
+snowflake_backend_test!(test_go_gosnowflake, "go-gosnowflake");
 
 backend_test_with_options!(test_python_psycopg3_pydantic, "python-psycopg3", "row_type" => "pydantic");
 backend_test_with_options!(test_python_psycopg3_msgspec, "python-psycopg3", "row_type" => "msgspec");

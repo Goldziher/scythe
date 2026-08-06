@@ -4,9 +4,8 @@ use std::process::Command;
 /// Returns a list of errors (empty = passed).
 pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
     match backend_name {
-        "python-psycopg3" | "python-asyncpg" | "python-aiomysql" | "python-aiosqlite" | "python-duckdb" => {
-            validate_python(code)
-        }
+        "python-psycopg3" | "python-asyncpg" | "python-aiomysql" | "python-aiosqlite" | "python-duckdb"
+        | "python-pyodbc" | "python-oracledb" | "python-snowflake" => validate_python(code),
         "typescript-postgres"
         | "typescript-pg"
         | "typescript-mysql2"
@@ -14,18 +13,30 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
         | "typescript-node-sqlite"
         | "typescript-wasm-sqlite"
         | "typescript-duckdb"
-        | "typescript-kysely" => validate_typescript(code),
-        "go-pgx" | "go-database-sql" => validate_go(code),
+        | "typescript-kysely"
+        | "typescript-mssql"
+        | "typescript-oracledb"
+        | "typescript-snowflake" => validate_typescript(code),
+        "go-pgx" | "go-database-sql" | "go-godror" | "go-gosnowflake" => validate_go(code),
         "java-jdbc" => validate_java(code),
         "java-r2dbc" => validate_java_r2dbc(code),
         "kotlin-exposed" => validate_kotlin_exposed(code),
         "kotlin-jdbc" => validate_kotlin(code),
         "kotlin-r2dbc" => validate_kotlin_r2dbc(code),
-        "csharp-npgsql" => validate_csharp(code),
-        "elixir-postgrex" | "elixir-ecto" => validate_elixir(code),
-        "ruby-pg" | "ruby-mysql2" | "ruby-sqlite3" | "ruby-trilogy" => validate_ruby(code),
+        "csharp-npgsql"
+        | "csharp-mysqlconnector"
+        | "csharp-microsoft-sqlite"
+        | "csharp-sqlclient"
+        | "csharp-oracle"
+        | "csharp-snowflake" => validate_csharp(code),
+        "elixir-postgrex" | "elixir-ecto" | "elixir-myxql" | "elixir-exqlite" | "elixir-tds" | "elixir-jamdb" => {
+            validate_elixir(code)
+        }
+        "ruby-pg" | "ruby-mysql2" | "ruby-sqlite3" | "ruby-trilogy" | "ruby-oci8" | "ruby-tiny-tds" => {
+            validate_ruby(code)
+        }
         "php-pdo" | "php-amphp" => validate_php(code),
-        "rust-sqlx" | "rust-tokio-postgres" => vec![],
+        "rust-sqlx" | "rust-tokio-postgres" | "rust-tiberius" | "rust-sibyl" => vec![],
         _ => vec![format!("unknown backend: {}", backend_name)],
     }
 }

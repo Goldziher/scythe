@@ -13,7 +13,9 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::singularize;
 
-use super::python_common::{PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py};
+use super::python_common::{
+    PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, write_execute_call, write_return_call,
+};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-oracledb.toml");
 
@@ -188,23 +190,22 @@ impl CodegenBackend for PythonOracledbBackend {
                     let full_sql = format!("{} INTO {}", sql, into_clause);
                     let mut all_args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
                     all_args.extend(out_var_names.iter().cloned());
-                    let _ = writeln!(
-                        out,
-                        "        await cur.execute(\"\"\"{}\"\"\", [{}])",
-                        full_sql,
-                        all_args.join(", ")
+                    let all_args_list = format!("[{}]", all_args.join(", "));
+                    write_execute_call(
+                        &mut out,
+                        "        ",
+                        "await cur.execute",
+                        &full_sql,
+                        Some(&all_args_list),
                     );
                     let field_assignments: Vec<String> = columns
                         .iter()
                         .map(|col| format!("{}=out_{}.getvalue()[0]", col.field_name, col.field_name))
                         .collect();
-                    let _ = writeln!(out, "        return {}({})", struct_name, field_assignments.join(", "));
+                    write_return_call(&mut out, "        ", struct_name, &field_assignments);
                 } else {
-                    if params.is_empty() {
-                        let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\")", sql);
-                    } else {
-                        let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\", {})", sql, args_list);
-                    }
+                    let args = (!params.is_empty()).then_some(args_list.as_str());
+                    write_execute_call(&mut out, "        ", "await cur.execute", &sql, args);
                     let _ = writeln!(out, "        row = await cur.fetchone()");
                     let _ = writeln!(out, "        if row is None:");
                     let _ = writeln!(out, "            return None");
@@ -213,7 +214,7 @@ impl CodegenBackend for PythonOracledbBackend {
                         .enumerate()
                         .map(|(i, col)| format!("{}=row[{}]", col.field_name, i))
                         .collect();
-                    let _ = writeln!(out, "        return {}({})", struct_name, field_assignments.join(", "));
+                    write_return_call(&mut out, "        ", struct_name, &field_assignments);
                 }
             }
             QueryCommand::Many => {
@@ -224,11 +225,8 @@ impl CodegenBackend for PythonOracledbBackend {
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    async with conn.cursor() as cur:");
-                if params.is_empty() {
-                    let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\", {})", sql, args_list);
-                }
+                let args = (!params.is_empty()).then_some(args_list.as_str());
+                write_execute_call(&mut out, "        ", "await cur.execute", &sql, args);
                 let _ = writeln!(out, "        rows = await cur.fetchall()");
                 let field_assignments: Vec<String> = columns
                     .iter()
@@ -250,11 +248,8 @@ impl CodegenBackend for PythonOracledbBackend {
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    async with conn.cursor() as cur:");
-                if params.is_empty() {
-                    let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\", {})", sql, args_list);
-                }
+                let args = (!params.is_empty()).then_some(args_list.as_str());
+                write_execute_call(&mut out, "        ", "await cur.execute", &sql, args);
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(
@@ -264,11 +259,8 @@ impl CodegenBackend for PythonOracledbBackend {
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    async with conn.cursor() as cur:");
-                if params.is_empty() {
-                    let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\")", sql);
-                } else {
-                    let _ = writeln!(out, "        await cur.execute(\"\"\"{}\"\"\", {})", sql, args_list);
-                }
+                let args = (!params.is_empty()).then_some(args_list.as_str());
+                write_execute_call(&mut out, "        ", "await cur.execute", &sql, args);
                 let _ = writeln!(out, "        return cur.rowcount");
             }
             QueryCommand::Batch => {
@@ -295,18 +287,22 @@ impl CodegenBackend for PythonOracledbBackend {
                 let _ = writeln!(out, "    async with conn.cursor() as cur:");
                 if params.is_empty() {
                     let _ = writeln!(out, "        for _ in range(count):");
-                    let _ = writeln!(out, "            await cur.execute(\"\"\"{}\"\"\")", sql);
+                    write_execute_call(&mut out, "            ", "await cur.execute", &sql, None);
                 } else if params.len() == 1 {
-                    let _ = writeln!(
-                        out,
-                        "        await cur.executemany(\"\"\"{}\"\"\", [[item] for item in items])",
-                        sql
+                    write_execute_call(
+                        &mut out,
+                        "        ",
+                        "await cur.executemany",
+                        &sql,
+                        Some("[[item] for item in items]"),
                     );
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "        await cur.executemany(\"\"\"{}\"\"\", [list(item) for item in items])",
-                        sql
+                    write_execute_call(
+                        &mut out,
+                        "        ",
+                        "await cur.executemany",
+                        &sql,
+                        Some("[list(item) for item in items]"),
                     );
                 }
             }

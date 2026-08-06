@@ -106,6 +106,90 @@ pub fn type_support_imports(manifest: &BackendManifest) -> (bool, bool) {
     (needs_uuid, needs_any)
 }
 
+/// Emit a DB-API `.execute(...)` (or `.executemany(...)`) call, wrapping it across
+/// multiple lines when the single-line form would exceed 88 characters (ruff's default
+/// line length / `E501`) — mirroring the single-line/multi-line switch already used for
+/// `return` statements in the pyodbc and Snowflake backends.
+///
+/// `indent` is the leading whitespace for the statement (e.g. `"    "` or `"        "`
+/// for a call nested inside `async with`). `call_expr` is everything before the opening
+/// paren, e.g. `"cur.execute"` or `"await cur.executemany"`. `args`, when present, is the
+/// second positional argument passed to `execute` (the bound parameters).
+pub fn write_execute_call(out: &mut String, indent: &str, call_expr: &str, sql: &str, args: Option<&str>) {
+    let oneliner = match args {
+        Some(args) => format!("{indent}{call_expr}(\"\"\"{sql}\"\"\", {args})"),
+        None => format!("{indent}{call_expr}(\"\"\"{sql}\"\"\")"),
+    };
+    if oneliner.len() <= 88 {
+        let _ = writeln!(out, "{oneliner}");
+    } else {
+        let _ = writeln!(out, "{indent}{call_expr}(");
+        let _ = writeln!(out, "{indent}    \"\"\"{sql}\"\"\",");
+        if let Some(args) = args {
+            let _ = writeln!(out, "{indent}    {args},");
+        }
+        let _ = writeln!(out, "{indent})");
+    }
+}
+
+/// Emit a `def`/`async def` query-function signature, wrapping the parameter list across
+/// multiple lines when the single-line form would exceed 88 characters (ruff's default line
+/// length / `E501`) — the same threshold already used for `return` statements and
+/// [`write_execute_call`] in these backends. Needed because some drivers' connection types
+/// are long enough on their own (e.g. `snowflake.connector.SnowflakeConnection`) to push an
+/// otherwise-short signature over the limit even with a single keyword parameter.
+///
+/// `conn_param` is the full first parameter, e.g. `"conn: oracledb.AsyncConnection"`.
+/// `kw_params` become keyword-only parameters (after a `*,` separator) as `(name, type)`
+/// pairs. `ret` is the return type annotation, e.g. `"GetUserRow | None"`.
+pub fn write_def_signature(
+    out: &mut String,
+    def_kw: &str,
+    func_name: &str,
+    conn_param: &str,
+    kw_params: &[(String, String)],
+    ret: &str,
+) {
+    let param_list = kw_params
+        .iter()
+        .map(|(n, t)| format!("{n}: {t}"))
+        .collect::<Vec<_>>()
+        .join(", ");
+    let kw_sep = if kw_params.is_empty() { "" } else { ", *, " };
+    let oneliner = format!("{def_kw} {func_name}({conn_param}{kw_sep}{param_list}) -> {ret}:");
+    if oneliner.len() <= 88 {
+        let _ = writeln!(out, "{oneliner}");
+    } else {
+        let _ = writeln!(out, "{def_kw} {func_name}(");
+        let _ = writeln!(out, "    {conn_param},");
+        if !kw_params.is_empty() {
+            let _ = writeln!(out, "    *,");
+            for (n, t) in kw_params {
+                let _ = writeln!(out, "    {n}: {t},");
+            }
+        }
+        let _ = writeln!(out, ") -> {ret}:");
+    }
+}
+
+/// Emit a `return StructName(field=value, ...)` statement, wrapping the constructor call
+/// across multiple lines when the single-line form would exceed 88 characters. Mirrors the
+/// inline `oneliner.len() <= 88` switch already used by the psycopg3, pyodbc, and Snowflake
+/// backends for the same purpose; factored out so backends with different indentation (e.g.
+/// oracledb, whose statements sit inside `async with conn.cursor() as cur:`) can share it.
+pub fn write_return_call(out: &mut String, indent: &str, struct_name: &str, field_assignments: &[String]) {
+    let oneliner = format!("{indent}return {struct_name}({})", field_assignments.join(", "));
+    if oneliner.len() <= 88 {
+        let _ = writeln!(out, "{oneliner}");
+    } else {
+        let _ = writeln!(out, "{indent}return {struct_name}(");
+        for fa in field_assignments {
+            let _ = writeln!(out, "{indent}    {fa},");
+        }
+        let _ = writeln!(out, "{indent})");
+    }
+}
+
 /// Generate child and parent Python classes for a `:grouped` query.
 ///
 /// Emits the child class first (to satisfy forward-reference requirements for the
