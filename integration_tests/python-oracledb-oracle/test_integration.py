@@ -33,12 +33,12 @@ def get_database_url() -> str:
 
 async def setup_schema(conn: oracledb.AsyncConnection) -> None:
     """Drop all tables and sequences, then recreate schema from SQL file."""
-    for table in ("user_tags", "tags", "orders", "users"):
+    for table in ("attachments", "user_tags", "tags", "orders", "users"):
         try:
             await conn.execute(f"DROP TABLE {table} CASCADE CONSTRAINTS")
         except Exception:
             pass
-    for seq in ("tags_seq", "orders_seq", "users_seq"):
+    for seq in ("attachments_seq", "tags_seq", "orders_seq", "users_seq"):
         try:
             await conn.execute(f"DROP SEQUENCE {seq}")
         except Exception:

@@ -276,8 +276,8 @@ PASSED") }
   func runMigration(ctx context.Context, db *sql.DB) error { _, thisFile, _, _ := runtime.Caller(0) schemaPath :=
   filepath.Join(filepath.Dir(thisFile), "..", "sql", "oracle", "schema_full.sql") schema, err := os.ReadFile(schemaPath)
   if err != nil { return fmt.Errorf("reading schema file at %s: %w", schemaPath, err) } // Drop tables and sequences,
-  ignoring ORA errors for _, table := range []string{"user_tags", "tags", "orders", "users"} { db.ExecContext(ctx,
-  fmt.Sprintf("DROP TABLE %s CASCADE CONSTRAINTS", table)) //nolint:errcheck } for _, seq := range []string{"tags_seq",
+  ignoring ORA errors for _, table := range []string{"attachments", "user_tags", "tags", "orders", "users"} { db.ExecContext(ctx,
+  fmt.Sprintf("DROP TABLE %s CASCADE CONSTRAINTS", table)) //nolint:errcheck } for _, seq := range []string{"attachments_seq", "tags_seq",
   "orders_seq", "users_seq"} { db.ExecContext(ctx, fmt.Sprintf("DROP SEQUENCE %s", seq)) //nolint:errcheck } // Execute
   each PL/SQL block (delimited by /\n) for _, block := range strings.Split(string(schema), "/\n") { block =
   strings.TrimSpace(block) if block == "" { continue } if _, err := db.ExecContext(ctx, block); err != nil { return

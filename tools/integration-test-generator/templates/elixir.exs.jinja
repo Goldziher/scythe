@@ -299,11 +299,11 @@ run_sql = fn conn, sql ->
 end
 
 # Clean slate: drop tables and sequences, ignoring errors if they do not exist.
-for table <- ["user_tags", "tags", "orders", "users"] do
+for table <- ["attachments", "user_tags", "tags", "orders", "users"] do
   run_sql.(conn, "DROP TABLE #{table} CASCADE CONSTRAINTS")
 end
 
-for seq <- ["tags_seq", "orders_seq", "users_seq"] do
+for seq <- ["attachments_seq", "tags_seq", "orders_seq", "users_seq"] do
   run_sql.(conn, "DROP SEQUENCE #{seq}")
 end
 

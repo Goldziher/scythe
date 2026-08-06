@@ -72,12 +72,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         .await?;
 
     // Clean slate: drop tables and sequences, ignore errors, then recreate
-    for table in &["user_tags", "tags", "orders", "users"] {
+    for table in &["attachments", "user_tags", "tags", "orders", "users"] {
         if let Ok(stmt) = session.prepare(&format!("DROP TABLE {}", table)).await {
             let _ = stmt.execute(()).await;
         }
     }
-    for seq in &["tags_seq", "orders_seq", "users_seq"] {
+    for seq in &["attachments_seq", "tags_seq", "orders_seq", "users_seq"] {
         if let Ok(stmt) = session.prepare(&format!("DROP SEQUENCE {}", seq)).await {
             let _ = stmt.execute(()).await;
         }

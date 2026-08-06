@@ -180,8 +180,8 @@
   Source=localhost:1521/XEPDB1"; } await using var conn = new OracleConnection(GetConnectionString()); await
   conn.OpenAsync(); var exitCode = 0; void Assert(bool condition, string testName, string detail) { if (!condition) {
   Console.Error.WriteLine($"FAIL: {testName}: {detail}"); exitCode = 1; } } // Drop tables and sequences, ignoring
-  errors if they do not exist foreach (var drop in new[] { "DROP TABLE user_tags", "DROP TABLE tags", "DROP TABLE
-  orders", "DROP TABLE users", "DROP SEQUENCE tags_seq", "DROP SEQUENCE orders_seq", "DROP SEQUENCE users_seq" }) { try
+  errors if they do not exist foreach (var drop in new[] { "DROP TABLE attachments", "DROP TABLE user_tags", "DROP TABLE tags", "DROP TABLE
+  orders", "DROP TABLE users", "DROP SEQUENCE attachments_seq", "DROP SEQUENCE tags_seq", "DROP SEQUENCE orders_seq", "DROP SEQUENCE users_seq" }) { try
   { await using var cmd = new OracleCommand(drop, conn); await cmd.ExecuteNonQueryAsync(); } catch (OracleException) {
   // object may not exist } } // Read and execute schema_full.sql, splitting on Oracle PL/SQL delimiter /\n var
   schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "{{ schema_dir }}", "schema_full.sql"); var schemaText =

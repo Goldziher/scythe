@@ -63,10 +63,12 @@ fun main() {
 fun runMigration(conn: java.sql.Connection) {
     // Drop tables and sequences, ignoring errors if they do not exist
     val drops = listOf(
+        "DROP TABLE attachments",
         "DROP TABLE user_tags",
         "DROP TABLE tags",
         "DROP TABLE orders",
         "DROP TABLE users",
+        "DROP SEQUENCE attachments_seq",
         "DROP SEQUENCE tags_seq",
         "DROP SEQUENCE orders_seq",
         "DROP SEQUENCE users_seq"

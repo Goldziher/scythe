@@ -200,8 +200,8 @@
   testCreateOrder(conn) testGetOrdersByUser(conn) testGetOrderTotal(conn) testDeleteOrdersByUser(conn)
   testDeleteUser(conn) } println() println("Results: $passed passed, $failed failed") if (failed > 0) { exitProcess(1) }
   println("ALL TESTS PASSED") } fun runMigration(conn: java.sql.Connection) { // Drop tables and sequences, ignoring
-  errors if they do not exist val drops = listOf( "DROP TABLE user_tags", "DROP TABLE tags", "DROP TABLE orders", "DROP
-  TABLE users", "DROP SEQUENCE tags_seq", "DROP SEQUENCE orders_seq", "DROP SEQUENCE users_seq" ) for (drop in drops) {
+  errors if they do not exist val drops = listOf( "DROP TABLE attachments", "DROP TABLE user_tags", "DROP TABLE tags", "DROP TABLE orders", "DROP
+  TABLE users", "DROP SEQUENCE attachments_seq", "DROP SEQUENCE tags_seq", "DROP SEQUENCE orders_seq", "DROP SEQUENCE users_seq" ) for (drop in drops) {
   try { conn.createStatement().use { stmt -> stmt.execute(drop) } } catch (ignored: SQLException) { // object may not
   exist } } val schemaPath = Path.of(System.getProperty("user.dir")) .resolve("{{ schema_dir }}/schema_full.sql")
   .normalize() val schema = schemaPath.readText() // Oracle PL/SQL blocks are delimited by /\n for (block in

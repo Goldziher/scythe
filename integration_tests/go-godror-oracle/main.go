@@ -96,10 +96,10 @@ func runMigration(ctx context.Context, db *sql.DB) error {
 	}
 
 	// Drop tables and sequences, ignoring ORA errors
-	for _, table := range []string{"user_tags", "tags", "orders", "users"} {
+	for _, table := range []string{"attachments", "user_tags", "tags", "orders", "users"} {
 		db.ExecContext(ctx, fmt.Sprintf("DROP TABLE %s CASCADE CONSTRAINTS", table)) //nolint:errcheck
 	}
-	for _, seq := range []string{"tags_seq", "orders_seq", "users_seq"} {
+	for _, seq := range []string{"attachments_seq", "tags_seq", "orders_seq", "users_seq"} {
 		db.ExecContext(ctx, fmt.Sprintf("DROP SEQUENCE %s", seq)) //nolint:errcheck
 	}
 

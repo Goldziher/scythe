@@ -64,10 +64,12 @@ public class IntegrationTest {
     private static void runMigration(Connection conn) throws Exception {
         // Drop tables and sequences, ignoring errors if they do not exist
         String[] drops = {
+            "DROP TABLE attachments",
             "DROP TABLE user_tags",
             "DROP TABLE tags",
             "DROP TABLE orders",
             "DROP TABLE users",
+            "DROP SEQUENCE attachments_seq",
             "DROP SEQUENCE tags_seq",
             "DROP SEQUENCE orders_seq",
             "DROP SEQUENCE users_seq"

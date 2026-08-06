@@ -35,10 +35,10 @@ async function main(): Promise<void> {
 	});
 	try {
 		// Clean slate: drop tables and sequences, ignore errors
-		for (const table of ["user_tags", "tags", "orders", "users"]) {
+		for (const table of ["attachments", "user_tags", "tags", "orders", "users"]) {
 			try { await conn.execute(`DROP TABLE ${table} CASCADE CONSTRAINTS`); } catch (_) { /* ignore ORA errors */ }
 		}
-		for (const seq of ["tags_seq", "orders_seq", "users_seq"]) {
+		for (const seq of ["attachments_seq", "tags_seq", "orders_seq", "users_seq"]) {
 			try { await conn.execute(`DROP SEQUENCE ${seq}`); } catch (_) { /* ignore ORA errors */ }
 		}
 

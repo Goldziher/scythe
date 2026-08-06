@@ -59,8 +59,8 @@ environment variable is not set" exit 1 end url end
   File.read(SCHEMA_PATH) schema_sql.split("GO\n").each do |stmt| stmt = stmt.strip conn.execute(stmt).do unless
   stmt.empty? end end
 {%- elif driver == "oci8" -%}
-  def setup_schema(conn) ["user_tags", "tags", "orders", "users"].each do |table| conn.exec("DROP TABLE #{table}")
-  rescue nil end ["tags_seq", "orders_seq", "users_seq"].each do |seq| conn.exec("DROP SEQUENCE #{seq}") rescue nil end
+  def setup_schema(conn) ["attachments", "user_tags", "tags", "orders", "users"].each do |table| conn.exec("DROP TABLE #{table}")
+  rescue nil end ["attachments_seq", "tags_seq", "orders_seq", "users_seq"].each do |seq| conn.exec("DROP SEQUENCE #{seq}") rescue nil end
   schema_sql = File.read(SCHEMA_PATH) schema_sql.split("/\n").each do |stmt| stmt = stmt.strip conn.exec(stmt) unless
   stmt.empty? end end
 {%- endif %}

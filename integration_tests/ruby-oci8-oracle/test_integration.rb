@@ -17,10 +17,10 @@ def get_database_url
 end
 
 def setup_schema(conn)
-  ["user_tags", "tags", "orders", "users"].each do |table|
+  ["attachments", "user_tags", "tags", "orders", "users"].each do |table|
     conn.exec("DROP TABLE #{table}") rescue nil
   end
-  ["tags_seq", "orders_seq", "users_seq"].each do |seq|
+  ["attachments_seq", "tags_seq", "orders_seq", "users_seq"].each do |seq|
     conn.exec("DROP SEQUENCE #{seq}") rescue nil
   end
   schema_sql = File.read(SCHEMA_PATH)
