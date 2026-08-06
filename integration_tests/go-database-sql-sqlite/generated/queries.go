@@ -6,14 +6,14 @@ import (
 )
 
 
-func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total float32, Notes *string) error {
+func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total float64, Notes *string) error {
 	_, err := db.ExecContext(ctx, "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)", UserId, Total, Notes)
 	return err
 }
 
 type GetOrdersByUserRow struct {
 	Id int32 `json:"id"`
-	Total float32 `json:"total"`
+	Total float64 `json:"total"`
 	Notes *string `json:"notes"`
 	CreatedAt string `json:"created_at"`
 }
@@ -36,7 +36,7 @@ func GetOrdersByUser(ctx context.Context, db *sql.DB, UserId int32) ([]GetOrders
 }
 
 type GetOrderTotalRow struct {
-	TotalSum *float32 `json:"total_sum"`
+	TotalSum *float64 `json:"total_sum"`
 }
 
 func GetOrderTotal(ctx context.Context, db *sql.DB, UserId int32) (GetOrderTotalRow, error) {

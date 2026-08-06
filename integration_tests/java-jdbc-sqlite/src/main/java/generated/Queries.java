@@ -3,7 +3,7 @@ package generated;
 
 import java.math.BigDecimal;
 import java.sql.*;
-import java.time.OffsetDateTime;
+import java.time.*;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -11,10 +11,10 @@ import javax.annotation.Nullable;
 
 public class Queries {
 
-public static void createOrder(Connection conn, int user_id, float total, @Nullable String notes) throws SQLException {
+public static void createOrder(Connection conn, int user_id, double total, @Nullable String notes) throws SQLException {
     try (var ps = conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)")) {
         ps.setInt(1, user_id);
-        ps.setFloat(2, total);
+        ps.setDouble(2, total);
         ps.setString(3, notes);
         ps.executeUpdate();
     }
@@ -22,14 +22,14 @@ public static void createOrder(Connection conn, int user_id, float total, @Nulla
 
 public record GetOrdersByUserRow(
     int id,
-    float total,
+    double total,
     @Nullable String notes,
     String created_at
 ) {
     public static GetOrdersByUserRow fromResultSet(ResultSet rs) throws SQLException {
         return new GetOrdersByUserRow(
             rs.getInt("id"),
-            rs.getFloat("total"),
+            rs.getDouble("total"),
             rs.getString("notes"),
             rs.getString("created_at")
         );
@@ -189,3 +189,4 @@ public static List<SearchUsersRow> searchUsers(Connection conn, @Nonnull String 
 }
 
 }
+

@@ -20,6 +20,10 @@ pub struct Catalog {
     composites: AHashMap<String, CompositeType>,
     /// Domain name -> resolved base type (lowercase)
     domains: AHashMap<String, DomainDef>,
+    /// SQL dialect this catalog was parsed with. Used downstream to resolve
+    /// dialect-specific type semantics (e.g. SQLite's `REAL` is an 8-byte
+    /// IEEE float, unlike PostgreSQL's 4-byte `real`).
+    dialect: SqlDialect,
 }
 
 #[derive(Debug, Clone)]
@@ -69,6 +73,7 @@ impl Catalog {
             enums: AHashMap::new(),
             composites: AHashMap::new(),
             domains: AHashMap::new(),
+            dialect: *dialect,
         };
 
         let parser_dialect = dialect.to_sqlparser_dialect();
@@ -91,6 +96,11 @@ impl Catalog {
         }
 
         Ok(catalog)
+    }
+
+    /// The SQL dialect this catalog was parsed with.
+    pub(crate) fn dialect(&self) -> SqlDialect {
+        self.dialect
     }
 
     pub fn get_table(&self, name: &str) -> Option<&Table> {

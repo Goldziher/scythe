@@ -3,6 +3,7 @@ use std::borrow::Cow;
 use sqlparser::ast::{self, DataType, TimezoneInfo};
 
 use crate::catalog::Catalog;
+use crate::dialect::SqlDialect;
 
 use super::helpers::object_name_to_string;
 
@@ -18,6 +19,9 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "mediumint" => Cow::Borrowed("int32"),
         "number" => Cow::Borrowed("int64"),
 
+        // SQLite's `REAL` storage class is always an 8-byte IEEE float (SQLite has no
+        // 4-byte float type), unlike PostgreSQL's 4-byte `real`/`float4`.
+        "real" | "float4" if catalog.dialect() == SqlDialect::SQLite => Cow::Borrowed("float64"),
         "real" | "float4" => Cow::Borrowed("float32"),
         "double precision" | "float8" | "double" => Cow::Borrowed("float64"),
         "float" => Cow::Borrowed("float32"),
@@ -110,6 +114,9 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
         DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) => "int32".to_string(),
         DataType::SmallInt(_) | DataType::Int2(_) => "int16".to_string(),
         DataType::BigInt(_) | DataType::Int8(_) => "int64".to_string(),
+        // See the matching comment in `sql_type_to_neutral`: SQLite's `REAL` is always
+        // an 8-byte float, unlike PostgreSQL's 4-byte `real`/`float4`.
+        DataType::Real | DataType::Float4 if catalog.dialect() == SqlDialect::SQLite => "float64".to_string(),
         DataType::Real | DataType::Float4 => "float32".to_string(),
         DataType::DoublePrecision | DataType::Float8 => "float64".to_string(),
         DataType::Float(info) => {
@@ -426,10 +433,28 @@ mod tests {
     fn test_sqlite_types() {
         let c = empty_catalog();
         assert_eq!(sql_type_to_neutral("integer", &c), "int32");
-        assert_eq!(sql_type_to_neutral("real", &c), "float32");
         assert_eq!(sql_type_to_neutral("text", &c), "string");
         assert_eq!(sql_type_to_neutral("blob", &c), "bytes");
         assert_eq!(sql_type_to_neutral("numeric", &c), "decimal");
         assert_eq!(sql_type_to_neutral("clob", &c), "string");
+    }
+
+    /// SQLite's `REAL` storage class is always an 8-byte IEEE float (SQLite has no
+    /// 4-byte float type) and must resolve to `float64`, while PostgreSQL's `real`
+    /// (aka `float4`) is genuinely 4 bytes and must stay `float32`. Regression test
+    /// for https://github.com/xberg-io/scythe/issues/70.
+    #[test]
+    fn test_sqlite_real_is_float64_postgres_real_stays_float32() {
+        let sqlite = Catalog::from_ddl_with_dialect(&[], &SqlDialect::SQLite).unwrap();
+        assert_eq!(sql_type_to_neutral("real", &sqlite), "float64");
+        assert_eq!(sql_type_to_neutral("float4", &sqlite), "float64");
+        assert_eq!(datatype_to_neutral(&DataType::Real, &sqlite), "float64");
+        assert_eq!(datatype_to_neutral(&DataType::Float4, &sqlite), "float64");
+
+        let postgres = empty_catalog();
+        assert_eq!(sql_type_to_neutral("real", &postgres), "float32");
+        assert_eq!(sql_type_to_neutral("float4", &postgres), "float32");
+        assert_eq!(datatype_to_neutral(&DataType::Real, &postgres), "float32");
+        assert_eq!(datatype_to_neutral(&DataType::Float4, &postgres), "float32");
     }
 }

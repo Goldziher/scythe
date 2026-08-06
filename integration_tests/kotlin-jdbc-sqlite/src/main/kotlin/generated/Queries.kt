@@ -12,12 +12,12 @@ import java.time.OffsetTime
 fun createOrder(
     conn: Connection,
     user_id: Int,
-    total: Float,
+    total: Double,
     notes: String?,
 ) {
     conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)").use { ps ->
         ps.setInt(1, user_id)
-        ps.setFloat(2, total)
+        ps.setDouble(2, total)
         ps.setString(3, notes)
         ps.executeUpdate()
     }
@@ -26,7 +26,7 @@ fun createOrder(
 
 data class GetOrdersByUserRow(
     val id: Int,
-    val total: Float,
+    val total: Double,
     val notes: String?,
     val created_at: String,
 )
@@ -46,7 +46,7 @@ fun getOrdersByUser(
                 result.add(
                     GetOrdersByUserRow(
                         id = rs.getInt("id"),
-                        total = rs.getFloat("total"),
+                        total = rs.getDouble("total"),
                         notes = notes,
                         created_at = rs.getString("created_at"),
                     ),
@@ -230,3 +230,4 @@ fun searchUsers(
         }
     }
 }
+

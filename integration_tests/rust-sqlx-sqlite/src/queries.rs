@@ -4,14 +4,14 @@
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetOrdersByUserRow {
     pub id: i32,
-    pub total: f32,
+    pub total: f64,
     pub notes: Option<String>,
     pub created_at: String,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetOrderTotalRow {
-    pub total_sum: Option<f32>,
+    pub total_sum: Option<f64>,
 }
 
 #[derive(Debug, Clone, sqlx::FromRow)]
