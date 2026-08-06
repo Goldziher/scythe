@@ -1,0 +1,42 @@
+{
+  "category": "cte/recursive",
+  "description": "Recursive CTE where the anchor term projects a NOT NULL column but the recursive term projects an explicit NULL in the same position — the CTE's result column must be nullable, not just typed from the anchor",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "parent_id",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "root_name",
+          "note": "anchor projects categories.name (NOT NULL), recursive term projects NULL::text in the same position — the widened column must be nullable",
+          "nullable": true,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetCategoryTreeWithRootName",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "recursive_cte_divergent_nullability",
+  "query_sql": "-- @name GetCategoryTreeWithRootName\n-- @returns :many\nWITH RECURSIVE tree AS (SELECT id, name, parent_id, name AS root_name FROM categories WHERE parent_id IS NULL UNION ALL SELECT c.id, c.name, c.parent_id, NULL::text AS root_name FROM categories c JOIN tree t ON c.parent_id = t.id) SELECT * FROM tree",
+  "schema_sql": [
+    "CREATE TABLE categories (id SERIAL PRIMARY KEY, name TEXT NOT NULL, parent_id INTEGER REFERENCES categories(id))"
+  ],
+  "source": "original",
+  "tags": ["cte", "recursive", "tree", "nullability"]
+}

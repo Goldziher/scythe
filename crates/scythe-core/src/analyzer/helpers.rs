@@ -1,4 +1,6 @@
-use sqlparser::ast::{self, BinaryOperator, Expr, ObjectName, SelectItem, SetExpr, Statement, TableFactor, Value};
+use sqlparser::ast::{
+    self, BinaryOperator, Expr, GroupByExpr, ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, Value,
+};
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -280,6 +282,88 @@ pub(super) fn neutral_to_sql_label(neutral: &str) -> &str {
         "json" => "json",
         "uuid" => "uuid",
         _ => neutral,
+    }
+}
+
+/// The aggregate function names `infer_function_type` (in `expressions.rs`)
+/// assigns dedicated nullability rules to. `COUNT` never returns NULL (it
+/// yields `0` over an empty set); every other name here is already given
+/// `nullable: true` for the non-window case in `infer_function_type`, because
+/// it returns SQL NULL — not zero — over an empty set (a scalar
+/// `SUM`/`AVG`/`MIN`/`MAX`/... of zero rows is NULL).
+pub(super) fn is_aggregate_function_name(name: &str) -> bool {
+    matches!(
+        name,
+        "count"
+            | "sum"
+            | "avg"
+            | "min"
+            | "max"
+            | "string_agg"
+            | "array_agg"
+            | "bool_and"
+            | "bool_or"
+            | "every"
+            | "json_agg"
+            | "jsonb_agg"
+            | "json_object_agg"
+            | "jsonb_object_agg"
+    )
+}
+
+/// Unwraps parenthesized expressions, e.g. `(COUNT(*))` -> `COUNT(*)`.
+fn unwrap_nested(expr: &Expr) -> &Expr {
+    match expr {
+        Expr::Nested(inner) => unwrap_nested(inner),
+        _ => expr,
+    }
+}
+
+/// `true` when `query` is guaranteed to return exactly one row: an ungrouped
+/// `SELECT` (no `GROUP BY` — `GROUP BY ALL` counts as grouped too; no
+/// `HAVING`, since `HAVING` can filter the lone row of an ungrouped aggregate
+/// away, e.g. `SELECT COUNT(*) FROM t HAVING COUNT(*) > 10`) whose single
+/// projected expression is a call to an aggregate function.
+///
+/// This is what makes a scalar subquery like
+/// `(SELECT COUNT(*) FROM orders WHERE user_id = users.id)` genuinely
+/// non-nullable even though the inner query can match zero rows: SQL
+/// guarantees an ungrouped aggregate query always returns exactly one row, so
+/// the only remaining question is whether *that* aggregate's value can itself
+/// be NULL — which `infer_function_type` already answers correctly per
+/// function (see [`is_aggregate_function_name`]). Any other scalar subquery
+/// shape (a plain column, an arithmetic expression, a non-aggregate function
+/// call, ...) carries no such row-count guarantee: zero matching rows means
+/// the subquery itself evaluates to SQL NULL, regardless of the projected
+/// expression's own nullability.
+pub(super) fn is_single_row_aggregate_query(query: &Query) -> bool {
+    let SetExpr::Select(select) = query.body.as_ref() else {
+        return false;
+    };
+    if select.having.is_some() {
+        return false;
+    }
+    if !matches!(&select.group_by, GroupByExpr::Expressions(exprs, _) if exprs.is_empty()) {
+        return false;
+    }
+    if select.projection.len() != 1 {
+        return false;
+    }
+    let expr = match &select.projection[0] {
+        SelectItem::UnnamedExpr(e) | SelectItem::ExprWithAlias { expr: e, .. } => e,
+        _ => return false,
+    };
+    match unwrap_nested(expr) {
+        // A windowed aggregate is not an aggregate query: `COUNT(*) OVER ()`
+        // produces one row per input row, so zero input rows means zero
+        // result rows and the scalar subquery is NULL. `infer_function_type`
+        // types windowed aggregates as non-nullable (correctly, since within
+        // a row the window value exists), which would otherwise be inherited
+        // here as a false guarantee.
+        Expr::Function(func) if func.over.is_none() => {
+            is_aggregate_function_name(&object_name_to_string(&func.name).to_lowercase())
+        }
+        _ => false,
     }
 }
 

@@ -48,6 +48,10 @@ impl<'a> Analyzer<'a> {
                         }
                     } else {
                         if let SetExpr::SetOperation { left, .. } = cte.query.body.as_ref() {
+                            // The recursive term references the CTE by name, so the
+                            // anchor's own types must be in scope before it can be
+                            // analyzed: seed `self.ctes` with the anchor-only shape
+                            // first.
                             let base_cols = self.analyze_set_expr(left)?;
                             let scope_cols: Vec<ScopeColumn> = base_cols
                                 .iter()
@@ -61,7 +65,30 @@ impl<'a> Analyzer<'a> {
                                 })
                                 .collect();
                             self.ctes.insert(cte_name.clone(), scope_cols);
-                            let _ = self.analyze_query(&cte.query);
+
+                            // Re-analyze the full anchor-UNION-recursive query and
+                            // keep the result instead of discarding it. That takes
+                            // the SetOperation path in analyze_set_expr, which
+                            // widens nullability across both branches and errors on
+                            // a column-count mismatch between them — the same rules
+                            // as any other UNION. Anchor-only typing under-reports
+                            // nullability whenever the recursive term introduces a
+                            // NULL the anchor doesn't have, e.g. a LEFT JOIN or an
+                            // explicit NULL literal in a position the anchor fills
+                            // with a NOT NULL column.
+                            let full_cols = self.analyze_query(&cte.query)?;
+                            let widened_scope_cols: Vec<ScopeColumn> = full_cols
+                                .iter()
+                                .map(|c| {
+                                    ScopeColumn::from_catalog(
+                                        c.name.clone(),
+                                        c.sql_type.clone(),
+                                        c.neutral_type.clone(),
+                                        c.nullable,
+                                    )
+                                })
+                                .collect();
+                            self.ctes.insert(cte_name.clone(), widened_scope_cols);
                             continue;
                         }
                     }

@@ -1,0 +1,38 @@
+{
+  "category": "select/subquery",
+  "description": "SUM(...) as a scalar subquery is nullable, because SUM (unlike COUNT) returns SQL NULL, not zero, over an empty set",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "name",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "total_spent",
+          "note": "SUM over zero matching orders is NULL, not 0, so the scalar subquery is nullable",
+          "nullable": true,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "GetUsersWithTotalSpent",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "scalar_subquery_sum_nullable",
+  "query_sql": "-- @name GetUsersWithTotalSpent\n-- @returns :many\nSELECT id, name, (SELECT SUM(total) FROM orders WHERE user_id = users.id) AS total_spent FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": ["select", "subquery", "scalar", "aggregate", "sum", "nullability"]
+}

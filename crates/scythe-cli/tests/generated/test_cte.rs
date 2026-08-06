@@ -1057,3 +1057,132 @@ fn test_recursive_cte() {
         }
     }
 }
+
+#[test]
+fn test_recursive_cte_divergent_nullability() {
+    // From: testing_data/cte/recursive/02_recursive_cte_divergent_nullability.json
+    // "Recursive CTE where the anchor term projects a NOT NULL column but the recursive term projects an explicit NULL in the same position — the CTE's result column must be nullable, not just typed from the anchor"
+    let schema_sql = &[
+        "CREATE TABLE categories (id SERIAL PRIMARY KEY, name TEXT NOT NULL, parent_id INTEGER REFERENCES categories(id))",
+    ];
+
+    let query_sql = "-- @name GetCategoryTreeWithRootName\n-- @returns :many\nWITH RECURSIVE tree AS (SELECT id, name, parent_id, name AS root_name FROM categories WHERE parent_id IS NULL UNION ALL SELECT c.id, c.name, c.parent_id, NULL::text AS root_name FROM categories c JOIN tree t ON c.parent_id = t.id) SELECT * FROM tree";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetCategoryTreeWithRootName", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 4, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "name", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for name");
+    assert_eq!(analyzed.columns[2].name, "parent_id", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for parent_id"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for parent_id");
+    assert_eq!(analyzed.columns[3].name, "root_name", "column name");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "string",
+        "column neutral_type for root_name"
+    );
+    assert!(analyzed.columns[3].nullable, "column nullable for root_name");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "recursive_cte_divergent_nullability"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "recursive_cte_divergent_nullability",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "recursive_cte_divergent_nullability"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "recursive_cte_divergent_nullability"
+            );
+        }
+    }
+}

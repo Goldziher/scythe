@@ -1,0 +1,33 @@
+{
+  "category": "select/subquery",
+  "description": "Scalar subquery projecting a windowed aggregate is nullable: a window function produces one row per input row, so zero matching rows yields zero result rows and the subquery evaluates to SQL NULL",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "running_total",
+          "note": "SUM(total) OVER () is non-nullable within a row, but the subquery returns no row at all when the user has no orders, so the projected value is nullable",
+          "nullable": true,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "GetRunningTotal",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "scalar_subquery_windowed_aggregate_nullable",
+  "query_sql": "-- @name GetRunningTotal\n-- @returns :many\nSELECT id, (SELECT SUM(total) OVER () FROM orders WHERE orders.user_id = users.id LIMIT 1) AS running_total FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": ["select", "subquery", "scalar", "nullability", "window"]
+}

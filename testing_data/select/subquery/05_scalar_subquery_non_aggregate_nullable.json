@@ -1,0 +1,33 @@
+{
+  "category": "select/subquery",
+  "description": "Non-aggregate scalar subquery over a NOT NULL column is nullable, because zero matching rows makes the subquery evaluate to SQL NULL regardless of the projected column's own nullability",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "first_order_total",
+          "note": "orders.total is NOT NULL, but the scalar subquery returns SQL NULL when no order matches, so the result is nullable even with LIMIT 1",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "GetFirstOrderTotal",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "scalar_subquery_non_aggregate_nullable",
+  "query_sql": "-- @name GetFirstOrderTotal\n-- @returns :many\nSELECT id, (SELECT total FROM orders WHERE orders.user_id = users.id LIMIT 1) AS first_order_total FROM users",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'active', bio TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total INTEGER NOT NULL, notes TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "source": "original",
+  "tags": ["select", "subquery", "scalar", "nullability"]
+}

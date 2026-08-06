@@ -207,7 +207,18 @@ impl<'a> Analyzer<'a> {
                 if let Ok(cols) = self.analyze_query(query)
                     && let Some(first) = cols.first()
                 {
-                    return TypeInfo::new(first.neutral_type.clone(), first.nullable);
+                    // A scalar subquery evaluates to SQL NULL when it matches
+                    // zero rows, regardless of the projected column's own
+                    // nullability — unless the query is guaranteed to return
+                    // exactly one row (an ungrouped aggregate), in which case
+                    // the aggregate's own nullability (already correct per
+                    // function) is what determines the result.
+                    let nullable = if is_single_row_aggregate_query(query) {
+                        first.nullable
+                    } else {
+                        true
+                    };
+                    return TypeInfo::new(first.neutral_type.clone(), nullable);
                 }
                 TypeInfo::unknown()
             }
