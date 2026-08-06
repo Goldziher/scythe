@@ -91,9 +91,9 @@ assert.(first.name == "Alice", "ListActiveUsers", "first user should be Alice")
 IO.puts("PASS: ListActiveUsers")
 
 # Test: CreateOrder
-{:ok, order} = Queries.create_order(conn, user_id, 9999, "first order")
+{:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.99"), "first order")
 assert.(order.user_id == user_id, "CreateOrder", "expected user_id #{user_id}")
-assert.(order.total == 9999, "CreateOrder", "expected total 9999, got #{order.total}")
+assert.(Decimal.equal?(order.total, Decimal.new("99.99")), "CreateOrder", "expected total 99.99, got #{order.total}")
 assert.(order.notes == "first order", "CreateOrder", "expected notes 'first order'")
 IO.puts("PASS: CreateOrder")
 
@@ -101,7 +101,7 @@ IO.puts("PASS: CreateOrder")
 {:ok, orders} = Queries.get_orders_by_user(conn, user_id)
 assert.(length(orders) == 1, "GetOrdersByUser", "expected 1 order, got #{length(orders)}")
 first_order = List.first(orders)
-assert.(first_order.total == 9999, "GetOrdersByUser", "expected total 9999")
+assert.(Decimal.equal?(first_order.total, Decimal.new("99.99")), "GetOrdersByUser", "expected total 99.99")
 IO.puts("PASS: GetOrdersByUser")
 
 # Test: DeleteUser (delete orders first due to FK)

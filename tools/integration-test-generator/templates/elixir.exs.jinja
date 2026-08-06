@@ -383,7 +383,7 @@ IO.puts("PASS: ListActiveUsers")
 :ok = Queries.create_order(conn, user_id, Decimal.new("99.95"), "first order")
 {:ok, order} = Queries.get_last_insert_order(conn)
 {%- elif engine == "oracle" %}
-{:ok, order} = Queries.create_order(conn, user_id, 9999, "first order")
+{:ok, order} = Queries.create_order(conn, user_id, Decimal.new("99.99"), "first order")
 {%- elif engine == "mssql" %}
 {:ok, order} = Queries.create_order(conn, 1, user_id, Decimal.new("99.95"), "first order")
 {%- elif engine == "sqlite" and driver == "exqlite" %}
@@ -397,7 +397,7 @@ order = List.first(orders_after_insert)
 assert.(order.user_id == user_id, "CreateOrder", "expected user_id #{user_id}")
 {%- endif %}
 {%- if engine == "oracle" %}
-assert.(order.total == 9999, "CreateOrder", "expected total 9999, got #{order.total}")
+assert.(Decimal.equal?(order.total, Decimal.new("99.99")), "CreateOrder", "expected total 99.99, got #{order.total}")
 {%- elif engine == "sqlite" and driver == "exqlite" %}
 assert.(abs(order.total - 99.95) < 0.001, "CreateOrder", "expected total 99.95, got #{order.total}")
 {%- else %}
@@ -411,7 +411,7 @@ IO.puts("PASS: CreateOrder")
 assert.(length(orders) == 1, "GetOrdersByUser", "expected 1 order, got #{length(orders)}")
 first_order = List.first(orders)
 {%- if engine == "oracle" %}
-assert.(first_order.total == 9999, "GetOrdersByUser", "expected total 9999")
+assert.(Decimal.equal?(first_order.total, Decimal.new("99.99")), "GetOrdersByUser", "expected total 99.99")
 {%- elif engine == "sqlite" and driver == "exqlite" %}
 assert.(abs(first_order.total - 99.95) < 0.001, "GetOrdersByUser", "expected total 99.95")
 {%- else %}

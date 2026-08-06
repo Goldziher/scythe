@@ -1,4 +1,5 @@
 import generated.*
+import java.math.BigDecimal
 import java.nio.file.Path
 import java.sql.DriverManager
 import java.sql.SQLException
@@ -157,7 +158,7 @@ fun testListActiveUsers(conn: java.sql.Connection) {
 fun testCreateOrder(conn: java.sql.Connection) {
     val name = "CreateOrder"
     try {
-        val order = createOrder(conn, createdUserId, 9999L, "Test order")
+        val order = createOrder(conn, createdUserId, BigDecimal("99.99"), "Test order")
         if (order == null) {
             fail(name, "returned null")
             return
@@ -166,8 +167,8 @@ fun testCreateOrder(conn: java.sql.Connection) {
             fail(name, "expected user_id $createdUserId, got ${order.user_id}")
             return
         }
-        if (order.total != 9999L) {
-            fail(name, "expected total 9999, got ${order.total}")
+        if (order.total.compareTo(BigDecimal("99.99")) != 0) {
+            fail(name, "expected total 99.99, got ${order.total}")
             return
         }
         pass(name)
