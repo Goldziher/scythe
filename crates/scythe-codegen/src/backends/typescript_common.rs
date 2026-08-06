@@ -402,6 +402,7 @@ mod tests {
                 lang_type.to_string()
             },
             neutral_type: "string".to_string(),
+            sql_type: "text".to_string(),
             nullable,
             join_group: group.map(str::to_string),
             nullable_before_join,

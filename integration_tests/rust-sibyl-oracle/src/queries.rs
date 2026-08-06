@@ -73,7 +73,15 @@ pub async fn get_orders_by_user<'a>(session: &'a Session<'a>, user_id: i64) -> s
     while let Some(row) = rows.next().await? {
         let id: i64 = row.get(0)?;
         let total: f64 = row.get(1)?;
-        let notes: Option<String> = row.get(2)?;
+        let notes: Option<String> = match row.get::<Option<CLOB<'_>>, _>(2)? {
+            Some(lob) => {
+                let len = lob.len().await?;
+                let mut buf = String::new();
+                lob.read(0, len, &mut buf).await?;
+                Some(buf)
+            }
+            None => None,
+        };
         let created_at_date: Date<'_> = row.get(3)?;
         let created_at: chrono::NaiveDateTime = {
             let (y, mo, d, h, mi, s) = created_at_date.date_and_time();

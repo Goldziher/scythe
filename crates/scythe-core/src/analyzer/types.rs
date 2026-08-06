@@ -80,11 +80,19 @@ pub struct AnalyzedColumn {
     /// when the join found no matching row.
     #[cfg_attr(feature = "serde", serde(default))]
     pub nullable_before_join: bool,
+    /// The raw (lowercased, precision-stripped) SQL type this column was derived
+    /// from, e.g. "clob" or "varchar2". Backends that need to distinguish
+    /// storage representations the neutral type collapses (Oracle CLOB vs.
+    /// VARCHAR2, both `neutral_type == "string"`) can match on this. Falls back
+    /// to `neutral_type` for computed/expression columns with no single source
+    /// SQL type.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub sql_type: String,
 }
 
 impl AnalyzedColumn {
     /// Build a result column from an inferred expression type, carrying the
-    /// outer-join provenance through.
+    /// outer-join provenance and source SQL type through.
     ///
     /// Aliasing a column must not lose its group — `o.total AS order_total` is
     /// still decided by the same join outcome as its siblings.
@@ -95,6 +103,7 @@ impl AnalyzedColumn {
             nullable: type_info.nullable,
             join_group: type_info.join_group.clone(),
             nullable_before_join: type_info.nullable_before_join,
+            sql_type: type_info.sql_type.clone(),
         }
     }
 }
@@ -119,8 +128,41 @@ pub(super) struct ScopeSource {
 #[derive(Debug, Clone)]
 pub(super) struct ScopeColumn {
     pub(super) name: String,
+    pub(super) sql_type: String,
     pub(super) neutral_type: String,
     pub(super) base_nullable: bool,
+}
+
+impl ScopeColumn {
+    /// Build a scope column with no richer source-type information than its
+    /// neutral type (synthetic columns: JSON table functions, aliased
+    /// function-table outputs, literal/CTE placeholders, etc).
+    pub(super) fn new(name: impl Into<String>, neutral_type: impl Into<String>, base_nullable: bool) -> Self {
+        let neutral_type = neutral_type.into();
+        Self {
+            name: name.into(),
+            sql_type: neutral_type.clone(),
+            neutral_type,
+            base_nullable,
+        }
+    }
+
+    /// Build a scope column backed by a real catalog (or propagated
+    /// upstream-analyzed) column, preserving its raw SQL type alongside the
+    /// derived neutral type.
+    pub(super) fn from_catalog(
+        name: impl Into<String>,
+        sql_type: impl Into<String>,
+        neutral_type: impl Into<String>,
+        base_nullable: bool,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            sql_type: sql_type.into(),
+            neutral_type: neutral_type.into(),
+            base_nullable,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -156,27 +198,39 @@ pub(super) struct TypeInfo {
     /// A column in a `join_group` with `nullable_before_join == false` is a
     /// *discriminant*: it can only be null when the join found no row.
     pub(super) nullable_before_join: bool,
+    /// Raw SQL type this expression's type came from, when it resolves
+    /// directly to a single source column (see [`AnalyzedColumn::sql_type`]).
+    /// Defaults to a copy of `neutral_type` for computed expressions.
+    pub(super) sql_type: String,
 }
 
 impl TypeInfo {
     pub(super) fn new(neutral_type: impl Into<String>, nullable: bool) -> Self {
+        let neutral_type = neutral_type.into();
         Self {
-            neutral_type: neutral_type.into(),
+            sql_type: neutral_type.clone(),
+            neutral_type,
             nullable,
             join_group: None,
             nullable_before_join: nullable,
         }
     }
 
-    /// Build type info for a column resolved from a relation in scope,
-    /// recording where its nullability came from.
+    /// Build type info for a column resolved from a relation in scope.
+    ///
+    /// Carries two things the neutral type alone cannot express: the raw SQL
+    /// type, so backends can distinguish storage representations that collapse
+    /// to the same neutral type (Oracle CLOB vs. VARCHAR2), and where the
+    /// column's nullability came from, so outer-joined columns can be grouped.
     pub(super) fn from_scope_column(
+        sql_type: impl Into<String>,
         neutral_type: impl Into<String>,
         base_nullable: bool,
         source_alias: &str,
         nullable_from_join: bool,
     ) -> Self {
         Self {
+            sql_type: sql_type.into(),
             neutral_type: neutral_type.into(),
             nullable: base_nullable || nullable_from_join,
             join_group: nullable_from_join.then(|| source_alias.to_string()),

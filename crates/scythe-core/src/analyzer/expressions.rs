@@ -323,6 +323,7 @@ impl<'a> Analyzer<'a> {
                     && let Some(col) = source.columns.iter().find(|c| c.name == col_name)
                 {
                     return TypeInfo::from_scope_column(
+                        col.sql_type.clone(),
                         col.neutral_type.clone(),
                         col.base_nullable,
                         &source.alias,
@@ -335,17 +336,14 @@ impl<'a> Analyzer<'a> {
             for source in &scope.sources {
                 if let Some(col) = source.columns.iter().find(|c| c.name == col_name) {
                     let ti = TypeInfo::from_scope_column(
+                        col.sql_type.clone(),
                         col.neutral_type.clone(),
                         col.base_nullable,
                         &source.alias,
                         source.nullable_from_join,
                     );
                     if found.is_some() {
-                        return TypeInfo {
-                            neutral_type: format!("__ambiguous__:{}", col_name),
-                            nullable: false,
-                            ..Default::default()
-                        };
+                        return TypeInfo::new(format!("__ambiguous__:{}", col_name), false);
                     }
                     found = Some(ti);
                 }
@@ -357,11 +355,7 @@ impl<'a> Analyzer<'a> {
 
         let has_sources = scope.sources.iter().any(|s| !s.columns.is_empty());
         if has_sources {
-            return TypeInfo {
-                neutral_type: format!("__unknown_col__:{}", col_name),
-                nullable: true,
-                ..Default::default()
-            };
+            return TypeInfo::new(format!("__unknown_col__:{}", col_name), true);
         }
 
         TypeInfo::unknown()
@@ -572,11 +566,7 @@ impl<'a> Analyzer<'a> {
 
             _ => {
                 let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
-                TypeInfo {
-                    neutral_type: format!("__unknown_func__:{}", func_name),
-                    nullable: ti.nullable,
-                    ..Default::default()
-                }
+                TypeInfo::new(format!("__unknown_func__:{}", func_name), ti.nullable)
             }
         }
     }

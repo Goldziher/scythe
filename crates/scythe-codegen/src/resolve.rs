@@ -47,6 +47,7 @@ pub fn resolve_columns(
                 nullable: col.nullable,
                 join_group: col.join_group.clone(),
                 nullable_before_join: col.nullable_before_join,
+                sql_type: col.sql_type.clone(),
             })
         })
         .collect()
