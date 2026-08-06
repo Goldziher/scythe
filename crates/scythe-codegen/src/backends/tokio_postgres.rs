@@ -10,6 +10,7 @@ use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backends::typescript_common::parse_bool_option;
 use crate::singularize;
 
 /// Default embedded manifest TOML for rust-tokio-postgres, used as fallback.
@@ -96,7 +97,7 @@ impl CodegenBackend for TokioPostgresBackend {
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
         if let Some(val) = options.get("serde") {
-            self.serde = val == "true";
+            self.serde = parse_bool_option("serde", val)?;
         }
         if let Some(val) = options.get("derive") {
             self.extra_derives = val.split(',').map(|s| s.trim().to_string()).collect();
@@ -686,5 +687,33 @@ mod tests {
             query_fn.contains("Ok(result)"),
             "fn must return result; got:\n{query_fn}"
         );
+    }
+
+    #[test]
+    fn serde_option_applies_when_true() {
+        use crate::backend_trait::CodegenBackend;
+
+        let mut backend = TokioPostgresBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "serde".to_string(),
+                "true".to_string(),
+            )]))
+            .unwrap();
+        assert!(backend.serde);
+    }
+
+    /// An unrecognized value must be reported, not silently treated as
+    /// leaving `serde` disabled.
+    #[test]
+    fn serde_option_rejects_invalid_value() {
+        use crate::backend_trait::CodegenBackend;
+
+        let mut backend = TokioPostgresBackend::new("postgresql").unwrap();
+        let result = backend.apply_options(&std::collections::HashMap::from([(
+            "serde".to_string(),
+            "maybe".to_string(),
+        )]));
+        assert!(result.is_err(), "expected 'maybe' to be rejected");
     }
 }

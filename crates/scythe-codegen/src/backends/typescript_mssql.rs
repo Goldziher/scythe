@@ -10,7 +10,7 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
     TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
-    generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
+    generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct, parse_bool_option,
 };
 use crate::singularize;
 
@@ -407,7 +407,7 @@ impl CodegenBackend for TypescriptMssqlBackend {
             self.row_type = TsRowType::from_option(value)?;
         }
         if let Some(value) = options.get("outer_join_unions") {
-            self.outer_join_unions = matches!(value.as_str(), "true" | "1" | "yes");
+            self.outer_join_unions = parse_bool_option("outer_join_unions", value)?;
         }
         Ok(())
     }

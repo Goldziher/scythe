@@ -14,6 +14,7 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
     TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
     generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs, generate_zod_row_struct,
+    parse_bool_option,
 };
 use crate::singularize;
 
@@ -435,7 +436,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
             self.row_type = TsRowType::from_option(value)?;
         }
         if let Some(value) = options.get("outer_join_unions") {
-            self.outer_join_unions = matches!(value.as_str(), "true" | "1" | "yes");
+            self.outer_join_unions = parse_bool_option("outer_join_unions", value)?;
         }
         Ok(())
     }
@@ -722,5 +723,17 @@ mod tests {
             )]))
             .unwrap();
         assert!(backend.outer_join_unions);
+    }
+
+    /// An unrecognized value must be reported, not silently treated as
+    /// disabling the feature.
+    #[test]
+    fn test_outer_join_unions_option_rejects_invalid_value() {
+        let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        let result = backend.apply_options(&std::collections::HashMap::from([(
+            "outer_join_unions".to_string(),
+            "maybe".to_string(),
+        )]));
+        assert!(result.is_err(), "expected 'maybe' to be rejected");
     }
 }

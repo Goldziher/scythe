@@ -9,6 +9,7 @@ use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backends::typescript_common::parse_bool_option;
 use crate::singularize;
 
 /// Default embedded manifest TOML for rust-sqlx, used as fallback.
@@ -124,8 +125,8 @@ impl CodegenBackend for SqlxBackend {
     }
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
-        if options.get("structs_only").is_some_and(|v| v == "true") {
-            self.structs_only = true;
+        if let Some(value) = options.get("structs_only") {
+            self.structs_only = parse_bool_option("structs_only", value)?;
         }
         Ok(())
     }
@@ -578,4 +579,33 @@ fn replace_column_in_select(select: &str, col_name: &str, replacement: &str) -> 
         }
     }
     result
+}
+
+#[cfg(test)]
+mod option_tests {
+    use super::*;
+
+    #[test]
+    fn structs_only_option_applies_when_true() {
+        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "structs_only".to_string(),
+                "true".to_string(),
+            )]))
+            .unwrap();
+        assert!(backend.structs_only);
+    }
+
+    /// An unrecognized value must be reported, not silently treated as
+    /// leaving `structs_only` disabled.
+    #[test]
+    fn structs_only_option_rejects_invalid_value() {
+        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let result = backend.apply_options(&std::collections::HashMap::from([(
+            "structs_only".to_string(),
+            "maybe".to_string(),
+        )]));
+        assert!(result.is_err(), "expected 'maybe' to be rejected");
+    }
 }

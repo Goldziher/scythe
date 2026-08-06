@@ -26,6 +26,23 @@ impl TsRowType {
     }
 }
 
+/// Parse a boolean backend option strictly.
+///
+/// Accepts (case-insensitively) `true`/`false`, `1`/`0`, and `yes`/`no`. Any
+/// other value — a typo, `"on"`, an empty string — is rejected with an error
+/// naming the option and the offending value, rather than being silently
+/// coerced to `false` as `matches!` or `== "true"` would do.
+pub fn parse_bool_option(option_name: &str, value: &str) -> Result<bool, ScytheError> {
+    match value.to_ascii_lowercase().as_str() {
+        "true" | "1" | "yes" => Ok(true),
+        "false" | "0" | "no" => Ok(false),
+        _ => Err(ScytheError::new(
+            ErrorCode::InternalError,
+            format!("invalid {option_name} '{value}': expected 'true'/'false', '1'/'0', or 'yes'/'no'"),
+        )),
+    }
+}
+
 /// Map a neutral type to its Zod v4 schema expression.
 /// Note: This does not handle enums - use column_to_zod for full column handling.
 pub fn neutral_to_zod(neutral_type: &str, nullable: bool) -> String {
@@ -488,5 +505,41 @@ mod tests {
         assert!(out.contains("| { addr: string }"), "{out}");
         assert!(out.contains("| { addr: null }"), "{out}");
         assert_eq!(out.matches(" & (").count(), 2, "one group per relation: {out}");
+    }
+
+    #[test]
+    fn parse_bool_option_accepts_true_spellings_case_insensitively() {
+        for value in ["true", "True", "TRUE", "1", "yes", "Yes", "YES"] {
+            assert!(
+                parse_bool_option("outer_join_unions", value).unwrap(),
+                "expected {value} to parse as true"
+            );
+        }
+    }
+
+    #[test]
+    fn parse_bool_option_accepts_false_spellings_case_insensitively() {
+        for value in ["false", "False", "FALSE", "0", "no", "No", "NO"] {
+            assert!(
+                !parse_bool_option("outer_join_unions", value).unwrap(),
+                "expected {value} to parse as false"
+            );
+        }
+    }
+
+    /// This must fail before the fix: the old `matches!(value.as_str(), "true" | "1" | "yes")`
+    /// silently mapped every one of these to `false` instead of reporting an error.
+    #[test]
+    fn parse_bool_option_rejects_unrecognized_values_with_an_error_naming_the_option() {
+        for value in ["on", "maybe", ""] {
+            let err =
+                parse_bool_option("outer_join_unions", value).expect_err(&format!("expected '{value}' to be rejected"));
+            let message = err.to_string();
+            assert!(
+                message.contains("outer_join_unions"),
+                "error should name the option: {message}"
+            );
+            assert!(message.contains(value), "error should include the bad value: {message}");
+        }
     }
 }
