@@ -442,7 +442,7 @@ mod tests {
     /// SQLite's `REAL` storage class is always an 8-byte IEEE float (SQLite has no
     /// 4-byte float type) and must resolve to `float64`, while PostgreSQL's `real`
     /// (aka `float4`) is genuinely 4 bytes and must stay `float32`. Regression test
-    /// for https://github.com/xberg-io/scythe/issues/70.
+    /// for https://github.com/Goldziher/scythe/issues/70.
     #[test]
     fn test_sqlite_real_is_float64_postgres_real_stays_float32() {
         let sqlite = Catalog::from_ddl_with_dialect(&[], &SqlDialect::SQLite).unwrap();

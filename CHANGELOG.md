@@ -27,6 +27,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The integration-test generator's templates had been silently corrupted since July.** The commit that migrated linting to poly ran its prose formatter over `tools/integration-test-generator/templates/*.jinja`, because that config carried no exclusion for `.jinja` files — one was added later, but the damage was never repaired. The formatter stripped every newline and re-wrapped all seven language templates at 120 columns, which split string literals across lines and left `//` comments swallowing the code behind them. Word counts were identical before and after, so nothing was lost; the templates are restored from the last good revision with every subsequent change re-applied. The corruption stayed invisible for a month because it only reaches the tree when someone regenerates, and it surfaced as unrelated-looking compiler errors when they did. `scripts/check-generated-syntax.sh` now parses every generated harness, and the freshness job regenerates the scaffolding as well as the query code so drift in either is caught ([#72](https://github.com/Goldziher/scythe/issues/72))
 - **`scythe inspect` was unusable against every live database.** Check SC-INS13 called `round(float8, integer)`, which PostgreSQL does not define, raising SQLSTATE 42883 on every server version. Because `run_all()` was fail-fast, that one bad check aborted the entire inspection. The check is repaired and `run_all()` now isolates a failing check instead of abandoning the run
 - `:batch` queries emitted TypeScript that does not compile. When a generated signature exceeded 80 characters the line-wrapping helper discarded the signature its caller passed and rebuilt one from the query's own per-column params — so the function declared `(db, name, email)` while its body referenced `items`, an identifier that was never declared. Affected seven TypeScript backends; any `:batch` query with two or more params and a long enough name was broken
 - Oracle `CLOB`, `BLOB`, `NCLOB` and `BFILE` columns failed at runtime in the `rust-sibyl` backend with `Interface("cannot return as a String")`. These are now read through a LOB locator, and the read loop no longer discards the returned byte count (a short read previously truncated large LOBs silently)
@@ -66,6 +67,30 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Removed
 
 - `integration_tests/typescript-snowflake/fakesnow_server.py` moved to `integration_tests/fakesnow/fakesnow_server.py` — it is shared infrastructure for every non-Python Snowflake driver, not a TypeScript-specific fixture
+
+### Unverified / Skipped in CI
+
+These backends have codegen support but are not exercised against a live database. The equivalent
+list under [0.6.8] describes that release and is now out of date; this one supersedes it.
+
+**Snowflake** ([#27](https://github.com/Goldziher/scythe/issues/27)) — `python-snowflake`,
+`typescript-snowflake`, `go-gosnowflake`, `java-jdbc-snowflake` and `kotlin-jdbc-snowflake` all run
+against the shared [fakesnow](https://github.com/tekumara/fakesnow) server. The two JDBC suites were
+unblocked this release by teaching fakesnow to serve snowflake-jdbc its native Arrow result format.
+Still excluded:
+
+- `csharp-snowflake` — the codegen defect was fixed this release, but the harness fails earlier:
+  Snowflake.Data names its bind parameters `p1`/`p2`/`p3`, which fakesnow's binding-name heuristic
+  treats as named rather than positional. A fakesnow limitation, not a codegen one
+- `php-pdo-snowflake` — uncoverable. Snowflake has no PDO driver; access requires the proprietary
+  closed-source ODBC driver preinstalled on the runner
+
+**Oracle** — `elixir-jamdb` (`DBConnection.ConnectionPool` dispatch error with `jamdb_oracle`) and
+`ruby-oci8` (native gem needs Oracle Instant Client SDK headers unavailable in CI).
+
+**SQLite** — `php-pdo-sqlite` has no CI job. The `createUser` arity mismatch noted under [0.6.8] is
+resolved (generated signature and harness call now agree, and the harness parses), but it has never
+been run against a database.
 
 ## [0.11.0] - 2026-07-04
 
