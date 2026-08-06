@@ -200,6 +200,7 @@ mod tests {
             full_type: String::new(),
             neutral_type: neutral_type.to_string(),
             nullable,
+            sql_type: neutral_type.to_string(),
         }
     }
 

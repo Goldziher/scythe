@@ -435,16 +435,8 @@ mod tests {
                 alias: "users".to_string(),
                 table_name: "users".to_string(),
                 columns: vec![
-                    ScopeColumn {
-                        name: "id".to_string(),
-                        neutral_type: "int32".to_string(),
-                        base_nullable: false,
-                    },
-                    ScopeColumn {
-                        name: "name".to_string(),
-                        neutral_type: "string".to_string(),
-                        base_nullable: false,
-                    },
+                    ScopeColumn::new("id", "int32", false),
+                    ScopeColumn::new("name", "string", false),
                 ],
                 nullable_from_join: false,
             }],

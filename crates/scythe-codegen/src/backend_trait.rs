@@ -36,6 +36,12 @@ pub struct ResolvedColumn {
     pub full_type: String,
     pub neutral_type: String,
     pub nullable: bool,
+    /// The raw SQL type this column was derived from (see
+    /// [`scythe_core::analyzer::AnalyzedColumn::sql_type`]). Backends that need
+    /// to distinguish storage representations the neutral type collapses
+    /// (Oracle CLOB vs. VARCHAR2, both `neutral_type == "string"`) match on
+    /// this instead of `neutral_type`.
+    pub sql_type: String,
 }
 
 /// A parameter with its type resolved to the target language.

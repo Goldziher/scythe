@@ -303,16 +303,19 @@ mod tests {
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
+                    ..Default::default()
                 },
                 AnalyzedColumn {
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
+                    ..Default::default()
                 },
                 AnalyzedColumn {
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: true,
+                    ..Default::default()
                 },
             ],
             vec![],
@@ -343,11 +346,13 @@ mod tests {
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
+                    ..Default::default()
                 },
                 AnalyzedColumn {
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
+                    ..Default::default()
                 },
             ],
             vec![AnalyzedParam {
@@ -403,11 +408,13 @@ mod tests {
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
+                    ..Default::default()
                 },
                 AnalyzedColumn {
                     name: "status".to_string(),
                     neutral_type: "enum::user_status".to_string(),
                     nullable: false,
+                    ..Default::default()
                 },
             ],
             vec![AnalyzedParam {
@@ -476,16 +483,19 @@ mod tests {
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
+                ..Default::default()
             },
             AnalyzedColumn {
                 name: "name".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
+                ..Default::default()
             },
             AnalyzedColumn {
                 name: "email".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
+                ..Default::default()
             },
         ];
         let child_cols = vec![
@@ -493,16 +503,19 @@ mod tests {
                 name: "order_id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
+                ..Default::default()
             },
             AnalyzedColumn {
                 name: "total".to_string(),
                 neutral_type: "decimal".to_string(),
                 nullable: true,
+                ..Default::default()
             },
             AnalyzedColumn {
                 name: "order_date".to_string(),
                 neutral_type: "datetime".to_string(),
                 nullable: false,
+                ..Default::default()
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
@@ -767,11 +780,13 @@ mod tests {
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
+                    ..Default::default()
                 },
                 AnalyzedColumn {
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
+                    ..Default::default()
                 },
             ],
             vec![],
@@ -824,6 +839,7 @@ mod tests {
                 name: "aggregated_free_pages".to_string(),
                 neutral_type: "int64".to_string(),
                 nullable: false,
+                ..Default::default()
             }],
             vec![AnalyzedParam {
                 name: "customer_id".to_string(),
@@ -859,11 +875,13 @@ mod tests {
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
                     nullable: false,
+                    ..Default::default()
                 },
                 AnalyzedColumn {
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
+                    ..Default::default()
                 },
             ],
             vec![AnalyzedParam {

@@ -45,6 +45,7 @@ pub fn resolve_columns(
                 full_type,
                 neutral_type: effective_neutral_type.to_string(),
                 nullable: col.nullable,
+                sql_type: col.sql_type.clone(),
             })
         })
         .collect()

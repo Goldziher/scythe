@@ -51,10 +51,13 @@ impl<'a> Analyzer<'a> {
                             let base_cols = self.analyze_set_expr(left)?;
                             let scope_cols: Vec<ScopeColumn> = base_cols
                                 .iter()
-                                .map(|c| ScopeColumn {
-                                    name: c.name.clone(),
-                                    neutral_type: c.neutral_type.clone(),
-                                    base_nullable: c.nullable,
+                                .map(|c| {
+                                    ScopeColumn::from_catalog(
+                                        c.name.clone(),
+                                        c.sql_type.clone(),
+                                        c.neutral_type.clone(),
+                                        c.nullable,
+                                    )
                                 })
                                 .collect();
                             self.ctes.insert(cte_name.clone(), scope_cols);
@@ -66,10 +69,13 @@ impl<'a> Analyzer<'a> {
                 let cte_cols = self.analyze_query(&cte.query)?;
                 let scope_cols: Vec<ScopeColumn> = cte_cols
                     .iter()
-                    .map(|c| ScopeColumn {
-                        name: c.name.clone(),
-                        neutral_type: c.neutral_type.clone(),
-                        base_nullable: c.nullable,
+                    .map(|c| {
+                        ScopeColumn::from_catalog(
+                            c.name.clone(),
+                            c.sql_type.clone(),
+                            c.neutral_type.clone(),
+                            c.nullable,
+                        )
                     })
                     .collect();
                 self.ctes.insert(cte_name, scope_cols);
@@ -116,6 +122,7 @@ impl<'a> Analyzer<'a> {
                             let widened_type = widen_type(&lc.neutral_type, &right_cols[i].neutral_type);
                             AnalyzedColumn {
                                 name: lc.name.clone(),
+                                sql_type: widened_type.clone(),
                                 neutral_type: widened_type,
                                 nullable: lc.nullable || right_cols[i].nullable,
                             }
@@ -135,6 +142,7 @@ impl<'a> Analyzer<'a> {
                             let ti = self.infer_expr_type(expr, &Scope { sources: Vec::new() });
                             AnalyzedColumn {
                                 name: format!("column{}", i + 1),
+                                sql_type: ti.sql_type,
                                 neutral_type: ti.neutral_type,
                                 nullable: ti.nullable,
                             }
@@ -169,6 +177,7 @@ impl<'a> Analyzer<'a> {
                     let name = expr_to_name(expr);
                     columns.push(AnalyzedColumn {
                         name,
+                        sql_type: ti.sql_type,
                         neutral_type: ti.neutral_type,
                         nullable: ti.nullable,
                     });
@@ -178,6 +187,7 @@ impl<'a> Analyzer<'a> {
                     let ti = self.infer_expr_type(expr, &scope);
                     columns.push(AnalyzedColumn {
                         name: alias.value.to_lowercase(),
+                        sql_type: ti.sql_type,
                         neutral_type: ti.neutral_type,
                         nullable: ti.nullable,
                     });
@@ -188,6 +198,7 @@ impl<'a> Analyzer<'a> {
                     for alias in aliases {
                         columns.push(AnalyzedColumn {
                             name: alias.value.to_lowercase(),
+                            sql_type: ti.sql_type.clone(),
                             neutral_type: ti.neutral_type.clone(),
                             nullable: ti.nullable,
                         });
@@ -199,6 +210,7 @@ impl<'a> Analyzer<'a> {
                             let nullable = col.base_nullable || source.nullable_from_join;
                             columns.push(AnalyzedColumn {
                                 name: col.name.clone(),
+                                sql_type: col.sql_type.clone(),
                                 neutral_type: col.neutral_type.clone(),
                                 nullable,
                             });
@@ -218,6 +230,7 @@ impl<'a> Analyzer<'a> {
                                 let nullable = col.base_nullable || source.nullable_from_join;
                                 columns.push(AnalyzedColumn {
                                     name: col.name.clone(),
+                                    sql_type: col.sql_type.clone(),
                                     neutral_type: col.neutral_type.clone(),
                                     nullable,
                                 });
@@ -419,6 +432,7 @@ impl<'a> Analyzer<'a> {
                     let name = expr_to_name(expr);
                     columns.push(AnalyzedColumn {
                         name,
+                        sql_type: ti.sql_type,
                         neutral_type: ti.neutral_type,
                         nullable: ti.nullable,
                     });
@@ -427,6 +441,7 @@ impl<'a> Analyzer<'a> {
                     let ti = self.infer_expr_type(expr, &scope);
                     columns.push(AnalyzedColumn {
                         name: alias.value.to_lowercase(),
+                        sql_type: ti.sql_type,
                         neutral_type: ti.neutral_type,
                         nullable: ti.nullable,
                     });
@@ -436,6 +451,7 @@ impl<'a> Analyzer<'a> {
                     for alias in aliases {
                         columns.push(AnalyzedColumn {
                             name: alias.value.to_lowercase(),
+                            sql_type: ti.sql_type.clone(),
                             neutral_type: ti.neutral_type.clone(),
                             nullable: ti.nullable,
                         });
@@ -446,6 +462,7 @@ impl<'a> Analyzer<'a> {
                         for col in &source.columns {
                             columns.push(AnalyzedColumn {
                                 name: col.name.clone(),
+                                sql_type: col.sql_type.clone(),
                                 neutral_type: col.neutral_type.clone(),
                                 nullable: col.base_nullable,
                             });
@@ -464,6 +481,7 @@ impl<'a> Analyzer<'a> {
                             for col in &source.columns {
                                 columns.push(AnalyzedColumn {
                                     name: col.name.clone(),
+                                    sql_type: col.sql_type.clone(),
                                     neutral_type: col.neutral_type.clone(),
                                     nullable: col.base_nullable,
                                 });

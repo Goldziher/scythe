@@ -163,7 +163,18 @@ impl RustSibylBackend {
     /// Date<'_>, Timestamp<'_>, etc. — but NOT chrono::NaiveDateTime.
     /// For date/datetime: get as Date<'_> then convert via date_and_time().
     /// decimal maps to f64 in the manifest (OCI NUMBER → SQLT_BDOUBLE), so it's handled as float.
+    ///
+    /// Oracle CLOB columns need special handling: sibyl's `FromSql<String>` only matches
+    /// `ColumnBuffer::Text` (VARCHAR2/CHAR) — a CLOB column's buffer is
+    /// `ColumnBuffer::CLOB` and reading it via `row.get::<String, _>(i)` fails at runtime
+    /// with `Interface("cannot return as a String")`. CLOB (and, by the same underlying
+    /// mechanism, BLOB/BFILE) must be fetched as a LOB locator and its content read
+    /// explicitly. `neutral_type` alone can't distinguish this (both CLOB and VARCHAR2
+    /// resolve to `"string"`), so this matches on `sql_type`, the raw source SQL type.
     fn emit_row_get(col: &ResolvedColumn, index: usize, indent: &str) -> String {
+        if col.sql_type == "clob" {
+            return Self::emit_row_get_clob(col, index, indent);
+        }
         match col.neutral_type.as_str() {
             "date" | "datetime" | "datetime_tz" => {
                 if col.nullable {
@@ -194,6 +205,42 @@ impl RustSibylBackend {
                     ty = col.full_type
                 )
             }
+        }
+    }
+
+    /// Emit the row.get() call for an Oracle CLOB column. Fetches the LOB
+    /// locator, then reads its full text content into a `String` (sibyl's
+    /// `LOB::read` is the only way to materialize CLOB content — there is no
+    /// direct `ColumnBuffer::CLOB -> String` conversion).
+    fn emit_row_get_clob(col: &ResolvedColumn, index: usize, indent: &str) -> String {
+        let name = &col.field_name;
+        if col.nullable {
+            format!(
+                "{indent}let {name}: {ty} = match row.get::<Option<CLOB<'_>>, _>({i})? {{\n\
+                 {indent}    Some(lob) => {{\n\
+                 {indent}        let len = lob.len().await?;\n\
+                 {indent}        let mut buf = String::new();\n\
+                 {indent}        lob.read(0, len, &mut buf).await?;\n\
+                 {indent}        Some(buf)\n\
+                 {indent}    }}\n\
+                 {indent}    None => None,\n\
+                 {indent}}};",
+                indent = indent,
+                name = name,
+                i = index,
+                ty = col.full_type
+            )
+        } else {
+            format!(
+                "{indent}let {name}_lob: CLOB<'_> = row.get({i})?;\n\
+                 {indent}let {name}_len = {name}_lob.len().await?;\n\
+                 {indent}let mut {name}: {ty} = String::new();\n\
+                 {indent}{name}_lob.read(0, {name}_len, &mut {name}).await?;",
+                indent = indent,
+                name = name,
+                i = index,
+                ty = col.full_type
+            )
         }
     }
 }
@@ -581,16 +628,19 @@ mod tests {
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
+                ..Default::default()
             },
             AnalyzedColumn {
                 name: "name".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
+                ..Default::default()
             },
             AnalyzedColumn {
                 name: "email".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
+                ..Default::default()
             },
         ];
         let child_cols = vec![
@@ -598,16 +648,19 @@ mod tests {
                 name: "order_id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
+                ..Default::default()
             },
             AnalyzedColumn {
                 name: "total".to_string(),
                 neutral_type: "decimal".to_string(),
                 nullable: true,
+                ..Default::default()
             },
             AnalyzedColumn {
                 name: "order_date".to_string(),
                 neutral_type: "datetime".to_string(),
                 nullable: false,
+                ..Default::default()
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
@@ -710,6 +763,89 @@ mod tests {
         assert!(
             query_fn.contains("Ok(result)"),
             "fn must return result; got:\n{query_fn}"
+        );
+    }
+
+    /// Regression test for the "Interface(\"cannot return as a String\")" runtime error:
+    /// sibyl's `FromSql<String>` only matches `ColumnBuffer::Text` (VARCHAR2/CHAR); an
+    /// Oracle CLOB column's buffer is `ColumnBuffer::CLOB`, so `row.get::<String, _>(i)`
+    /// fails at runtime. CLOB columns must be fetched as a `CLOB<'_>` locator and read
+    /// explicitly instead.
+    #[test]
+    fn test_clob_column_reads_via_lob_locator_not_row_get_string() {
+        let backend = RustSibylBackend::new("oracle").unwrap();
+        let query = AnalyzedQuery {
+            name: "GetOrdersByUser".to_string(),
+            command: QueryCommand::Many,
+            sql: "SELECT id, notes FROM orders".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    sql_type: "integer".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                },
+                AnalyzedColumn {
+                    name: "notes".to_string(),
+                    sql_type: "clob".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                },
+            ],
+            ..Default::default()
+        };
+
+        let result = generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("row.get::<Option<CLOB<'_>>, _>(1)?"),
+            "CLOB column must be fetched as a LOB locator, not a String; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains(".read(0, len, &mut buf).await?"),
+            "CLOB content must be read explicitly via LOB::read; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("let notes: Option<String> = row.get(1)?;"),
+            "CLOB column must not be read via the plain String path; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_non_clob_string_column_still_uses_plain_row_get() {
+        let backend = RustSibylBackend::new("oracle").unwrap();
+        let query = AnalyzedQuery {
+            name: "GetUserById".to_string(),
+            command: QueryCommand::Opt,
+            sql: "SELECT id, name FROM users".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    sql_type: "integer".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                },
+                AnalyzedColumn {
+                    name: "name".to_string(),
+                    sql_type: "varchar(255)".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                },
+            ],
+            ..Default::default()
+        };
+
+        let result = generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("let name: String = row.get(1)?;"),
+            "VARCHAR2 columns must keep using plain row.get(); got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("CLOB"),
+            "non-CLOB query must not reference CLOB; got:\n{query_fn}"
         );
     }
 }

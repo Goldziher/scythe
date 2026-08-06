@@ -67,10 +67,13 @@ impl<'a> Analyzer<'a> {
                     table
                         .columns
                         .iter()
-                        .map(|c| ScopeColumn {
-                            name: c.name.clone(),
-                            neutral_type: sql_type_to_neutral(&c.sql_type, self.catalog).into_owned(),
-                            base_nullable: c.nullable,
+                        .map(|c| {
+                            ScopeColumn::from_catalog(
+                                c.name.clone(),
+                                c.sql_type.clone(),
+                                sql_type_to_neutral(&c.sql_type, self.catalog).into_owned(),
+                                c.nullable,
+                            )
                         })
                         .collect()
                 } else {
@@ -94,40 +97,20 @@ impl<'a> Analyzer<'a> {
                     ];
                     if known_functions.contains(&table_name.as_str()) {
                         match table_name.as_str() {
-                            "jsonb_array_elements" | "json_array_elements" => vec![ScopeColumn {
-                                name: "value".to_string(),
-                                neutral_type: "json".to_string(),
-                                base_nullable: true,
-                            }],
+                            "jsonb_array_elements" | "json_array_elements" => {
+                                vec![ScopeColumn::new("value", "json", true)]
+                            }
                             "jsonb_each" | "json_each" => vec![
-                                ScopeColumn {
-                                    name: "key".to_string(),
-                                    neutral_type: "string".to_string(),
-                                    base_nullable: false,
-                                },
-                                ScopeColumn {
-                                    name: "value".to_string(),
-                                    neutral_type: "json".to_string(),
-                                    base_nullable: true,
-                                },
+                                ScopeColumn::new("key", "string", false),
+                                ScopeColumn::new("value", "json", true),
                             ],
                             "jsonb_each_text" | "json_each_text" => vec![
-                                ScopeColumn {
-                                    name: "key".to_string(),
-                                    neutral_type: "string".to_string(),
-                                    base_nullable: false,
-                                },
-                                ScopeColumn {
-                                    name: "value".to_string(),
-                                    neutral_type: "string".to_string(),
-                                    base_nullable: true,
-                                },
+                                ScopeColumn::new("key", "string", false),
+                                ScopeColumn::new("value", "string", true),
                             ],
-                            "jsonb_object_keys" | "json_object_keys" => vec![ScopeColumn {
-                                name: "jsonb_object_keys".to_string(),
-                                neutral_type: "string".to_string(),
-                                base_nullable: false,
-                            }],
+                            "jsonb_object_keys" | "json_object_keys" => {
+                                vec![ScopeColumn::new("jsonb_object_keys", "string", false)]
+                            }
                             _ => Vec::new(),
                         }
                     } else {
@@ -166,10 +149,13 @@ impl<'a> Analyzer<'a> {
 
                 let scope_cols: Vec<ScopeColumn> = sub_cols
                     .iter()
-                    .map(|c| ScopeColumn {
-                        name: c.name.clone(),
-                        neutral_type: c.neutral_type.clone(),
-                        base_nullable: c.nullable,
+                    .map(|c| {
+                        ScopeColumn::from_catalog(
+                            c.name.clone(),
+                            c.sql_type.clone(),
+                            c.neutral_type.clone(),
+                            c.nullable,
+                        )
                     })
                     .collect();
 
@@ -225,50 +211,20 @@ impl<'a> Analyzer<'a> {
 
                 let func_name = object_name_to_string(name).to_lowercase();
                 let cols = match func_name.as_str() {
-                    "generate_series" => vec![ScopeColumn {
-                        name: "generate_series".to_string(),
-                        neutral_type: "int32".to_string(),
-                        base_nullable: false,
-                    }],
-                    "unnest" => vec![ScopeColumn {
-                        name: "unnest".to_string(),
-                        neutral_type: "unknown".to_string(),
-                        base_nullable: true,
-                    }],
-                    "jsonb_array_elements" | "json_array_elements" => vec![ScopeColumn {
-                        name: "value".to_string(),
-                        neutral_type: "json".to_string(),
-                        base_nullable: true,
-                    }],
+                    "generate_series" => vec![ScopeColumn::new("generate_series", "int32", false)],
+                    "unnest" => vec![ScopeColumn::new("unnest", "unknown", true)],
+                    "jsonb_array_elements" | "json_array_elements" => vec![ScopeColumn::new("value", "json", true)],
                     "jsonb_each" | "json_each" => vec![
-                        ScopeColumn {
-                            name: "key".to_string(),
-                            neutral_type: "string".to_string(),
-                            base_nullable: false,
-                        },
-                        ScopeColumn {
-                            name: "value".to_string(),
-                            neutral_type: "json".to_string(),
-                            base_nullable: true,
-                        },
+                        ScopeColumn::new("key", "string", false),
+                        ScopeColumn::new("value", "json", true),
                     ],
                     "jsonb_each_text" | "json_each_text" => vec![
-                        ScopeColumn {
-                            name: "key".to_string(),
-                            neutral_type: "string".to_string(),
-                            base_nullable: false,
-                        },
-                        ScopeColumn {
-                            name: "value".to_string(),
-                            neutral_type: "string".to_string(),
-                            base_nullable: true,
-                        },
+                        ScopeColumn::new("key", "string", false),
+                        ScopeColumn::new("value", "string", true),
                     ],
-                    "jsonb_object_keys" | "json_object_keys" => vec![ScopeColumn {
-                        name: "jsonb_object_keys".to_string(),
-                        neutral_type: "string".to_string(),
-                        base_nullable: false,
-                    }],
+                    "jsonb_object_keys" | "json_object_keys" => {
+                        vec![ScopeColumn::new("jsonb_object_keys", "string", false)]
+                    }
                     _ => Vec::new(),
                 };
 
@@ -276,11 +232,7 @@ impl<'a> Analyzer<'a> {
                     if !a.columns.is_empty() {
                         a.columns
                             .iter()
-                            .map(|c| ScopeColumn {
-                                name: c.name.value.to_lowercase(),
-                                neutral_type: "unknown".to_string(),
-                                base_nullable: true,
-                            })
+                            .map(|c| ScopeColumn::new(c.name.value.to_lowercase(), "unknown", true))
                             .collect()
                     } else {
                         cols
@@ -319,10 +271,13 @@ impl<'a> Analyzer<'a> {
             let scope_cols: Vec<ScopeColumn> = table
                 .columns
                 .iter()
-                .map(|c| ScopeColumn {
-                    name: c.name.clone(),
-                    neutral_type: sql_type_to_neutral(&c.sql_type, self.catalog).into_owned(),
-                    base_nullable: c.nullable,
+                .map(|c| {
+                    ScopeColumn::from_catalog(
+                        c.name.clone(),
+                        c.sql_type.clone(),
+                        sql_type_to_neutral(&c.sql_type, self.catalog).into_owned(),
+                        c.nullable,
+                    )
                 })
                 .collect();
             let bare = table_name
@@ -549,16 +504,8 @@ mod tests {
         analyzer.ctes.insert(
             "my_cte".to_string(),
             vec![
-                ScopeColumn {
-                    name: "x".to_string(),
-                    neutral_type: "int32".to_string(),
-                    base_nullable: false,
-                },
-                ScopeColumn {
-                    name: "y".to_string(),
-                    neutral_type: "string".to_string(),
-                    base_nullable: true,
-                },
+                ScopeColumn::new("x", "int32", false),
+                ScopeColumn::new("y", "string", true),
             ],
         );
 
@@ -575,14 +522,9 @@ mod tests {
         let catalog = make_catalog(&[]);
         let mut analyzer = make_analyzer(&catalog);
 
-        analyzer.ctes.insert(
-            "my_cte".to_string(),
-            vec![ScopeColumn {
-                name: "val".to_string(),
-                neutral_type: "int32".to_string(),
-                base_nullable: false,
-            }],
-        );
+        analyzer
+            .ctes
+            .insert("my_cte".to_string(), vec![ScopeColumn::new("val", "int32", false)]);
 
         let from = parse_from("SELECT * FROM my_cte");
         let scope = analyzer.build_scope_from_from(&from).unwrap();

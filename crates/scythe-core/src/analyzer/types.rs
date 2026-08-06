@@ -61,12 +61,19 @@ pub struct EnumInfo {
     pub values: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnalyzedColumn {
     pub name: String,
     pub neutral_type: String,
     pub nullable: bool,
+    /// The raw (lowercased, precision-stripped) SQL type this column was derived
+    /// from, e.g. "clob" or "varchar2". Backends that need to distinguish
+    /// storage representations the neutral type collapses (Oracle CLOB vs.
+    /// VARCHAR2, both `neutral_type == "string"`) can match on this. Falls back
+    /// to `neutral_type` for computed/expression columns with no single source
+    /// SQL type.
+    pub sql_type: String,
 }
 
 #[derive(Debug, Clone)]
@@ -89,8 +96,41 @@ pub(super) struct ScopeSource {
 #[derive(Debug, Clone)]
 pub(super) struct ScopeColumn {
     pub(super) name: String,
+    pub(super) sql_type: String,
     pub(super) neutral_type: String,
     pub(super) base_nullable: bool,
+}
+
+impl ScopeColumn {
+    /// Build a scope column with no richer source-type information than its
+    /// neutral type (synthetic columns: JSON table functions, aliased
+    /// function-table outputs, literal/CTE placeholders, etc).
+    pub(super) fn new(name: impl Into<String>, neutral_type: impl Into<String>, base_nullable: bool) -> Self {
+        let neutral_type = neutral_type.into();
+        Self {
+            name: name.into(),
+            sql_type: neutral_type.clone(),
+            neutral_type,
+            base_nullable,
+        }
+    }
+
+    /// Build a scope column backed by a real catalog (or propagated
+    /// upstream-analyzed) column, preserving its raw SQL type alongside the
+    /// derived neutral type.
+    pub(super) fn from_catalog(
+        name: impl Into<String>,
+        sql_type: impl Into<String>,
+        neutral_type: impl Into<String>,
+        base_nullable: bool,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            sql_type: sql_type.into(),
+            neutral_type: neutral_type.into(),
+            base_nullable,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -112,15 +152,38 @@ pub(super) struct ParamInfo {
 pub(super) struct TypeInfo {
     pub(super) neutral_type: String,
     pub(super) nullable: bool,
+    /// Raw SQL type this expression's type came from, when it resolves
+    /// directly to a single source column (see [`AnalyzedColumn::sql_type`]).
+    /// Defaults to a copy of `neutral_type` for computed expressions.
+    pub(super) sql_type: String,
 }
 
 impl TypeInfo {
     pub(super) fn new(neutral_type: impl Into<String>, nullable: bool) -> Self {
+        let neutral_type = neutral_type.into();
         Self {
+            sql_type: neutral_type.clone(),
+            neutral_type,
+            nullable,
+        }
+    }
+
+    /// Build type info for a column resolved directly from a scope, carrying
+    /// its raw SQL type through so backends can distinguish storage
+    /// representations the neutral type collapses (e.g. Oracle CLOB vs.
+    /// VARCHAR2).
+    pub(super) fn from_scope_column(
+        sql_type: impl Into<String>,
+        neutral_type: impl Into<String>,
+        nullable: bool,
+    ) -> Self {
+        Self {
+            sql_type: sql_type.into(),
             neutral_type: neutral_type.into(),
             nullable,
         }
     }
+
     pub(super) fn unknown() -> Self {
         Self::new("unknown", true)
     }
