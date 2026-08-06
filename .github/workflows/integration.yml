@@ -986,6 +986,10 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: integration_tests/go-gosnowflake/go.mod
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
 
       - run: pip install uv
       - run: npm install -g pnpm@10
@@ -1023,14 +1027,30 @@ jobs:
           SNOWFLAKE_URL: fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http&insecureMode=true
         run: go run .
 
-      # java-jdbc-snowflake and kotlin-jdbc-snowflake are not run here: both use
-      # snowflake-jdbc, which fakesnow forces into its JSON result format because
-      # fakesnow has no Arrow chunk-download endpoint. That result format cannot
-      # read a TIMESTAMP_NTZ column into a LocalDateTime, so those queries fail no
-      # matter how the connection is configured. Enabling them needs an Arrow
-      # chunk-download endpoint in fakesnow_server.py first. csharp-snowflake is
-      # not run either: the Snowflake.Data driver has not been investigated.
-      # See CHANGELOG.md for details.
+      # Both JDBC suites need fakesnow's native Arrow result format, which it
+      # now serves to snowflake-jdbc only (dispatched per session on the login
+      # request's CLIENT_APP_ID) — the Node, Go and .NET drivers keep the JSON
+      # path. snowflake-jdbc also cannot read a temporal column via
+      # getObject(col, LocalDateTime.class), so generated code uses the legacy
+      # java.sql getters for this engine.
+      - name: Test java-jdbc-snowflake
+        working-directory: integration_tests/java-jdbc-snowflake
+        env:
+          SNOWFLAKE_URL: snowflake://fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http
+        run: mvn -q compile exec:java
+
+      - name: Test kotlin-jdbc-snowflake
+        working-directory: integration_tests/kotlin-jdbc-snowflake
+        env:
+          SNOWFLAKE_URL: snowflake://fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http
+        run: gradle run --quiet
+
+      # csharp-snowflake is still not run. Generated code was fixed this release
+      # (parameters now carry an explicit DbType), but the harness fails earlier:
+      # Snowflake.Data names its bind parameters p1/p2/p3, which fakesnow's
+      # binding-name heuristic classifies as named rather than positional, and
+      # the query then fails inside DuckDB. That is a fakesnow limitation, not a
+      # codegen one, and it reproduces with and without the Arrow changes.
       - name: Stop shared fakesnow server
         if: always()
         run: kill "$(cat /tmp/fakesnow.pid)" 2>/dev/null || true
