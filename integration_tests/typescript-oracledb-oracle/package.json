@@ -11,8 +11,8 @@
 		"oracledb": "^6.10.0"
 	},
 	"devDependencies": {
-		"@types/node": "^26.1.2",
 		"@types/oracledb": "^7.0.2",
+		"@types/node": "^26.1.2",
 		"tsx": "^4.23.7",
 		"typescript": "^5.9.3"
 	}

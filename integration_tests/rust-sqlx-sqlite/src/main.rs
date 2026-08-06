@@ -2,7 +2,7 @@
 mod queries;
 
 use queries::{
-
+    
     GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
 };
 use rust_decimal::Decimal;

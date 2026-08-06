@@ -51,6 +51,18 @@ tasks:
       - PGPASSWORD=scythe psql -h localhost -p 5433 -U scythe -d scythe_test -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
       - task: db:migrate
 
+  generate:scaffolding:
+    desc: Regenerate project scaffolding and test harnesses from the jinja templates
+    dir: ..
+    cmds:
+      - cargo run --quiet -p integration-test-generator
+
+  generate:all:
+    desc: Regenerate scaffolding and then backend code
+    cmds:
+      - task: generate:scaffolding
+      - task: generate
+
   generate:
     desc: Regenerate code for all backends
     cmds:

@@ -1,9 +1,3 @@
-{
-	"name": "scythe/integration-php-pdo-mssql",
-	"description": "Scythe integration tests for php-pdo backend",
-	"type": "project",
-	"require": {
-		"php": ">=8.2",
-		"ext-pdo_sqlsrv": "*"
-	}
-}
+{ "name": "scythe/integration-php-pdo-mssql", "description": "Scythe integration tests for php-pdo backend",
+"type": "project", "require": { "php": ">=8.2", "ext-pdo_sqlsrv": "*"
+} }

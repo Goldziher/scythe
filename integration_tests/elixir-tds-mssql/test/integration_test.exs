@@ -2,7 +2,7 @@ alias Scythe.Queries
 
 
 database_url =
-System.get_env("MSSQL_URL", "sqlserver://sa:Scythe_Test1@localhost:1433?database=scythe_test")
+  System.get_env("MSSQL_URL", "sqlserver://sa:Scythe_Test1@localhost:1433?database=scythe_test")
 
 uri = URI.parse(database_url)
 userinfo = uri.userinfo || "sa"
@@ -13,13 +13,13 @@ query_params = URI.decode_query(uri.query || "")
 database = Map.get(query_params, "database", "master")
 
 {:ok, conn} =
-Tds.start_link(
-hostname: uri.host,
-port: uri.port || 1433,
-username: username,
-password: password,
-database: database
-)
+  Tds.start_link(
+    hostname: uri.host,
+    port: uri.port || 1433,
+    username: username,
+    password: password,
+    database: database
+  )
 
 # Clean slate
 Tds.query!(conn, "IF OBJECT_ID('user_tags','U') IS NOT NULL DROP TABLE user_tags", [])
