@@ -6,10 +6,16 @@ use queries::{
     GetLastInsertUserRow, GetLastInsertOrderRow,
 {%- elif engine == "sqlite" %}
     {# SQLite: no CreateUserRow/GetLastInsertUserRow — use GetUserByIdRow + last_insert_rowid() #}
+{%- elif driver == "sibyl" %}
+    CreateAttachmentRow, CreateOrderRow, CreateUserRow,
 {%- else %}
     CreateOrderRow, CreateUserRow,
 {%- endif %}
+{%- if driver == "sibyl" %}
+    GetAttachmentByIdRow, GetAttachmentsByOrderRow, GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
+{%- else %}
     GetOrdersByUserRow, GetUserByIdRow, ListActiveUsersRow,
+{%- endif %}
 {%- if engine == "postgresql" and engine != "redshift" %}
     UserStatus,
 {%- endif %}
@@ -599,13 +605,60 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_test!(orders.len() == 1, "GetOrdersByUser");
 {%- if driver == "sibyl" %}
     assert_test!(orders[0].total == order_total, "GetOrdersByUser");
+    // Round-trips the CLOB `notes` column through the LOB-locator read path
+    // (regression coverage for the fixed row.get::<String> CLOB defect).
+    assert_test!(
+        orders[0].notes.as_deref() == Some("first order"),
+        "GetOrdersByUser"
+    );
 {%- else %}
     assert_test!(orders[0].total == total, "GetOrdersByUser");
 {%- endif %}
     pass!("GetOrdersByUser");
+{%- if driver == "sibyl" %}
 
-    // Test: DeleteUser (delete orders first due to FK)
+    // Test: CreateAttachment / GetAttachmentsByOrder / GetAttachmentById.
+    // `payload` is BLOB (binary, non-UTF8-safe bytes) and `description` is
+    // NCLOB (multi-byte text); both must round-trip through the LOB-locator
+    // read loop, not the broken `row.get::<String>`/`row.get::<Vec<u8>>` path.
+    let payload: Vec<u8> = (0u16..8000).map(|i| (i % 256) as u8).collect();
+    let description = "attachment notes: caf\u{e9}, \u{1f600}, \u{4e2d}\u{6587}".repeat(50);
+    let attachment = queries::create_attachment(
+        &session,
+        order.id,
+        "report.bin",
+        &payload,
+        Some(description.as_str()),
+    )
+    .await?
+    .expect("create_attachment returned None");
+    assert_test!(attachment.order_id == order.id, "CreateAttachment");
+    assert_test!(attachment.filename == "report.bin", "CreateAttachment");
+    pass!("CreateAttachment");
+
+    let attachments = queries::get_attachments_by_order(&session, order.id).await?;
+    assert_test!(attachments.len() == 1, "GetAttachmentsByOrder");
+    assert_test!(attachments[0].payload == payload, "GetAttachmentsByOrder");
+    assert_test!(
+        attachments[0].description.as_deref() == Some(description.as_str()),
+        "GetAttachmentsByOrder"
+    );
+    pass!("GetAttachmentsByOrder");
+
+    let fetched_attachment = queries::get_attachment_by_id(&session, attachment.id)
+        .await?
+        .expect("get_attachment_by_id returned None");
+    assert_test!(fetched_attachment.payload == payload, "GetAttachmentById");
+    assert_test!(
+        fetched_attachment.description.as_deref() == Some(description.as_str()),
+        "GetAttachmentById"
+    );
+    pass!("GetAttachmentById");
+{%- endif %}
+
+    // Test: DeleteUser (delete{% if driver == "sibyl" %} attachments, then orders,{% else %} orders first{% endif %} due to FK)
 {% if driver == "sibyl" -%}
+    queries::delete_attachments_by_order(&session, order.id).await?;
     queries::delete_orders_by_user(&session, user_id).await?;
     queries::delete_user(&session, user_id).await?;
     // Verify user is gone
