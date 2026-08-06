@@ -324,14 +324,42 @@ impl<'a> Analyzer<'a> {
     ) -> Result<(), ScytheError> {
         match source {
             SetExpr::Values(values) => {
+                // Resolve the column each VALUES position binds to: the explicit
+                // column list, or — when omitted — every column of the table in
+                // catalog order (standard SQL positional binding for
+                // `INSERT INTO t VALUES (...)`). A position with no known column
+                // falls back to inferring the expression's own type, so
+                // placeholders are never dropped silently.
+                let effective_cols: Vec<Option<(String, String, bool)>> = if target_cols.is_empty() {
+                    match self.catalog.get_table(table_name) {
+                        Some(table) => table
+                            .columns
+                            .iter()
+                            .map(|c| Some((c.name.clone(), self.get_column_type(table_name, &c.name)?, c.nullable)))
+                            .collect(),
+                        None => Vec::new(),
+                    }
+                } else {
+                    target_cols
+                        .iter()
+                        .map(|n| {
+                            Some((
+                                n.clone(),
+                                self.get_column_type(table_name, n)?,
+                                self.is_column_nullable(table_name, n),
+                            ))
+                        })
+                        .collect()
+                };
+
                 for row in &values.rows {
                     for (i, expr) in row.iter().enumerate() {
-                        if i < target_cols.len() {
-                            let col_name = &target_cols[i];
-                            if let Some(col_type) = self.get_column_type(table_name, col_name) {
-                                let nullable = self.is_column_nullable(table_name, col_name);
-                                self.collect_param_from_expr_with_type_nullable(expr, &col_type, col_name, nullable);
-                            }
+                        if let Some((col_name, col_type, nullable)) = effective_cols.get(i).and_then(|c| c.as_ref()) {
+                            self.collect_param_from_expr_with_type_nullable(expr, col_type, col_name, *nullable);
+                        } else {
+                            let ti = self.infer_expr_type(expr, &Scope { sources: Vec::new() });
+                            let name = target_cols.get(i).cloned().unwrap_or_else(|| expr_to_name(expr));
+                            self.collect_param_from_expr_with_type_nullable(expr, &ti.neutral_type, &name, ti.nullable);
                         }
                     }
                 }
