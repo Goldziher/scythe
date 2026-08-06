@@ -191,7 +191,10 @@ fn resolve_engine(dialect: Option<&str>, url: Option<&str>) -> String {
 /// Resolve the database URL with the full precedence chain:
 /// CLI positional > `$DATABASE_URL` > `$SCYTHE_DATABASE_URL` >
 /// `[inspect].database_url` in scythe.toml.
-fn resolve_url(positional: Option<&str>, config_url: Option<&str>) -> Result<String, Box<dyn std::error::Error>> {
+pub(crate) fn resolve_url(
+    positional: Option<&str>,
+    config_url: Option<&str>,
+) -> Result<String, Box<dyn std::error::Error>> {
     resolve_url_inner(
         positional,
         std::env::var("DATABASE_URL").ok().as_deref(),

@@ -27,6 +27,26 @@ enum Commands {
     Check {
         #[arg(short, long, default_value = "scythe.toml")]
         config: String,
+        /// Verify inferred query types against a live database.
+        ///
+        /// Each query is prepared server-side (never executed) and the reported
+        /// result columns and parameters are diffed against static inference.
+        /// PostgreSQL only. Without this flag `check` needs no database.
+        ///
+        /// Note this cannot verify nullability — the describe response does not
+        /// carry it.
+        ///
+        /// Opt-in by design: the URL is never picked up from the environment,
+        /// so `scythe check` cannot start requiring a database just because
+        /// `DATABASE_URL` happens to be set.
+        #[arg(long)]
+        database_url: Option<String>,
+        /// Output format: human, sarif, or json
+        #[arg(long, default_value = "human")]
+        format: String,
+        /// Write findings to a file instead of stderr
+        #[arg(short, long)]
+        output: Option<String>,
     },
     /// Format SQL files using sqruff
     Fmt {
@@ -138,7 +158,17 @@ fn main() {
         Commands::Generate { config } => commands::generate::run_generate(&config),
         Commands::Migrate { sqlc_config } => commands::migrate::run_migrate(std::path::Path::new(&sqlc_config))
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
-        Commands::Check { config } => commands::generate::run_check(&config),
+        Commands::Check {
+            config,
+            database_url,
+            format,
+            output,
+        } => commands::generate::run_check(commands::generate::RunCheckOpts {
+            config_path: config,
+            database_url,
+            format,
+            output,
+        }),
         Commands::Fmt {
             config,
             check,

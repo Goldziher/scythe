@@ -24,6 +24,7 @@ pub mod postgres;
 pub mod registry;
 pub mod spec;
 pub mod suppression;
+pub mod verify;
 
 pub use config::{InspectConfig, SuppressionRule, parse_inspect_section};
 pub use driver::{CheckCatalogEntry, DbDriver};
@@ -33,3 +34,4 @@ pub use postgres::PostgresDriver;
 pub use registry::CheckRegistry;
 pub use spec::{CheckCategory, CheckSpec, ConfigError, load_checks_from_file, parse_check_file};
 pub use suppression::SuppressionEngine;
+pub use verify::verify_queries;

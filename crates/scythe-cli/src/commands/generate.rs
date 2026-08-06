@@ -488,8 +488,28 @@ fn generate_rbs_if_supported(
     Ok(())
 }
 
-pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
-    use scythe_lint::{LintContext, LintEngine, QueryViolation, Severity, default_registry};
+/// Inputs to [`run_check`]. Mirrors the clap `Commands::Check` shape.
+pub struct RunCheckOpts {
+    /// Path to `scythe.toml` (default: `"scythe.toml"`).
+    pub config_path: String,
+    /// Optional database URL. When present, each query is additionally
+    /// prepared server-side and the reported shape is diffed against static
+    /// inference. When absent, `check` needs no database at all.
+    pub database_url: Option<String>,
+    /// Reporter format string (human / sarif / json).
+    pub format: String,
+    /// Output path; `None` means stderr.
+    pub output: Option<String>,
+}
+
+pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
+    use scythe_lint::reporters::{Finding, Format};
+    use scythe_lint::{LintContext, LintEngine, QueryViolation, Severity, default_registry, emit_findings};
+
+    let config_path = opts.config_path.as_str();
+
+    let format = Format::parse(&opts.format)
+        .ok_or_else(|| format!("unknown --format '{}' (expected human|sarif|json)", opts.format))?;
 
     let config_str =
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
@@ -503,6 +523,9 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
     let engine = LintEngine::new(registry);
 
     let mut all_violations: Vec<QueryViolation> = Vec::new();
+    // Queries are grouped per `[[sql]]` block so verification connects once and
+    // labels findings with the block's engine.
+    let mut verifiable: Vec<(String, Vec<scythe_core::analyzer::AnalyzedQuery>)> = Vec::new();
 
     for sql_config in &config.sql {
         eprintln!("[{}] Parsing schema...", sql_config.name);
@@ -529,6 +552,7 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("[{}] Checking {} queries...", sql_config.name, all_query_blocks.len());
 
         let mut query_names: Vec<String> = Vec::new();
+        let mut analyzed_queries: Vec<scythe_core::analyzer::AnalyzedQuery> = Vec::new();
 
         for block in &all_query_blocks {
             let parsed = parse_query_with_dialect(block, &dialect)?;
@@ -553,7 +577,11 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
                     message: v.message,
                 });
             }
+
+            analyzed_queries.push(analyzed);
         }
+
+        verifiable.push((sql_config.name.clone(), analyzed_queries));
 
         let cat_violations = engine.check_catalog(&catalog);
         for (v, sev) in cat_violations {
@@ -580,31 +608,89 @@ pub fn run_check(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
         eprintln!("[{}] All queries valid.", sql_config.name);
     }
 
-    let mut error_count = 0usize;
-    let mut warning_count = 0usize;
-    for qv in &all_violations {
-        match qv.severity {
-            Severity::Error => {
-                error_count += 1;
-                eprintln!("error: [{}] {} (query: {})", qv.rule_id, qv.message, qv.query_name);
-            }
-            Severity::Warn => {
-                warning_count += 1;
-                eprintln!("warning: [{}] {} (query: {})", qv.rule_id, qv.message, qv.query_name);
-            }
-            Severity::Off => {}
-        }
+    let mut findings: Vec<Finding> = all_violations
+        .iter()
+        .filter(|qv| !matches!(qv.severity, Severity::Off))
+        .map(|qv| Finding {
+            file: config_path.to_string(),
+            query_name: Some(qv.query_name.clone()),
+            rule_id: qv.rule_id.to_string(),
+            rule_name: None,
+            rule_description: None,
+            severity: qv.severity,
+            message: qv.message.clone(),
+            line: None,
+            column: None,
+            cwe: scythe_lint::reporters::extract_cwe(&qv.message),
+            source: Some("check".to_string()),
+        })
+        .collect();
+
+    if let Some(url) = opts.database_url.as_deref() {
+        findings.extend(verify_against_database(url, &verifiable)?);
     }
+
+    // Findings go to stdout (matching `scythe inspect`) so `--format json` can
+    // be redirected to a file; progress messages stay on stderr.
+    let mut out: Box<dyn std::io::Write> = match opts.output.as_deref() {
+        Some(path) => Box::new(std::io::BufWriter::new(
+            std::fs::File::create(path).map_err(|e| format!("failed to open '{}': {}", path, e))?,
+        )),
+        None => Box::new(std::io::stdout()),
+    };
+    emit_findings(
+        format,
+        "scythe-check",
+        env!("CARGO_PKG_VERSION"),
+        &findings,
+        out.as_mut(),
+    )?;
+    out.flush().ok();
+
+    let error_count = findings
+        .iter()
+        .filter(|f| matches!(f.severity, Severity::Error))
+        .count();
+    let warning_count = findings.iter().filter(|f| matches!(f.severity, Severity::Warn)).count();
 
     if error_count > 0 {
-        return Err(format!("lint: {} error(s), {} warning(s)", error_count, warning_count).into());
-    }
-    if warning_count > 0 {
-        eprintln!("lint: {} warning(s)", warning_count);
+        return Err(format!("check: {} error(s), {} warning(s)", error_count, warning_count).into());
     }
 
-    eprintln!("Check passed.");
     Ok(())
+}
+
+/// Prepare every analyzed query against a live database and report where the
+/// server disagrees with static inference.
+///
+/// Only PostgreSQL is supported today — it is the engine whose extended query
+/// protocol lets us describe a statement without executing it. Other engines
+/// are skipped with a warning rather than failing the run, so `--database-url`
+/// stays harmless in a mixed-engine config.
+fn verify_against_database(
+    url: &str,
+    verifiable: &[(String, Vec<scythe_core::analyzer::AnalyzedQuery>)],
+) -> Result<Vec<scythe_lint::reporters::Finding>, Box<dyn std::error::Error>> {
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build()?;
+
+    runtime.block_on(async {
+        let (client, connection) = tokio_postgres::connect(url, tokio_postgres::NoTls)
+            .await
+            .map_err(|e| format!("failed to connect to '{}': {}", url, e))?;
+
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                eprintln!("scythe check: database connection error: {e}");
+            }
+        });
+
+        let mut findings = Vec::new();
+        for (name, queries) in verifiable {
+            eprintln!("[{}] Verifying {} queries against the database...", name, queries.len());
+            findings.extend(scythe_inspect::verify_queries(&client, name, queries).await);
+        }
+        Ok(findings)
+    })
 }
 
 /// Format Rust code using rustfmt if available.

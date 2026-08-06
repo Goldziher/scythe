@@ -27,16 +27,7 @@ pub mod runner;
 /// The finding keeps the failing check's `rule_id` so existing suppression
 /// rules continue to address it by ID.
 fn check_failure_finding(spec: &CheckSpec, error: &InspectError) -> Finding {
-    // `tokio_postgres::Error` renders as a bare "db error"; the SQLSTATE and
-    // server message live further down the `source()` chain, so walk it or the
-    // finding tells the user nothing actionable.
-    let mut detail = error.to_string();
-    let mut cause: Option<&(dyn std::error::Error + 'static)> = std::error::Error::source(error);
-    while let Some(current) = cause {
-        detail.push_str(": ");
-        detail.push_str(&current.to_string());
-        cause = current.source();
-    }
+    let detail = crate::error::error_chain(error);
 
     Finding {
         file: String::new(),

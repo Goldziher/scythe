@@ -2,6 +2,22 @@
 
 use thiserror::Error;
 
+/// Render an error together with its full `source()` chain.
+///
+/// `tokio_postgres::Error` displays as a bare `"db error"` — the SQLSTATE and
+/// the server's message live further down the chain, so anything user-facing
+/// must walk it or the report says nothing actionable.
+pub fn error_chain(error: &dyn std::error::Error) -> String {
+    let mut rendered = error.to_string();
+    let mut cause = error.source();
+    while let Some(current) = cause {
+        rendered.push_str(": ");
+        rendered.push_str(&current.to_string());
+        cause = current.source();
+    }
+    rendered
+}
+
 /// Errors that arise while connecting to a database, running catalog queries,
 /// or interpreting a connection URL.
 #[derive(Debug, Error)]

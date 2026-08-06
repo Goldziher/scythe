@@ -18,6 +18,7 @@ live-tests = []
 [dependencies]
 async-trait = "0.1"
 regex = "1"
+scythe-core = { path = "../scythe-core", version = "0.11.0" }
 scythe-lint = { path = "../scythe-lint", version = "0.11.0" }
 serde = { version = "1", features = ["derive"] }
 sqlparser = { version = "0.62", features = ["visitor"] }
