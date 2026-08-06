@@ -11,8 +11,20 @@
 # need no project build. Java, Kotlin and C# are covered by the compile steps in
 # the integration workflow instead.
 #
-# Usage: scripts/check-generated-syntax.sh
+# In CI a missing checker must not silently no-op the guard it exists to
+# provide, so strict mode turns a missing checker into a failure. Strict mode
+# is on automatically when the CI env var is set (as GitHub Actions does), or
+# explicitly via --strict. Local runs stay tolerant by default so a
+# contributor without, say, PHP installed still gets useful output for the
+# languages they do have.
+#
+# Usage: scripts/check-generated-syntax.sh [--strict]
 set -uo pipefail
+
+strict=0
+if [ "${CI:-}" = "true" ] || [ "${1:-}" = "--strict" ]; then
+	strict=1
+fi
 
 cd "$(dirname "$0")/.." || exit 1
 
@@ -30,6 +42,11 @@ check() {
 	local label=$1 pattern=$2
 	shift 2
 	if ! command -v "$1" >/dev/null 2>&1; then
+		if [ "$strict" -eq 1 ]; then
+			printf '== %s -- FAIL, %s not installed (strict mode)\n' "$label" "$1"
+			failures=$((failures + 1))
+			return
+		fi
 		printf '== %s -- SKIPPED, %s not installed\n' "$label" "$1"
 		skipped=$((skipped + 1))
 		return

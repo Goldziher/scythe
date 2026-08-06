@@ -65,84 +65,23 @@ tasks:
 
   generate:
     desc: Regenerate code for all backends
+    vars:
+      # The backend list comes from the generator's own `build_backends()`
+      # (via `--list`), not a hand-maintained copy, so this task can never
+      # drift from what `generate:scaffolding` actually produces. See
+      # tools/integration-test-generator/src/main.rs and
+      # integration_tests/README.md for the 8 directories intentionally
+      # excluded because they are hand-maintained outside the generator.
+      BACKENDS:
+        sh: cd .. && cargo run --quiet -p integration-test-generator -- --list
+      # These two own their scythe.toml by hand (they pin one-off codegen
+      # options), but their query code still comes from `scythe generate`, so
+      # it drifts like any other generated output and belongs in this loop.
+      HAND_MAINTAINED: kotlin-jdbc-ext php-pdo-namespace
     cmds:
-      - for:
-          # PostgreSQL
-          - rust-sqlx
-          - rust-tokio-postgres
-          - python-psycopg3
-          - python-asyncpg
-          - python-psycopg3-pydantic
-          - python-psycopg3-msgspec
-          - go-pgx
-          - typescript-postgres
-          - typescript-pg
-          - typescript-pg-zod
-          - typescript-pg-outer-join-unions
-          - typescript-pg-zod-outer-join-unions
-          - typescript-pg-structs-only
-          - typescript-kysely
-          - java-jdbc
-          - kotlin-jdbc
-          - csharp-npgsql
-          - elixir-postgrex
-          - elixir-ecto
-          - ruby-pg
-          - php-pdo
-          - php-amphp
-          # MySQL
-          - rust-sqlx-mysql
-          - go-database-sql-mysql
-          - python-aiomysql
-          - typescript-mysql2
-          - typescript-kysely-mysql2
-          - java-jdbc-mysql
-          - kotlin-jdbc-mysql
-          - csharp-mysqlconnector
-          - elixir-myxql
-          - ruby-mysql2
-          - ruby-trilogy
-          - php-pdo-mysql
-          # MariaDB
-          - rust-sqlx-mariadb
-          - go-database-sql-mariadb
-          - python-aiomysql-mariadb
-          - typescript-mysql2-mariadb
-          - typescript-kysely-mariadb
-          - java-jdbc-mariadb
-          - kotlin-jdbc-mariadb
-          - csharp-mysqlconnector-mariadb
-          - elixir-myxql-mariadb
-          - ruby-mysql2-mariadb
-          - ruby-trilogy-mariadb
-          - php-pdo-mariadb
-          # Oracle
-          - python-oracledb-oracle
-          - typescript-oracledb-oracle
-          - go-godror-oracle
-          - java-jdbc-oracle
-          - kotlin-jdbc-oracle
-          - csharp-oracle
-          - elixir-jamdb-oracle
-          - ruby-oci8-oracle
-          - rust-sibyl-oracle
-          # SQLite
-          - rust-sqlx-sqlite
-          - go-database-sql-sqlite
-          - python-aiosqlite
-          - typescript-better-sqlite3
-          - typescript-kysely-sqlite
-          - typescript-node-sqlite
-          - typescript-wasm-sqlite
-          - java-jdbc-sqlite
-          - kotlin-jdbc-sqlite
-          - csharp-microsoft-sqlite
-          - elixir-exqlite
-          - ruby-sqlite3
-          - php-pdo-sqlite
-          # MSSQL
-          - elixir-tds-mssql
-          - typescript-kysely-mssql
+      - for: { var: BACKENDS, split: "\n" }
+        cmd: cd {{.ITEM}} && scythe generate
+      - for: { var: HAND_MAINTAINED }
         cmd: cd {{.ITEM}} && scythe generate
 
   # --- PostgreSQL backends ---

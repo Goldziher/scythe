@@ -28,6 +28,14 @@ struct Cli {
     /// Only generate for these backends (comma-separated). If empty, generate all.
     #[arg(long, value_delimiter = ',')]
     only: Vec<String>,
+
+    /// Print backend directory names (one per line) and exit without generating anything.
+    ///
+    /// This is the manifest of record for `build_backends()` — consumers such as
+    /// `integration_tests/Taskfile.yaml` should derive their backend lists from this
+    /// output instead of hand-maintaining a copy, so the two can never drift.
+    #[arg(long)]
+    list: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1148,10 +1156,20 @@ fn render_template(env: &Environment<'_>, template_name: &str, context: &Templat
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let cli = Cli::parse();
 
+    let backends = build_backends();
+
+    if cli.list {
+        for backend in &backends {
+            if !cli.only.is_empty() && !cli.only.contains(&backend.name) {
+                continue;
+            }
+            println!("{}", backend.name);
+        }
+        return Ok(());
+    }
+
     let mut env = Environment::new();
     load_templates(&mut env, &cli.templates)?;
-
-    let backends = build_backends();
 
     let mut generated = 0u32;
     let mut skipped = 0u32;

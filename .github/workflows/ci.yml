@@ -74,6 +74,22 @@ jobs:
       - uses: go-task/setup-task@v2
         with:
           version: 3.x
+      # check-generated-syntax.sh runs in --strict mode below (CI=true also
+      # implies strict), so every checker it looks for must actually be on
+      # PATH here -- otherwise a missing toolchain silently no-ops the guard
+      # it exists to provide instead of failing loudly.
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "stable"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
       - name: Build scythe
         run: |
           cargo build --release -p scythe-cli
@@ -87,13 +103,20 @@ jobs:
       # harnesses whose string literals were split across lines. That reached CI
       # as unrelated-looking compiler errors, so parse the output directly.
       - name: Syntax-check generated harnesses
-        run: ./scripts/check-generated-syntax.sh
+        run: ./scripts/check-generated-syntax.sh --strict
       # The integration jobs test the committed files and never regenerate, so
       # drift here means CI is validating output no current build produces.
       - name: Fail if regeneration changed anything
         run: |
-          if ! git diff --exit-code -- integration_tests/; then
-            echo "::error::Committed integration code is stale. Run 'cd integration_tests && task generate:all' and commit the result."
+          # `git status --porcelain` (not `git diff`) so this also catches backends
+          # that regeneration creates from scratch as untracked files -- e.g. a new
+          # entry in build_backends() with no committed generated/ output yet. Note
+          # the generator never deletes: a backend removed from build_backends()
+          # leaves its old directory behind untouched, which this check will not flag.
+          status=$(git status --porcelain -- integration_tests/)
+          if [ -n "$status" ]; then
+            echo "$status"
+            echo "::error::Committed integration code is stale or incomplete. Run 'cd integration_tests && task generate:all' and commit the result. If a backend directory is untracked here, it is new output that must be committed; if you removed a backend, its old directory must be deleted by hand."
             exit 1
           fi
 
