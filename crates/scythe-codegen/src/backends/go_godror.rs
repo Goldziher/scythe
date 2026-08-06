@@ -12,6 +12,69 @@ use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/go-godror.toml");
 
+/// Go type category for an Oracle `RETURNING ... INTO` OUT parameter.
+///
+/// godror's `sql.Out` binding only dereferences its destination once, so a
+/// bare `*T` OUT variable can never carry NULL-ness through the driver: it
+/// either loses the value (godror rejects the doubly-indirected type) or, for
+/// the string case, godror never distinguishes NULL from empty at all. The
+/// driver instead exposes NULL-aware OUT binding through `database/sql`'s
+/// `sql.NullXxx` value types (see godror's `bindVarTypeSwitch`/`dataGetNumber`
+/// / `dataGetTime`), so nullable numeric and temporal columns must declare
+/// the OUT variable as one of those, then convert to the pointer type the row
+/// struct expects once the exec call returns.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum OutParamKind {
+    Int32,
+    Int64,
+    Float64,
+    Time,
+    /// Every other neutral type. godror does not support `sql.NullString`
+    /// (Oracle itself can't distinguish `NULL` from `''` for VARCHAR2/CLOB),
+    /// so nullable string-like OUT params still bind as plain `string`; we
+    /// just take its address afterward to satisfy the `*string` row field.
+    StringLike,
+}
+
+impl OutParamKind {
+    fn from_neutral_type(neutral_type: &str) -> Self {
+        match neutral_type {
+            "int32" => Self::Int32,
+            "int64" => Self::Int64,
+            "float32" | "float64" | "decimal" => Self::Float64,
+            "date" | "datetime" | "datetime_tz" | "time" | "time_tz" => Self::Time,
+            _ => Self::StringLike,
+        }
+    }
+
+    /// The Go type used for `var out{Field} {type}`.
+    fn out_var_type(self, nullable: bool) -> &'static str {
+        match (self, nullable) {
+            (Self::Int32, false) => "int32",
+            (Self::Int64, false) => "int64",
+            (Self::Float64, false) => "float64",
+            (Self::Time, false) => "time.Time",
+            (Self::StringLike, _) => "string",
+            (Self::Int32, true) => "sql.NullInt32",
+            (Self::Int64, true) => "sql.NullInt64",
+            (Self::Float64, true) => "sql.NullFloat64",
+            (Self::Time, true) => "sql.NullTime",
+        }
+    }
+
+    /// The field of the `sql.NullXxx` struct holding the value, and the
+    /// pointer element type used for the row struct's nullable field.
+    fn null_accessor(self) -> Option<(&'static str, &'static str)> {
+        match self {
+            Self::Int32 => Some(("Int32", "int32")),
+            Self::Int64 => Some(("Int64", "int64")),
+            Self::Float64 => Some(("Float64", "float64")),
+            Self::Time => Some(("Time", "time.Time")),
+            Self::StringLike => None,
+        }
+    }
+}
+
 pub struct GoGodrorBackend {
     manifest: BackendManifest,
 }
@@ -116,13 +179,8 @@ impl CodegenBackend for GoGodrorBackend {
 
                 if has_returning {
                     for col in columns {
-                        let go_type = match col.neutral_type.as_str() {
-                            "int32" => "int32",
-                            "int64" => "int64",
-                            "float32" | "float64" | "decimal" => "float64",
-                            "date" | "datetime" | "datetime_tz" | "time" | "time_tz" => "time.Time",
-                            _ => "string",
-                        };
+                        let kind = OutParamKind::from_neutral_type(&col.neutral_type);
+                        let go_type = kind.out_var_type(col.nullable);
                         let _ = writeln!(out, "\tvar out{} {}", to_pascal_case(&col.field_name), go_type);
                     }
                     let into_clause = columns
@@ -143,19 +201,33 @@ impl CodegenBackend for GoGodrorBackend {
                     );
                     let _ = writeln!(out, "\t\treturn nil, err");
                     let _ = writeln!(out, "\t}}");
-                    let _ = writeln!(out, "\treturn &{}{{{}}}, nil", struct_name, {
-                        columns
-                            .iter()
-                            .map(|c| {
-                                format!(
-                                    "{}: out{}",
-                                    to_pascal_case(&c.field_name),
-                                    to_pascal_case(&c.field_name)
-                                )
-                            })
-                            .collect::<Vec<_>>()
-                            .join(", ")
-                    });
+
+                    let mut return_fields = Vec::with_capacity(columns.len());
+                    for col in columns {
+                        let field = to_pascal_case(&col.field_name);
+                        let kind = OutParamKind::from_neutral_type(&col.neutral_type);
+                        if !col.nullable {
+                            return_fields.push(format!("{}: out{}", field, field));
+                            continue;
+                        }
+                        match kind.null_accessor() {
+                            None => {
+                                // String-like: godror has no NULL-aware bind for
+                                // strings, so out{Field} is always a plain string;
+                                // its address always satisfies the *string field.
+                                return_fields.push(format!("{}: &out{}", field, field));
+                            }
+                            Some((inner_field, ptr_type)) => {
+                                let ptr_var = format!("out{}Ptr", field);
+                                let _ = writeln!(out, "\tvar {} *{}", ptr_var, ptr_type);
+                                let _ = writeln!(out, "\tif out{}.Valid {{", field);
+                                let _ = writeln!(out, "\t\t{} = &out{}.{}", ptr_var, field, inner_field);
+                                let _ = writeln!(out, "\t}}");
+                                return_fields.push(format!("{}: {}", field, ptr_var));
+                            }
+                        }
+                    }
+                    let _ = writeln!(out, "\treturn &{}{{{}}}, nil", struct_name, return_fields.join(", "));
                     let _ = write!(out, "}}");
                 } else {
                     let _ = writeln!(out, "\trow := db.QueryRowContext(ctx, \"{}\"{})", sql, args);
@@ -480,6 +552,160 @@ mod tests {
             }),
             custom: vec![],
         }
+    }
+
+    /// A `RETURNING ... INTO` query mixing nullable and non-nullable columns
+    /// across every OUT-parameter category the backend special-cases: plain
+    /// (non-nullable) int64/string/datetime, plus nullable string, int32,
+    /// decimal, and datetime.
+    fn make_returning_query() -> AnalyzedQuery {
+        let columns = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int64".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "name".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "email".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "score".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "balance".to_string(),
+                neutral_type: "decimal".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "updated_at".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "created_at".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+        ];
+        AnalyzedQuery {
+            name: "CreateWidget".to_string(),
+            command: QueryCommand::One,
+            sql: "-- @name CreateWidget\n-- @returns :one\nINSERT INTO widgets (name) VALUES (:1) \
+                  RETURNING id, name, email, score, balance, updated_at, created_at"
+                .to_string(),
+            columns,
+            params: vec![],
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_go_godror_returning_nullable_out_params_use_null_types_and_pointers() {
+        let backend = get_backend("go-godror", "oracle").unwrap();
+        let query = make_returning_query();
+        let result = generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        // Nullable string: godror has no NULL-aware string bind (Oracle can't
+        // tell "" from NULL), so it stays a plain `string` OUT var, taken by
+        // address to satisfy the row struct's `*string` field.
+        assert!(
+            query_fn.contains("var outEmail string"),
+            "nullable string OUT var must stay plain string; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Email: &outEmail"),
+            "nullable string field must be assigned via address-of, not a bare value; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("Email: outEmail}") && !query_fn.contains("Email: outEmail,"),
+            "nullable string field must never be assigned the bare (non-pointer) OUT var; got:\n{query_fn}"
+        );
+
+        // Nullable int32: bind as sql.NullInt32, then derive *int32 guarded by .Valid.
+        assert!(
+            query_fn.contains("var outScore sql.NullInt32"),
+            "nullable int32 OUT var must use sql.NullInt32; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("var outScorePtr *int32"),
+            "must derive a *int32 for the row struct; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("if outScore.Valid {") && query_fn.contains("outScorePtr = &outScore.Int32"),
+            "must only take the address when Valid; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Score: outScorePtr"),
+            "row struct must use the derived pointer; got:\n{query_fn}"
+        );
+
+        // Nullable decimal (-> float64): bind as sql.NullFloat64.
+        assert!(
+            query_fn.contains("var outBalance sql.NullFloat64"),
+            "nullable decimal OUT var must use sql.NullFloat64; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("if outBalance.Valid {") && query_fn.contains("outBalancePtr = &outBalance.Float64"),
+            "must only take the address when Valid; got:\n{query_fn}"
+        );
+
+        // Nullable datetime: bind as sql.NullTime.
+        assert!(
+            query_fn.contains("var outUpdatedAt sql.NullTime"),
+            "nullable datetime OUT var must use sql.NullTime; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("if outUpdatedAt.Valid {") && query_fn.contains("outUpdatedAtPtr = &outUpdatedAt.Time"),
+            "must only take the address when Valid; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_go_godror_returning_non_nullable_out_params_assign_directly() {
+        let backend = get_backend("go-godror", "oracle").unwrap();
+        let query = make_returning_query();
+        let result = generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("var outId int64"),
+            "non-nullable int64 OUT var must be a plain int64; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("var outCreatedAt time.Time"),
+            "non-nullable datetime OUT var must be a plain time.Time; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("Id: outId"),
+            "non-nullable field must be assigned the bare OUT var directly; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("CreatedAt: outCreatedAt"),
+            "non-nullable field must be assigned the bare OUT var directly; got:\n{query_fn}"
+        );
+        // No sql.NullXxx wrapper or Valid-guarded pointer machinery for
+        // non-nullable columns.
+        assert!(
+            !query_fn.contains("outIdPtr") && !query_fn.contains("outCreatedAtPtr"),
+            "non-nullable columns must not generate pointer conversion machinery; got:\n{query_fn}"
+        );
     }
 
     #[test]
