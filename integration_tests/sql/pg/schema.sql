@@ -12,6 +12,7 @@ CREATE TABLE orders (
     id SERIAL PRIMARY KEY,
     user_id INT NOT NULL REFERENCES users (id),
     total NUMERIC(10, 2) NOT NULL,
+    weight_kg DOUBLE PRECISION,
     notes TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

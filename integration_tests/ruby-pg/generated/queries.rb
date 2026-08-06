@@ -41,6 +41,16 @@ module Queries
     GetOrderTotalRow.new(total_sum: row["total_sum"]&.then { |v| v })
   end
 
+  GetOrderWeightTotalRow = Data.define(:weight_total)
+
+
+  def self.get_order_weight_total(conn, user_id)
+    result = conn.exec_params("SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = $1", [user_id])
+    return nil if result.ntuples.zero?
+    row = result[0]
+    GetOrderWeightTotalRow.new(weight_total: row["weight_total"]&.then { |v| v.to_f })
+  end
+
   def self.delete_orders_by_user(conn, user_id)
     result = conn.exec_params("DELETE FROM orders WHERE user_id = $1", [user_id])
     result.cmd_tuples.to_i

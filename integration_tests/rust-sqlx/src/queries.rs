@@ -18,8 +18,6 @@ pub struct CreateOrderRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetOrdersByUserRow {
     pub id: i32,
@@ -28,16 +26,15 @@ pub struct GetOrdersByUserRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetOrderTotalRow {
     pub total_sum: Option<rust_decimal::Decimal>,
 }
 
-
-
-
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct GetOrderWeightTotalRow {
+    pub weight_total: Option<f64>,
+}
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetUserByIdRow {
@@ -48,16 +45,12 @@ pub struct GetUserByIdRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ListActiveUsersRow {
     pub id: i32,
     pub name: String,
     pub email: Option<String>,
 }
-
-
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CreateUserRow {
@@ -68,12 +61,6 @@ pub struct CreateUserRow {
     pub created_at: chrono::DateTime<chrono::Utc>,
 }
 
-
-
-
-
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetUserOrdersRow {
     pub id: i32,
@@ -82,15 +69,11 @@ pub struct GetUserOrdersRow {
     pub notes: Option<String>,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CountUsersByStatusRow {
     pub status: UserStatus,
     pub user_count: i64,
 }
-
-
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetUserWithTagsRow {
@@ -98,8 +81,6 @@ pub struct GetUserWithTagsRow {
     pub name: String,
     pub tag_name: String,
 }
-
-
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SearchUsersRow {

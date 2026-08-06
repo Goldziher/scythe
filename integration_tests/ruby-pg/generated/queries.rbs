@@ -36,6 +36,13 @@ module Queries
 
   def self.get_order_total: (PG::Connection, Integer) -> GetOrderTotalRow?
 
+  class GetOrderWeightTotalRow
+    attr_reader weight_total: Float?
+    def self.new: (weight_total: Float?) -> GetOrderWeightTotalRow
+  end
+
+  def self.get_order_weight_total: (PG::Connection, Integer) -> GetOrderWeightTotalRow?
+
   def self.delete_orders_by_user: (PG::Connection, Integer) -> Integer
 
   class GetUserByIdRow

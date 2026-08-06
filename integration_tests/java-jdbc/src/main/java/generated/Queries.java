@@ -3,7 +3,7 @@ package generated;
 
 import java.math.BigDecimal;
 import java.sql.*;
-import java.time.OffsetDateTime;
+import java.time.*;
 import java.util.ArrayList;
 import java.util.List;
 import javax.annotation.Nonnull;
@@ -98,6 +98,30 @@ public static @Nullable GetOrderTotalRow getOrderTotal(Connection conn, int user
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetOrderTotalRow.fromResultSet(rs);
+            }
+            return null;
+        }
+    }
+}
+
+public record GetOrderWeightTotalRow(
+    @Nullable Double weight_total
+) {
+    public static GetOrderWeightTotalRow fromResultSet(ResultSet rs) throws SQLException {
+        var weight_totalRaw = rs.getDouble("weight_total");
+        Double weight_total = rs.wasNull() ? null : weight_totalRaw;
+        return new GetOrderWeightTotalRow(
+            weight_total
+        );
+    }
+}
+
+public static @Nullable GetOrderWeightTotalRow getOrderWeightTotal(Connection conn, int user_id) throws SQLException {
+    try (var ps = conn.prepareStatement("SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ?")) {
+        ps.setInt(1, user_id);
+        try (ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return GetOrderWeightTotalRow.fromResultSet(rs);
             }
             return null;
         }
@@ -323,3 +347,4 @@ public static List<SearchUsersRow> searchUsers(Connection conn, @Nonnull String 
 }
 
 }
+

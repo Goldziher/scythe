@@ -371,15 +371,10 @@ impl<'a> Analyzer<'a> {
         match func_name.as_str() {
             "count" => TypeInfo::new("int64", false),
             "sum" => {
+                // See `sum_result_type` for the engine semantics this mirrors.
                 let base_type = first_arg_ti
                     .as_ref()
-                    .map(|ti| {
-                        if is_integer_type(&ti.neutral_type) {
-                            "int64".to_string()
-                        } else {
-                            "decimal".to_string()
-                        }
-                    })
+                    .map(|ti| sum_result_type(&ti.neutral_type))
                     .unwrap_or_else(|| "int64".to_string());
                 if is_window {
                     TypeInfo::new(base_type, false)
@@ -388,10 +383,15 @@ impl<'a> Analyzer<'a> {
                 }
             }
             "avg" => {
+                // See `avg_result_type` for the engine semantics this mirrors.
+                let base_type = first_arg_ti
+                    .as_ref()
+                    .map(|ti| avg_result_type(&ti.neutral_type))
+                    .unwrap_or_else(|| "decimal".to_string());
                 if is_window {
-                    TypeInfo::new("decimal", false)
+                    TypeInfo::new(base_type, false)
                 } else {
-                    TypeInfo::new("decimal", true)
+                    TypeInfo::new(base_type, true)
                 }
             }
             "min" | "max" => {
@@ -692,6 +692,21 @@ mod tests {
         Expr::Identifier(Ident::new(name))
     }
 
+    /// A single-source scope with one column `c` of the given neutral type,
+    /// for exercising aggregate-function widening rules against every
+    /// numeric neutral type (columns, unlike numeric literals, carry their
+    /// real neutral type instead of always resolving to `int64`).
+    fn scope_with_column(neutral_type: &str) -> Scope {
+        Scope {
+            sources: vec![ScopeSource {
+                alias: "t".to_string(),
+                table_name: "t".to_string(),
+                columns: vec![ScopeColumn::new("c", neutral_type, false)],
+                nullable_from_join: false,
+            }],
+        }
+    }
+
     #[test]
     fn test_count_returns_int64() {
         let catalog = empty_catalog();
@@ -710,7 +725,7 @@ mod tests {
         let scope = empty_scope();
         let func = make_func("sum", vec![int_literal()]);
         let ti = analyzer.infer_function_type(&func, &scope);
-        assert_eq!(ti.neutral_type, "int64");
+        assert_eq!(ti.neutral_type, "decimal");
         assert!(ti.nullable, "sum (non-window) should be nullable");
     }
 
@@ -721,8 +736,58 @@ mod tests {
         let scope = empty_scope();
         let func = make_window_func("sum", vec![int_literal()]);
         let ti = analyzer.infer_function_type(&func, &scope);
-        assert_eq!(ti.neutral_type, "int64");
+        assert_eq!(ti.neutral_type, "decimal");
         assert!(!ti.nullable, "sum as window function should not be nullable");
+    }
+
+    #[test]
+    fn test_sum_result_type_int32_widens_to_int64() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_column("int32");
+        let func = make_func("sum", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "int64");
+    }
+
+    #[test]
+    fn test_sum_result_type_int64_widens_to_decimal() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_column("int64");
+        let func = make_func("sum", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "decimal");
+    }
+
+    #[test]
+    fn test_sum_result_type_decimal_stays_decimal() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_column("decimal");
+        let func = make_func("sum", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "decimal");
+    }
+
+    #[test]
+    fn test_sum_result_type_float32_stays_float32() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_column("float32");
+        let func = make_func("sum", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "float32");
+    }
+
+    #[test]
+    fn test_sum_result_type_float64_stays_float64() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_column("float64");
+        let func = make_func("sum", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "float64");
     }
 
     #[test]
@@ -734,6 +799,56 @@ mod tests {
         let ti = analyzer.infer_function_type(&func, &scope);
         assert_eq!(ti.neutral_type, "decimal");
         assert!(ti.nullable);
+    }
+
+    #[test]
+    fn test_avg_result_type_int32_widens_to_decimal() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_column("int32");
+        let func = make_func("avg", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "decimal");
+    }
+
+    #[test]
+    fn test_avg_result_type_int64_widens_to_decimal() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_column("int64");
+        let func = make_func("avg", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "decimal");
+    }
+
+    #[test]
+    fn test_avg_result_type_decimal_stays_decimal() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_column("decimal");
+        let func = make_func("avg", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "decimal");
+    }
+
+    #[test]
+    fn test_avg_result_type_float32_widens_to_float64() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_column("float32");
+        let func = make_func("avg", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "float64");
+    }
+
+    #[test]
+    fn test_avg_result_type_float64_stays_float64() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_column("float64");
+        let func = make_func("avg", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "float64");
     }
 
     #[test]

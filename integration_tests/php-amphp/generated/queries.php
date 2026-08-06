@@ -63,6 +63,18 @@ readonly class GetOrderTotalRow {
     }
 }
 
+readonly class GetOrderWeightTotalRow {
+    public function __construct(
+        public ?float $weight_total,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            weight_total: $row['weight_total'] !== null ? (float) $row['weight_total'] : null,
+        );
+    }
+}
+
 readonly class GetUserByIdRow {
     public function __construct(
         public int $id,
@@ -221,6 +233,19 @@ final class Queries {
         $result = $pool->prepare("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?")->execute([$user_id]);
         foreach ($result as $row) {
             return GetOrderTotalRow::fromRow($row);
+        }
+        return null;
+    }
+
+    /**
+     * @param \Amp\Sql\SqlConnectionPool $pool
+     * @param int $user_id
+     * @return GetOrderWeightTotalRow|null
+     */
+    public static function getOrderWeightTotal(\Amp\Sql\SqlConnectionPool $pool, int $user_id): ?GetOrderWeightTotalRow {
+        $result = $pool->prepare("SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ?")->execute([$user_id]);
+        foreach ($result as $row) {
+            return GetOrderWeightTotalRow::fromRow($row);
         }
         return null;
     }

@@ -73,6 +73,19 @@ func GetOrderTotal(ctx context.Context, db *pgxpool.Pool, UserId int32) (GetOrde
 	return r, err
 }
 
+type GetOrderWeightTotalRow struct {
+	WeightTotal *float64 `json:"weight_total"`
+}
+
+// Returns the zero value of the struct if no row is found.
+// Use pgx.ErrNoRows to distinguish not-found from other errors.
+func GetOrderWeightTotal(ctx context.Context, db *pgxpool.Pool, UserId int32) (GetOrderWeightTotalRow, error) {
+	row := db.QueryRow(ctx, "SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = $1", UserId)
+	var r GetOrderWeightTotalRow
+	err := row.Scan(&r.WeightTotal)
+	return r, err
+}
+
 func DeleteOrdersByUser(ctx context.Context, db *pgxpool.Pool, UserId int32) (int64, error) {
 	result, err := db.Exec(ctx, "DELETE FROM orders WHERE user_id = $1", UserId)
 	if err != nil {

@@ -1,0 +1,26 @@
+{
+  "category": "aggregates/numeric_widening",
+  "description": "AVG(double precision) preserves float64, matching PostgreSQL's avg(double precision) -> double precision",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "d_avg",
+          "nullable": true,
+          "type": "float64"
+        }
+      ],
+      "command": "one",
+      "name": "AvgDouble",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "avg_float64_stays_float64",
+  "query_sql": "-- @name AvgDouble\n-- @returns :one\nSELECT AVG(d) AS d_avg FROM numeric_data;",
+  "schema_sql": [
+    "CREATE TABLE numeric_data (id SERIAL PRIMARY KEY, small SMALLINT NOT NULL, med INTEGER NOT NULL, big BIGINT NOT NULL, r REAL NOT NULL, d DOUBLE PRECISION NOT NULL, n NUMERIC(10,2) NOT NULL);"
+  ],
+  "source": "original",
+  "tags": ["aggregate", "avg", "numeric_widening", "float64"]
+}

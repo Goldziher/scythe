@@ -109,6 +109,30 @@ fun Connection.getOrderTotal(
     }
 
 
+data class GetOrderWeightTotalRow(
+    val weight_total: Double?,
+)
+
+
+fun Connection.getOrderWeightTotal(
+    user_id: Int,
+): GetOrderWeightTotalRow? =
+    this.prepareStatement("SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ?").use { ps ->
+        ps.setInt(1, user_id)
+        ps.executeQuery().use { rs ->
+            if (rs.next()) {
+                val weight_totalValue = rs.getDouble("weight_total")
+                val weight_total = if (rs.wasNull()) null else weight_totalValue
+                GetOrderWeightTotalRow(
+                    weight_total = weight_total,
+                )
+            } else {
+                null
+            }
+        }
+    }
+
+
 fun Connection.deleteOrdersByUser(
     user_id: Int,
 ): Int =
@@ -352,3 +376,4 @@ fun Connection.searchUsers(
             result
         }
     }
+

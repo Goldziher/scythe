@@ -1,0 +1,26 @@
+{
+  "category": "aggregates/numeric_widening",
+  "description": "SUM(bigint) widens to decimal (numeric), matching PostgreSQL's sum(bigint) -> numeric",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "big_sum",
+          "nullable": true,
+          "type": "decimal"
+        }
+      ],
+      "command": "one",
+      "name": "SumBig",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "sum_int64_widens_to_decimal",
+  "query_sql": "-- @name SumBig\n-- @returns :one\nSELECT SUM(big) AS big_sum FROM numeric_data;",
+  "schema_sql": [
+    "CREATE TABLE numeric_data (id SERIAL PRIMARY KEY, small SMALLINT NOT NULL, med INTEGER NOT NULL, big BIGINT NOT NULL, r REAL NOT NULL, d DOUBLE PRECISION NOT NULL, n NUMERIC(10,2) NOT NULL);"
+  ],
+  "source": "original",
+  "tags": ["aggregate", "sum", "numeric_widening", "int64", "decimal"]
+}

@@ -72,6 +72,20 @@ public static async Task<GetOrderTotalRow?> GetOrderTotal(NpgsqlConnection conn,
     );
 }
 
+public record GetOrderWeightTotalRow(
+    double? WeightTotal
+);
+
+public static async Task<GetOrderWeightTotalRow?> GetOrderWeightTotal(NpgsqlConnection conn, int user_id) {
+    await using var cmd = new NpgsqlCommand("SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = @p1", conn);
+    cmd.Parameters.AddWithValue("p1", user_id);
+    await using var reader = await cmd.ExecuteReaderAsync();
+    if (!await reader.ReadAsync()) return null;
+    return new GetOrderWeightTotalRow(
+        reader.IsDBNull(0) ? null : reader.GetDouble(0)
+    );
+}
+
 public static async Task<int> DeleteOrdersByUser(NpgsqlConnection conn, int user_id) {
     await using var cmd = new NpgsqlCommand("DELETE FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", user_id);

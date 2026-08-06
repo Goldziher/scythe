@@ -63,6 +63,18 @@ readonly class GetOrderTotalRow {
     }
 }
 
+readonly class GetOrderWeightTotalRow {
+    public function __construct(
+        public ?float $weight_total,
+    ) {}
+
+    public static function fromRow(array $row): self {
+        return new self(
+            weight_total: $row['weight_total'] !== null ? (float) $row['weight_total'] : null,
+        );
+    }
+}
+
 readonly class GetUserByIdRow {
     public function __construct(
         public int $id,
@@ -222,6 +234,18 @@ final class Queries {
         $stmt->execute(["p1" => $user_id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row ? GetOrderTotalRow::fromRow($row) : null;
+    }
+
+    /**
+     * @param \PDO $pdo
+     * @param int $user_id
+     * @return GetOrderWeightTotalRow|null
+     */
+    public static function getOrderWeightTotal(\PDO $pdo, int $user_id): ?GetOrderWeightTotalRow {
+        $stmt = $pdo->prepare("SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = :p1");
+        $stmt->execute(["p1" => $user_id]);
+        $row = $stmt->fetch(\PDO::FETCH_ASSOC);
+        return $row ? GetOrderWeightTotalRow::fromRow($row) : null;
     }
 
     /**

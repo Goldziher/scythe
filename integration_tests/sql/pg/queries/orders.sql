@@ -10,6 +10,10 @@ SELECT id, total, notes, created_at FROM orders WHERE user_id = $1 ORDER BY crea
 -- @returns :one
 SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1;
 
+-- @name GetOrderWeightTotal
+-- @returns :one
+SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = $1;
+
 -- @name DeleteOrdersByUser
 -- @returns :exec_rows
 DELETE FROM orders WHERE user_id = $1;

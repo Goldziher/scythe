@@ -1,0 +1,26 @@
+{
+  "category": "aggregates/numeric_widening",
+  "description": "SUM(double precision) preserves float64, matching PostgreSQL's sum(double precision) -> double precision. Regression coverage: this previously (incorrectly) inferred decimal for every non-integer argument.",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "d_sum",
+          "nullable": true,
+          "type": "float64"
+        }
+      ],
+      "command": "one",
+      "name": "SumDouble",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "sum_float64_stays_float64",
+  "query_sql": "-- @name SumDouble\n-- @returns :one\nSELECT SUM(d) AS d_sum FROM numeric_data;",
+  "schema_sql": [
+    "CREATE TABLE numeric_data (id SERIAL PRIMARY KEY, small SMALLINT NOT NULL, med INTEGER NOT NULL, big BIGINT NOT NULL, r REAL NOT NULL, d DOUBLE PRECISION NOT NULL, n NUMERIC(10,2) NOT NULL);"
+  ],
+  "source": "original",
+  "tags": ["aggregate", "sum", "numeric_widening", "float64", "regression"]
+}

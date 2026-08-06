@@ -189,6 +189,56 @@ pub(super) fn is_integer_type(t: &str) -> bool {
     matches!(t, "int16" | "int32" | "int64")
 }
 
+pub(super) fn is_float_type(t: &str) -> bool {
+    matches!(t, "float32" | "float64")
+}
+
+/// `sum(x)` result-type widening.
+///
+/// Mirrors PostgreSQL's aggregate signatures (`sum(smallint|integer) ->
+/// bigint`, `sum(bigint) -> numeric`, `sum(numeric) -> numeric`, `sum(real)
+/// -> real`, `sum(double precision) -> double precision`). The analyzer has
+/// no engine identifier available at this point in the pipeline, so the
+/// mapping is applied uniformly for every target engine; Postgres is the
+/// most permissive/widely-referenced of the supported engines here and this
+/// choice avoids silently narrowing floating-point sums to `decimal`, which
+/// is what caused the false-positive SC-VER03 mismatch this fix addresses.
+pub(super) fn sum_result_type(neutral: &str) -> String {
+    if is_integer_type(neutral) {
+        // "int64" (bigint) widens to arbitrary-precision "decimal"; the
+        // narrower integer widths widen to "int64" (bigint).
+        if neutral == "int64" {
+            "decimal".to_string()
+        } else {
+            "int64".to_string()
+        }
+    } else if is_float_type(neutral) {
+        neutral.to_string()
+    } else {
+        // Already "decimal", or an unresolved/unknown column type: fall
+        // back to "decimal" as the widest safe numeric type.
+        "decimal".to_string()
+    }
+}
+
+/// `avg(x)` result-type widening.
+///
+/// Exact numeric inputs (`int16`/`int32`/`int64`/`decimal`) widen to
+/// `decimal`, matching PostgreSQL (`avg(smallint|integer|bigint|numeric) ->
+/// numeric`) and MySQL (`AVG()` on exact-value args -> `DECIMAL`).
+/// Approximate float inputs are preserved as `float64`, matching PostgreSQL
+/// (`avg(real|double precision) -> double precision`), MySQL (`AVG()` on
+/// `FLOAT`/`DOUBLE` -> `DOUBLE`), and SQL Server (`float`/`real` categories
+/// -> `float`). No engine identifier is available here, so this mapping is
+/// applied uniformly; it matches all three of those engines exactly.
+pub(super) fn avg_result_type(neutral: &str) -> String {
+    if is_float_type(neutral) {
+        "float64".to_string()
+    } else {
+        "decimal".to_string()
+    }
+}
+
 pub(super) fn is_comparable_types(a: &str, b: &str) -> bool {
     let numeric = ["int16", "int32", "int64", "float32", "float64", "decimal"];
     if numeric.contains(&a) && numeric.contains(&b) {
@@ -450,6 +500,34 @@ mod tests {
         assert!(is_integer_type("int64"));
         assert!(!is_integer_type("float32"));
         assert!(!is_integer_type("string"));
+    }
+
+    #[test]
+    fn test_is_float_type() {
+        assert!(is_float_type("float32"));
+        assert!(is_float_type("float64"));
+        assert!(!is_float_type("int64"));
+        assert!(!is_float_type("decimal"));
+    }
+
+    #[test]
+    fn test_sum_result_type() {
+        assert_eq!(sum_result_type("int16"), "int64");
+        assert_eq!(sum_result_type("int32"), "int64");
+        assert_eq!(sum_result_type("int64"), "decimal");
+        assert_eq!(sum_result_type("decimal"), "decimal");
+        assert_eq!(sum_result_type("float32"), "float32");
+        assert_eq!(sum_result_type("float64"), "float64");
+    }
+
+    #[test]
+    fn test_avg_result_type() {
+        assert_eq!(avg_result_type("int16"), "decimal");
+        assert_eq!(avg_result_type("int32"), "decimal");
+        assert_eq!(avg_result_type("int64"), "decimal");
+        assert_eq!(avg_result_type("decimal"), "decimal");
+        assert_eq!(avg_result_type("float32"), "float64");
+        assert_eq!(avg_result_type("float64"), "float64");
     }
 
     #[test]

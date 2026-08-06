@@ -378,6 +378,576 @@ fn test_group_by_multiple_aggregates() {
 }
 
 #[test]
+fn test_avg_float64_stays_float64() {
+    // From: testing_data/aggregates/numeric_widening/05_avg_float64_stays_float64.json
+    // "AVG(double precision) preserves float64, matching PostgreSQL's avg(double precision) -> double precision"
+    let schema_sql = &[
+        "CREATE TABLE numeric_data (id SERIAL PRIMARY KEY, small SMALLINT NOT NULL, med INTEGER NOT NULL, big BIGINT NOT NULL, r REAL NOT NULL, d DOUBLE PRECISION NOT NULL, n NUMERIC(10,2) NOT NULL);",
+    ];
+
+    let query_sql = "-- @name AvgDouble\n-- @returns :one\nSELECT AVG(d) AS d_avg FROM numeric_data;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "AvgDouble", "query name");
+    assert_eq!(analyzed.command.to_string(), "one", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "d_avg", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "float64",
+        "column neutral_type for d_avg"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for d_avg");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "avg_float64_stays_float64"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "avg_float64_stays_float64",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "avg_float64_stays_float64"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "avg_float64_stays_float64"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_sum_float32_stays_float32() {
+    // From: testing_data/aggregates/numeric_widening/04_sum_float32_stays_float32.json
+    // "SUM(real) preserves float32, matching PostgreSQL's sum(real) -> real"
+    let schema_sql = &[
+        "CREATE TABLE numeric_data (id SERIAL PRIMARY KEY, small SMALLINT NOT NULL, med INTEGER NOT NULL, big BIGINT NOT NULL, r REAL NOT NULL, d DOUBLE PRECISION NOT NULL, n NUMERIC(10,2) NOT NULL);",
+    ];
+
+    let query_sql = "-- @name SumReal\n-- @returns :one\nSELECT SUM(r) AS r_sum FROM numeric_data;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "SumReal", "query name");
+    assert_eq!(analyzed.command.to_string(), "one", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "r_sum", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "float32",
+        "column neutral_type for r_sum"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for r_sum");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "sum_float32_stays_float32"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "sum_float32_stays_float32",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "sum_float32_stays_float32"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "sum_float32_stays_float32"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_sum_float64_stays_float64() {
+    // From: testing_data/aggregates/numeric_widening/03_sum_float64_stays_float64.json
+    // "SUM(double precision) preserves float64, matching PostgreSQL's sum(double precision) -> double precision. Regression coverage: this previously (incorrectly) inferred decimal for every non-integer argument."
+    let schema_sql = &[
+        "CREATE TABLE numeric_data (id SERIAL PRIMARY KEY, small SMALLINT NOT NULL, med INTEGER NOT NULL, big BIGINT NOT NULL, r REAL NOT NULL, d DOUBLE PRECISION NOT NULL, n NUMERIC(10,2) NOT NULL);",
+    ];
+
+    let query_sql = "-- @name SumDouble\n-- @returns :one\nSELECT SUM(d) AS d_sum FROM numeric_data;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "SumDouble", "query name");
+    assert_eq!(analyzed.command.to_string(), "one", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "d_sum", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "float64",
+        "column neutral_type for d_sum"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for d_sum");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "sum_float64_stays_float64"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "sum_float64_stays_float64",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "sum_float64_stays_float64"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "sum_float64_stays_float64"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_sum_int32_widens_to_int64() {
+    // From: testing_data/aggregates/numeric_widening/02_sum_int32_widens_to_int64.json
+    // "SUM(integer) widens to int64 (bigint), matching PostgreSQL's sum(integer) -> bigint"
+    let schema_sql = &[
+        "CREATE TABLE numeric_data (id SERIAL PRIMARY KEY, small SMALLINT NOT NULL, med INTEGER NOT NULL, big BIGINT NOT NULL, r REAL NOT NULL, d DOUBLE PRECISION NOT NULL, n NUMERIC(10,2) NOT NULL);",
+    ];
+
+    let query_sql = "-- @name SumMed\n-- @returns :one\nSELECT SUM(med) AS med_sum FROM numeric_data;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "SumMed", "query name");
+    assert_eq!(analyzed.command.to_string(), "one", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "med_sum", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int64",
+        "column neutral_type for med_sum"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for med_sum");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "sum_int32_widens_to_int64"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "sum_int32_widens_to_int64",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "sum_int32_widens_to_int64"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "sum_int32_widens_to_int64"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_sum_int64_widens_to_decimal() {
+    // From: testing_data/aggregates/numeric_widening/01_sum_int64_widens_to_decimal.json
+    // "SUM(bigint) widens to decimal (numeric), matching PostgreSQL's sum(bigint) -> numeric"
+    let schema_sql = &[
+        "CREATE TABLE numeric_data (id SERIAL PRIMARY KEY, small SMALLINT NOT NULL, med INTEGER NOT NULL, big BIGINT NOT NULL, r REAL NOT NULL, d DOUBLE PRECISION NOT NULL, n NUMERIC(10,2) NOT NULL);",
+    ];
+
+    let query_sql = "-- @name SumBig\n-- @returns :one\nSELECT SUM(big) AS big_sum FROM numeric_data;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "SumBig", "query name");
+    assert_eq!(analyzed.command.to_string(), "one", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "big_sum", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "decimal",
+        "column neutral_type for big_sum"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for big_sum");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "sum_int64_widens_to_decimal"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "sum_int64_widens_to_decimal",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "sum_int64_widens_to_decimal"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "sum_int64_widens_to_decimal"
+            );
+        }
+    }
+}
+
+#[test]
 fn test_window_lag_lead() {
     // From: testing_data/aggregates/window_functions/04_lag_lead.json
     // "LAG and LEAD window functions return nullable values when there is no row at the offset"

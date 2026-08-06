@@ -92,6 +92,24 @@ async def get_order_total(conn: Connection, *, user_id: int) -> GetOrderTotalRow
     return GetOrderTotalRow(total_sum=row["total_sum"])
 
 
+@dataclass(frozen=True, slots=True)
+class GetOrderWeightTotalRow:
+    """Row type for GetOrderWeightTotal query."""
+
+    weight_total: float | None
+
+
+async def get_order_weight_total(conn: Connection, *, user_id: int) -> GetOrderWeightTotalRow | None:
+    """Execute GetOrderWeightTotal query."""
+    row = await conn.fetchrow(
+        """SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = $1""",
+        user_id,
+    )
+    if row is None:
+        return None
+    return GetOrderWeightTotalRow(weight_total=row["weight_total"])
+
+
 async def delete_orders_by_user(conn: Connection, *, user_id: int) -> int:
     """Execute DeleteOrdersByUser query."""
     result = await conn.execute(
@@ -292,3 +310,4 @@ async def search_users(conn: Connection, *, name: str) -> list[SearchUsersRow]:
         name,
     )
     return [SearchUsersRow(id=r["id"], name=r["name"], email=r["email"]) for r in rows]
+

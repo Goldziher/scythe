@@ -47,6 +47,15 @@ defmodule GetOrderTotalRow do
   defstruct [:total_sum]
 end
 
+defmodule GetOrderWeightTotalRow do
+  @moduledoc "Row type for GetOrderWeightTotal queries."
+
+  @type t :: %__MODULE__{
+    weight_total: float() | nil
+  }
+  defstruct [:weight_total]
+end
+
 defmodule GetUserByIdRow do
   @moduledoc "Row type for GetUserById queries."
 
@@ -160,6 +169,17 @@ def get_order_total(conn, user_id) do
     {:ok, %{rows: [row | _]}} ->
       [total_sum] = row
       {:ok, %GetOrderTotalRow{total_sum: total_sum}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_order_weight_total(Postgrex.conn(), integer()) :: {:ok, %GetOrderWeightTotalRow{}} | {:error, :not_found} | {:error, term()}
+def get_order_weight_total(conn, user_id) do
+  case Postgrex.query(conn, "SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = $1", [user_id]) do
+    {:ok, %{rows: [row | _]}} ->
+      [weight_total] = row
+      {:ok, %GetOrderWeightTotalRow{weight_total: weight_total}}
     {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end
