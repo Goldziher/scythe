@@ -40,7 +40,7 @@ out = "src/generated/queries.py"
 | `INTEGER` / `INT4` | `int32` | |
 | `BIGINT` / `INT8` | `int64` | |
 | `SMALLINT` / `INT2` | `int16` | |
-| `TINYINT` / `INT1` | `int8` | |
+| `TINYINT` / `INT1` | `int16` | There is no `int8` neutral type |
 | `HUGEINT` | `int64` | 128-bit integer mapped to int64 |
 | `UHUGEINT` | `uint64` | Unsigned 128-bit integer |
 | `REAL` / `FLOAT4` | `float32` | |

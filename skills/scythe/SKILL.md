@@ -383,7 +383,7 @@ Scythe infers nullability from SQL context:
 - **COALESCE**: Result is non-nullable
 - **Aggregates**: COUNT is non-nullable; SUM/AVG/MIN/MAX are nullable
 - **CASE WHEN**: Nullable unless all branches and ELSE are non-nullable
-- **Subqueries**: Scalar subqueries are nullable
+- **Subqueries**: Scalar subqueries are nullable unless the subquery is a single ungrouped, non-windowed aggregate
 
 Override with `@nullable` and `@nonnull` annotations.
 
