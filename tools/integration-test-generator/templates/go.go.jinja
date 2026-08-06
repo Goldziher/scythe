@@ -568,7 +568,10 @@ func runMigration(ctx context.Context, db *sql.DB) error {
 
 {% if engine == "mariadb" -%}
 var createdUserID string
-{%- elif engine == "mysql" or engine == "sqlite" or engine == "mssql" or engine == "snowflake" -%}
+{%- elif engine == "sqlite" -%}
+{#- SQLite's INTEGER PRIMARY KEY is an alias for the 64-bit rowid, so generated id columns are int64. -#}
+var createdUserID int64
+{%- elif engine == "mysql" or engine == "mssql" or engine == "snowflake" -%}
 var createdUserID int32
 {%- else -%}
 var createdUserID int64
