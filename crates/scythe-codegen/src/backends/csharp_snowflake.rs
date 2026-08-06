@@ -50,6 +50,31 @@ fn reader_method(neutral_type: &str) -> &'static str {
     }
 }
 
+/// Map a neutral type to the `System.Data.DbType` a `SnowflakeDbParameter`
+/// must carry.
+///
+/// `DbParameter.DbType` defaults to `AnsiString`, and `Snowflake.Data`'s
+/// `SFDataConverter.csharpTypeValToSfTypeVal` has no mapping for it, so an
+/// unset `DbType` makes every parameterized query throw
+/// `SnowflakeDbException: No corresponding Snowflake type for type AnsiString`
+/// on its first execution — against real Snowflake as much as against a fake.
+fn parameter_db_type(neutral_type: &str) -> &'static str {
+    match neutral_type {
+        "bool" => "System.Data.DbType.Boolean",
+        "int16" => "System.Data.DbType.Int16",
+        "int32" => "System.Data.DbType.Int32",
+        "int64" => "System.Data.DbType.Int64",
+        "float32" => "System.Data.DbType.Single",
+        "float64" => "System.Data.DbType.Double",
+        "decimal" => "System.Data.DbType.Decimal",
+        "date" => "System.Data.DbType.Date",
+        "datetime" => "System.Data.DbType.DateTime",
+        "datetime_tz" => "System.Data.DbType.DateTimeOffset",
+        "bytes" => "System.Data.DbType.Binary",
+        _ => "System.Data.DbType.String",
+    }
+}
+
 /// Rewrite $1, $2, ... to ?
 /// Build the expression to read a column from SnowflakeDbDataReader.
 fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
@@ -169,8 +194,9 @@ impl CodegenBackend for CsharpSnowflakeBackend {
                 };
                 let _ = writeln!(
                     out,
-                    "            cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"p{}\", Value = {} }});",
+                    "            cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"p{}\", DbType = {}, Value = {} }});",
                     i + 1,
+                    parameter_db_type(&p.neutral_type),
                     value_expr
                 );
             }
@@ -214,8 +240,9 @@ impl CodegenBackend for CsharpSnowflakeBackend {
         for (i, p) in params.iter().enumerate() {
             let _ = writeln!(
                 out,
-                "    cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"p{}\", Value = {} }});",
+                "    cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"p{}\", DbType = {}, Value = {} }});",
                 i + 1,
+                parameter_db_type(&p.neutral_type),
                 p.field_name
             );
         }
@@ -341,8 +368,9 @@ impl CodegenBackend for CsharpSnowflakeBackend {
         for (i, p) in params.iter().enumerate() {
             let _ = writeln!(
                 out,
-                "    cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"p{}\", Value = {} }});",
+                "    cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"p{}\", DbType = {}, Value = {} }});",
                 i + 1,
+                parameter_db_type(&p.neutral_type),
                 p.field_name
             );
         }
@@ -558,6 +586,76 @@ mod tests {
         assert!(
             query_fn.contains("return result;"),
             "must return result; got:\n{query_fn}"
+        );
+    }
+
+    /// `DbParameter.DbType` defaults to `AnsiString`, for which
+    /// `Snowflake.Data` has no Snowflake-type mapping — so a parameter left
+    /// without an explicit `DbType` throws
+    /// `No corresponding Snowflake type for type AnsiString` on the first
+    /// execution, against real Snowflake as much as against a fake.
+    #[test]
+    fn test_query_fn_sets_an_explicit_db_type_on_every_parameter() {
+        use super::CsharpSnowflakeBackend;
+
+        let backend = CsharpSnowflakeBackend::new("snowflake").unwrap();
+        let query = AnalyzedQuery {
+            name: "CreateOrder".to_string(),
+            command: QueryCommand::Exec,
+            sql: "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3)".to_string(),
+            columns: vec![],
+            params: vec![
+                scythe_core::analyzer::AnalyzedParam {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    position: 1,
+                },
+                scythe_core::analyzer::AnalyzedParam {
+                    name: "total".to_string(),
+                    neutral_type: "decimal".to_string(),
+                    nullable: false,
+                    position: 2,
+                },
+                scythe_core::analyzer::AnalyzedParam {
+                    name: "notes".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                    position: 3,
+                },
+            ],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        };
+
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert_eq!(
+            query_fn.matches("SnowflakeDbParameter").count(),
+            3,
+            "expected one parameter per placeholder; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("SnowflakeDbParameter { ParameterName = \"p1\", Value ="),
+            "every parameter must carry an explicit DbType; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("DbType = System.Data.DbType.Int32"),
+            "int32 param must map to DbType.Int32; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("DbType = System.Data.DbType.Decimal"),
+            "decimal param must map to DbType.Decimal; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("DbType = System.Data.DbType.String"),
+            "string param must map to DbType.String; got:\n{query_fn}"
         );
     }
 }
