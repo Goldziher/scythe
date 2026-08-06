@@ -48,6 +48,16 @@ struct BackendConfig {
     options: HashMap<String, String>,
 }
 
+/// Per-backend overrides for the schema SQL filename within the engine's
+/// schema dir. Defaults to "schema.sql" when a backend name is not listed
+/// here. Kept as a side table (rather than a `BackendConfig` field) so it
+/// doesn't require touching every one of the ~100 `BackendConfig` literals
+/// below.
+const SCHEMA_FILE_OVERRIDES: &[(&str, &str)] = &[
+    ("go-godror-oracle", "schema_full.sql"),
+    ("java-jdbc-oracle", "schema_full.sql"),
+];
+
 /// Context passed to every template render.
 #[derive(Debug, Serialize)]
 struct TemplateContext {
@@ -60,6 +70,8 @@ struct TemplateContext {
     options: HashMap<String, String>,
     /// Relative path from the backend dir to the schema SQL directory.
     schema_dir: String,
+    /// Schema SQL filename within `schema_dir`, e.g. "schema.sql" or "schema_full.sql".
+    schema_file: String,
     /// Relative path from the backend dir to the queries SQL directory.
     queries_dir: String,
 }
@@ -84,6 +96,11 @@ impl From<&BackendConfig> for TemplateContext {
             backend: cfg.backend.clone(),
             options: cfg.options.clone(),
             schema_dir: format!("../sql/{engine_dir}"),
+            schema_file: SCHEMA_FILE_OVERRIDES
+                .iter()
+                .find(|(name, _)| *name == cfg.name)
+                .map(|(_, file)| file.to_string())
+                .unwrap_or_else(|| "schema.sql".to_string()),
             queries_dir: format!("../sql/{engine_dir}/queries"),
         }
     }
@@ -158,7 +175,7 @@ fn language_outputs(language: &str) -> LanguageOutputs {
             test_filename: "src/main/java/IntegrationTest.java",
             dep_template: "pom.xml.jinja".into(),
             dep_filename: "pom.xml",
-            extra: vec![],
+            extra: vec![("mvn-jvm-config.jinja", ".mvn/jvm.config")],
         },
         "kotlin" => LanguageOutputs {
             test_template: "kotlin.kt.jinja".into(),
@@ -269,6 +286,36 @@ fn build_backends() -> Vec<BackendConfig> {
             connection_env: "DATABASE_URL".into(),
             backend: "typescript-pg".into(),
             options: HashMap::from([("row_type".into(), "zod".into())]),
+        },
+        BackendConfig {
+            name: "typescript-pg-outer-join-unions".into(),
+            language: "typescript".into(),
+            engine: "postgresql".into(),
+            driver: "pg".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "typescript-pg".into(),
+            options: HashMap::from([("outer_join_unions".into(), "true".into())]),
+        },
+        BackendConfig {
+            name: "typescript-pg-zod-outer-join-unions".into(),
+            language: "typescript".into(),
+            engine: "postgresql".into(),
+            driver: "pg".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "typescript-pg".into(),
+            options: HashMap::from([
+                ("row_type".into(), "zod".into()),
+                ("outer_join_unions".into(), "true".into()),
+            ]),
+        },
+        BackendConfig {
+            name: "typescript-pg-structs-only".into(),
+            language: "typescript".into(),
+            engine: "postgresql".into(),
+            driver: "pg".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "typescript-pg".into(),
+            options: HashMap::from([("structs_only".into(), "true".into())]),
         },
         BackendConfig {
             name: "typescript-kysely".into(),
@@ -474,7 +521,7 @@ fn build_backends() -> Vec<BackendConfig> {
             engine: "sqlite".into(),
             driver: "pdo-sqlite".into(),
             connection_env: "SQLITE_PATH".into(),
-            backend: "php-pdo-sqlite".into(),
+            backend: "php-pdo".into(),
             options: HashMap::new(),
         },
         BackendConfig {
@@ -1153,7 +1200,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         for (tmpl, filename) in &outputs.extra {
             if env.get_template(tmpl).is_ok() {
                 let content = render_template(&env, tmpl, &context)?;
-                fs::write(output_dir.join(filename), content)?;
+                if content.trim().is_empty() {
+                    continue;
+                }
+                let extra_path = output_dir.join(filename);
+                if let Some(parent) = extra_path.parent() {
+                    fs::create_dir_all(parent)?;
+                }
+                fs::write(extra_path, content)?;
             }
         }
 

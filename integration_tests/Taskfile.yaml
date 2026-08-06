@@ -66,6 +66,9 @@ tasks:
           - typescript-postgres
           - typescript-pg
           - typescript-pg-zod
+          - typescript-pg-outer-join-unions
+          - typescript-pg-zod-outer-join-unions
+          - typescript-pg-structs-only
           - typescript-kysely
           - java-jdbc
           - kotlin-jdbc
@@ -196,6 +199,53 @@ tasks:
       - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
+
+  test:typescript-pg-outer-join-unions:
+    desc: Run typescript-pg-outer-join-unions integration test
+    dir: typescript-pg-outer-join-unions
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
+  test:typescript-pg-zod-outer-join-unions:
+    desc: Run typescript-pg-zod-outer-join-unions integration test
+    dir: typescript-pg-zod-outer-join-unions
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
+  test:typescript-pg-structs-only:
+    desc: Type-check typescript-pg-structs-only and assert its structural shape (no driver import, no query functions)
+    dir: typescript-pg-structs-only
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+      - task: structs-only-check
+
+  structs-only-check:
+    internal: true
+    dir: typescript-pg-structs-only
+    cmds:
+      - |
+        set -e
+        if grep -q 'from "pg"' generated/queries.ts; then
+          echo "FAIL: structs_only output must not import the pg driver" >&2
+          exit 1
+        fi
+        if grep -qE '^export async function ' generated/queries.ts; then
+          echo "FAIL: structs_only output must not emit query functions" >&2
+          exit 1
+        fi
+        for symbol in "export interface GetUserByIdRow" "export const UserStatusValues"; do
+          if ! grep -qF "$symbol" generated/queries.ts; then
+            echo "FAIL: structs_only output must still emit '$symbol'" >&2
+            exit 1
+          fi
+        done
+        echo "PASS: structs_only output has no driver import, no query functions, and keeps type declarations"
 
   test:typescript-kysely:
     desc: Run typescript-kysely integration test
@@ -607,6 +657,9 @@ tasks:
       - task: test:typescript-postgres
       - task: test:typescript-pg
       - task: test:typescript-pg-zod
+      - task: test:typescript-pg-outer-join-unions
+      - task: test:typescript-pg-zod-outer-join-unions
+      - task: test:typescript-pg-structs-only
       - task: test:typescript-kysely
       - task: test:java-jdbc
       - task: test:kotlin-jdbc

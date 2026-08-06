@@ -98,6 +98,39 @@ fn temporal_class_literal(kotlin_type: &str) -> Option<&str> {
     }
 }
 
+/// Whether this engine's JDBC driver lacks `getObject(int/col, Class<T>)` support for
+/// `java.time` types and needs the legacy `java.sql.{Date,Time,Timestamp}` accessors instead.
+///
+/// Verified by decompiling `SnowflakeBaseResultSet` in snowflake-jdbc 4.0.2: its
+/// `getObject(int, Class<T>)` dispatches on exactly `Boolean, Byte, Short, Integer, Long, Float,
+/// Double, String, BigDecimal, java.sql.Date, java.sql.Time, java.sql.Timestamp,
+/// java.time.Duration, java.time.Period, Map, SQLData` — `LocalDate`, `LocalTime`,
+/// `LocalDateTime`, and `OffsetDateTime` are not in that list, so every call throws against real
+/// Snowflake. PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, MSSQL, Redshift, and Oracle drivers all
+/// support the `getObject(col, Type::class.java)` form, so this fallback is scoped to Snowflake
+/// only — it is not a general "safer" rewrite for every engine.
+fn engine_needs_legacy_temporal_getter(engine: &str) -> bool {
+    engine == "snowflake"
+}
+
+/// For engines that need the legacy JDBC temporal accessors (see
+/// [`engine_needs_legacy_temporal_getter`]), return the `ResultSet` getter method and the
+/// conversion expression to append to reach the given neutral temporal type from that getter's
+/// return value. Returns `None` when there is no legacy JDBC bridge: `time_tz` has none, because
+/// `java.sql.Time` carries no UTC offset and Snowflake has no `TIME WITH TIME ZONE` type to
+/// produce one from.
+fn legacy_temporal_getter(neutral_type: &str) -> Option<(&'static str, &'static str)> {
+    match neutral_type {
+        "date" => Some(("getDate", ".toLocalDate()")),
+        "time" => Some(("getTime", ".toLocalTime()")),
+        "datetime" => Some(("getTimestamp", ".toLocalDateTime()")),
+        // java.sql.Timestamp has no offset field; bridge it as a UTC instant. This matches what
+        // the driver can actually give us — the legacy JDBC contract for TIMESTAMP_TZ values.
+        "datetime_tz" => Some(("getTimestamp", ".toInstant().atOffset(ZoneOffset.UTC)")),
+        _ => None,
+    }
+}
+
 /// Map a neutral type to the java.sql.Types constant used for Oracle OUT parameters.
 fn oracle_jdbc_type(neutral_type: &str) -> &'static str {
     match neutral_type {
@@ -143,44 +176,86 @@ fn ps_setter(kotlin_type: &str) -> &str {
 
 /// Build the inline ResultSet read expression for a Kotlin JDBC column (by name).
 /// For nullable columns, the preamble has already extracted the value with wasNull().
-fn kt_rs_expr(col: &ResolvedColumn) -> String {
+fn kt_rs_expr(col: &ResolvedColumn, engine: &str) -> String {
     if col.nullable {
-        col.field_name.clone()
-    } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-        format!("rs.getObject(\"{}\", {})", col.name, class_lit)
-    } else if col.neutral_type.starts_with("enum::") {
-        format!("{}.valueOf(rs.getString(\"{}\").uppercase())", col.lang_type, col.name)
-    } else {
-        let getter = rs_getter(&col.lang_type);
-        format!("rs.{}(\"{}\")", getter, col.name)
+        return col.field_name.clone();
     }
+    if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+        if engine_needs_legacy_temporal_getter(engine)
+            && let Some((getter, conversion)) = legacy_temporal_getter(&col.neutral_type)
+        {
+            return format!("rs.{}(\"{}\"){}", getter, col.name, conversion);
+        }
+        return format!("rs.getObject(\"{}\", {})", col.name, class_lit);
+    }
+    if col.neutral_type.starts_with("enum::") {
+        return format!("{}.valueOf(rs.getString(\"{}\").uppercase())", col.lang_type, col.name);
+    }
+    let getter = rs_getter(&col.lang_type);
+    format!("rs.{}(\"{}\")", getter, col.name)
 }
 
-/// Emit nullable-column preamble for Kotlin JDBC grouped folding.
-fn write_kt_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent: &str) {
+/// Emit nullable-column preamble for Kotlin JDBC grouped folding and row construction.
+fn write_kt_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent: &str, engine: &str) {
     for col in cols {
-        if col.nullable {
-            if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                let _ = writeln!(
-                    out,
-                    "{}val {}Value = rs.getObject(\"{}\", {})",
-                    indent, col.field_name, col.name, class_lit
-                );
-            } else {
-                let getter = rs_getter(&col.lang_type);
+        if !col.nullable {
+            continue;
+        }
+        if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+            if engine_needs_legacy_temporal_getter(engine)
+                && let Some((getter, conversion)) = legacy_temporal_getter(&col.neutral_type)
+            {
                 let _ = writeln!(
                     out,
                     "{}val {}Value = rs.{}(\"{}\")",
                     indent, col.field_name, getter, col.name
                 );
+                let _ = writeln!(
+                    out,
+                    "{}val {} = if (rs.wasNull()) null else {}Value{}",
+                    indent, col.field_name, col.field_name, conversion
+                );
+                continue;
             }
             let _ = writeln!(
                 out,
-                "{}val {} = if (rs.wasNull()) null else {}Value",
-                indent, col.field_name, col.field_name
+                "{}val {}Value = rs.getObject(\"{}\", {})",
+                indent, col.field_name, col.name, class_lit
+            );
+        } else {
+            let getter = rs_getter(&col.lang_type);
+            let _ = writeln!(
+                out,
+                "{}val {}Value = rs.{}(\"{}\")",
+                indent, col.field_name, getter, col.name
             );
         }
+        let _ = writeln!(
+            out,
+            "{}val {} = if (rs.wasNull()) null else {}Value",
+            indent, col.field_name, col.field_name
+        );
     }
+}
+
+/// Emit `StructName(\n    field = expr,\n    ...\n){suffix}` reading each column from `rs`.
+/// Assumes any nullable-column preamble locals have already been written via
+/// [`write_kt_nullable_preamble`] using the same `engine`.
+fn write_kt_struct_literal(
+    out: &mut String,
+    struct_name: &str,
+    columns: &[ResolvedColumn],
+    engine: &str,
+    outer_indent: &str,
+    field_indent: &str,
+    closing_suffix: &str,
+) {
+    let _ = writeln!(out, "{}{}(", outer_indent, struct_name);
+    for col in columns {
+        let expr = kt_rs_expr(col, engine);
+        let _ = writeln!(out, "{}{} = {},", field_indent, col.field_name, expr);
+    }
+    let _ = writeln!(out, "{}){}", outer_indent, closing_suffix);
 }
 
 impl CodegenBackend for KotlinJdbcBackend {
@@ -237,6 +312,14 @@ impl CodegenBackend for KotlinJdbcBackend {
         } else {
             ""
         };
+        // Snowflake can't bridge `datetime_tz` via `getObject(col, OffsetDateTime::class.java)` —
+        // see `engine_needs_legacy_temporal_getter` — so reads go through `getTimestamp` +
+        // `.toInstant().atOffset(ZoneOffset.UTC)` instead, which needs this import.
+        let zone_offset_import = if engine_needs_legacy_temporal_getter(&self.engine) {
+            "import java.time.ZoneOffset\n"
+        } else {
+            ""
+        };
         format!(
             "package generated\n\
              \n\
@@ -247,7 +330,7 @@ impl CodegenBackend for KotlinJdbcBackend {
              import java.time.LocalTime\n\
              import java.time.OffsetDateTime\n\
              import java.time.OffsetTime\n\
-             {uuid_import}"
+             {zone_offset_import}{uuid_import}"
         )
     }
 
@@ -435,59 +518,16 @@ impl CodegenBackend for KotlinJdbcBackend {
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                     let _ = writeln!(out, "            if (rs.next()) {{");
-                    for col in columns.iter() {
-                        if col.nullable {
-                            if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                                let _ = writeln!(
-                                    out,
-                                    "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
-                                    field = col.field_name,
-                                    name = col.name,
-                                    class_lit = class_lit,
-                                );
-                            } else {
-                                let getter = rs_getter(&col.lang_type);
-                                let _ = writeln!(
-                                    out,
-                                    "                val {field}Value = rs.{getter}(\"{name}\")",
-                                    field = col.field_name,
-                                    getter = getter,
-                                    name = col.name,
-                                );
-                            }
-                            let _ = writeln!(
-                                out,
-                                "                val {field} = if (rs.wasNull()) null else {field}Value",
-                                field = col.field_name,
-                            );
-                        }
-                    }
-                    let _ = writeln!(out, "                {}(", struct_name);
-                    for col in columns.iter() {
-                        if col.nullable {
-                            let _ = writeln!(out, "                    {} = {},", col.field_name, col.field_name);
-                        } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                            let _ = writeln!(
-                                out,
-                                "                    {} = rs.getObject(\"{}\", {}),",
-                                col.field_name, col.name, class_lit
-                            );
-                        } else if col.neutral_type.starts_with("enum::") {
-                            let _ = writeln!(
-                                out,
-                                "                    {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
-                                col.field_name, col.lang_type, col.name
-                            );
-                        } else {
-                            let getter = rs_getter(&col.lang_type);
-                            let _ = writeln!(
-                                out,
-                                "                    {} = rs.{}(\"{}\"),",
-                                col.field_name, getter, col.name
-                            );
-                        }
-                    }
-                    let _ = writeln!(out, "                )");
+                    write_kt_nullable_preamble(&mut out, columns, "                ", engine);
+                    write_kt_struct_literal(
+                        &mut out,
+                        struct_name,
+                        columns,
+                        engine,
+                        "                ",
+                        "                    ",
+                        "",
+                    );
                     let _ = writeln!(out, "            }} else {{");
                     let _ = writeln!(out, "                null");
                     let _ = writeln!(out, "            }}");
@@ -499,59 +539,16 @@ impl CodegenBackend for KotlinJdbcBackend {
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                     let _ = writeln!(out, "            return if (rs.next()) {{");
-                    for col in columns.iter() {
-                        if col.nullable {
-                            if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                                let _ = writeln!(
-                                    out,
-                                    "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
-                                    field = col.field_name,
-                                    name = col.name,
-                                    class_lit = class_lit,
-                                );
-                            } else {
-                                let getter = rs_getter(&col.lang_type);
-                                let _ = writeln!(
-                                    out,
-                                    "                val {field}Value = rs.{getter}(\"{name}\")",
-                                    field = col.field_name,
-                                    getter = getter,
-                                    name = col.name,
-                                );
-                            }
-                            let _ = writeln!(
-                                out,
-                                "                val {field} = if (rs.wasNull()) null else {field}Value",
-                                field = col.field_name,
-                            );
-                        }
-                    }
-                    let _ = writeln!(out, "                {}(", struct_name);
-                    for col in columns.iter() {
-                        if col.nullable {
-                            let _ = writeln!(out, "                    {} = {},", col.field_name, col.field_name);
-                        } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                            let _ = writeln!(
-                                out,
-                                "                    {} = rs.getObject(\"{}\", {}),",
-                                col.field_name, col.name, class_lit
-                            );
-                        } else if col.neutral_type.starts_with("enum::") {
-                            let _ = writeln!(
-                                out,
-                                "                    {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
-                                col.field_name, col.lang_type, col.name
-                            );
-                        } else {
-                            let getter = rs_getter(&col.lang_type);
-                            let _ = writeln!(
-                                out,
-                                "                    {} = rs.{}(\"{}\"),",
-                                col.field_name, getter, col.name
-                            );
-                        }
-                    }
-                    let _ = writeln!(out, "                )");
+                    write_kt_nullable_preamble(&mut out, columns, "                ", engine);
+                    write_kt_struct_literal(
+                        &mut out,
+                        struct_name,
+                        columns,
+                        engine,
+                        "                ",
+                        "                    ",
+                        "",
+                    );
                     let _ = writeln!(out, "            }} else {{");
                     let _ = writeln!(out, "                null");
                     let _ = writeln!(out, "            }}");
@@ -680,60 +677,17 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                     let _ = writeln!(out, "            val result = mutableListOf<{struct_name}>()",);
                     let _ = writeln!(out, "            while (rs.next()) {{");
-                    for col in columns.iter() {
-                        if col.nullable {
-                            if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                                let _ = writeln!(
-                                    out,
-                                    "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
-                                    field = col.field_name,
-                                    name = col.name,
-                                    class_lit = class_lit,
-                                );
-                            } else {
-                                let getter = rs_getter(&col.lang_type);
-                                let _ = writeln!(
-                                    out,
-                                    "                val {field}Value = rs.{getter}(\"{name}\")",
-                                    field = col.field_name,
-                                    getter = getter,
-                                    name = col.name,
-                                );
-                            }
-                            let _ = writeln!(
-                                out,
-                                "                val {field} = if (rs.wasNull()) null else {field}Value",
-                                field = col.field_name,
-                            );
-                        }
-                    }
+                    write_kt_nullable_preamble(&mut out, columns, "                ", engine);
                     let _ = writeln!(out, "                result.add(");
-                    let _ = writeln!(out, "                    {}(", struct_name);
-                    for col in columns.iter() {
-                        if col.nullable {
-                            let _ = writeln!(out, "                        {} = {},", col.field_name, col.field_name);
-                        } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                            let _ = writeln!(
-                                out,
-                                "                        {} = rs.getObject(\"{}\", {}),",
-                                col.field_name, col.name, class_lit
-                            );
-                        } else if col.neutral_type.starts_with("enum::") {
-                            let _ = writeln!(
-                                out,
-                                "                        {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
-                                col.field_name, col.lang_type, col.name
-                            );
-                        } else {
-                            let getter = rs_getter(&col.lang_type);
-                            let _ = writeln!(
-                                out,
-                                "                        {} = rs.{}(\"{}\"),",
-                                col.field_name, getter, col.name
-                            );
-                        }
-                    }
-                    let _ = writeln!(out, "                    ),");
+                    write_kt_struct_literal(
+                        &mut out,
+                        struct_name,
+                        columns,
+                        engine,
+                        "                    ",
+                        "                        ",
+                        ",",
+                    );
                     let _ = writeln!(out, "                )");
                     let _ = writeln!(out, "            }}");
                     let _ = writeln!(out, "            result");
@@ -746,60 +700,17 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                     let _ = writeln!(out, "            val result = mutableListOf<{struct_name}>()",);
                     let _ = writeln!(out, "            while (rs.next()) {{");
-                    for col in columns.iter() {
-                        if col.nullable {
-                            if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                                let _ = writeln!(
-                                    out,
-                                    "                val {field}Value = rs.getObject(\"{name}\", {class_lit})",
-                                    field = col.field_name,
-                                    name = col.name,
-                                    class_lit = class_lit,
-                                );
-                            } else {
-                                let getter = rs_getter(&col.lang_type);
-                                let _ = writeln!(
-                                    out,
-                                    "                val {field}Value = rs.{getter}(\"{name}\")",
-                                    field = col.field_name,
-                                    getter = getter,
-                                    name = col.name,
-                                );
-                            }
-                            let _ = writeln!(
-                                out,
-                                "                val {field} = if (rs.wasNull()) null else {field}Value",
-                                field = col.field_name,
-                            );
-                        }
-                    }
+                    write_kt_nullable_preamble(&mut out, columns, "                ", engine);
                     let _ = writeln!(out, "                result.add(");
-                    let _ = writeln!(out, "                    {}(", struct_name);
-                    for col in columns.iter() {
-                        if col.nullable {
-                            let _ = writeln!(out, "                        {} = {},", col.field_name, col.field_name);
-                        } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                            let _ = writeln!(
-                                out,
-                                "                        {} = rs.getObject(\"{}\", {}),",
-                                col.field_name, col.name, class_lit
-                            );
-                        } else if col.neutral_type.starts_with("enum::") {
-                            let _ = writeln!(
-                                out,
-                                "                        {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
-                                col.field_name, col.lang_type, col.name
-                            );
-                        } else {
-                            let getter = rs_getter(&col.lang_type);
-                            let _ = writeln!(
-                                out,
-                                "                        {} = rs.{}(\"{}\"),",
-                                col.field_name, getter, col.name
-                            );
-                        }
-                    }
-                    let _ = writeln!(out, "                    ),");
+                    write_kt_struct_literal(
+                        &mut out,
+                        struct_name,
+                        columns,
+                        engine,
+                        "                    ",
+                        "                        ",
+                        ",",
+                    );
                     let _ = writeln!(out, "                )");
                     let _ = writeln!(out, "            }}");
                     let _ = writeln!(out, "            return result");
@@ -951,15 +862,15 @@ impl CodegenBackend for KotlinJdbcBackend {
         let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
         let _ = writeln!(out, "            while (rs.next()) {{");
 
-        write_kt_nullable_preamble(&mut out, child_columns, "                ");
-        write_kt_nullable_preamble(&mut out, parent_columns, "                ");
+        write_kt_nullable_preamble(&mut out, child_columns, "                ", engine);
+        write_kt_nullable_preamble(&mut out, parent_columns, "                ", engine);
 
-        let key_expr = kt_rs_expr(key_col);
+        let key_expr = kt_rs_expr(key_col, engine);
         let _ = writeln!(out, "                val key = {key_expr}");
 
         let _ = writeln!(out, "                val child = {child_struct_name}(");
         for col in child_columns {
-            let expr = kt_rs_expr(col);
+            let expr = kt_rs_expr(col, engine);
             let _ = writeln!(out, "                    {} = {},", col.field_name, expr);
         }
         let _ = writeln!(out, "                )");
@@ -969,7 +880,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         let _ = writeln!(out, "                }} else {{");
         let _ = writeln!(out, "                    val parent = {parent_struct_name}(");
         for col in parent_columns {
-            let expr = kt_rs_expr(col);
+            let expr = kt_rs_expr(col, engine);
             let _ = writeln!(out, "                        {} = {},", col.field_name, expr);
         }
         let _ = writeln!(out, "                        children = mutableListOf(child),");
@@ -1098,6 +1009,141 @@ mod tests {
         assert!(
             query_fn.contains("return result") || query_fn.contains("    result\n"),
             "must return result; got:\n{query_fn}"
+        );
+    }
+
+    /// Builds a `Many` query with one non-nullable and one nullable column for each of
+    /// `datetime` and `datetime_tz`, to exercise every combination of the Snowflake legacy
+    /// temporal accessor fix.
+    fn make_temporal_query() -> AnalyzedQuery {
+        let columns = vec![
+            AnalyzedColumn {
+                name: "created_at".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "updated_at".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "valid_at".to_string(),
+                neutral_type: "datetime_tz".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "expires_at".to_string(),
+                neutral_type: "datetime_tz".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+        ];
+        AnalyzedQuery {
+            name: "ListEvents".to_string(),
+            command: QueryCommand::Many,
+            sql: "SELECT created_at, updated_at, valid_at, expires_at FROM events".to_string(),
+            columns,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// Snowflake's `getObject(col, Type::class.java)` dispatch does not support `java.time`
+    /// classes (verified by decompiling snowflake-jdbc 4.0.2's `SnowflakeBaseResultSet`), so
+    /// every `datetime`/`datetime_tz` read must go through the legacy `getTimestamp` accessor
+    /// instead. This test fails if that fallback is reverted to
+    /// `rs.getObject(col, LocalDateTime::class.java)`.
+    #[test]
+    fn test_snowflake_temporal_columns_use_legacy_getter() {
+        let backend = crate::backends::get_backend("kotlin-jdbc", "snowflake").unwrap();
+        let query = make_temporal_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("created_at = rs.getTimestamp(\"created_at\").toLocalDateTime()"),
+            "non-nullable datetime must use getTimestamp().toLocalDateTime(); got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("val updated_atValue = rs.getTimestamp(\"updated_at\")"),
+            "nullable datetime must extract via getTimestamp preamble; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("val updated_at = if (rs.wasNull()) null else updated_atValue.toLocalDateTime()"),
+            "nullable datetime must null-check before toLocalDateTime(); got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("valid_at = rs.getTimestamp(\"valid_at\").toInstant().atOffset(ZoneOffset.UTC)"),
+            "non-nullable datetime_tz must use getTimestamp().toInstant().atOffset(ZoneOffset.UTC); got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("val expires_atValue = rs.getTimestamp(\"expires_at\")"),
+            "nullable datetime_tz must extract via getTimestamp preamble; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains(
+                "val expires_at = if (rs.wasNull()) null else expires_atValue.toInstant().atOffset(ZoneOffset.UTC)"
+            ),
+            "nullable datetime_tz must null-check before conversion; got:\n{query_fn}"
+        );
+
+        assert!(
+            !query_fn.contains("getObject(\"created_at\", LocalDateTime::class.java)"),
+            "must not regress to the unsupported getObject(Class) form for created_at; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("getObject(\"valid_at\", OffsetDateTime::class.java)"),
+            "must not regress to the unsupported getObject(Class) form for valid_at; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("::class.java"),
+            "no column in this fixture should still use getObject(Class) on Snowflake; got:\n{query_fn}"
+        );
+
+        let file_header = backend.file_header();
+        assert!(
+            file_header.contains("import java.time.ZoneOffset"),
+            "snowflake file header must import ZoneOffset for the datetime_tz conversion; got:\n{file_header}"
+        );
+    }
+
+    /// The legacy-getter fallback is scoped to Snowflake — every other JDBC driver this backend
+    /// targets supports `getObject(col, Type::class.java)` for `java.time` types, so their
+    /// generated code must be unchanged by the fix.
+    #[test]
+    fn test_non_snowflake_temporal_columns_still_use_get_object() {
+        let backend = crate::backends::get_backend("kotlin-jdbc", "postgresql").unwrap();
+        let query = make_temporal_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("created_at = rs.getObject(\"created_at\", LocalDateTime::class.java)"),
+            "postgresql must keep using getObject(Class) for datetime; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("valid_at = rs.getObject(\"valid_at\", OffsetDateTime::class.java)"),
+            "postgresql must keep using getObject(Class) for datetime_tz; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("getTimestamp"),
+            "postgresql must not be affected by the Snowflake-only legacy getter; got:\n{query_fn}"
+        );
+
+        let file_header = backend.file_header();
+        assert!(
+            !file_header.contains("ZoneOffset"),
+            "non-snowflake file header must not import ZoneOffset; got:\n{file_header}"
         );
     }
 }

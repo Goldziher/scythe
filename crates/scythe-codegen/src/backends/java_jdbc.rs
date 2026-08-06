@@ -111,6 +111,39 @@ fn temporal_class_literal(java_type: &str) -> Option<&str> {
     }
 }
 
+/// Whether this engine's JDBC driver lacks `getObject(int/col, Class<T>)` support for
+/// `java.time` types and needs the legacy `java.sql.{Date,Time,Timestamp}` accessors instead.
+///
+/// Verified by decompiling `SnowflakeBaseResultSet` in snowflake-jdbc 4.0.2: its
+/// `getObject(int, Class<T>)` dispatches on exactly `Boolean, Byte, Short, Integer, Long, Float,
+/// Double, String, BigDecimal, java.sql.Date, java.sql.Time, java.sql.Timestamp,
+/// java.time.Duration, java.time.Period, Map, SQLData` — `LocalDate`, `LocalTime`,
+/// `LocalDateTime`, and `OffsetDateTime` are not in that list, so every call throws against real
+/// Snowflake. PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, MSSQL, Redshift, and Oracle drivers all
+/// support the `getObject(col, Type.class)` form, so this fallback is scoped to Snowflake only —
+/// it is not a general "safer" rewrite for every engine.
+fn engine_needs_legacy_temporal_getter(engine: &str) -> bool {
+    engine == "snowflake"
+}
+
+/// For engines that need the legacy JDBC temporal accessors (see
+/// [`engine_needs_legacy_temporal_getter`]), return the `ResultSet` getter method and the
+/// conversion expression to append to reach the given neutral temporal type from that getter's
+/// return value. Returns `None` when there is no legacy JDBC bridge: `time_tz` has none, because
+/// `java.sql.Time` carries no UTC offset and Snowflake has no `TIME WITH TIME ZONE` type to
+/// produce one from.
+fn legacy_temporal_getter(neutral_type: &str) -> Option<(&'static str, &'static str)> {
+    match neutral_type {
+        "date" => Some(("getDate", ".toLocalDate()")),
+        "time" => Some(("getTime", ".toLocalTime()")),
+        "datetime" => Some(("getTimestamp", ".toLocalDateTime()")),
+        // java.sql.Timestamp has no offset field; bridge it as a UTC instant. This matches what
+        // the driver can actually give us — the legacy JDBC contract for TIMESTAMP_TZ values.
+        "datetime_tz" => Some(("getTimestamp", ".toInstant().atOffset(ZoneOffset.UTC)")),
+        _ => None,
+    }
+}
+
 /// Map a neutral type to the java.sql.Types constant used for Oracle OUT parameters.
 fn oracle_jdbc_type(neutral_type: &str) -> &'static str {
     match neutral_type {
@@ -213,28 +246,43 @@ fn java_annotated_param(param: &ResolvedParam) -> String {
 }
 
 /// Build the inline JDBC ResultSet expression for a column (read by column name).
-/// For nullable primitives, the variable name is returned — the preamble has already
+/// For nullable primitives and, on engines from [`engine_needs_legacy_temporal_getter`],
+/// nullable temporal columns, the variable name is returned — the preamble has already
 /// extracted the value and performed the wasNull() check.
-fn col_rs_expr(col: &ResolvedColumn) -> String {
+fn col_rs_expr(col: &ResolvedColumn, engine: &str) -> String {
     if col.nullable && is_java_primitive(&col.lang_type) {
-        col.field_name.clone()
-    } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-        format!("rs.getObject(\"{}\", {})", col.name, class_lit)
-    } else if col.neutral_type.starts_with("enum::") {
-        format!(
+        return col.field_name.clone();
+    }
+    if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
+        if engine_needs_legacy_temporal_getter(engine)
+            && let Some((getter, conversion)) = legacy_temporal_getter(&col.neutral_type)
+        {
+            return if col.nullable {
+                col.field_name.clone()
+            } else {
+                format!("rs.{}(\"{}\"){}", getter, col.name, conversion)
+            };
+        }
+        return format!("rs.getObject(\"{}\", {})", col.name, class_lit);
+    }
+    if col.neutral_type.starts_with("enum::") {
+        return format!(
             "{}.valueOf(rs.getString(\"{}\").toUpperCase())",
             col.lang_type, col.name
-        )
-    } else {
-        let getter = rs_getter(&col.lang_type);
-        format!("rs.{}(\"{}\")", getter, col.name)
+        );
     }
+    let getter = rs_getter(&col.lang_type);
+    format!("rs.{}(\"{}\")", getter, col.name)
 }
 
-/// Emit nullable-primitive preamble variable declarations for grouped JDBC folding.
-fn write_jdbc_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent: &str) {
+/// Emit nullable-primitive and (on engines needing it) nullable-temporal preamble variable
+/// declarations for grouped JDBC folding and row construction.
+fn write_jdbc_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent: &str, engine: &str) {
     for col in cols {
-        if col.nullable && is_java_primitive(&col.lang_type) {
+        if !col.nullable {
+            continue;
+        }
+        if is_java_primitive(&col.lang_type) {
             let getter = rs_getter(&col.lang_type);
             let _ = writeln!(
                 out,
@@ -249,7 +297,28 @@ fn write_jdbc_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], inden
                 col.field_name,
                 col.field_name
             );
+            continue;
         }
+        if !engine_needs_legacy_temporal_getter(engine) {
+            continue;
+        }
+        let Some(class_lit) = temporal_class_literal(&col.lang_type) else {
+            continue;
+        };
+        let Some((getter, conversion)) = legacy_temporal_getter(&col.neutral_type) else {
+            continue;
+        };
+        let short_name = class_lit.trim_end_matches(".class");
+        let _ = writeln!(
+            out,
+            "{}var {}Raw = rs.{}(\"{}\");",
+            indent, col.field_name, getter, col.name
+        );
+        let _ = writeln!(
+            out,
+            "{}{} {} = rs.wasNull() ? null : {}Raw{};",
+            indent, short_name, col.field_name, col.field_name, conversion
+        );
     }
 }
 
@@ -322,43 +391,12 @@ impl CodegenBackend for JavaJdbcBackend {
             "    public static {} fromResultSet(ResultSet rs) throws SQLException {{",
             struct_name
         );
-        let needs_preamble = columns.iter().any(|c| c.nullable && is_java_primitive(&c.lang_type));
-        if needs_preamble {
-            for col in columns.iter() {
-                if col.nullable && is_java_primitive(&col.lang_type) {
-                    let getter = rs_getter(&col.lang_type);
-                    let _ = writeln!(
-                        out,
-                        "        var {}Raw = rs.{}(\"{}\");",
-                        col.field_name, getter, col.name
-                    );
-                    let _ = writeln!(
-                        out,
-                        "        {} {} = rs.wasNull() ? null : {}Raw;",
-                        box_primitive(&col.lang_type),
-                        col.field_name,
-                        col.field_name
-                    );
-                }
-            }
-        }
+        write_jdbc_nullable_preamble(&mut out, columns, "        ", &self.engine);
         let _ = writeln!(out, "        return new {}(", struct_name);
         for (i, col) in columns.iter().enumerate() {
             let sep = if i + 1 < columns.len() { "," } else { "" };
-            if col.nullable && is_java_primitive(&col.lang_type) {
-                let _ = writeln!(out, "            {}{}", col.field_name, sep);
-            } else if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
-                let _ = writeln!(out, "            rs.getObject(\"{}\", {}){}", col.name, class_lit, sep);
-            } else if col.neutral_type.starts_with("enum::") {
-                let _ = writeln!(
-                    out,
-                    "            {}.valueOf(rs.getString(\"{}\").toUpperCase()){}",
-                    col.lang_type, col.name, sep
-                );
-            } else {
-                let getter = rs_getter(&col.lang_type);
-                let _ = writeln!(out, "            rs.{}(\"{}\"){}", getter, col.name, sep);
-            }
+            let expr = col_rs_expr(col, &self.engine);
+            let _ = writeln!(out, "            {}{}", expr, sep);
         }
         let _ = writeln!(out, "        );");
         let _ = writeln!(out, "    }}");
@@ -713,14 +751,14 @@ impl CodegenBackend for JavaJdbcBackend {
         let _ = writeln!(out, "        try (ResultSet rs = ps.executeQuery()) {{");
         let _ = writeln!(out, "            while (rs.next()) {{");
 
-        let key_expr = col_rs_expr(key_col);
+        let key_expr = col_rs_expr(key_col, &self.engine);
         let _ = writeln!(out, "                {key_type} key = {key_expr};");
 
-        write_jdbc_nullable_preamble(&mut out, child_columns, "                ");
+        write_jdbc_nullable_preamble(&mut out, child_columns, "                ", &self.engine);
 
         let _ = writeln!(out, "                var child = new {child_struct_name}(");
         for (i, col) in child_columns.iter().enumerate() {
-            let expr = col_rs_expr(col);
+            let expr = col_rs_expr(col, &self.engine);
             let sep = if i + 1 < child_columns.len() { "," } else { "" };
             let _ = writeln!(out, "                    {expr}{sep}");
         }
@@ -730,11 +768,11 @@ impl CodegenBackend for JavaJdbcBackend {
         let _ = writeln!(out, "                    lookup.get(key).children().add(child);");
         let _ = writeln!(out, "                }} else {{");
 
-        write_jdbc_nullable_preamble(&mut out, parent_columns, "                    ");
+        write_jdbc_nullable_preamble(&mut out, parent_columns, "                    ", &self.engine);
 
         let _ = writeln!(out, "                    var parent = new {parent_struct_name}(");
         for col in parent_columns {
-            let expr = col_rs_expr(col);
+            let expr = col_rs_expr(col, &self.engine);
             let _ = writeln!(out, "                        {expr},");
         }
         let _ = writeln!(out, "                        new ArrayList<>(List.of(child))");
@@ -859,6 +897,128 @@ mod tests {
         assert!(
             query_fn.contains("return result;"),
             "must return result; got:\n{query_fn}"
+        );
+    }
+
+    /// Builds a `Many` query with one non-nullable and one nullable column for each of
+    /// `datetime` and `datetime_tz`, to exercise every combination of the Snowflake legacy
+    /// temporal accessor fix.
+    fn make_temporal_query() -> AnalyzedQuery {
+        let columns = vec![
+            AnalyzedColumn {
+                name: "created_at".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "updated_at".to_string(),
+                neutral_type: "datetime".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "valid_at".to_string(),
+                neutral_type: "datetime_tz".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "expires_at".to_string(),
+                neutral_type: "datetime_tz".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+        ];
+        AnalyzedQuery {
+            name: "ListEvents".to_string(),
+            command: QueryCommand::Many,
+            sql: "SELECT created_at, updated_at, valid_at, expires_at FROM events".to_string(),
+            columns,
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// Snowflake's `getObject(col, Type.class)` dispatch does not support `java.time` classes
+    /// (verified by decompiling snowflake-jdbc 4.0.2's `SnowflakeBaseResultSet`), so every
+    /// `datetime`/`datetime_tz` read must go through the legacy `getTimestamp` accessor instead.
+    /// This test fails if that fallback is reverted to `rs.getObject(col, LocalDateTime.class)`.
+    #[test]
+    fn test_snowflake_temporal_columns_use_legacy_getter() {
+        let backend = crate::backends::get_backend("java-jdbc", "snowflake").unwrap();
+        let query = make_temporal_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("rs.getTimestamp(\"created_at\").toLocalDateTime()"),
+            "non-nullable datetime must use getTimestamp().toLocalDateTime(); got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("var updated_atRaw = rs.getTimestamp(\"updated_at\");"),
+            "nullable datetime must extract via getTimestamp preamble; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("LocalDateTime updated_at = rs.wasNull() ? null : updated_atRaw.toLocalDateTime();"),
+            "nullable datetime must null-check before toLocalDateTime(); got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("rs.getTimestamp(\"valid_at\").toInstant().atOffset(ZoneOffset.UTC)"),
+            "non-nullable datetime_tz must use getTimestamp().toInstant().atOffset(ZoneOffset.UTC); got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("var expires_atRaw = rs.getTimestamp(\"expires_at\");"),
+            "nullable datetime_tz must extract via getTimestamp preamble; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains(
+                "OffsetDateTime expires_at = rs.wasNull() ? null : expires_atRaw.toInstant().atOffset(ZoneOffset.UTC);"
+            ),
+            "nullable datetime_tz must null-check before conversion; got:\n{row_struct}"
+        );
+
+        assert!(
+            !row_struct.contains("getObject(\"created_at\", LocalDateTime.class)"),
+            "must not regress to the unsupported getObject(Class) form for created_at; got:\n{row_struct}"
+        );
+        assert!(
+            !row_struct.contains("getObject(\"valid_at\", OffsetDateTime.class)"),
+            "must not regress to the unsupported getObject(Class) form for valid_at; got:\n{row_struct}"
+        );
+        assert!(
+            !row_struct.contains(".class)"),
+            "no column in this fixture should still use getObject(Class) on Snowflake; got:\n{row_struct}"
+        );
+    }
+
+    /// The legacy-getter fallback is scoped to Snowflake — every other JDBC driver this backend
+    /// targets supports `getObject(col, Type.class)` for `java.time` types, so their generated
+    /// code must be unchanged by the fix.
+    #[test]
+    fn test_non_snowflake_temporal_columns_still_use_get_object() {
+        let backend = crate::backends::get_backend("java-jdbc", "postgresql").unwrap();
+        let query = make_temporal_query();
+        let result = crate::generate_with_backend(&query, &*backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("rs.getObject(\"created_at\", LocalDateTime.class)"),
+            "postgresql must keep using getObject(Class) for datetime; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("rs.getObject(\"valid_at\", OffsetDateTime.class)"),
+            "postgresql must keep using getObject(Class) for datetime_tz; got:\n{row_struct}"
+        );
+        assert!(
+            !row_struct.contains("getTimestamp"),
+            "postgresql must not be affected by the Snowflake-only legacy getter; got:\n{row_struct}"
         );
     }
 }

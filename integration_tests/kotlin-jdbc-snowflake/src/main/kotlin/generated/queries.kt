@@ -7,6 +7,7 @@ import java.time.LocalDateTime
 import java.time.LocalTime
 import java.time.OffsetDateTime
 import java.time.OffsetTime
+import java.time.ZoneOffset
 
 
 fun createOrder(
@@ -48,7 +49,7 @@ fun getOrdersByUser(
                         id = rs.getInt("id"),
                         total = rs.getBigDecimal("total"),
                         notes = notes,
-                        created_at = rs.getObject("created_at", LocalDateTime::class.java),
+                        created_at = rs.getTimestamp("created_at").toLocalDateTime(),
                     ),
                 )
             }
@@ -118,15 +119,15 @@ fun getUserById(
                 val email = if (rs.wasNull()) null else emailValue
                 val metadataValue = rs.getString("metadata")
                 val metadata = if (rs.wasNull()) null else metadataValue
-                val updated_atValue = rs.getObject("updated_at", OffsetDateTime::class.java)
-                val updated_at = if (rs.wasNull()) null else updated_atValue
+                val updated_atValue = rs.getTimestamp("updated_at")
+                val updated_at = if (rs.wasNull()) null else updated_atValue.toInstant().atOffset(ZoneOffset.UTC)
                 GetUserByIdRow(
                     id = rs.getInt("id"),
                     name = rs.getString("name"),
                     email = email,
                     active = rs.getBoolean("active"),
                     metadata = metadata,
-                    created_at = rs.getObject("created_at", LocalDateTime::class.java),
+                    created_at = rs.getTimestamp("created_at").toLocalDateTime(),
                     updated_at = updated_at,
                 )
             } else {
@@ -234,3 +235,4 @@ fun searchUsers(
         }
     }
 }
+

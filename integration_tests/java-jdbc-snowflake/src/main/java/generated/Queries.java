@@ -31,7 +31,7 @@ public record GetOrdersByUserRow(
             rs.getInt("id"),
             rs.getBigDecimal("total"),
             rs.getString("notes"),
-            rs.getObject("created_at", LocalDateTime.class)
+            rs.getTimestamp("created_at").toLocalDateTime()
         );
     }
 }
@@ -88,14 +88,16 @@ public record GetUserByIdRow(
     @Nullable java.time.OffsetDateTime updated_at
 ) {
     public static GetUserByIdRow fromResultSet(ResultSet rs) throws SQLException {
+        var updated_atRaw = rs.getTimestamp("updated_at");
+        OffsetDateTime updated_at = rs.wasNull() ? null : updated_atRaw.toInstant().atOffset(ZoneOffset.UTC);
         return new GetUserByIdRow(
             rs.getInt("id"),
             rs.getString("name"),
             rs.getString("email"),
             rs.getBoolean("active"),
             rs.getString("metadata"),
-            rs.getObject("created_at", LocalDateTime.class),
-            rs.getObject("updated_at", OffsetDateTime.class)
+            rs.getTimestamp("created_at").toLocalDateTime(),
+            updated_at
         );
     }
 }
@@ -190,3 +192,4 @@ public static List<SearchUsersRow> searchUsers(Connection conn, @Nonnull String 
 }
 
 }
+

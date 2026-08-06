@@ -17,6 +17,14 @@ dependencies {
 application {
     mainClass.set("IntegrationTestKt")
 }
+tasks.named<JavaExec>("run") {
+    // snowflake-jdbc bundles Apache Arrow, which reflectively accesses
+    // java.nio.Buffer's internal address field for off-heap memory access.
+    // The JDK 9+ module system blocks that by default, so without this the
+    // driver fails with InaccessibleObjectException as soon as it tries to
+    // decode an Arrow result.
+    jvmArgs = listOf("--add-opens=java.base/java.nio=ALL-UNNAMED")
+}
 
 java {
     sourceCompatibility = JavaVersion.VERSION_21

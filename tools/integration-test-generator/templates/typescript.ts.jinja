@@ -1,3 +1,79 @@
+{%- if options.structs_only == "true" -%}
+/**
+ * structs_only emits only type declarations (interfaces/Zod schemas, enums,
+ * composites) — no query functions and no driver import. There is no
+ * runtime behavior to exercise here, so this file only proves (via
+ * `tsc --noEmit`) that the emitted declarations type-check and wire
+ * together correctly. The structural claim (no driver import, no query
+ * function emitted) is asserted separately by grepping the generated
+ * output — see the `structs-only-check` task.
+ */
+import type {
+	UserStatus,
+	CreateUserRow,
+	GetUserByIdRow,
+	ListActiveUsersRow,
+	CreateOrderRow,
+	GetOrdersByUserRow,
+} from "./generated/queries.js";
+
+function describeUserStatus(status: UserStatus): string {
+	return `status: ${status}`;
+}
+
+function describeUser(row: GetUserByIdRow): string {
+	return `${row.name} <${row.email ?? "no-email"}> (${describeUserStatus(row.status)})`;
+}
+
+function describeActiveUser(row: ListActiveUsersRow): string {
+	return row.name;
+}
+
+function describeCreatedUser(row: CreateUserRow): string {
+	return describeUser(row);
+}
+
+function describeOrder(row: CreateOrderRow): string {
+	return `order for user ${row.user_id}: ${row.total}`;
+}
+
+function describeUserOrder(row: GetOrdersByUserRow): string {
+	return `${row.total} (${row.notes ?? "no notes"})`;
+}
+
+function main(): void {
+	const sample: GetUserByIdRow = {
+		id: 1,
+		name: "Alice",
+		email: "alice@example.com",
+		status: "active",
+		created_at: new Date(),
+	};
+	console.log(describeUser(sample));
+	console.log(describeActiveUser(sample));
+	console.log(describeCreatedUser(sample));
+	console.log(
+		describeOrder({
+			id: 1,
+			user_id: 1,
+			total: "99.95",
+			notes: "first order",
+			created_at: new Date(),
+		}),
+	);
+	console.log(
+		describeUserOrder({
+			id: 1,
+			total: "99.95",
+			notes: "first order",
+			created_at: new Date(),
+		}),
+	);
+	console.log("PASS: structs_only declarations type-check and compose");
+}
+
+main();
+{%- else -%}
 {%- if driver == "pg" -%}
 import pg from "pg";
 {%- elif driver == "kysely-pg" -%}
@@ -39,6 +115,17 @@ import {
 	listActiveUsers,
 	createOrder,
 	getOrdersByUser,
+{%- if options.outer_join_unions == "true" %}
+	getUserOrders,
+{%- endif %}
+{%- if driver == "kysely-pg" %}
+	getOrderTotal,
+	updateUserEmail,
+	getUserOrders,
+	countUsersByStatus,
+	getUserWithTags,
+	searchUsers,
+{%- endif %}
 	deleteOrdersByUser,
 	deleteUser,
 {%- if engine == "postgresql" and engine != "redshift" %}
@@ -60,6 +147,9 @@ import {
 	ListActiveUsersRowSchema,
 	CreateOrderRowSchema,
 	GetOrdersByUserRowSchema,
+{%- if options.outer_join_unions == "true" %}
+	GetUserOrdersRowSchema,
+{%- endif %}
 {%- endif %}
 } from "./generated/queries.js";
 
@@ -357,6 +447,56 @@ async function main(): Promise<void> {
 		);
 {%- endif %}
 		console.log("PASS: GetOrdersByUser");
+{%- if options.outer_join_unions == "true" %}
+
+		// Test: GetUserOrders (LEFT JOIN discriminated union). Bob has no
+		// orders, so his row must land in the "unmatched" variant (every
+		// joined column null together) rather than independent optionals —
+		// this is exactly the shape that would collapse back to
+		// indistinguishable all-null-fields if outer_join_unions regressed.
+		const bob = await createUser(
+			client,
+			"Bob",
+			"bob@example.com",
+			{% if driver == "pg" and options.row_type != "zod" %}UserStatusValues{% else %}UserStatus{% endif %}.Active,
+		);
+		const bobId = bob!.id;
+		const userOrders = await getUserOrders(
+			client,
+			{% if driver == "pg" and options.row_type != "zod" %}UserStatusValues{% else %}UserStatus{% endif %}.Active,
+		);
+		const aliceRow = userOrders.find((row) => row.id === userId);
+		const bobRow = userOrders.find((row) => row.id === bobId);
+		assert(aliceRow !== undefined, "GetUserOrders", "expected a row for Alice");
+		assert(bobRow !== undefined, "GetUserOrders", "expected a row for Bob");
+{%- if options.row_type == "zod" %}
+		const parsedAliceOrder = GetUserOrdersRowSchema.parse(aliceRow);
+		const parsedBobOrder = GetUserOrdersRowSchema.parse(bobRow);
+		assert(
+			parsedAliceOrder.total !== null,
+			"GetUserOrders",
+			"matched variant: Alice has an order, total must not be null",
+		);
+		assert(
+			parsedBobOrder.total === null && parsedBobOrder.notes === null,
+			"GetUserOrders",
+			"unmatched variant: Bob has no orders, total and notes must both be null together",
+		);
+{%- else %}
+		assert(
+			aliceRow!.total !== null,
+			"GetUserOrders",
+			"matched variant: Alice has an order, total must not be null",
+		);
+		assert(
+			bobRow!.total === null && bobRow!.notes === null,
+			"GetUserOrders",
+			"unmatched variant: Bob has no orders, total and notes must both be null together",
+		);
+{%- endif %}
+		console.log("PASS: GetUserOrders (discriminated union)");
+		await deleteUser(client, bobId);
+{%- endif %}
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(client, userId);
@@ -486,6 +626,85 @@ async function main(): Promise<void> {
 			`expected total 99.95`,
 		);
 		console.log("PASS: GetOrdersByUser");
+
+		// Test: GetOrderTotal
+		const orderTotal = await getOrderTotal(db, userId);
+		assert(orderTotal !== null, "GetOrderTotal", "total should not be null");
+		assert(
+			String(orderTotal!.total_sum) === "99.95",
+			"GetOrderTotal",
+			`expected total_sum 99.95, got ${orderTotal!.total_sum}`,
+		);
+		console.log("PASS: GetOrderTotal");
+
+		// Test: UpdateUserEmail
+		await updateUserEmail(db, "alice2@example.com", userId);
+		const updated = await getUserById(db, userId);
+		assert(
+			updated!.email === "alice2@example.com",
+			"UpdateUserEmail",
+			`expected updated email, got ${updated!.email}`,
+		);
+		console.log("PASS: UpdateUserEmail");
+
+		// Test: GetUserOrders (LEFT JOIN)
+		const bob = await createUser(db, "Bob", "bob@example.com", UserStatusValues.Active);
+		const bobId = bob!.id;
+		const userOrders = await getUserOrders(db, UserStatusValues.Active);
+		const aliceOrderRow = userOrders.find((row) => row.id === userId);
+		const bobOrderRow = userOrders.find((row) => row.id === bobId);
+		assert(aliceOrderRow !== undefined, "GetUserOrders", "expected a row for Alice");
+		assert(bobOrderRow !== undefined, "GetUserOrders", "expected a row for Bob");
+		assert(
+			aliceOrderRow!.total !== null,
+			"GetUserOrders",
+			"Alice has an order, total must not be null",
+		);
+		assert(
+			bobOrderRow!.total === null && bobOrderRow!.notes === null,
+			"GetUserOrders",
+			"Bob has no orders, total and notes must both be null",
+		);
+		console.log("PASS: GetUserOrders");
+
+		// Test: CountUsersByStatus
+		const statusCount = await countUsersByStatus(db, UserStatusValues.Active);
+		assert(statusCount !== null, "CountUsersByStatus", "result should not be null");
+		assert(
+			statusCount!.user_count >= 2,
+			"CountUsersByStatus",
+			`expected at least 2 active users, got ${statusCount!.user_count}`,
+		);
+		console.log("PASS: CountUsersByStatus");
+
+		// Test: GetUserWithTags
+		const tag = await sql<{ id: number }>`INSERT INTO tags (name) VALUES ('vip') RETURNING id`.execute(db);
+		const tagId = tag.rows[0]!.id;
+		await sql`INSERT INTO user_tags (user_id, tag_id) VALUES (${userId}, ${tagId})`.execute(db);
+		const userTags = await getUserWithTags(db, userId);
+		assert(
+			userTags.length === 1,
+			"GetUserWithTags",
+			`expected 1 tag row, got ${userTags.length}`,
+		);
+		assert(
+			userTags[0]!.tag_name === "vip",
+			"GetUserWithTags",
+			`expected tag_name vip, got ${userTags[0]!.tag_name}`,
+		);
+		console.log("PASS: GetUserWithTags");
+
+		// Test: SearchUsers
+		const searchResults = await searchUsers(db, "Ali%");
+		assert(
+			searchResults.some((row) => row.name === "Alice"),
+			"SearchUsers",
+			"expected Alice among search results",
+		);
+		console.log("PASS: SearchUsers");
+
+		await sql`DELETE FROM user_tags WHERE user_id = ${userId}`.execute(db);
+		await deleteUser(db, bobId);
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(db, userId);
@@ -1601,3 +1820,4 @@ main().catch((error) => {
 	console.error("Fatal error:", error);
 	process.exit(1);
 });
+{%- endif -%}

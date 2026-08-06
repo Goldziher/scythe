@@ -11,10 +11,110 @@ import javax.annotation.Nullable;
 
 public class Queries {
 
+public record CreateAttachmentRow(
+    long id,
+    long order_id,
+    String filename
+) {
+    public static CreateAttachmentRow fromResultSet(ResultSet rs) throws SQLException {
+        return new CreateAttachmentRow(
+            rs.getLong("id"),
+            rs.getLong("order_id"),
+            rs.getString("filename")
+        );
+    }
+}
+
+public static @Nullable CreateAttachmentRow createAttachment(Connection conn, long order_id, @Nonnull String filename, @Nonnull byte[] payload, @Nullable String description) throws SQLException {
+    try (var cs = conn.prepareCall("BEGIN INSERT INTO attachments (order_id, filename, payload, description) VALUES (?, ?, ?, ?) RETURNING id, order_id, filename INTO ?, ?, ?; END;")) {
+        cs.setLong(1, order_id);
+        cs.setString(2, filename);
+        cs.setBytes(3, payload);
+        cs.setString(4, description);
+        cs.registerOutParameter(5, java.sql.Types.NUMERIC);
+        cs.registerOutParameter(6, java.sql.Types.NUMERIC);
+        cs.registerOutParameter(7, java.sql.Types.VARCHAR);
+        cs.execute();
+        return new CreateAttachmentRow(
+            cs.getLong(5),
+            cs.getLong(6),
+            cs.getString(7)
+        );
+    }
+}
+
+public record GetAttachmentsByOrderRow(
+    long id,
+    long order_id,
+    String filename,
+    byte[] payload,
+    @Nullable String description
+) {
+    public static GetAttachmentsByOrderRow fromResultSet(ResultSet rs) throws SQLException {
+        return new GetAttachmentsByOrderRow(
+            rs.getLong("id"),
+            rs.getLong("order_id"),
+            rs.getString("filename"),
+            rs.getBytes("payload"),
+            rs.getString("description")
+        );
+    }
+}
+
+public static List<GetAttachmentsByOrderRow> getAttachmentsByOrder(Connection conn, long order_id) throws SQLException {
+    try (var ps = conn.prepareStatement("SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = ? ORDER BY id")) {
+        ps.setLong(1, order_id);
+        try (ResultSet rs = ps.executeQuery()) {
+            List<GetAttachmentsByOrderRow> result = new ArrayList<>();
+            while (rs.next()) {
+                result.add(GetAttachmentsByOrderRow.fromResultSet(rs));
+            }
+            return result;
+        }
+    }
+}
+
+public record GetAttachmentByIdRow(
+    long id,
+    long order_id,
+    String filename,
+    byte[] payload,
+    @Nullable String description
+) {
+    public static GetAttachmentByIdRow fromResultSet(ResultSet rs) throws SQLException {
+        return new GetAttachmentByIdRow(
+            rs.getLong("id"),
+            rs.getLong("order_id"),
+            rs.getString("filename"),
+            rs.getBytes("payload"),
+            rs.getString("description")
+        );
+    }
+}
+
+public static @Nullable GetAttachmentByIdRow getAttachmentById(Connection conn, long id) throws SQLException {
+    try (var ps = conn.prepareStatement("SELECT id, order_id, filename, payload, description FROM attachments WHERE id = ?")) {
+        ps.setLong(1, id);
+        try (ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return GetAttachmentByIdRow.fromResultSet(rs);
+            }
+            return null;
+        }
+    }
+}
+
+public static int deleteAttachmentsByOrder(Connection conn, long order_id) throws SQLException {
+    try (var ps = conn.prepareStatement("DELETE FROM attachments WHERE order_id = ?")) {
+        ps.setLong(1, order_id);
+        return ps.executeUpdate();
+    }
+}
+
 public record CreateOrderRow(
     long id,
     long user_id,
-    long total,
+    java.math.BigDecimal total,
     @Nullable String notes,
     java.time.LocalDateTime created_at
 ) {
@@ -22,17 +122,17 @@ public record CreateOrderRow(
         return new CreateOrderRow(
             rs.getLong("id"),
             rs.getLong("user_id"),
-            rs.getLong("total"),
+            rs.getBigDecimal("total"),
             rs.getString("notes"),
             rs.getObject("created_at", LocalDateTime.class)
         );
     }
 }
 
-public static @Nullable CreateOrderRow createOrder(Connection conn, long user_id, long total, @Nullable String notes) throws SQLException {
+public static @Nullable CreateOrderRow createOrder(Connection conn, long user_id, @Nonnull java.math.BigDecimal total, @Nullable String notes) throws SQLException {
     try (var cs = conn.prepareCall("BEGIN INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at INTO ?, ?, ?, ?, ?; END;")) {
         cs.setLong(1, user_id);
-        cs.setLong(2, total);
+        cs.setBigDecimal(2, total);
         cs.setString(3, notes);
         cs.registerOutParameter(4, java.sql.Types.NUMERIC);
         cs.registerOutParameter(5, java.sql.Types.NUMERIC);
@@ -43,7 +143,7 @@ public static @Nullable CreateOrderRow createOrder(Connection conn, long user_id
         return new CreateOrderRow(
             cs.getLong(4),
             cs.getLong(5),
-            cs.getLong(6),
+            cs.getBigDecimal(6),
             cs.getString(7),
             cs.getObject(8, LocalDateTime.class)
         );
@@ -52,14 +152,14 @@ public static @Nullable CreateOrderRow createOrder(Connection conn, long user_id
 
 public record GetOrdersByUserRow(
     long id,
-    long total,
+    java.math.BigDecimal total,
     @Nullable String notes,
     java.time.LocalDateTime created_at
 ) {
     public static GetOrdersByUserRow fromResultSet(ResultSet rs) throws SQLException {
         return new GetOrdersByUserRow(
             rs.getLong("id"),
-            rs.getLong("total"),
+            rs.getBigDecimal("total"),
             rs.getString("notes"),
             rs.getObject("created_at", LocalDateTime.class)
         );
@@ -80,13 +180,11 @@ public static List<GetOrdersByUserRow> getOrdersByUser(Connection conn, long use
 }
 
 public record GetOrderTotalRow(
-    @Nullable Long total_sum
+    @Nullable java.math.BigDecimal total_sum
 ) {
     public static GetOrderTotalRow fromResultSet(ResultSet rs) throws SQLException {
-        var total_sumRaw = rs.getLong("total_sum");
-        Long total_sum = rs.wasNull() ? null : total_sumRaw;
         return new GetOrderTotalRow(
-            total_sum
+            rs.getBigDecimal("total_sum")
         );
     }
 }
@@ -248,3 +346,4 @@ public static List<SearchUsersRow> searchUsers(Connection conn, @Nonnull String 
 }
 
 }
+

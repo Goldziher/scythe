@@ -1,5 +1,5 @@
 {
-	"name": "scythe-integration-test-{{ driver }}{% if options.row_type %}-{{ options.row_type }}{% endif %}",
+	"name": "scythe-integration-test-{{ driver }}{% if options.row_type %}-{{ options.row_type }}{% endif %}{% if options.outer_join_unions %}-outer-join-unions{% endif %}{% if options.structs_only %}-structs-only{% endif %}",
 	"version": "0.1.0",
 	"private": true,
 	"type": "module",
@@ -8,7 +8,11 @@
 		"typecheck": "tsc --noEmit"
 	},
 	"dependencies": {
-{%- if driver == "pg" %}
+{%- if driver == "pg" and options.structs_only == "true" %}
+{%- if options.row_type == "zod" %}
+		"zod": "^3.25.76"
+{%- endif %}
+{%- elif driver == "pg" %}
 		"pg": "^8.22.0"{% if options.row_type == "zod" %},
 		"zod": "^3.25.76"{% endif %}
 {%- elif driver == "kysely-pg" %}
@@ -41,7 +45,7 @@
 {%- endif %}
 	},
 	"devDependencies": {
-{%- if driver == "pg" or driver == "kysely-pg" %}
+{%- if (driver == "pg" or driver == "kysely-pg") and options.structs_only != "true" %}
 		"@types/pg": "^8.20.4",
 {%- elif driver == "better-sqlite3" or driver == "kysely-sqlite" %}
 		"@types/better-sqlite3": "^7.6.13",

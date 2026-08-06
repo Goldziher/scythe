@@ -6,6 +6,12 @@ import {
 	listActiveUsers,
 	createOrder,
 	getOrdersByUser,
+	getOrderTotal,
+	updateUserEmail,
+	getUserOrders,
+	countUsersByStatus,
+	getUserWithTags,
+	searchUsers,
 	deleteOrdersByUser,
 	deleteUser,
 	UserStatusValues,
@@ -138,6 +144,85 @@ async function main(): Promise<void> {
 			`expected total 99.95`,
 		);
 		console.log("PASS: GetOrdersByUser");
+
+		// Test: GetOrderTotal
+		const orderTotal = await getOrderTotal(db, userId);
+		assert(orderTotal !== null, "GetOrderTotal", "total should not be null");
+		assert(
+			String(orderTotal!.total_sum) === "99.95",
+			"GetOrderTotal",
+			`expected total_sum 99.95, got ${orderTotal!.total_sum}`,
+		);
+		console.log("PASS: GetOrderTotal");
+
+		// Test: UpdateUserEmail
+		await updateUserEmail(db, "alice2@example.com", userId);
+		const updated = await getUserById(db, userId);
+		assert(
+			updated!.email === "alice2@example.com",
+			"UpdateUserEmail",
+			`expected updated email, got ${updated!.email}`,
+		);
+		console.log("PASS: UpdateUserEmail");
+
+		// Test: GetUserOrders (LEFT JOIN)
+		const bob = await createUser(db, "Bob", "bob@example.com", UserStatusValues.Active);
+		const bobId = bob!.id;
+		const userOrders = await getUserOrders(db, UserStatusValues.Active);
+		const aliceOrderRow = userOrders.find((row) => row.id === userId);
+		const bobOrderRow = userOrders.find((row) => row.id === bobId);
+		assert(aliceOrderRow !== undefined, "GetUserOrders", "expected a row for Alice");
+		assert(bobOrderRow !== undefined, "GetUserOrders", "expected a row for Bob");
+		assert(
+			aliceOrderRow!.total !== null,
+			"GetUserOrders",
+			"Alice has an order, total must not be null",
+		);
+		assert(
+			bobOrderRow!.total === null && bobOrderRow!.notes === null,
+			"GetUserOrders",
+			"Bob has no orders, total and notes must both be null",
+		);
+		console.log("PASS: GetUserOrders");
+
+		// Test: CountUsersByStatus
+		const statusCount = await countUsersByStatus(db, UserStatusValues.Active);
+		assert(statusCount !== null, "CountUsersByStatus", "result should not be null");
+		assert(
+			statusCount!.user_count >= 2,
+			"CountUsersByStatus",
+			`expected at least 2 active users, got ${statusCount!.user_count}`,
+		);
+		console.log("PASS: CountUsersByStatus");
+
+		// Test: GetUserWithTags
+		const tag = await sql<{ id: number }>`INSERT INTO tags (name) VALUES ('vip') RETURNING id`.execute(db);
+		const tagId = tag.rows[0]!.id;
+		await sql`INSERT INTO user_tags (user_id, tag_id) VALUES (${userId}, ${tagId})`.execute(db);
+		const userTags = await getUserWithTags(db, userId);
+		assert(
+			userTags.length === 1,
+			"GetUserWithTags",
+			`expected 1 tag row, got ${userTags.length}`,
+		);
+		assert(
+			userTags[0]!.tag_name === "vip",
+			"GetUserWithTags",
+			`expected tag_name vip, got ${userTags[0]!.tag_name}`,
+		);
+		console.log("PASS: GetUserWithTags");
+
+		// Test: SearchUsers
+		const searchResults = await searchUsers(db, "Ali%");
+		assert(
+			searchResults.some((row) => row.name === "Alice"),
+			"SearchUsers",
+			"expected Alice among search results",
+		);
+		console.log("PASS: SearchUsers");
+
+		await sql`DELETE FROM user_tags WHERE user_id = ${userId}`.execute(db);
+		await deleteUser(db, bobId);
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(db, userId);

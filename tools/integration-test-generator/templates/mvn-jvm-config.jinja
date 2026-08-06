@@ -1,0 +1,14 @@
+{#
+  snowflake-jdbc bundles Apache Arrow, which reflectively accesses
+  java.nio.Buffer's internal address field for off-heap memory access. The
+  JDK 9+ module system blocks that by default, so without this flag the
+  driver fails with InaccessibleObjectException as soon as it tries to
+  decode an Arrow result. Maven reads .mvn/jvm.config automatically on
+  startup (see https://maven.apache.org/configure.html#mvn-jvm-config-file),
+  so this applies to `mvn compile exec:java` without changing the
+  invocation. The file is passed verbatim as JVM arguments -- it does not
+  support comments, so this note lives in the Jinja template instead.
+-#}
+{%- if engine == "snowflake" -%}
+--add-opens=java.base/java.nio=ALL-UNNAMED
+{%- endif -%}

@@ -140,6 +140,38 @@ jobs:
           pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
 
+      - name: Test typescript-pg-outer-join-unions
+        working-directory: integration_tests/typescript-pg-outer-join-unions
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
+      - name: Test typescript-pg-zod-outer-join-unions
+        working-directory: integration_tests/typescript-pg-zod-outer-join-unions
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
+      # structs_only has no runtime surface, so the gate is that the emitted
+      # file type-checks and contains neither the driver import nor a query
+      # function.
+      - name: Test typescript-pg-structs-only
+        working-directory: integration_tests/typescript-pg-structs-only
+        run: |
+          pnpm install
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+          if grep -q 'from "pg"' generated/queries.ts; then
+            echo "FAIL: structs_only output must not import the pg driver" >&2
+            exit 1
+          fi
+          if grep -qE '^export async function ' generated/queries.ts; then
+            echo "FAIL: structs_only output must not emit query functions" >&2
+            exit 1
+          fi
+
       - name: Test typescript-kysely
         working-directory: integration_tests/typescript-kysely
         run: |

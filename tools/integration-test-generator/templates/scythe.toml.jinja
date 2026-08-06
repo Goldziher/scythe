@@ -4,7 +4,7 @@ version = "1"
 [[sql]]
 name = "main"
 engine = "{{ engine }}"
-schema = ["{{ schema_dir }}/schema.sql"]
+schema = ["{{ schema_dir }}/{{ schema_file }}"]
 queries = ["{{ queries_dir }}/*.sql"]
 
 [[sql.gen]]
@@ -23,4 +23,10 @@ output = "generated"
 {%- endif %}
 {%- if options.row_type %}
 row_type = "{{ options.row_type }}"
+{%- endif %}
+{%- if options.outer_join_unions %}
+outer_join_unions = "{{ options.outer_join_unions }}"
+{%- endif %}
+{%- if options.structs_only and language != "rust" %}
+structs_only = "{{ options.structs_only }}"
 {%- endif %}
