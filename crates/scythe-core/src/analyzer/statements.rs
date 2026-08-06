@@ -118,6 +118,7 @@ impl<'a> Analyzer<'a> {
                                 name: lc.name.clone(),
                                 neutral_type: widened_type,
                                 nullable: lc.nullable || right_cols[i].nullable,
+                                ..Default::default()
                             }
                         } else {
                             lc.clone()
@@ -137,6 +138,7 @@ impl<'a> Analyzer<'a> {
                                 name: format!("column{}", i + 1),
                                 neutral_type: ti.neutral_type,
                                 nullable: ti.nullable,
+                                ..Default::default()
                             }
                         })
                         .collect();
@@ -167,41 +169,32 @@ impl<'a> Analyzer<'a> {
                     self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
                     let name = expr_to_name(expr);
-                    columns.push(AnalyzedColumn {
-                        name,
-                        neutral_type: ti.neutral_type,
-                        nullable: ti.nullable,
-                    });
+                    columns.push(AnalyzedColumn::from_type_info(name, &ti));
                 }
                 SelectItem::ExprWithAlias { expr, alias } => {
                     self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
-                    columns.push(AnalyzedColumn {
-                        name: alias.value.to_lowercase(),
-                        neutral_type: ti.neutral_type,
-                        nullable: ti.nullable,
-                    });
+                    columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), &ti));
                 }
                 SelectItem::ExprWithAliases { expr, aliases } => {
                     self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
                     for alias in aliases {
-                        columns.push(AnalyzedColumn {
-                            name: alias.value.to_lowercase(),
-                            neutral_type: ti.neutral_type.clone(),
-                            nullable: ti.nullable,
-                        });
+                        columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), &ti));
                     }
                 }
                 SelectItem::Wildcard(_) => {
                     for source in &scope.sources {
                         for col in &source.columns {
-                            let nullable = col.base_nullable || source.nullable_from_join;
-                            columns.push(AnalyzedColumn {
-                                name: col.name.clone(),
-                                neutral_type: col.neutral_type.clone(),
-                                nullable,
-                            });
+                            columns.push(AnalyzedColumn::from_type_info(
+                                col.name.clone(),
+                                &TypeInfo::from_scope_column(
+                                    col.neutral_type.clone(),
+                                    col.base_nullable,
+                                    &source.alias,
+                                    source.nullable_from_join,
+                                ),
+                            ));
                         }
                     }
                 }
@@ -215,12 +208,15 @@ impl<'a> Analyzer<'a> {
                     for source in &scope.sources {
                         if source.alias == qualifier || source.table_name == qualifier {
                             for col in &source.columns {
-                                let nullable = col.base_nullable || source.nullable_from_join;
-                                columns.push(AnalyzedColumn {
-                                    name: col.name.clone(),
-                                    neutral_type: col.neutral_type.clone(),
-                                    nullable,
-                                });
+                                columns.push(AnalyzedColumn::from_type_info(
+                                    col.name.clone(),
+                                    &TypeInfo::from_scope_column(
+                                        col.neutral_type.clone(),
+                                        col.base_nullable,
+                                        &source.alias,
+                                        source.nullable_from_join,
+                                    ),
+                                ));
                             }
                         }
                     }
@@ -417,11 +413,7 @@ impl<'a> Analyzer<'a> {
                 SelectItem::UnnamedExpr(expr) => {
                     let ti = self.infer_expr_type(expr, &scope);
                     let name = expr_to_name(expr);
-                    columns.push(AnalyzedColumn {
-                        name,
-                        neutral_type: ti.neutral_type,
-                        nullable: ti.nullable,
-                    });
+                    columns.push(AnalyzedColumn::from_type_info(name, &ti));
                 }
                 SelectItem::ExprWithAlias { expr, alias } => {
                     let ti = self.infer_expr_type(expr, &scope);
@@ -429,6 +421,7 @@ impl<'a> Analyzer<'a> {
                         name: alias.value.to_lowercase(),
                         neutral_type: ti.neutral_type,
                         nullable: ti.nullable,
+                        ..Default::default()
                     });
                 }
                 SelectItem::ExprWithAliases { expr, aliases } => {
@@ -438,6 +431,7 @@ impl<'a> Analyzer<'a> {
                             name: alias.value.to_lowercase(),
                             neutral_type: ti.neutral_type.clone(),
                             nullable: ti.nullable,
+                            ..Default::default()
                         });
                     }
                 }
@@ -448,6 +442,7 @@ impl<'a> Analyzer<'a> {
                                 name: col.name.clone(),
                                 neutral_type: col.neutral_type.clone(),
                                 nullable: col.base_nullable,
+                                ..Default::default()
                             });
                         }
                     }
@@ -466,6 +461,7 @@ impl<'a> Analyzer<'a> {
                                     name: col.name.clone(),
                                     neutral_type: col.neutral_type.clone(),
                                     nullable: col.base_nullable,
+                                    ..Default::default()
                                 });
                             }
                         }

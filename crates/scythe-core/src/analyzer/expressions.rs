@@ -322,20 +322,29 @@ impl<'a> Analyzer<'a> {
                 if (source.alias == qual || source.table_name == qual)
                     && let Some(col) = source.columns.iter().find(|c| c.name == col_name)
                 {
-                    let nullable = col.base_nullable || source.nullable_from_join;
-                    return TypeInfo::new(col.neutral_type.clone(), nullable);
+                    return TypeInfo::from_scope_column(
+                        col.neutral_type.clone(),
+                        col.base_nullable,
+                        &source.alias,
+                        source.nullable_from_join,
+                    );
                 }
             }
         } else {
             let mut found: Option<TypeInfo> = None;
             for source in &scope.sources {
                 if let Some(col) = source.columns.iter().find(|c| c.name == col_name) {
-                    let nullable = col.base_nullable || source.nullable_from_join;
-                    let ti = TypeInfo::new(col.neutral_type.clone(), nullable);
+                    let ti = TypeInfo::from_scope_column(
+                        col.neutral_type.clone(),
+                        col.base_nullable,
+                        &source.alias,
+                        source.nullable_from_join,
+                    );
                     if found.is_some() {
                         return TypeInfo {
                             neutral_type: format!("__ambiguous__:{}", col_name),
                             nullable: false,
+                            ..Default::default()
                         };
                     }
                     found = Some(ti);
@@ -351,6 +360,7 @@ impl<'a> Analyzer<'a> {
             return TypeInfo {
                 neutral_type: format!("__unknown_col__:{}", col_name),
                 nullable: true,
+                ..Default::default()
             };
         }
 
@@ -565,6 +575,7 @@ impl<'a> Analyzer<'a> {
                 TypeInfo {
                     neutral_type: format!("__unknown_func__:{}", func_name),
                     nullable: ti.nullable,
+                    ..Default::default()
                 }
             }
         }

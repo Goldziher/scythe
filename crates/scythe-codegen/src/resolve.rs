@@ -45,6 +45,8 @@ pub fn resolve_columns(
                 full_type,
                 neutral_type: effective_neutral_type.to_string(),
                 nullable: col.nullable,
+                join_group: col.join_group.clone(),
+                nullable_before_join: col.nullable_before_join,
             })
         })
         .collect()

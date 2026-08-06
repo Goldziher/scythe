@@ -10,8 +10,8 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_zod_grouped_structs,
-    generate_zod_row_struct,
+    TsRowType, generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
+    generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
 };
 use crate::singularize;
 
@@ -20,6 +20,10 @@ const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-bet
 pub struct TypescriptBetterSqlite3Backend {
     manifest: BackendManifest,
     row_type: TsRowType,
+    /// Emit outer-join nullability as a discriminated union instead of
+    /// independent per-column optionals. Opt-in: the flat shape stays the
+    /// default and the cross-target shape.
+    outer_join_unions: bool,
 }
 
 impl TypescriptBetterSqlite3Backend {
@@ -43,6 +47,7 @@ impl TypescriptBetterSqlite3Backend {
         Ok(Self {
             manifest,
             row_type: TsRowType::default(),
+            outer_join_unions: false,
         })
     }
 }
@@ -75,14 +80,10 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
         if self.row_type == TsRowType::Zod {
             return Ok(generate_zod_row_struct(&struct_name, query_name, columns));
         }
-        let mut out = String::new();
-        let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
-        let _ = writeln!(out, "export interface {} {{", struct_name);
-        for col in columns {
-            let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
+        if self.outer_join_unions {
+            return Ok(generate_ts_union_row_struct(&struct_name, query_name, columns, None));
         }
-        let _ = write!(out, "}}");
-        Ok(out)
+        Ok(generate_ts_interface_row_struct(&struct_name, query_name, columns))
     }
 
     fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
@@ -387,6 +388,9 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
         if let Some(value) = options.get("row_type") {
             self.row_type = TsRowType::from_option(value)?;
         }
+        if let Some(value) = options.get("outer_join_unions") {
+            self.outer_join_unions = matches!(value.as_str(), "true" | "1" | "yes");
+        }
         Ok(())
     }
 }
@@ -403,11 +407,13 @@ mod tests {
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
+                ..Default::default()
             },
             AnalyzedColumn {
                 name: "name".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
+                ..Default::default()
             },
         ];
         let child_cols = vec![
@@ -415,11 +421,13 @@ mod tests {
                 name: "order_id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
+                ..Default::default()
             },
             AnalyzedColumn {
                 name: "total".to_string(),
                 neutral_type: "decimal".to_string(),
                 nullable: true,
+                ..Default::default()
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();

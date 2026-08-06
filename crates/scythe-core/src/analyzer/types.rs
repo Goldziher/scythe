@@ -61,12 +61,42 @@ pub struct EnumInfo {
     pub values: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnalyzedColumn {
     pub name: String,
     pub neutral_type: String,
     pub nullable: bool,
+    /// Alias of the outer-joined relation this column came from, when the
+    /// column was widened to nullable by that join.
+    ///
+    /// Columns sharing a group go null together, so a target language that can
+    /// express it may emit one discriminated union rather than independent
+    /// per-column optionals.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub join_group: Option<String>,
+    /// Whether the column was nullable in the schema, before outer-join
+    /// widening.  A column in a `join_group` with this `false` can only be null
+    /// when the join found no matching row.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub nullable_before_join: bool,
+}
+
+impl AnalyzedColumn {
+    /// Build a result column from an inferred expression type, carrying the
+    /// outer-join provenance through.
+    ///
+    /// Aliasing a column must not lose its group — `o.total AS order_total` is
+    /// still decided by the same join outcome as its siblings.
+    pub(super) fn from_type_info(name: impl Into<String>, type_info: &TypeInfo) -> Self {
+        Self {
+            name: name.into(),
+            neutral_type: type_info.neutral_type.clone(),
+            nullable: type_info.nullable,
+            join_group: type_info.join_group.clone(),
+            nullable_before_join: type_info.nullable_before_join,
+        }
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -108,10 +138,24 @@ pub(super) struct ParamInfo {
 }
 
 /// Result of inferring an expression's type
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(super) struct TypeInfo {
     pub(super) neutral_type: String,
     pub(super) nullable: bool,
+    /// Alias of the outer-joined relation this value came from, when it was
+    /// widened to nullable by an outer join.  `None` for anything else.
+    ///
+    /// Columns sharing a `join_group` become null together — they are decided
+    /// by the same match/no-match outcome — which is what lets a target
+    /// language express them as one discriminated union instead of independent
+    /// optionals.
+    pub(super) join_group: Option<String>,
+    /// Whether the value was already nullable in the schema, before any
+    /// outer-join widening.
+    ///
+    /// A column in a `join_group` with `nullable_before_join == false` is a
+    /// *discriminant*: it can only be null when the join found no row.
+    pub(super) nullable_before_join: bool,
 }
 
 impl TypeInfo {
@@ -119,8 +163,27 @@ impl TypeInfo {
         Self {
             neutral_type: neutral_type.into(),
             nullable,
+            join_group: None,
+            nullable_before_join: nullable,
         }
     }
+
+    /// Build type info for a column resolved from a relation in scope,
+    /// recording where its nullability came from.
+    pub(super) fn from_scope_column(
+        neutral_type: impl Into<String>,
+        base_nullable: bool,
+        source_alias: &str,
+        nullable_from_join: bool,
+    ) -> Self {
+        Self {
+            neutral_type: neutral_type.into(),
+            nullable: base_nullable || nullable_from_join,
+            join_group: nullable_from_join.then(|| source_alias.to_string()),
+            nullable_before_join: base_nullable,
+        }
+    }
+
     pub(super) fn unknown() -> Self {
         Self::new("unknown", true)
     }

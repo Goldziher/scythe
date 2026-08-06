@@ -28,7 +28,7 @@ pub struct RbsEnumInfo {
 }
 
 /// A column with its type resolved to the target language.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct ResolvedColumn {
     pub name: String,
     pub field_name: String,
@@ -36,6 +36,21 @@ pub struct ResolvedColumn {
     pub full_type: String,
     pub neutral_type: String,
     pub nullable: bool,
+    /// Alias of the outer-joined relation this column came from, when the
+    /// column was widened to nullable by that join. See
+    /// [`scythe_core::analyzer::AnalyzedColumn::join_group`].
+    pub join_group: Option<String>,
+    /// Whether the column was nullable in the schema, before outer-join
+    /// widening.
+    pub nullable_before_join: bool,
+}
+
+impl ResolvedColumn {
+    /// Whether this column can only be null because its outer join found no
+    /// row — making it a usable discriminant for a union.
+    pub fn is_join_discriminant(&self) -> bool {
+        self.join_group.is_some() && !self.nullable_before_join
+    }
 }
 
 /// A parameter with its type resolved to the target language.

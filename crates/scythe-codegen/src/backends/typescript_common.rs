@@ -50,6 +50,154 @@ pub fn neutral_to_zod(neutral_type: &str, nullable: bool) -> String {
     }
 }
 
+/// Render the plain TypeScript interface for a row.
+///
+/// Shared by every TypeScript backend so the shape cannot drift between them.
+pub fn generate_ts_interface_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
+    generate_ts_interface_row_struct_with_base(struct_name, query_name, columns, None)
+}
+
+/// As [`generate_ts_interface_row_struct`], but extending `base` when the
+/// target requires it (mysql2's `RowDataPacket`).
+pub fn generate_ts_interface_row_struct_with_base(
+    struct_name: &str,
+    query_name: &str,
+    columns: &[ResolvedColumn],
+    base: Option<&str>,
+) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
+    match base {
+        Some(base) => {
+            let _ = writeln!(out, "export interface {} extends {} {{", struct_name, base);
+        }
+        None => {
+            let _ = writeln!(out, "export interface {} {{", struct_name);
+        }
+    }
+    for col in columns {
+        let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
+    }
+    let _ = write!(out, "}}");
+    out
+}
+
+/// Group the columns that an outer join can null out together.
+///
+/// Returns the groups in first-appearance order, keeping only those with at
+/// least one discriminant — a column that was `NOT NULL` in the schema and so
+/// can only be null when the join found no row. A group without a discriminant
+/// carries no information a union could express, because every column in it was
+/// independently nullable anyway.
+fn discriminated_join_groups(columns: &[ResolvedColumn]) -> Vec<String> {
+    let mut groups: Vec<String> = Vec::new();
+    for col in columns {
+        if let Some(group) = &col.join_group
+            && !groups.contains(group)
+            && columns
+                .iter()
+                .any(|c| c.join_group.as_ref() == Some(group) && c.is_join_discriminant())
+        {
+            groups.push(group.clone());
+        }
+    }
+    groups
+}
+
+/// Render a row type that expresses outer-join nullability as a discriminated
+/// union instead of independent per-column optionals.
+///
+/// For a `LEFT JOIN` where the joined relation projects at least one `NOT NULL`
+/// column, the flat interface is sound but imprecise: it admits rows the query
+/// can never produce. Given
+///
+/// ```sql
+/// SELECT u.id, u.name, o.total, o.notes
+/// FROM users u LEFT JOIN orders o ON u.id = o.user_id
+/// ```
+///
+/// where `orders.total` is `NOT NULL` and `orders.notes` is not, a flat shape
+/// admits `{ total: null, notes: "gift" }` — unreachable, because `total` is
+/// null exactly when no order matched, and then `notes` is null too.
+///
+/// Columns from the inner side stay in a base object; each discriminated join
+/// group contributes one matched/unmatched alternative.
+///
+/// Falls back to the plain interface when there is nothing to discriminate, so
+/// callers can use this unconditionally.
+/// `base` is intersected into the result when the target requires the row to
+/// extend a driver type (mysql2's `RowDataPacket`). A union cannot use
+/// `extends`, so it is expressed as an intersection instead.
+pub fn generate_ts_union_row_struct(
+    struct_name: &str,
+    query_name: &str,
+    columns: &[ResolvedColumn],
+    base: Option<&str>,
+) -> String {
+    let groups = discriminated_join_groups(columns);
+    if groups.is_empty() {
+        return generate_ts_interface_row_struct_with_base(struct_name, query_name, columns, base);
+    }
+
+    let mut out = String::new();
+    let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
+    match base {
+        Some(base) => {
+            let _ = writeln!(out, "export type {} = {} & {{", struct_name, base);
+        }
+        None => {
+            let _ = writeln!(out, "export type {} = {{", struct_name);
+        }
+    }
+
+    for col in columns.iter().filter(|c| c.join_group.is_none()) {
+        let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
+    }
+    let _ = write!(out, "}}");
+
+    for group in &groups {
+        let members: Vec<&ResolvedColumn> = columns
+            .iter()
+            .filter(|c| c.join_group.as_ref() == Some(group))
+            .collect();
+
+        let _ = writeln!(out, " & (");
+
+        // Matched: the join found a row, so each column takes its own
+        // schema nullability.
+        let _ = write!(out, "\t| {{ ");
+        for (index, col) in members.iter().enumerate() {
+            if index > 0 {
+                let _ = write!(out, "; ");
+            }
+            let matched_type = if col.nullable_before_join {
+                col.full_type.as_str()
+            } else {
+                col.lang_type.as_str()
+            };
+            let _ = write!(out, "{}: {}", col.field_name, matched_type);
+        }
+        let _ = writeln!(out, " }}");
+
+        // Unmatched: no row on the outer side, so every projected column is
+        // null together.
+        let _ = write!(out, "\t| {{ ");
+        for (index, col) in members.iter().enumerate() {
+            if index > 0 {
+                let _ = write!(out, "; ");
+            }
+            let _ = write!(out, "{}: null", col.field_name);
+        }
+        let _ = writeln!(out, " }}");
+
+        let _ = write!(out, ")");
+    }
+
+    // A type alias needs the terminator; the interface form does not.
+    let _ = write!(out, ";");
+    out
+}
+
 /// Generate a Zod schema and inferred type for a row struct.
 pub fn generate_zod_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
     let schema_name = format!("{struct_name}Schema");
@@ -231,4 +379,113 @@ pub fn generate_zod_enum(type_name: &str, values: &[String]) -> String {
     }
     let _ = write!(out, "}} as const;");
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn column(
+        name: &str,
+        lang_type: &str,
+        nullable: bool,
+        group: Option<&str>,
+        nullable_before_join: bool,
+    ) -> ResolvedColumn {
+        ResolvedColumn {
+            name: name.to_string(),
+            field_name: name.to_string(),
+            lang_type: lang_type.to_string(),
+            full_type: if nullable {
+                format!("{lang_type} | null")
+            } else {
+                lang_type.to_string()
+            },
+            neutral_type: "string".to_string(),
+            nullable,
+            join_group: group.map(str::to_string),
+            nullable_before_join,
+        }
+    }
+
+    /// The example from the issue: `orders.total` is NOT NULL so it
+    /// discriminates the join, while `orders.notes` is independently nullable.
+    fn user_orders_columns() -> Vec<ResolvedColumn> {
+        vec![
+            column("id", "number", false, None, false),
+            column("name", "string", false, None, false),
+            column("total", "string", true, Some("o"), false),
+            column("notes", "string", true, Some("o"), true),
+        ]
+    }
+
+    #[test]
+    fn emits_a_union_that_ties_the_outer_join_columns_together() {
+        let out = generate_ts_union_row_struct("GetUserOrdersRow", "GetUserOrders", &user_orders_columns(), None);
+
+        assert!(out.contains("export type GetUserOrdersRow = {"), "{out}");
+        // Inner-side columns stay in the base object.
+        assert!(out.contains("\tid: number;"), "{out}");
+        assert!(out.contains("\tname: string;"), "{out}");
+        // Matched: total is non-null, notes keeps its own nullability.
+        assert!(out.contains("| { total: string; notes: string | null }"), "{out}");
+        // Unmatched: the whole group is null together.
+        assert!(out.contains("| { total: null; notes: null }"), "{out}");
+        assert!(out.ends_with(");"), "type alias must be terminated: {out}");
+    }
+
+    /// Without a NOT NULL column on the outer side there is no discriminant,
+    /// so the flat shape is already exact and a union would add nothing.
+    #[test]
+    fn falls_back_to_the_flat_interface_when_no_column_discriminates() {
+        let columns = vec![
+            column("id", "number", false, None, false),
+            column("notes", "string", true, Some("o"), true),
+        ];
+
+        let out = generate_ts_union_row_struct("R", "Q", &columns, None);
+
+        assert!(out.contains("export interface R {"), "{out}");
+        assert!(!out.contains(" & ("), "no union without a discriminant: {out}");
+    }
+
+    #[test]
+    fn falls_back_to_the_flat_interface_when_there_is_no_outer_join() {
+        let columns = vec![
+            column("id", "number", false, None, false),
+            column("name", "string", false, None, false),
+        ];
+
+        let out = generate_ts_union_row_struct("R", "Q", &columns, None);
+
+        assert_eq!(out, generate_ts_interface_row_struct("R", "Q", &columns));
+    }
+
+    /// mysql2 rows must extend RowDataPacket. A union cannot use `extends`, so
+    /// the base is intersected instead.
+    #[test]
+    fn intersects_the_base_type_when_the_target_requires_one() {
+        let out = generate_ts_union_row_struct("R", "Q", &user_orders_columns(), Some("RowDataPacket"));
+
+        assert!(out.contains("export type R = RowDataPacket & {"), "{out}");
+    }
+
+    /// Two independently outer-joined relations each get their own
+    /// match/no-match alternative rather than being conflated.
+    #[test]
+    fn emits_one_alternative_per_join_group() {
+        let columns = vec![
+            column("id", "number", false, None, false),
+            column("total", "string", true, Some("o"), false),
+            column("addr", "string", true, Some("a"), false),
+        ];
+
+        let out = generate_ts_union_row_struct("R", "Q", &columns, None);
+
+        assert!(out.contains("| { total: string }"), "{out}");
+        assert!(out.contains("| { total: null }"), "{out}");
+        assert!(out.contains("| { addr: string }"), "{out}");
+        assert!(out.contains("| { addr: null }"), "{out}");
+        assert_eq!(out.matches(" & (").count(), 2, "one group per relation: {out}");
+    }
 }
