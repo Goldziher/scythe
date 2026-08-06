@@ -28,6 +28,11 @@ tasks:
     cmds:
       - cargo test --workspace -- --nocapture
 
+  bench:
+    desc: Run criterion benchmarks
+    cmds:
+      - cargo bench --workspace
+
   lint:
     desc: Run all linters via poly
     cmds:

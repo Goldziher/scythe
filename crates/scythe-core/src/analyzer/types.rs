@@ -96,14 +96,18 @@ impl AnalyzedColumn {
     ///
     /// Aliasing a column must not lose its group — `o.total AS order_total` is
     /// still decided by the same join outcome as its siblings.
-    pub(super) fn from_type_info(name: impl Into<String>, type_info: &TypeInfo) -> Self {
+    pub(super) fn from_type_info(name: impl Into<String>, type_info: TypeInfo) -> Self {
+        // `sql_type` falls back to `neutral_type` for computed expressions (the
+        // common case), so only clone when the two genuinely diverge — avoids an
+        // extra allocation on every expression node in the tree.
+        let sql_type = type_info.sql_type.unwrap_or_else(|| type_info.neutral_type.clone());
         Self {
             name: name.into(),
-            neutral_type: type_info.neutral_type.clone(),
+            neutral_type: type_info.neutral_type,
             nullable: type_info.nullable,
-            join_group: type_info.join_group.clone(),
+            join_group: type_info.join_group,
             nullable_before_join: type_info.nullable_before_join,
-            sql_type: type_info.sql_type.clone(),
+            sql_type,
         }
     }
 }
@@ -200,15 +204,17 @@ pub(super) struct TypeInfo {
     pub(super) nullable_before_join: bool,
     /// Raw SQL type this expression's type came from, when it resolves
     /// directly to a single source column (see [`AnalyzedColumn::sql_type`]).
-    /// Defaults to a copy of `neutral_type` for computed expressions.
-    pub(super) sql_type: String,
+    /// `None` means "same as `neutral_type`" — the common case for computed
+    /// expressions — which avoids allocating a duplicate `String` on every
+    /// expression node during type inference.
+    pub(super) sql_type: Option<String>,
 }
 
 impl TypeInfo {
     pub(super) fn new(neutral_type: impl Into<String>, nullable: bool) -> Self {
         let neutral_type = neutral_type.into();
         Self {
-            sql_type: neutral_type.clone(),
+            sql_type: None,
             neutral_type,
             nullable,
             join_group: None,
@@ -230,7 +236,7 @@ impl TypeInfo {
         nullable_from_join: bool,
     ) -> Self {
         Self {
-            sql_type: sql_type.into(),
+            sql_type: Some(sql_type.into()),
             neutral_type: neutral_type.into(),
             nullable: base_nullable || nullable_from_join,
             join_group: nullable_from_join.then(|| source_alias.to_string()),

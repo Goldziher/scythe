@@ -152,13 +152,7 @@ impl<'a> Analyzer<'a> {
                         .enumerate()
                         .map(|(i, expr)| {
                             let ti = self.infer_expr_type(expr, &Scope { sources: Vec::new() });
-                            AnalyzedColumn {
-                                name: format!("column{}", i + 1),
-                                sql_type: ti.sql_type,
-                                neutral_type: ti.neutral_type,
-                                nullable: ti.nullable,
-                                ..Default::default()
-                            }
+                            AnalyzedColumn::from_type_info(format!("column{}", i + 1), ti)
                         })
                         .collect();
                     Ok(cols)
@@ -188,18 +182,18 @@ impl<'a> Analyzer<'a> {
                     self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
                     let name = expr_to_name(expr);
-                    columns.push(AnalyzedColumn::from_type_info(name, &ti));
+                    columns.push(AnalyzedColumn::from_type_info(name, ti));
                 }
                 SelectItem::ExprWithAlias { expr, alias } => {
                     self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
-                    columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), &ti));
+                    columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti));
                 }
                 SelectItem::ExprWithAliases { expr, aliases } => {
                     self.collect_params_from_where(expr, &scope);
                     let ti = self.infer_expr_type(expr, &scope);
                     for alias in aliases {
-                        columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), &ti));
+                        columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti.clone()));
                     }
                 }
                 SelectItem::Wildcard(_) => {
@@ -207,7 +201,7 @@ impl<'a> Analyzer<'a> {
                         for col in &source.columns {
                             columns.push(AnalyzedColumn::from_type_info(
                                 col.name.clone(),
-                                &TypeInfo::from_scope_column(
+                                TypeInfo::from_scope_column(
                                     col.sql_type.clone(),
                                     col.neutral_type.clone(),
                                     col.base_nullable,
@@ -230,7 +224,7 @@ impl<'a> Analyzer<'a> {
                             for col in &source.columns {
                                 columns.push(AnalyzedColumn::from_type_info(
                                     col.name.clone(),
-                                    &TypeInfo::from_scope_column(
+                                    TypeInfo::from_scope_column(
                                         col.sql_type.clone(),
                                         col.neutral_type.clone(),
                                         col.base_nullable,
@@ -434,28 +428,16 @@ impl<'a> Analyzer<'a> {
                 SelectItem::UnnamedExpr(expr) => {
                     let ti = self.infer_expr_type(expr, &scope);
                     let name = expr_to_name(expr);
-                    columns.push(AnalyzedColumn::from_type_info(name, &ti));
+                    columns.push(AnalyzedColumn::from_type_info(name, ti));
                 }
                 SelectItem::ExprWithAlias { expr, alias } => {
                     let ti = self.infer_expr_type(expr, &scope);
-                    columns.push(AnalyzedColumn {
-                        name: alias.value.to_lowercase(),
-                        sql_type: ti.sql_type,
-                        neutral_type: ti.neutral_type,
-                        nullable: ti.nullable,
-                        ..Default::default()
-                    });
+                    columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti));
                 }
                 SelectItem::ExprWithAliases { expr, aliases } => {
                     let ti = self.infer_expr_type(expr, &scope);
                     for alias in aliases {
-                        columns.push(AnalyzedColumn {
-                            name: alias.value.to_lowercase(),
-                            sql_type: ti.sql_type.clone(),
-                            neutral_type: ti.neutral_type.clone(),
-                            nullable: ti.nullable,
-                            ..Default::default()
-                        });
+                        columns.push(AnalyzedColumn::from_type_info(alias.value.to_lowercase(), ti.clone()));
                     }
                 }
                 SelectItem::Wildcard(_) => {
