@@ -28,14 +28,63 @@ Reads the config, parses schema and queries, runs type inference, and writes gen
 Validate SQL without generating code. Runs parsing, analysis, and lint rules.
 
 ```bash
-scythe check [--config <path>]
+scythe check [--config <path>] [--database-url <url>] [--format <format>] [--output <path>]
 ```
 
 | Flag | Default | Description |
 |------|---------|-------------|
 | `-c, --config` | `scythe.toml` | Path to config file |
+| `--database-url` | none | Verify inferred types against a live PostgreSQL database |
+| `--format` | `human` | Output format: `human`, `sarif`, or `json` |
+| `-o, --output` | stdout | Write findings to a file |
 
-Exits with code 1 if any lint errors are found. Warnings are reported but do not cause failure.
+Exits with code 1 if any errors are found. Warnings are reported but do not cause failure.
+
+#### Verifying against a live database
+
+Type inference is static: scythe derives the row type from the schema DDL and
+the query, without ever asking a database. `--database-url` adds a second
+opinion. Each query is prepared server-side — prepared, never executed, so it
+is safe against production — and the result columns and parameters the server
+reports are compared against what was inferred.
+
+```bash
+scythe check --database-url postgres://user:pass@localhost/mydb
+```
+
+This catches a mis-parsed projection, a wrongly mapped catalog type, a
+parameter count or type mismatch, and a query the parser accepted but the
+server rejects — including schema drift, where the DDL declares a table that
+was never migrated.
+
+| Rule | Fires when |
+|------|-----------|
+| `SC-VER01` | The database rejected the query |
+| `SC-VER02` | Result column count differs from inference |
+| `SC-VER03` | A result column's type differs from inference |
+| `SC-VER04` | Parameter count differs from inference |
+| `SC-VER05` | A parameter's type differs from inference |
+
+Type comparison is deliberately permissive within a family — integer widths,
+float against decimal, enum against string. Static inference cannot always
+recover the exact width the server picks, and flagging those would bury the
+real mismatches.
+
+:::note
+This cannot verify **nullability**. The server's describe response carries
+type OIDs but no nullability information, and nullability is the part that
+matters most — outer joins and aggregates over empty sets are where inference
+is hardest. Verification covers the half the server knows about; the other
+half remains scythe's own analysis.
+:::
+
+The flag is opt-in and the URL is never read from the environment, so
+`scythe check` cannot start requiring a database just because `DATABASE_URL`
+happens to be set. Generation never needs a database at all. A natural fit is
+to generate without one and verify in the CI job that has a real database.
+
+PostgreSQL only — it is the engine whose extended query protocol lets a
+statement be described without executing it.
 
 ### lint
 

@@ -107,6 +107,7 @@ output = "src/generated/kotlin-exposed"
 | `backend` | string | yes | Full backend name (e.g. `rust-sqlx`, `typescript-pg`, `python-aiomysql`). |
 | `output` | string | yes | Output directory for this backend's generated code. |
 | `row_type` | string | no | Row type style for generated code. See below. |
+| `outer_join_unions` | bool | no | Emit outer-join nullability as a discriminated union. TypeScript backends only. See below. |
 | `namespace` | string | no | PHP namespace for generated code. PHP backends only. See below. |
 | `extension_functions` | bool | no | Generate idiomatic Kotlin extension functions. Kotlin backends only. See below. |
 
@@ -144,6 +145,57 @@ row_type = "zod"
 ```
 
 Other languages use their standard row type and do not currently support `row_type` configuration.
+
+### `outer_join_unions`
+
+TypeScript backends only. Off by default.
+
+For an outer join, scythe emits per-column optionality by default. That is
+sound but imprecise: it admits rows the query can never produce.
+
+Given `orders.total NOT NULL` and `orders.notes` nullable:
+
+```sql
+-- @name GetUserOrders
+-- @returns :many
+SELECT u.id, u.name, o.total, o.notes
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+WHERE u.status = $1;
+```
+
+the default shape allows `{ total: null, notes: "gift" }`, which is
+unreachable — `total` is null exactly when no order matched, and then `notes`
+is null too.
+
+```toml
+[[sql.gen]]
+backend = "typescript-pg"
+output = "src/generated"
+outer_join_unions = true
+```
+
+Every column projected from the outer-joined relation shares one match-bit, so
+they are grouped into a union:
+
+```ts
+export type GetUserOrdersRow = {
+	id: number;
+	name: string;
+} & (
+	| { total: string; notes: string | null }
+	| { total: null; notes: null }
+);
+```
+
+The union is only emitted when the joined relation projects at least one
+`NOT NULL` column — that column is the discriminant. Without one, every column
+was independently nullable anyway and the flat shape is already exact, so
+scythe keeps it. Two independently outer-joined relations each get their own
+alternative.
+
+Per-column optionality remains the default and the cross-target shape: Go,
+Java, C# and PHP cannot express this cleanly.
 
 ### `namespace`
 
