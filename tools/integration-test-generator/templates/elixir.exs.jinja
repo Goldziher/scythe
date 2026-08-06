@@ -346,7 +346,7 @@ Process.put(:exit_code, 0)
 {%- elif engine == "oracle" %}
 {:ok, user} = Queries.create_user(conn, "Alice", "alice@example.com", 1)
 {%- elif engine == "mssql" %}
-{:ok, user} = Queries.create_user(conn, 1, "Alice", "alice@example.com", 1)
+{:ok, user} = Queries.create_user(conn, 1, "Alice", "alice@example.com", true)
 {%- elif engine == "sqlite" and driver == "exqlite" %}
 :ok = Queries.create_user(conn, "Alice", "alice@example.com", "active")
 {:ok, user_id} = Exqlite.Sqlite3.last_insert_rowid(conn)

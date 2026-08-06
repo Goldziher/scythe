@@ -16,6 +16,52 @@ pub struct ElixirTdsBackend {
     manifest: BackendManifest,
 }
 
+/// Map a neutral SQL type to its `Tds.Parameter` type atom.
+fn tds_param_type_atom(neutral_type: &str) -> &'static str {
+    match neutral_type {
+        "bool" => ":boolean",
+        "int16" | "int32" | "int64" => ":integer",
+        "float32" | "float64" => ":float",
+        "decimal" => ":decimal",
+        "string" | "text" => ":string",
+        "date" => ":date",
+        "datetime2" => ":datetime2",
+        "datetime" | "datetime_tz" => ":datetime",
+        "uuid" => ":uuid",
+        _ => ":string",
+    }
+}
+
+fn format_tds_param_args(params: &[ResolvedParam]) -> String {
+    if params.is_empty() {
+        return "[]".to_string();
+    }
+    format!(
+        "[{}]",
+        params
+            .iter()
+            .enumerate()
+            .map(|(i, p)| {
+                // tds's :boolean encoder (encode_binary_type) accepts integers or
+                // bitstrings, not Elixir booleans, so coerce true/false to 1/0 on
+                // the wire while keeping the public API boolean()-typed.
+                let value_expr = if p.neutral_type == "bool" {
+                    format!("(if {}, do: 1, else: 0)", p.field_name)
+                } else {
+                    p.field_name.clone()
+                };
+                format!(
+                    "%Tds.Parameter{{name: \"@{}\", value: {}, type: {}}}",
+                    i + 1,
+                    value_expr,
+                    tds_param_type_atom(&p.neutral_type)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
+}
+
 impl ElixirTdsBackend {
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         match engine {
@@ -104,35 +150,7 @@ impl CodegenBackend for ElixirTdsBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        let param_args = if params.is_empty() {
-            "[]".to_string()
-        } else {
-            format!(
-                "[{}]",
-                params
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        let tds_type = match p.neutral_type.as_str() {
-                            "bool" => ":boolean",
-                            "int16" | "int32" | "int64" => ":integer",
-                            "float32" | "float64" | "decimal" => ":decimal",
-                            "string" | "text" => ":string",
-                            "datetime" | "datetime_tz" | "date" => ":datetime",
-                            "uuid" => ":uuid",
-                            _ => ":string",
-                        };
-                        format!(
-                            "%Tds.Parameter{{name: \"@{}\", value: {}, type: {}}}",
-                            i + 1,
-                            p.field_name,
-                            tds_type
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        };
+        let param_args = format_tds_param_args(params);
 
         let param_specs = if params.is_empty() {
             String::new()
@@ -392,35 +410,7 @@ impl CodegenBackend for ElixirTdsBackend {
             .join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
 
-        let param_args = if params.is_empty() {
-            "[]".to_string()
-        } else {
-            format!(
-                "[{}]",
-                params
-                    .iter()
-                    .enumerate()
-                    .map(|(i, p)| {
-                        let tds_type = match p.neutral_type.as_str() {
-                            "bool" => ":boolean",
-                            "int16" | "int32" | "int64" => ":integer",
-                            "float32" | "float64" | "decimal" => ":decimal",
-                            "string" | "text" => ":string",
-                            "datetime" | "datetime_tz" | "date" => ":datetime",
-                            "uuid" => ":uuid",
-                            _ => ":string",
-                        };
-                        format!(
-                            "%Tds.Parameter{{name: \"@{}\", value: {}, type: {}}}",
-                            i + 1,
-                            p.field_name,
-                            tds_type
-                        )
-                    })
-                    .collect::<Vec<_>>()
-                    .join(", ")
-            )
-        };
+        let param_args = format_tds_param_args(params);
         let param_specs = if params.is_empty() {
             String::new()
         } else {

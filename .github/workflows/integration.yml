@@ -640,6 +640,12 @@ jobs:
         working-directory: integration_tests/csharp-sqlclient-mssql
         run: dotnet run
 
+      - name: Test elixir-tds-mssql
+        working-directory: integration_tests/elixir-tds-mssql
+        run: |
+          mix deps.get --quiet
+          mix run test/integration_test.exs
+
       - name: Test ruby-tiny-tds-mssql
         working-directory: integration_tests/ruby-tiny-tds-mssql
         run: |
