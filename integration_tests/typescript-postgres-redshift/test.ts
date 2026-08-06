@@ -9,7 +9,9 @@ import {
 	deleteUser,
 } from "./generated/queries.js";
 
-const DATABASE_URL = process.env["REDSHIFT_URL"] ?? "";
+const DATABASE_URL =
+	process.env["REDSHIFT_URL"] ??
+	"";
 
 const sql = postgres(DATABASE_URL);
 
@@ -22,12 +24,18 @@ function assert(condition: boolean, testName: string, detail: string): void {
 	}
 }
 
+
 async function main(): Promise<void> {
 	try {
 		// Clean slate
 
 		// Test: CreateUser
-		const user = await createUser(sql, "Alice", "alice@example.com", "active");
+		const user = await createUser(
+			sql,
+			"Alice",
+			"alice@example.com",
+			"active",
+		);
 		assert(user !== null, "CreateUser", "user should not be null");
 		assert(
 			user!.name === "Alice",

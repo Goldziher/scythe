@@ -7,10 +7,10 @@
 		"test": "tsx test.ts"
 	},
 	"dependencies": {
-		"mysql2": "^3.23.1"
+		"mysql2": "^3.23.2"
 	},
 	"devDependencies": {
-		"tsx": "^4.23.1",
+		"tsx": "^4.23.7",
 		"typescript": "^5.9.3"
 	}
 }

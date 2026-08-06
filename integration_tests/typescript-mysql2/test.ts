@@ -13,7 +13,9 @@ import {
 } from "./generated/queries.js";
 
 const DATABASE_URL =
-	process.env["MYSQL_URL"] ?? "mysql://root@localhost:3306/scythe_test";
+	process.env["MYSQL_URL"] ??
+	"mysql://root@localhost:3306/scythe_test";
+
 
 let exitCode = 0;
 
@@ -24,6 +26,7 @@ function assert(condition: boolean, testName: string, detail: string): void {
 	}
 }
 
+
 async function main(): Promise<void> {
 	const pool = mysql.createPool(DATABASE_URL);
 	try {
@@ -33,14 +36,13 @@ async function main(): Promise<void> {
 		await pool.query("DROP TABLE IF EXISTS orders");
 		await pool.query("DROP TABLE IF EXISTS users");
 
-		const schemaPath = new URL("../sql/mysql/schema.sql", import.meta.url)
-			.pathname;
+		const schemaPath = new URL(
+			"../sql/mysql/schema.sql",
+			import.meta.url,
+		).pathname;
 		const { readFile } = await import("node:fs/promises");
 		const schemaSql = await readFile(schemaPath, "utf8");
-		for (const stmt of schemaSql
-			.split(";")
-			.map((s) => s.trim())
-			.filter(Boolean)) {
+		for (const stmt of schemaSql.split(";").map((s) => s.trim()).filter(Boolean)) {
 			await pool.query(stmt);
 		}
 

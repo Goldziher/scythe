@@ -13,6 +13,7 @@ const DATABASE_URL =
 	process.env["SNOWFLAKE_URL"] ??
 	"snowflake://account:password@host/database/schema";
 
+
 let exitCode = 0;
 
 function assert(condition: boolean, testName: string, detail: string): void {
@@ -47,7 +48,9 @@ async function main(): Promise<void> {
 	const { fileURLToPath, URL } = await import("node:url");
 	const parsed = new URL(DATABASE_URL);
 	const protocol = parsed.searchParams.get("protocol");
-	const accessUrl = protocol ? `${protocol}://${parsed.host}` : undefined;
+	const accessUrl = protocol
+		? `${protocol}://${parsed.host}`
+		: undefined;
 	const [, database = "testdb", schema = "public"] = parsed.pathname.split("/");
 	const conn = snowflake.createConnection({
 		account: parsed.searchParams.get("account") ?? parsed.hostname,
@@ -71,10 +74,7 @@ async function main(): Promise<void> {
 			new URL("../sql/snowflake/schema.sql", import.meta.url),
 		);
 		const schemaSql = await readFile(schemaPath, "utf8");
-		for (const stmt of schemaSql
-			.split(";")
-			.map((s) => s.trim())
-			.filter(Boolean)) {
+		for (const stmt of schemaSql.split(";").map((s) => s.trim()).filter(Boolean)) {
 			await execute(conn, stmt);
 		}
 

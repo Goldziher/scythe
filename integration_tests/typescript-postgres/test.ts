@@ -25,6 +25,7 @@ function assert(condition: boolean, testName: string, detail: string): void {
 	}
 }
 
+
 async function main(): Promise<void> {
 	try {
 		// Clean slate

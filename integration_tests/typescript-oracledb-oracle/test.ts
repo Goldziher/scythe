@@ -10,7 +10,9 @@ import {
 } from "./generated/queries.js";
 
 const DATABASE_URL =
-	process.env["ORACLE_URL"] ?? "oracle://scythe:scythe@localhost:1521/XEPDB1";
+	process.env["ORACLE_URL"] ??
+	"oracle://scythe:scythe@localhost:1521/XEPDB1";
+
 
 let exitCode = 0;
 
@@ -20,6 +22,7 @@ function assert(condition: boolean, testName: string, detail: string): void {
 		exitCode = 1;
 	}
 }
+
 
 async function main(): Promise<void> {
 	const { URL } = await import("node:url");
@@ -33,29 +36,17 @@ async function main(): Promise<void> {
 	try {
 		// Clean slate: drop tables and sequences, ignore errors
 		for (const table of ["user_tags", "tags", "orders", "users"]) {
-			try {
-				await conn.execute(`DROP TABLE ${table} CASCADE CONSTRAINTS`);
-			} catch (_) {
-				/* ignore ORA errors */
-			}
+			try { await conn.execute(`DROP TABLE ${table} CASCADE CONSTRAINTS`); } catch (_) { /* ignore ORA errors */ }
 		}
 		for (const seq of ["tags_seq", "orders_seq", "users_seq"]) {
-			try {
-				await conn.execute(`DROP SEQUENCE ${seq}`);
-			} catch (_) {
-				/* ignore ORA errors */
-			}
+			try { await conn.execute(`DROP SEQUENCE ${seq}`); } catch (_) { /* ignore ORA errors */ }
 		}
 
 		// Load and execute schema (PL/SQL blocks delimited by /\n)
 		const { readFile } = await import("node:fs/promises");
-		const schemaPath = new URL("../sql/oracle/schema_full.sql", import.meta.url)
-			.pathname;
+		const schemaPath = new URL("../sql/oracle/schema_full.sql", import.meta.url).pathname;
 		const schemaSql = await readFile(schemaPath, "utf8");
-		for (const block of schemaSql
-			.split("/\n")
-			.map((s) => s.trim())
-			.filter(Boolean)) {
+		for (const block of schemaSql.split("/\n").map((s) => s.trim()).filter(Boolean)) {
 			await conn.execute(block);
 		}
 

@@ -13,6 +13,7 @@ const DATABASE_URL =
 	process.env["MSSQL_URL"] ??
 	"sqlserver://sa:Scythe_Test1@localhost:1433?database=scythe_test";
 
+
 let exitCode = 0;
 
 function assert(condition: boolean, testName: string, detail: string): void {
@@ -21,6 +22,7 @@ function assert(condition: boolean, testName: string, detail: string): void {
 		exitCode = 1;
 	}
 }
+
 
 async function main(): Promise<void> {
 	const url = new URL(DATABASE_URL);
@@ -36,19 +38,13 @@ async function main(): Promise<void> {
 	try {
 		// Clean slate
 		for (const table of ["user_tags", "tags", "orders", "users"]) {
-			await pool
-				.request()
-				.query(`IF OBJECT_ID('${table}', 'U') IS NOT NULL DROP TABLE ${table}`);
+			await pool.request().query(`IF OBJECT_ID('${table}', 'U') IS NOT NULL DROP TABLE ${table}`);
 		}
 
 		const { readFile } = await import("node:fs/promises");
-		const schemaPath = new URL("../sql/mssql/schema.sql", import.meta.url)
-			.pathname;
+		const schemaPath = new URL("../sql/mssql/schema.sql", import.meta.url).pathname;
 		const schemaSql = await readFile(schemaPath, "utf8");
-		for (const stmt of schemaSql
-			.split(";")
-			.map((s) => s.trim())
-			.filter(Boolean)) {
+		for (const stmt of schemaSql.split(";").map((s) => s.trim()).filter(Boolean)) {
 			await pool.request().query(stmt);
 		}
 

@@ -9,7 +9,10 @@ import {
 	deleteUser,
 } from "./generated/queries.js";
 
-const DATABASE_URL = process.env["SQLITE_PATH"] ?? "test.db";
+const DATABASE_URL =
+	process.env["SQLITE_PATH"] ??
+	"test.db";
+
 
 let exitCode = 0;
 
@@ -20,7 +23,9 @@ function assert(condition: boolean, testName: string, detail: string): void {
 	}
 }
 
+
 async function main(): Promise<void> {
+
 	process.exit(exitCode);
 }
 

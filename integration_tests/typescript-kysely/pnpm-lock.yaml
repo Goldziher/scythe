@@ -9,17 +9,17 @@ importers:
   .:
     dependencies:
       kysely:
-        specifier: ^0.28.9
+        specifier: ^0.28.17
         version: 0.28.17
       pg:
         specifier: ^8.22.0
         version: 8.22.0
     devDependencies:
       '@types/pg':
-        specifier: ^8.20.0
+        specifier: ^8.20.4
         version: 8.20.4
       tsx:
-        specifier: ^4.23.1
+        specifier: ^4.23.7
         version: 4.23.7
       typescript:
         specifier: ^5.9.3

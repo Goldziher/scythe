@@ -9,7 +9,9 @@ import {
 	deleteUser,
 } from "./generated/queries.js";
 
-const DATABASE_URL = process.env["REDSHIFT_URL"] ?? "";
+const DATABASE_URL =
+	process.env["REDSHIFT_URL"] ??
+	"";
 
 const pool = new pg.Pool({ connectionString: DATABASE_URL });
 
@@ -21,6 +23,7 @@ function assert(condition: boolean, testName: string, detail: string): void {
 		exitCode = 1;
 	}
 }
+
 
 async function main(): Promise<void> {
 	const client = await pool.connect();
