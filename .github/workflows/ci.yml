@@ -78,15 +78,22 @@ jobs:
         run: |
           cargo build --release -p scythe-cli
           echo "$GITHUB_WORKSPACE/target/release" >> "$GITHUB_PATH"
-      - name: Regenerate integration code
+      # Two generators feed integration_tests/. This one renders the project
+      # scaffolding and test harnesses from tools/integration-test-generator/templates/.
+      - name: Regenerate integration scaffolding and code
         working-directory: integration_tests
-        run: task generate
+        run: task generate:all
+      # A formatter once reflowed the templates as prose, which produced
+      # harnesses whose string literals were split across lines. That reached CI
+      # as unrelated-looking compiler errors, so parse the output directly.
+      - name: Syntax-check generated harnesses
+        run: ./scripts/check-generated-syntax.sh
       # The integration jobs test the committed files and never regenerate, so
       # drift here means CI is validating output no current build produces.
       - name: Fail if regeneration changed anything
         run: |
           if ! git diff --exit-code -- integration_tests/; then
-            echo "::error::Committed integration code is stale. Run 'cd integration_tests && task generate' and commit the result."
+            echo "::error::Committed integration code is stale. Run 'cd integration_tests && task generate:all' and commit the result."
             exit 1
           fi
 
