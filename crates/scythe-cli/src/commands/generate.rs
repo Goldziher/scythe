@@ -498,7 +498,7 @@ pub struct RunCheckOpts {
     pub database_url: Option<String>,
     /// Reporter format string (human / sarif / json).
     pub format: String,
-    /// Output path; `None` means stderr.
+    /// Output path; `None` means stdout.
     pub output: Option<String>,
 }
 
@@ -580,14 +580,24 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
                 });
             }
 
-            analyzed_queries.push(analyzed);
+            // Retained only for live-database verification, which requires
+            // `--database-url` (see `should_retain_for_verification`).
+            // Without it, cloning and keeping every analyzed query (columns,
+            // params, source tables, ...) around for the rest of the process
+            // is pure waste on the overwhelmingly common no-database `scythe
+            // check` path.
+            if should_retain_for_verification(opts.database_url.as_deref()) {
+                analyzed_queries.push(analyzed);
+            }
         }
 
-        verifiable.push(VerifiableBlock {
-            name: sql_config.name.clone(),
-            engine: sql_config.engine.clone(),
-            queries: analyzed_queries,
-        });
+        if should_retain_for_verification(opts.database_url.as_deref()) {
+            verifiable.push(VerifiableBlock {
+                name: sql_config.name.clone(),
+                engine: sql_config.engine.clone(),
+                queries: analyzed_queries,
+            });
+        }
 
         let cat_violations = engine.check_catalog(&catalog);
         for (v, sev) in cat_violations {
@@ -675,6 +685,20 @@ struct VerifiableBlock {
     name: String,
     engine: String,
     queries: Vec<scythe_core::analyzer::AnalyzedQuery>,
+}
+
+/// Whether per-query analysis results collected while checking a `[[sql]]`
+/// block should be retained for later live-database verification.
+///
+/// `verify_against_database` is the only consumer of the retained
+/// `AnalyzedQuery` data, and it only runs when `--database-url` is supplied.
+/// Without it, `scythe check` runs entirely offline, so retaining (cloning
+/// and keeping alive) every analyzed query for the rest of the process would
+/// be pure waste. Kept as a small pure predicate, like
+/// `partition_verifiable_blocks` below, so the retention decision is
+/// unit-testable without a database, config file, or SQL source.
+fn should_retain_for_verification(database_url: Option<&str>) -> bool {
+    database_url.is_some()
 }
 
 /// Split verifiable blocks into ones whose engine speaks the PostgreSQL wire
@@ -822,6 +846,20 @@ SELECT * FROM users WHERE id = $1;
         let content = "-- just a comment\n";
         let blocks = split_query_file(content);
         assert_eq!(blocks.len(), 0);
+    }
+
+    /// Without `--database-url`, `verify_against_database` never runs, so
+    /// analyzed queries must not be retained for it.
+    #[test]
+    fn should_retain_for_verification_is_false_without_database_url() {
+        assert!(!should_retain_for_verification(None));
+    }
+
+    /// With `--database-url`, `verify_against_database` is the consumer of
+    /// the retained analyzed queries, so retention must still happen.
+    #[test]
+    fn should_retain_for_verification_is_true_with_database_url() {
+        assert!(should_retain_for_verification(Some("postgres://localhost/db")));
     }
 
     fn verifiable_block(name: &str, engine: &str) -> VerifiableBlock {

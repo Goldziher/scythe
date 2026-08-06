@@ -73,6 +73,43 @@ fn test_check_basemind_exits_zero() {
     );
 }
 
+/// Regression test for the `analyzed_queries`/`verifiable` retention guard in
+/// `run_check` (see `should_retain_for_verification` in
+/// `crates/scythe-cli/src/commands/generate.rs`): supplying `--database-url`
+/// must still drive analyzed queries through to `verify_against_database`,
+/// which attempts a live connection and reports a connection failure. This
+/// proves the retention-skip optimization for the no-URL path (exercised by
+/// `test_check_basemind_exits_zero` above) left the `--database-url` path
+/// behaviorally unchanged.
+#[test]
+fn test_check_with_database_url_attempts_live_verification() {
+    let dir = schema_dir("simple/basemind");
+    let output = scythe_bin()
+        .args([
+            "check",
+            "--config",
+            "scythe.toml",
+            "--database-url",
+            "postgres://127.0.0.1:1/scythe_nonexistent_db",
+        ])
+        .current_dir(&dir)
+        .output()
+        .expect("failed to run scythe check --database-url");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "scythe check against an unreachable database should exit non-zero.\nstderr: {}",
+        stderr
+    );
+    assert!(
+        stderr.contains("failed to connect"),
+        "expected a connection failure from verify_against_database (proving analyzed \
+         queries were retained and handed off for verification), got:\nstderr: {}",
+        stderr
+    );
+}
+
 #[test]
 fn test_check_pagila_exits_zero() {
     let dir = schema_dir("medium/pagila");
