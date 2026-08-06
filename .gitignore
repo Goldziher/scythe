@@ -55,3 +55,6 @@ poly.local.toml
 website/node_modules/
 website/dist/
 website/.astro/
+
+# snowflake-sdk writes this on every run
+snowflake.log

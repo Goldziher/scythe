@@ -9,8 +9,6 @@ pub enum UsersStatus {
     Banned,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetLastInsertOrderRow {
     pub id: i32,
@@ -20,8 +18,6 @@ pub struct GetLastInsertOrderRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetOrdersByUserRow {
     pub id: i32,
@@ -30,16 +26,10 @@ pub struct GetOrdersByUserRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetOrderTotalRow {
     pub total_sum: Option<rust_decimal::Decimal>,
 }
-
-
-
-
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetUserByIdRow {
@@ -50,18 +40,12 @@ pub struct GetUserByIdRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ListActiveUsersRow {
     pub id: i32,
     pub name: String,
     pub email: Option<String>,
 }
-
-
-
-
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetLastInsertUserRow {
@@ -71,12 +55,6 @@ pub struct GetLastInsertUserRow {
     pub status: String,
     pub created_at: chrono::NaiveDateTime,
 }
-
-
-
-
-
-
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SearchUsersRow {

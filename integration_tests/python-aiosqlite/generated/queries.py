@@ -42,7 +42,7 @@ async def get_orders_by_user(conn: aiosqlite.Connection, *, user_id: int) -> lis
 class GetOrderTotalRow:
     """Row type for GetOrderTotal query."""
 
-    total_sum: decimal.Decimal | None
+    total_sum: float | None
 
 
 async def get_order_total(conn: aiosqlite.Connection, *, user_id: int) -> GetOrderTotalRow | None:
@@ -131,3 +131,4 @@ async def search_users(conn: aiosqlite.Connection, *, name: str) -> list[SearchU
     async with conn.execute("""SELECT id, name, email FROM users WHERE name LIKE ?""", (name,)) as cursor:
         rows = await cursor.fetchall()
     return [SearchUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
+

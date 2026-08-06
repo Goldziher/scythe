@@ -170,11 +170,18 @@ impl Catalog {
 
 impl Catalog {
     /// Pre-process a SQL string to extract statements that sqlparser cannot handle
-    /// (CREATE DOMAIN, CREATE SCHEMA). Processes them internally and returns the
-    /// remaining SQL with those statements removed.
+    /// (CREATE DOMAIN, CREATE SCHEMA, Oracle CREATE SEQUENCE / CREATE TRIGGER).
+    /// Processes them internally and returns the remaining SQL with those
+    /// statements removed.
     fn extract_unsupported_statements(&mut self, sql: &str, dialect: &SqlDialect) -> String {
         let mut result = String::with_capacity(sql.len());
-        for raw_stmt in Self::split_top_level_statements(sql) {
+        let is_oracle_slash_script = *dialect == SqlDialect::Oracle && sql.lines().any(|line| line.trim() == "/");
+        let raw_statements = if is_oracle_slash_script {
+            Self::split_oracle_slash_statements(sql)
+        } else {
+            Self::split_top_level_statements(sql)
+        };
+        for raw_stmt in raw_statements {
             let trimmed = raw_stmt.trim();
             if trimmed.is_empty() || trimmed.starts_with("--") && !trimmed.contains('\n') {
                 result.push_str(raw_stmt);
@@ -185,6 +192,15 @@ impl Catalog {
             if upper.starts_with("CREATE DOMAIN") {
                 self.try_parse_create_domain(no_comments, dialect);
             } else if upper.starts_with("CREATE SCHEMA") {
+            } else if *dialect == SqlDialect::Oracle
+                && (upper.starts_with("CREATE SEQUENCE") || Self::is_oracle_create_trigger(&upper))
+            {
+                // Sequences contribute no columns or types to the catalog, and
+                // Oracle allows their START WITH / INCREMENT BY options in any
+                // order, which sqlparser's positional option parser rejects.
+                // Trigger bodies use PL/SQL (`:NEW.col`, BEGIN/END blocks) that
+                // sqlparser does not parse at all. Both are dropped precisely
+                // here rather than handed to the parser.
             } else {
                 let stmt_to_add = if matches!(dialect, SqlDialect::PostgreSQL | SqlDialect::MsSql) {
                     Self::strip_identity_patterns(raw_stmt)
@@ -378,6 +394,41 @@ impl Catalog {
             }
         }
         statements
+    }
+
+    /// Split an Oracle SQL*Plus script into top-level statements delimited by
+    /// a line containing only `/` (the conventional SQL*Plus statement
+    /// terminator). Unlike [`split_top_level_statements`], this does not treat
+    /// `;` as a boundary: PL/SQL blocks (e.g. `CREATE TRIGGER ... BEGIN ...
+    /// END;`) contain semicolons internally, and only the standalone `/` line
+    /// marks the end of the statement.
+    fn split_oracle_slash_statements(sql: &str) -> Vec<&str> {
+        let mut statements = Vec::new();
+        let mut block_start = 0usize;
+        let mut offset = 0usize;
+        for line in sql.split_inclusive('\n') {
+            if line.trim() == "/" {
+                let block = &sql[block_start..offset];
+                if !block.trim().is_empty() {
+                    statements.push(block);
+                }
+                block_start = offset + line.len();
+            }
+            offset += line.len();
+        }
+        if block_start < sql.len() {
+            let remainder = &sql[block_start..];
+            if !remainder.trim().is_empty() {
+                statements.push(remainder);
+            }
+        }
+        statements
+    }
+
+    /// True if `upper` (an already-uppercased, comment-stripped statement) is
+    /// a `CREATE TRIGGER` or `CREATE OR REPLACE TRIGGER` statement.
+    fn is_oracle_create_trigger(upper: &str) -> bool {
+        upper.starts_with("CREATE TRIGGER") || upper.starts_with("CREATE OR REPLACE TRIGGER")
     }
 
     /// Remove psql client meta-command lines from a SQL string.
@@ -1294,5 +1345,77 @@ ALTER TABLE ONLY public.t\n\
         assert_eq!(price_col.name, "price");
         assert_eq!(price_col.sql_type, "numeric(10,2)");
         assert!(!price_col.nullable);
+    }
+
+    #[test]
+    fn test_oracle_slash_script_skips_sequences_and_triggers() {
+        // Mirrors integration_tests/sql/oracle/schema_full.sql: SQL*Plus `/`
+        // terminators, a CREATE SEQUENCE whose START WITH precedes INCREMENT
+        // BY (an ordering sqlparser's positional option parser rejects), and
+        // a CREATE OR REPLACE TRIGGER with a PL/SQL body sqlparser cannot
+        // parse at all. None of the three should reach the parser as-is; the
+        // sequence and trigger must be skipped, and the table must still be
+        // extracted correctly.
+        let schema = "\
+-- Full Oracle schema including sequences and triggers.\n\
+\n\
+CREATE SEQUENCE users_seq START WITH 1 INCREMENT BY 1\n\
+/\n\
+\n\
+CREATE TABLE users (\n\
+    id NUMBER NOT NULL PRIMARY KEY,\n\
+    name VARCHAR2(255) NOT NULL,\n\
+    email VARCHAR2(255)\n\
+)\n\
+/\n\
+\n\
+CREATE OR REPLACE TRIGGER users_bi\n\
+BEFORE INSERT ON users\n\
+FOR EACH ROW\n\
+BEGIN\n\
+    IF :NEW.id IS NULL THEN\n\
+        :NEW.id := users_seq.NEXTVAL;\n\
+    END IF;\n\
+END;\n\
+/\n\
+";
+        let catalog = Catalog::from_ddl_with_dialect(&[schema], &crate::dialect::SqlDialect::Oracle)
+            .expect("schema with sequences and triggers must parse");
+
+        assert_eq!(catalog.tables_iter().count(), 1, "only the table should be cataloged");
+
+        let table = catalog.get_table("users").expect("table users must exist");
+        assert_eq!(table.columns.len(), 3);
+
+        let id = &table.columns[0];
+        assert_eq!(id.name, "id");
+        assert!(id.primary_key);
+        assert!(!id.nullable);
+
+        let name = &table.columns[1];
+        assert_eq!(name.name, "name");
+        assert!(!name.nullable);
+
+        let email = &table.columns[2];
+        assert_eq!(email.name, "email");
+        assert!(email.nullable);
+    }
+
+    #[test]
+    fn test_split_oracle_slash_statements_basic() {
+        let sql = "CREATE SEQUENCE s START WITH 1\n/\n\nCREATE TABLE t (id NUMBER)\n/\n";
+        let blocks = Catalog::split_oracle_slash_statements(sql);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].trim(), "CREATE SEQUENCE s START WITH 1");
+        assert_eq!(blocks[1].trim(), "CREATE TABLE t (id NUMBER)");
+    }
+
+    #[test]
+    fn test_split_oracle_slash_statements_no_trailing_slash() {
+        let sql = "CREATE TABLE t (id NUMBER)\n/\nCREATE TABLE u (id NUMBER)";
+        let blocks = Catalog::split_oracle_slash_statements(sql);
+        assert_eq!(blocks.len(), 2);
+        assert_eq!(blocks[0].trim(), "CREATE TABLE t (id NUMBER)");
+        assert_eq!(blocks[1].trim(), "CREATE TABLE u (id NUMBER)");
     }
 }

@@ -14,8 +14,8 @@ module Queries
   def self.get_orders_by_user: (SQLite3::Database, Integer) -> Array[GetOrdersByUserRow]
 
   class GetOrderTotalRow
-    attr_reader total_sum: BigDecimal?
-    def self.new: (total_sum: BigDecimal?) -> GetOrderTotalRow
+    attr_reader total_sum: Float?
+    def self.new: (total_sum: Float?) -> GetOrderTotalRow
   end
 
   def self.get_order_total: (SQLite3::Database, Integer) -> GetOrderTotalRow?

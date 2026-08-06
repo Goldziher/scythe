@@ -38,7 +38,7 @@ public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(SqliteConnect
 }
 
 public record GetOrderTotalRow(
-    decimal? TotalSum
+    double? TotalSum
 );
 
 public static async Task<GetOrderTotalRow?> GetOrderTotal(SqliteConnection conn, long user_id) {
@@ -47,7 +47,7 @@ public static async Task<GetOrderTotalRow?> GetOrderTotal(SqliteConnection conn,
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
     return new GetOrderTotalRow(
-        reader.IsDBNull(0) ? null : reader.GetDecimal(0)
+        reader.IsDBNull(0) ? null : reader.GetDouble(0)
     );
 }
 

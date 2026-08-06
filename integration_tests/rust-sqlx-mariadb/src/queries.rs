@@ -18,8 +18,6 @@ pub struct CreateOrderRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetOrdersByUserRow {
     pub id: i32,
@@ -28,16 +26,10 @@ pub struct GetOrdersByUserRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetOrderTotalRow {
     pub total_sum: Option<rust_decimal::Decimal>,
 }
-
-
-
-
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetUserByIdRow {
@@ -48,8 +40,6 @@ pub struct GetUserByIdRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ListActiveUsersRow {
     pub id: String,
@@ -57,20 +47,12 @@ pub struct ListActiveUsersRow {
     pub email: Option<String>,
 }
 
-
-
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct CreateUserRow {
     pub id: String,
     pub name: String,
     pub email: Option<String>,
 }
-
-
-
-
-
-
 
 #[derive(Debug, Clone, sqlx::FromRow)]
 pub struct SearchUsersRow {

@@ -9,29 +9,98 @@ import (
 )
 
 
+type CreateAttachmentRow struct {
+	Id int64 `json:"id"`
+	OrderId int64 `json:"order_id"`
+	Filename string `json:"filename"`
+}
+
+func CreateAttachment(ctx context.Context, db *sql.DB, order_id int64, filename string, payload []byte, description *string) (*CreateAttachmentRow, error) {
+	var outId int64
+	var outOrderId int64
+	var outFilename string
+	if _, err := db.ExecContext(ctx, "INSERT INTO attachments (order_id, filename, payload, description) VALUES (:1, :2, :3, :4) RETURNING id, order_id, filename INTO :5, :6, :7", order_id, filename, payload, description, sql.Out{Dest: &outId}, sql.Out{Dest: &outOrderId}, sql.Out{Dest: &outFilename}); err != nil {
+		return nil, err
+	}
+	return &CreateAttachmentRow{Id: outId, OrderId: outOrderId, Filename: outFilename}, nil
+}
+
+type GetAttachmentsByOrderRow struct {
+	Id int64 `json:"id"`
+	OrderId int64 `json:"order_id"`
+	Filename string `json:"filename"`
+	Payload []byte `json:"payload"`
+	Description *string `json:"description"`
+}
+
+func GetAttachmentsByOrder(ctx context.Context, db *sql.DB, order_id int64) ([]GetAttachmentsByOrderRow, error) {
+	rows, err := db.QueryContext(ctx, "SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = :1 ORDER BY id", order_id)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetAttachmentsByOrderRow
+	for rows.Next() {
+		var item GetAttachmentsByOrderRow
+		if err := rows.Scan(&item.Id, &item.OrderId, &item.Filename, &item.Payload, &item.Description); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+type GetAttachmentByIdRow struct {
+	Id int64 `json:"id"`
+	OrderId int64 `json:"order_id"`
+	Filename string `json:"filename"`
+	Payload []byte `json:"payload"`
+	Description *string `json:"description"`
+}
+
+func GetAttachmentById(ctx context.Context, db *sql.DB, id int64) (*GetAttachmentByIdRow, error) {
+	row := db.QueryRowContext(ctx, "SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :1", id)
+	var item GetAttachmentByIdRow
+	if err := row.Scan(&item.Id, &item.OrderId, &item.Filename, &item.Payload, &item.Description); err != nil {
+		if err == sql.ErrNoRows {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &item, nil
+}
+
+func DeleteAttachmentsByOrder(ctx context.Context, db *sql.DB, order_id int64) (int64, error) {
+	result, err := db.ExecContext(ctx, "DELETE FROM attachments WHERE order_id = :1", order_id)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected()
+}
+
 type CreateOrderRow struct {
 	Id int64 `json:"id"`
 	UserId int64 `json:"user_id"`
-	Total int64 `json:"total"`
+	Total float64 `json:"total"`
 	Notes *string `json:"notes"`
 	CreatedAt time.Time `json:"created_at"`
 }
 
-func CreateOrder(ctx context.Context, db *sql.DB, user_id int64, total int64, notes *string) (*CreateOrderRow, error) {
+func CreateOrder(ctx context.Context, db *sql.DB, user_id int64, total float64, notes *string) (*CreateOrderRow, error) {
 	var outId int64
 	var outUserId int64
-	var outTotal int64
+	var outTotal float64
 	var outNotes string
 	var outCreatedAt time.Time
 	if _, err := db.ExecContext(ctx, "INSERT INTO orders (user_id, total, notes) VALUES (:1, :2, :3) RETURNING id, user_id, total, notes, created_at INTO :4, :5, :6, :7, :8", user_id, total, notes, sql.Out{Dest: &outId}, sql.Out{Dest: &outUserId}, sql.Out{Dest: &outTotal}, sql.Out{Dest: &outNotes}, sql.Out{Dest: &outCreatedAt}); err != nil {
 		return nil, err
 	}
-	return &CreateOrderRow{Id: outId, UserId: outUserId, Total: outTotal, Notes: &outNotes, CreatedAt: outCreatedAt}, nil
+	return &CreateOrderRow{Id: outId, UserId: outUserId, Total: outTotal, Notes: outNotes, CreatedAt: outCreatedAt}, nil
 }
 
 type GetOrdersByUserRow struct {
 	Id int64 `json:"id"`
-	Total int64 `json:"total"`
+	Total float64 `json:"total"`
 	Notes *string `json:"notes"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -54,7 +123,7 @@ func GetOrdersByUser(ctx context.Context, db *sql.DB, user_id int64) ([]GetOrder
 }
 
 type GetOrderTotalRow struct {
-	TotalSum *int64 `json:"total_sum"`
+	TotalSum *float64 `json:"total_sum"`
 }
 
 func GetOrderTotal(ctx context.Context, db *sql.DB, user_id int64) (*GetOrderTotalRow, error) {
@@ -137,7 +206,7 @@ func CreateUser(ctx context.Context, db *sql.DB, name string, email *string, act
 	if _, err := db.ExecContext(ctx, "INSERT INTO users (name, email, active) VALUES (:1, :2, :3) RETURNING id, name, email, active, created_at INTO :4, :5, :6, :7, :8", name, email, active, sql.Out{Dest: &outId}, sql.Out{Dest: &outName}, sql.Out{Dest: &outEmail}, sql.Out{Dest: &outActive}, sql.Out{Dest: &outCreatedAt}); err != nil {
 		return nil, err
 	}
-	return &CreateUserRow{Id: outId, Name: outName, Email: &outEmail, Active: outActive, CreatedAt: outCreatedAt}, nil
+	return &CreateUserRow{Id: outId, Name: outName, Email: outEmail, Active: outActive, CreatedAt: outCreatedAt}, nil
 }
 
 func UpdateUserEmail(ctx context.Context, db *sql.DB, email string, id int64) error {

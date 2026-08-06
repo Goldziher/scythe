@@ -36,7 +36,7 @@ func GetOrdersByUser(ctx context.Context, db *sql.DB, UserId int32) ([]GetOrders
 }
 
 type GetOrderTotalRow struct {
-	TotalSum *float64 `json:"total_sum"`
+	TotalSum *float32 `json:"total_sum"`
 }
 
 func GetOrderTotal(ctx context.Context, db *sql.DB, UserId int32) (GetOrderTotalRow, error) {

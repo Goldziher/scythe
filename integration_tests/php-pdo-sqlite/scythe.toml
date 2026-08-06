@@ -8,5 +8,5 @@ schema = ["../sql/sqlite/schema.sql"]
 queries = ["../sql/sqlite/queries/*.sql"]
 
 [[sql.gen]]
-backend = "php-pdo-sqlite"
+backend = "php-pdo"
 output = "generated"

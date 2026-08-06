@@ -205,3 +205,4 @@ async def search_users(conn: aiomysql.Connection, *, name: str) -> list[SearchUs
         await cur.execute("""SELECT id, name, email FROM users WHERE name LIKE %s""", (name,))
         rows = await cur.fetchall()
     return [SearchUsersRow(id=r[0], name=r[1], email=r[2]) for r in rows]
+

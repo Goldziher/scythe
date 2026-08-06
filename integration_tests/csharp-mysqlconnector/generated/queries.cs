@@ -12,7 +12,7 @@ public enum UsersStatus {
 }
 
 public static async Task CreateOrder(MySqlConnection conn, int user_id, decimal total, string? notes) {
-    await using var cmd = new MySqlCommand("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)", conn);
+    await using var cmd = new MySqlCommand("INSERT INTO orders (user_id, total, notes) VALUES (@p1, @p2, @p3)", conn);
     cmd.Parameters.AddWithValue("@p1", user_id);
     cmd.Parameters.AddWithValue("@p2", total);
     cmd.Parameters.AddWithValue("@p3", notes);
@@ -48,7 +48,7 @@ public record GetOrdersByUserRow(
 );
 
 public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(MySqlConnection conn, int user_id) {
-    await using var cmd = new MySqlCommand("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC", conn);
+    await using var cmd = new MySqlCommand("SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC", conn);
     cmd.Parameters.AddWithValue("@p1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<GetOrdersByUserRow>();
@@ -68,7 +68,7 @@ public record GetOrderTotalRow(
 );
 
 public static async Task<GetOrderTotalRow?> GetOrderTotal(MySqlConnection conn, int user_id) {
-    await using var cmd = new MySqlCommand("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?", conn);
+    await using var cmd = new MySqlCommand("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("@p1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -78,7 +78,7 @@ public static async Task<GetOrderTotalRow?> GetOrderTotal(MySqlConnection conn, 
 }
 
 public static async Task<int> DeleteOrdersByUser(MySqlConnection conn, int user_id) {
-    await using var cmd = new MySqlCommand("DELETE FROM orders WHERE user_id = ?", conn);
+    await using var cmd = new MySqlCommand("DELETE FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("@p1", user_id);
     return await cmd.ExecuteNonQueryAsync();
 }
@@ -92,7 +92,7 @@ public record GetUserByIdRow(
 );
 
 public static async Task<GetUserByIdRow?> GetUserById(MySqlConnection conn, int id) {
-    await using var cmd = new MySqlCommand("SELECT id, name, email, status, created_at FROM users WHERE id = ?", conn);
+    await using var cmd = new MySqlCommand("SELECT id, name, email, status, created_at FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("@p1", id);
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -112,7 +112,7 @@ public record ListActiveUsersRow(
 );
 
 public static async Task<List<ListActiveUsersRow>> ListActiveUsers(MySqlConnection conn, UsersStatus status) {
-    await using var cmd = new MySqlCommand("SELECT id, name, email FROM users WHERE status = ?", conn);
+    await using var cmd = new MySqlCommand("SELECT id, name, email FROM users WHERE status = @p1", conn);
     cmd.Parameters.AddWithValue("@p1", status.ToString().ToLower());
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<ListActiveUsersRow>();
@@ -127,7 +127,7 @@ public static async Task<List<ListActiveUsersRow>> ListActiveUsers(MySqlConnecti
 }
 
 public static async Task CreateUser(MySqlConnection conn, string name, string? email, UsersStatus status) {
-    await using var cmd = new MySqlCommand("INSERT INTO users (name, email, status) VALUES (?, ?, ?)", conn);
+    await using var cmd = new MySqlCommand("INSERT INTO users (name, email, status) VALUES (@p1, @p2, @p3)", conn);
     cmd.Parameters.AddWithValue("@p1", name);
     cmd.Parameters.AddWithValue("@p2", email);
     cmd.Parameters.AddWithValue("@p3", status.ToString().ToLower());
@@ -156,14 +156,14 @@ public static async Task<GetLastInsertUserRow?> GetLastInsertUser(MySqlConnectio
 }
 
 public static async Task UpdateUserEmail(MySqlConnection conn, string email, int id) {
-    await using var cmd = new MySqlCommand("UPDATE users SET email = ? WHERE id = ?", conn);
+    await using var cmd = new MySqlCommand("UPDATE users SET email = @p1 WHERE id = @p2", conn);
     cmd.Parameters.AddWithValue("@p1", email);
     cmd.Parameters.AddWithValue("@p2", id);
     await cmd.ExecuteNonQueryAsync();
 }
 
 public static async Task DeleteUser(MySqlConnection conn, int id) {
-    await using var cmd = new MySqlCommand("DELETE FROM users WHERE id = ?", conn);
+    await using var cmd = new MySqlCommand("DELETE FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("@p1", id);
     await cmd.ExecuteNonQueryAsync();
 }
@@ -175,7 +175,7 @@ public record SearchUsersRow(
 );
 
 public static async Task<List<SearchUsersRow>> SearchUsers(MySqlConnection conn, string name) {
-    await using var cmd = new MySqlCommand("SELECT id, name, email FROM users WHERE name LIKE ?", conn);
+    await using var cmd = new MySqlCommand("SELECT id, name, email FROM users WHERE name LIKE @p1", conn);
     cmd.Parameters.AddWithValue("@p1", name);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<SearchUsersRow>();
