@@ -39,6 +39,7 @@ fn oracle_db_type(neutral_type: &str) -> &'static str {
         "float32" | "float64" => "OracleDbType.Double",
         "decimal" => "OracleDbType.Decimal",
         "date" | "datetime" | "datetime_tz" => "OracleDbType.Date",
+        "bytes" => "OracleDbType.Blob",
         _ => "OracleDbType.Varchar2",
     }
 }
@@ -58,10 +59,10 @@ fn oracle_out_cast(neutral_type: &str, param_expr: &str) -> String {
             "((Oracle.ManagedDataAccess.Types.OracleDecimal){}).ToDouble()",
             param_expr
         ),
-        "decimal" => format!(
-            "((Oracle.ManagedDataAccess.Types.OracleDecimal){}).ToDecimal()",
-            param_expr
-        ),
+        // OracleDecimal exposes the managed decimal through its `Value`
+        // property; there is no ToDecimal(), unlike ToInt32/ToInt64/ToDouble.
+        "decimal" => format!("((Oracle.ManagedDataAccess.Types.OracleDecimal){}).Value", param_expr),
+        "bytes" => format!("((Oracle.ManagedDataAccess.Types.OracleBlob){}).Value", param_expr),
         "date" | "datetime" | "datetime_tz" => {
             format!("((Oracle.ManagedDataAccess.Types.OracleDate){}).Value", param_expr)
         }
@@ -83,6 +84,9 @@ fn reader_method(neutral_type: &str) -> &'static str {
         "date" | "datetime" => "GetDateTime",
         "datetime_tz" => "GetFieldValue<DateTimeOffset>",
         "time" | "time_tz" => "GetFieldValue<TimeOnly>",
+        // GetValue returns object, which will not bind to a byte[] record
+        // field; ask the reader for the concrete type instead.
+        "bytes" => "GetFieldValue<byte[]>",
         _ => "GetValue",
     }
 }
@@ -517,6 +521,8 @@ mod tests {
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
 
+    use super::{oracle_db_type, oracle_out_cast, reader_method};
+
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![
             AnalyzedColumn {
@@ -640,5 +646,31 @@ mod tests {
             query_fn.contains("return result;"),
             "must return result; got:\n{query_fn}"
         );
+    }
+
+    /// ODP.NET's `OracleDecimal` exposes its managed value through a `Value`
+    /// property. It has `ToInt32`/`ToInt64`/`ToDouble` but no `ToDecimal`, so
+    /// emitting one produced C# that did not compile.
+    #[test]
+    fn decimal_out_param_reads_value_not_a_to_decimal_method() {
+        let cast = oracle_out_cast("decimal", "p");
+        assert!(cast.ends_with(").Value"), "decimal must read .Value; got: {cast}");
+        assert!(
+            !cast.contains("ToDecimal"),
+            "OracleDecimal has no ToDecimal(); got: {cast}"
+        );
+    }
+
+    /// `GetValue` returns `object`, which does not bind to a `byte[]` record
+    /// field, so a BLOB column produced a CS1503 conversion error.
+    #[test]
+    fn bytes_column_is_read_as_a_concrete_byte_array() {
+        assert_eq!(reader_method("bytes"), "GetFieldValue<byte[]>");
+    }
+
+    /// A BLOB bind defaulted to `Varchar2`, which is wrong for binary data.
+    #[test]
+    fn bytes_param_binds_as_blob() {
+        assert_eq!(oracle_db_type("bytes"), "OracleDbType.Blob");
     }
 }

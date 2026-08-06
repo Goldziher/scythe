@@ -46,7 +46,7 @@ public static async Task<List<GetAttachmentsByOrderRow>> GetAttachmentsByOrder(O
             reader.GetInt64(0),
             reader.GetInt64(1),
             reader.GetString(2),
-            reader.GetValue(3),
+            reader.GetFieldValue<byte[]>(3),
             reader.IsDBNull(4) ? null : reader.GetString(4)
         ));
     }
@@ -70,7 +70,7 @@ public static async Task<GetAttachmentByIdRow?> GetAttachmentById(OracleConnecti
         reader.GetInt64(0),
         reader.GetInt64(1),
         reader.GetString(2),
-        reader.GetValue(3),
+        reader.GetFieldValue<byte[]>(3),
         reader.IsDBNull(4) ? null : reader.GetString(4)
     );
 }
@@ -103,7 +103,7 @@ public static async Task<CreateOrderRow?> CreateOrder(OracleConnection conn, lon
     return new CreateOrderRow(
         ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out0"].Value).ToInt64(),
         ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out1"].Value).ToInt64(),
-        ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out2"].Value).ToDecimal(),
+        ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out2"].Value).Value,
         ((Oracle.ManagedDataAccess.Types.OracleString)cmd.Parameters["out3"].Value).Value,
         ((Oracle.ManagedDataAccess.Types.OracleDate)cmd.Parameters["out4"].Value).Value
     );
