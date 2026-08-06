@@ -527,7 +527,7 @@ impl Catalog {
             Ok(stmts) => {
                 if let Some(Statement::CreateTable(ct)) = stmts.into_iter().next() {
                     if let Some(col) = ct.columns.first() {
-                        let (t, _) = normalize_data_type(&col.data_type, &self.domains);
+                        let (t, _) = normalize_data_type(&col.data_type, &self.domains, *dialect);
                         t
                     } else {
                         base_type_raw.to_lowercase()
@@ -554,16 +554,20 @@ impl Catalog {
     fn process_statement(&mut self, stmt: Statement, dialect: &SqlDialect) -> Result<(), ScytheError> {
         match stmt {
             Statement::CreateTable(ct) => self.process_create_table(ct, dialect),
-            Statement::AlterTable(alter_table) => self.process_alter_table(alter_table.name, alter_table.operations),
+            Statement::AlterTable(alter_table) => {
+                self.process_alter_table(alter_table.name, alter_table.operations, dialect)
+            }
             Statement::CreateType { name, representation } => {
                 if let Some(repr) = representation {
-                    self.process_create_type(name, repr)
+                    self.process_create_type(name, repr, dialect)
                 } else {
                     Ok(())
                 }
             }
             Statement::AlterType(alter_type) => self.process_alter_type(alter_type.name, alter_type.operation),
-            Statement::CreateView(cv) => self.process_create_view(cv.name, cv.columns, *cv.query, cv.materialized),
+            Statement::CreateView(cv) => {
+                self.process_create_view(cv.name, cv.columns, *cv.query, cv.materialized, dialect)
+            }
             _ => Ok(()),
         }
     }
@@ -578,7 +582,7 @@ impl Catalog {
 
         for col_def in &ct.columns {
             let col_name = ident_to_lower(&col_def.name);
-            let (sql_type, is_serial) = normalize_data_type(&col_def.data_type, &self.domains);
+            let (sql_type, is_serial) = normalize_data_type(&col_def.data_type, &self.domains, *dialect);
 
             let sql_type = if let sqlparser::ast::DataType::Enum(variants, _bits) = &col_def.data_type {
                 if matches!(dialect, SqlDialect::MySQL | SqlDialect::SQLite) && !variants.is_empty() {
@@ -674,6 +678,7 @@ impl Catalog {
         &mut self,
         name: ObjectName,
         operations: Vec<AlterTableOperation>,
+        dialect: &SqlDialect,
     ) -> Result<(), ScytheError> {
         let table_key = object_name_to_key(&name);
 
@@ -683,7 +688,7 @@ impl Catalog {
                     let table = get_table_mut(&mut self.tables, &table_key);
                     if let Some(table) = table {
                         let col_name = ident_to_lower(&column_def.name);
-                        let (sql_type, is_serial) = normalize_data_type(&column_def.data_type, &self.domains);
+                        let (sql_type, is_serial) = normalize_data_type(&column_def.data_type, &self.domains, *dialect);
                         let mut nullable = !is_serial;
                         let mut default = None;
                         let mut primary_key = false;
@@ -761,7 +766,7 @@ impl Catalog {
                                     col.nullable = true;
                                 }
                                 AlterColumnOperation::SetDataType { data_type, .. } => {
-                                    let (new_type, _) = normalize_data_type(&data_type, &self.domains);
+                                    let (new_type, _) = normalize_data_type(&data_type, &self.domains, *dialect);
                                     col.sql_type = new_type;
                                 }
                                 AlterColumnOperation::SetDefault { value } => {
@@ -800,6 +805,7 @@ impl Catalog {
         &mut self,
         name: ObjectName,
         repr: UserDefinedTypeRepresentation,
+        dialect: &SqlDialect,
     ) -> Result<(), ScytheError> {
         let type_key = object_name_to_key(&name);
 
@@ -812,7 +818,7 @@ impl Catalog {
                 let fields: Vec<CompositeField> = attributes
                     .iter()
                     .map(|attr| {
-                        let (ft, _) = normalize_data_type(&attr.data_type, &self.domains);
+                        let (ft, _) = normalize_data_type(&attr.data_type, &self.domains, *dialect);
                         CompositeField {
                             name: ident_to_lower(&attr.name),
                             sql_type: ft,

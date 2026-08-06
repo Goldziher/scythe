@@ -1,5 +1,7 @@
 use sqlparser::ast::ObjectName;
 
+use crate::dialect::SqlDialect;
+
 use super::type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key};
 use super::{Catalog, Column, Table};
 
@@ -13,6 +15,7 @@ impl Catalog {
         view_columns: Vec<sqlparser::ast::ViewColumnDef>,
         query: sqlparser::ast::Query,
         _materialized: bool,
+        dialect: &SqlDialect,
     ) -> Result<(), crate::errors::ScytheError> {
         let view_key = object_name_to_key(&name);
 
@@ -24,7 +27,7 @@ impl Catalog {
                         .data_type
                         .as_ref()
                         .map(|dt| {
-                            let (t, _) = normalize_data_type(dt, &self.domains);
+                            let (t, _) = normalize_data_type(dt, &self.domains, *dialect);
                             t
                         })
                         .unwrap_or_else(|| "unknown".to_string());

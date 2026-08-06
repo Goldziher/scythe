@@ -80,13 +80,17 @@ SELECT id, name FROM users WHERE id = ?;
 | `SMALLINT` | `int16` |
 | `TINYINT` | `int16` |
 | `MEDIUMINT` | `int32` |
-| `FLOAT` | `float32` |
+| `FLOAT` (bare, no precision) | `float32` |
 | `DOUBLE` | `float64` |
 | `DECIMAL` / `NUMERIC` | `decimal` |
+| `TINYINT UNSIGNED` / `SMALLINT UNSIGNED` | `int16` |
+| `MEDIUMINT UNSIGNED` / `INT UNSIGNED` | `int32` |
+| `BIGINT UNSIGNED` | `int64` |
 | `VARCHAR` / `CHAR` / `TEXT` | `string` |
 | `TINYTEXT` / `MEDIUMTEXT` / `LONGTEXT` | `string` |
 | `BOOLEAN` / `BOOL` | `bool` |
-| `BIT` | `bool` |
+| `BIT` / `BIT(1)` | `bool` |
+| `BIT(n)` where `n > 1` | `int64` |
 | `BLOB` / `TINYBLOB` / `MEDIUMBLOB` / `LONGBLOB` | `bytes` |
 | `BINARY` / `VARBINARY` | `bytes` |
 | `DATE` | `date` |
@@ -97,3 +101,9 @@ SELECT id, name FROM users WHERE id = ?;
 | `JSON` | `json` |
 | `ENUM(...)` | `string` |
 | `SET(...)` | `string` |
+
+`UNSIGNED` integer columns map to the same-width signed neutral type -- there is no
+dedicated unsigned neutral type, and `BIGINT UNSIGNED` has no wider type to widen
+to. Values near the top of the unsigned range (for example, above `i16::MAX` for
+`SMALLINT UNSIGNED` or above `i64::MAX` for `BIGINT UNSIGNED`) need
+application-level handling in the generated code.

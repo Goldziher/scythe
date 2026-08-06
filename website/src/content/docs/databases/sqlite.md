@@ -37,7 +37,9 @@ CREATE TABLE users (
 
 | Affinity | Declared Types | Neutral Type |
 |----------|---------------|-------------|
-| INTEGER | `INTEGER`, `INT`, `SMALLINT`, `BIGINT`, `TINYINT`, `MEDIUMINT` | `int32` (or `int64` for BIGINT) |
+| INTEGER | `INTEGER`, `INT`, `BIGINT` | `int64` |
+| INTEGER | `SMALLINT`, `TINYINT` | `int16` |
+| INTEGER | `MEDIUMINT` | `int32` |
 | REAL | `REAL`, `FLOAT`, `DOUBLE`, `DOUBLE PRECISION` | `float64` |
 | TEXT | `TEXT`, `VARCHAR`, `CHAR`, `CLOB` | `string` |
 | BLOB | `BLOB` | `bytes` |
@@ -52,7 +54,7 @@ CREATE TABLE users (
 );
 ```
 
-`INTEGER PRIMARY KEY` is the SQLite auto-increment rowid. The `AUTOINCREMENT` keyword adds monotonicity. These columns are treated as NOT NULL `int32`.
+`INTEGER PRIMARY KEY` is the SQLite auto-increment rowid. The `AUTOINCREMENT` keyword adds monotonicity. These columns are treated as NOT NULL `int64` -- SQLite's `INTEGER` storage class always holds up to 8 bytes, so there is no narrower 4-byte integer type to map to.
 
 ## Limitations
 
@@ -70,8 +72,7 @@ SQLite does not support:
 
 | SQLite Type | Neutral Type |
 |------------|-------------|
-| `INTEGER` / `INT` | `int32` |
-| `BIGINT` | `int64` |
+| `INTEGER` / `INT` / `BIGINT` | `int64` |
 | `SMALLINT` / `TINYINT` | `int16` |
 | `MEDIUMINT` | `int32` |
 | `REAL` / `FLOAT` | `float64` |
