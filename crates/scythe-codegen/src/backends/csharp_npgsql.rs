@@ -35,7 +35,7 @@ impl CsharpNpgsqlBackend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest("backends/csharp-npgsql/manifest.toml", default_toml)?;
+        let manifest = super::parse_manifest(default_toml)?;
         Ok(Self {
             manifest,
             generated_enums: Arc::new(Mutex::new(Vec::new())),

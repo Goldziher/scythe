@@ -38,7 +38,7 @@ impl PhpPdoBackend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest("backends/php-pdo/manifest.toml", default_toml)?;
+        let manifest = super::parse_manifest(default_toml)?;
         Ok(Self {
             manifest,
             namespace: "App\\Generated".to_string(),

@@ -80,7 +80,7 @@ impl TypescriptKyselyBackend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest("backends/typescript-kysely/manifest.toml", default_toml)?;
+        let manifest = super::parse_manifest(default_toml)?;
         Ok(Self {
             manifest,
             row_type: TsRowType::default(),

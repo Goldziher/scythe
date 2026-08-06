@@ -5,9 +5,9 @@ description: How scythe backends are structured -- manifests, templates, and the
 
 Scythe generates type-safe code from SQL queries. Each backend is defined by:
 
-1. **Manifest** (`manifest.toml`) -- declares the language, type mappings, naming conventions, and import rules.
-2. **Templates** (Jinja2) -- render row structs, query functions, enums, and composites.
-3. **Rust trait** (`CodegenBackend`) -- implements `generate_row_struct`, `generate_query_fn`, `generate_enum_def`, etc.
+1. **Manifest** (`manifest.toml`) -- declares the language, type mappings, naming conventions, and import rules. Manifests are compiled into the `scythe-codegen` binary from `crates/scythe-codegen/manifests/`; manifest selection is a pure function of `(backend, engine)`, with no filesystem lookup at generation time.
+2. **Rust trait** (`CodegenBackend`) -- implements `generate_row_struct`, `generate_query_fn`, `generate_enum_def`, etc., building output strings directly with `std::fmt::Write` rather than rendering templates.
+3. **Manifest-driven type resolution** -- the manifest's `[types.scalars]` and `[types.containers]` tables drive how neutral types map to language-native types within the trait implementation.
 
 ## Manifest structure
 

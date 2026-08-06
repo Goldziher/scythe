@@ -40,15 +40,11 @@ impl SqlxBackend {
             }
         }
         let manifest = match engine {
-            "mysql" => super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_MYSQL)?,
-            "mariadb" => super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_MARIADB)?,
-            "redshift" => {
-                super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_REDSHIFT)?
-            }
-            "sqlite" | "sqlite3" => {
-                super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_SQLITE)?
-            }
-            _ => super::load_or_default_manifest("backends/rust-sqlx/manifest.toml", DEFAULT_MANIFEST_TOML)?,
+            "mysql" => super::parse_manifest(DEFAULT_MANIFEST_MYSQL)?,
+            "mariadb" => super::parse_manifest(DEFAULT_MANIFEST_MARIADB)?,
+            "redshift" => super::parse_manifest(DEFAULT_MANIFEST_REDSHIFT)?,
+            "sqlite" | "sqlite3" => super::parse_manifest(DEFAULT_MANIFEST_SQLITE)?,
+            _ => super::parse_manifest(DEFAULT_MANIFEST_TOML)?,
         };
         Ok(Self {
             manifest,

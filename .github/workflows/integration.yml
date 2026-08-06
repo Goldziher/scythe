@@ -6,14 +6,12 @@ on:
     paths:
       - "crates/scythe-codegen/**"
       - "crates/scythe-core/**"
-      - "backends/**"
       - "integration_tests/**"
   pull_request:
     branches: [main]
     paths:
       - "crates/scythe-codegen/**"
       - "crates/scythe-core/**"
-      - "backends/**"
       - "integration_tests/**"
   workflow_dispatch:
 

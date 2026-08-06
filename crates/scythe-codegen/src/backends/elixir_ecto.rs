@@ -27,7 +27,7 @@ impl ElixirEctoBackend {
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest("backends/elixir-ecto/manifest.toml", DEFAULT_MANIFEST_TOML)?;
+        let manifest = super::parse_manifest(DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
 }

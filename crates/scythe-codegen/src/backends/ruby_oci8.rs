@@ -25,7 +25,7 @@ impl RubyOci8Backend {
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest("backends/ruby-oci8/manifest.toml", DEFAULT_MANIFEST_TOML)?;
+        let manifest = super::parse_manifest(DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
 }

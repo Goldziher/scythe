@@ -40,7 +40,7 @@ impl PythonPsycopg3Backend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest("backends/python-psycopg3/manifest.toml", default_toml)?;
+        let manifest = super::parse_manifest(default_toml)?;
         Ok(Self {
             manifest,
             row_type: PythonRowType::default(),

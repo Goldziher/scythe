@@ -37,7 +37,7 @@ impl JavaR2dbcBackend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest("backends/java-r2dbc/manifest.toml", default_toml)?;
+        let manifest = super::parse_manifest(default_toml)?;
         let is_pg = matches!(engine, "postgresql" | "postgres" | "pg");
         Ok(Self { manifest, is_pg })
     }

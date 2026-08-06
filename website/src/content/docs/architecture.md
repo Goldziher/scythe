@@ -68,7 +68,7 @@ pub trait CodegenBackend: Send + Sync {
 }
 ```
 
-Each backend also has a `manifest.toml` that maps neutral types to language-specific types. No Rust code is needed to customize type mappings.
+Each backend also has a `manifest.toml` that maps neutral types to language-specific types. No Rust code is needed to customize type mappings. Manifests are compiled into the `scythe-codegen` binary at build time (from `crates/scythe-codegen/manifests/`), not loaded from the filesystem at generation time -- there is currently no supported way to override a manifest by dropping a file on disk (tracked in [#82](https://github.com/Goldziher/scythe/issues/82)).
 
 ### Engine-aware manifests
 

@@ -47,7 +47,7 @@ impl JavaJdbcBackend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest("backends/java-jdbc/manifest.toml", default_toml)?;
+        let manifest = super::parse_manifest(default_toml)?;
         Ok(Self {
             manifest,
             engine: engine.to_string(),

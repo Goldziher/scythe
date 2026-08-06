@@ -39,7 +39,7 @@ impl TokioPostgresBackend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest("backends/rust-tokio-postgres/manifest.toml", default_toml)?;
+        let manifest = super::parse_manifest(default_toml)?;
         Ok(Self {
             manifest,
             serde: false,

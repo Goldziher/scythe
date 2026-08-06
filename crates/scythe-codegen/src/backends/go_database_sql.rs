@@ -34,7 +34,7 @@ impl GoDatabaseSqlBackend {
                 ));
             }
         };
-        let manifest = super::load_or_default_manifest("backends/go-database-sql/manifest.toml", manifest_toml)?;
+        let manifest = super::parse_manifest(manifest_toml)?;
         Ok(Self {
             manifest,
             engine: engine.to_string(),

@@ -60,19 +60,13 @@ use scythe_core::errors::{ErrorCode, ScytheError};
 
 use crate::backend_trait::CodegenBackend;
 
-/// Load a backend manifest, preferring a user-provided file at `override_path`
-/// and falling back to the embedded `default_toml` string.
-pub(crate) fn load_or_default_manifest(
-    override_path: &str,
-    default_toml: &str,
-) -> Result<BackendManifest, ScytheError> {
-    let path = std::path::Path::new(override_path);
-    if path.exists() {
-        scythe_backend::manifest::load_manifest(path)
-            .map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
-    } else {
-        toml::from_str(default_toml).map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
-    }
+/// Parse a backend's compiled-in manifest.
+///
+/// Manifest selection is a pure function of (backend, engine). There is
+/// deliberately no filesystem lookup here: generated output must not depend
+/// on the process working directory (#82).
+pub(crate) fn parse_manifest(manifest_toml: &str) -> Result<BackendManifest, ScytheError> {
+    toml::from_str(manifest_toml).map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
 }
 
 /// Strip SQL comments, trailing semicolons, and excess whitespace.
@@ -467,6 +461,92 @@ mod tests {
             nullable: true,
             position,
         }
+    }
+
+    /// Structural guard for #82: no source file under `src/backends` may
+    /// reference a manifest path relative to the process working directory,
+    /// however that reference is spelled. This catches a reintroduction of
+    /// the filesystem-lookup pattern written differently from the original
+    /// (different variable names, a helper function, etc.) that a simple
+    /// function-name grep for the old `load_or_default_manifest` helper would
+    /// miss.
+    ///
+    /// The forbidden needle is built at runtime, not written as a literal
+    /// here, so this check does not trip over its own source describing what
+    /// it looks for.
+    #[test]
+    fn test_no_backends_relative_manifest_path_literals() {
+        let root = concat!(env!("CARGO_MANIFEST_DIR"), "/src/backends");
+        let word: String = format!("backend{}", "s/");
+        let needle: String = format!("{}{}", '"', word);
+
+        let mut offenders = Vec::new();
+        collect_rs_files(std::path::Path::new(root), &mut offenders);
+
+        let offenders: Vec<_> = offenders
+            .into_iter()
+            .filter(|path| {
+                let contents = std::fs::read_to_string(path).expect("failed to read source file");
+                contents.contains(&needle)
+            })
+            .collect();
+
+        assert!(
+            offenders.is_empty(),
+            "found a working-directory-relative manifest path literal in: {offenders:?} (#82 regression \
+             -- manifest selection must be a pure function of (backend, engine), no filesystem lookup)"
+        );
+    }
+
+    /// Recursively collect every `.rs` file path under `dir`.
+    fn collect_rs_files(dir: &std::path::Path, out: &mut Vec<std::path::PathBuf>) {
+        let entries = std::fs::read_dir(dir).expect("failed to read backends dir");
+        for entry in entries {
+            let entry = entry.expect("failed to read dir entry");
+            let path = entry.path();
+            if path.is_dir() {
+                collect_rs_files(&path, out);
+            } else if path.extension().and_then(|e| e.to_str()) == Some("rs") {
+                out.push(path);
+            }
+        }
+    }
+
+    /// Documents the engine-blind collision the deleted CWD-relative lookup
+    /// would have caused: two backends sharing a backend-name-only manifest
+    /// path (`backends/<name>/manifest.toml`) but supporting different
+    /// engines would have silently shared one manifest file on disk. Pure
+    /// `(backend, engine)` selection must not exhibit this collision.
+    #[test]
+    fn test_get_backend_rust_sqlx_mysql_has_no_postgresql_scalars() {
+        let backend = get_backend("rust-sqlx", "mysql").expect("rust-sqlx should support mysql");
+        let scalars = &backend.manifest().types.scalars;
+        assert_ne!(
+            scalars.get("uuid").map(String::as_str),
+            Some("uuid::Uuid"),
+            "rust-sqlx/mysql manifest should not carry the PostgreSQL-specific 'uuid' mapping"
+        );
+        assert_ne!(
+            scalars.get("inet").map(String::as_str),
+            Some("ipnetwork::IpNetwork"),
+            "rust-sqlx/mysql manifest should not carry the PostgreSQL-specific 'inet' mapping"
+        );
+    }
+
+    #[test]
+    fn test_get_backend_java_jdbc_sqlite_has_no_postgresql_scalars() {
+        let backend = get_backend("java-jdbc", "sqlite").expect("java-jdbc should support sqlite");
+        let scalars = &backend.manifest().types.scalars;
+        assert_ne!(
+            scalars.get("uuid").map(String::as_str),
+            Some("java.util.UUID"),
+            "java-jdbc/sqlite manifest should not carry the PostgreSQL-specific 'uuid' mapping"
+        );
+        assert_ne!(
+            scalars.get("decimal").map(String::as_str),
+            Some("java.math.BigDecimal"),
+            "java-jdbc/sqlite manifest should not carry the PostgreSQL-specific 'decimal' mapping"
+        );
     }
 
     #[test]

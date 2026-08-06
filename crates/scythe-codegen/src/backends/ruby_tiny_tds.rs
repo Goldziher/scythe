@@ -84,7 +84,7 @@ impl RubyTinyTdsBackend {
                 ));
             }
         }
-        let manifest = super::load_or_default_manifest("backends/ruby-tiny-tds/manifest.toml", DEFAULT_MANIFEST_TOML)?;
+        let manifest = super::parse_manifest(DEFAULT_MANIFEST_TOML)?;
         Ok(Self { manifest })
     }
 }
