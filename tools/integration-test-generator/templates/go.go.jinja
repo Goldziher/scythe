@@ -571,7 +571,11 @@ var createdUserID string
 {%- elif engine == "sqlite" -%}
 {#- SQLite's INTEGER PRIMARY KEY is an alias for the 64-bit rowid, so generated id columns are int64. -#}
 var createdUserID int64
-{%- elif engine == "mysql" or engine == "mssql" or engine == "snowflake" -%}
+{#- Snowflake aliases every integer spelling to NUMBER(38,0), so its id columns
+    are int64 like SQLite's and Oracle's, not int32 like MySQL's and MSSQL's. -#}
+{%- elif engine == "snowflake" -%}
+var createdUserID int64
+{%- elif engine == "mysql" or engine == "mssql" -%}
 var createdUserID int32
 {%- else -%}
 var createdUserID int64

@@ -23,7 +23,10 @@ fun fail(name: String, e: Exception) {
     failed++
 }
 
-var createdUserId = 0
+// Snowflake aliases every integer spelling to NUMBER(38,0), so its id columns
+// are Long. Kotlin does not implicitly widen Int, so an Int here is a
+// compile error at every call site rather than a silent narrowing.
+var createdUserId: Long = 0
 
 fun main() {
     val snowflakeUrl = System.getenv("SNOWFLAKE_URL")

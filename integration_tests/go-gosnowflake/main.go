@@ -105,7 +105,7 @@ func runMigration(ctx context.Context, db *sql.DB) error {
 	return nil
 }
 
-var createdUserID int32
+var createdUserID int64
 
 func testCreateUser(ctx context.Context, db *sql.DB) {
 	name := "CreateUser"
