@@ -15,6 +15,10 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         return neutral;
     }
 
+    if let Some(neutral) = number_type_to_neutral(&lower) {
+        return neutral;
+    }
+
     match normalized.as_str() {
         // SQLite's `INTEGER` storage class holds up to 8 bytes; there is no
         // narrower 4-byte integer type. `INT`/`INTEGER` are genuine SQLite
@@ -22,16 +26,61 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         // spellings that would not appear in real SQLite DDL, so they are left
         // ungated below rather than risk masking a mixed-dialect mistake.
         "integer" | "int" if catalog.dialect() == SqlDialect::SQLite => Cow::Borrowed("int64"),
+        // Snowflake has no dedicated narrow integer storage: every integer type
+        // (`SMALLINT`, `TINYINT`, `INT`, `INTEGER`, `BIGINT`) is an alias for
+        // `NUMBER(38,0)`, so all of them must resolve to the same `int64` as the
+        // bare `"number"` arm below. `INT4`/`SERIAL` are PostgreSQL-only spellings
+        // that would not appear in real Snowflake DDL, so they stay ungated.
+        "integer" | "int" if catalog.dialect() == SqlDialect::Snowflake => Cow::Borrowed("int64"),
         "integer" | "int" | "int4" | "serial" => Cow::Borrowed("int32"),
+        // Same reasoning as the Snowflake `INT` arm above. Regression test for
+        // issue #83: previously ungated, so Snowflake typed the same underlying
+        // storage as `int64` via the `NUMBER`/`BIGINT` spellings and `int16` via
+        // the `SMALLINT`/`TINYINT` spellings.
+        "smallint" | "tinyint" if catalog.dialect() == SqlDialect::Snowflake => Cow::Borrowed("int64"),
         "smallint" | "int2" | "smallserial" => Cow::Borrowed("int16"),
         "bigint" | "int8" | "bigserial" => Cow::Borrowed("int64"),
         "tinyint" => Cow::Borrowed("int16"),
         "mediumint" => Cow::Borrowed("int32"),
+        // DuckDB's 1-byte `TINYINT` alias. Left ungated: no other supported
+        // dialect has an `INT1` spelling, so there is no risk of colliding with a
+        // different engine's type. Regression test for issue #83.
+        "int1" => Cow::Borrowed("int16"),
+        // DuckDB's 128-bit integers. There is no neutral type wide enough to hold
+        // the full range losslessly (the widest integer neutral type is `int64`),
+        // so both map to `decimal` -- an arbitrary-precision type -- rather than a
+        // lossy, silently-truncating `int64`. `UHUGEINT` in particular was
+        // previously documented (incorrectly) as `uint64`, which is not a neutral
+        // type at all -- the docs are corrected to `decimal` alongside this fix.
+        // Left ungated: no other supported dialect has these spellings.
+        // Regression test for issue #83.
+        "hugeint" | "uhugeint" => Cow::Borrowed("decimal"),
+        // Oracle/Snowflake `NUMBER(p,s)` with `s > 0` is handled scale-aware by
+        // `number_type_to_neutral` above, before precision is stripped. This bare
+        // arm only ever sees `NUMBER(p,0)` (explicit zero scale), `NUMBER(p)`
+        // (implied zero scale per the SQL standard), and truly bare `NUMBER` (no
+        // precision or scale at all) -- all indistinguishable from each other by
+        // the time this string reaches here, because upstream catalog
+        // normalization (`normalize_data_type` in `catalog/type_normalizer.rs`)
+        // collapses `NUMBER(p)` to the same bare `"number"` spelling as a
+        // parameterless `NUMBER`. Oracle's truly bare `NUMBER` is technically a
+        // "floating" type that can hold fractional values, which would argue for
+        // `decimal` here too -- but real schemas overwhelmingly use `NUMBER(p)`
+        // (e.g. `NUMBER(1)` as an integer/boolean-flag column, as seen in this
+        // repo's own Oracle fixtures) far more often than a genuinely
+        // unconstrained bare `NUMBER`, and mapping this arm to `decimal` would
+        // silently regress every `NUMBER(p)` integer column instead. `int64` is
+        // kept as the pragmatic default; a caller that truly needs bare `NUMBER`
+        // to preserve fractional precision should declare an explicit scale.
         "number" => Cow::Borrowed("int64"),
 
         // SQLite's `REAL` storage class is always an 8-byte IEEE float (SQLite has no
         // 4-byte float type), unlike PostgreSQL's 4-byte `real`/`float4`.
         "real" | "float4" if catalog.dialect() == SqlDialect::SQLite => Cow::Borrowed("float64"),
+        // Snowflake has no dedicated narrow float storage either: `FLOAT`,
+        // `FLOAT4`, `FLOAT8`, `DOUBLE`, and `REAL` are all aliases for the same
+        // 8-byte `DOUBLE`. Regression test for issue #83.
+        "real" | "float4" if catalog.dialect() == SqlDialect::Snowflake => Cow::Borrowed("float64"),
         "real" | "float4" => Cow::Borrowed("float32"),
         "double precision" | "float8" | "double" => Cow::Borrowed("float64"),
         // MySQL's bare `FLOAT` (no precision) is a genuine 4-byte type; every other
@@ -40,6 +89,11 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "float" if catalog.dialect() == SqlDialect::MySQL => Cow::Borrowed("float32"),
         "float" => Cow::Borrowed("float64"),
         "numeric" | "decimal" => Cow::Borrowed("decimal"),
+        // MSSQL's `MONEY`/`SMALLMONEY` and PostgreSQL's `MONEY` are all
+        // fixed-point currency types; both engines benefit from the same mapping,
+        // so this is left ungated rather than split into two dialect-gated arms.
+        // Regression test for issue #83.
+        "money" | "smallmoney" => Cow::Borrowed("decimal"),
 
         // MySQL's `UNSIGNED` numeric qualifier has no dedicated neutral type, so it
         // maps to the same-width signed neutral type. This does not widen to
@@ -58,6 +112,9 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "nvarchar" | "nchar" | "ntext" => Cow::Borrowed("string"),
         "tinytext" | "mediumtext" | "longtext" | "clob" | "nclob" => Cow::Borrowed("string"),
         "set" => Cow::Borrowed("string"),
+        // MSSQL's XML column type. Left ungated: no other supported dialect has
+        // an `XML` column type. Regression test for issue #83.
+        "xml" => Cow::Borrowed("string"),
 
         "boolean" | "bool" => Cow::Borrowed("bool"),
 
@@ -150,6 +207,31 @@ fn bit_type_to_neutral(lower: &str, dialect: SqlDialect) -> Option<Cow<'static, 
     })
 }
 
+/// Resolve a scale-bearing `NUMBER(p,s)` string (Oracle/Snowflake's `NUMBER`
+/// type). `strip_precision` discards the `(p,s)` suffix before the main `match`
+/// in `sql_type_to_neutral` runs, and the bare `"number"` arm there has no scale
+/// handling, so a `NUMBER(10,2)` -- a genuine decimal -- would otherwise fall
+/// through to `int64` and silently truncate money-shaped columns
+/// (https://github.com/Goldziher/scythe/issues/83 follow-up). This must run
+/// before `strip_precision` to see the scale at all.
+///
+/// Only an *explicit* nonzero scale routes to `decimal`; `NUMBER(p,0)` and
+/// `NUMBER(p)` (implied zero scale) return `None` so they fall through to the
+/// ordinary bare `"number"` arm, which resolves to `int64` -- see the comment on
+/// that arm for why bare `NUMBER` also stays `int64` rather than `decimal`.
+/// Left ungated: no other supported dialect has a `NUMBER` spelling, so there is
+/// no risk of colliding with a different engine's type.
+fn number_type_to_neutral(lower: &str) -> Option<Cow<'static, str>> {
+    let inner = lower.strip_prefix("number(")?.strip_suffix(')')?;
+    let (_, scale) = inner.split_once(',')?;
+    let scale: i64 = scale.trim().parse().ok()?;
+    if scale > 0 {
+        Some(Cow::Borrowed("decimal"))
+    } else {
+        None
+    }
+}
+
 pub(super) fn strip_precision(s: &str) -> String {
     if let Some(idx) = s.rfind('(')
         && s.ends_with(')')
@@ -168,12 +250,25 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
         // See the matching comment in `sql_type_to_neutral`: SQLite's `INTEGER` is
         // always an 8-byte integer; `INT4`/`SERIAL`-style spellings are left ungated.
         DataType::Int(_) | DataType::Integer(_) if catalog.dialect() == SqlDialect::SQLite => "int64".to_string(),
+        DataType::Int(_) | DataType::Integer(_) if catalog.dialect() == SqlDialect::Snowflake => "int64".to_string(),
         DataType::Int(_) | DataType::Int4(_) | DataType::Integer(_) => "int32".to_string(),
+        // See the matching comment in `sql_type_to_neutral`: Snowflake stores every
+        // integer type as `NUMBER(38,0)`, so `SMALLINT`/`TINYINT` must resolve to
+        // `int64` there, not the narrower `int16` other dialects use.
+        DataType::SmallInt(_) | DataType::Int2(_) | DataType::TinyInt(_)
+            if catalog.dialect() == SqlDialect::Snowflake =>
+        {
+            "int64".to_string()
+        }
         DataType::SmallInt(_) | DataType::Int2(_) => "int16".to_string(),
         DataType::BigInt(_) | DataType::Int8(_) => "int64".to_string(),
         // See the matching comment in `sql_type_to_neutral`: SQLite's `REAL` is always
         // an 8-byte float, unlike PostgreSQL's 4-byte `real`/`float4`.
         DataType::Real | DataType::Float4 if catalog.dialect() == SqlDialect::SQLite => "float64".to_string(),
+        // See the matching comment in `sql_type_to_neutral`: Snowflake's `REAL`/
+        // `FLOAT4` are aliases for the same 8-byte `DOUBLE` as every other float
+        // spelling there.
+        DataType::Real | DataType::Float4 if catalog.dialect() == SqlDialect::Snowflake => "float64".to_string(),
         DataType::Real | DataType::Float4 => "float32".to_string(),
         DataType::DoublePrecision | DataType::Float8 => "float64".to_string(),
         DataType::Float(info) => {
@@ -278,7 +373,38 @@ pub(super) fn datatype_to_neutral(dt: &DataType, catalog: &Catalog) -> String {
                 "timestamp_ltz" => "datetime_tz".to_string(),
                 "timestamp_tz" => "datetime_tz".to_string(),
                 "variant" => "json".to_string(),
-                "number" if tokens.len() >= 2 => "decimal".to_string(),
+                // This AST-level Custom arm sees `tokens` directly from the
+                // parser -- unlike `sql_type_to_neutral`'s bare `"number"` arm,
+                // which only ever receives the already-collapsed `"number"`
+                // string (upstream catalog normalization in
+                // `catalog/type_normalizer.rs` discards precision-only tokens
+                // before storing a column's `sql_type`, so a catalog column can
+                // never reach this arm distinguishing bare `NUMBER` from
+                // `NUMBER(p)`). This arm is reached instead for direct AST
+                // resolution -- e.g. `CAST(x AS NUMBER)` expressions and query
+                // parameter type inference -- where the token count is known, so
+                // it implements the full three-way split documented on the
+                // Oracle database docs page:
+                //   - no tokens: bare `NUMBER` is Oracle's "floating" type, which
+                //     can hold fractional values, so it maps to `decimal`.
+                //   - one token (precision only, e.g. `NUMBER(38)`): implied
+                //     scale 0, a true integer, so it maps to `int64`.
+                //   - two-plus tokens (explicit scale): scale-aware, matching
+                //     `number_type_to_neutral` -- nonzero scale is `decimal`,
+                //     zero scale is `int64`. An unparseable scale token defaults
+                //     to `decimal` (the safe, non-truncating choice).
+                "number" => match tokens.len() {
+                    0 => "decimal".to_string(),
+                    1 => "int64".to_string(),
+                    _ => {
+                        let scale_is_nonzero = tokens[1].trim().parse::<i64>().map(|s| s > 0).unwrap_or(true);
+                        if scale_is_nonzero {
+                            "decimal".to_string()
+                        } else {
+                            "int64".to_string()
+                        }
+                    }
+                },
                 _ => sql_type_to_neutral(&raw, catalog).into_owned(),
             }
         }
@@ -311,6 +437,158 @@ mod tests {
 
     fn snowflake_catalog() -> Catalog {
         Catalog::from_ddl_with_dialect(&[], &SqlDialect::Snowflake).unwrap()
+    }
+
+    fn oracle_catalog() -> Catalog {
+        Catalog::from_ddl_with_dialect(&[], &SqlDialect::Oracle).unwrap()
+    }
+
+    /// Regression test for issue #83: DuckDB's `INT1` (a 1-byte `TINYINT` alias)
+    /// had no matching arm at all and previously fell through to the unknown-type
+    /// echo, which would later fail codegen with `BackendError::UnknownType`.
+    /// DuckDB has no dedicated `SqlDialect` variant (it collapses to
+    /// `SqlDialect::PostgreSQL`), so this is exercised under a plain PostgreSQL
+    /// catalog and left ungated in the implementation, since PostgreSQL itself has
+    /// no `INT1` spelling to collide with.
+    #[test]
+    fn test_duckdb_int1() {
+        let c = empty_catalog();
+        assert_eq!(sql_type_to_neutral("int1", &c), "int16");
+
+        let catalog = Catalog::from_ddl_with_dialect(&["CREATE TABLE t (a INT1);"], &SqlDialect::PostgreSQL).unwrap();
+        let table = catalog.get_table("t").unwrap();
+        assert_eq!(sql_type_to_neutral(&table.columns[0].sql_type, &catalog), "int16");
+    }
+
+    /// Regression test for issue #83: DuckDB's 128-bit `HUGEINT`/`UHUGEINT` had no
+    /// matching arm at all and previously fell through to the unknown-type echo,
+    /// eventually failing codegen with `BackendError::UnknownType`. No neutral
+    /// type is wide enough to hold the full 128-bit range, so both map to
+    /// `decimal` (arbitrary precision) rather than a lossy, silently-truncating
+    /// `int64`. `sqlparser` gives `HUGEINT`/`UHUGEINT` dedicated `DataType`
+    /// variants (`DataType::HugeInt`/`DataType::UHugeInt`), so this also verifies
+    /// the AST entry point, which falls through to `sql_type_to_neutral` via the
+    /// catch-all stringify-and-delegate arm.
+    #[test]
+    fn test_duckdb_hugeint_uhugeint_map_to_decimal() {
+        let c = empty_catalog();
+        assert_eq!(sql_type_to_neutral("hugeint", &c), "decimal");
+        assert_eq!(sql_type_to_neutral("uhugeint", &c), "decimal");
+        assert_eq!(datatype_to_neutral(&DataType::HugeInt, &c), "decimal");
+        assert_eq!(datatype_to_neutral(&DataType::UHugeInt, &c), "decimal");
+
+        let catalog =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (a HUGEINT, b UHUGEINT);"], &SqlDialect::PostgreSQL)
+                .unwrap();
+        let table = catalog.get_table("t").unwrap();
+        assert_eq!(sql_type_to_neutral(&table.columns[0].sql_type, &catalog), "decimal");
+        assert_eq!(sql_type_to_neutral(&table.columns[1].sql_type, &catalog), "decimal");
+    }
+
+    /// Regression test for issue #83: neither MSSQL's `MONEY`/`SMALLMONEY` nor
+    /// PostgreSQL's `MONEY` had a matching arm, both previously falling through to
+    /// the unknown-type echo and eventually failing codegen with
+    /// `BackendError::UnknownType`. Both are fixed-point currency types, so both
+    /// engines share the same ungated `decimal` mapping.
+    #[test]
+    fn test_money_and_smallmoney_map_to_decimal() {
+        let mssql = mssql_catalog();
+        assert_eq!(sql_type_to_neutral("money", &mssql), "decimal");
+        assert_eq!(sql_type_to_neutral("smallmoney", &mssql), "decimal");
+
+        let postgres = empty_catalog();
+        assert_eq!(sql_type_to_neutral("money", &postgres), "decimal");
+
+        let catalog =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (a MONEY, b SMALLMONEY);"], &SqlDialect::MsSql).unwrap();
+        let table = catalog.get_table("t").unwrap();
+        assert_eq!(sql_type_to_neutral(&table.columns[0].sql_type, &catalog), "decimal");
+        assert_eq!(sql_type_to_neutral(&table.columns[1].sql_type, &catalog), "decimal");
+    }
+
+    /// Regression test for issue #83: MSSQL's `XML` column type had no matching
+    /// arm and previously fell through to the unknown-type echo, eventually
+    /// failing codegen with `BackendError::UnknownType`.
+    #[test]
+    fn test_mssql_xml_maps_to_string() {
+        let mssql = mssql_catalog();
+        assert_eq!(sql_type_to_neutral("xml", &mssql), "string");
+
+        let catalog = Catalog::from_ddl_with_dialect(&["CREATE TABLE t (a XML);"], &SqlDialect::MsSql).unwrap();
+        let table = catalog.get_table("t").unwrap();
+        assert_eq!(sql_type_to_neutral(&table.columns[0].sql_type, &catalog), "string");
+    }
+
+    /// Regression test for the `NUMBER(p,s)` truncation bug (issue #83 follow-up):
+    /// a direct `sql_type_to_neutral` call with an explicit-scale Oracle/Snowflake
+    /// `NUMBER(10,2)` string previously resolved to `int64` via the bare
+    /// `"number"` arm (scale discarded by `strip_precision`), silently truncating
+    /// money-shaped columns. It must now resolve to `decimal`.
+    ///
+    /// Confirmed via `Catalog::from_ddl_with_dialect` that the full DDL pipeline
+    /// was NOT affected by this bug for `NUMBER(p,s)` with `s > 0`: upstream
+    /// catalog normalization (`normalize_data_type` in
+    /// `catalog/type_normalizer.rs`) already rewrites `NUMBER(10,2)` to
+    /// `"numeric(10,2)"` before it reaches this module, which the existing
+    /// `"numeric" | "decimal"` arm handles correctly. This test still fixes the
+    /// direct string-call path, which any future non-DDL caller (e.g. live
+    /// catalog introspection) could hit.
+    #[test]
+    fn test_oracle_number_precision_scale_bug() {
+        let oracle = oracle_catalog();
+        assert_eq!(sql_type_to_neutral("number(10,2)", &oracle), "decimal");
+        assert_eq!(sql_type_to_neutral("number(38,4)", &oracle), "decimal");
+
+        let snowflake = snowflake_catalog();
+        assert_eq!(sql_type_to_neutral("number(10,2)", &snowflake), "decimal");
+
+        // Also verify end-to-end through the DDL path, per the task instructions:
+        // this must have been correct already (not a regression fix, a
+        // confirmation), since upstream normalization already rewrites this to
+        // `numeric(10,2)`.
+        let catalog =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (price NUMBER(10,2));"], &SqlDialect::Oracle).unwrap();
+        let table = catalog.get_table("t").unwrap();
+        assert_eq!(sql_type_to_neutral(&table.columns[0].sql_type, &catalog), "decimal");
+    }
+
+    /// `NUMBER(p,0)` (explicit zero scale) and bare `NUMBER(p)`/`NUMBER` must stay
+    /// `int64`, not `decimal` -- a zero scale is a true integer, and Oracle's own
+    /// `NUMBER(1)` idiom (used as a boolean-flag column in this repo's Oracle
+    /// fixtures, e.g. `integration_tests/sql/oracle/schema.sql`) must not
+    /// silently become a decimal string.
+    #[test]
+    fn test_oracle_number_zero_scale_and_bare_stay_int64() {
+        let oracle = oracle_catalog();
+        assert_eq!(sql_type_to_neutral("number(10,0)", &oracle), "int64");
+        assert_eq!(sql_type_to_neutral("number(1)", &oracle), "int64");
+        assert_eq!(sql_type_to_neutral("number", &oracle), "int64");
+    }
+
+    /// AST-based entry point (`datatype_to_neutral`'s `DataType::Custom` arm) must
+    /// stay consistent with `sql_type_to_neutral`'s scale-aware handling above.
+    #[test]
+    fn test_oracle_number_datatype_custom_scale_aware() {
+        let oracle = oracle_catalog();
+        let name = ast::ObjectName(vec![ast::ObjectNamePart::Identifier(ast::Ident::new("NUMBER"))]);
+        let with_scale = DataType::Custom(name.clone(), vec!["10".to_string(), "2".to_string()]);
+        assert_eq!(datatype_to_neutral(&with_scale, &oracle), "decimal");
+
+        let zero_scale = DataType::Custom(name.clone(), vec!["10".to_string(), "0".to_string()]);
+        assert_eq!(datatype_to_neutral(&zero_scale, &oracle), "int64");
+
+        let precision_only = DataType::Custom(name.clone(), vec!["10".to_string()]);
+        assert_eq!(datatype_to_neutral(&precision_only, &oracle), "int64");
+
+        // Bare `NUMBER` (no tokens at all) is Oracle's "floating" type, which can
+        // hold fractional values, so it maps to `decimal` -- distinct from the
+        // `int64` that `sql_type_to_neutral`'s bare `"number"` string arm gives,
+        // because that string-based arm cannot distinguish a genuinely bare
+        // `NUMBER` from a `NUMBER(p)` collapsed by upstream catalog
+        // normalization (see the comment on that arm). This AST-level arm has
+        // the real token count and can make the distinction correctly.
+        let bare = DataType::Custom(name, vec![]);
+        assert_eq!(datatype_to_neutral(&bare, &oracle), "decimal");
     }
 
     #[test]
@@ -489,6 +767,62 @@ mod tests {
     fn test_snowflake_variant_type() {
         let c = snowflake_catalog();
         assert_eq!(sql_type_to_neutral("variant", &c), "json");
+    }
+
+    /// Regression test for issue #83: Snowflake stores every integer type as
+    /// `NUMBER(38,0)`, so `SMALLINT`/`TINYINT` must resolve to `int64` -- the same
+    /// neutral type the bare `NUMBER` spelling already resolves to -- rather than
+    /// the narrower `int16` other dialects use. Before this fix, Snowflake typed
+    /// the identical underlying storage as `int64` via one spelling and `int16`
+    /// via the other, with no Snowflake-gated arm at all (the ungated `smallint`/
+    /// `tinyint` arms silently applied). `INT`/`INTEGER`/`BIGINT` are unaffected:
+    /// they already resolve to `int64`/`int32` consistent with `NUMBER(38,0)` via
+    /// the existing ungated arms and are not part of this fix.
+    #[test]
+    fn test_snowflake_integer_family_is_all_int64() {
+        // Snowflake aliases every integer spelling to NUMBER(38,0), so the whole
+        // family must agree. Fixing only SMALLINT/TINYINT would leave INT/INTEGER
+        // reporting int32 for the same underlying storage.
+        let c = snowflake_catalog();
+        for spelling in ["smallint", "tinyint", "int", "integer", "bigint", "number"] {
+            assert_eq!(sql_type_to_neutral(spelling, &c), "int64", "snowflake {spelling}");
+        }
+        assert_eq!(datatype_to_neutral(&DataType::SmallInt(None), &c), "int64");
+        assert_eq!(datatype_to_neutral(&DataType::TinyInt(None), &c), "int64");
+        assert_eq!(datatype_to_neutral(&DataType::Int(None), &c), "int64");
+        assert_eq!(datatype_to_neutral(&DataType::Integer(None), &c), "int64");
+
+        // Other dialects are unaffected: PostgreSQL's SMALLINT and INT genuinely
+        // are narrower types.
+        let postgres = empty_catalog();
+        assert_eq!(sql_type_to_neutral("smallint", &postgres), "int16");
+        assert_eq!(sql_type_to_neutral("tinyint", &postgres), "int16");
+        assert_eq!(sql_type_to_neutral("int", &postgres), "int32");
+        assert_eq!(sql_type_to_neutral("integer", &postgres), "int32");
+        assert_eq!(datatype_to_neutral(&DataType::Int(None), &postgres), "int32");
+
+        // SQLite's own INT widening is untouched by the Snowflake arm.
+        let sqlite = sqlite_catalog();
+        assert_eq!(sql_type_to_neutral("int", &sqlite), "int64");
+    }
+
+    /// Regression test for issue #83: Snowflake's `REAL`/`FLOAT4` are aliases for
+    /// the same 8-byte `DOUBLE` as every other Snowflake float spelling
+    /// (`FLOAT`/`FLOAT8`/`DOUBLE`, which already resolved to `float64` via the
+    /// existing ungated arms). Before this fix there was no Snowflake-gated arm,
+    /// so `REAL`/`FLOAT4` silently narrowed to `float32`.
+    #[test]
+    fn test_snowflake_real_float4_are_float64() {
+        let c = snowflake_catalog();
+        assert_eq!(sql_type_to_neutral("real", &c), "float64");
+        assert_eq!(sql_type_to_neutral("float4", &c), "float64");
+        assert_eq!(datatype_to_neutral(&DataType::Real, &c), "float64");
+        assert_eq!(datatype_to_neutral(&DataType::Float4, &c), "float64");
+
+        // Other dialects are unaffected: PostgreSQL's REAL genuinely is float32.
+        let postgres = empty_catalog();
+        assert_eq!(sql_type_to_neutral("real", &postgres), "float32");
+        assert_eq!(sql_type_to_neutral("float4", &postgres), "float32");
     }
 
     #[test]

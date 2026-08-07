@@ -73,6 +73,9 @@ output = "src/generated"
 | `FLOAT` | `float32` | |
 | `DOUBLE` | `float64` | |
 | `DECIMAL` / `NUMERIC` | `decimal` | |
+| `TINYINT UNSIGNED` / `SMALLINT UNSIGNED` | `int16` | Same-width signed neutral type |
+| `MEDIUMINT UNSIGNED` / `INT UNSIGNED` | `int32` | Same-width signed neutral type |
+| `BIGINT UNSIGNED` | `int64` | Same-width signed neutral type |
 | `VARCHAR` / `CHAR` / `TEXT` | `string` | |
 | `BOOLEAN` / `BOOL` | `bool` | |
 | `BLOB` / `BINARY` / `VARBINARY` | `bytes` | |
@@ -85,6 +88,13 @@ output = "src/generated"
 | `INET4` | `inet` | MariaDB 10.10+ |
 | `INET6` | `inet` | MariaDB 10.10+ |
 | `ENUM(...)` | `string` | |
+
+`UNSIGNED` integer columns map to the same-width signed neutral type -- there is no
+dedicated unsigned neutral type, and `BIGINT UNSIGNED` has no wider type to widen
+to. Values near the top of the unsigned range (for example, above `i16::MAX` for
+`SMALLINT UNSIGNED` or above `i64::MAX` for `BIGINT UNSIGNED`) need
+application-level handling in the generated code. This applies to MariaDB because
+it resolves to the same `SqlDialect::MySQL` type-resolution path as MySQL.
 
 ## Placeholder syntax
 

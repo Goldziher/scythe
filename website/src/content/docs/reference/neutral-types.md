@@ -57,6 +57,7 @@ Enum and composite names are converted to PascalCase for all backends.
 | `DOUBLE PRECISION`, `FLOAT8` | `float64` |
 | `FLOAT` (bare, no precision) | `float64` (`float32` on MySQL) |
 | `NUMERIC`, `DECIMAL` | `decimal` |
+| `MONEY`, `SMALLMONEY` | `decimal` |
 | `TEXT`, `VARCHAR`, `CHAR` | `string` |
 | `BOOLEAN`, `BOOL` | `bool` |
 | `BYTEA`, `BLOB`, `BINARY` | `bytes` |

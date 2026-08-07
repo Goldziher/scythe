@@ -41,8 +41,8 @@ out = "src/generated/queries.py"
 | `BIGINT` / `INT8` | `int64` | |
 | `SMALLINT` / `INT2` | `int16` | |
 | `TINYINT` / `INT1` | `int16` | There is no `int8` neutral type |
-| `HUGEINT` | `int64` | 128-bit integer mapped to int64 |
-| `UHUGEINT` | `uint64` | Unsigned 128-bit integer |
+| `HUGEINT` | `decimal` | 128-bit integer; no neutral type is wide enough to hold it losslessly |
+| `UHUGEINT` | `decimal` | Unsigned 128-bit integer; there is no `uint64` neutral type |
 | `REAL` / `FLOAT4` | `float32` | |
 | `DOUBLE` / `FLOAT8` | `float64` | |
 | `DECIMAL` / `NUMERIC` | `decimal` | Precision is stripped |

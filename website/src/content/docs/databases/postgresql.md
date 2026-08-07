@@ -26,6 +26,7 @@ Scythe's primary and most complete dialect. All features are supported.
 | `REAL` / `FLOAT4` | `float32` | |
 | `DOUBLE PRECISION` / `FLOAT8` | `float64` | |
 | `NUMERIC` / `DECIMAL` | `decimal` | Precision is stripped |
+| `MONEY` | `decimal` | Fixed-point currency type |
 | `TEXT` / `VARCHAR` / `CHAR` | `string` | All character types unify to `string` |
 | `BOOLEAN` / `BOOL` | `bool` | |
 | `BYTEA` | `bytes` | |
