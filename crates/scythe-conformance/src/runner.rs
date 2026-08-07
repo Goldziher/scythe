@@ -199,6 +199,18 @@ pub enum RunnerError {
         source: FixtureRowCountMismatch,
     },
     #[error(
+        "fixture {fixture:?} on engine {engine}: run {run:?} row {row} column {column:?}: the fixture declares this value {declared} but the engine returned it {observed}"
+    )]
+    RowNullnessMismatch {
+        fixture: String,
+        engine: Engine,
+        run: String,
+        row: usize,
+        column: String,
+        declared: &'static str,
+        observed: &'static str,
+    },
+    #[error(
         "fixture {fixture:?} on engine {engine}: the live engine's row does not carry an expected column: {source}"
     )]
     MissingObservedColumn {
@@ -552,7 +564,11 @@ async fn evaluate_fixture<E: Executor>(
                 }
             })?;
 
-        for observed_row in &observed_rows {
+        for (row_index, observed_row) in observed_rows.iter().enumerate() {
+            // Safe to index: check_row_count above already proved the two
+            // lengths agree, and rows are matched ordinally against the
+            // query's mandatory ORDER BY.
+            let declared_row = &resolved_rows[row_index];
             for column in &analyzed.columns {
                 let is_null = observed_row.is_null(&column.name).map_err(|source| {
                     let (fixture, engine) = err_ctx();
@@ -562,6 +578,32 @@ async fn evaluate_fixture<E: Executor>(
                         source,
                     }
                 })?;
+
+                // A fixture's per-row `null`/`non_null` lists read exactly
+                // like assertions, so they must be ones. Without this, a
+                // fixture could declare a column NULL in a row where the
+                // engine returns a value and stay green -- the four
+                // assertions below only consume the *observed* nulls, so
+                // nothing else ever reads the declaration back. `None` is
+                // a column the fixture does not mention for this row (the
+                // loader requires every *declared* column to appear, but
+                // `analyzed.columns` may be wider), which asserts nothing
+                // by design rather than by omission.
+                if let Some(declared_null) = declared_row.declared_null(&column.name)
+                    && declared_null != is_null
+                {
+                    let (fixture, engine) = err_ctx();
+                    return Err(RunnerError::RowNullnessMismatch {
+                        fixture,
+                        engine,
+                        run: run.name.clone(),
+                        row: row_index,
+                        column: column.name.clone(),
+                        declared: if declared_null { "NULL" } else { "non-NULL" },
+                        observed: if is_null { "NULL" } else { "non-NULL" },
+                    });
+                }
+
                 observed_nulls.entry(column.name.clone()).or_default().push(is_null);
             }
             row_count += 1;
