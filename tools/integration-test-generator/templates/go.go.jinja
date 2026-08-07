@@ -857,7 +857,7 @@ func testGetUserById(ctx context.Context, db *sql.DB) {
 func testCreateOrder(ctx context.Context, db *sql.DB) {
 	name := "CreateOrder"
 	notes := "Test order"
-	order, err := queries.CreateOrder(ctx, db, createdUserID, int64(9999), &notes)
+	order, err := queries.CreateOrder(ctx, db, createdUserID, 9999.0, &notes)
 	if err != nil {
 		fail(name, err)
 		return
