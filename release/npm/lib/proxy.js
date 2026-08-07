@@ -6,8 +6,8 @@
  * corporate user has typically already configured npm. `NO_PROXY` disables
  * proxying for matching hosts.
  *
- * Node's built-in `fetch` (undici) does not honour `HTTPS_PROXY` on its
- * own -- callers must pass an explicit dispatcher/agent built from this URL.
+ * Neither `node:https` nor Node's built-in `fetch` honours `HTTPS_PROXY` on
+ * its own -- callers must pass an explicit agent built from this URL.
  *
  * @param {NodeJS.ProcessEnv} env
  * @param {string} [targetHost]
@@ -46,6 +46,8 @@ function isNoProxyMatch(host, noProxyList) {
 
 /**
  * Resolves the CA bundle file path to trust, honouring npm's own config.
+ * The file is read and passed to the TLS layer by `lib/download.js`;
+ * returning a path here has no effect on its own.
  *
  * @param {NodeJS.ProcessEnv} env
  * @returns {string | null}

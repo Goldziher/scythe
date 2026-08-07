@@ -1,16 +1,14 @@
 #!/usr/bin/env node
 "use strict";
 
-const fs = require("node:fs");
-const fsp = require("node:fs/promises");
 const os = require("node:os");
 
 const pkg = require("./package.json");
 const { resolveTarget, isMuslLinux } = require("./lib/platform");
-const { cachedBinaryPath } = require("./lib/cache");
+const { cachedBinaryPath, isUsableCachedBinary } = require("./lib/cache");
 const { assertRealVersion } = require("./lib/version");
 const { parseChecksums, expectedChecksum, verifyChecksum } = require("./lib/checksum");
-const { resolveProxyUrl, resolveCaFile } = require("./lib/proxy");
+const { downloadBuffer, downloadText } = require("./lib/download");
 const { extractTarGz, extractZip } = require("./lib/extract");
 const { hasMatchingPathBinary } = require("./lib/preinstalled");
 
@@ -48,7 +46,7 @@ async function main() {
     binaryName,
   });
 
-  if (fs.existsSync(destPath)) {
+  if (isUsableCachedBinary(destPath, process.platform)) {
     process.stderr.write(`scythe-cli: scythe ${version} already cached at ${destPath}.\n`);
     return;
   }
@@ -61,62 +59,25 @@ async function main() {
 
   process.stderr.write(`scythe-cli: downloading scythe ${version} for ${target}...\n`);
 
-  const checksumsText = await fetchText(checksumsUrl);
+  const log = (message) => process.stderr.write(message);
+
+  const checksumsText = await downloadText(checksumsUrl, { log });
   const checksums = parseChecksums(checksumsText);
   const expected = expectedChecksum(checksums, assetName, checksumsUrl);
 
-  const assetBuffer = await fetchBuffer(assetUrl);
+  const assetBuffer = await downloadBuffer(assetUrl, { log });
   verifyChecksum(assetBuffer, expected, assetUrl);
 
+  // Extraction publishes the binary atomically, already executable, so no
+  // partially written or non-runnable file is ever visible at destPath.
+  const mode = process.platform === "win32" ? undefined : 0o755;
   if (archiveExt === "zip") {
-    await extractZip(assetBuffer, binaryName, destPath);
+    await extractZip(assetBuffer, binaryName, destPath, mode);
   } else {
-    await extractTarGz(assetBuffer, binaryName, destPath);
-  }
-
-  if (process.platform !== "win32") {
-    await fsp.chmod(destPath, 0o755);
+    await extractTarGz(assetBuffer, binaryName, destPath, mode);
   }
 
   process.stderr.write(`scythe-cli: installed scythe ${version} to ${destPath}\n`);
-}
-
-/**
- * @param {string} url
- * @returns {Promise<import("node:http").Agent | undefined>}
- */
-async function buildDispatcher(url) {
-  const host = new URL(url).hostname;
-  const proxyUrl = resolveProxyUrl(process.env, host);
-  if (!proxyUrl) return undefined;
-  const { HttpsProxyAgent } = require("https-proxy-agent");
-  return new HttpsProxyAgent(proxyUrl);
-}
-
-async function fetchImpl(url) {
-  const dispatcher = await buildDispatcher(url);
-  const caFile = resolveCaFile(process.env);
-  const fetchOptions = {};
-  if (dispatcher) fetchOptions.dispatcher = dispatcher;
-  if (caFile) {
-    process.stderr.write(`scythe-cli: using CA bundle from ${caFile}\n`);
-  }
-  const response = await fetch(url, fetchOptions);
-  if (!response.ok) {
-    throw new Error(`scythe-cli: failed to download ${url}: HTTP ${response.status}`);
-  }
-  return response;
-}
-
-async function fetchText(url) {
-  const response = await fetchImpl(url);
-  return response.text();
-}
-
-async function fetchBuffer(url) {
-  const response = await fetchImpl(url);
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
 }
 
 main().catch((err) => {

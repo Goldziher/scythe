@@ -5,6 +5,8 @@ const fsp = require("node:fs/promises");
 const os = require("node:os");
 const path = require("node:path");
 
+const { writeAtomic } = require("./atomic");
+
 /**
  * Finds the archive entry whose basename matches `binaryName`. The archive
  * also contains LICENSE/README (goreleaser default), so callers must not
@@ -27,13 +29,15 @@ function findBinaryEntry(entryNames, binaryName) {
 }
 
 /**
- * Extracts the `scythe` binary from a `.tar.gz` archive buffer to `destPath`.
+ * Extracts the `scythe` binary from a `.tar.gz` archive buffer to `destPath`,
+ * publishing it atomically.
  *
  * @param {Buffer} buffer
  * @param {string} binaryName
  * @param {string} destPath
+ * @param {number} [mode] - permissions applied before the file is published.
  */
-async function extractTarGz(buffer, binaryName, destPath) {
+async function extractTarGz(buffer, binaryName, destPath, mode) {
   const tar = require("tar");
   const { Readable } = require("node:stream");
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "scythe-cli-"));
@@ -48,57 +52,62 @@ async function extractTarGz(buffer, binaryName, destPath) {
 
     const entryName = findBinaryEntry(entries, binaryName);
     const extractedPath = path.join(tmpDir, entryName);
-    await fsp.mkdir(path.dirname(destPath), { recursive: true });
-    await fsp.copyFile(extractedPath, destPath);
+    await writeAtomic(destPath, (tempPath) => fsp.copyFile(extractedPath, tempPath), mode);
   } finally {
     await fsp.rm(tmpDir, { recursive: true, force: true });
   }
 }
 
 /**
- * Extracts the `scythe.exe` binary from a `.zip` archive buffer to `destPath`.
+ * Extracts the `scythe.exe` binary from a `.zip` archive buffer to `destPath`,
+ * publishing it atomically.
  *
  * @param {Buffer} buffer
  * @param {string} binaryName
  * @param {string} destPath
+ * @param {number} [mode] - permissions applied before the file is published.
  */
-async function extractZip(buffer, binaryName, destPath) {
+async function extractZip(buffer, binaryName, destPath, mode) {
   const yauzl = require("yauzl");
 
-  await fsp.mkdir(path.dirname(destPath), { recursive: true });
+  await writeAtomic(
+    destPath,
+    (tempPath) =>
+      new Promise((resolve, reject) => {
+        yauzl.fromBuffer(buffer, { lazyEntries: true }, (err, zipfile) => {
+          if (err) return reject(err);
 
-  await new Promise((resolve, reject) => {
-    yauzl.fromBuffer(buffer, { lazyEntries: true }, (err, zipfile) => {
-      if (err) return reject(err);
-
-      let found = false;
-      zipfile.readEntry();
-      zipfile.on("entry", (entry) => {
-        const basename = entry.fileName.split("/").pop();
-        if (basename !== binaryName) {
+          let found = false;
           zipfile.readEntry();
-          return;
-        }
-        found = true;
-        zipfile.openReadStream(entry, (streamErr, readStream) => {
-          if (streamErr) return reject(streamErr);
-          const out = fs.createWriteStream(destPath);
-          readStream.pipe(out);
-          out.on("finish", () => {
-            zipfile.close();
-            resolve(undefined);
+          zipfile.on("entry", (entry) => {
+            const basename = entry.fileName.split("/").pop();
+            if (basename !== binaryName) {
+              zipfile.readEntry();
+              return;
+            }
+            found = true;
+            zipfile.openReadStream(entry, (streamErr, readStream) => {
+              if (streamErr) return reject(streamErr);
+              const out = fs.createWriteStream(tempPath);
+              readStream.on("error", reject);
+              readStream.pipe(out);
+              out.on("finish", () => {
+                zipfile.close();
+                resolve(undefined);
+              });
+              out.on("error", reject);
+            });
           });
-          out.on("error", reject);
+          zipfile.on("end", () => {
+            if (!found) {
+              reject(new Error(`scythe-cli: could not find "${binaryName}" inside the downloaded zip archive.`));
+            }
+          });
+          zipfile.on("error", reject);
         });
-      });
-      zipfile.on("end", () => {
-        if (!found) {
-          reject(new Error(`scythe-cli: could not find "${binaryName}" inside the downloaded zip archive.`));
-        }
-      });
-      zipfile.on("error", reject);
-    });
-  });
+      }),
+    mode,
+  );
 }
 
 module.exports = { findBinaryEntry, extractTarGz, extractZip };

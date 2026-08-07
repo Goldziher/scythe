@@ -10,11 +10,10 @@
  */
 
 const { spawnSync } = require("node:child_process");
-const fs = require("node:fs");
 const os = require("node:os");
 
 const pkg = require("../package.json");
-const { cachedBinaryPath } = require("../lib/cache");
+const { cachedBinaryPath, isUsableCachedBinary } = require("../lib/cache");
 const { resolveTarget } = require("../lib/platform");
 
 function resolveBinaryPath() {
@@ -40,9 +39,11 @@ function resolveBinaryPath() {
 function main() {
   const binaryPath = resolveBinaryPath();
 
-  if (!fs.existsSync(binaryPath)) {
+  // An explicit SCYTHE_BINARY is the user's own choice of file and is run as
+  // given; only the managed cache path is held to the completeness check.
+  if (!process.env.SCYTHE_BINARY && !isUsableCachedBinary(binaryPath, process.platform)) {
     process.stderr.write(
-      `scythe-cli: the scythe binary was not found at ${binaryPath}.\n` +
+      `scythe-cli: no usable scythe binary was found at ${binaryPath}.\n` +
         "It should have been downloaded by the postinstall script. Try:\n" +
         "  npm rebuild scythe-cli\n" +
         "or reinstall the package. If this persists, set SCYTHE_BINARY to point at a " +
