@@ -11,10 +11,10 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, escape_ts_template_literal, generate_grouped_interface_structs, generate_ts_grouped_fold_body,
-    generate_ts_interface_row_struct_with_base, generate_ts_union_row_struct, generate_zod_enum,
-    generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
-    reject_unknown_options,
+    TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
+    generate_ts_grouped_fold_body, generate_ts_interface_row_struct_with_base, generate_ts_many_row_remap,
+    generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
+    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option, reject_unknown_options,
 };
 use crate::singularize;
 
@@ -33,6 +33,16 @@ pub struct TypescriptMysql2Backend {
     /// type generated here extends/intersects it, so it remains genuinely
     /// used even with no query functions.
     structs_only: bool,
+    /// Under `Camel`, declared row types stop extending/intersecting
+    /// `RowDataPacket` (its `[column: string]: any` index signature would
+    /// keep accepting the driver's raw snake_case keys structurally, even
+    /// on a type that declares only camelCase fields -- defeating the point
+    /// of renaming them), and `:one`/`:opt`/`:many` fetch through bare
+    /// `RowDataPacket` and reconstruct the row field by field instead of
+    /// trusting a `pool.execute<StructName[]>` generic -- see
+    /// [`generate_ts_one_row_remap`]/[`generate_ts_many_row_remap`]. `Snake`
+    /// (the default) is unchanged.
+    field_case: TsFieldCase,
 }
 
 impl TypescriptMysql2Backend {
@@ -52,6 +62,7 @@ impl TypescriptMysql2Backend {
             row_type: TsRowType::default(),
             outer_join_unions: false,
             structs_only: false,
+            field_case: TsFieldCase::default(),
         })
     }
 }
@@ -90,40 +101,51 @@ impl CodegenBackend for TypescriptMysql2Backend {
 
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
+        // Under Camel, the declared row type must not extend/intersect
+        // RowDataPacket -- see the `field_case` field doc for why -- so
+        // there is also no bridging `{struct_name}Packet` type to generate:
+        // `:one`/`:opt`/`:many` fetch through bare `RowDataPacket` directly
+        // in that mode (mirroring what the `:grouped` fold already does
+        // unconditionally), so nothing needs a per-query Packet alias.
+        let base = match self.field_case {
+            TsFieldCase::Snake => Some("RowDataPacket"),
+            TsFieldCase::Camel => None,
+        };
         if self.row_type == TsRowType::Zod {
             if self.outer_join_unions {
                 let mut out = generate_zod_union_row_struct(&struct_name, query_name, columns);
+                let Some(base) = base else {
+                    return Ok(out);
+                };
                 let _ = writeln!(out);
                 let _ = writeln!(out);
                 // `interface extends` cannot extend a union, so use an
                 // intersection type alias instead; it stays valid even
                 // when there's no discriminant and the schema collapses
                 // back to a plain object.
-                let _ = write!(out, "export type {struct_name}Packet = RowDataPacket & {struct_name};");
+                let _ = write!(out, "export type {struct_name}Packet = {base} & {struct_name};");
                 return Ok(out);
             }
             let mut out = generate_zod_row_struct(&struct_name, query_name, columns);
+            let Some(base) = base else {
+                return Ok(out);
+            };
             let _ = writeln!(out);
             let _ = writeln!(out);
             let _ = write!(
                 out,
-                "export interface {struct_name}Packet extends RowDataPacket, {struct_name} {{}}"
+                "export interface {struct_name}Packet extends {base}, {struct_name} {{}}"
             );
             return Ok(out);
         }
         if self.outer_join_unions {
-            return Ok(generate_ts_union_row_struct(
-                &struct_name,
-                query_name,
-                columns,
-                Some("RowDataPacket"),
-            ));
+            return Ok(generate_ts_union_row_struct(&struct_name, query_name, columns, base));
         }
         Ok(generate_ts_interface_row_struct_with_base(
             &struct_name,
             query_name,
             columns,
-            Some("RowDataPacket"),
+            base,
         ))
     }
 
@@ -137,7 +159,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
         &self,
         analyzed: &AnalyzedQuery,
         struct_name: &str,
-        _columns: &[ResolvedColumn],
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         if self.structs_only {
@@ -182,10 +204,12 @@ impl CodegenBackend for TypescriptMysql2Backend {
             format!(", [{}]", args.join(", "))
         };
 
-        let query_type = if self.row_type == TsRowType::Zod {
-            format!("{struct_name}Packet")
-        } else {
-            struct_name.to_string()
+        // Under Camel there is no Packet type to name (see generate_row_struct):
+        // the fetch always trusts bare RowDataPacket instead, then remaps.
+        let query_type = match self.field_case {
+            TsFieldCase::Snake if self.row_type == TsRowType::Zod => format!("{struct_name}Packet"),
+            TsFieldCase::Snake => struct_name.to_string(),
+            TsFieldCase::Camel => "RowDataPacket".to_string(),
         };
 
         match &analyzed.command {
@@ -196,7 +220,15 @@ impl CodegenBackend for TypescriptMysql2Backend {
                 let _ = writeln!(out, "\tconst [rows] = await pool.execute<{}[]>(", query_type);
                 let _ = writeln!(out, "\t\t`{}`{},", sql, param_array);
                 let _ = writeln!(out, "\t);");
-                let _ = writeln!(out, "\treturn rows[0] ?? null;");
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        let _ = writeln!(out, "\treturn rows[0] ?? null;");
+                    }
+                    TsFieldCase::Camel => {
+                        let _ = writeln!(out, "\tconst row = rows[0];");
+                        out.push_str(&generate_ts_one_row_remap(columns, |name, _ty| format!("row.{name}")));
+                    }
+                }
                 let _ = write!(out, "}}");
             }
             QueryCommand::Batch => {
@@ -285,7 +317,14 @@ impl CodegenBackend for TypescriptMysql2Backend {
                 let _ = writeln!(out, "\tconst [rows] = await pool.execute<{}[]>(", query_type);
                 let _ = writeln!(out, "\t\t`{}`{},", sql, param_array);
                 let _ = writeln!(out, "\t);");
-                let _ = writeln!(out, "\treturn rows;");
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        let _ = writeln!(out, "\treturn rows;");
+                    }
+                    TsFieldCase::Camel => {
+                        out.push_str(&generate_ts_many_row_remap(columns, |name, _ty| format!("row.{name}")));
+                    }
+                }
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {
@@ -458,6 +497,10 @@ impl CodegenBackend for TypescriptMysql2Backend {
         if let Some(value) = options.get("structs_only") {
             self.structs_only = parse_bool_option("structs_only", value)?;
         }
+        if let Some(value) = options.get("field_case") {
+            self.field_case = TsFieldCase::from_option(value)?;
+            self.manifest.naming.field_case = value.clone();
+        }
         Ok(())
     }
 }
@@ -570,6 +613,152 @@ mod tests {
             group_by: None,
             custom: vec![],
         }
+    }
+
+    fn make_one_query_with_snake_case_column() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetSession".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT id, user_id FROM sessions WHERE id = ?".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    fn camel_backend() -> TypescriptMysql2Backend {
+        let mut backend = TypescriptMysql2Backend::new("mysql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        backend
+    }
+
+    /// This must fail before the fix: `RowDataPacket`'s `[column: string]:
+    /// any` index signature is inherited by anything that `extends` it, so
+    /// even a strict camelCase-only interface would still silently accept
+    /// `row.user_id` -- masking exactly the bug this backend is supposed to
+    /// prevent. Under Camel the declared type must not extend RowDataPacket
+    /// at all.
+    #[test]
+    fn test_row_struct_drops_row_data_packet_base_under_camel_case() {
+        let backend = camel_backend();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("export interface GetSessionRow {"),
+            "must be a plain interface with no base; got:\n{row_struct}"
+        );
+        assert!(
+            !row_struct.contains("extends RowDataPacket"),
+            "must not extend RowDataPacket under camelCase; got:\n{row_struct}"
+        );
+    }
+
+    #[test]
+    fn test_one_query_fn_remaps_fields_under_camel_case() {
+        let backend = camel_backend();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("pool.execute<RowDataPacket[]>("),
+            "must fetch through bare RowDataPacket, not the struct type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("userId: row.user_id,"),
+            "must remap the declared camelCase field from the driver's raw key; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_many_query_fn_remaps_fields_under_camel_case() {
+        let backend = camel_backend();
+        let mut query = make_one_query_with_snake_case_column();
+        query.command = QueryCommand::Many;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("pool.execute<RowDataPacket[]>("),
+            "must fetch through bare RowDataPacket, not the struct type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("return rows.map((row) => ({"),
+            "must map each row; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("userId: row.user_id,"),
+            "must remap the declared camelCase field from the driver's raw key; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_one_query_fn_keeps_the_typed_generic_under_the_default_snake_case() {
+        let backend = TypescriptMysql2Backend::new("mysql").unwrap();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("pool.execute<GetSessionRow[]>("),
+            "default field_case must keep the original typed generic unchanged; got:\n{query_fn}"
+        );
+        let row_struct = result.row_struct.as_deref().unwrap();
+        assert!(
+            row_struct.contains("extends RowDataPacket"),
+            "default field_case must keep the RowDataPacket base; got:\n{row_struct}"
+        );
+    }
+
+    /// Zod mode's bridging `{struct_name}Packet` type exists only to satisfy
+    /// mysql2's `execute<T extends RowDataPacket>` constraint for a fetch
+    /// that trusts the schema's inferred shape. Under Camel that fetch
+    /// always goes through bare `RowDataPacket` instead (see
+    /// `generate_row_struct`), so the Packet type has no reason to exist and
+    /// must not be generated.
+    #[test]
+    fn test_zod_row_type_drops_packet_type_under_camel_case() {
+        let mut backend = camel_backend();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "row_type".to_string(),
+                "zod".to_string(),
+            )]))
+            .unwrap();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            !row_struct.contains("Packet"),
+            "camelCase zod mode must not emit a Packet bridging type; got:\n{row_struct}"
+        );
     }
 
     /// MySQL/MariaDB idiomatically backtick-quotes identifiers

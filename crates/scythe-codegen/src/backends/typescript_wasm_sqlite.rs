@@ -10,9 +10,10 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, escape_ts_template_literal, generate_grouped_interface_structs, generate_ts_grouped_fold_body,
-    generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_grouped_structs,
-    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option, reject_unknown_options,
+    TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
+    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
+    generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
+    generate_zod_union_row_struct, parse_bool_option, reject_unknown_options,
 };
 use crate::singularize;
 
@@ -38,6 +39,12 @@ pub struct TypescriptWasmSqliteBackend {
     /// composites) — no query functions, and no `@sqlite.org/sqlite-wasm`
     /// driver import (which would otherwise be unused).
     structs_only: bool,
+    /// Under `Camel`, `:one`/`:opt`/`:many` reconstruct the row field by
+    /// field from the driver's raw (snake_case) keys instead of trusting a
+    /// blind cast -- see [`generate_ts_one_row_remap`]/
+    /// [`generate_ts_many_row_remap`]. `Snake` (the default) keeps the
+    /// original blind cast, which is sound there.
+    field_case: TsFieldCase,
 }
 
 impl TypescriptWasmSqliteBackend {
@@ -57,6 +64,7 @@ impl TypescriptWasmSqliteBackend {
             row_type: TsRowType::default(),
             outer_join_unions: false,
             structs_only: false,
+            field_case: TsFieldCase::default(),
         })
     }
 }
@@ -115,7 +123,7 @@ impl CodegenBackend for TypescriptWasmSqliteBackend {
         &self,
         analyzed: &AnalyzedQuery,
         struct_name: &str,
-        _columns: &[ResolvedColumn],
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         if self.structs_only {
@@ -176,20 +184,31 @@ impl CodegenBackend for TypescriptWasmSqliteBackend {
                 let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let ret = format!("{} | null", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
-                if params.is_empty() {
-                    let _ = writeln!(
-                        out,
-                        "\tconst row = db.selectObject(`{}`) as unknown as {} | undefined;",
-                        sql, struct_name
-                    );
+                let select_call = if params.is_empty() {
+                    format!("db.selectObject(`{}`)", sql)
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "\tconst row = db.selectObject(`{}`, {}) as unknown as {} | undefined;",
-                        sql, bind_array, struct_name
-                    );
+                    format!("db.selectObject(`{}`, {})", sql, bind_array)
+                };
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        let _ = writeln!(
+                            out,
+                            "\tconst row = {} as unknown as {} | undefined;",
+                            select_call, struct_name
+                        );
+                        let _ = writeln!(out, "\treturn row ?? null;");
+                    }
+                    TsFieldCase::Camel => {
+                        let _ = writeln!(
+                            out,
+                            "\tconst row = {} as unknown as Record<string, unknown> | undefined;",
+                            select_call
+                        );
+                        out.push_str(&generate_ts_one_row_remap(columns, |name, ty| {
+                            format!("row['{name}'] as {ty}")
+                        }));
+                    }
                 }
-                let _ = writeln!(out, "\treturn row ?? null;");
                 let _ = write!(out, "}}");
             }
             QueryCommand::Batch => {
@@ -258,18 +277,25 @@ impl CodegenBackend for TypescriptWasmSqliteBackend {
                 let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
                 let ret = format!("{}[]", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
-                if params.is_empty() {
-                    let _ = writeln!(
-                        out,
-                        "\treturn db.selectObjects(`{}`) as unknown as {}[];",
-                        sql, struct_name
-                    );
+                let select_call = if params.is_empty() {
+                    format!("db.selectObjects(`{}`)", sql)
                 } else {
-                    let _ = writeln!(
-                        out,
-                        "\treturn db.selectObjects(`{}`, {}) as unknown as {}[];",
-                        sql, bind_array, struct_name
-                    );
+                    format!("db.selectObjects(`{}`, {})", sql, bind_array)
+                };
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        let _ = writeln!(out, "\treturn {} as unknown as {}[];", select_call, struct_name);
+                    }
+                    TsFieldCase::Camel => {
+                        let _ = writeln!(
+                            out,
+                            "\tconst rows = {} as unknown as Record<string, unknown>[];",
+                            select_call
+                        );
+                        out.push_str(&generate_ts_many_row_remap(columns, |name, ty| {
+                            format!("row['{name}'] as {ty}")
+                        }));
+                    }
                 }
                 let _ = write!(out, "}}");
             }
@@ -446,6 +472,10 @@ impl CodegenBackend for TypescriptWasmSqliteBackend {
         if let Some(value) = options.get("structs_only") {
             self.structs_only = parse_bool_option("structs_only", value)?;
         }
+        if let Some(value) = options.get("field_case") {
+            self.field_case = TsFieldCase::from_option(value)?;
+            self.manifest.naming.field_case = value.clone();
+        }
         Ok(())
     }
 }
@@ -572,6 +602,103 @@ mod tests {
             group_by: None,
             custom: vec![],
         }
+    }
+
+    fn make_one_query_with_snake_case_column() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetSession".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT id, user_id FROM sessions WHERE id = ?".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// This must fail before the fix: a blind cast of the driver's row is
+    /// unsound once `field_case = "camelCase"` renames the declared fields
+    /// -- sqlite-wasm still returns snake_case keys.
+    #[test]
+    fn test_one_query_fn_remaps_fields_under_camel_case() {
+        let mut backend = TypescriptWasmSqliteBackend::new("sqlite").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("as unknown as Record<string, unknown> | undefined"),
+            "must not trust a blind cast; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("userId: row['user_id'] as number,"),
+            "must remap the declared camelCase field from the driver's raw key; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_many_query_fn_remaps_fields_under_camel_case() {
+        let mut backend = TypescriptWasmSqliteBackend::new("sqlite").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let mut query = make_one_query_with_snake_case_column();
+        query.command = QueryCommand::Many;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("as unknown as Record<string, unknown>[];"),
+            "must not trust a blind cast; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("userId: row['user_id'] as number,"),
+            "must remap the declared camelCase field from the driver's raw key; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_one_query_fn_keeps_the_blind_cast_under_the_default_snake_case() {
+        let backend = TypescriptWasmSqliteBackend::new("sqlite").unwrap();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("as unknown as GetSessionRow | undefined"),
+            "default field_case must keep the original blind cast unchanged; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("Record<string, unknown>"),
+            "must not switch to the remap path under the default; got:\n{query_fn}"
+        );
     }
 
     #[test]

@@ -9,9 +9,10 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, escape_ts_template_literal, generate_grouped_interface_structs, generate_ts_grouped_fold_body,
-    generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_grouped_structs,
-    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option, reject_unknown_options,
+    TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
+    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
+    generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
+    generate_zod_union_row_struct, parse_bool_option, reject_unknown_options,
 };
 use crate::singularize;
 
@@ -29,6 +30,12 @@ pub struct TypescriptDuckdbBackend {
     /// import, and no `firstRow`/`allRows` helpers (both would otherwise be
     /// unused since only query functions call them).
     structs_only: bool,
+    /// Under `Camel`, `:one`/`:opt`/`:many` reconstruct the row field by
+    /// field from the driver's raw (snake_case) keys instead of trusting
+    /// `firstRow<StructName>`/`allRows<StructName>`'s blind generic cast --
+    /// see [`generate_ts_one_row_remap`]/[`generate_ts_many_row_remap`].
+    /// `Snake` (the default) keeps that cast, which is sound there.
+    field_case: TsFieldCase,
 }
 
 impl TypescriptDuckdbBackend {
@@ -48,6 +55,7 @@ impl TypescriptDuckdbBackend {
             row_type: TsRowType::default(),
             outer_join_unions: false,
             structs_only: false,
+            field_case: TsFieldCase::default(),
         })
     }
 }
@@ -114,7 +122,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         &self,
         analyzed: &AnalyzedQuery,
         struct_name: &str,
-        _columns: &[ResolvedColumn],
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         if self.structs_only {
@@ -180,8 +188,18 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                     let _ = writeln!(out, "\tconst result = await stmt.run({});", param_args);
                 }
                 let _ = writeln!(out, "\tconst rows = await result.getRowObjects();");
-                let _ = writeln!(out, "\tconst row = firstRow<{}>(rows);", struct_name);
-                let _ = writeln!(out, "\treturn row;");
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        let _ = writeln!(out, "\tconst row = firstRow<{}>(rows);", struct_name);
+                        let _ = writeln!(out, "\treturn row;");
+                    }
+                    TsFieldCase::Camel => {
+                        let _ = writeln!(out, "\tconst row = firstRow<Record<string, unknown>>(rows);");
+                        out.push_str(&generate_ts_one_row_remap(columns, |name, ty| {
+                            format!("row['{name}'] as {ty}")
+                        }));
+                    }
+                }
                 let _ = write!(out, "}}");
             }
             QueryCommand::Batch => {
@@ -243,7 +261,20 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 } else {
                     let _ = writeln!(out, "\tconst result = await stmt.run({});", param_args);
                 }
-                let _ = writeln!(out, "\treturn allRows<{}>(await result.getRowObjects());", struct_name);
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        let _ = writeln!(out, "\treturn allRows<{}>(await result.getRowObjects());", struct_name);
+                    }
+                    TsFieldCase::Camel => {
+                        let _ = writeln!(
+                            out,
+                            "\tconst rows = allRows<Record<string, unknown>>(await result.getRowObjects());"
+                        );
+                        out.push_str(&generate_ts_many_row_remap(columns, |name, ty| {
+                            format!("row['{name}'] as {ty}")
+                        }));
+                    }
+                }
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {
@@ -419,6 +450,10 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         if let Some(value) = options.get("structs_only") {
             self.structs_only = parse_bool_option("structs_only", value)?;
         }
+        if let Some(value) = options.get("field_case") {
+            self.field_case = TsFieldCase::from_option(value)?;
+            self.manifest.naming.field_case = value.clone();
+        }
         Ok(())
     }
 }
@@ -522,6 +557,104 @@ mod tests {
             group_by: None,
             custom: vec![],
         }
+    }
+
+    fn make_one_query_with_snake_case_column() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetSession".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT id, user_id FROM sessions WHERE id = $1".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// This must fail before the fix: `firstRow<StructName>`/
+    /// `allRows<StructName>` are blind generic casts of the driver's raw
+    /// row, unsound once `field_case = "camelCase"` renames the declared
+    /// fields -- `getRowObjects()` still returns snake_case keys.
+    #[test]
+    fn test_one_query_fn_remaps_fields_under_camel_case() {
+        let mut backend = TypescriptDuckdbBackend::new("duckdb").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("firstRow<Record<string, unknown>>(rows)"),
+            "must not trust the blind generic cast; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("userId: row['user_id'] as number,"),
+            "must remap the declared camelCase field from the driver's raw key; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_many_query_fn_remaps_fields_under_camel_case() {
+        let mut backend = TypescriptDuckdbBackend::new("duckdb").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let mut query = make_one_query_with_snake_case_column();
+        query.command = QueryCommand::Many;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("allRows<Record<string, unknown>>(await result.getRowObjects())"),
+            "must not trust the blind generic cast; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("userId: row['user_id'] as number,"),
+            "must remap the declared camelCase field from the driver's raw key; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_one_query_fn_keeps_the_blind_cast_under_the_default_snake_case() {
+        let backend = TypescriptDuckdbBackend::new("duckdb").unwrap();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("firstRow<GetSessionRow>(rows)"),
+            "default field_case must keep the original blind cast unchanged; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("Record<string, unknown>"),
+            "must not switch to the remap path under the default; got:\n{query_fn}"
+        );
     }
 
     /// This must fail before the fix: `getRows()` returns `@duckdb/node-api`

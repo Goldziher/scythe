@@ -10,9 +10,9 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, escape_ts_double_quoted_literal, escape_ts_template_literal, generate_grouped_interface_structs,
-    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_union_row_struct, parse_bool_option,
-    reject_unknown_options,
+    TsFieldCase, TsRowType, escape_ts_double_quoted_literal, escape_ts_template_literal,
+    generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
+    generate_ts_union_row_struct, parse_bool_option, reject_unknown_options,
 };
 use crate::singularize;
 
@@ -80,6 +80,23 @@ impl CodegenBackend for TypescriptOracledbBackend {
         }
         if let Some(value) = options.get("structs_only") {
             self.structs_only = parse_bool_option("structs_only", value)?;
+        }
+        if let Some(value) = options.get("field_case") {
+            // Registration only, no `TsFieldCase` field: this backend's
+            // `:one`/`:many`/`:grouped` code already reconstructs every row
+            // field by field unconditionally (`row["COL"] as ty`, keyed off
+            // the driver's own uppercase convention, independent of
+            // `field_case`), writing each into `col.field_name` -- so
+            // nothing here needs to branch on Snake vs. Camel the way the
+            // other backends' blind-cast paths do. What still has to
+            // happen is validating and writing this, because it is the
+            // only thing that makes the central rename in `resolve.rs`
+            // (which reads this string) produce camelCase field names at
+            // all -- accepting the option via `reject_unknown_options`
+            // above and never writing it here would make it a certified
+            // no-op.
+            TsFieldCase::from_option(value)?;
+            self.manifest.naming.field_case = value.clone();
         }
         Ok(())
     }
@@ -196,7 +213,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
                         let _ = writeln!(
                             out,
                             "\t\t{}: (outBinds[{}] ?? [])[0] as {},",
-                            col.field_name, i, col.lang_type
+                            col.field_name, i, col.full_type
                         );
                     }
                     let _ = writeln!(out, "\t}};");
@@ -218,7 +235,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
                             "\t\t{}: row[\"{}\"] as {},",
                             col.field_name,
                             col.name.to_uppercase(),
-                            col.lang_type
+                            col.full_type
                         );
                     }
                     let _ = writeln!(out, "\t}};");
@@ -248,7 +265,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
                         "\t\t\t{}: row[\"{}\"] as {},",
                         col.field_name,
                         col.name.to_uppercase(),
-                        col.lang_type
+                        col.full_type
                     );
                 }
                 let _ = writeln!(out, "\t\t}};");
@@ -710,5 +727,135 @@ mod tests {
             !header.contains("oracledb"),
             "the unused oracledb driver import must still be dropped; got:\n{header}"
         );
+    }
+
+    fn make_one_query_with_nullable_column() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetUserById".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT id, nickname FROM users WHERE id = $1".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "nickname".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// This must fail before the fix: casting through `col.lang_type`
+    /// (`string`, the base type with no nullable wrapper) instead of
+    /// `col.full_type` (`string | null`) asserts a nullable column as
+    /// non-optional -- laundering a real `null` past `tsc` into a type that
+    /// claims it can never happen.
+    #[test]
+    fn test_one_query_fn_casts_nullable_column_through_full_type() {
+        let backend = TypescriptOracledbBackend::new("oracle").unwrap();
+        let query = make_one_query_with_nullable_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r#"nickname: row["NICKNAME"] as string | null,"#),
+            "nullable column must cast through full_type, not lang_type; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_many_query_fn_casts_nullable_column_through_full_type() {
+        let backend = TypescriptOracledbBackend::new("oracle").unwrap();
+        let mut query = make_one_query_with_nullable_column();
+        query.command = QueryCommand::Many;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains(r#"nickname: row["NICKNAME"] as string | null,"#),
+            "nullable column must cast through full_type, not lang_type; got:\n{query_fn}"
+        );
+    }
+
+    /// This must fail before the fix: `field_case` was accepted by
+    /// `reject_unknown_options` but never written to
+    /// `self.manifest.naming.field_case`, so a real manifest setting
+    /// `field_case = "camelCase"` had no effect -- the declared row struct
+    /// stayed snake_case and the per-column reconstruction (which already
+    /// writes into `col.field_name` unconditionally) never saw a renamed
+    /// field either.
+    #[test]
+    fn test_field_case_option_renames_declared_and_reconstructed_fields() {
+        let mut backend = TypescriptOracledbBackend::new("oracle").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let query = AnalyzedQuery {
+            name: "GetSession".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT id, user_id FROM sessions WHERE id = $1".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        };
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("userId: number;"),
+            "field_case must rename the declared struct field; got:\n{row_struct}"
+        );
+        assert!(
+            query_fn.contains(r#"userId: row["USER_ID"] as number,"#),
+            "field_case must rename the reconstructed field too, still reading Oracle's own \
+             uppercase raw key; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_field_case_option_rejects_invalid_value() {
+        let mut backend = TypescriptOracledbBackend::new("oracle").unwrap();
+        let result = backend.apply_options(&std::collections::HashMap::from([(
+            "field_case".to_string(),
+            "PascalCase".to_string(),
+        )]));
+        assert!(result.is_err(), "expected 'PascalCase' to be rejected");
     }
 }

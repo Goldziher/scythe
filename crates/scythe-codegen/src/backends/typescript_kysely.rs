@@ -13,9 +13,10 @@ use crate::GeneratedCode;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, escape_ts_template_literal, generate_grouped_interface_structs, generate_ts_grouped_fold_body,
-    generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
-    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option, reject_unknown_options,
+    TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
+    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_enum,
+    generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
+    reject_unknown_options,
 };
 use crate::singularize;
 
@@ -566,6 +567,24 @@ impl CodegenBackend for TypescriptKyselyBackend {
         if let Some(value) = options.get("structs_only") {
             self.structs_only = parse_bool_option("structs_only", value)?;
         }
+        if let Some(value) = options.get("field_case") {
+            // Registration only, no `TsFieldCase` field and no remap: this
+            // backend always returns Kysely's own result rows directly
+            // (`:one`/`:many`) or reads via `field_name` in the `:grouped`
+            // fold (see the fix earlier in this file). Here, `field_case`
+            // means "the caller's Kysely instance already has
+            // CamelCasePlugin installed" -- the driver, via the plugin, has
+            // already done the remap by the time any generated code runs.
+            // What still has to happen is validating and writing this,
+            // because it is the only thing that makes the central rename in
+            // `resolve.rs` (which reads this string) produce camelCase
+            // field names in the declared row struct at all. Accepting the
+            // option via `reject_unknown_options` above and never writing
+            // it here would make it a certified no-op -- exactly the trap
+            // `field_case` was already deleted once for being.
+            TsFieldCase::from_option(value)?;
+            self.manifest.naming.field_case = value.clone();
+        }
         Ok(())
     }
 }
@@ -1106,7 +1125,17 @@ mod tests {
     #[test]
     fn test_grouped_fold_reads_by_field_name_not_raw_sql_name() {
         let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
-        backend.manifest.naming.field_case = "camelCase".to_string();
+        // Through `apply_options`, not a direct field poke: this is what
+        // proves a real manifest setting `field_case = "camelCase"` can
+        // actually reach the fold, not just that the fold logic works in
+        // isolation once `naming.field_case` happens to be set some other
+        // way.
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
         let query = make_grouped_query();
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -1123,6 +1152,102 @@ mod tests {
             !query_fn.contains("row['order_id']") && !query_fn.contains("row['order_date']"),
             "must not read the raw SQL name once field_case renamed it; got:\n{query_fn}"
         );
+    }
+
+    fn make_one_query_with_snake_case_column() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetSession".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT id, user_id FROM sessions WHERE id = $1".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// This must fail before the fix: `field_case` was accepted by
+    /// `reject_unknown_options` but never written to
+    /// `self.manifest.naming.field_case`, so a real manifest setting
+    /// `field_case = "camelCase"` had no effect at all -- the declared row
+    /// struct stayed snake_case. Exactly the "declared, read by nothing"
+    /// trap the option was already deleted once for being.
+    #[test]
+    fn test_field_case_option_renames_declared_struct_fields() {
+        let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("userId: number;"),
+            "field_case must rename the declared struct field; got:\n{row_struct}"
+        );
+        assert!(
+            !row_struct.contains("user_id"),
+            "must not leave the raw SQL name in the declaration; got:\n{row_struct}"
+        );
+    }
+
+    /// Kysely gets the declared rename only, no runtime remap: `:one`/
+    /// `:many` still return Kysely's own result rows directly, trusting the
+    /// caller's CamelCasePlugin (asserted by `field_case = "camelCase"`) to
+    /// have already produced camelCase keys at runtime.
+    #[test]
+    fn test_field_case_option_does_not_add_a_runtime_remap_to_one_query() {
+        let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("sql<GetSessionRow>`"),
+            "must still trust Kysely's own generic, no remap; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("return result.rows[0] ?? null;"),
+            "must return Kysely's row directly, unmodified; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_field_case_option_rejects_invalid_value() {
+        let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        let result = backend.apply_options(&std::collections::HashMap::from([(
+            "field_case".to_string(),
+            "PascalCase".to_string(),
+        )]));
+        assert!(result.is_err(), "expected 'PascalCase' to be rejected");
     }
 
     #[test]
