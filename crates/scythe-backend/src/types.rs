@@ -106,6 +106,47 @@ fn wrap_nullable(resolved: &str, manifest: &BackendManifest) -> Result<String, B
     Ok(pattern.replace("{T}", resolved))
 }
 
+/// Parse whether `full_type` is a nullable rendering of `lang_type` under
+/// `manifest`, without trusting any pre-computed `nullable` bit.
+///
+/// This is the inverse of [`resolve_type_pair`]: instead of taking
+/// "nullable" as an input and producing `full_type`, it takes `full_type`
+/// and `lang_type` (both already computed, e.g. from a
+/// `scythe_codegen::backend_trait::ResolvedColumn`) and asks the manifest
+/// which one it actually is. That makes it safe to use as an independent
+/// check on a value that was *supposed* to be derived from `nullable`, to
+/// catch call sites that got it wrong.
+///
+/// - `Ok(false)` when `full_type == lang_type` -- rendered as non-optional.
+///   This also fires when the manifest's `nullable` container pattern has
+///   degenerated to the identity mapping (`"{T}"`), which is itself a
+///   manifest bug: such a manifest can never render an optional type, so
+///   every column looks non-optional here regardless of what the analyzer
+///   said -- exactly the drift this function exists to surface.
+/// - `Ok(true)` when `full_type` matches `lang_type` wrapped by the
+///   manifest's `nullable` pattern.
+/// - `Err` when `full_type` matches neither shape, or the manifest has no
+///   `nullable` container pattern at all -- an unrecognized rendering,
+///   always a bug (a hand-built `ResolvedColumn`, a stale `full_type`, or a
+///   manifest mid-migration).
+pub fn parse_rendered_nullable(
+    lang_type: &str,
+    full_type: &str,
+    manifest: &BackendManifest,
+) -> Result<bool, BackendError> {
+    if full_type == lang_type {
+        return Ok(false);
+    }
+    let wrapped = wrap_nullable(lang_type, manifest)?;
+    if full_type == wrapped {
+        return Ok(true);
+    }
+    Err(BackendError::UnrecognizedNullableRendering {
+        lang_type: lang_type.to_string(),
+        full_type: full_type.to_string(),
+    })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -257,5 +298,49 @@ mod tests {
         let m = test_manifest();
         let result = resolve_type("array<>", &m, false);
         assert!(result.is_err());
+    }
+
+    // -- parse_rendered_nullable ---------------------------------------
+
+    #[test]
+    fn test_parse_rendered_nullable_recognizes_wrapped_form() {
+        let m = test_manifest();
+        assert!(parse_rendered_nullable("i32", "Option<i32>", &m).unwrap());
+    }
+
+    #[test]
+    fn test_parse_rendered_nullable_recognizes_bare_form() {
+        let m = test_manifest();
+        assert!(!parse_rendered_nullable("i32", "i32", &m).unwrap());
+    }
+
+    #[test]
+    fn test_parse_rendered_nullable_rejects_unrecognized_rendering() {
+        let m = test_manifest();
+        let result = parse_rendered_nullable("i32", "Vec<i32>", &m);
+        assert!(matches!(
+            result,
+            Err(BackendError::UnrecognizedNullableRendering { .. })
+        ));
+    }
+
+    #[test]
+    fn test_parse_rendered_nullable_catches_an_identity_nullable_pattern() {
+        // A manifest whose "nullable" pattern doesn't actually wrap
+        // anything can never render an optional type -- full_type always
+        // equals lang_type regardless of what the caller intended, so this
+        // must come back `Ok(false)` (never `Ok(true)`) and let the caller's
+        // own analyzed-vs-rendered comparison catch the drift.
+        let mut m = test_manifest();
+        m.types.containers.insert("nullable".to_string(), "{T}".to_string());
+        assert!(!parse_rendered_nullable("i32", "i32", &m).unwrap());
+    }
+
+    #[test]
+    fn test_parse_rendered_nullable_errors_when_manifest_has_no_nullable_pattern() {
+        let mut m = test_manifest();
+        m.types.containers.remove("nullable");
+        let result = parse_rendered_nullable("i32", "Option<i32>", &m);
+        assert!(matches!(result, Err(BackendError::UnknownContainer(_))));
     }
 }

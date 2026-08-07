@@ -1,0 +1,71 @@
+[package]
+name = "scythe-conformance"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+publish = false
+description = "Live-database conformance suite for scythe nullability inference"
+
+[package.metadata.cargo-machete]
+# Each is optional, feature-gated, and deliberately unused: this commit adds
+# them for the license check (see crate-level docs) and declares their
+# feature flags, but no Executor implementation lands until a later commit.
+ignored = [
+    "mysql_async",
+    "rusqlite",
+    "sibyl",
+    "tiberius",
+    "tokio",
+    "tokio-postgres",
+    "tokio-util",
+]
+
+[features]
+default = []
+# Per-engine live drivers. Each pulls in the engine's native client crate;
+# none is enabled by default so `cargo test --workspace` and
+# `cargo clippy --workspace -- -D warnings` never link a database driver.
+pg = ["dep:tokio-postgres"]
+mysql = ["dep:mysql_async"]
+# MariaDB is wire-protocol compatible with MySQL and driven by the same
+# client crate -- this is not an alias for `mysql`, it's `Engine::Mariadb`'s
+# own feature, kept separate so enabling one does not silently enable the
+# other.
+mariadb = ["dep:mysql_async"]
+sqlite = ["dep:rusqlite"]
+mssql = ["dep:tiberius", "dep:tokio-util"]
+oracle = ["dep:sibyl", "dep:tokio"]
+# Gate for actually dialing a database in tests (vs. compiling the executor
+# impls). Kept separate from the per-engine features so CI can compile-check
+# drivers without a live container.
+live-tests = []
+
+[dependencies]
+
+ahash = { version = "0.8", features = ["serde"] }
+glob = "0.3"
+
+mysql_async = { version = "0.37", optional = true }
+rusqlite = { version = "0.40", features = ["bundled"], optional = true }
+scythe-backend = { path = "../scythe-backend", version = "0.13.0" }
+scythe-codegen = { path = "../scythe-codegen" }
+scythe-core = { path = "../scythe-core" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sibyl = { version = "0.7", features = ["tokio", "nonblocking"], optional = true }
+sqlparser = "0.62"
+thiserror = "2"
+tiberius = { version = "0.12", default-features = false, features = [
+    "tds73",
+    "rustls",
+    "rust_decimal",
+    "chrono",
+], optional = true }
+tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"], optional = true }
+tokio-util = { version = "0.7", features = ["compat"], optional = true }
+toml = "1.1"
+
+[dev-dependencies]
+tempfile = "3"
+tokio = { version = "1", features = ["full", "macros", "rt-multi-thread"] }

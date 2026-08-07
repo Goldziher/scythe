@@ -4,6 +4,7 @@ members = [
     "crates/scythe-backend",
     "crates/scythe-cli",
     "crates/scythe-codegen",
+    "crates/scythe-conformance",
     "crates/scythe-core",
     "crates/scythe-inspect",
     "crates/scythe-lint",
