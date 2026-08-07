@@ -47,6 +47,221 @@ pub fn load_manifest(path: &Path) -> Result<BackendManifest, BackendError> {
     toml::from_str(&content).map_err(|e| BackendError::ManifestError(e.to_string()))
 }
 
+/// A *partial* backend manifest, merged over a backend's compiled-in manifest
+/// when a `[[sql.gen]]` target sets `manifest = "..."`.
+///
+/// # Merge granularity
+///
+/// The overlay is applied by [`BackendManifest::apply_overlay`] with two
+/// different granularities, chosen per section:
+///
+/// * **Map-valued tables** (`[types.scalars]`, `[types.containers]`,
+///   `[imports.rules]`) merge **per leaf key**. Each key the overlay mentions
+///   replaces exactly that entry; every key it does not mention keeps its
+///   compiled-in value. This is what makes the file an overlay rather than a
+///   replacement: retargeting `int64` does not require restating the other
+///   thirty-odd scalar mappings.
+/// * **Scalar-valued keys** (every field of `[naming]`) replace the
+///   compiled-in value **whole**. A key is either present (replaces) or
+///   absent (inherits); there is no sub-value merging.
+///
+/// # What may be added versus only replaced
+///
+/// `[types.scalars]` and `[types.containers]` are **replace-only**: a key that
+/// does not already exist in the compiled-in manifest is rejected. Neutral
+/// type names (`int32`, `datetime_tz`, `array`, ...) are a fixed vocabulary
+/// produced by scythe's type inference, so a key outside it is a typo, and a
+/// silently-accepted typo would leave the original mapping in place and
+/// generate code the user did not ask for.
+///
+/// `[imports.rules]` is **merge-and-add**: its keys are prefixes of the
+/// *generated language* types, which necessarily change when a scalar is
+/// retargeted (mapping `decimal` to a different crate's type requires a new
+/// import rule keyed on that crate's prefix). Restricting it to existing keys
+/// would make scalar overrides unusable.
+///
+/// # What is not overridable
+///
+/// There is deliberately no `[backend]` section. `name`, `language`,
+/// `file_extension`, and `engine` are identity, not configuration: manifest
+/// selection is a pure function of `(backend, engine)` (#82), and letting an
+/// override rewrite the engine would reintroduce exactly the cross-engine
+/// mismatch that made the old working-directory lookup unsafe.
+/// `#[serde(deny_unknown_fields)]` turns a `[backend]` table — or any other
+/// misspelled section or field — into a parse error naming the offending key.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ManifestOverlay {
+    /// Per-leaf-key overrides for `[types.scalars]` / `[types.containers]`.
+    #[serde(default)]
+    pub types: Option<TypeMappingsOverlay>,
+    /// Whole-value overrides for individual `[naming]` fields.
+    #[serde(default)]
+    pub naming: Option<NamingOverlay>,
+    /// Per-leaf-key additions and overrides for `[imports.rules]`.
+    #[serde(default)]
+    pub imports: Option<ImportConfigOverlay>,
+}
+
+/// Overlay half of [`TypeMappings`]. Both maps are replace-only; see
+/// [`ManifestOverlay`].
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct TypeMappingsOverlay {
+    #[serde(default)]
+    pub scalars: AHashMap<String, String>,
+    #[serde(default)]
+    pub containers: AHashMap<String, String>,
+}
+
+/// Overlay half of [`NamingConfig`]. Every field replaces its compiled-in
+/// counterpart whole; omitted fields inherit.
+///
+/// The field list is enumerated by hand rather than derived from
+/// [`NamingConfig`], and that is deliberate: it is an allowlist, not a
+/// mirror. A field added to `NamingConfig` later is *not* overridable until
+/// someone adds it here on purpose — which is the desired default for any
+/// field that is internal to codegen (e.g. one carrying `#[serde(skip)]`),
+/// since exposing it would let an override reach machinery that never
+/// contracted to be user-configurable. `deny_unknown_fields` makes the gap
+/// loud: naming such a field in an override is a parse error, not a silent
+/// no-op. Treat an omission here as a decision, not an oversight.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct NamingOverlay {
+    #[serde(default)]
+    pub struct_case: Option<String>,
+    #[serde(default)]
+    pub fn_case: Option<String>,
+    #[serde(default)]
+    pub enum_variant_case: Option<String>,
+    #[serde(default)]
+    pub row_suffix: Option<String>,
+}
+
+/// Overlay half of [`ImportConfig`]. Merge-and-add; see [`ManifestOverlay`].
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct ImportConfigOverlay {
+    #[serde(default)]
+    pub rules: AHashMap<String, String>,
+}
+
+/// Parse a [`ManifestOverlay`] from TOML source.
+///
+/// The error is the raw `toml` message, which for an unknown key already
+/// names the offending key and the accepted alternatives. Callers are
+/// expected to prefix it with the backend name and the resolved override
+/// path, which this function does not know.
+pub fn parse_overlay(content: &str) -> Result<ManifestOverlay, BackendError> {
+    toml::from_str(content).map_err(|e| BackendError::ManifestError(e.to_string()))
+}
+
+/// Levenshtein distance, used only to suggest a near-miss key in an
+/// unknown-key error. Iterative two-row variant: it keeps two rows of
+/// `b.len() + 1` cells rather than the full `a * b` matrix, which matters
+/// because it runs once per candidate key in the target map.
+fn edit_distance(a: &str, b: &str) -> usize {
+    let b_chars: Vec<char> = b.chars().collect();
+    let mut prev: Vec<usize> = (0..=b_chars.len()).collect();
+    let mut current = vec![0usize; b_chars.len() + 1];
+
+    for (i, a_char) in a.chars().enumerate() {
+        current[0] = i + 1;
+        for (j, &b_char) in b_chars.iter().enumerate() {
+            let substitution_cost = usize::from(a_char != b_char);
+            current[j + 1] = (prev[j] + substitution_cost).min(prev[j + 1] + 1).min(current[j] + 1);
+        }
+        std::mem::swap(&mut prev, &mut current);
+    }
+
+    prev[b_chars.len()]
+}
+
+/// The closest key in `candidates` to `key`, if any is within a small edit
+/// distance. The threshold scales with key length so short names like `date`
+/// do not collect spurious suggestions.
+fn closest_key<'a>(key: &str, candidates: impl Iterator<Item = &'a String>) -> Option<&'a String> {
+    let threshold = if key.len() <= 4 { 1 } else { 2 };
+    candidates
+        .map(|candidate| (edit_distance(key, candidate), candidate))
+        .filter(|(distance, _)| *distance <= threshold)
+        .min_by_key(|(distance, _)| *distance)
+        .map(|(_, candidate)| candidate)
+}
+
+/// Merge `overlay` entries into `target`, rejecting keys that `target` does
+/// not already define. `section` names the TOML table for the error message
+/// (e.g. `"types.scalars"`).
+fn merge_replace_only(
+    target: &mut AHashMap<String, String>,
+    overlay: &AHashMap<String, String>,
+    section: &str,
+) -> Result<(), BackendError> {
+    // Sorted so a manifest with several bad keys reports the same one on
+    // every run; hash-map iteration order is not stable across processes.
+    let mut unknown: Vec<&String> = overlay.keys().filter(|key| !target.contains_key(*key)).collect();
+    unknown.sort();
+
+    if let Some(key) = unknown.first() {
+        let suggestion = match closest_key(key, target.keys()) {
+            Some(near) => format!(" (did you mean '{near}'?)"),
+            None => String::new(),
+        };
+        return Err(BackendError::ManifestError(format!(
+            "unknown [{section}] key '{key}'{suggestion}; \
+             this table may only override mappings the backend already defines"
+        )));
+    }
+
+    for (key, value) in overlay {
+        target.insert(key.clone(), value.clone());
+    }
+    Ok(())
+}
+
+impl BackendManifest {
+    /// Merge a partial [`ManifestOverlay`] into this manifest in place.
+    ///
+    /// See [`ManifestOverlay`] for the merge granularity and for which
+    /// sections accept new keys. On error the manifest may be partially
+    /// merged, so callers must treat a failure as fatal rather than
+    /// continuing with the backend — which is what `scythe generate` does.
+    pub fn apply_overlay(&mut self, overlay: &ManifestOverlay) -> Result<(), BackendError> {
+        if let Some(ref types) = overlay.types {
+            merge_replace_only(&mut self.types.scalars, &types.scalars, "types.scalars")?;
+            merge_replace_only(&mut self.types.containers, &types.containers, "types.containers")?;
+        }
+
+        if let Some(ref naming) = overlay.naming {
+            if let Some(ref value) = naming.struct_case {
+                self.naming.struct_case = value.clone();
+            }
+            if let Some(ref value) = naming.fn_case {
+                self.naming.fn_case = value.clone();
+            }
+            if let Some(ref value) = naming.enum_variant_case {
+                self.naming.enum_variant_case = value.clone();
+            }
+            if let Some(ref value) = naming.row_suffix {
+                self.naming.row_suffix = value.clone();
+            }
+        }
+
+        if let Some(ref imports) = overlay.imports {
+            let rules = &mut self
+                .imports
+                .get_or_insert_with(|| ImportConfig { rules: AHashMap::new() })
+                .rules;
+            for (key, value) in &imports.rules {
+                rules.insert(key.clone(), value.clone());
+            }
+        }
+
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -83,5 +298,157 @@ mod tests {
         assert_eq!(manifest.naming.row_suffix, "Row");
         let imports = manifest.imports.unwrap();
         assert_eq!(imports.rules["std::net::"], "use std::net::IpAddr;");
+    }
+
+    fn base_manifest() -> BackendManifest {
+        toml::from_str(include_str!("../test-manifests/rust-sqlx.toml")).unwrap()
+    }
+
+    /// Map-valued tables merge per leaf key: the mentioned key is replaced and
+    /// every unmentioned key keeps its compiled-in value. This is the whole
+    /// point of the overlay — retargeting one scalar must not require
+    /// restating the other thirty.
+    #[test]
+    fn apply_overlay_replaces_only_the_named_scalar() {
+        let mut manifest = base_manifest();
+        let overlay: ManifestOverlay = toml::from_str("[types.scalars]\nint32 = \"MyInt\"\n").unwrap();
+
+        manifest.apply_overlay(&overlay).unwrap();
+
+        assert_eq!(manifest.types.scalars["int32"], "MyInt");
+        assert_eq!(manifest.types.scalars["int64"], "i64", "unmentioned keys must survive");
+        assert_eq!(manifest.types.scalars["string"], "String");
+    }
+
+    /// Containers merge with the same per-leaf-key granularity as scalars.
+    #[test]
+    fn apply_overlay_replaces_only_the_named_container() {
+        let mut manifest = base_manifest();
+        let overlay: ManifestOverlay = toml::from_str("[types.containers]\narray = \"MyVec<{T}>\"\n").unwrap();
+
+        manifest.apply_overlay(&overlay).unwrap();
+
+        assert_eq!(manifest.types.containers["array"], "MyVec<{T}>");
+        assert_eq!(manifest.types.containers["nullable"], "Option<{T}>");
+    }
+
+    /// `[naming]` fields replace whole values; omitted fields inherit.
+    #[test]
+    fn apply_overlay_replaces_named_fields_and_inherits_the_rest() {
+        let mut manifest = base_manifest();
+        let overlay: ManifestOverlay = toml::from_str("[naming]\nrow_suffix = \"Record\"\n").unwrap();
+
+        manifest.apply_overlay(&overlay).unwrap();
+
+        assert_eq!(manifest.naming.row_suffix, "Record");
+        assert_eq!(
+            manifest.naming.struct_case, "PascalCase",
+            "an omitted naming field must inherit"
+        );
+    }
+
+    /// `[imports.rules]` is merge-and-add: its keys are prefixes of the
+    /// *generated* language types, so retargeting a scalar necessarily
+    /// requires a rule keyed on a prefix the compiled-in manifest never had.
+    #[test]
+    fn apply_overlay_adds_new_import_rules() {
+        let mut manifest = base_manifest();
+        let overlay: ManifestOverlay = toml::from_str("[imports.rules]\n\"mycrate::\" = \"use mycrate;\"\n").unwrap();
+
+        manifest.apply_overlay(&overlay).unwrap();
+
+        let rules = &manifest.imports.as_ref().unwrap().rules;
+        assert_eq!(rules["mycrate::"], "use mycrate;");
+        assert_eq!(rules["chrono::"], "use chrono;", "existing rules must survive");
+    }
+
+    /// Scalars are replace-only: an unrecognised neutral type name is a typo,
+    /// and accepting it silently would leave the intended key at its
+    /// compiled-in value.
+    #[test]
+    fn apply_overlay_rejects_unknown_scalar_key_with_a_suggestion() {
+        let mut manifest = base_manifest();
+        let overlay: ManifestOverlay = toml::from_str("[types.scalars]\nint_32 = \"MyInt\"\n").unwrap();
+
+        let error = manifest.apply_overlay(&overlay).unwrap_err().to_string();
+
+        assert!(error.contains("int_32"), "error must name the offending key: {error}");
+        assert!(error.contains("types.scalars"), "error must name the section: {error}");
+        assert!(
+            error.contains("int32"),
+            "error should suggest the near-miss key: {error}"
+        );
+    }
+
+    /// Containers are replace-only for the same reason as scalars.
+    #[test]
+    fn apply_overlay_rejects_unknown_container_key() {
+        let mut manifest = base_manifest();
+        let overlay: ManifestOverlay = toml::from_str("[types.containers]\nslice = \"Box<[{T}]>\"\n").unwrap();
+
+        let error = manifest.apply_overlay(&overlay).unwrap_err().to_string();
+
+        assert!(error.contains("slice"), "error must name the offending key: {error}");
+        assert!(
+            error.contains("types.containers"),
+            "error must name the section: {error}"
+        );
+    }
+
+    /// `deny_unknown_fields` is what turns a misspelled section into a loud
+    /// parse failure instead of a silently ignored table.
+    #[test]
+    fn parse_overlay_rejects_unknown_sections() {
+        // Dropping the `types.` prefix is the likeliest real mistake: the
+        // section name itself is spelled correctly, so only the closed field
+        // set catches it.
+        let error = parse_overlay("[scalars]\nint32 = \"MyInt\"\n").unwrap_err().to_string();
+        assert!(error.contains("scalars"), "error must name the offending key: {error}");
+        assert!(
+            error.contains("types"),
+            "error should list the accepted sections: {error}"
+        );
+    }
+
+    /// `[backend]` is identity, not configuration: manifest selection stays a
+    /// pure function of `(backend, engine)` (#82), so an overlay may not
+    /// rewrite the engine or the file extension.
+    #[test]
+    fn parse_overlay_rejects_the_backend_section() {
+        let error = parse_overlay("[backend]\nengine = \"mysql\"\n")
+            .unwrap_err()
+            .to_string();
+        assert!(
+            error.contains("backend"),
+            "error must name the rejected section: {error}"
+        );
+    }
+
+    /// A misspelled `[naming]` *field* is caught too, not just a misspelled
+    /// section.
+    #[test]
+    fn parse_overlay_rejects_unknown_naming_fields() {
+        let error = parse_overlay("[naming]\nrow_prefix = \"X\"\n").unwrap_err().to_string();
+        assert!(
+            error.contains("row_prefix"),
+            "error must name the offending key: {error}"
+        );
+    }
+
+    /// A non-string mapping value is a type error, not a coercion.
+    #[test]
+    fn parse_overlay_rejects_non_string_mappings() {
+        assert!(parse_overlay("[types.scalars]\nint32 = 42\n").is_err());
+    }
+
+    /// An empty overlay is legal and is a no-op.
+    #[test]
+    fn apply_overlay_of_an_empty_overlay_changes_nothing() {
+        let mut manifest = base_manifest();
+        let before = manifest.types.scalars.clone();
+
+        manifest.apply_overlay(&parse_overlay("").unwrap()).unwrap();
+
+        assert_eq!(manifest.types.scalars, before);
     }
 }

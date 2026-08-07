@@ -106,6 +106,18 @@ pub trait CodegenBackend: Send + Sync {
     /// The backend's manifest (type mappings, naming conventions, etc).
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest;
 
+    /// Mutable access to the backend's own manifest, so a per-target manifest
+    /// overlay (`manifest = "..."` in `[[sql.gen]]`) can be merged in right
+    /// after construction.
+    ///
+    /// Deliberately required rather than defaulted: backends read
+    /// `self.manifest` directly for naming and type resolution, so a default
+    /// that silently did nothing would make `manifest = "..."` a no-op for
+    /// whichever backends forgot to override it — the exact class of silent,
+    /// per-backend divergence that #82 was filed for. Making it required
+    /// turns that into a compile error.
+    fn manifest_mut(&mut self) -> &mut scythe_backend::manifest::BackendManifest;
+
     /// Generate a row struct for a query result.
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError>;
 

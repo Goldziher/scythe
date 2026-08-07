@@ -64,6 +64,20 @@ enum GenTargets {
 struct GenTarget {
     backend: String,
     output: String,
+    /// Optional path to a *partial* manifest merged over the backend's
+    /// compiled-in manifest (see [`scythe_backend::manifest::ManifestOverlay`]).
+    ///
+    /// Declared explicitly rather than left to the `options` catch-all below:
+    /// `#[serde(flatten)]` would otherwise swallow it and hand it to
+    /// `apply_options`, where every backend that does not recognise the key
+    /// ignores it — so a `manifest = "..."` line would silently do nothing.
+    ///
+    /// Keyed per target, not globally, because a backend name alone does not
+    /// determine a manifest: `java-jdbc` covers nine engines and `rust-sqlx`
+    /// five, and a single global mapping would hand a MySQL target the
+    /// PostgreSQL type mappings (#82).
+    #[serde(default)]
+    manifest: Option<String>,
     #[serde(flatten)]
     options: std::collections::HashMap<String, toml::Value>,
 }
@@ -103,6 +117,11 @@ struct TypeOverrideConfig {
 struct ResolvedGenTarget {
     backend: String,
     output: String,
+    /// Verbatim `manifest = "..."` value, still relative to the config file's
+    /// directory. Resolution happens in `run_generate`, which is where
+    /// `base_dir` lives. The legacy `[sql.gen.rust]` shape has no equivalent
+    /// key, so it always resolves to `None`.
+    manifest_override: Option<String>,
     options: std::collections::HashMap<String, String>,
 }
 
@@ -133,6 +152,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
                 ResolvedGenTarget {
                     backend: t.backend.clone(),
                     output: t.output.clone(),
+                    manifest_override: t.manifest.clone(),
                     options,
                 }
             })
@@ -154,6 +174,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
                 targets.push(ResolvedGenTarget {
                     backend: backend.to_string(),
                     output: default_output.clone(),
+                    manifest_override: None,
                     options,
                 });
             }
@@ -161,6 +182,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
                 targets.push(ResolvedGenTarget {
                     backend: format!("python-{}", py.target),
                     output: default_output.clone(),
+                    manifest_override: None,
                     options: std::collections::HashMap::new(),
                 });
             }
@@ -168,6 +190,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
                 targets.push(ResolvedGenTarget {
                     backend: format!("typescript-{}", ts.target),
                     output: default_output.clone(),
+                    manifest_override: None,
                     options: std::collections::HashMap::new(),
                 });
             }
@@ -175,6 +198,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
                 targets.push(ResolvedGenTarget {
                     backend: format!("go-{}", go.target),
                     output: default_output.clone(),
+                    manifest_override: None,
                     options: std::collections::HashMap::new(),
                 });
             }
@@ -182,6 +206,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
                 targets.push(ResolvedGenTarget {
                     backend: "rust-sqlx".to_string(),
                     output: default_output,
+                    manifest_override: None,
                     options: std::collections::HashMap::new(),
                 });
             }
@@ -191,6 +216,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
             vec![ResolvedGenTarget {
                 backend: "rust-sqlx".to_string(),
                 output: default_output,
+                manifest_override: None,
                 options: std::collections::HashMap::new(),
             }]
         }
@@ -260,6 +286,15 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
                 )
             })?;
 
+            // Merged before `apply_options`, not after: some backends derive
+            // state from the manifest inside `apply_options` (python-psycopg3
+            // computes its import set from the scalar mappings), so the
+            // overlay has to already be in place or those derivations would
+            // be based on the mappings the user just replaced.
+            if let Some(ref manifest_path) = target.manifest_override {
+                apply_manifest_override(backend.manifest_mut(), &target.backend, manifest_path, base_dir)?;
+            }
+
             if !target.options.is_empty() {
                 backend
                     .apply_options(&target.options)
@@ -279,6 +314,60 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
     }
 
     eprintln!("Done.");
+    Ok(())
+}
+
+/// Read the per-target manifest overlay at `manifest_path` and merge it into
+/// `manifest` in place.
+///
+/// `manifest_path` comes from `manifest = "..."` on a `[[sql.gen]]` target and
+/// is resolved against `base_dir` — the directory containing `scythe.toml` —
+/// exactly like `output`, and for the same reason: as of 0.13.0 every path in
+/// the config resolves relative to the config file, not the process's current
+/// working directory, so `scythe generate --config /elsewhere/scythe.toml`
+/// produces identical output from any directory. `Path::join` (not
+/// `rebase_pattern`) is correct here because this is a literal path, not a
+/// glob, and an already-absolute value passes through unchanged.
+///
+/// Every failure is fatal and names the backend and the *resolved absolute*
+/// path. A missing file in particular is an error rather than a silent
+/// fallback to the compiled-in manifest: falling back would reintroduce the
+/// class of bug where the same config yields different code depending on
+/// where it was run from.
+fn apply_manifest_override(
+    manifest: &mut scythe_backend::manifest::BackendManifest,
+    backend_name: &str,
+    manifest_path: &str,
+    base_dir: &Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let resolved = base_dir.join(manifest_path);
+    // Reported rather than `resolved` so the message is unambiguous no matter
+    // which directory the user ran from. `absolute` is purely lexical (it
+    // neither resolves symlinks nor requires existence), so it still produces
+    // a usable path for the not-found case below.
+    let display_path = std::path::absolute(&resolved).unwrap_or_else(|_| resolved.clone());
+    let display_path = display_path.display();
+
+    let content = std::fs::read_to_string(&resolved).map_err(|e| {
+        format!(
+            "backend '{backend_name}': failed to read manifest override '{display_path}': {e}\n  \
+             note: `manifest` in [[sql.gen]] resolves relative to the directory containing \
+             scythe.toml,\n        not the current working directory"
+        )
+    })?;
+
+    let overlay = scythe_backend::manifest::parse_overlay(&content).map_err(|e| {
+        format!(
+            "backend '{backend_name}': invalid manifest override '{display_path}': {e}\n  \
+             note: the file is a *partial* manifest -- it may contain [types.scalars], \
+             [types.containers],\n        [naming], and [imports.rules] only"
+        )
+    })?;
+
+    manifest
+        .apply_overlay(&overlay)
+        .map_err(|e| format!("backend '{backend_name}': invalid manifest override '{display_path}': {e}"))?;
+
     Ok(())
 }
 
@@ -1079,6 +1168,10 @@ SELECT * FROM users WHERE id = $1;
 
             fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
                 &self.manifest
+            }
+
+            fn manifest_mut(&mut self) -> &mut scythe_backend::manifest::BackendManifest {
+                &mut self.manifest
             }
 
             fn generate_row_struct(

@@ -105,6 +105,10 @@ impl CodegenBackend for GoGodrorBackend {
         &self.manifest
     }
 
+    fn manifest_mut(&mut self) -> &mut scythe_backend::manifest::BackendManifest {
+        &mut self.manifest
+    }
+
     fn supported_engines(&self) -> &[&str] {
         &["oracle"]
     }

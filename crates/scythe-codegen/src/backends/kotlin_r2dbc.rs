@@ -80,6 +80,10 @@ impl CodegenBackend for KotlinR2dbcBackend {
         &self.manifest
     }
 
+    fn manifest_mut(&mut self) -> &mut scythe_backend::manifest::BackendManifest {
+        &mut self.manifest
+    }
+
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
         if let Some(v) = options.get("extension_functions") {
             self.extension_functions = match v.as_str() {

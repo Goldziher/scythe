@@ -116,6 +116,7 @@ output = "src/generated/kotlin-exposed"
 |-------|------|----------|-------------|
 | `backend` | string | yes | Full backend name (e.g. `rust-sqlx`, `typescript-pg`, `python-aiomysql`). |
 | `output` | string | yes | Output directory for this backend's generated code. A relative path resolves against the config file's directory. |
+| `manifest` | string | no | Path to a partial manifest merged over the backend's built-in one. A relative path resolves against the config file's directory. See below. |
 | `row_type` | string | no | Row type style for generated code. See below. |
 | `outer_join_unions` | bool | no | Emit outer-join nullability as a discriminated union. TypeScript backends only. See below. |
 | `namespace` | string | no | PHP namespace for generated code. PHP backends only. See below. |
@@ -243,6 +244,62 @@ extension_functions = true
 ```
 
 When enabled, value-returning functions use expression bodies, and `kotlin-r2dbc` becomes a `suspend` extension on `io.r2dbc.spi.Connection` (the caller owns the connection lifecycle).
+
+### `manifest`
+
+Each backend ships with a built-in manifest holding its type mappings, naming conventions, and import rules. `manifest` points at a **partial** manifest that is merged over it, so you can retarget a few mappings without restating the rest.
+
+```toml
+[[sql.gen]]
+backend = "rust-sqlx"
+output = "src/db"
+manifest = "manifests/rust-sqlx-custom.toml"
+```
+
+```toml
+# manifests/rust-sqlx-custom.toml
+[types.scalars]
+decimal = "bigdecimal::BigDecimal"
+
+[imports.rules]
+"bigdecimal::" = "use bigdecimal::BigDecimal;"
+```
+
+The path resolves against the directory containing `scythe.toml`, not the directory you run `scythe` from — the same rule every other path in the config follows. Generated output is therefore identical no matter where the command is invoked.
+
+The override is **per target**. A backend name alone does not identify a manifest: `rust-sqlx` covers five engines and `java-jdbc` nine, and each engine has its own type mappings. Because `manifest` sits on a `[[sql.gen]]` target, it inherits that target's engine from the enclosing `[[sql]]` block, and two targets naming the same backend under different engines each get their own override.
+
+#### Merge rules
+
+| Section | Granularity | New keys |
+|---------|-------------|----------|
+| `[types.scalars]` | per key | rejected |
+| `[types.containers]` | per key | rejected |
+| `[imports.rules]` | per key | allowed |
+| `[naming]` | per field, whole value | rejected |
+
+Map-valued tables merge one key at a time: a key you list replaces exactly that entry, and every key you omit keeps its built-in value. `[naming]` fields replace whole values; omitted fields inherit.
+
+`[types.scalars]` and `[types.containers]` are replace-only. Neutral type names (`int32`, `datetime_tz`, `array`, …) are a fixed vocabulary, so a key outside it is a typo — and a silently accepted typo would leave the original mapping in place and generate code you did not ask for. `[imports.rules]` does accept new keys, because its keys are prefixes of the *generated* language types, which necessarily change when you retarget a scalar.
+
+There is no `[backend]` section. `name`, `language`, `file_extension`, and `engine` are identity, not configuration.
+
+#### Errors
+
+Every problem fails `scythe generate` and names the backend, the resolved absolute path, and the offending key. Nothing falls back to the built-in manifest silently.
+
+```text
+error: backend 'rust-sqlx': invalid manifest override '/repo/manifests/rust-sqlx-custom.toml':
+  manifest error: unknown [types.scalars] key 'int_64' (did you mean 'int64'?);
+  this table may only override mappings the backend already defines
+```
+
+A missing file is an error, not a fallback:
+
+```text
+error: backend 'rust-sqlx': failed to read manifest override '/repo/manifests/nope.toml':
+  No such file or directory (os error 2)
+```
 
 ### `[sql.gen.rust]` (legacy)
 

@@ -718,6 +718,9 @@ mod tests {
         fn manifest(&self) -> &BackendManifest {
             &self.manifest
         }
+        fn manifest_mut(&mut self) -> &mut BackendManifest {
+            &mut self.manifest
+        }
         fn generate_row_struct(&self, _query_name: &str, _columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
             Ok(String::new())
         }

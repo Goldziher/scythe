@@ -70,7 +70,41 @@ style = "off"
 |-------|------|----------|-------------|
 | `backend` | string | yes | Full backend name (e.g. `rust-sqlx`, `typescript-pg`). |
 | `output` | string | yes | Output directory for this backend. |
+| `manifest` | string | no | Partial manifest merged over the backend's built-in one. See below. |
 | `row_type` | string | no | Row type style. Python: `dataclass`/`pydantic`/`msgspec`. TypeScript: `interface`/`zod`. |
+
+#### `manifest`
+
+Points at a **partial** manifest merged over the backend's built-in one, so a few mappings can be retargeted without restating the rest.
+
+```toml
+[[sql.gen]]
+backend = "rust-sqlx"
+output = "src/db"
+manifest = "manifests/rust-sqlx-custom.toml"
+```
+
+```toml
+# manifests/rust-sqlx-custom.toml
+[types.scalars]
+decimal = "bigdecimal::BigDecimal"
+
+[imports.rules]
+"bigdecimal::" = "use bigdecimal::BigDecimal;"
+```
+
+The path resolves against the directory containing `scythe.toml`, not the current working directory. The override is per `[[sql.gen]]` target, so it inherits that target's engine from the enclosing `[[sql]]` block — two targets naming the same backend under different engines each get their own.
+
+Merge granularity:
+
+| Section | Granularity | New keys |
+|---------|-------------|----------|
+| `[types.scalars]` | per key | rejected |
+| `[types.containers]` | per key | rejected |
+| `[imports.rules]` | per key | allowed |
+| `[naming]` | per field, whole value | rejected |
+
+Keys you omit keep their built-in values. There is no `[backend]` section — `name`, `language`, `file_extension`, and `engine` are identity, not configuration. An unknown key, an invalid mapping, or a missing file fails `scythe generate` with an error naming the backend, the resolved absolute path, and the offending key; nothing falls back to the built-in manifest silently.
 
 ### `[[sql.type_overrides]]`
 
