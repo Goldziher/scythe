@@ -62,7 +62,12 @@ jobs:
           version="${{ steps.version.outputs.version }}"
 
           crates_exists=false
-          if curl -fsS "https://crates.io/api/v1/crates/scythe-cli/${version}" >/dev/null; then
+          # crates.io's data-access policy rejects the default curl User-Agent
+          # with 403, which -f turns into a non-zero exit indistinguishable from
+          # "not published". Without an explicit UA this is always false, so
+          # publish_crates re-runs its full 30s-sleep chain on every re-run.
+          if curl -fsS -A "scythe-release-workflow (https://github.com/Goldziher/scythe)" \
+            "https://crates.io/api/v1/crates/scythe-cli/${version}" >/dev/null; then
             crates_exists=true
           fi
 
