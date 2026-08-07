@@ -193,7 +193,7 @@ impl CodegenBackend for CsharpSnowflakeBackend {
                 };
                 let _ = writeln!(
                     out,
-                    "            cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"p{}\", DbType = {}, Value = {} }});",
+                    "            cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"{}\", DbType = {}, Value = {} }});",
                     i + 1,
                     parameter_db_type(&p.neutral_type),
                     value_expr
@@ -239,7 +239,7 @@ impl CodegenBackend for CsharpSnowflakeBackend {
         for (i, p) in params.iter().enumerate() {
             let _ = writeln!(
                 out,
-                "    cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"p{}\", DbType = {}, Value = {} }});",
+                "    cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"{}\", DbType = {}, Value = {} }});",
                 i + 1,
                 parameter_db_type(&p.neutral_type),
                 p.field_name
@@ -367,7 +367,7 @@ impl CodegenBackend for CsharpSnowflakeBackend {
         for (i, p) in params.iter().enumerate() {
             let _ = writeln!(
                 out,
-                "    cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"p{}\", DbType = {}, Value = {} }});",
+                "    cmd.Parameters.Add(new SnowflakeDbParameter {{ ParameterName = \"{}\", DbType = {}, Value = {} }});",
                 i + 1,
                 parameter_db_type(&p.neutral_type),
                 p.field_name
@@ -641,8 +641,22 @@ mod tests {
             "expected one parameter per placeholder; got:\n{query_fn}"
         );
         assert!(
-            !query_fn.contains("SnowflakeDbParameter { ParameterName = \"p1\", Value ="),
+            !query_fn.contains("SnowflakeDbParameter { ParameterName = \"1\", Value ="),
             "every parameter must carry an explicit DbType; got:\n{query_fn}"
+        );
+        // Snowflake's REST protocol keys bindings by ordinal for `?` placeholders,
+        // so the name must be the bare 1-based index. A `p1`-style name is read as
+        // a *named* binding and the query fails server-side -- which is what kept
+        // csharp-snowflake out of CI since v0.6.0, misfiled as an emulator
+        // limitation. Nothing had ever run this backend against a real Snowflake
+        // or an emulator, so the spelling was never falsified.
+        assert!(
+            query_fn.contains("ParameterName = \"1\"") && query_fn.contains("ParameterName = \"3\""),
+            "positional bindings must be named by bare ordinal; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("ParameterName = \"p"),
+            "no parameter may carry a `p`-prefixed name; got:\n{query_fn}"
         );
         assert!(
             query_fn.contains("DbType = System.Data.DbType.Int32"),

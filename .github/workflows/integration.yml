@@ -1023,6 +1023,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: "10.0.x"
 
       - run: pip install uv
       - run: npm install -g pnpm@10
@@ -1082,12 +1085,19 @@ jobs:
           SNOWFLAKE_URL: snowflake://fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http
         run: gradle run --quiet
 
-      # csharp-snowflake is still not run. Generated code was fixed this release
-      # (parameters now carry an explicit DbType), but the harness fails earlier:
-      # Snowflake.Data names its bind parameters p1/p2/p3, which fakesnow's
-      # binding-name heuristic classifies as named rather than positional, and
-      # the query then fails inside DuckDB. That is a fakesnow limitation, not a
-      # codegen one, and it reproduces with and without the Arrow changes.
+      # csharp-snowflake was excluded until 0.14.0 on the belief that fakesnow's
+      # binding-name heuristic was at fault for reading p1/p2/p3 as named rather
+      # than positional bindings. That diagnosis was wrong: Snowflake's REST
+      # protocol keys positional `?` bindings by bare ordinal, so fakesnow was
+      # right to reject `p1` and the generated code had been wrong since v0.6.0 --
+      # against real Snowflake too, not just the emulator. It was never caught
+      # because this backend had never run anywhere. Now it does.
+      - name: Test csharp-snowflake
+        working-directory: integration_tests/csharp-snowflake
+        env:
+          SNOWFLAKE_URL: snowflake://fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http
+        run: dotnet run
+
       - name: Stop shared fakesnow server
         if: always()
         run: kill "$(cat /tmp/fakesnow.pid)" 2>/dev/null || true
