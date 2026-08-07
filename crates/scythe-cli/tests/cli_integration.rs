@@ -21,6 +21,17 @@ fn schema_dir(relative: &str) -> PathBuf {
     workspace_root().join("tests/schemas").join(relative)
 }
 
+/// Render a path as a string safe to embed in a TOML basic string (`"..."`).
+///
+/// `Path::display()` uses the platform's native separator, which on Windows
+/// is `\` — an escape character in TOML basic strings. Glob patterns accept
+/// `/` as a separator on every platform, so forward-slashing the path here
+/// keeps the generated `scythe.toml` fixtures parseable as TOML on Windows
+/// without changing what they match.
+fn toml_path(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
+}
+
 #[test]
 fn test_help_exits_zero() {
     let output = scythe_bin()
@@ -133,6 +144,11 @@ fn test_generate_writes_file() {
     let temp = tempfile::TempDir::new().unwrap();
     let output_dir = temp.path().join("generated");
 
+    // `schema`/`queries` are absolute paths into `tests/schemas/simple/basemind`
+    // (not relative to `dir`) since 0.13.0 resolves relative glob patterns
+    // against the config file's directory (the temp dir here), not the
+    // process's current working directory. This also doubles as coverage for
+    // absolute glob patterns passing through `rebase_pattern` unchanged.
     let config_content = format!(
         r#"[scythe]
 version = "1"
@@ -140,19 +156,24 @@ version = "1"
 [[sql]]
 name = "test"
 engine = "postgresql"
-schema = ["schema.sql"]
-queries = ["queries/*.sql"]
-output = "{}"
+schema = ["{schema}"]
+queries = ["{queries}"]
+output = "{output}"
 "#,
-        output_dir.display()
+        schema = toml_path(&dir.join("schema.sql")),
+        queries = toml_path(&dir.join("queries/*.sql")),
+        output = toml_path(&output_dir)
     );
 
     let config_path = temp.path().join("scythe.toml");
     std::fs::write(&config_path, &config_content).unwrap();
 
+    // `current_dir` is set to an unrelated temp dir (not `dir`, where the
+    // schema/queries actually live) to prove resolution no longer depends on
+    // the process's CWD.
     let output = scythe_bin()
         .args(["generate", "--config", config_path.to_str().unwrap()])
-        .current_dir(&dir)
+        .current_dir(temp.path())
         .output()
         .expect("failed to run scythe generate");
 
@@ -188,6 +209,9 @@ fn test_generate_pagila_writes_file() {
     let temp = tempfile::TempDir::new().unwrap();
     let output_dir = temp.path().join("generated");
 
+    // See `test_generate_writes_file`: schema/queries are absolute (into
+    // `tests/schemas/medium/pagila`), not relative to `dir`, since 0.13.0
+    // resolves relative glob patterns against the config file's directory.
     let config_content = format!(
         r#"[scythe]
 version = "1"
@@ -195,11 +219,14 @@ version = "1"
 [[sql]]
 name = "pagila"
 engine = "postgresql"
-schema = ["schema.sql"]
-queries = ["queries/customers.sql", "queries/rentals.sql"]
-output = "{}"
+schema = ["{schema}"]
+queries = ["{customers}", "{rentals}"]
+output = "{output}"
 "#,
-        output_dir.display()
+        schema = toml_path(&dir.join("schema.sql")),
+        customers = toml_path(&dir.join("queries/customers.sql")),
+        rentals = toml_path(&dir.join("queries/rentals.sql")),
+        output = toml_path(&output_dir)
     );
 
     let config_path = temp.path().join("scythe.toml");
@@ -207,7 +234,7 @@ output = "{}"
 
     let output = scythe_bin()
         .args(["generate", "--config", config_path.to_str().unwrap()])
-        .current_dir(&dir)
+        .current_dir(temp.path())
         .output()
         .expect("failed to run scythe generate");
 

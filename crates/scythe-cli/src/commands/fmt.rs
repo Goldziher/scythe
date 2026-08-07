@@ -1,6 +1,6 @@
 use scythe_lint::sqruff_adapter;
 
-use super::shared::{dialect_from_config, engine_to_sqruff_dialect};
+use super::shared::{config_dir, dialect_from_config, engine_to_sqruff_dialect, resolve_globs};
 
 /// Run the `fmt` command: format SQL files using sqruff.
 ///
@@ -102,16 +102,20 @@ fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dy
         .and_then(|s| s.engine.as_deref())
         .map(|e| engine_to_sqruff_dialect(e).to_string());
 
+    let base_dir = config_dir(config_path);
+
     let mut all_files = Vec::new();
-    for sql_config in &config.sql {
-        for patterns in [&sql_config.queries, &sql_config.schema] {
-            for pattern in patterns {
-                let matches: Vec<_> = glob::glob(pattern)?.collect::<Result<Vec<_>, _>>()?;
-                for m in matches {
-                    all_files.push(m.display().to_string());
-                }
-            }
-        }
+    for (idx, sql_config) in config.sql.iter().enumerate() {
+        all_files.extend(resolve_globs(
+            &sql_config.queries,
+            base_dir,
+            &format!("[sql[{idx}]] queries"),
+        )?);
+        all_files.extend(resolve_globs(
+            &sql_config.schema,
+            base_dir,
+            &format!("[sql[{idx}]] schema"),
+        )?);
     }
 
     Ok(ResolvedConfig {

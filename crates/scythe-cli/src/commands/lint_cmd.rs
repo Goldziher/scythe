@@ -6,7 +6,7 @@ use scythe_lint::sqruff_adapter;
 use scythe_lint::types::Severity;
 
 use super::inspect::{build_driver_with_config, build_registry, resolve_inspect_url};
-use super::shared::{engine_to_sqruff_dialect, resolve_globs, split_query_file};
+use super::shared::{config_dir, engine_to_sqruff_dialect, resolve_globs, split_query_file};
 
 /// A combined lint violation that can come from either scythe rules, sqruff,
 /// or live-DB inspect checks.
@@ -153,12 +153,14 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
 
     let mut all_violations: Vec<FileViolation> = Vec::new();
 
+    let base_dir = config_dir(config_path);
+
     for sql_config in &config.sql {
         eprintln!("[{}] Parsing schema...", sql_config.name);
 
         let sqruff_dialect = cli_dialect.unwrap_or_else(|| engine_to_sqruff_dialect(&sql_config.engine));
 
-        let schema_files = resolve_globs(&sql_config.schema)?;
+        let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
         let schema_contents: Vec<String> = schema_files
             .iter()
             .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
@@ -168,7 +170,7 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
         let sql_dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
 
-        let query_files = resolve_globs(&sql_config.queries)?;
+        let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
 
         for query_file in &query_files {
             let content = std::fs::read_to_string(query_file)

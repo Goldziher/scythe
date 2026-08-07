@@ -15,7 +15,7 @@ use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::{QueryCommand, parse_query_with_dialect};
 
-use super::shared::{redact_url_password, resolve_globs, split_query_file};
+use super::shared::{config_dir, redact_url_password, resolve_globs, split_query_file};
 
 #[derive(Debug, Deserialize)]
 struct ScytheConfig {
@@ -203,10 +203,12 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
     let config: ScytheConfig =
         toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
 
+    let base_dir = config_dir(config_path);
+
     for sql_config in &config.sql {
         eprintln!("[{}] Parsing schema...", sql_config.name);
 
-        let schema_files = resolve_globs(&sql_config.schema)?;
+        let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
 
         let schema_contents: Vec<String> = schema_files
             .iter()
@@ -217,7 +219,7 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
         let dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &dialect)?;
 
-        let query_files = resolve_globs(&sql_config.queries)?;
+        let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
 
         let mut all_query_blocks = Vec::new();
         for query_file in &query_files {
@@ -264,13 +266,15 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
                     .map_err(|e| format!("backend '{}' apply_options failed: {}", target.backend, e))?;
             }
 
-            generate_for_backend(
-                &sql_config.name,
-                &*backend,
-                &analyzed_queries,
-                &target.output,
-                &overrides,
-            )?;
+            // `output` is a path, not a glob pattern, so it is resolved via
+            // plain `Path::join` (not `rebase_pattern`/`glob::Pattern::escape`)
+            // — an output directory literally named `a[1]` must not be
+            // mangled. `PathBuf::push` (which `join` uses internally) leaves
+            // an already-absolute `target.output` unchanged: pushing an
+            // absolute path replaces the buffer instead of appending to it.
+            let output_dir = base_dir.join(&target.output).to_string_lossy().into_owned();
+
+            generate_for_backend(&sql_config.name, &*backend, &analyzed_queries, &output_dir, &overrides)?;
         }
     }
 
@@ -529,10 +533,12 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     // instead of running every query through the PostgreSQL wire protocol.
     let mut verifiable: Vec<VerifiableBlock> = Vec::new();
 
+    let base_dir = config_dir(config_path);
+
     for sql_config in &config.sql {
         eprintln!("[{}] Parsing schema...", sql_config.name);
 
-        let schema_files = resolve_globs(&sql_config.schema)?;
+        let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
         let schema_contents: Vec<String> = schema_files
             .iter()
             .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
@@ -542,7 +548,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         let dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &dialect)?;
 
-        let query_files = resolve_globs(&sql_config.queries)?;
+        let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
         let mut all_query_blocks = Vec::new();
         for query_file in &query_files {
             let content = std::fs::read_to_string(query_file)

@@ -21,7 +21,7 @@ use scythe_lint::{
     SuppressionSet, default_registry, emit_findings, extract_cwe, load_rules_from_file, register_user_rules,
 };
 
-use super::shared::resolve_globs;
+use super::shared::{config_dir, resolve_globs};
 
 const TOOL_NAME: &str = "scythe-audit";
 const TOOL_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -121,7 +121,7 @@ fn load_registry_for_discovery(config_path: &str) -> Result<RuleRegistry, Box<dy
         registry.apply_config(&lint_config);
     }
     if let Some(audit_section) = parsed.get("audit") {
-        let config_dir = Path::new(config_path).parent().unwrap_or(Path::new("."));
+        let base_dir = config_dir(config_path);
         let matcher_registry = MatcherRegistry::canonical();
         let mut user_specs: Vec<(RuleSpec, String)> = Vec::new();
         if let Some(rules) = audit_section.get("rule").and_then(|v| v.as_array()) {
@@ -134,7 +134,7 @@ fn load_registry_for_discovery(config_path: &str) -> Result<RuleRegistry, Box<dy
         if let Some(extras) = audit_section.get("extra_rules").and_then(|v| v.as_array()) {
             for v in extras {
                 if let Some(rel_path) = v.as_str() {
-                    let abs_path = config_dir.join(rel_path);
+                    let abs_path = base_dir.join(rel_path);
                     let path_str = abs_path.display().to_string();
                     let specs = load_rules_from_file(&abs_path).map_err(|e: AuditConfigError| e.to_string())?;
                     for spec in specs {
@@ -259,7 +259,7 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         registry.apply_config(lint_config);
     }
 
-    let config_dir = Path::new(config_path).parent().unwrap_or_else(|| Path::new("."));
+    let base_dir = config_dir(config_path);
     let matcher_registry = MatcherRegistry::canonical();
 
     let mut user_specs: Vec<(RuleSpec, String)> = config
@@ -270,7 +270,7 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         .collect();
 
     for rel_path in &config.audit.extra_rules {
-        let abs_path = config_dir.join(rel_path);
+        let abs_path = base_dir.join(rel_path);
         let path_str = abs_path.display().to_string();
         let specs = load_rules_from_file(&abs_path).map_err(|e: AuditConfigError| e.to_string())?;
         for spec in specs {
@@ -290,7 +290,7 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
     for sql_config in &config.sql {
         let sql_dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
 
-        let schema_files = resolve_globs(&sql_config.schema)?;
+        let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
         let schema_contents: Vec<String> = schema_files
             .iter()
             .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
@@ -309,7 +309,7 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
             ));
         }
 
-        let query_files = resolve_globs(&sql_config.queries)?;
+        let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
         for query_file in &query_files {
             let content = std::fs::read_to_string(query_file)
                 .map_err(|e| format!("failed to read query file '{}': {}", query_file, e))?;

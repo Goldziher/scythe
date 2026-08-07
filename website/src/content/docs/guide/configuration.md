@@ -5,6 +5,16 @@ description: Full scythe.toml reference -- SQL blocks, code generation options, 
 
 Scythe is configured via `scythe.toml` in your project root.
 
+Relative paths in `scythe.toml` — `schema`, `queries` glob patterns, and
+`output` directories — resolve relative to the directory containing
+`scythe.toml`, not the current working directory the CLI is invoked from.
+Running `scythe generate --config /path/to/project/scythe.toml` from any
+directory behaves identically to running `cd /path/to/project && scythe
+generate`. A glob pattern that matches no files is a hard error; if you hit
+one unexpectedly after upgrading, check that the pattern is written relative
+to the config file, not to your shell's current directory. Absolute paths and
+patterns are always used as-is.
+
 ## Full Reference
 
 ```toml
@@ -64,9 +74,9 @@ performance = "warn"
 |-------|------|----------|-------------|
 | `name` | string | yes | Name for this SQL block. |
 | `engine` | string | yes | Database dialect: `postgresql`, `mysql`, `sqlite`, `duckdb`, `cockroachdb`, `mssql`, `oracle`, `mariadb`, `redshift`, `snowflake`. |
-| `schema` | string[] | yes | Glob patterns for schema DDL files. |
-| `queries` | string[] | yes | Glob patterns for annotated query files. |
-| `output` | string | yes | Output directory for generated code. |
+| `schema` | string[] | yes | Glob patterns for schema DDL files. Relative patterns resolve against the config file's directory. |
+| `queries` | string[] | yes | Glob patterns for annotated query files. Relative patterns resolve against the config file's directory. |
+| `output` | string | yes | Output directory for generated code. A relative path resolves against the config file's directory. |
 | `gen` | table | no | Code generation options per language. |
 | `type_overrides` | array | no | Type mapping overrides. |
 
@@ -105,7 +115,7 @@ output = "src/generated/kotlin-exposed"
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `backend` | string | yes | Full backend name (e.g. `rust-sqlx`, `typescript-pg`, `python-aiomysql`). |
-| `output` | string | yes | Output directory for this backend's generated code. |
+| `output` | string | yes | Output directory for this backend's generated code. A relative path resolves against the config file's directory. |
 | `row_type` | string | no | Row type style for generated code. See below. |
 | `outer_join_unions` | bool | no | Emit outer-join nullability as a discriminated union. TypeScript backends only. See below. |
 | `namespace` | string | no | PHP namespace for generated code. PHP backends only. See below. |
