@@ -81,6 +81,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          # are written by Bundler 4. An older Bundler cannot read a newer
+          # lockfile: it re-execs to install the newer one mid-step and then
+          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
+          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -280,6 +285,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          # are written by Bundler 4. An older Bundler cannot read a newer
+          # lockfile: it re-execs to install the newer one mid-step and then
+          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
+          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -408,6 +418,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          # are written by Bundler 4. An older Bundler cannot read a newer
+          # lockfile: it re-execs to install the newer one mid-step and then
+          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
+          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -546,6 +561,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          # are written by Bundler 4. An older Bundler cannot read a newer
+          # lockfile: it re-execs to install the newer one mid-step and then
+          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
+          bundler: latest
 
       - run: pip install uv
       - run: npm install -g pnpm
@@ -652,6 +672,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          # are written by Bundler 4. An older Bundler cannot read a newer
+          # lockfile: it re-execs to install the newer one mid-step and then
+          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
+          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -762,6 +787,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          # are written by Bundler 4. An older Bundler cannot read a newer
+          # lockfile: it re-execs to install the newer one mid-step and then
+          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
+          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
@@ -897,6 +927,11 @@ jobs:
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
+          # Ruby 3.3 ships Bundler 2.5.x, but the committed Gemfile.lock files
+          # are written by Bundler 4. An older Bundler cannot read a newer
+          # lockfile: it re-execs to install the newer one mid-step and then
+          # fails to resolve gems. A newer Bundler reads older lockfiles fine.
+          bundler: latest
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.3"
