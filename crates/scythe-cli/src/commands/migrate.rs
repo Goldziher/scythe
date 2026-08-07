@@ -7,6 +7,8 @@ use serde::Deserialize;
 
 use scythe_core::errors::{ErrorCode, ScytheError};
 
+use super::shared::rebase_pattern;
+
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Deserialize)]
@@ -339,7 +341,50 @@ struct ConvertStats {
     params_renamed: usize,
 }
 
+/// Build the glob pattern used to find `.sql` files under `base_dir` for a
+/// single `queries` entry.
+///
+/// The directory-vs-glob decision — is `qp` already a glob pattern, or is it
+/// a bare directory that needs `/*.sql` appended — is made on the raw,
+/// un-rebased `qp`, never on the string after `base_dir` has been prefixed
+/// onto it: a `*`, `?`, or `[...]` that appears only in `base_dir` (e.g. a
+/// project literally named `a[b]`) must not affect this decision. The
+/// `base_dir.join(qp).is_dir()` filesystem probe below is safe to build with
+/// a plain [`Path::join`] because it is only used to test for existence —
+/// never fed to [`glob::glob`] — unlike the pattern itself.
+///
+/// The result is rebased onto `base_dir` via [`rebase_pattern`], which
+/// escapes glob metacharacters in `base_dir` (never in `qp`, which is meant
+/// to be a glob) and joins with `/` regardless of platform, so a `base_dir`
+/// containing `[`, `]`, `*`, or `?` is treated as a literal path component
+/// instead of compiled as glob syntax, and Windows's `\` separator is never
+/// fed to `glob::glob` (which treats `\` as an escape character).
+fn resolve_query_glob(qp: &str, base_dir: &Path) -> String {
+    let dir_pattern = if qp.contains('*') {
+        qp.to_string()
+    } else if base_dir.join(qp).is_dir() {
+        format!("{}/*.sql", qp.trim_end_matches('/'))
+    } else {
+        qp.to_string()
+    };
+
+    rebase_pattern(&dir_pattern, base_dir).into_owned()
+}
+
 /// Convert all query files found under the given paths.
+///
+/// A `queries` entry that matches no files is reported as a warning on
+/// stderr (naming the pattern, the resolved glob, and the base directory)
+/// rather than aborting the whole migration: `migrate` walks a list of
+/// `queries` entries potentially spanning several `[[sql]]`/`packages`
+/// blocks, and one stale or empty entry should not stop the rest of the
+/// project from being converted. This intentionally diverges from
+/// `shared::resolve_globs` (used by `generate`/`check`/`lint`/`audit`/`fmt`),
+/// which hard-errors on a zero match — those commands resolve a single
+/// config's globs before doing any work, so failing fast is cheap and there
+/// is nothing partial to preserve. `migrate` is a one-shot, best-effort
+/// conversion tool where partial progress (and a `.sql.bak` trail) has more
+/// value than an all-or-nothing abort.
 fn convert_query_files(query_paths: &[String], base_dir: &Path) -> Result<ConvertStats, ScytheError> {
     let mut stats = ConvertStats {
         files: 0,
@@ -348,28 +393,28 @@ fn convert_query_files(query_paths: &[String], base_dir: &Path) -> Result<Conver
     };
 
     for qp in query_paths {
-        let pattern = base_dir.join(qp);
-        let pattern_str = pattern.display().to_string();
-
-        let glob_pattern = if pattern_str.contains('*') {
-            pattern_str.clone()
-        } else if Path::new(&pattern_str).is_dir() {
-            format!("{pattern_str}/*.sql")
-        } else {
-            pattern_str.clone()
-        };
+        let glob_pattern = resolve_query_glob(qp, base_dir);
 
         let entries = glob::glob(&glob_pattern).map_err(|e| internal(format!("glob {glob_pattern}: {e}")))?;
 
+        let mut matched_any = false;
         for entry in entries {
             let path = entry.map_err(|e| internal(format!("glob entry: {e}")))?;
             if !path.is_file() {
                 continue;
             }
+            matched_any = true;
             let (q, p) = convert_single_file(&path)?;
             stats.files += 1;
             stats.queries += q;
             stats.params_renamed += p;
+        }
+
+        if !matched_any {
+            eprintln!(
+                "warning: queries pattern '{qp}' matched no files (resolved: {glob_pattern}, base dir: {base})",
+                base = base_dir.display()
+            );
         }
     }
 
@@ -562,6 +607,46 @@ pub fn run_migrate(sqlc_config_path: &Path) -> Result<(), ScytheError> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A base directory containing glob metacharacters (e.g. a project
+    /// literally named `a[b]`) must be escaped before being prefixed onto
+    /// the query pattern, or the bracket would be compiled as a character
+    /// class and silently match nothing. Regression test for issue #88.
+    #[test]
+    fn resolve_query_glob_escapes_base_dir_metacharacters() {
+        let base = Path::new("a[b]");
+        assert_eq!(resolve_query_glob("queries/*.sql", base), "a[[]b[]]/queries/*.sql");
+    }
+
+    /// The directory-vs-glob decision (does the pattern already contain `*`)
+    /// must be made on the raw, un-rebased pattern — never on the string
+    /// after `base_dir` has been joined on. A `*` living only in `base_dir`
+    /// must not cause a bare-directory `queries` pattern to skip the
+    /// `/*.sql` append.
+    #[test]
+    fn resolve_query_glob_decides_on_raw_pattern_not_joined_string() {
+        let base = Path::new("a*b");
+        // "queries" has no '*' of its own, and (being a nonexistent path)
+        // is not a real directory either, so it passes through unchanged —
+        // proving the decision used the raw "queries", not the joined
+        // "a*b/queries" (which does contain '*' and would otherwise have
+        // skipped the is_dir() branch for the wrong reason).
+        assert_eq!(resolve_query_glob("queries", base), "a[*]b/queries");
+    }
+
+    /// When the raw pattern names a real directory (checked by joining
+    /// `base_dir` purely for the filesystem probe, never for the pattern
+    /// text itself), `/*.sql` must be appended.
+    #[test]
+    fn resolve_query_glob_appends_glob_for_real_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(tmp.path().join("queries")).unwrap();
+
+        assert_eq!(
+            resolve_query_glob("queries", tmp.path()),
+            format!("{}/queries/*.sql", tmp.path().display())
+        );
+    }
 
     #[test]
     fn test_simple_annotation_conversion() {

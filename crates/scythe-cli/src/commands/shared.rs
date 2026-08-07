@@ -118,7 +118,7 @@ pub fn config_dir(config_path: &str) -> &Path {
 ///    accepts `/` as a separator on every platform, and `join` would
 ///    re-parse the escaped string and could reintroduce a platform separator
 ///    that disturbs the escaping.
-fn rebase_pattern<'a>(pattern: &'a str, base_dir: &Path) -> Cow<'a, str> {
+pub(crate) fn rebase_pattern<'a>(pattern: &'a str, base_dir: &Path) -> Cow<'a, str> {
     let p = Path::new(pattern);
     if p.is_absolute() || p.has_root() {
         return Cow::Borrowed(pattern);
