@@ -6,31 +6,31 @@ using Snowflake.Data.Client;
 
 public static class Queries {
 
-public static async Task CreateOrder(SnowflakeDbConnection conn, int user_id, decimal total, string? notes) {
+public static async Task CreateOrder(SnowflakeDbConnection conn, long user_id, decimal total, string? notes) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)";
-    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int32, Value = user_id });
+    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int64, Value = user_id });
     cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p2", DbType = System.Data.DbType.Decimal, Value = total });
     cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p3", DbType = System.Data.DbType.String, Value = notes });
     await cmd.ExecuteNonQueryAsync();
 }
 
 public record GetOrdersByUserRow(
-    int Id,
+    long Id,
     decimal Total,
     string? Notes,
     DateTime CreatedAt
 );
 
-public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(SnowflakeDbConnection conn, int user_id) {
+public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(SnowflakeDbConnection conn, long user_id) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = "SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC";
-    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int32, Value = user_id });
+    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int64, Value = user_id });
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<GetOrdersByUserRow>();
     while (await reader.ReadAsync()) {
         results.Add(new GetOrdersByUserRow(
-            reader.GetInt32(0),
+            reader.GetInt64(0),
             reader.GetDecimal(1),
             reader.IsDBNull(2) ? null : reader.GetString(2),
             reader.GetDateTime(3)
@@ -43,10 +43,10 @@ public record GetOrderTotalRow(
     decimal? TotalSum
 );
 
-public static async Task<GetOrderTotalRow?> GetOrderTotal(SnowflakeDbConnection conn, int user_id) {
+public static async Task<GetOrderTotalRow?> GetOrderTotal(SnowflakeDbConnection conn, long user_id) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?";
-    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int32, Value = user_id });
+    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int64, Value = user_id });
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
     return new GetOrderTotalRow(
@@ -54,15 +54,15 @@ public static async Task<GetOrderTotalRow?> GetOrderTotal(SnowflakeDbConnection 
     );
 }
 
-public static async Task<int> DeleteOrdersByUser(SnowflakeDbConnection conn, int user_id) {
+public static async Task<int> DeleteOrdersByUser(SnowflakeDbConnection conn, long user_id) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = "DELETE FROM orders WHERE id IN (SELECT id FROM orders WHERE user_id = ?)";
-    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int32, Value = user_id });
+    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int64, Value = user_id });
     return await cmd.ExecuteNonQueryAsync();
 }
 
 public record GetUserByIdRow(
-    int Id,
+    long Id,
     string Name,
     string? Email,
     bool Active,
@@ -71,14 +71,14 @@ public record GetUserByIdRow(
     DateTimeOffset? UpdatedAt
 );
 
-public static async Task<GetUserByIdRow?> GetUserById(SnowflakeDbConnection conn, int id) {
+public static async Task<GetUserByIdRow?> GetUserById(SnowflakeDbConnection conn, long id) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = "SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?";
-    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int32, Value = id });
+    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int64, Value = id });
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
     return new GetUserByIdRow(
-        reader.GetInt32(0),
+        reader.GetInt64(0),
         reader.GetString(1),
         reader.IsDBNull(2) ? null : reader.GetString(2),
         reader.GetBoolean(3),
@@ -89,7 +89,7 @@ public static async Task<GetUserByIdRow?> GetUserById(SnowflakeDbConnection conn
 }
 
 public record ListActiveUsersRow(
-    int Id,
+    long Id,
     string Name,
     string? Email
 );
@@ -101,7 +101,7 @@ public static async Task<List<ListActiveUsersRow>> ListActiveUsers(SnowflakeDbCo
     var results = new List<ListActiveUsersRow>();
     while (await reader.ReadAsync()) {
         results.Add(new ListActiveUsersRow(
-            reader.GetInt32(0),
+            reader.GetInt64(0),
             reader.GetString(1),
             reader.IsDBNull(2) ? null : reader.GetString(2)
         ));
@@ -118,23 +118,23 @@ public static async Task CreateUser(SnowflakeDbConnection conn, string name, str
     await cmd.ExecuteNonQueryAsync();
 }
 
-public static async Task UpdateUserEmail(SnowflakeDbConnection conn, string email, int id) {
+public static async Task UpdateUserEmail(SnowflakeDbConnection conn, string email, long id) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = "UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP() WHERE id = ?";
     cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.String, Value = email });
-    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p2", DbType = System.Data.DbType.Int32, Value = id });
+    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p2", DbType = System.Data.DbType.Int64, Value = id });
     await cmd.ExecuteNonQueryAsync();
 }
 
-public static async Task DeleteUser(SnowflakeDbConnection conn, int id) {
+public static async Task DeleteUser(SnowflakeDbConnection conn, long id) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = "DELETE FROM users WHERE id = ?";
-    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int32, Value = id });
+    cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "p1", DbType = System.Data.DbType.Int64, Value = id });
     await cmd.ExecuteNonQueryAsync();
 }
 
 public record SearchUsersRow(
-    int Id,
+    long Id,
     string Name,
     string? Email
 );
@@ -147,7 +147,7 @@ public static async Task<List<SearchUsersRow>> SearchUsers(SnowflakeDbConnection
     var results = new List<SearchUsersRow>();
     while (await reader.ReadAsync()) {
         results.Add(new SearchUsersRow(
-            reader.GetInt32(0),
+            reader.GetInt64(0),
             reader.GetString(1),
             reader.IsDBNull(2) ? null : reader.GetString(2)
         ));

@@ -12,12 +12,12 @@ import java.time.ZoneOffset
 
 fun createOrder(
     conn: Connection,
-    user_id: Int,
+    user_id: Long,
     total: java.math.BigDecimal,
     notes: String?,
 ) {
     conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)").use { ps ->
-        ps.setInt(1, user_id)
+        ps.setLong(1, user_id)
         ps.setBigDecimal(2, total)
         ps.setString(3, notes)
         ps.executeUpdate()
@@ -26,7 +26,7 @@ fun createOrder(
 
 
 data class GetOrdersByUserRow(
-    val id: Int,
+    val id: Long,
     val total: java.math.BigDecimal,
     val notes: String?,
     val created_at: java.time.LocalDateTime,
@@ -35,10 +35,10 @@ data class GetOrdersByUserRow(
 
 fun getOrdersByUser(
     conn: Connection,
-    user_id: Int,
+    user_id: Long,
 ): List<GetOrdersByUserRow> {
     conn.prepareStatement("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC").use { ps ->
-        ps.setInt(1, user_id)
+        ps.setLong(1, user_id)
         ps.executeQuery().use { rs ->
             val result = mutableListOf<GetOrdersByUserRow>()
             while (rs.next()) {
@@ -46,7 +46,7 @@ fun getOrdersByUser(
                 val notes = if (rs.wasNull()) null else notesValue
                 result.add(
                     GetOrdersByUserRow(
-                        id = rs.getInt("id"),
+                        id = rs.getLong("id"),
                         total = rs.getBigDecimal("total"),
                         notes = notes,
                         created_at = rs.getTimestamp("created_at").toLocalDateTime(),
@@ -66,10 +66,10 @@ data class GetOrderTotalRow(
 
 fun getOrderTotal(
     conn: Connection,
-    user_id: Int,
+    user_id: Long,
 ): GetOrderTotalRow? {
     conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?").use { ps ->
-        ps.setInt(1, user_id)
+        ps.setLong(1, user_id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
                 val total_sumValue = rs.getBigDecimal("total_sum")
@@ -87,17 +87,17 @@ fun getOrderTotal(
 
 fun deleteOrdersByUser(
     conn: Connection,
-    user_id: Int,
+    user_id: Long,
 ): Int {
     return conn.prepareStatement("DELETE FROM orders WHERE id IN (SELECT id FROM orders WHERE user_id = ?)").use { ps ->
-        ps.setInt(1, user_id)
+        ps.setLong(1, user_id)
         ps.executeUpdate()
     }
 }
 
 
 data class GetUserByIdRow(
-    val id: Int,
+    val id: Long,
     val name: String,
     val email: String?,
     val active: Boolean,
@@ -109,10 +109,10 @@ data class GetUserByIdRow(
 
 fun getUserById(
     conn: Connection,
-    id: Int,
+    id: Long,
 ): GetUserByIdRow? {
     conn.prepareStatement("SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?").use { ps ->
-        ps.setInt(1, id)
+        ps.setLong(1, id)
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
                 val emailValue = rs.getString("email")
@@ -122,7 +122,7 @@ fun getUserById(
                 val updated_atValue = rs.getTimestamp("updated_at")
                 val updated_at = if (rs.wasNull()) null else updated_atValue.toInstant().atOffset(ZoneOffset.UTC)
                 GetUserByIdRow(
-                    id = rs.getInt("id"),
+                    id = rs.getLong("id"),
                     name = rs.getString("name"),
                     email = email,
                     active = rs.getBoolean("active"),
@@ -139,7 +139,7 @@ fun getUserById(
 
 
 data class ListActiveUsersRow(
-    val id: Int,
+    val id: Long,
     val name: String,
     val email: String?,
 )
@@ -154,7 +154,7 @@ fun listActiveUsers(conn: Connection): List<ListActiveUsersRow> {
                 val email = if (rs.wasNull()) null else emailValue
                 result.add(
                     ListActiveUsersRow(
-                        id = rs.getInt("id"),
+                        id = rs.getLong("id"),
                         name = rs.getString("name"),
                         email = email,
                     ),
@@ -184,11 +184,11 @@ fun createUser(
 fun updateUserEmail(
     conn: Connection,
     email: String,
-    id: Int,
+    id: Long,
 ) {
     conn.prepareStatement("UPDATE users SET email = ?, updated_at = CURRENT_TIMESTAMP() WHERE id = ?").use { ps ->
         ps.setString(1, email)
-        ps.setInt(2, id)
+        ps.setLong(2, id)
         ps.executeUpdate()
     }
 }
@@ -196,17 +196,17 @@ fun updateUserEmail(
 
 fun deleteUser(
     conn: Connection,
-    id: Int,
+    id: Long,
 ) {
     conn.prepareStatement("DELETE FROM users WHERE id = ?").use { ps ->
-        ps.setInt(1, id)
+        ps.setLong(1, id)
         ps.executeUpdate()
     }
 }
 
 
 data class SearchUsersRow(
-    val id: Int,
+    val id: Long,
     val name: String,
     val email: String?,
 )
@@ -225,7 +225,7 @@ fun searchUsers(
                 val email = if (rs.wasNull()) null else emailValue
                 result.add(
                     SearchUsersRow(
-                        id = rs.getInt("id"),
+                        id = rs.getLong("id"),
                         name = rs.getString("name"),
                         email = email,
                     ),
