@@ -605,6 +605,106 @@ impl<'a> Analyzer<'a> {
                 .collect(),
         }
     }
+
+    /// Widened view of a function's argument list that preserves wildcard and
+    /// relation-reference shapes `get_function_args` drops.
+    ///
+    /// Deliberately a sibling, not a replacement: `get_function_args` feeds
+    /// `get_first_arg_type`, which in turn feeds `sum`, `avg`, `min`/`max`,
+    /// `array_agg`, `lag`/`lead`, `first_value`, `unnest`, `array_cat` and the
+    /// catch-all arm of [`Analyzer::infer_function_type`]. Widening that path
+    /// would silently change how `array_agg(o.*)` and nullability derived
+    /// from `first_arg_nullable` behave. Only the PostgreSQL nested-aggregate
+    /// arms use this method; every other call site is untouched.
+    ///
+    /// Unused outside tests until the phase-3 nested-aggregate arms of
+    /// `infer_function_type` are added — this commit only introduces the
+    /// shape-classification contract and pins it with tests.
+    #[allow(dead_code)]
+    pub(super) fn get_function_arg_shapes(&self, func: &ast::Function, scope: &Scope) -> Vec<FuncArgShape> {
+        let ast::FunctionArguments::List(arg_list) = &func.args else {
+            return Vec::new();
+        };
+
+        arg_list
+            .args
+            .iter()
+            .filter_map(|arg| {
+                let fae = match arg {
+                    FunctionArg::Unnamed(fae) | FunctionArg::Named { arg: fae, .. } => fae,
+                    _ => return None,
+                };
+                Some(self.classify_function_arg_expr(fae, scope))
+            })
+            .collect()
+    }
+
+    fn classify_function_arg_expr(&self, fae: &FunctionArgExpr, scope: &Scope) -> FuncArgShape {
+        match fae {
+            FunctionArgExpr::Expr(Expr::Identifier(ident)) => {
+                let name = if ident.quote_style.is_some() {
+                    ident.value.clone()
+                } else {
+                    ident.value.to_lowercase()
+                };
+                match self.scope_relation_alias(&name, scope) {
+                    Some(alias) => FuncArgShape::Relation(alias),
+                    None => FuncArgShape::Expr(Box::new(Expr::Identifier(ident.clone()))),
+                }
+            }
+            FunctionArgExpr::Expr(e) => FuncArgShape::Expr(Box::new(e.clone())),
+            FunctionArgExpr::QualifiedWildcard(object_name) => {
+                let qualifier = object_name_to_string(object_name).to_lowercase();
+                match self.find_scope_source_alias(&qualifier, scope) {
+                    Some(alias) => FuncArgShape::Relation(alias),
+                    None => FuncArgShape::Wildcard,
+                }
+            }
+            FunctionArgExpr::Wildcard | FunctionArgExpr::WildcardWithOptions(_) => FuncArgShape::Wildcard,
+        }
+    }
+
+    /// Resolve a bare identifier to the scope source it names, but only when
+    /// it is unambiguously a relation reference (`json_agg(o)` where `o` is
+    /// the `orders o` alias) rather than a column that happens to share the
+    /// name.
+    fn scope_relation_alias(&self, name: &str, scope: &Scope) -> Option<String> {
+        let is_column = scope.sources.iter().any(|s| s.columns.iter().any(|c| c.name == name));
+        if is_column {
+            return None;
+        }
+        self.find_scope_source_alias(name, scope)
+    }
+
+    /// Resolve a name to the alias of the scope source it matches (by alias
+    /// or table name), mirroring the `o.*` expansion in `statements.rs`.
+    fn find_scope_source_alias(&self, name: &str, scope: &Scope) -> Option<String> {
+        scope
+            .sources
+            .iter()
+            .find(|s| s.alias == name || s.table_name == name)
+            .map(|s| s.alias.clone())
+    }
+}
+
+/// Shape of a single function argument, widened from sqlparser's
+/// `FunctionArgExpr` to preserve wildcard and relation-reference forms that
+/// [`Analyzer::get_function_args`] silently drops.
+///
+/// `#[allow(dead_code)]`: fields are read from tests only until the phase-3
+/// nested-aggregate arms of `infer_function_type` consume them.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(super) enum FuncArgShape {
+    /// A normal scalar/column expression argument. Boxed: `Expr` is ~328
+    /// bytes and this enum is carried by value through `Vec<FuncArgShape>`.
+    Expr(Box<Expr>),
+    /// `*`, or `alias.*` whose qualifier did not resolve to a scope source.
+    Wildcard,
+    /// `alias.*`, or a bare identifier that names a scope source (table
+    /// alias or table name) rather than a column — e.g. `json_agg(o)` where
+    /// `o` is the `orders o` alias. Carries the resolved alias.
+    Relation(String),
 }
 
 #[cfg(test)]
@@ -614,7 +714,8 @@ mod tests {
     use ahash::AHashMap;
     use sqlparser::ast::{
         Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident, ObjectName,
-        ObjectNamePart, Value, ValueWithSpan, WindowFrame, WindowFrameBound, WindowFrameUnits, WindowSpec, WindowType,
+        ObjectNamePart, Value, ValueWithSpan, WildcardAdditionalOptions, WindowFrame, WindowFrameBound,
+        WindowFrameUnits, WindowSpec, WindowType,
     };
     use sqlparser::tokenizer::Span;
 
@@ -1121,5 +1222,136 @@ mod tests {
         let ti = analyzer.infer_function_type(&func, &scope);
         assert_eq!(ti.neutral_type, "int64");
         assert!(!ti.nullable);
+    }
+
+    fn make_func_with_arg_exprs(name: &str, args: Vec<FunctionArgExpr>) -> ast::Function {
+        let mut f = make_func(name, Vec::new());
+        f.args = FunctionArguments::List(FunctionArgumentList {
+            args: args.into_iter().map(FunctionArg::Unnamed).collect(),
+            duplicate_treatment: None,
+            clauses: Vec::new(),
+        });
+        f
+    }
+
+    fn qualified_wildcard(qualifier: &str) -> FunctionArgExpr {
+        FunctionArgExpr::QualifiedWildcard(ObjectName(vec![ObjectNamePart::Identifier(Ident::new(qualifier))]))
+    }
+
+    /// Pins `get_function_args` to still drop wildcard args entirely — the
+    /// contract `get_function_arg_shapes` was added alongside, not in place
+    /// of, it (see the doc comment on `get_function_arg_shapes`).
+    #[test]
+    fn test_get_function_args_still_drops_wildcards() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let func = make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]);
+        assert_eq!(analyzer.get_function_args(&func), Vec::<Expr>::new());
+    }
+
+    #[test]
+    fn test_get_function_arg_shapes_qualified_wildcard_resolves_relation() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = scope_with_source_alias("o", "orders");
+        let func = make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Relation(alias) if alias == "o"));
+    }
+
+    #[test]
+    fn test_get_function_arg_shapes_qualified_wildcard_unresolved_is_wildcard() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Wildcard));
+    }
+
+    #[test]
+    fn test_get_function_arg_shapes_bare_wildcard() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func_with_arg_exprs("count", vec![FunctionArgExpr::Wildcard]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Wildcard));
+    }
+
+    #[test]
+    fn test_get_function_arg_shapes_wildcard_with_options() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func_with_arg_exprs(
+            "count",
+            vec![FunctionArgExpr::WildcardWithOptions(
+                WildcardAdditionalOptions::default(),
+            )],
+        );
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Wildcard));
+    }
+
+    /// `json_agg(o)` where `o` is a scope source alias, not a column, must
+    /// resolve as `Relation("o")` rather than falling into
+    /// `Expr::Identifier` (which would resolve to `__unknown_col__:o` today).
+    #[test]
+    fn test_get_function_arg_shapes_bare_identifier_matching_alias_is_relation() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = scope_with_source_alias("o", "orders");
+        let func = make_func_with_arg_exprs("json_agg", vec![FunctionArgExpr::Expr(col_expr("o"))]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Relation(alias) if alias == "o"));
+    }
+
+    /// A bare identifier that is also a real column name must NOT be
+    /// reclassified as a relation, even if some other source in scope
+    /// happens to share the same alias — column identity wins.
+    #[test]
+    fn test_get_function_arg_shapes_bare_identifier_matching_column_stays_expr() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        // `t` is both a source alias (via scope_with_column) and, separately,
+        // a column named "c" lives on it; use a name ("c") that collides with
+        // the column instead of the alias to prove column identity wins.
+        let mut scope = scope_with_column("string");
+        scope.sources[0].alias = "c".to_string();
+        scope.sources[0].table_name = "c".to_string();
+        let func = make_func_with_arg_exprs("json_agg", vec![FunctionArgExpr::Expr(col_expr("c"))]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(
+            matches!(&shapes[0], FuncArgShape::Expr(e) if matches!(e.as_ref(), Expr::Identifier(ident) if ident.value == "c"))
+        );
+    }
+
+    #[test]
+    fn test_get_function_arg_shapes_plain_expr_unaffected() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func_with_arg_exprs("sum", vec![FunctionArgExpr::Expr(int_literal())]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Expr(e) if matches!(e.as_ref(), Expr::Value(_))));
+    }
+
+    fn scope_with_source_alias(alias: &str, table_name: &str) -> Scope {
+        Scope {
+            sources: vec![ScopeSource {
+                alias: alias.to_string(),
+                table_name: table_name.to_string(),
+                columns: vec![ScopeColumn::new("id", "int64", false)],
+                nullable_from_join: false,
+            }],
+        }
     }
 }
