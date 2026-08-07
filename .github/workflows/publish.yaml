@@ -28,6 +28,8 @@ jobs:
       tag: ${{ steps.version.outputs.tag }}
       crates_exists: ${{ steps.published.outputs.crates_exists }}
       release_assets_exist: ${{ steps.release_assets.outputs.release_assets_exist }}
+      npm_exists: ${{ steps.published.outputs.npm_exists }}
+      pypi_exists: ${{ steps.published.outputs.pypi_exists }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -66,6 +68,22 @@ jobs:
 
           echo "crates_exists=$crates_exists" >> "$GITHUB_OUTPUT"
           echo "crates.io published: $crates_exists"
+
+          npm_exists=false
+          if npm view "scythe-cli@${version}" version >/dev/null 2>&1; then
+            npm_exists=true
+          fi
+
+          echo "npm_exists=$npm_exists" >> "$GITHUB_OUTPUT"
+          echo "npm published: $npm_exists"
+
+          pypi_exists=false
+          if curl -fsS "https://pypi.org/pypi/scythe-sql/${version}/json" >/dev/null; then
+            pypi_exists=true
+          fi
+
+          echo "pypi_exists=$pypi_exists" >> "$GITHUB_OUTPUT"
+          echo "PyPI published: $pypi_exists"
 
       - name: Detect existing GitHub release assets
         id: release_assets
@@ -177,7 +195,12 @@ jobs:
   verify-binstall:
     name: Verify cargo-binstall install
     needs: [meta, release_assets]
-    if: needs.meta.outputs.release_assets_exist != 'true'
+    # `release_assets` is *skipped* (not "success") when assets already exist, which is the
+    # normal idempotent re-run case -- this job must still run then, so gate on it not having
+    # failed rather than on a plain `needs:` (which would skip verification on every re-run).
+    if: >-
+      always() && needs.meta.result == 'success'
+      && needs.release_assets.result != 'failure'
     uses: xberg-io/actions/.github/workflows/reusable-binstall-verify.yml@v1
     with:
       package-name: scythe-cli
@@ -192,3 +215,218 @@ jobs:
         ]
       smoke-command: |
         scythe --version
+
+  smoke_wrappers:
+    name: Smoke test npm/PyPI wrappers
+    needs: [meta, release_assets]
+    # Must run *before* publishing: a smoke test that runs after publish tells you about a
+    # package you can no longer unpublish. Gate on release_assets not having failed (same
+    # idempotent-rerun reasoning as verify-binstall above), not on a plain `needs:`.
+    #
+    # Run when *either* registry still needs publishing, not just npm. Both publish jobs
+    # require this job to have succeeded, so gating it on npm alone would deadlock the
+    # partial-failure case: npm published, PyPI not, re-run -> this job skips -> a skipped
+    # result is not 'success' -> publish_pypi can never run.
+    if: >-
+      always() && needs.meta.result == 'success'
+      && needs.release_assets.result != 'failure'
+      && (needs.meta.outputs.npm_exists != 'true' || needs.meta.outputs.pypi_exists != 'true')
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    env:
+      VERSION: ${{ needs.meta.outputs.version }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Build and install npm wrapper
+        working-directory: release/npm
+        run: |
+          set -euo pipefail
+          npm version "$VERSION" --no-git-tag-version --allow-same-version
+          npm pack
+          tarball="$(ls ./*.tgz)"
+          npm install -g "$tarball"
+          npm root -g >npm-global-root.txt
+
+      - name: Verify the npm shim reports the exact tag version and forwards the exit code
+        # Invokes the committed bin/scythe shim, not the downloaded binary directly, so this
+        # also proves argument and exit-code forwarding. Retries absorb CDN propagation delay
+        # for release assets that were just published by the `release_assets` job.
+        run: |
+          set -euo pipefail
+          global_root="$(cat release/npm/npm-global-root.txt)"
+          shim="$global_root/scythe-cli/bin/scythe"
+
+          for attempt in $(seq 1 10); do
+            if output="$(node "$shim" --version 2>&1)"; then
+              echo "$output"
+              if [[ "$output" == *"$VERSION"* ]]; then
+                echo "npm wrapper OK: $output"
+                break
+              fi
+            fi
+            if [ "$attempt" -eq 10 ]; then
+              echo "npm wrapper never reported version $VERSION (last output: ${output:-<none>})" >&2
+              exit 1
+            fi
+            echo "retrying (attempt $attempt)..."
+            sleep 10
+          done
+
+          if node "$shim" this-is-not-a-real-subcommand >/dev/null 2>&1; then
+            echo "expected non-zero exit code from an invalid subcommand" >&2
+            exit 1
+          fi
+
+      - name: Build and install PyPI wrapper
+        working-directory: release/pypi
+        run: |
+          set -euo pipefail
+          uv run python scripts/set_version.py "$VERSION"
+          uv build --wheel
+          wheel="$(ls dist/*.whl)"
+
+          uv venv .smoke-venv
+          if [ -x .smoke-venv/bin/python ]; then
+            pybin=.smoke-venv/bin/python
+            scythe_bin=.smoke-venv/bin/scythe
+          else
+            pybin=.smoke-venv/Scripts/python.exe
+            scythe_bin=.smoke-venv/Scripts/scythe.exe
+          fi
+
+          uv pip install --python "$pybin" "$wheel"
+          echo "scythe_bin=$PWD/$scythe_bin" >> "$GITHUB_ENV"
+
+      - name: Verify the PyPI console script reports the exact tag version and forwards the exit code
+        # Invokes the installed `scythe` console script (scythe_sql.cli:main), which
+        # downloads-then-execs the real binary on first run -- same argument/exit-code
+        # forwarding guarantee as the npm shim. Retries absorb CDN propagation delay.
+        run: |
+          set -euo pipefail
+          for attempt in $(seq 1 10); do
+            if output="$("$scythe_bin" --version 2>&1)"; then
+              echo "$output"
+              if [[ "$output" == *"$VERSION"* ]]; then
+                echo "PyPI wrapper OK: $output"
+                break
+              fi
+            fi
+            if [ "$attempt" -eq 10 ]; then
+              echo "PyPI wrapper never reported version $VERSION (last output: ${output:-<none>})" >&2
+              exit 1
+            fi
+            echo "retrying (attempt $attempt)..."
+            sleep 10
+          done
+
+          if "$scythe_bin" this-is-not-a-real-subcommand >/dev/null 2>&1; then
+            echo "expected non-zero exit code from an invalid subcommand" >&2
+            exit 1
+          fi
+
+  publish_npm:
+    name: Publish npm
+    needs: [meta, release_assets, smoke_wrappers]
+    if: >-
+      always() && needs.meta.result == 'success'
+      && needs.release_assets.result != 'failure'
+      && needs.smoke_wrappers.result == 'success'
+      && needs.meta.outputs.npm_exists != 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for OIDC trusted publishing support
+        run: npm install -g npm@latest
+
+      - name: Set package version
+        working-directory: release/npm
+        run: npm version "${{ needs.meta.outputs.version }}" --no-git-tag-version --allow-same-version
+
+      - name: Publish to npm
+        working-directory: release/npm
+        # No NPM_TOKEN secret exists in this repository (verified via `gh secret list` --
+        # only HOMEBREW_TOKEN is present), so this uses npm's OIDC trusted publishing.
+        #
+        # BOOTSTRAP: `scythe-cli` does not exist on npm yet (registry returns 404), and a
+        # trusted publisher can only be configured on npmjs.com for a package that already
+        # exists. So THE FIRST PUBLISH MUST BE DONE MANUALLY (`npm publish` from a logged-in
+        # machine), after which the trusted publisher is configured to trust this workflow
+        # and every later release publishes here. This is the same constraint crates.io has
+        # -- OIDC cannot create a package that has never been published.
+        #
+        # PyPI differs: it supports "pending publishers", so `scythe-sql` (also 404 today)
+        # can be pre-configured before its first release and bootstrapped by CI.
+        run: npm publish --provenance --access public
+
+  publish_pypi:
+    name: Publish PyPI
+    needs: [meta, release_assets, smoke_wrappers]
+    if: >-
+      always() && needs.meta.result == 'success'
+      && needs.release_assets.result != 'failure'
+      && needs.smoke_wrappers.result == 'success'
+      && needs.meta.outputs.pypi_exists != 'true'
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event_name == 'workflow_dispatch' && github.event.inputs.tag || '' }}
+
+      - name: Setup uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+
+      - name: Set package version
+        working-directory: release/pypi
+        run: python3 scripts/set_version.py "${{ needs.meta.outputs.version }}"
+
+      - name: Build
+        working-directory: release/pypi
+        run: uv build
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@release/v1
+        with:
+          packages-dir: release/pypi/dist

@@ -1,0 +1,33 @@
+{
+  "name": "scythe-cli",
+  "version": "0.0.0",
+  "description": "SQL compilation and code generation CLI -- npm wrapper that downloads the prebuilt scythe binary",
+  "license": "MIT",
+  "homepage": "https://goldziher.github.io/scythe",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Goldziher/scythe.git",
+    "directory": "release/npm"
+  },
+  "bugs": "https://github.com/Goldziher/scythe/issues",
+  "keywords": ["sql", "codegen", "cli", "database", "sqlc"],
+  "engines": {
+    "node": ">=18"
+  },
+  "os": ["linux", "darwin", "win32"],
+  "cpu": ["x64", "arm64"],
+  "bin": {
+    "scythe": "bin/scythe"
+  },
+  "files": ["bin", "lib", "install.js"],
+  "scripts": {
+    "postinstall": "node install.js",
+    "test": "node --test \"test/*.test.js\""
+  },
+  "dependencies": {
+    "https-proxy-agent": "^7.0.5",
+    "tar": "^7.4.3",
+    "yauzl": "^3.1.3"
+  },
+  "devDependencies": {}
+}

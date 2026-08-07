@@ -1,0 +1,64 @@
+#!/usr/bin/env node
+"use strict";
+
+/*
+ * Committed shim: npm creates the `bin/scythe` symlink at *install* time,
+ * before `postinstall` (install.js) has downloaded the real binary. The
+ * `bin` target must therefore exist in the package as committed source --
+ * this file is it. It resolves and execs the real, platform-specific
+ * scythe binary, forwarding argv and the process exit code.
+ */
+
+const { spawnSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
+
+const pkg = require("../package.json");
+const { cachedBinaryPath } = require("../lib/cache");
+const { resolveTarget } = require("../lib/platform");
+
+function resolveBinaryPath() {
+  if (process.env.SCYTHE_BINARY) {
+    return process.env.SCYTHE_BINARY;
+  }
+
+  const { binaryName } = resolveTarget({
+    platform: process.platform,
+    arch: process.arch,
+    isMusl: () => false,
+  });
+
+  return cachedBinaryPath({
+    env: process.env,
+    platform: process.platform,
+    homedir: os.homedir(),
+    version: pkg.version,
+    binaryName,
+  });
+}
+
+function main() {
+  const binaryPath = resolveBinaryPath();
+
+  if (!fs.existsSync(binaryPath)) {
+    process.stderr.write(
+      `scythe-cli: the scythe binary was not found at ${binaryPath}.\n` +
+        "It should have been downloaded by the postinstall script. Try:\n" +
+        "  npm rebuild scythe-cli\n" +
+        "or reinstall the package. If this persists, set SCYTHE_BINARY to point at a " +
+        "scythe binary on disk, or install scythe with cargo instead.\n",
+    );
+    process.exit(1);
+  }
+
+  const result = spawnSync(binaryPath, process.argv.slice(2), { stdio: "inherit" });
+
+  if (result.error) {
+    process.stderr.write(`scythe-cli: failed to launch ${binaryPath}: ${result.error.message}\n`);
+    process.exit(1);
+  }
+
+  process.exit(result.status ?? 1);
+}
+
+main();
