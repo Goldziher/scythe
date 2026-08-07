@@ -70,6 +70,53 @@ def test_main_reports_an_exec_failure(monkeypatch: pytest.MonkeyPatch, capsys: p
     assert "scythe-sql: failed to execute /cache/scythe" in capsys.readouterr().err
 
 
+def test_main_on_windows_waits_for_the_child_and_returns_its_exit_code(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Windows has no real exec.
+
+    `os.execv` there spawns a new process and kills this one, so the shell sees
+    exit code 0 immediately while scythe is still running -- every failure would
+    be reported as success and `scythe check` could never fail a Windows CI job.
+    The release smoke test only catches this on an actual Windows runner, which
+    is how it reached a tagged release.
+    """
+    import subprocess
+
+    calls: list[list[str]] = []
+    binary = Path("/cache/scythe")
+    monkeypatch.setattr(cli.os, "name", "nt")
+    monkeypatch.setattr(cli, "ensure_binary", lambda _version: binary)
+    monkeypatch.setattr(cli.sys, "argv", ["scythe", "this-is-not-a-real-subcommand"])
+    monkeypatch.setattr(cli.os, "execv", _raiser(AssertionError("must not exec on Windows")))
+    monkeypatch.setattr(
+        subprocess,
+        "run",
+        lambda argv, check: calls.append(argv) or subprocess.CompletedProcess(argv, 2),  # noqa: ARG005
+    )
+
+    # The child's status must come back verbatim -- 2, not 0 -- since a wrong
+    # exit code here is the entire failure this test guards.
+    assert cli.main() == 2
+    # `str(binary)` rather than a literal: patching os.name to "nt" makes pathlib
+    # render this path with backslashes even on a POSIX host.
+    assert calls == [[str(binary), "this-is-not-a-real-subcommand"]]
+
+
+def test_main_on_windows_reports_a_spawn_failure(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    import subprocess
+
+    binary = Path("/cache/scythe")
+    monkeypatch.setattr(cli.os, "name", "nt")
+    monkeypatch.setattr(cli, "ensure_binary", lambda _version: binary)
+    monkeypatch.setattr(subprocess, "run", _raiser(OSError(13, "Permission denied")))
+
+    assert cli.main() == 1
+    assert f"scythe-sql: failed to execute {binary}" in capsys.readouterr().err
+
+
 def _raiser(error: BaseException):  # noqa: ANN202 -- returns a throwaway stub of varying arity
     def _raise(*_args: object, **_kwargs: object) -> None:
         raise error

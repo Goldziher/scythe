@@ -34,6 +34,23 @@ def main() -> int:
         return 1
 
     argv = [str(binary_path), *sys.argv[1:]]
+
+    # Windows has no real exec: its `os.execv` spawns a new process and kills
+    # this one, so the shell regains control immediately with exit code 0 while
+    # scythe is still running. Every failure would be reported as success --
+    # `scythe check` could never fail a Windows CI job. Wait on a child instead
+    # and hand back its status.
+    if os.name == "nt":
+        import subprocess  # noqa: PLC0415 -- POSIX execs and never needs this
+
+        try:
+            return subprocess.run(argv, check=False).returncode  # noqa: S603 -- resolved via our own cache logic
+        except OSError as exc:
+            print(f"scythe-sql: failed to execute {binary_path}: {exc}", file=sys.stderr)
+            return 1
+
+    # POSIX: exec is strictly better than spawning -- no extra process sits in
+    # the tree, and signals reach scythe directly rather than this wrapper.
     try:
         os.execv(str(binary_path), argv)  # noqa: S606 -- resolved via our own cache/PATH logic
     except OSError as exc:
