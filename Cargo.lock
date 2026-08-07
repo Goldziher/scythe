@@ -1314,6 +1314,7 @@ dependencies = [
  "ahash",
  "serde",
  "serde_json",
+ "sha2",
  "sqlparser",
 ]
 

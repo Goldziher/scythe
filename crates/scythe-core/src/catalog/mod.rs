@@ -1,3 +1,4 @@
+mod fingerprint;
 pub(crate) mod type_normalizer;
 mod view_resolver;
 
