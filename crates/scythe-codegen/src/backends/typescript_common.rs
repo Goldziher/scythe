@@ -30,22 +30,22 @@ impl TsRowType {
 /// Case convention for row/interface field names, as selected by the
 /// `field_case` backend option.
 ///
-/// Not yet wired into any backend's `apply_options` -- this only defines the
-/// vocabulary. Backends still name every field via `NamingConfig.field_case`
-/// through `resolve.rs`, centrally; per-backend consumption of this type is
-/// later work, so it and `from_option` are unreachable within this crate
-/// today (`typescript_common` is `pub(crate)`) other than from their own
-/// tests below. `#[allow(dead_code)]` is deliberate, not a mistake to clean
-/// up -- remove it when a backend starts constructing one.
+/// Naming the field (`NamingConfig.field_case`, read centrally in
+/// `resolve.rs`) and remapping the *runtime* row to match it are two
+/// separate concerns: renaming alone would type-check but return `undefined`
+/// for every field once `Camel` disagrees with what the driver actually
+/// returns. This enum drives the latter -- see
+/// [`generate_ts_one_row_remap`] and [`generate_ts_many_row_remap`], which a
+/// backend's `apply_options` selects between based on the same
+/// `field_case` option string that also sets `NamingConfig.field_case`, so
+/// the two never drift apart.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-#[allow(dead_code)]
 pub enum TsFieldCase {
     #[default]
     Snake,
     Camel,
 }
 
-#[allow(dead_code)]
 impl TsFieldCase {
     /// Parse a field_case option string into a `TsFieldCase`.
     pub fn from_option(value: &str) -> Result<Self, ScytheError> {
@@ -542,9 +542,11 @@ pub fn generate_zod_grouped_structs(
 ///
 /// Shared by both halves of `generate_ts_grouped_fold_body` -- the parent
 /// object and the child object it pushes into `children` -- so their field
-/// lists cannot drift apart. Not yet called for `:one`/`:many` row
-/// construction. Callers own the surrounding `{ ... }` and any additional
-/// properties (e.g. `children: []`), since those differ between call sites.
+/// lists cannot drift apart. Also used by [`generate_ts_one_row_remap`] and
+/// [`generate_ts_many_row_remap`] for `:one`/`:many` row construction under
+/// `field_case = "camelCase"`. Callers own the surrounding `{ ... }` and any
+/// additional properties (e.g. `children: []`), since those differ between
+/// call sites.
 pub fn generate_ts_row_object_literal(
     columns: &[ResolvedColumn],
     indent: &str,
@@ -559,6 +561,47 @@ pub fn generate_ts_row_object_literal(
             row_access(&col.name, &col.full_type)
         );
     }
+    out
+}
+
+/// Render a `:one`/`:opt` return body that reconstructs the row field by
+/// field instead of trusting a blind cast of the driver's raw row.
+///
+/// Assumes the caller has already bound the raw driver row (or
+/// `undefined`/`null`, if none matched) to a local `row`. Null-checks it,
+/// then builds the return value via [`generate_ts_row_object_literal`],
+/// using the same `row_access` closure the backend already passes to
+/// [`generate_ts_grouped_fold_body`] to read a named column off a raw row.
+///
+/// A blind `as StructName` cast of the driver's row (what every `:one`/
+/// `:opt` used before this existed, and still does under the default
+/// `field_case = "snake_case"`, where it is sound) is unsound once
+/// `field_case = "camelCase"` renames the declared fields: the driver still
+/// returns snake_case keys, so `tsc` reports no error while every field
+/// reads back `undefined` at runtime.
+pub fn generate_ts_one_row_remap(columns: &[ResolvedColumn], row_access: impl Fn(&str, &str) -> String) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "\tif (!row) {{");
+    let _ = writeln!(out, "\t\treturn null;");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out, "\treturn {{");
+    out.push_str(&generate_ts_row_object_literal(columns, "\t\t", row_access));
+    let _ = writeln!(out, "\t}};");
+    out
+}
+
+/// Render a `:many` return body that reconstructs each row field by field
+/// instead of trusting a blind cast of the driver's raw rows.
+///
+/// Assumes the caller has already bound the raw driver rows to a local
+/// `rows` array. Maps each one (bound to `row` inside the callback) through
+/// [`generate_ts_row_object_literal`]. See [`generate_ts_one_row_remap`] for
+/// why this exists instead of a blind cast.
+pub fn generate_ts_many_row_remap(columns: &[ResolvedColumn], row_access: impl Fn(&str, &str) -> String) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "\treturn rows.map((row) => ({{");
+    out.push_str(&generate_ts_row_object_literal(columns, "\t\t", row_access));
+    let _ = writeln!(out, "\t}}));");
     out
 }
 
@@ -910,6 +953,37 @@ mod tests {
     fn test_generate_ts_row_object_literal_empty_columns_is_empty() {
         let out = generate_ts_row_object_literal(&[], "\t", |name, ty| format!("row.{name} as {ty}"));
         assert_eq!(out, "");
+    }
+
+    #[test]
+    fn test_generate_ts_one_row_remap_null_checks_then_builds_fields() {
+        let columns = vec![
+            column("id", "number", false, None, false),
+            column("name", "string", false, None, false),
+        ];
+        let out = generate_ts_one_row_remap(&columns, |name, ty| format!("row['{name}'] as {ty}"));
+        assert_eq!(
+            out,
+            "\tif (!row) {\n\
+             \t\treturn null;\n\
+             \t}\n\
+             \treturn {\n\
+             \t\tid: row['id'] as number,\n\
+             \t\tname: row['name'] as string,\n\
+             \t};\n"
+        );
+    }
+
+    #[test]
+    fn test_generate_ts_many_row_remap_maps_each_row() {
+        let columns = vec![column("id", "number", false, None, false)];
+        let out = generate_ts_many_row_remap(&columns, |name, ty| format!("row['{name}'] as {ty}"));
+        assert_eq!(
+            out,
+            "\treturn rows.map((row) => ({\n\
+             \t\tid: row['id'] as number,\n\
+             \t}));\n"
+        );
     }
 
     fn known_options() -> &'static [&'static str] {
