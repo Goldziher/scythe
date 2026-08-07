@@ -1,0 +1,47 @@
+{
+  "name": "live_nullable_column_observes_null_and_non_null",
+  "category": "nullability_live/nullable_column",
+  "description": "A column nullable in the schema is observed both NULL and non-NULL against a live engine, so the analyzer's nullable claim is demonstrated rather than merely asserted",
+  "tags": ["nullability", "nullable_column", "live"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "query_sql": "-- @name ListUserEmails\n-- @returns :many\nSELECT id, email FROM users ORDER BY id",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "ListUserEmails",
+      "command": "many",
+      "params": [],
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "email",
+          "nullable": true,
+          "type": "string",
+          "note": "nullable in the schema, and this fixture forces the engine to return both states"
+        }
+      ]
+    }
+  },
+  "source": "original",
+  "live": {
+    "schema_profile": "users_orders",
+    "engines": ["postgresql", "mysql", "mariadb", "sqlite", "mssql", "oracle"],
+    "runs": [
+      {
+        "name": "one_with_email_one_without",
+        "seed": {
+          "default": [
+            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+            "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', NULL)"
+          ]
+        },
+        "rows": [
+          { "non_null": ["id", "email"], "null": [] },
+          { "non_null": ["id"], "null": ["email"] }
+        ]
+      }
+    ]
+  }
+}

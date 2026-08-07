@@ -1,0 +1,51 @@
+{
+  "name": "live_coalesce_with_literal_default_is_never_null",
+  "category": "nullability_live/coalesce_non_null",
+  "description": "COALESCE over a nullable column with a literal default is inferred non-nullable; the live engine must never return NULL for it, including for the row whose underlying column is NULL",
+  "tags": ["nullability", "coalesce", "live"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "query_sql": "-- @name ListUserEmailsWithDefault\n-- @returns :many\nSELECT id, COALESCE(email, 'none@example.com') AS email_or_default FROM users ORDER BY id",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "ListUserEmailsWithDefault",
+      "command": "many",
+      "params": [],
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "email_or_default",
+          "nullable": false,
+          "type": "string",
+          "note": "COALESCE with a literal default guarantees non-NULL even where email is NULL"
+        }
+      ]
+    }
+  },
+  "source": "original",
+  "sqlc_comparison": {
+    "sqlc_behavior": "sqlc marks the COALESCE result nullable because its first argument is nullable",
+    "scythe_improvement": "scythe infers non-nullable from the literal default, and this fixture proves the claim is sound against live engines by seeding a row whose email is NULL -- the case that would expose an unsound non-nullable inference"
+  },
+  "live": {
+    "schema_profile": "users_orders",
+    "engines": ["postgresql", "mysql", "mariadb", "sqlite", "mssql", "oracle"],
+    "runs": [
+      {
+        "name": "one_with_email_one_without",
+        "seed": {
+          "default": [
+            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+            "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', NULL)"
+          ]
+        },
+        "rows": [
+          { "non_null": ["id", "email_or_default"], "null": [] },
+          { "non_null": ["id", "email_or_default"], "null": [] }
+        ]
+      }
+    ]
+  }
+}
