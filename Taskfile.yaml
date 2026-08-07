@@ -119,6 +119,8 @@ tasks:
       # no-op that let scythe-inspect go unbumped for two releases.
       - >-
         sed -i '' -E 's/^([[:space:]]*rev: )v[0-9]+\.[0-9]+\.[0-9]+/\1v{{.VERSION}}/'
+        README.md
+        website/src/content/docs/getting-started/installation.md
         website/src/content/docs/guide/audit.md
         website/src/content/docs/guide/inspect.md
         website/src/content/docs/guide/pre-commit-hooks.md
@@ -154,7 +156,7 @@ tasks:
         # The documented pre-commit `rev:` pins are rewritten by version:sync but
         # validated by no other job, so without this they drift silently -- and a
         # stale one pins every user who copies the snippet to the old release.
-        for f in website/src/content/docs/guide/audit.md website/src/content/docs/guide/inspect.md website/src/content/docs/guide/pre-commit-hooks.md; do
+        for f in README.md website/src/content/docs/getting-started/installation.md website/src/content/docs/guide/audit.md website/src/content/docs/guide/inspect.md website/src/content/docs/guide/pre-commit-hooks.md; do
           while IFS= read -r r; do
             [ -z "$r" ] && continue
             if [ "$r" != "v$expected" ]; then

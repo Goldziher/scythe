@@ -45,6 +45,17 @@ cargo binstall scythe-cli
 brew install Goldziher/tap/scythe  # uses pre-built binaries for faster install
 ```
 
+No Rust toolchain required — both wrappers download the prebuilt binary for your platform and
+verify its checksum:
+
+```bash
+npm install --save-dev scythe-cli   # Node.js, pins scythe alongside your other dev tools
+pip install scythe-sql              # Python
+```
+
+See [Installation](https://goldziher.github.io/scythe/getting-started/installation/) for supported
+platforms, proxy configuration and cache control.
+
 ## Pre-commit / prek
 
 Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.com/j178/prek) hooks for SQL formatting and linting:
@@ -52,7 +63,7 @@ Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.co
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.10.0
+    rev: v0.13.0
     hooks:
       - id: scythe-fmt       # Format SQL files
       - id: scythe-lint      # Lint SQL with auto-fix (includes audit rules when scythe.toml is present)
