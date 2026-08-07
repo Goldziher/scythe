@@ -102,10 +102,48 @@ tasks:
     requires:
       vars: [VERSION]
     cmds:
-      - sed -i '' 's/^version = ".*"/version = "{{.VERSION}}"/' crates/scythe-cli/Cargo.toml crates/scythe-core/Cargo.toml crates/scythe-codegen/Cargo.toml crates/scythe-backend/Cargo.toml crates/scythe-lint/Cargo.toml
-      - sed -i '' -E 's/(scythe-(core|codegen|backend|lint|cli).*version = ")[^"]*"/\1{{.VERSION}}"/' crates/scythe-cli/Cargo.toml crates/scythe-codegen/Cargo.toml crates/scythe-lint/Cargo.toml
+      # Every published crate must appear in both substitutions and in the
+      # second one's alternation. scythe-inspect was missing from all three,
+      # so its own version and every pin on it silently kept the old value --
+      # and because `publish_crates` tolerates an "already exists" error, the
+      # release succeeded green while shipping five crates instead of six.
+      # `version:check` below is the guard that makes a recurrence loud.
+      - sed -i '' 's/^version = ".*"/version = "{{.VERSION}}"/' crates/scythe-cli/Cargo.toml crates/scythe-core/Cargo.toml crates/scythe-codegen/Cargo.toml crates/scythe-backend/Cargo.toml crates/scythe-lint/Cargo.toml crates/scythe-inspect/Cargo.toml
+      - sed -i '' -E 's/(scythe-(core|codegen|backend|lint|cli|inspect).*version = ")[^"]*"/\1{{.VERSION}}"/' crates/scythe-cli/Cargo.toml crates/scythe-codegen/Cargo.toml crates/scythe-lint/Cargo.toml crates/scythe-inspect/Cargo.toml
+      - task: version:check
       - cargo check --workspace 2>/dev/null || true
       - echo "All crate versions updated to {{.VERSION}}"
+
+  version:check:
+    desc: "Fail if any published crate's version or inter-crate pin has drifted"
+    silent: true
+    cmds:
+      # Portable (no BSD sed) so this can gate CI on Linux, unlike version:sync.
+      # Violations are accumulated in a variable rather than setting a flag
+      # inside a `... | while read` -- a pipeline runs its loop in a subshell,
+      # so the flag is lost and the check reports drift while still exiting 0.
+      - |
+        expected=$(awk -F'"' '/^version = /{print $2; exit}' crates/scythe-cli/Cargo.toml)
+        violations=""
+        for f in crates/*/Cargo.toml; do
+          own=$(awk -F'"' '/^version = /{print $2; exit}' "$f")
+          if [ "$own" != "$expected" ]; then
+            violations="${violations}version drift: $f declares $own, expected $expected\n"
+          fi
+          while IFS= read -r v; do
+            [ -z "$v" ] && continue
+            if [ "$v" != "$expected" ]; then
+              violations="${violations}pin drift: $f pins a scythe crate at $v, expected $expected\n"
+            fi
+          done <<PINS
+        $(grep -oE 'scythe-[a-z]+ = \{[^}]*version = "[^"]*"' "$f" | sed -E 's/.*version = "([^"]*)"/\1/')
+        PINS
+        done
+        if [ -n "$violations" ]; then
+          printf "%b" "$violations" >&2
+          exit 1
+        fi
+        echo "All crate versions and pins agree on $expected"
 
   update:
     desc: Update dependencies (workspace + dev tooling + integration tests)
