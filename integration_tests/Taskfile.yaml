@@ -63,8 +63,22 @@ tasks:
       - task: generate:scaffolding
       - task: generate
 
+  build:scythe:
+    desc: >-
+      Build the workspace scythe-cli binary in release mode. `generate` invokes
+      the resulting binary by absolute path instead of the bare `scythe`
+      command, so regeneration always uses the working tree's compiler even if
+      an older `scythe` release is first on $PATH (see issue #85). Cargo
+      no-ops here when the binary is already up to date, so depending
+      task-graphs pay this cost once, not once per backend.
+    dir: ..
+    cmds:
+      - cargo build --release -p scythe-cli
+
   generate:
     desc: Regenerate code for all backends
+    deps:
+      - build:scythe
     vars:
       # The backend list comes from the generator's own `build_backends()`
       # (via `--list`), not a hand-maintained copy, so this task can never
@@ -78,11 +92,16 @@ tasks:
       # options), but their query code still comes from `scythe generate`, so
       # it drifts like any other generated output and belongs in this loop.
       HAND_MAINTAINED: kotlin-jdbc-ext php-pdo-namespace
+      # Absolute path to the just-built workspace binary. TASKFILE_DIR (this
+      # directory) rather than ROOT_DIR is deliberate: it always resolves
+      # relative to where this Taskfile lives, even if it's ever included
+      # from another Taskfile where ROOT_DIR would point elsewhere.
+      SCYTHE_BIN: "{{.TASKFILE_DIR}}/../target/release/scythe"
     cmds:
       - for: { var: BACKENDS, split: "\n" }
-        cmd: cd {{.ITEM}} && scythe generate
+        cmd: cd {{.ITEM}} && {{.SCYTHE_BIN}} generate
       - for: { var: HAND_MAINTAINED }
-        cmd: cd {{.ITEM}} && scythe generate
+        cmd: cd {{.ITEM}} && {{.SCYTHE_BIN}} generate
 
   # --- PostgreSQL backends ---
   test:rust-sqlx:
