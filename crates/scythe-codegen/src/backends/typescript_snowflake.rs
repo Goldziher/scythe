@@ -529,6 +529,7 @@ mod tests {
             optional_params: vec![],
             group_by: None,
             custom: vec![],
+            ..Default::default()
         }
     }
 
@@ -620,6 +621,7 @@ mod tests {
                 child_columns: child_cols,
             }),
             custom: vec![],
+            ..Default::default()
         }
     }
 
@@ -711,6 +713,7 @@ mod tests {
             optional_params: vec![],
             group_by: None,
             custom: vec![],
+            ..Default::default()
         };
 
         let result = crate::generate_with_backend(&query, &backend).unwrap();
@@ -838,6 +841,7 @@ mod tests {
             optional_params: vec![],
             group_by: None,
             custom: vec![],
+            ..Default::default()
         }
     }
 

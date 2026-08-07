@@ -1,5 +1,6 @@
 mod expressions;
 mod helpers;
+mod naming;
 mod params;
 mod scope;
 mod statements;
@@ -8,11 +9,13 @@ mod types;
 
 pub use types::{
     AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, EnumInfo, GroupByConfig,
+    NestedFieldInfo, NestedStructInfo,
 };
 
 use ahash::{AHashMap, AHashSet};
 
 use crate::catalog::Catalog;
+use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 use crate::parser::{Query, QueryCommand};
 
@@ -27,6 +30,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         ctes: AHashMap::new(),
         type_errors: Vec::new(),
         positional_param_counter: 0,
+        pending_nested: Vec::new(),
     };
 
     let (columns, _) = analyzer.analyze_statement(&query.stmt)?;
@@ -47,6 +51,17 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
             col.neutral_type = format!("json_typed<{}>", mapping.rust_type);
         }
     }
+
+    // Phase 2 of nested-struct naming (see `types::PendingNestedStruct`):
+    // columns now have their final names (aliases and overrides applied),
+    // so each `__nested__{id}` placeholder pushed during expression
+    // inference (phase 1) can be resolved to a real struct name.
+    let nested_structs = resolve_nested_struct_names(
+        catalog,
+        &query.name,
+        std::mem::take(&mut analyzer.pending_nested),
+        &mut columns,
+    );
 
     analyzer.params.sort_by_key(|p| p.position);
     analyzer.params.dedup_by_key(|p| p.position);
@@ -203,7 +218,119 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         optional_params: query.annotations.optional_params.clone(),
         group_by,
         custom: query.annotations.custom.clone(),
+        nested_structs,
     })
+}
+
+/// Phase 2 of nested-struct naming. Walks `columns` for `__nested__{id}`
+/// placeholders left by phase-1 expression inference, assigns each a final
+/// name (deduping identical shapes, suffixing collisions against the
+/// catalog or against a differently-shaped struct), substitutes the
+/// placeholder with the resulting PascalCase name in place, and returns the
+/// resolved [`NestedStructInfo`] list for `AnalyzedQuery::nested_structs`.
+///
+/// PostgreSQL only: any other dialect returns an empty list untouched,
+/// leaving `columns` as-is. In practice `pending` is only ever non-empty for
+/// a PostgreSQL catalog, since the (not yet implemented) phase-1 producer
+/// arms gate on dialect before pushing — this is a second, independent gate
+/// here so the pass is safe even if that invariant is ever violated.
+fn resolve_nested_struct_names(
+    catalog: &Catalog,
+    query_name: &str,
+    pending: Vec<types::PendingNestedStruct>,
+    columns: &mut [AnalyzedColumn],
+) -> Vec<NestedStructInfo> {
+    if pending.is_empty() || catalog.dialect() != SqlDialect::PostgreSQL {
+        return Vec::new();
+    }
+
+    let snake_query = naming::to_snake_case(query_name).into_owned();
+    let mut resolved: AHashMap<u32, String> = AHashMap::new();
+    let mut structs: Vec<NestedStructInfo> = Vec::new();
+
+    for column in columns.iter_mut() {
+        while let Some(id) = find_nested_placeholder_id(&column.neutral_type) {
+            let final_name = if let Some(name) = resolved.get(&id) {
+                name.clone()
+            } else {
+                let fields = pending
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map(|p| p.fields.clone())
+                    .unwrap_or_default();
+                let base = format!("{snake_query}_row_{}", column.name);
+                let name = assign_nested_struct_name(&base, fields, catalog, &mut structs);
+                resolved.insert(id, name.clone());
+                name
+            };
+
+            let pascal = naming::to_pascal_case(&final_name);
+            column.neutral_type = column.neutral_type.replacen(&format!("__nested__{id}"), &pascal, 1);
+        }
+    }
+
+    structs
+}
+
+/// Find a free name for a nested struct, starting from `base` (already
+/// snake_case) and trying `{base}_1`, `{base}_2`, ... in order.
+///
+/// Two independent collision sources are checked per candidate: a catalog
+/// composite or enum sharing the name always forces the next suffix; a
+/// same-named struct already assigned earlier in this `analyze()` call is
+/// reused as-is when its field shape is identical (two output columns can
+/// legitimately produce the same nested shape) and otherwise also forces
+/// the next suffix.
+fn assign_nested_struct_name(
+    base: &str,
+    fields: Vec<NestedFieldInfo>,
+    catalog: &Catalog,
+    structs: &mut Vec<NestedStructInfo>,
+) -> String {
+    let mut suffix: u32 = 0;
+    loop {
+        let candidate = if suffix == 0 {
+            base.to_string()
+        } else {
+            format!("{base}_{suffix}")
+        };
+
+        if let Some(existing) = structs.iter().find(|s| s.name == candidate) {
+            if existing.fields == fields {
+                return candidate;
+            }
+            suffix += 1;
+            continue;
+        }
+
+        if catalog.get_composite(&candidate).is_none() && catalog.get_enum(&candidate).is_none() {
+            structs.push(NestedStructInfo {
+                name: candidate.clone(),
+                fields,
+            });
+            return candidate;
+        }
+
+        suffix += 1;
+    }
+}
+
+/// Find the first `__nested__{id}` placeholder embedded in a neutral-type
+/// string (e.g. `json_typed<array<__nested__7>>`) and return its numeric id.
+/// `__nested__` with no digits following it is treated as absent rather than
+/// malformed input.
+fn find_nested_placeholder_id(neutral_type: &str) -> Option<u32> {
+    const MARKER: &str = "__nested__";
+    let start = neutral_type.find(MARKER)?;
+    let digits_start = start + MARKER.len();
+    let digits_end = neutral_type[digits_start..]
+        .find(|c: char| !c.is_ascii_digit())
+        .map(|rel| digits_start + rel)
+        .unwrap_or(neutral_type.len());
+    if digits_end == digits_start {
+        return None;
+    }
+    neutral_type[digits_start..digits_end].parse::<u32>().ok()
 }
 
 #[cfg(test)]
@@ -599,5 +726,185 @@ SELECT name, age FROM users WHERE id = $1;",
         let result = analyze(&catalog, &query).unwrap();
         assert!(result.columns[0].nullable);
         assert!(!result.columns[1].nullable);
+    }
+
+    // -----------------------------------------------------------------
+    // Phase-2 nested-struct naming (`resolve_nested_struct_names`).
+    //
+    // No producer pushes onto `Analyzer::pending_nested` yet (that lands
+    // with the nested-aggregate inference arms), so these tests exercise
+    // the resolver directly with a hand-built `pending` list and column set
+    // rather than through `analyze()` — there is no SQL that reaches this
+    // path today.
+    // -----------------------------------------------------------------
+
+    fn nested_column(name: &str, neutral_type: &str) -> AnalyzedColumn {
+        AnalyzedColumn {
+            name: name.to_string(),
+            neutral_type: neutral_type.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_resolve_nested_struct_names_derives_name_from_query_and_column() {
+        let catalog = make_catalog();
+        let pending = vec![types::PendingNestedStruct {
+            id: 0,
+            fields: vec![NestedFieldInfo {
+                name: "title".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            }],
+        }];
+        let mut columns = vec![nested_column("orders", "json_typed<array<__nested__0>>")];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetUserOrders", pending, &mut columns);
+
+        assert_eq!(structs.len(), 1);
+        assert_eq!(structs[0].name, "get_user_orders_row_orders");
+        assert_eq!(structs[0].fields.len(), 1);
+        assert_eq!(structs[0].fields[0].name, "title");
+    }
+
+    /// The resolver only ever performs `to_pascal_case(name)`, never a
+    /// round trip back through `to_snake_case` — pin that the PascalCase
+    /// form embedded in the neutral type matches `to_pascal_case` applied
+    /// to the returned `NestedStructInfo.name` exactly.
+    #[test]
+    fn test_resolve_nested_struct_names_pascal_case_matches_neutral_type() {
+        let catalog = make_catalog();
+        let pending = vec![types::PendingNestedStruct {
+            id: 3,
+            fields: Vec::new(),
+        }];
+        let mut columns = vec![nested_column("orders", "json_typed<array<__nested__3>>")];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetUserOrders", pending, &mut columns);
+
+        let expected_pascal = naming::to_pascal_case(&structs[0].name);
+        assert_eq!(columns[0].neutral_type, format!("json_typed<array<{expected_pascal}>>"));
+    }
+
+    #[test]
+    fn test_resolve_nested_struct_names_collision_with_catalog_composite_suffixes() {
+        let catalog = Catalog::from_ddl(&["CREATE TYPE get_user_row_profile AS (x TEXT);"]).unwrap();
+        let pending = vec![types::PendingNestedStruct {
+            id: 0,
+            fields: vec![NestedFieldInfo {
+                name: "bio".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: true,
+            }],
+        }];
+        let mut columns = vec![nested_column("profile", "json_typed<__nested__0>")];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetUser", pending, &mut columns);
+
+        assert_eq!(structs.len(), 1);
+        assert_eq!(
+            structs[0].name, "get_user_row_profile_1",
+            "must suffix rather than collide with the catalog composite \"get_user_row_profile\""
+        );
+        assert_eq!(columns[0].neutral_type, "json_typed<GetUserRowProfile1>");
+    }
+
+    #[test]
+    fn test_resolve_nested_struct_names_duplicate_column_names_dedupe_identical_shape() {
+        let catalog = make_catalog();
+        let shared_fields = vec![NestedFieldInfo {
+            name: "id".to_string(),
+            neutral_type: "int32".to_string(),
+            nullable: false,
+        }];
+        let pending = vec![
+            types::PendingNestedStruct {
+                id: 0,
+                fields: shared_fields.clone(),
+            },
+            types::PendingNestedStruct {
+                id: 1,
+                fields: shared_fields,
+            },
+        ];
+        let mut columns = vec![
+            nested_column("items", "json_typed<array<__nested__0>>"),
+            nested_column("items", "json_typed<array<__nested__1>>"),
+        ];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetOrder", pending, &mut columns);
+
+        assert_eq!(
+            structs.len(),
+            1,
+            "two columns with the same name and identical field shape must dedupe to one struct"
+        );
+        assert_eq!(columns[0].neutral_type, columns[1].neutral_type);
+    }
+
+    #[test]
+    fn test_resolve_nested_struct_names_duplicate_column_names_differing_shape_suffixes() {
+        let catalog = make_catalog();
+        let pending = vec![
+            types::PendingNestedStruct {
+                id: 0,
+                fields: vec![NestedFieldInfo {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                }],
+            },
+            types::PendingNestedStruct {
+                id: 1,
+                fields: vec![NestedFieldInfo {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                }],
+            },
+        ];
+        let mut columns = vec![
+            nested_column("items", "json_typed<array<__nested__0>>"),
+            nested_column("items", "json_typed<array<__nested__1>>"),
+        ];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetOrder", pending, &mut columns);
+
+        assert_eq!(
+            structs.len(),
+            2,
+            "same-named columns with different field shapes must not collapse into one struct"
+        );
+        assert_eq!(structs[0].name, "get_order_row_items");
+        assert_eq!(structs[1].name, "get_order_row_items_1");
+        assert_ne!(columns[0].neutral_type, columns[1].neutral_type);
+    }
+
+    #[test]
+    fn test_resolve_nested_struct_names_mysql_dialect_produces_none() {
+        let catalog =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE orders (id INTEGER NOT NULL);"], &SqlDialect::MySQL)
+                .unwrap();
+        let pending = vec![types::PendingNestedStruct {
+            id: 0,
+            fields: vec![NestedFieldInfo {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            }],
+        }];
+        let original_neutral_type = "json_typed<array<__nested__0>>".to_string();
+        let mut columns = vec![nested_column("orders", &original_neutral_type)];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetUserOrders", pending, &mut columns);
+
+        assert!(
+            structs.is_empty(),
+            "non-PostgreSQL dialects must never produce nested_structs"
+        );
+        assert_eq!(
+            columns[0].neutral_type, original_neutral_type,
+            "the placeholder must be left untouched, not partially substituted"
+        );
     }
 }

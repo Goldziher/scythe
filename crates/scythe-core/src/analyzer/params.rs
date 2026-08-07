@@ -383,6 +383,7 @@ mod tests {
             ctes: AHashMap::new(),
             type_errors: Vec::new(),
             positional_param_counter: 0,
+            pending_nested: Vec::new(),
         }
     }
 
@@ -451,6 +452,7 @@ mod tests {
             ctes: AHashMap::new(),
             type_errors: Vec::new(),
             positional_param_counter: 0,
+            pending_nested: Vec::new(),
         };
         let scope = Scope {
             sources: vec![ScopeSource {

@@ -135,12 +135,14 @@ impl<'a> Analyzer<'a> {
                     ctes: self.ctes.clone(),
                     type_errors: Vec::new(),
                     positional_param_counter: self.positional_param_counter,
+                    pending_nested: Vec::new(),
                 };
                 let sub_cols = sub_analyzer.analyze_query(subquery)?;
 
                 self.params.extend(sub_analyzer.params);
                 self.positional_param_counter = sub_analyzer.positional_param_counter;
                 self.type_errors.extend(sub_analyzer.type_errors);
+                self.pending_nested.extend(sub_analyzer.pending_nested);
 
                 let alias_name = alias
                     .as_ref()
@@ -334,6 +336,7 @@ mod tests {
             ctes: AHashMap::new(),
             type_errors: Vec::new(),
             positional_param_counter: 0,
+            pending_nested: Vec::new(),
         }
     }
 

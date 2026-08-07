@@ -289,6 +289,7 @@ mod tests {
             optional_params: Vec::new(),
             group_by: None,
             custom: Vec::new(),
+            ..Default::default()
         }
     }
 
@@ -542,6 +543,7 @@ mod tests {
                 child_columns: child_cols,
             }),
             custom: vec![],
+            ..Default::default()
         }
     }
 

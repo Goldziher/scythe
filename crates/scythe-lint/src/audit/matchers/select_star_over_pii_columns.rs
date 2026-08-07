@@ -146,6 +146,7 @@ mod tests {
             optional_params: vec![],
             group_by: None,
             custom: vec![],
+            ..Default::default()
         };
         let catalog = Catalog::from_ddl(ddl).unwrap();
         let annotations = Annotations {

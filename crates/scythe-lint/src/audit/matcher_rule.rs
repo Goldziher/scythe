@@ -212,6 +212,7 @@ mod tests {
             optional_params: vec![],
             group_by: None,
             custom: vec![],
+            ..Default::default()
         }
     }
 

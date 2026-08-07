@@ -503,6 +503,7 @@ mod tests {
                 child_columns: child_cols,
             }),
             custom: vec![],
+            ..Default::default()
         }
     }
 
