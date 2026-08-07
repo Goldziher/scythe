@@ -115,36 +115,37 @@ pub fn resolve_params(
 /// Reject two SQL identifiers in the same column list or param list that
 /// collapse onto the same generated field name.
 ///
-/// Only under `snake_case` are SQL identifiers within one result set or
-/// param list guaranteed distinct as field names too -- `snake_case` is a
-/// near-identity transform on the lowercase, underscore-separated names SQL
-/// already requires to be unique there (the analyzer's `duplicate_alias`
-/// check enforces that upstream, before this conversion even runs). Any
-/// other `field_case` can fold names that were distinct in SQL onto the same
-/// identifier -- `user_id` and `userId` both become `userId` under
-/// `camelCase` -- which `duplicate_alias` cannot see, since it runs on the
-/// raw SQL names. Gating on the non-default case keeps this check free on
-/// the path every other manifest still takes.
+/// Not just a `camelCase` problem: `field_name` always runs `to_snake_case`
+/// as its base transform (see `naming::apply_case`), and `to_snake_case` is
+/// not the identity function for mixed- or upper-case identifiers, so
+/// quoted SQL like `SELECT "USER_ID", user_id FROM t` folds both onto
+/// `user_id` even under the default `snake_case`. The analyzer's
+/// `duplicate_alias` check cannot catch this in any case -- it runs on the
+/// raw SQL names, before this conversion. So this runs unconditionally,
+/// regardless of `field_case`: it is O(n^2) over one query's column or
+/// param list, typically well under thirty items, so the cost is
+/// negligible next to the type resolution this function already does.
 fn check_field_name_collisions<'a>(
     items: impl Iterator<Item = (&'a str, &'a str)>,
     kind: &str,
     naming: &NamingConfig,
 ) -> Result<(), ScytheError> {
-    if naming.field_case == "snake_case" {
-        return Ok(());
-    }
-
     let items: Vec<(&str, &str)> = items.collect();
     for i in 0..items.len() {
         for j in (i + 1)..items.len() {
             let (sql_a, field_a) = items[i];
             let (sql_b, field_b) = items[j];
             if field_a == field_b {
+                let alternative = if naming.field_case == "snake_case" {
+                    String::new()
+                } else {
+                    ", or set field_case = \"snake_case\"".to_string()
+                };
                 return Err(ScytheError::new(
                     ErrorCode::DuplicateAlias,
                     format!(
                         "{kind} '{sql_a}' and '{sql_b}' both resolve to field name '{field_a}' under \
-                         field_case = \"{}\" -- alias one of them in SQL, or set field_case = \"snake_case\"",
+                         field_case = \"{}\" -- alias one of them in SQL{alternative}",
                         naming.field_case
                     ),
                 ));
@@ -282,15 +283,27 @@ mod tests {
         assert_eq!(resolved[0].field_name, "userId");
     }
 
-    /// The default path never runs the collision check at all, so two SQL
-    /// names that collide only when case-converted must sail through
-    /// unchanged under `snake_case` -- they were never converted.
+    /// This must fail before the fix: `field_name` always runs
+    /// `to_snake_case` as its base transform, and `to_snake_case` is not the
+    /// identity function for mixed-/upper-case identifiers --
+    /// `to_snake_case("USER_ID") == "user_id"`. Quoted SQL like
+    /// `SELECT "USER_ID", user_id FROM t` is legal and passes the
+    /// analyzer's case-sensitive `duplicate_alias` check, so this collision
+    /// must be caught here, even under the default `field_case`. Skipping
+    /// the check when `field_case == "snake_case"` (the previous behavior)
+    /// let it through and produced two struct fields both named `user_id`.
     #[test]
-    fn test_resolve_columns_snake_case_never_collision_checks() {
+    fn test_resolve_columns_rejects_collision_under_snake_case() {
         let manifest = test_manifest("snake_case");
-        let resolved = resolve_columns(&[test_column("user_id"), test_column("USER_ID")], &manifest, &[], "").unwrap();
-        assert_eq!(resolved[0].field_name, "user_id");
-        assert_eq!(resolved[1].field_name, "user_id");
+        let err = resolve_columns(&[test_column("user_id"), test_column("USER_ID")], &manifest, &[], "")
+            .expect_err("user_id and USER_ID must collide under snake_case too");
+        let message = err.to_string();
+        assert!(message.contains("user_id"), "{message}");
+        assert!(message.contains("USER_ID"), "{message}");
+        assert!(
+            !message.contains("or set field_case"),
+            "already snake_case -- switching field_case cannot fix this: {message}"
+        );
     }
 
     #[test]
