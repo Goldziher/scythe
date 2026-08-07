@@ -1,4 +1,8 @@
-[project] name = "scythe-integration-{{ driver }}" version = "0.1.0" requires-python = ">=3.10" dependencies = [
+[project]
+name = "scythe-integration-{{ driver }}"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
 {%- if driver == "psycopg3" %}
   "psycopg[binary]>=3.1",
 {%- elif driver == "asyncpg" %}
