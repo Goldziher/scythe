@@ -7,6 +7,107 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/Goldziher/scythe/blob/main/CHANGELOG.md) in the repository root.
 
+## [0.13.0] - 2026-08-07
+
+This release makes generation depend on committed inputs rather than on where the command was run
+from, and widens distribution to Node and Python.
+
+### Added
+
+- npm and PyPI wrapper packages for the CLI, so Node and Python teams can pin scythe as a dev
+  dependency without installing a Rust toolchain. The npm package is
+  [`scythe-cli`](https://www.npmjs.com/package/scythe-cli) and the PyPI package is
+  [`scythe-sql`](https://pypi.org/project/scythe-sql/); both expose the binary as `scythe`. Each
+  resolves the host platform to a release target triple, downloads the matching asset, verifies its
+  SHA-256 against the release checksums file, and unpacks it. They are shims over assets the release
+  already produced, so the build matrix is unchanged ([#80](https://github.com/Goldziher/scythe/issues/80))
+- The two platform gaps are handled deliberately rather than silently. musl Linux has no published
+  asset and the gnu binary dies at exec with an opaque loader error, so it fails at install time
+  naming the platform. Windows on ARM also has no asset, but the x64 binary runs under emulation, so
+  it falls back with a warning rather than blocking a configuration that works
+- Both wrappers work behind a corporate proxy and a TLS-intercepting one: they honour `HTTPS_PROXY`,
+  `NO_PROXY` and npm's or pip's own proxy settings, and read a CA bundle from `npm_config_cafile` or
+  `NODE_EXTRA_CA_CERTS`. The cached binary is written through a temp file and renamed into place, so
+  an interrupted install leaves no truncated binary for the next run to trust
+- `task version:check` fails on either a crate whose own version disagrees with `scythe-cli`'s or an
+  inter-crate pin that does. `version:sync` now runs it, so a partial version bump can no longer
+  reach a tag
+
+### Fixed
+
+- **`scythe.toml` paths resolved against the working directory, so `--config` was close to unusable
+  from outside the project.** `scythe generate --config /path/to/project/scythe.toml` run from
+  anywhere else silently found no schema and no queries, and a `scythe.toml` could not describe its
+  own project independently of where it was invoked from. Paths now resolve against the directory
+  containing the config file — see Breaking Changes below ([#84](https://github.com/Goldziher/scythe/issues/84))
+- **`task generate:all` regenerated with whatever `scythe` was first on `$PATH`.** With an older
+  release installed via `cargo install`, it silently rewrote committed output backwards, printed
+  `Done.` per backend and exited 0. During the 0.12.0 release this reverted four files from the
+  SQLite `int64` fix back to `int32`, and the damage was indistinguishable from legitimate
+  regeneration. The task now builds `scythe-cli` from the workspace and invokes it by absolute path,
+  matching what CI's freshness job already did ([#85](https://github.com/Goldziher/scythe/issues/85))
+- **`task version:sync` silently skipped `scythe-inspect`**, which was absent from both `sed` file
+  lists and missing from the second `sed`'s crate alternation. Because `publish_crates` tolerates an
+  "already exists" error from crates.io, a release would publish five crates, skip the sixth and
+  report success — while the published `scythe-cli` declared a dependency on the *previous*
+  `scythe-inspect`, which resolves fine and therefore never surfaces
+- Snowflake typed the same underlying storage three different widths depending on spelling. Snowflake
+  aliases every integer spelling — `INT`, `INTEGER`, `BIGINT`, `SMALLINT`, `TINYINT` — to
+  `NUMBER(38,0)`, but only `BIGINT` resolved to `int64`; `SMALLINT` and `TINYINT` fell through to
+  `int16` and `INT`/`INTEGER` to `int32`. `REAL` and `FLOAT4` likewise reported `float32` for what
+  Snowflake stores as an 8-byte double. See Breaking Changes
+  ([#83](https://github.com/Goldziher/scythe/issues/83))
+- `NUMBER(p,s)` with a non-zero scale is now scale-aware. Through the DDL path this was already
+  handled upstream by `normalize_data_type`, but the AST path — `CAST` and parameter inference —
+  reached the bare `number` arm and typed a decimal as `int64`. `NUMBER(p,0)` and bare `NUMBER` keep
+  `int64`
+- Types that had no arm at all and fell through as unknown, erroring only later at the backend
+  boundary: `INT1`, `HUGEINT`/`UHUGEINT` (DuckDB), `MONEY`/`SMALLMONEY` (MSSQL and PostgreSQL),
+  `XML` (MSSQL and PostgreSQL), `BYTEINT` (Snowflake's synonym for `TINYINT`) and
+  `GEOGRAPHY`/`GEOMETRY`. The 128-bit DuckDB integers map to `decimal` rather than a silently
+  truncating `int64` — no integer neutral type is wide enough. `GEOGRAPHY`/`GEOMETRY` had been
+  documented as `string` since the Snowflake page was written, with no code behind it
+- **An explicit `NUMBER(p,0)` resolved to `decimal` through the schema path**, because catalog
+  normalization rewrote every two-token `NUMBER(p,s)` to `numeric(p,s)` regardless of the scale, so
+  a zero scale reached the decimal arm. `NUMBER(38,0)` is exactly what Snowflake's `DESCRIBE TABLE`
+  reports for `INT`, so a schema reverse-engineered from a live table typed its keys `decimal` while
+  the same table written with `INT` typed them `int64` — the spelling-dependent inconsistency #83
+  set out to end, still reachable by a different route. `oracle.md` had documented the correct
+  behaviour (`NUMBER(*, 0)` → `int64`) all along ([#86](https://github.com/Goldziher/scythe/issues/86))
+- The unit test guarding zero-scale `NUMBER` passed a hand-built string straight to the conversion
+  function, which is not the spelling the schema path produces — so it stayed green while real
+  schemas resolved the other way. The type-mapping regressions now drive the whole pipeline
+- `verify-binstall` never ran on a release re-run, because `release_assets` is *skipped* rather than
+  successful when the assets already exist
+- The release workflow's "already published" probe against crates.io sent no `User-Agent`, which
+  their data-access policy answers with `403`. The check therefore always reported "not published",
+  so a re-run replayed the full publish chain and its 30-second inter-crate sleeps
+- The documented pre-commit `rev:` pins in the guide were bumped by nothing and validated by nothing,
+  so they still pointed at the previous release. `version:sync` now rewrites them and `version:check`
+  fails on drift
+
+### Changed
+
+- `UNSIGNED` is now documented on the MariaDB page, which inherits it from the MySQL dialect but
+  never mentioned it
+
+### Breaking Changes
+
+- **Paths in `scythe.toml` resolve against the config file's directory, not the process working
+  directory.** This covers `schema` and `queries` glob patterns and `[[sql.gen]].output`. Absolute
+  paths and patterns are unchanged, and a config invoked from its own directory — the overwhelmingly
+  common case, including every project in this repository — behaves identically. Output moves with
+  the inputs: leaving it working-directory-relative would turn a silent wrong read into a silent
+  wrong write, scattering generated trees into whatever directory the command ran from. A pattern
+  matching nothing is now a hard error naming the pattern, the config directory and the resolved
+  pattern, since after this change an empty match is the most common symptom of a stale path
+  ([#84](https://github.com/Goldziher/scythe/issues/84))
+- **Snowflake `SMALLINT`, `TINYINT`, `INT` and `INTEGER` now generate 64-bit integers**, and `REAL`
+  and `FLOAT4` now generate 64-bit floats. Regenerate; in the statically typed targets this changes
+  field types and driver accessors (`int` → `long`, `setInt` → `setLong`). Languages that map both
+  widths to one native type — Python, TypeScript, PHP — are unaffected
+  ([#83](https://github.com/Goldziher/scythe/issues/83))
+
 ## [0.12.0] - 2026-08-07
 
 ### Added
