@@ -402,6 +402,35 @@ impl CodegenBackend for GoPgxBackend {
         let _ = write!(out, "}}");
         Ok(out)
     }
+
+    fn generate_nested_struct_def(
+        &self,
+        nested: &scythe_core::analyzer::NestedStructInfo,
+    ) -> Result<Option<String>, ScytheError> {
+        // pgx's JSON/JSONB codec falls back to encoding/json.Unmarshal when
+        // the scan destination isn't []byte/json.RawMessage/sql.Scanner, so
+        // this needs no wrapper type the way the Rust backends do -- just
+        // json tags on the destination struct matching row_to_json's/
+        // json_agg's JSON keys, which are the source SQL column names.
+        //
+        // Unlike generate_composite_def (always `false` -- CompositeFieldInfo
+        // has no per-field nullability), a nested-aggregate field's
+        // nullability is real and comes from the source column it was
+        // built from, so it is passed through to resolve_type here.
+        let name = to_pascal_case(&nested.name);
+        let mut out = String::new();
+        let _ = writeln!(out, "type {} struct {{", name);
+        for field in &nested.fields {
+            let field_name = to_pascal_case(&field.name);
+            let go_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
+                .map(|t| t.into_owned())
+                .unwrap_or_else(|_| "any".to_string());
+            let json_tag = &field.name;
+            let _ = writeln!(out, "\t{} {} `json:\"{}\"`", field_name, go_type, json_tag);
+        }
+        let _ = write!(out, "}}");
+        Ok(Some(out))
+    }
 }
 
 #[cfg(test)]

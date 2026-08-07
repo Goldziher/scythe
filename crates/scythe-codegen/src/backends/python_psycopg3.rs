@@ -20,6 +20,36 @@ use super::python_common::{
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-psycopg3.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/python-psycopg3.redshift.toml");
 
+/// Build the `field=value` expression for one column read from a raw
+/// positionally-indexed row (`row[i]` / `r[i]`).
+///
+/// psycopg3 auto-decodes `json`/`jsonb` columns to a plain `dict`/`list` --
+/// it has no mechanism to construct an arbitrary dataclass/BaseModel/Struct
+/// from that automatically (unlike, e.g., pgx's reflective JSON-unmarshal
+/// fallback in Go). A `json_typed<...>` column -- whether from
+/// `json_agg`/`row_to_json` nested-aggregate inference or a user's own
+/// `@json` mapping -- therefore needs an explicit constructor call here;
+/// without it, the field would hold a raw dict typed as the nested class,
+/// which compiles (Python has no static check) and breaks on first
+/// attribute access. An ordinary column keeps the exact `field=row[i]` form
+/// this always emitted.
+fn field_assignment_expr(col: &ResolvedColumn, var: &str, index: usize) -> String {
+    let raw = format!("{var}[{index}]");
+    let Some((is_array, pascal_name)) = crate::nested_struct_shape(&col.neutral_type) else {
+        return format!("{}={raw}", col.field_name);
+    };
+    let ctor = if is_array {
+        format!("[{pascal_name}(**item) for item in {raw}]")
+    } else {
+        format!("{pascal_name}(**{raw})")
+    };
+    if col.nullable {
+        format!("{}=None if {raw} is None else {ctor}", col.field_name)
+    } else {
+        format!("{}={ctor}", col.field_name)
+    }
+}
+
 pub struct PythonPsycopg3Backend {
     manifest: BackendManifest,
     row_type: PythonRowType,
@@ -188,7 +218,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 let field_assignments: Vec<String> = columns
                     .iter()
                     .enumerate()
-                    .map(|(i, col)| format!("{}=row[{}]", col.field_name, i))
+                    .map(|(i, col)| field_assignment_expr(col, "row", i))
                     .collect();
                 let oneliner = format!("    return {}({})", struct_name, field_assignments.join(", "));
                 if oneliner.len() <= 88 {
@@ -226,7 +256,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                 let field_assignments: Vec<String> = columns
                     .iter()
                     .enumerate()
-                    .map(|(i, col)| format!("{}=r[{}]", col.field_name, i))
+                    .map(|(i, col)| field_assignment_expr(col, "r", i))
                     .collect();
                 let oneliner = format!(
                     "    return [{}({}) for r in rows]",
@@ -386,6 +416,38 @@ impl CodegenBackend for PythonPsycopg3Backend {
             }
         }
         Ok(out)
+    }
+
+    fn generate_nested_struct_def(
+        &self,
+        nested: &scythe_core::analyzer::NestedStructInfo,
+    ) -> Result<Option<String>, ScytheError> {
+        // Unlike generate_composite_def (always `false` -- CompositeFieldInfo
+        // has no per-field nullability), a nested-aggregate field's
+        // nullability is real and comes from the source column it was
+        // built from.
+        let name = to_pascal_case(&nested.name);
+        let mut out = String::new();
+        let _ = write!(out, "{}", self.row_type.decorator());
+        let _ = writeln!(out, "{}", self.row_type.class_def(&name));
+        let _ = writeln!(out, "    \"\"\"Nested struct for {}.\"\"\"", nested.name);
+        if nested.fields.is_empty() {
+            let _ = writeln!(out, "    pass");
+        } else {
+            let _ = writeln!(out);
+            for field in &nested.fields {
+                let py_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
+                    .map(|t| t.into_owned())
+                    .map_err(|e| {
+                        ScytheError::new(
+                            ErrorCode::InternalError,
+                            format!("nested struct field type error: {}", e),
+                        )
+                    })?;
+                let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
+            }
+        }
+        Ok(Some(out))
     }
 
     fn generate_grouped_structs(

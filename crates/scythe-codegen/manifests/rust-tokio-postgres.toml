@@ -29,7 +29,7 @@ inet = "std::net::IpAddr"
 array = "Vec<{T}>"
 nullable = "Option<{T}>"
 range = "String"
-json_typed = "{T}"
+json_typed = "postgres_types::Json<{T}>"
 
 [naming]
 struct_case = "PascalCase"

@@ -13,7 +13,7 @@ pub use overrides::TypeOverride;
 use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{row_struct_name, to_pascal_case};
 
-use scythe_core::analyzer::{AnalyzedQuery, EnumInfo};
+use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, EnumInfo, NestedStructInfo};
 use scythe_core::catalog::Catalog;
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
@@ -77,7 +77,31 @@ pub fn generate_with_backend_and_overrides(
 ) -> Result<GeneratedCode, ScytheError> {
     let manifest = backend.manifest();
     let source_table = analyzed.source_table.as_deref().unwrap_or("");
-    let columns = resolve::resolve_columns(&analyzed.columns, manifest, overrides, source_table)?;
+
+    // Degradation pass: must run before any resolve_columns call. A backend
+    // that doesn't opt into a nested struct (generate_nested_struct_def
+    // returns Ok(None)) never sees json_typed<...> referencing it -- the
+    // column is rewritten to plain json first, matching this backend's
+    // output from before nested-aggregate inference existed byte for byte.
+    //
+    // Skipped entirely when nested_structs is empty (the overwhelming
+    // majority of queries) so the common path stays the zero-copy
+    // `&analyzed.columns` it always was -- degrade_unsupported_nested_structs
+    // would otherwise clone every column, String fields included, on every
+    // call regardless of whether the feature is in use.
+    let (degraded_columns, nested_struct_defs) = if analyzed.nested_structs.is_empty() {
+        (None, String::new())
+    } else {
+        let (cols, defs) = degrade_unsupported_nested_structs(&analyzed.columns, &analyzed.nested_structs, backend)?;
+        (Some(cols), defs)
+    };
+
+    let columns = resolve::resolve_columns(
+        degraded_columns.as_deref().unwrap_or(&analyzed.columns),
+        manifest,
+        overrides,
+        source_table,
+    )?;
     let params = resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
 
     let mut result = GeneratedCode::default();
@@ -99,21 +123,27 @@ pub fn generate_with_backend_and_overrides(
         }
     }
 
+    let mut extra_defs = String::new();
     if !analyzed.composites.is_empty() {
-        let mut comp_defs = String::new();
         for (i, comp) in analyzed.composites.iter().enumerate() {
             if i > 0 {
-                comp_defs.push_str("\n\n");
+                extra_defs.push_str("\n\n");
             }
-            comp_defs.push_str(&backend.generate_composite_def(comp)?);
+            extra_defs.push_str(&backend.generate_composite_def(comp)?);
         }
-        if !comp_defs.is_empty() {
-            if let Some(ref mut existing) = result.model_struct {
-                existing.push_str("\n\n");
-                existing.push_str(&comp_defs);
-            } else {
-                result.model_struct = Some(comp_defs);
-            }
+    }
+    if !nested_struct_defs.is_empty() {
+        if !extra_defs.is_empty() {
+            extra_defs.push_str("\n\n");
+        }
+        extra_defs.push_str(&nested_struct_defs);
+    }
+    if !extra_defs.is_empty() {
+        if let Some(ref mut existing) = result.model_struct {
+            existing.push_str("\n\n");
+            existing.push_str(&extra_defs);
+        } else {
+            result.model_struct = Some(extra_defs);
         }
     }
 
@@ -137,8 +167,32 @@ pub fn generate_with_backend_and_overrides(
             format!("{}Child{}", base, suffix)
         };
 
-        let parent_cols = resolve::resolve_columns(&group_by.parent_columns, manifest, overrides, source_table)?;
-        let child_cols = resolve::resolve_columns(&group_by.child_columns, manifest, overrides, source_table)?;
+        // Same degradation pass as the flat-column path above, and the same
+        // empty-nested_structs skip to keep the common case zero-copy: a
+        // :grouped query's parent/child split is a distinct copy of the
+        // analyzed columns, so an unsupported nested reference there needs
+        // its own rewrite before resolution -- but only when there is one.
+        let (degraded_parent, degraded_child) = if analyzed.nested_structs.is_empty() {
+            (None, None)
+        } else {
+            let (dp, _) =
+                degrade_unsupported_nested_structs(&group_by.parent_columns, &analyzed.nested_structs, backend)?;
+            let (dc, _) =
+                degrade_unsupported_nested_structs(&group_by.child_columns, &analyzed.nested_structs, backend)?;
+            (Some(dp), Some(dc))
+        };
+        let parent_cols = resolve::resolve_columns(
+            degraded_parent.as_deref().unwrap_or(&group_by.parent_columns),
+            manifest,
+            overrides,
+            source_table,
+        )?;
+        let child_cols = resolve::resolve_columns(
+            degraded_child.as_deref().unwrap_or(&group_by.child_columns),
+            manifest,
+            overrides,
+            source_table,
+        )?;
 
         result.row_struct = Some(backend.generate_grouped_structs(
             &parent_struct_name,
@@ -212,6 +266,108 @@ fn generate_enum_defs_via_backend(
     Ok(out)
 }
 
+/// Extract the shape of a `json_typed<...>` neutral type: whether it's
+/// `array`-wrapped (`json_agg`, a list of objects) or bare (`row_to_json`, a
+/// single object -- or a user `@json` mapping, which is also bare), and the
+/// PascalCase struct name it references. Returns `None` for anything that
+/// isn't shaped like `json_typed<...>` at all, so callers can skip ordinary
+/// columns cheaply.
+///
+/// `"json_typed<array<GetUserPostsRowPosts>>"` -> `Some((true, "GetUserPostsRowPosts"))`
+/// `"json_typed<GetPostAsJsonRowPost>"` -> `Some((false, "GetPostAsJsonRowPost"))`
+/// `"json_typed<EventData>"` (a user `@json` mapping, not ours) -> `Some((false, "EventData"))`
+/// `"int32"`, `"json"`, `"array<int32>"` -> `None`
+///
+/// `pub(crate)`: reused by backend row-construction code (e.g.
+/// `python_psycopg3`) that must build a nested value from a raw
+/// dict/list the driver hands back, not just the type-resolution layer.
+pub(crate) fn nested_struct_shape(neutral_type: &str) -> Option<(bool, &str)> {
+    let inner = neutral_type.strip_prefix("json_typed<")?.strip_suffix('>')?;
+    match inner.strip_prefix("array<") {
+        Some(rest) => rest.strip_suffix('>').map(|name| (true, name)),
+        None => Some((false, inner)),
+    }
+}
+
+/// `nested_struct_shape` without the array/bare distinction, for callers
+/// (the degradation pass) that only need the name.
+fn nested_struct_pascal_name(neutral_type: &str) -> Option<&str> {
+    nested_struct_shape(neutral_type).map(|(_, name)| name)
+}
+
+/// Degradation pass for nested-aggregate columns (`json_agg(o.*)`,
+/// `row_to_json(u.*)`). Must run before `resolve::resolve_columns` -- every
+/// caller that resolves `AnalyzedColumn`s into a backend's types needs this,
+/// not just [`generate_with_backend_and_overrides`]: `scythe-cli`'s RBS
+/// signature generation (`generate_rbs_if_supported`) calls
+/// `resolve::resolve_columns` directly on a second, independent path, so it
+/// must run this pass too or it silently bypasses the byte-identity
+/// guarantee for any backend that hasn't opted in.
+///
+/// For each entry in `nested_structs`, asks the backend whether it opts in
+/// via [`CodegenBackend::generate_nested_struct_def`]:
+/// - `Ok(Some(def))`: the struct is supported. Its definition is collected
+///   to append to the backend's output (the same channel
+///   `generate_composite_def` output goes through), and columns
+///   referencing it are left as `json_typed<...>`.
+/// - `Ok(None)` (the default): not supported. Every column referencing it
+///   is rewritten to plain `json` -- byte-identical to this backend's
+///   output before nested-aggregate inference existed, since that is
+///   exactly what the pre-existing `json_agg`/`row_to_json` arms already
+///   produced.
+/// - `Err(_)`: a genuine failure, propagated rather than degraded.
+///
+/// Returns the (possibly rewritten) columns and the concatenated
+/// definitions for every struct the backend supports. Skip calling this
+/// entirely when `nested_structs` is empty (the common case) to keep that
+/// path zero-copy -- see the callers in this file for the pattern.
+pub fn degrade_unsupported_nested_structs(
+    columns: &[AnalyzedColumn],
+    nested_structs: &[NestedStructInfo],
+    backend: &dyn CodegenBackend,
+) -> Result<(Vec<AnalyzedColumn>, String), ScytheError> {
+    if nested_structs.is_empty() {
+        return Ok((columns.to_vec(), String::new()));
+    }
+
+    use ahash::AHashSet;
+
+    let mut unsupported: AHashSet<String> = AHashSet::new();
+    let mut defs = String::new();
+    for nested in nested_structs {
+        match backend.generate_nested_struct_def(nested)? {
+            Some(def) => {
+                if !defs.is_empty() {
+                    defs.push_str("\n\n");
+                }
+                defs.push_str(&def);
+            }
+            None => {
+                unsupported.insert(to_pascal_case(&nested.name).into_owned());
+            }
+        }
+    }
+
+    if unsupported.is_empty() {
+        return Ok((columns.to_vec(), defs));
+    }
+
+    let degraded = columns
+        .iter()
+        .cloned()
+        .map(|mut col| {
+            if let Some(name) = nested_struct_pascal_name(&col.neutral_type)
+                && unsupported.contains(name)
+            {
+                col.neutral_type = "json".to_string();
+            }
+            col
+        })
+        .collect();
+
+    Ok((degraded, defs))
+}
+
 /// Backward-compatible: generate code using the default sqlx backend.
 pub fn generate(analyzed: &AnalyzedQuery) -> Result<GeneratedCode, ScytheError> {
     let backend = get_backend("rust-sqlx", "postgresql")?;
@@ -266,7 +422,7 @@ pub fn load_or_default_manifest() -> Result<BackendManifest, ScytheError> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, GroupByConfig};
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, GroupByConfig, NestedFieldInfo};
     use scythe_core::parser::QueryCommand;
 
     fn make_query(
@@ -902,5 +1058,192 @@ mod tests {
         assert!(query_fn.contains("GetUserRow"));
 
         assert!(query_fn.contains("SELECT id, name FROM users"));
+    }
+
+    // -----------------------------------------------------------------
+    // Nested-aggregate degradation pass (degrade_unsupported_nested_structs).
+    // -----------------------------------------------------------------
+
+    fn a_nested_struct() -> NestedStructInfo {
+        NestedStructInfo {
+            name: "get_user_posts_row_posts".to_string(),
+            fields: vec![NestedFieldInfo {
+                name: "title".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            }],
+        }
+    }
+
+    #[test]
+    fn test_nested_struct_pascal_name_unwraps_array() {
+        assert_eq!(
+            nested_struct_pascal_name("json_typed<array<GetUserPostsRowPosts>>"),
+            Some("GetUserPostsRowPosts")
+        );
+    }
+
+    #[test]
+    fn test_nested_struct_pascal_name_bare() {
+        assert_eq!(
+            nested_struct_pascal_name("json_typed<GetPostAsJsonRowPost>"),
+            Some("GetPostAsJsonRowPost")
+        );
+    }
+
+    #[test]
+    fn test_nested_struct_pascal_name_user_json_mapping_still_matches() {
+        // A user's own @json rust_type mapping (json_mappings in the
+        // analyzer) produces the exact same json_typed<Name> shape -- the
+        // parser can't and doesn't need to distinguish the two, since a
+        // user-declared type is never in AnalyzedQuery::nested_structs and
+        // so is never a member of the `unsupported` set either.
+        assert_eq!(nested_struct_pascal_name("json_typed<EventData>"), Some("EventData"));
+    }
+
+    #[test]
+    fn test_nested_struct_pascal_name_none_for_ordinary_types() {
+        assert_eq!(nested_struct_pascal_name("int32"), None);
+        assert_eq!(nested_struct_pascal_name("json"), None);
+        assert_eq!(nested_struct_pascal_name("array<int32>"), None);
+    }
+
+    #[test]
+    fn test_degrade_unsupported_nested_structs_rewrites_to_plain_json() {
+        let manifest = get_backend("rust-sqlx", "postgresql").unwrap().manifest().clone();
+        let backend = StubBackend { manifest };
+        let nested = a_nested_struct();
+        let columns = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "posts".to_string(),
+                neutral_type: "json_typed<array<GetUserPostsRowPosts>>".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+        ];
+
+        let (degraded, defs) = degrade_unsupported_nested_structs(&columns, &[nested], &backend).unwrap();
+
+        assert_eq!(
+            degraded[0].neutral_type, "int32",
+            "an unrelated column must be untouched"
+        );
+        assert_eq!(
+            degraded[1].neutral_type, "json",
+            "StubBackend does not override generate_nested_struct_def, so it must degrade to plain json"
+        );
+        assert!(
+            defs.is_empty(),
+            "an unsupported backend must not emit a struct definition"
+        );
+    }
+
+    /// Minimal backend that opts into nested-struct support, to prove the
+    /// degradation pass leaves a supported column and definition alone.
+    struct NestedSupportingBackend {
+        manifest: BackendManifest,
+    }
+
+    impl CodegenBackend for NestedSupportingBackend {
+        fn name(&self) -> &str {
+            "nested-supporting-backend"
+        }
+        fn manifest(&self) -> &BackendManifest {
+            &self.manifest
+        }
+        fn generate_row_struct(&self, _query_name: &str, _columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
+            Ok(String::new())
+        }
+        fn generate_model_struct(&self, _table_name: &str, _columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
+            Ok(String::new())
+        }
+        fn generate_query_fn(
+            &self,
+            _analyzed: &AnalyzedQuery,
+            _struct_name: &str,
+            _columns: &[ResolvedColumn],
+            _params: &[ResolvedParam],
+        ) -> Result<String, ScytheError> {
+            Ok(String::new())
+        }
+        fn generate_enum_def(&self, _enum_info: &scythe_core::analyzer::EnumInfo) -> Result<String, ScytheError> {
+            Ok(String::new())
+        }
+        fn generate_composite_def(
+            &self,
+            _composite: &scythe_core::analyzer::CompositeInfo,
+        ) -> Result<String, ScytheError> {
+            Ok(String::new())
+        }
+        fn generate_nested_struct_def(&self, nested: &NestedStructInfo) -> Result<Option<String>, ScytheError> {
+            Ok(Some(format!("struct {} {{}}", to_pascal_case(&nested.name))))
+        }
+    }
+
+    #[test]
+    fn test_degrade_unsupported_nested_structs_keeps_supported_column_and_collects_def() {
+        let manifest = get_backend("rust-sqlx", "postgresql").unwrap().manifest().clone();
+        let backend = NestedSupportingBackend { manifest };
+        let nested = a_nested_struct();
+        let columns = vec![AnalyzedColumn {
+            name: "posts".to_string(),
+            neutral_type: "json_typed<array<GetUserPostsRowPosts>>".to_string(),
+            nullable: true,
+            ..Default::default()
+        }];
+
+        let (degraded, defs) = degrade_unsupported_nested_structs(&columns, &[nested], &backend).unwrap();
+
+        assert_eq!(
+            degraded[0].neutral_type, "json_typed<array<GetUserPostsRowPosts>>",
+            "a supported backend must leave the nested reference untouched"
+        );
+        assert_eq!(defs, "struct GetUserPostsRowPosts {}");
+    }
+
+    /// The review check for this batch: for a backend that does not opt in,
+    /// generated output for a nested-aggregate column must be byte-identical
+    /// to what the same backend produces for an ordinary plain-`json` column
+    /// -- proving the degradation pass, not a per-backend special case,
+    /// is what keeps ~44 non-opted-in backends safe.
+    #[test]
+    fn test_unopted_backend_output_is_byte_identical_to_plain_json_baseline() {
+        let backend = get_backend("java-jdbc", "postgresql").unwrap();
+
+        let baseline = make_query(
+            "GetUserPosts",
+            QueryCommand::Many,
+            "SELECT json_agg(p.*) AS posts FROM users u JOIN posts p ON u.id = p.user_id",
+            vec![AnalyzedColumn {
+                name: "posts".to_string(),
+                neutral_type: "json".to_string(),
+                nullable: true,
+                ..Default::default()
+            }],
+            vec![],
+        );
+
+        let mut nested_query = baseline.clone();
+        nested_query.columns[0].neutral_type = "json_typed<array<GetUserPostsRowPosts>>".to_string();
+        nested_query.nested_structs = vec![a_nested_struct()];
+
+        let baseline_result = generate_with_backend(&baseline, &*backend).unwrap();
+        let nested_result = generate_with_backend(&nested_query, &*backend).unwrap();
+
+        assert_eq!(
+            baseline_result.row_struct, nested_result.row_struct,
+            "row struct output must match byte for byte"
+        );
+        assert_eq!(
+            baseline_result.query_fn, nested_result.query_fn,
+            "query fn output must match byte for byte"
+        );
+        assert_eq!(baseline_result.model_struct, nested_result.model_struct);
     }
 }

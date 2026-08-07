@@ -521,6 +521,36 @@ impl CodegenBackend for SqlxBackend {
         let _ = write!(out, "}}");
         Ok(out)
     }
+
+    fn generate_nested_struct_def(
+        &self,
+        nested: &scythe_core::analyzer::NestedStructInfo,
+    ) -> Result<Option<String>, ScytheError> {
+        use scythe_backend::types::resolve_type;
+
+        // Unlike generate_composite_def (always `false` -- CompositeFieldInfo
+        // has no per-field nullability), a nested-aggregate field's
+        // nullability is real and comes from the source column it was
+        // built from.
+        let struct_name = to_pascal_case(&nested.name).into_owned();
+        let mut out = String::new();
+
+        let _ = writeln!(out, "#[derive(Debug, Clone, serde::Deserialize)]");
+        let _ = writeln!(out, "pub struct {} {{", struct_name);
+        for field in &nested.fields {
+            let rust_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
+                .map(|t| t.into_owned())
+                .map_err(|e| {
+                    ScytheError::new(
+                        ErrorCode::InternalError,
+                        format!("nested struct field type error: {}", e),
+                    )
+                })?;
+            let _ = writeln!(out, "    pub {}: {},", to_snake_case(&field.name), rust_type);
+        }
+        let _ = write!(out, "}}");
+        Ok(Some(out))
+    }
 }
 
 /// Rewrite SQL to add enum type annotations for sqlx.

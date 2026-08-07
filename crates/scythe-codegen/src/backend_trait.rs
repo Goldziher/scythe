@@ -1,4 +1,4 @@
-use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
+use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo, NestedStructInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 
 use crate::GeneratedCode;
@@ -126,6 +126,35 @@ pub trait CodegenBackend: Send + Sync {
 
     /// Generate a composite type definition.
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError>;
+
+    /// Generate a struct definition for a nested-aggregate result shape
+    /// (`json_agg(o.*)`, `row_to_json(u.*)`, ...). PostgreSQL only; see
+    /// [`scythe_core::analyzer::AnalyzedQuery::nested_structs`].
+    ///
+    /// ## Opt-in, not opt-out
+    ///
+    /// Returns `Ok(None)` by default — "I do not support this" — so a
+    /// backend is only at risk from this feature if it explicitly
+    /// overrides the method. `crates/scythe-codegen/src/lib.rs` rewrites
+    /// any column referencing a struct this returns `Ok(None)` for back to
+    /// plain `json` *before* type resolution, so the default keeps a
+    /// non-opted-in backend's output byte-identical to what it produced
+    /// before nested-aggregate inference existed.
+    ///
+    /// Deliberately not the same shape as `generate_composite_def`, which
+    /// always returns a definition (`CompositeInfo` only ever exists because
+    /// a column already referenced a real catalog composite; there is
+    /// nothing to opt out of). Overriding to return `Ok(Some(_))` is safe
+    /// only when the backend's row-decoding path actually deserializes the
+    /// resulting JSON into the generated type — a backend whose
+    /// `json_typed<T>` container merely names the type without decoding it
+    /// would produce code that compiles and is wrong, which is worse than
+    /// not supporting it. `Err(_)` is reserved for a genuine failure (e.g. a
+    /// field's neutral type doesn't resolve) and must propagate rather than
+    /// degrade.
+    fn generate_nested_struct_def(&self, _nested: &NestedStructInfo) -> Result<Option<String>, ScytheError> {
+        Ok(None)
+    }
 
     /// Generate a file-level header (imports, docstring, etc).
     /// Returns an empty string by default; backends may override.
