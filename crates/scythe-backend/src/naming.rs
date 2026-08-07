@@ -94,8 +94,17 @@ pub fn to_snake_case(s: &str) -> Cow<'_, str> {
 ///
 /// Handles snake_case input ("user_status" -> "userStatus")
 /// and PascalCase input ("UserStatus" -> "userStatus").
+///
+/// Routes through [`to_snake_case`] first, then [`to_pascal_case`], then
+/// lowercases the first character. `to_pascal_case` alone borrows unchanged
+/// for mixed-case input with no underscore (e.g. "HTTPSUrl"), so calling it
+/// directly on arbitrary input produced the broken "hTTPSUrl" instead of
+/// "httpsUrl" — `to_snake_case` already has real consecutive-capital
+/// handling, so normalizing through it first is what makes this the inverse
+/// of `to_snake_case`.
 pub fn to_camel_case(s: &str) -> Cow<'_, str> {
-    let pascal = to_pascal_case(s);
+    let snake = to_snake_case(s);
+    let pascal = to_pascal_case(&snake);
     let mut chars = pascal.chars();
     match chars.next() {
         Some(c) => {
@@ -104,7 +113,10 @@ pub fn to_camel_case(s: &str) -> Cow<'_, str> {
             result.push_str(chars.as_str());
             Cow::Owned(result)
         }
-        None => Cow::Borrowed(s),
+        // Only reachable when `pascal` collapsed to nothing (e.g. an
+        // all-underscore input like "__"), so the result is empty
+        // regardless of what the original string held.
+        None => Cow::Borrowed(""),
     }
 }
 
@@ -222,6 +234,115 @@ mod tests {
         assert_eq!(&*to_camel_case("user_status"), "userStatus");
         assert_eq!(&*to_camel_case("UserStatus"), "userStatus");
         assert_eq!(&*to_camel_case("get_user"), "getUser");
+    }
+
+    /// This must fail before the fix: `to_camel_case` used to pascal-case
+    /// directly, and `to_pascal_case` borrows mixed-case input with no
+    /// underscore unchanged, so `to_camel_case("HTTPSUrl")` produced the
+    /// broken "hTTPSUrl" (only the first letter lowercased) instead of
+    /// "httpsUrl".
+    #[test]
+    fn test_to_camel_case_consecutive_capitals() {
+        assert_eq!(&*to_camel_case("HTTPSUrl"), "httpsUrl");
+        assert_eq!(&*to_camel_case("HTTPClient"), "httpClient");
+        assert_eq!(&*to_camel_case("XMLParser"), "xmlParser");
+        assert_eq!(&*to_camel_case("UserID"), "userId");
+        assert_eq!(&*to_camel_case("getHTTPSUrl"), "getHttpsUrl");
+        assert_eq!(&*to_camel_case("ABCDef"), "abcDef");
+    }
+
+    /// Four spellings of the same identifier must all collapse to the same
+    /// camelCase name — the property that makes `field_case = "camelCase"`
+    /// collision detection meaningful in `resolve.rs`.
+    #[test]
+    fn test_to_camel_case_collision_corpus_agrees() {
+        for input in ["user_id", "USER_ID", "UserId", "userId"] {
+            assert_eq!(&*to_camel_case(input), "userId", "input: {input}");
+        }
+    }
+
+    #[test]
+    fn test_to_camel_case_underscore_edges() {
+        assert_eq!(&*to_camel_case("_id"), "id");
+        assert_eq!(&*to_camel_case("id_"), "id");
+        assert_eq!(&*to_camel_case("user__id"), "userId");
+        assert_eq!(&*to_camel_case("__"), "");
+    }
+
+    #[test]
+    fn test_to_camel_case_degenerate() {
+        assert_eq!(&*to_camel_case(""), "");
+        assert_eq!(&*to_camel_case("a"), "a");
+        assert_eq!(&*to_camel_case("A"), "a");
+        assert_eq!(&*to_camel_case("ID"), "id");
+    }
+
+    /// The corpus exercised by the other `to_camel_case` tests, reused here
+    /// so the idempotence and inverse properties below cover the same inputs
+    /// rather than a hand-picked subset.
+    fn camel_case_corpus() -> &'static [&'static str] {
+        &[
+            "HTTPSUrl",
+            "HTTPClient",
+            "XMLParser",
+            "UserID",
+            "getHTTPSUrl",
+            "ABCDef",
+            "user_id",
+            "USER_ID",
+            "UserId",
+            "userId",
+            "_id",
+            "id_",
+            "user__id",
+            "__",
+            "",
+            "a",
+            "A",
+            "ID",
+            "ünique_id",
+            "col_1",
+            "1st_place",
+        ]
+    }
+
+    #[test]
+    fn test_to_camel_case_is_idempotent_over_corpus() {
+        for input in camel_case_corpus() {
+            let once = to_camel_case(input).into_owned();
+            let twice = to_camel_case(&once).into_owned();
+            assert_eq!(twice, once, "input: {input}");
+        }
+    }
+
+    /// `to_camel_case` is meant to be the inverse of `to_snake_case`: running
+    /// a name through `to_snake_case` first (as a manifest's `field_case`
+    /// switch from snake_case to camelCase would) must not change what
+    /// `to_camel_case` produces for it.
+    #[test]
+    fn test_to_camel_case_is_inverse_of_to_snake_case_over_corpus() {
+        for input in camel_case_corpus() {
+            let via_snake = to_camel_case(&to_snake_case(input)).into_owned();
+            let direct = to_camel_case(input).into_owned();
+            assert_eq!(via_snake, direct, "input: {input}");
+        }
+    }
+
+    /// Guards the multi-char-aware `to_uppercase`/`to_lowercase` path: a
+    /// naive byte-wise ASCII uppercase/lowercase would corrupt "ü".
+    #[test]
+    fn test_to_camel_case_non_ascii() {
+        assert_eq!(&*to_camel_case("ünique_id"), "üniqueId");
+    }
+
+    #[test]
+    fn test_to_camel_case_digit_edges() {
+        assert_eq!(&*to_camel_case("col_1"), "col1");
+        // FIXME: a leading digit is not a valid JS/Java identifier. This is
+        // pre-existing and not fixed here: snake_case's "1st_place" is
+        // equally invalid, so camelCase is not introducing a new problem —
+        // just not solving an old one.
+        assert_eq!(&*to_camel_case("1st_place"), "1stPlace");
     }
 
     #[test]
