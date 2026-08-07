@@ -146,7 +146,7 @@ impl<'a> Analyzer<'a> {
                     .enumerate()
                     .map(|(i, lc)| {
                         if i < right_cols.len() {
-                            let widened_type = widen_type(&lc.neutral_type, &right_cols[i].neutral_type);
+                            let widened_type = self.widen_union_arm_type(&lc.neutral_type, &right_cols[i].neutral_type);
                             // Preserve the source `sql_type` (e.g. "clob") when both sides
                             // of the UNION agree on it — backends like rust-sibyl match on
                             // `sql_type`, not `neutral_type`, to detect DB-specific column
@@ -189,6 +189,59 @@ impl<'a> Analyzer<'a> {
             }
             _ => Ok(Vec::new()),
         }
+    }
+
+    /// Widen two UNION-arm column types, with a nested-aggregate-aware path
+    /// `widen_type` alone can't provide.
+    ///
+    /// `widen_type` has no concept of `json_typed<...>`, and every
+    /// `json_agg`/`row_to_json` call gets a *fresh* `__nested__{id}`
+    /// placeholder (see `Analyzer::push_pending_nested`) -- so two arms
+    /// producing the exact same nested shape would still carry different
+    /// ids and never compare equal there. Left unhandled, `widen_type`'s
+    /// existing "genuinely different types -> left wins" fallback would
+    /// silently discard whichever arm's shape didn't happen to be on the
+    /// left, even when the two arms describe different underlying rows --
+    /// this is the one case where "left silently wins" is not an
+    /// acceptable degradation, because the discarded shape's fields are
+    /// gone with no diagnostic.
+    ///
+    /// Only one path recurses through `self.pending_nested`; every other
+    /// input (including a nested type paired with a non-nested one, which
+    /// is an ordinary type mismatch the same as any other) falls straight
+    /// through to `widen_type` unchanged.
+    fn widen_union_arm_type(&mut self, left: &str, right: &str) -> String {
+        let (Some(left_id), Some(right_id)) = (find_nested_placeholder_id(left), find_nested_placeholder_id(right))
+        else {
+            return widen_type(left, right);
+        };
+
+        let left_fields = self
+            .pending_nested
+            .iter()
+            .find(|p| p.id == left_id)
+            .map(|p| p.fields.clone());
+        let right_fields = self
+            .pending_nested
+            .iter()
+            .find(|p| p.id == right_id)
+            .map(|p| p.fields.clone());
+
+        if left_fields.is_some() && left_fields == right_fields {
+            // Both arms produced the identical nested shape (same fields,
+            // same order, same types and nullability) -- interchangeable,
+            // so keeping the left arm's placeholder (and letting phase 2
+            // resolve just that one) is correct, not merely convenient.
+            return left.to_string();
+        }
+
+        self.type_errors.push(
+            "UNION arms both produce a nested aggregate (json_agg/row_to_json) but with different row \
+             shapes; a UNION requires every arm to produce the same column types, and there is no way to \
+             widen two different nested struct shapes into one"
+                .to_string(),
+        );
+        left.to_string()
     }
 
     pub(super) fn analyze_select(&mut self, select: &ast::Select) -> Result<Vec<AnalyzedColumn>, ScytheError> {
@@ -556,6 +609,7 @@ mod union_sql_type_tests {
             type_errors: Vec::new(),
             positional_param_counter: 0,
             pending_nested: Vec::new(),
+            next_nested_id: 0,
         }
     }
 

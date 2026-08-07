@@ -1,5 +1,7 @@
 use sqlparser::ast::{self, BinaryOperator, Expr, FunctionArg, FunctionArgExpr, UnaryOperator};
 
+use crate::dialect::SqlDialect;
+
 use super::helpers::*;
 use super::type_conversion::{datatype_to_neutral, sql_type_to_neutral};
 use super::types::*;
@@ -429,7 +431,13 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(base_type, true)
             }
             "bool_and" | "bool_or" | "every" => TypeInfo::new("bool", true),
-            "json_agg" | "jsonb_agg" | "json_object_agg" | "jsonb_object_agg" => TypeInfo::new("json", true),
+            "json_agg" => self
+                .infer_nested_aggregate_type(func, scope, WrapArray::Yes)
+                .unwrap_or_else(|| TypeInfo::new("json", true)),
+            "jsonb_agg" | "json_object_agg" | "jsonb_object_agg" => TypeInfo::new("json", true),
+            "row_to_json" => self
+                .infer_nested_aggregate_type(func, scope, WrapArray::No)
+                .unwrap_or_else(|| TypeInfo::new(format!("__unknown_func__:{func_name}"), first_arg_nullable)),
 
             "coalesce" => {
                 let args = self.get_function_args(func);
@@ -628,10 +636,8 @@ impl<'a> Analyzer<'a> {
     /// correspondence with the source list must not assume `shapes[i]`
     /// corresponds to `arg_list.args[i]`.
     ///
-    /// Unused outside tests until the phase-3 nested-aggregate arms of
-    /// `infer_function_type` are added — this commit only introduces the
-    /// shape-classification contract and pins it with tests.
-    #[allow(dead_code)]
+    /// Consumed by [`Analyzer::infer_nested_aggregate_type`] for the
+    /// PostgreSQL `json_agg`/`row_to_json` nested-struct arms.
     pub(super) fn get_function_arg_shapes(&self, func: &ast::Function, scope: &Scope) -> Vec<FuncArgShape> {
         let ast::FunctionArguments::List(arg_list) = &func.args else {
             return Vec::new();
@@ -696,14 +702,109 @@ impl<'a> Analyzer<'a> {
             .find(|s| s.alias == name || s.table_name == name)
             .map(|s| s.alias.clone())
     }
+
+    /// PostgreSQL-only nested-struct type inference for `json_agg(relation.*)`
+    /// (or the bare-identifier form `json_agg(relation)`) and
+    /// `row_to_json(relation.*)`.
+    ///
+    /// `WrapArray::Yes` wraps the placeholder in `array<>` for `json_agg`
+    /// (one JSON array element per row aggregated); `WrapArray::No` leaves it
+    /// bare for `row_to_json` (one JSON object per output row, not an
+    /// aggregate).
+    ///
+    /// Returns `None` whenever the nested shape can't be established — wrong
+    /// dialect, zero or more than one argument, or an argument that isn't a
+    /// `FuncArgShape::Relation` (a bare wildcard, a scalar expression, or a
+    /// relation alias that somehow resolved to no scope columns). Every
+    /// caller falls back to the pre-existing behaviour for that function on
+    /// `None`, so this never changes output for anything it doesn't
+    /// explicitly handle.
+    fn infer_nested_aggregate_type(
+        &mut self,
+        func: &ast::Function,
+        scope: &Scope,
+        wrap: WrapArray,
+    ) -> Option<TypeInfo> {
+        if self.catalog.dialect() != SqlDialect::PostgreSQL {
+            return None;
+        }
+
+        let shapes = self.get_function_arg_shapes(func, scope);
+        let [FuncArgShape::Relation(alias)] = shapes.as_slice() else {
+            return None;
+        };
+
+        let fields = self.nested_fields_for_relation(alias, scope);
+        if fields.is_empty() {
+            return None;
+        }
+
+        // Nested-of-nested: `alias` is a CTE or derived-subquery column
+        // whose own neutral_type is itself an unresolved `__nested__{id}`
+        // placeholder (e.g. an outer json_agg(oi.*) over a CTE column that
+        // is itself the result of an inner json_agg). Phase 2 naming
+        // (resolve_nested_struct_names) only walks the query's own
+        // top-level output columns, not recursively into the fields of the
+        // NestedStructInfo it just built, so a placeholder embedded here
+        // would never be substituted -- it would reach resolve_type in
+        // every backend's generate_nested_struct_def, including opted-in
+        // ones, as an unresolvable type name. Reject with a clear
+        // diagnostic instead of leaking that placeholder into a
+        // downstream "unknown type" error.
+        if let Some(field) = fields.iter().find(|f| f.neutral_type.contains("__nested__")) {
+            self.type_errors.push(format!(
+                "nested aggregate over nested aggregate is not supported: field \"{}\" of \"{alias}\" is itself \
+                 a json_agg/row_to_json result; wrap only one level of aggregation per query",
+                field.name
+            ));
+            return None;
+        }
+
+        let id = self.push_pending_nested(fields);
+        let placeholder = format!("__nested__{id}");
+        let neutral_type = match wrap {
+            WrapArray::Yes => format!("json_typed<array<{placeholder}>>"),
+            WrapArray::No => format!("json_typed<{placeholder}>"),
+        };
+        Some(TypeInfo::new(neutral_type, true))
+    }
+
+    /// Build the field list for a nested struct from a scope source's
+    /// columns, carrying outer-join nullability the same way
+    /// [`TypeInfo::from_scope_column`] does for a normal column reference.
+    fn nested_fields_for_relation(&self, alias: &str, scope: &Scope) -> Vec<NestedFieldInfo> {
+        let Some(source) = scope.sources.iter().find(|s| s.alias == alias) else {
+            return Vec::new();
+        };
+        source
+            .columns
+            .iter()
+            .map(|col| NestedFieldInfo {
+                name: col.name.clone(),
+                neutral_type: col.neutral_type.clone(),
+                nullable: col.base_nullable || source.nullable_from_join,
+            })
+            .collect()
+    }
+}
+
+/// Whether [`Analyzer::infer_nested_aggregate_type`] wraps its placeholder in
+/// `array<>` (`json_agg`, one element per aggregated row) or leaves it bare
+/// (`row_to_json`, one object per output row).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WrapArray {
+    Yes,
+    No,
 }
 
 /// Shape of a single function argument, widened from sqlparser's
 /// `FunctionArgExpr` to preserve wildcard and relation-reference forms that
 /// [`Analyzer::get_function_args`] silently drops.
 ///
-/// `#[allow(dead_code)]`: fields are read from tests only until the phase-3
-/// nested-aggregate arms of `infer_function_type` consume them.
+/// `infer_nested_aggregate_type` only ever needs to distinguish `Relation`
+/// from everything else, so `Expr`'s payload is currently read by tests only
+/// (see `test_get_function_arg_shapes_plain_expr_unaffected`) — kept for a
+/// caller that needs the actual expression, not because it's unused.
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 pub(super) enum FuncArgShape {
@@ -742,6 +843,7 @@ mod tests {
             type_errors: Vec::new(),
             positional_param_counter: 0,
             pending_nested: Vec::new(),
+            next_nested_id: 0,
         }
     }
 

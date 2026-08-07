@@ -92,10 +92,11 @@ pub struct NestedFieldInfo {
 }
 
 /// A nested-struct definition captured during expression inference (phase
-/// 1 — not yet implemented; no producer pushes onto `Analyzer::pending_nested`
-/// until the arms that consume [`crate::analyzer::expressions::FuncArgShape`]
-/// land), before the query name and output column alias are known and
-/// therefore before the struct can be named.
+/// 1 — `Analyzer::infer_nested_aggregate_type` in `expressions.rs`, the
+/// `json_agg`/`row_to_json` producer built on
+/// [`crate::analyzer::expressions::FuncArgShape`]), before the query name
+/// and output column alias are known and therefore before the struct can
+/// be named.
 ///
 /// `analyze()`'s phase-2 pass resolves each entry into a [`NestedStructInfo`]
 /// once `columns` (with aliases applied) exist, and replaces the
@@ -326,4 +327,20 @@ pub(super) struct Analyzer<'a> {
     /// Nested-struct definitions awaiting phase-2 naming. See
     /// [`PendingNestedStruct`].
     pub(super) pending_nested: Vec<PendingNestedStruct>,
+    /// Auto-incrementing counter assigning `PendingNestedStruct::id`.
+    /// Threaded into a derived-subquery sub-analyzer and back (mirroring
+    /// `positional_param_counter`) so ids stay unique across a subquery
+    /// boundary once `pending_nested` is bubbled up.
+    pub(super) next_nested_id: u32,
+}
+
+impl<'a> Analyzer<'a> {
+    /// Allocate the next `__nested__{id}` placeholder id and record its
+    /// field shape for phase-2 naming to resolve.
+    pub(super) fn push_pending_nested(&mut self, fields: Vec<NestedFieldInfo>) -> u32 {
+        let id = self.next_nested_id;
+        self.next_nested_id += 1;
+        self.pending_nested.push(PendingNestedStruct { id, fields });
+        id
+    }
 }

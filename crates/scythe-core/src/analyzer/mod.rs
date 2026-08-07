@@ -19,7 +19,7 @@ use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 use crate::parser::{Query, QueryCommand};
 
-use helpers::detect_select_star_source;
+use helpers::{detect_select_star_source, find_nested_placeholder_id};
 use type_conversion::sql_type_to_neutral;
 use types::Analyzer;
 
@@ -31,6 +31,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         type_errors: Vec::new(),
         positional_param_counter: 0,
         pending_nested: Vec::new(),
+        next_nested_id: 0,
     };
 
     let (columns, _) = analyzer.analyze_statement(&query.stmt)?;
@@ -231,9 +232,10 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
 ///
 /// PostgreSQL only: any other dialect returns an empty list untouched,
 /// leaving `columns` as-is. In practice `pending` is only ever non-empty for
-/// a PostgreSQL catalog, since the (not yet implemented) phase-1 producer
-/// arms gate on dialect before pushing — this is a second, independent gate
-/// here so the pass is safe even if that invariant is ever violated.
+/// a PostgreSQL catalog, since `Analyzer::infer_nested_aggregate_type` (the
+/// phase-1 producer, `expressions.rs`) already gates on dialect before
+/// pushing — this is a second, independent gate here so the pass is safe
+/// even if that invariant is ever violated.
 fn resolve_nested_struct_names(
     catalog: &Catalog,
     query_name: &str,
@@ -313,24 +315,6 @@ fn assign_nested_struct_name(
 
         suffix += 1;
     }
-}
-
-/// Find the first `__nested__{id}` placeholder embedded in a neutral-type
-/// string (e.g. `json_typed<array<__nested__7>>`) and return its numeric id.
-/// `__nested__` with no digits following it is treated as absent rather than
-/// malformed input.
-fn find_nested_placeholder_id(neutral_type: &str) -> Option<u32> {
-    const MARKER: &str = "__nested__";
-    let start = neutral_type.find(MARKER)?;
-    let digits_start = start + MARKER.len();
-    let digits_end = neutral_type[digits_start..]
-        .find(|c: char| !c.is_ascii_digit())
-        .map(|rel| digits_start + rel)
-        .unwrap_or(neutral_type.len());
-    if digits_end == digits_start {
-        return None;
-    }
-    neutral_type[digits_start..digits_end].parse::<u32>().ok()
 }
 
 #[cfg(test)]
@@ -731,11 +715,12 @@ SELECT name, age FROM users WHERE id = $1;",
     // -----------------------------------------------------------------
     // Phase-2 nested-struct naming (`resolve_nested_struct_names`).
     //
-    // No producer pushes onto `Analyzer::pending_nested` yet (that lands
-    // with the nested-aggregate inference arms), so these tests exercise
-    // the resolver directly with a hand-built `pending` list and column set
-    // rather than through `analyze()` — there is no SQL that reaches this
-    // path today.
+    // `Analyzer::infer_nested_aggregate_type` (expressions.rs) is the real
+    // producer now, exercised end to end by the json_agg/row_to_json tests
+    // further down. These tests instead exercise the resolver directly
+    // with a hand-built `pending` list and column set, to pin name
+    // derivation, collision handling, and the dialect gate in isolation
+    // from expression inference.
     // -----------------------------------------------------------------
 
     fn nested_column(name: &str, neutral_type: &str) -> AnalyzedColumn {
@@ -905,6 +890,265 @@ SELECT name, age FROM users WHERE id = $1;",
         assert_eq!(
             columns[0].neutral_type, original_neutral_type,
             "the placeholder must be left untouched, not partially substituted"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Phase-1 producer: json_agg / row_to_json nested-aggregate inference
+    // end to end through analyze().
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn test_json_agg_wildcard_produces_nested_struct() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPosts
+-- @returns :many
+SELECT u.id, json_agg(p.*) AS posts FROM users u JOIN posts p ON u.id = p.user_id GROUP BY u.id;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns.len(), 2);
+        assert_eq!(result.columns[1].name, "posts");
+        assert_eq!(
+            result.nested_structs.len(),
+            1,
+            "exactly one nested struct must be produced"
+        );
+
+        let nested = &result.nested_structs[0];
+        assert_eq!(nested.name, "get_user_posts_row_posts");
+        assert_eq!(
+            result.columns[1].neutral_type, "json_typed<array<GetUserPostsRowPosts>>",
+            "json_agg wraps the resolved name in array<> and must match the PascalCase of nested.name exactly"
+        );
+        assert!(result.columns[1].nullable);
+
+        let field_names: Vec<&str> = nested.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(
+            field_names,
+            ["id", "user_id", "title", "body", "published", "created_at"]
+        );
+        let title_field = nested.fields.iter().find(|f| f.name == "title").unwrap();
+        assert_eq!(title_field.neutral_type, "string");
+        assert!(!title_field.nullable, "posts.title is NOT NULL and the join is INNER");
+        let body_field = nested.fields.iter().find(|f| f.name == "body").unwrap();
+        assert!(body_field.nullable, "posts.body has no NOT NULL constraint");
+    }
+
+    #[test]
+    fn test_json_agg_left_join_widens_nested_field_nullability() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsOuter
+-- @returns :many
+SELECT u.id, json_agg(p.*) AS posts FROM users u LEFT JOIN posts p ON u.id = p.user_id GROUP BY u.id;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        let nested = &result.nested_structs[0];
+        let id_field = nested.fields.iter().find(|f| f.name == "id").unwrap();
+        assert!(
+            id_field.nullable,
+            "posts.id is NOT NULL in the schema but the LEFT JOIN can still produce no matching row"
+        );
+    }
+
+    #[test]
+    fn test_row_to_json_wildcard_produces_nested_struct_without_array() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetPostAsJson
+-- @returns :many
+SELECT row_to_json(p.*) AS post FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.nested_structs.len(), 1);
+        assert_eq!(
+            result.columns[0].neutral_type, "json_typed<GetPostAsJsonRowPost>",
+            "row_to_json must not wrap in array<> -- it emits one object per output row, not an aggregate"
+        );
+    }
+
+    #[test]
+    fn test_json_agg_scalar_argument_falls_back_to_plain_json() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserNames
+-- @returns :one
+SELECT json_agg(u.name) AS names FROM users u;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(
+            result.columns[0].neutral_type, "json",
+            "a scalar/column argument is not a relation shape -- must match pre-existing json_agg behaviour exactly"
+        );
+        assert!(result.nested_structs.is_empty());
+    }
+
+    #[test]
+    fn test_json_agg_bare_wildcard_falls_back_to_plain_json() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserCount
+-- @returns :one
+SELECT json_agg(*) AS everything FROM users;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns[0].neutral_type, "json");
+        assert!(result.nested_structs.is_empty());
+    }
+
+    #[test]
+    fn test_json_agg_non_postgres_dialect_falls_back_to_plain_json() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE posts (id INTEGER NOT NULL, title TEXT NOT NULL);"],
+            &crate::dialect::SqlDialect::MySQL,
+        )
+        .unwrap();
+        let query = parse_query(
+            "-- @name GetPosts
+-- @returns :many
+SELECT json_agg(p.*) AS posts FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(
+            result.columns[0].neutral_type, "json",
+            "the dialect gate must produce byte-identical output to today's json_agg behaviour on non-PostgreSQL catalogs"
+        );
+        assert!(result.nested_structs.is_empty());
+    }
+
+    /// Guardrail: `string_agg` must never be reinterpreted as a nested
+    /// aggregate, even when its argument is a relation wildcard shape (not
+    /// valid SQL for `string_agg`, which expects a text expression, but the
+    /// analyzer must not special-case it regardless).
+    #[test]
+    fn test_string_agg_never_produces_nested_struct() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserNamesJoined
+-- @returns :one
+SELECT string_agg(u.name, ',') AS names FROM users u;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns[0].neutral_type, "string");
+        assert!(result.nested_structs.is_empty());
+    }
+
+    /// Guardrail: `jsonb_agg` is explicitly out of scope for this batch and
+    /// must keep today's plain-json behaviour even for a relation shape.
+    #[test]
+    fn test_jsonb_agg_wildcard_stays_plain_json() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsB
+-- @returns :many
+SELECT jsonb_agg(p.*) AS posts FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns[0].neutral_type, "json");
+        assert!(result.nested_structs.is_empty());
+    }
+
+    /// Nested-of-nested: an outer `json_agg` over a CTE column that is
+    /// itself the result of an inner `json_agg`. Phase 2 naming only walks
+    /// the query's own top-level output columns, never recursively into a
+    /// NestedStructInfo's own fields, so the inner `__nested__{id}`
+    /// placeholder can never be substituted if this were allowed through --
+    /// it must be rejected with a clear diagnostic instead of reaching
+    /// codegen as a leaked, unresolvable placeholder.
+    #[test]
+    fn test_nested_of_nested_aggregate_is_rejected_with_clear_diagnostic() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetAllUserPosts
+-- @returns :many
+WITH user_posts AS (
+    SELECT u.id AS user_id, json_agg(p.*) AS posts
+    FROM users u JOIN posts p ON p.user_id = u.id
+    GROUP BY u.id
+)
+SELECT up.user_id, json_agg(up.*) AS all_posts FROM user_posts up;",
+        )
+        .unwrap();
+
+        let err = analyze(&catalog, &query).unwrap_err();
+
+        assert!(
+            err.message.contains("nested aggregate over nested aggregate"),
+            "expected a clear nested-of-nested diagnostic, got: {}",
+            err.message
+        );
+        assert!(
+            err.message.contains("posts"),
+            "diagnostic should name the offending field, got: {}",
+            err.message
+        );
+    }
+
+    /// UNION arm widening: two arms that both `json_agg` the *same*
+    /// underlying table shape must widen cleanly into one nested struct,
+    /// even though each arm's `json_agg` call independently allocated its
+    /// own `__nested__{id}` and so never compares textually equal.
+    #[test]
+    fn test_union_arms_with_identical_nested_shape_widen_to_one_struct() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsEitherWay
+-- @returns :many
+SELECT u.id, json_agg(p.*) AS posts FROM users u JOIN posts p ON p.user_id = u.id GROUP BY u.id
+UNION
+SELECT u2.id, json_agg(p2.*) AS posts FROM users u2 JOIN posts p2 ON p2.user_id = u2.id GROUP BY u2.id;",
+        )
+        .unwrap();
+
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(
+            result.nested_structs.len(),
+            1,
+            "both arms describe the same posts shape and must widen to a single struct"
+        );
+        assert!(result.columns[1].neutral_type.starts_with("json_typed<array<"));
+    }
+
+    /// UNION arm widening: two arms that `json_agg` genuinely different
+    /// table shapes must be rejected with a clear diagnostic, not silently
+    /// resolved to whichever arm happened to be on the left -- the pre-fix
+    /// behaviour would drop the right arm's shape with no signal at all.
+    #[test]
+    fn test_union_arms_with_differing_nested_shape_is_rejected_with_clear_diagnostic() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsOrComments
+-- @returns :many
+SELECT u.id, json_agg(p.*) AS posts FROM users u JOIN posts p ON p.user_id = u.id GROUP BY u.id
+UNION
+SELECT u2.id, json_agg(c.*) AS posts FROM users u2 JOIN comments c ON c.user_id = u2.id GROUP BY u2.id;",
+        )
+        .unwrap();
+
+        let err = analyze(&catalog, &query).unwrap_err();
+
+        assert!(
+            err.message.contains("different row shapes"),
+            "expected a clear shape-mismatch diagnostic, got: {}",
+            err.message
         );
     }
 }

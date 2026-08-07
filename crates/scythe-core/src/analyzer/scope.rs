@@ -136,12 +136,14 @@ impl<'a> Analyzer<'a> {
                     type_errors: Vec::new(),
                     positional_param_counter: self.positional_param_counter,
                     pending_nested: Vec::new(),
+                    next_nested_id: self.next_nested_id,
                 };
                 let sub_cols = sub_analyzer.analyze_query(subquery)?;
 
                 self.params.extend(sub_analyzer.params);
                 self.positional_param_counter = sub_analyzer.positional_param_counter;
                 self.type_errors.extend(sub_analyzer.type_errors);
+                self.next_nested_id = sub_analyzer.next_nested_id;
                 self.pending_nested.extend(sub_analyzer.pending_nested);
 
                 let alias_name = alias
@@ -337,6 +339,7 @@ mod tests {
             type_errors: Vec::new(),
             positional_param_counter: 0,
             pending_nested: Vec::new(),
+            next_nested_id: 0,
         }
     }
 
