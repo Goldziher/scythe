@@ -421,6 +421,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
         let analyzed = request.analyzed;
         let parent_struct_name = request.parent_struct_name;
         let child_struct_name = request.child_struct_name;
+        let all_columns = request.all_columns;
         let parent_columns = request.parent_columns;
         let child_columns = request.child_columns;
         let params = request.params;
@@ -476,13 +477,35 @@ impl CodegenBackend for TypescriptKyselyBackend {
         // generated struct describing that shape, so each field read casts
         // through the `unknown` index-signature value the sql tag's fallback
         // row type supplies (matches the mssql/duckdb bracket+cast pattern).
+        //
+        // Unlike the other backends, this reads by `field_name`, not the raw
+        // SQL `name`. CamelCasePlugin, when registered on the caller's
+        // `Kysely` instance, transforms the result of *every* query executed
+        // through that instance -- including this raw `sql` tag query, not
+        // just the query builder -- so `flatRows` here already has whatever
+        // casing the plugin produces before this code ever sees it. Reading
+        // by the raw SQL name is therefore already wrong today for any
+        // caller who has the plugin installed: it looks up a key the
+        // transformed row doesn't have and silently reads `undefined`.
+        // `field_name` is the declared casing this backend already commits
+        // to elsewhere (the row struct, `:one`/`:many`'s `sql<StructName>`
+        // trust boundary), so keying off it here makes the fold agree with
+        // both -- correct under the default (`field_name == name` for
+        // ordinary snake_case SQL identifiers, so this is a no-op) and
+        // correct once `field_case = "camelCase"` declares the plugin.
+        let field_name_for = |raw_name: &str| -> String {
+            all_columns
+                .iter()
+                .find(|c| c.name == raw_name)
+                .map_or_else(|| raw_name.to_string(), |c| c.field_name.clone())
+        };
         let fold = generate_ts_grouped_fold_body(
             parent_struct_name,
             child_struct_name,
             parent_columns,
             child_columns,
             key_column,
-            |name, ty| format!("row['{}'] as {}", name, ty),
+            |name, ty| format!("row['{}'] as {}", field_name_for(name), ty),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");
@@ -1068,6 +1091,37 @@ mod tests {
         assert!(
             query_fn.contains("parent.children.push"),
             "must fold children; got:\n{query_fn}"
+        );
+    }
+
+    /// This must fail before the fix: CamelCasePlugin, when registered on
+    /// the caller's `Kysely` instance, transforms the result of every query
+    /// executed through it -- including this raw `sql` tag query, not just
+    /// the query builder -- so with the plugin installed, `flatRows` already
+    /// has camelCase keys before this generated code ever runs. Reading a
+    /// field by its raw SQL name (`row['order_id']`) looks up a key the
+    /// transformed row doesn't have and silently reads `undefined`; reading
+    /// by `field_name` (`row['orderId']`) is what the plugin's declared
+    /// contract (`field_case = "camelCase"`) actually requires.
+    #[test]
+    fn test_grouped_fold_reads_by_field_name_not_raw_sql_name() {
+        let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+        backend.manifest.naming.field_case = "camelCase".to_string();
+        let query = make_grouped_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("row['orderId']"),
+            "must read the camelCase field name; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("row['orderDate']"),
+            "must read the camelCase field name; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("row['order_id']") && !query_fn.contains("row['order_date']"),
+            "must not read the raw SQL name once field_case renamed it; got:\n{query_fn}"
         );
     }
 
