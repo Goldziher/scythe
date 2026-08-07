@@ -141,7 +141,7 @@ fn check_field_name_collisions<'a>(
             let (sql_b, field_b) = items[j];
             if field_a == field_b {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::DuplicateAlias,
                     format!(
                         "{kind} '{sql_a}' and '{sql_b}' both resolve to field name '{field_a}' under \
                          field_case = \"{}\" -- alias one of them in SQL, or set field_case = \"snake_case\"",
