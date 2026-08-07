@@ -179,7 +179,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 } else {
                     let _ = writeln!(out, "\tconst result = await stmt.run({});", param_args);
                 }
-                let _ = writeln!(out, "\tconst rows = await result.getRows();");
+                let _ = writeln!(out, "\tconst rows = await result.getRowObjects();");
                 let _ = writeln!(out, "\tconst row = firstRow<{}>(rows);", struct_name);
                 let _ = writeln!(out, "\treturn row;");
                 let _ = write!(out, "}}");
@@ -243,7 +243,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 } else {
                     let _ = writeln!(out, "\tconst result = await stmt.run({});", param_args);
                 }
-                let _ = writeln!(out, "\treturn allRows<{}>(await result.getRows());", struct_name);
+                let _ = writeln!(out, "\treturn allRows<{}>(await result.getRowObjects());", struct_name);
                 let _ = write!(out, "}}");
             }
             QueryCommand::Exec => {
@@ -357,7 +357,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         }
         let _ = writeln!(
             out,
-            "\tconst flatRows = allRows<Record<string, unknown>>(await _result.getRows());"
+            "\tconst flatRows = allRows<Record<string, unknown>>(await _result.getRowObjects());"
         );
 
         let fold = generate_ts_grouped_fold_body(
@@ -524,6 +524,47 @@ mod tests {
         }
     }
 
+    /// This must fail before the fix: `getRows()` returns `@duckdb/node-api`
+    /// rows as positional arrays (`[[0, 10], ...]`), not objects keyed by
+    /// column name. `firstRow`/`allRows` cast that blindly to the row
+    /// interface type, so `tsc` accepted it and every field read back
+    /// `undefined` at runtime. `getRowObjects()` is the keyed-object form the
+    /// generated row types actually need.
+    #[test]
+    fn test_one_query_fn_uses_get_row_objects_not_get_rows() {
+        let backend = TypescriptDuckdbBackend::new("duckdb").unwrap();
+        let query = make_one_query("SELECT id FROM users WHERE id = $1");
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("getRowObjects()"),
+            "must call getRowObjects; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("getRows()"),
+            "must not call getRows -- it returns positional arrays, not keyed rows; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_many_query_fn_uses_get_row_objects_not_get_rows() {
+        let backend = TypescriptDuckdbBackend::new("duckdb").unwrap();
+        let mut query = make_one_query("SELECT id FROM users");
+        query.command = QueryCommand::Many;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("getRowObjects()"),
+            "must call getRowObjects; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("getRows()"),
+            "must not call getRows -- it returns positional arrays, not keyed rows; got:\n{query_fn}"
+        );
+    }
+
     #[test]
     fn test_query_fn_escapes_user_backtick_in_sql() {
         let backend = TypescriptDuckdbBackend::new("duckdb").unwrap();
@@ -655,7 +696,11 @@ mod tests {
             query_fn.contains("conn.prepare"),
             "must use conn.prepare; got:\n{query_fn}"
         );
-        assert!(query_fn.contains("getRows()"), "must call getRows; got:\n{query_fn}");
+        assert!(
+            query_fn.contains("getRowObjects()"),
+            "must call getRowObjects, not getRows -- getRows() returns positional arrays, not \
+             keyed rows, and the fold's row_access reads columns by name; got:\n{query_fn}"
+        );
         assert!(
             query_fn.contains("new Map<unknown, GetUsersWithOrdersRow>()"),
             "must use Map; got:\n{query_fn}"
