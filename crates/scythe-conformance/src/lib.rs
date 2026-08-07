@@ -23,20 +23,27 @@
 //! No default feature links a database driver: [`fixture`], [`expectation`],
 //! [`verdict`], [`divergence`], and [`query_shape`] are pure and DB-free, so
 //! `cargo test --workspace` and `cargo clippy --workspace -- -D warnings`
-//! exercise them without a container. Per-engine drivers live behind the
-//! `pg`, `mysql`, `mariadb`, `sqlite`, `mssql`, and `oracle` features (plus
-//! the `live-tests` gate for actually dialing a database), implementing the
-//! [`executor::Executor`] trait -- no implementation ships in this commit.
+//! exercise them without a container. Per-engine drivers live in
+//! [`executors`], each behind its own Cargo feature (`pg`, `mysql`,
+//! `mariadb`, `sqlite` implemented this batch; `mssql` and `oracle` declare
+//! their feature flags for the license check but have no driver yet), plus
+//! the `live-tests` gate for actually dialing a database. [`runner`] wires
+//! a driver, the analyzer, codegen, and the four assertions together into
+//! real verdicts -- see its module docs for how it handles an engine that
+//! cannot run.
 
 pub mod divergence;
 pub mod executor;
+pub mod executors;
 pub mod expectation;
 pub mod fixture;
 pub mod query_shape;
+pub mod runner;
 pub mod verdict;
 
 pub use divergence::{DivergenceEntry, DivergenceError, DivergenceKind};
 pub use executor::{Executor, MissingColumn, ObservedRow};
 pub use expectation::ExpectationError;
 pub use fixture::{Engine, FixtureError, LiveFixture};
+pub use runner::{RunReport, RunnerConfig, RunnerError, SkippedLeg, run};
 pub use verdict::{ColumnFacts, ColumnFactsError, Failure, FixtureEngineFacts, Verdict};

@@ -7,25 +7,20 @@ publish = false
 description = "Live-database conformance suite for scythe nullability inference"
 
 [package.metadata.cargo-machete]
-# Each is optional, feature-gated, and deliberately unused: this commit adds
-# them for the license check (see crate-level docs) and declares their
-# feature flags, but no Executor implementation lands until a later commit.
-ignored = [
-    "mysql_async",
-    "rusqlite",
-    "sibyl",
-    "tiberius",
-    "tokio",
-    "tokio-postgres",
-    "tokio-util",
-]
+# sibyl (Oracle) and tiberius/tokio-util (MSSQL) are optional, feature-gated,
+# and deliberately unused: their features exist for the license check (see
+# crate-level docs) and declare the feature flags, but no Executor
+# implementation lands for either engine until a later batch -- see
+# `src/runner.rs`'s module docs. mysql_async, rusqlite, tokio, and
+# tokio-postgres are all used by the four executors this batch adds.
+ignored = ["sibyl", "tiberius", "tokio-util"]
 
 [features]
 default = []
 # Per-engine live drivers. Each pulls in the engine's native client crate;
 # none is enabled by default so `cargo test --workspace` and
 # `cargo clippy --workspace -- -D warnings` never link a database driver.
-pg = ["dep:tokio-postgres"]
+pg = ["dep:tokio-postgres", "dep:tokio"]
 mysql = ["dep:mysql_async"]
 # MariaDB is wire-protocol compatible with MySQL and driven by the same
 # client crate -- this is not an alias for `mysql`, it's `Engine::Mariadb`'s

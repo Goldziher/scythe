@@ -58,6 +58,29 @@ impl Engine {
     pub fn schema_file_name(self) -> String {
         format!("{}.sql", self.as_str())
     }
+
+    /// The parser dialect this engine's DDL must be read with.
+    ///
+    /// Written as an exhaustive `match` rather than routed through
+    /// [`scythe_core::dialect::SqlDialect::from_str`] with a fallback: that
+    /// function returns `Option`, and any fallback for the `None` arm --
+    /// `unwrap_or_default()` in particular -- would parse an unrecognised
+    /// engine's DDL as PostgreSQL. In a crate whose whole purpose is to stop
+    /// a green result being produced by examining the wrong thing, silently
+    /// checking Oracle DDL against PostgreSQL's grammar is precisely the
+    /// failure mode. Adding an `Engine` variant is a compile error here.
+    pub fn dialect(self) -> scythe_core::dialect::SqlDialect {
+        use scythe_core::dialect::SqlDialect;
+        match self {
+            Engine::Postgresql => SqlDialect::PostgreSQL,
+            // MariaDB is wire- and grammar-compatible with MySQL for the DDL
+            // subset these fixtures use; scythe has no separate MariaDB dialect.
+            Engine::Mysql | Engine::Mariadb => SqlDialect::MySQL,
+            Engine::Sqlite => SqlDialect::SQLite,
+            Engine::Mssql => SqlDialect::MsSql,
+            Engine::Oracle => SqlDialect::Oracle,
+        }
+    }
 }
 
 impl std::fmt::Display for Engine {
@@ -74,6 +97,14 @@ impl std::fmt::Display for Engine {
 pub struct LiveFixture {
     pub name: String,
     pub category: String,
+    /// The portable (`tools/test-generator`-flavored) DDL statements the
+    /// analyzer sees. Deliberately distinct from `live.schema_profile`'s
+    /// per-engine files under `_schemas/` -- the analyzer runs against
+    /// this, the live engine runs against those, and reconciling the two
+    /// is `crate::runner`'s job, not this module's (see
+    /// `validate_schema_reconciliation`, which checks *declared columns*
+    /// exist in the live schema, independent of this field).
+    pub schema_sql: Vec<String>,
     pub query_sql: String,
     pub expected: ExpectedBlock,
     pub live: LiveBlock,
@@ -625,7 +656,7 @@ fn validate_schema_reconciliation(
             path: schema_path.clone(),
             source,
         })?;
-        let dialect = scythe_core::dialect::SqlDialect::from_str(engine.as_str()).unwrap_or_default();
+        let dialect = engine.dialect();
         let catalog =
             scythe_core::catalog::Catalog::from_ddl_with_dialect(&[contents.as_str()], &dialect).map_err(|source| {
                 FixtureError::LiveSchemaParse {
@@ -674,6 +705,7 @@ mod tests {
             r#"{{
   "name": "{name}",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "{query_sql}",
   "expected": {{ "query": {{ "columns": [{{ "name": "id", "nullable": false }}] }} }},
   "live": {{
@@ -1007,6 +1039,7 @@ mod tests {
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "SELECT id FROM t ORDER BY id",
   "expected": { "query": { "columns": [] } },
   "live": {
@@ -1030,6 +1063,7 @@ mod tests {
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "SELECT id FROM t ORDER BY id",
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
@@ -1051,6 +1085,7 @@ mod tests {
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "SELECT id FROM t ORDER BY id",
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
@@ -1074,6 +1109,7 @@ mod tests {
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "SELECT id, total FROM t ORDER BY id",
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }, { "name": "total", "nullable": true }] } },
   "live": {
@@ -1100,6 +1136,7 @@ mod tests {
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "SELECT id FROM t ORDER BY id",
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
@@ -1126,6 +1163,7 @@ mod tests {
         let json = r#"{
   "name": "live_incoherent",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "SELECT id, a, b FROM t ORDER BY id",
   "expected": { "query": { "columns": [
     { "name": "id", "nullable": false },
@@ -1161,6 +1199,7 @@ mod tests {
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "SELECT id FROM t ORDER BY id",
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }] } },
   "live": {
@@ -1188,6 +1227,7 @@ mod tests {
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "SELECT id, a FROM t ORDER BY id",
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }, { "name": "a", "nullable": true }] } },
   "live": {
@@ -1220,6 +1260,7 @@ mod tests {
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "SELECT id, total FROM t ORDER BY id",
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }, { "name": "total", "nullable": true }] } },
   "live": {
@@ -1252,6 +1293,7 @@ mod tests {
         let json = r#"{
   "name": "live_x",
   "category": "nullability_live/test",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
   "query_sql": "SELECT u.id, o.created_at AS order_created_at FROM users u LEFT JOIN orders o ON u.id = o.id ORDER BY u.id",
   "expected": { "query": { "columns": [{ "name": "id", "nullable": false }, { "name": "order_created_at", "nullable": true }] } },
   "live": {

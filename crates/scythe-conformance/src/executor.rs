@@ -1,12 +1,14 @@
-//! The live-driver contract. Declaring this trait now fixes the shape a
-//! later commit's per-engine drivers must satisfy, without this crate (or
-//! its default feature set) pulling in a single driver dependency.
+//! The live-driver contract: the three operations [`crate::runner`] needs
+//! from a database, and nothing else.
 //!
-//! No implementation ships in this commit -- see the crate-level docs for
-//! why: `cargo test --workspace` and `cargo clippy --workspace -- -D
-//! warnings` must compile this trait without linking a database driver, so
-//! drivers land behind their own feature (`pg`, `mysql`, `sqlite`, `mssql`,
-//! `oracle`) plus the `live-tests` gate in a follow-up commit.
+//! This module pulls in no driver dependency itself, which is what lets
+//! `cargo test --workspace` and `cargo clippy --workspace -- -D warnings`
+//! compile the trait without linking a database client. The
+//! implementations live in [`crate::executors`], each behind its own
+//! feature (`pg`, `mysql`, `mariadb`, `sqlite`) plus the `live-tests` gate
+//! for actually dialing a database. `mssql` and `oracle` declare features
+//! but have no implementation yet -- [`crate::runner`] turns selecting
+//! either into a hard error rather than a silent skip.
 
 use std::future::Future;
 
@@ -77,7 +79,13 @@ pub struct MissingColumn {
 ///
 /// Implementors own their own connection lifecycle; this trait only
 /// describes the three operations the conformance runner needs from one.
-pub trait Executor: Send + Sync {
+///
+/// `Send`, not `Send + Sync`: the runner drives one executor at a time
+/// through `&mut self`, never shares one across threads concurrently, and
+/// `rusqlite::Connection` -- correctly, given SQLite's threading model --
+/// is `Send` but not `Sync`. Requiring `Sync` here would make it impossible
+/// to ever implement this trait for SQLite.
+pub trait Executor: Send {
     /// The engine this executor drives, used to resolve schema files and
     /// per-engine seed/expectation overrides.
     const ENGINE: Engine;
