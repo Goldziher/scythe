@@ -12,6 +12,7 @@ use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, Resol
 use crate::backends::typescript_common::{
     TsRowType, escape_ts_double_quoted_literal, escape_ts_template_literal, generate_grouped_interface_structs,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_union_row_struct, parse_bool_option,
+    reject_unknown_options,
 };
 use crate::singularize;
 
@@ -66,6 +67,11 @@ impl CodegenBackend for TypescriptOracledbBackend {
     }
 
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(
+            &["row_type", "outer_join_unions", "structs_only", "field_case"],
+            options,
+        )?;
+
         if let Some(rt) = options.get("row_type") {
             self.row_type = TsRowType::from_option(rt)?;
         }

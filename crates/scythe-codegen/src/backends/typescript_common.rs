@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Write;
 
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -26,6 +27,39 @@ impl TsRowType {
     }
 }
 
+/// Case convention for row/interface field names, as selected by the
+/// `field_case` backend option.
+///
+/// Not yet wired into any backend's `apply_options` -- this only defines the
+/// vocabulary. Backends still name every field via `NamingConfig.field_case`
+/// through `resolve.rs`, centrally; per-backend consumption of this type is
+/// later work, so it and `from_option` are unreachable within this crate
+/// today (`typescript_common` is `pub(crate)`) other than from their own
+/// tests below. `#[allow(dead_code)]` is deliberate, not a mistake to clean
+/// up -- remove it when a backend starts constructing one.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum TsFieldCase {
+    #[default]
+    Snake,
+    Camel,
+}
+
+#[allow(dead_code)]
+impl TsFieldCase {
+    /// Parse a field_case option string into a `TsFieldCase`.
+    pub fn from_option(value: &str) -> Result<Self, ScytheError> {
+        match value {
+            "snake_case" => Ok(Self::Snake),
+            "camelCase" => Ok(Self::Camel),
+            _ => Err(ScytheError::new(
+                ErrorCode::InternalError,
+                format!("invalid field_case '{}': expected 'snake_case' or 'camelCase'", value),
+            )),
+        }
+    }
+}
+
 /// Parse a boolean backend option strictly.
 ///
 /// Accepts (case-insensitively) `true`/`false`, `1`/`0`, and `yes`/`no`. Any
@@ -41,6 +75,73 @@ pub fn parse_bool_option(option_name: &str, value: &str) -> Result<bool, ScytheE
             format!("invalid {option_name} '{value}': expected 'true'/'false', '1'/'0', or 'yes'/'no'"),
         )),
     }
+}
+
+/// Reject any key in `options` that is not in `known`.
+///
+/// Before this, every TypeScript `apply_options` override just did
+/// `options.get("known_key")` and returned `Ok(())` by default (the
+/// `CodegenBackend::apply_options` default impl) -- an unrecognised key like
+/// a typo'd `row_typ = "zod"`, or a real key that TOML happily parses but no
+/// override reads, was silently discarded. The manifest author would see no
+/// error and no effect. Callers run this as the first line of
+/// `apply_options`, before touching any individual option, so a typo is
+/// reported instead of ignored.
+///
+/// When a rejected key is within edit distance 2 of a known one, the error
+/// suggests it -- close enough to catch `row_typ` -> `row_type` or
+/// `outer_join_union` -> `outer_join_unions` without false-positiving on
+/// genuinely unrelated keys.
+pub fn reject_unknown_options(known: &[&str], options: &HashMap<String, String>) -> Result<(), ScytheError> {
+    let mut keys: Vec<&String> = options.keys().collect();
+    keys.sort();
+
+    for key in keys {
+        if known.contains(&key.as_str()) {
+            continue;
+        }
+
+        let suggestion = known
+            .iter()
+            .map(|&candidate| (candidate, levenshtein_distance(key, candidate)))
+            .filter(|&(_, distance)| distance <= 2)
+            .min_by_key(|&(_, distance)| distance)
+            .map(|(candidate, _)| candidate);
+
+        let message = match suggestion {
+            Some(suggestion) => format!(
+                "unknown option '{key}' (did you mean '{suggestion}'?): valid options are {}",
+                known.join(", ")
+            ),
+            None => format!("unknown option '{key}': valid options are {}", known.join(", ")),
+        };
+        return Err(ScytheError::new(ErrorCode::InternalError, message));
+    }
+
+    Ok(())
+}
+
+/// Levenshtein edit distance between two strings, used by
+/// [`reject_unknown_options`] to suggest a likely intended option name.
+fn levenshtein_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+
+    let mut prev_row: Vec<usize> = (0..=b.len()).collect();
+    let mut curr_row = vec![0usize; b.len() + 1];
+
+    for (i, &char_a) in a.iter().enumerate() {
+        curr_row[0] = i + 1;
+        for (j, &char_b) in b.iter().enumerate() {
+            let substitution_cost = usize::from(char_a != char_b);
+            curr_row[j + 1] = (prev_row[j + 1] + 1)
+                .min(curr_row[j] + 1)
+                .min(prev_row[j] + substitution_cost);
+        }
+        std::mem::swap(&mut prev_row, &mut curr_row);
+    }
+
+    prev_row[b.len()]
 }
 
 /// Escape a SQL string for safe splicing into a JS backtick template
@@ -432,6 +533,35 @@ pub fn generate_zod_grouped_structs(
     out
 }
 
+/// Render the `field: value,` lines of a TypeScript object literal for a
+/// row's columns, one per line, at the given `indent`.
+///
+/// `row_access(sql_col_name, ts_full_type)` returns the TypeScript expression
+/// that reads that column from the current row variable -- see
+/// [`generate_ts_grouped_fold_body`] for the per-backend examples.
+///
+/// Shared by both halves of `generate_ts_grouped_fold_body` -- the parent
+/// object and the child object it pushes into `children` -- so their field
+/// lists cannot drift apart. Not yet called for `:one`/`:many` row
+/// construction. Callers own the surrounding `{ ... }` and any additional
+/// properties (e.g. `children: []`), since those differ between call sites.
+pub fn generate_ts_row_object_literal(
+    columns: &[ResolvedColumn],
+    indent: &str,
+    row_access: impl Fn(&str, &str) -> String,
+) -> String {
+    let mut out = String::new();
+    for col in columns {
+        let _ = writeln!(
+            out,
+            "{indent}{}: {},",
+            col.field_name,
+            row_access(&col.name, &col.full_type)
+        );
+    }
+    out
+}
+
 /// Generate the client-side fold body for a `:grouped` query.
 ///
 /// `row_access(sql_col_name, ts_full_type)` returns the TypeScript expression that
@@ -463,28 +593,14 @@ pub fn generate_ts_grouped_fold_body(
     let _ = writeln!(out, "\t\tlet parent = index.get(key);");
     let _ = writeln!(out, "\t\tif (!parent) {{");
     let _ = writeln!(out, "\t\t\tparent = {{");
-    for col in parent_columns {
-        let _ = writeln!(
-            out,
-            "\t\t\t\t{}: {},",
-            col.field_name,
-            row_access(&col.name, &col.full_type)
-        );
-    }
+    out.push_str(&generate_ts_row_object_literal(parent_columns, "\t\t\t\t", &row_access));
     let _ = writeln!(out, "\t\t\t\tchildren: [],");
     let _ = writeln!(out, "\t\t\t}};");
     let _ = writeln!(out, "\t\t\tindex.set(key, parent);");
     let _ = writeln!(out, "\t\t\tresult.push(parent);");
     let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t\tparent.children.push({{");
-    for col in child_columns {
-        let _ = writeln!(
-            out,
-            "\t\t\t{}: {},",
-            col.field_name,
-            row_access(&col.name, &col.full_type)
-        );
-    }
+    out.push_str(&generate_ts_row_object_literal(child_columns, "\t\t\t", &row_access));
     let _ = writeln!(out, "\t\t}});");
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out, "\treturn result;");
@@ -758,5 +874,105 @@ mod tests {
             grouped.contains("z.instanceof(Uint8Array)"),
             "grouped bytes must follow the backend type; got:\n{grouped}"
         );
+    }
+
+    #[test]
+    fn test_ts_field_case_from_option_accepts_known_values() {
+        assert_eq!(TsFieldCase::from_option("snake_case").unwrap(), TsFieldCase::Snake);
+        assert_eq!(TsFieldCase::from_option("camelCase").unwrap(), TsFieldCase::Camel);
+    }
+
+    #[test]
+    fn test_ts_field_case_from_option_rejects_unknown_values() {
+        let err = TsFieldCase::from_option("PascalCase").expect_err("PascalCase is not a valid field_case");
+        assert!(err.to_string().contains("field_case"), "{err}");
+    }
+
+    #[test]
+    fn test_ts_field_case_default_is_snake() {
+        assert_eq!(TsFieldCase::default(), TsFieldCase::Snake);
+    }
+
+    #[test]
+    fn test_generate_ts_row_object_literal_matches_grouped_fold_field_lines() {
+        let columns = vec![
+            column("id", "number", false, None, false),
+            column("name", "string", false, None, false),
+        ];
+        let out = generate_ts_row_object_literal(&columns, "\t\t\t\t", |name, ty| format!("row.{name} as {ty}"));
+        assert_eq!(
+            out,
+            "\t\t\t\tid: row.id as number,\n\t\t\t\tname: row.name as string,\n"
+        );
+    }
+
+    #[test]
+    fn test_generate_ts_row_object_literal_empty_columns_is_empty() {
+        let out = generate_ts_row_object_literal(&[], "\t", |name, ty| format!("row.{name} as {ty}"));
+        assert_eq!(out, "");
+    }
+
+    fn known_options() -> &'static [&'static str] {
+        &["row_type", "outer_join_unions", "structs_only", "field_case"]
+    }
+
+    #[test]
+    fn test_reject_unknown_options_accepts_known_keys() {
+        let mut options = HashMap::new();
+        options.insert("row_type".to_string(), "zod".to_string());
+        options.insert("field_case".to_string(), "camelCase".to_string());
+        reject_unknown_options(known_options(), &options).unwrap();
+    }
+
+    #[test]
+    fn test_reject_unknown_options_accepts_empty_map() {
+        reject_unknown_options(known_options(), &HashMap::new()).unwrap();
+    }
+
+    /// This must fail before `reject_unknown_options` existed: the default
+    /// `apply_options` returned `Ok(())` for any options map, so a typo like
+    /// `row_typ = "zod"` silently parsed as valid TOML and had no effect.
+    #[test]
+    fn test_reject_unknown_options_rejects_unrecognized_key() {
+        let mut options = HashMap::new();
+        options.insert("row_typ".to_string(), "zod".to_string());
+        let err = reject_unknown_options(known_options(), &options).expect_err("row_typ is not a known option");
+        let message = err.to_string();
+        assert!(message.contains("row_typ"), "{message}");
+        assert!(
+            message.contains("row_type"),
+            "error should list valid options: {message}"
+        );
+    }
+
+    #[test]
+    fn test_reject_unknown_options_suggests_close_typo() {
+        let mut options = HashMap::new();
+        options.insert("row_typ".to_string(), "zod".to_string());
+        let err = reject_unknown_options(known_options(), &options).expect_err("row_typ is not a known option");
+        assert!(
+            err.to_string().contains("did you mean 'row_type'?"),
+            "expected a did-you-mean suggestion: {err}"
+        );
+    }
+
+    #[test]
+    fn test_reject_unknown_options_no_suggestion_when_too_far() {
+        let mut options = HashMap::new();
+        options.insert("completely_unrelated_option".to_string(), "x".to_string());
+        let err = reject_unknown_options(known_options(), &options).expect_err("not a known option");
+        assert!(
+            !err.to_string().contains("did you mean"),
+            "should not suggest anything this far off: {err}"
+        );
+    }
+
+    #[test]
+    fn test_levenshtein_distance_basic_cases() {
+        assert_eq!(levenshtein_distance("row_type", "row_type"), 0);
+        assert_eq!(levenshtein_distance("row_typ", "row_type"), 1);
+        assert_eq!(levenshtein_distance("", "abc"), 3);
+        assert_eq!(levenshtein_distance("abc", ""), 3);
+        assert_eq!(levenshtein_distance("kitten", "sitting"), 3);
     }
 }
