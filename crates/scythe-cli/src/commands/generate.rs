@@ -282,29 +282,25 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
     Ok(())
 }
 
-/// Generate output for a single backend target.
-fn generate_for_backend(
-    config_name: &str,
-    backend: &dyn CodegenBackend,
-    analyzed_queries: &[AnalyzedQuery],
-    output_dir: &str,
-    overrides: &[TypeOverride],
-) -> Result<(), Box<dyn std::error::Error>> {
-    struct QueryResult {
-        code: scythe_codegen::GeneratedCode,
-        enums: Vec<EnumInfo>,
-    }
+/// A single generated query's code alongside the enum definitions it
+/// references, kept together so [`assemble_output`] can dedupe enums and
+/// interleave (or separate) query code without re-deriving either from
+/// `analyzed_queries`.
+struct QueryResult {
+    code: scythe_codegen::GeneratedCode,
+    enums: Vec<EnumInfo>,
+}
 
-    let mut results: Vec<QueryResult> = Vec::new();
-    for analyzed in analyzed_queries {
-        let enums = analyzed.enums.clone();
-        let code = generate_with_backend_and_overrides(analyzed, backend, overrides)?;
-        results.push(QueryResult { code, enums });
-    }
-
+/// Assemble the full file body for a backend from its per-query results:
+/// file header, deduped enum definitions, model/row structs and query
+/// functions (ordered per `query_class_header`), file footer, and post
+/// footer — joined into the final string, including the "no queries"
+/// fallback. Pure and I/O-free so it can be unit tested directly and so
+/// post-assembly steps (e.g. rustfmt) stay visibly separate in the caller.
+fn assemble_output(backend: &dyn CodegenBackend, results: &[QueryResult]) -> String {
     let mut seen_enums = AHashSet::new();
     let mut unique_enum_defs: Vec<String> = Vec::new();
-    for result in &results {
+    for result in results {
         for info in &result.enums {
             if seen_enums.insert(info.sql_name.clone())
                 && let Ok(def) = generate_single_enum_def_with_backend(info, backend)
@@ -328,7 +324,7 @@ fn generate_for_backend(
 
     let class_header = backend.query_class_header();
     if class_header.is_empty() {
-        for result in &results {
+        for result in results {
             if let Some(ref s) = result.code.model_struct {
                 output_parts.push(s.clone());
             }
@@ -340,7 +336,7 @@ fn generate_for_backend(
             }
         }
     } else {
-        for result in &results {
+        for result in results {
             if let Some(ref s) = result.code.model_struct {
                 output_parts.push(s.clone());
             }
@@ -349,7 +345,7 @@ fn generate_for_backend(
             }
         }
         output_parts.push(class_header);
-        for result in &results {
+        for result in results {
             if let Some(ref s) = result.code.query_fn {
                 output_parts.push(s.clone());
             }
@@ -366,24 +362,52 @@ fn generate_for_backend(
         output_parts.push(post_footer);
     }
 
+    if output_parts.is_empty() {
+        "// No queries generated.\n".to_string()
+    } else {
+        output_parts.join("\n\n") + "\n"
+    }
+}
+
+/// The output filename for a backend's generated queries file. Extracted so
+/// the `.java` capitalization rule lives in exactly one place: `run_check`
+/// does not read generated artifacts today, but header verification will need
+/// to locate the same file this writes, and a second copy of the rule would
+/// diverge silently.
+fn output_filename(backend: &dyn CodegenBackend) -> String {
     let ext = &backend.manifest().backend.file_extension;
-    let filename = if ext == "java" {
+    if ext == "java" {
         format!("Queries.{}", ext)
     } else {
         format!("queries.{}", ext)
-    };
+    }
+}
+
+/// Generate output for a single backend target.
+fn generate_for_backend(
+    config_name: &str,
+    backend: &dyn CodegenBackend,
+    analyzed_queries: &[AnalyzedQuery],
+    output_dir: &str,
+    overrides: &[TypeOverride],
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut results: Vec<QueryResult> = Vec::new();
+    for analyzed in analyzed_queries {
+        let enums = analyzed.enums.clone();
+        let code = generate_with_backend_and_overrides(analyzed, backend, overrides)?;
+        results.push(QueryResult { code, enums });
+    }
+
+    let mut output_content = assemble_output(backend, &results);
+
+    let filename = output_filename(backend);
 
     let out_path = Path::new(output_dir);
     std::fs::create_dir_all(out_path).map_err(|e| format!("failed to create output dir '{}': {}", output_dir, e))?;
 
     let output_file = out_path.join(&filename);
-    let mut output_content = if output_parts.is_empty() {
-        "// No queries generated.\n".to_string()
-    } else {
-        output_parts.join("\n\n") + "\n"
-    };
 
-    if ext == "rs" {
+    if backend.manifest().backend.file_extension == "rs" {
         output_content = format_rust_code_if_possible(&output_content);
     }
 
@@ -936,5 +960,176 @@ SELECT * FROM users WHERE id = $1;
 
         assert!(pg.is_empty(), "no non-postgres engine may be verifiable, got: {:?}", pg);
         assert_eq!(skipped.len(), 4);
+    }
+
+    fn query_result(model_struct: Option<&str>, row_struct: Option<&str>, query_fn: Option<&str>) -> QueryResult {
+        QueryResult {
+            code: scythe_codegen::GeneratedCode {
+                model_struct: model_struct.map(str::to_string),
+                row_struct: row_struct.map(str::to_string),
+                query_fn: query_fn.map(str::to_string),
+                enum_def: None,
+            },
+            enums: Vec::new(),
+        }
+    }
+
+    /// When `query_class_header()` is empty (e.g. `rust-sqlx`, which has no
+    /// wrapping class), each query's model struct, row struct, and function
+    /// must stay interleaved in per-query order rather than being grouped by
+    /// kind — matching how `sqlx.rs` expects `impl` blocks to sit next to
+    /// their row types.
+    #[test]
+    fn assemble_output_interleaves_per_query_when_class_header_is_empty() {
+        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        assert!(
+            backend.query_class_header().is_empty(),
+            "test assumes rust-sqlx has no query class header"
+        );
+
+        let results = vec![
+            query_result(Some("MODEL_A"), Some("ROW_A"), Some("FN_A")),
+            query_result(None, Some("ROW_B"), Some("FN_B")),
+        ];
+
+        let output = assemble_output(backend.as_ref(), &results);
+
+        let pos = |needle: &str| {
+            output
+                .find(needle)
+                .unwrap_or_else(|| panic!("missing '{needle}' in:\n{output}"))
+        };
+        let (model_a, row_a, fn_a, row_b, fn_b) =
+            (pos("MODEL_A"), pos("ROW_A"), pos("FN_A"), pos("ROW_B"), pos("FN_B"));
+
+        assert!(model_a < row_a, "MODEL_A must precede ROW_A within the first query");
+        assert!(row_a < fn_a, "ROW_A must precede FN_A within the first query");
+        assert!(
+            fn_a < row_b,
+            "the first query's FN_A must precede the second query's ROW_B (interleaved, not grouped)"
+        );
+        assert!(row_b < fn_b, "ROW_B must precede FN_B within the second query");
+    }
+
+    /// When `query_class_header()` is non-empty (e.g. `php-pdo`, which wraps
+    /// query functions in `final class Queries { ... }`), all model/row
+    /// structs across every query must come first, then the class header,
+    /// then all query functions — never interleaved, since PHP methods must
+    /// live inside the class body while types are declared outside it.
+    #[test]
+    fn assemble_output_groups_types_then_class_header_then_fns_when_non_empty() {
+        let backend = get_backend("php-pdo", "postgresql").expect("php-pdo should support postgresql");
+        let class_header = backend.query_class_header();
+        assert!(
+            !class_header.is_empty(),
+            "test assumes php-pdo has a query class header"
+        );
+
+        let results = vec![
+            query_result(Some("MODEL_A"), Some("ROW_A"), Some("FN_A")),
+            query_result(None, Some("ROW_B"), Some("FN_B")),
+        ];
+
+        let output = assemble_output(backend.as_ref(), &results);
+
+        let pos = |needle: &str| {
+            output
+                .find(needle)
+                .unwrap_or_else(|| panic!("missing '{needle}' in:\n{output}"))
+        };
+        let (model_a, row_a, row_b, header, fn_a, fn_b) = (
+            pos("MODEL_A"),
+            pos("ROW_A"),
+            pos("ROW_B"),
+            pos(&class_header),
+            pos("FN_A"),
+            pos("FN_B"),
+        );
+
+        assert!(
+            model_a < header && row_a < header && row_b < header,
+            "all types must precede the class header"
+        );
+        assert!(
+            header < fn_a && header < fn_b,
+            "the class header must precede every query function"
+        );
+    }
+
+    /// With no analyzed queries at all, there is nothing to write; the file
+    /// must fall back to a placeholder comment rather than an empty string
+    /// (an empty generated file reads as a build failure, not "no queries").
+    #[test]
+    fn assemble_output_falls_back_to_placeholder_when_results_are_empty() {
+        // A hand-rolled backend (rather than a real one from `get_backend`)
+        // is required here: every shipping backend overrides at least one of
+        // file_header/file_footer/post_footer/query_class_header with
+        // non-empty content, so none of them can produce a genuinely empty
+        // `output_parts` to exercise this fallback. The manifest is cloned
+        // from a real backend purely to satisfy the trait's `manifest()`
+        // accessor, which this test path never calls.
+        struct EmptyOutputBackend {
+            manifest: scythe_backend::manifest::BackendManifest,
+        }
+
+        impl CodegenBackend for EmptyOutputBackend {
+            fn name(&self) -> &str {
+                "test-empty-output"
+            }
+
+            fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
+                &self.manifest
+            }
+
+            fn generate_row_struct(
+                &self,
+                _query_name: &str,
+                _columns: &[scythe_codegen::ResolvedColumn],
+            ) -> Result<String, scythe_core::errors::ScytheError> {
+                Ok(String::new())
+            }
+
+            fn generate_model_struct(
+                &self,
+                _table_name: &str,
+                _columns: &[scythe_codegen::ResolvedColumn],
+            ) -> Result<String, scythe_core::errors::ScytheError> {
+                Ok(String::new())
+            }
+
+            fn generate_query_fn(
+                &self,
+                _analyzed: &AnalyzedQuery,
+                _struct_name: &str,
+                _columns: &[scythe_codegen::ResolvedColumn],
+                _params: &[scythe_codegen::ResolvedParam],
+            ) -> Result<String, scythe_core::errors::ScytheError> {
+                Ok(String::new())
+            }
+
+            fn generate_enum_def(&self, _enum_info: &EnumInfo) -> Result<String, scythe_core::errors::ScytheError> {
+                Ok(String::new())
+            }
+
+            fn generate_composite_def(
+                &self,
+                _composite: &scythe_core::analyzer::CompositeInfo,
+            ) -> Result<String, scythe_core::errors::ScytheError> {
+                Ok(String::new())
+            }
+
+            // file_header, file_footer, query_class_header, and post_footer
+            // are intentionally left at their trait defaults (all empty),
+            // which is exactly the condition this test needs.
+        }
+
+        let real = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let backend = EmptyOutputBackend {
+            manifest: real.manifest().clone(),
+        };
+
+        let output = assemble_output(&backend, &[]);
+
+        assert_eq!(output, "// No queries generated.\n");
     }
 }
