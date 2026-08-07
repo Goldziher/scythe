@@ -21,9 +21,17 @@ pub(crate) fn normalize_data_type(
                 "smallserial" | "serial2" => return ("smallint".to_string(), true),
                 "timestamptz" => return ("timestamptz".to_string(), false),
                 "timetz" => return ("timetz".to_string(), false),
-                "number" if tokens.len() >= 2 => {
+                // Only a non-zero scale makes NUMBER a decimal. Rewriting
+                // NUMBER(p,0) to numeric(p,0) sent it to the decimal arm, so an
+                // explicit zero scale disagreed with both NUMBER(p) and bare
+                // NUMBER -- and NUMBER(38,0) is exactly how Snowflake's own
+                // DESCRIBE TABLE reports the storage behind INT, so a schema
+                // dumped from a live table typed its keys as decimal while the
+                // same table written with INT typed them as int64.
+                "number" if tokens.len() >= 2 && tokens[1] != "0" => {
                     return (format!("numeric({},{})", tokens[0], tokens[1]), false);
                 }
+                "number" if tokens.len() >= 2 => return ("number".to_string(), false),
                 _ => {}
             }
             if let Some(domain) = domains.get(&raw) {

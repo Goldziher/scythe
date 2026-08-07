@@ -36,11 +36,15 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         // Same reasoning as the Snowflake `INT` arm above. Regression test for
         // issue #83: previously ungated, so Snowflake typed the same underlying
         // storage as `int64` via the `NUMBER`/`BIGINT` spellings and `int16` via
-        // the `SMALLINT`/`TINYINT` spellings.
-        "smallint" | "tinyint" if catalog.dialect() == SqlDialect::Snowflake => Cow::Borrowed("int64"),
+        // the `SMALLINT`/`TINYINT` spellings. `BYTEINT` is Snowflake's own synonym
+        // for `TINYINT` and belongs here too; sqlparser has no keyword for it, so
+        // it survives normalization as a raw custom type and had no arm at all --
+        // it reached the backend as the invalid neutral type "byteint" and failed
+        // codegen outright.
+        "smallint" | "tinyint" | "byteint" if catalog.dialect() == SqlDialect::Snowflake => Cow::Borrowed("int64"),
         "smallint" | "int2" | "smallserial" => Cow::Borrowed("int16"),
         "bigint" | "int8" | "bigserial" => Cow::Borrowed("int64"),
-        "tinyint" => Cow::Borrowed("int16"),
+        "tinyint" | "byteint" => Cow::Borrowed("int16"),
         "mediumint" => Cow::Borrowed("int32"),
         // DuckDB's 1-byte `TINYINT` alias. Left ungated: no other supported
         // dialect has an `INT1` spelling, so there is no risk of colliding with a
@@ -112,9 +116,15 @@ pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'sta
         "nvarchar" | "nchar" | "ntext" => Cow::Borrowed("string"),
         "tinytext" | "mediumtext" | "longtext" | "clob" | "nclob" => Cow::Borrowed("string"),
         "set" => Cow::Borrowed("string"),
-        // MSSQL's XML column type. Left ungated: no other supported dialect has
-        // an `XML` column type. Regression test for issue #83.
+        // MSSQL's XML column type. Left ungated: PostgreSQL also has a native
+        // `xml`, and `string` is the right neutral type for both -- no driver
+        // surfaces it as anything richer. Regression test for issue #83.
         "xml" => Cow::Borrowed("string"),
+        // Snowflake's spatial types, which snowflake.md has always documented as
+        // `string` while no arm existed -- so they reached the backend as an
+        // invalid neutral type. Ungated: PostGIS uses the same two spellings and
+        // also surfaces them as text.
+        "geography" | "geometry" => Cow::Borrowed("string"),
 
         "boolean" | "bool" => Cow::Borrowed("bool"),
 
@@ -563,6 +573,67 @@ mod tests {
         assert_eq!(sql_type_to_neutral("number(10,0)", &oracle), "int64");
         assert_eq!(sql_type_to_neutral("number(1)", &oracle), "int64");
         assert_eq!(sql_type_to_neutral("number", &oracle), "int64");
+    }
+
+    /// The assertions above pass a hand-built string straight to
+    /// `sql_type_to_neutral`, which is not the spelling the DDL path produces:
+    /// `normalize_data_type` rewrote every two-token `NUMBER(p,s)` to
+    /// `numeric(p,s)` regardless of the scale, so an explicit zero scale reached
+    /// the decimal arm and a real schema resolved to `decimal` while these unit
+    /// assertions stayed green. Drive the whole pipeline instead.
+    ///
+    /// `NUMBER(38,0)` matters most: it is what Snowflake's `DESCRIBE TABLE`
+    /// reports for `INT`, so a schema reverse-engineered from a live table typed
+    /// its keys `decimal` while the same table written with `INT` typed them
+    /// `int64` -- the spelling-dependent inconsistency issue #83 set out to end.
+    #[test]
+    fn test_number_zero_scale_through_the_ddl_path_is_int64() {
+        let ddl = "CREATE TABLE t (a NUMBER(38,0), b NUMBER(10,0), c NUMBER(1), d NUMBER, e NUMBER(10,2));";
+        for dialect in [SqlDialect::Oracle, SqlDialect::Snowflake] {
+            let catalog = Catalog::from_ddl_with_dialect(&[ddl], &dialect).unwrap();
+            let table = catalog.get_table("t").unwrap();
+            let neutral = |i: usize| sql_type_to_neutral(&table.columns[i].sql_type, &catalog).into_owned();
+
+            for (index, column) in [(0, "a"), (1, "b"), (2, "c"), (3, "d")] {
+                assert_eq!(neutral(index), "int64", "{dialect:?} column {column} must be int64");
+            }
+            // A non-zero scale is still a decimal -- the guard must not swallow it.
+            assert_eq!(neutral(4), "decimal", "{dialect:?} NUMBER(10,2) must stay decimal");
+        }
+    }
+
+    /// `snowflake.md` has always documented `GEOGRAPHY`/`GEOMETRY` as `string`,
+    /// but no arm existed, so they reached the backend as an invalid neutral type.
+    #[test]
+    fn test_snowflake_spatial_types_are_string() {
+        let catalog =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (a GEOGRAPHY, b GEOMETRY);"], &SqlDialect::Snowflake)
+                .unwrap();
+        let table = catalog.get_table("t").unwrap();
+        for column in &table.columns {
+            assert_eq!(
+                sql_type_to_neutral(&column.sql_type, &catalog),
+                "string",
+                "column {}",
+                column.name
+            );
+        }
+    }
+
+    /// `BYTEINT` is Snowflake's synonym for `TINYINT`. sqlparser has no keyword
+    /// for it, so it survives as a raw custom type; with no arm it reached the
+    /// backend as the invalid neutral type "byteint" and failed codegen outright.
+    #[test]
+    fn test_snowflake_byteint_is_int64() {
+        let catalog =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE t (flag BYTEINT);"], &SqlDialect::Snowflake).unwrap();
+        let table = catalog.get_table("t").unwrap();
+        assert_eq!(sql_type_to_neutral(&table.columns[0].sql_type, &catalog), "int64");
+
+        // Everywhere else it keeps the narrow width its name implies.
+        let mysql = Catalog::from_ddl_with_dialect(&["CREATE TABLE t (flag BYTEINT);"], &SqlDialect::MySQL).unwrap();
+        let table = mysql.get_table("t").unwrap();
+        assert_eq!(sql_type_to_neutral(&table.columns[0].sql_type, &mysql), "int16");
     }
 
     /// AST-based entry point (`datatype_to_neutral`'s `DataType::Custom` arm) must

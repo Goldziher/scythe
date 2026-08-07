@@ -54,7 +54,7 @@ output = "src/generated"
 |------------|-------------|-------|
 | `NUMBER(*, 0)` / `INTEGER` / `INT` | `int64` | Oracle INTEGER is NUMBER(38,0) |
 | `NUMBER(p, s)` where s > 0 | `decimal` | |
-| `NUMBER` (no precision) | `decimal` | |
+| `NUMBER` (no precision) | `int64` | Zero scale is an integer, whatever the precision |
 | `BINARY_FLOAT` | `float32` | |
 | `BINARY_DOUBLE` | `float64` | |
 | `VARCHAR2` / `NVARCHAR2` / `CHAR` / `NCHAR` | `string` | |

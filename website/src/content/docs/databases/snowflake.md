@@ -49,8 +49,9 @@ output = "src/generated"
 
 | Snowflake Type | Neutral Type | Notes |
 |---------------|-------------|-------|
-| `NUMBER` / `DECIMAL` / `NUMERIC` | `decimal` | Default NUMBER(38,0) |
-| `INT` / `INTEGER` / `BIGINT` / `SMALLINT` / `TINYINT` | `int64` | All integer types are NUMBER(38,0) |
+| `NUMBER(p,s)` / `DECIMAL(p,s)` / `NUMERIC(p,s)`, `s > 0` | `decimal` | A non-zero scale is a true decimal |
+| `NUMBER` / `NUMBER(p)` / `NUMBER(p,0)` | `int64` | Zero scale is an integer, whatever the precision |
+| `INT` / `INTEGER` / `BIGINT` / `SMALLINT` / `TINYINT` / `BYTEINT` | `int64` | All integer types are NUMBER(38,0) |
 | `FLOAT` / `FLOAT4` / `FLOAT8` / `DOUBLE` / `REAL` | `float64` | All float types are DOUBLE |
 | `VARCHAR` / `STRING` / `TEXT` / `CHAR` | `string` | |
 | `BINARY` / `VARBINARY` | `bytes` | |
@@ -95,5 +96,5 @@ Scythe parses and supports the `QUALIFY` clause in the Snowflake dialect.
 - **Cloud-only** -- Snowflake has no local Docker container or embedded mode. For local development, use a Snowflake trial account or mock the database layer. Integration tests must run against a live Snowflake instance.
 - **VARIANT/OBJECT/ARRAY** -- All semi-structured types map to `json` in the neutral type system. Use `@json` annotation for typed JSON deserialization.
 - **TIMESTAMP variants** -- Snowflake has three timestamp types: `TIMESTAMP_NTZ` (no time zone, default), `TIMESTAMP_LTZ` (local time zone), and `TIMESTAMP_TZ` (with offset). Scythe maps NTZ to `datetime` and LTZ/TZ to `datetime_tz`.
-- **Integer types** -- All Snowflake integer types (`INT`, `BIGINT`, `SMALLINT`, `TINYINT`) are stored as `NUMBER(38,0)`. Scythe maps them to `int64`.
+- **Integer types** -- All Snowflake integer types (`INT`, `BIGINT`, `SMALLINT`, `TINYINT`, `BYTEINT`) are stored as `NUMBER(38,0)`. Scythe maps them to `int64`, and maps an explicit `NUMBER(38,0)` the same way -- that is the spelling `DESCRIBE TABLE` reports, so a schema dumped from a live table types its keys identically to one written with `INT`.
 - **No ENUM or ARRAY** -- Snowflake has no `ENUM` type and its `ARRAY` is a semi-structured type (not a typed array). Use `VARCHAR` for enum values and `VARIANT` for structured data.

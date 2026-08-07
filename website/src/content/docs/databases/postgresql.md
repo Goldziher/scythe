@@ -28,6 +28,7 @@ Scythe's primary and most complete dialect. All features are supported.
 | `NUMERIC` / `DECIMAL` | `decimal` | Precision is stripped |
 | `MONEY` | `decimal` | Fixed-point currency type |
 | `TEXT` / `VARCHAR` / `CHAR` | `string` | All character types unify to `string` |
+| `XML` | `string` | No driver surfaces it as anything richer |
 | `BOOLEAN` / `BOOL` | `bool` | |
 | `BYTEA` | `bytes` | |
 | `UUID` | `uuid` | |
