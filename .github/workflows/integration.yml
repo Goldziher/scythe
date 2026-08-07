@@ -1023,7 +1023,11 @@ jobs:
         working-directory: integration_tests/go-gosnowflake
         env:
           SNOWFLAKE_URL: fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http&insecureMode=true
-        run: go run .
+        # `go mod tidy` first, as every other Go step does. The generated go.mod
+        # carries direct dependencies only, and Go 1.17+ module-graph pruning
+        # needs the indirect set resolved before a build; without this, gosnowflake
+        # fails with missing go.sum entries across its Azure/AWS/Arrow tree.
+        run: go mod tidy && go run .
 
       # Both JDBC suites need fakesnow's native Arrow result format, which it
       # now serves to snowflake-jdbc only (dispatched per session on the login
