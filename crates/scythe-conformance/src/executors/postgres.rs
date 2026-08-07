@@ -51,7 +51,9 @@ pub struct PgExecutor {
 
 impl PgExecutor {
     /// Connect to `conn_str` (a standard `postgres://` URL) and isolate all
-    /// subsequent operations inside a fresh `scythe_conformance` schema.
+    /// subsequent operations inside a fresh schema of its own, named by
+    /// [`super::unique_namespace`] -- see there for why that name must not
+    /// be a fixed one.
     pub async fn connect(conn_str: &str) -> Result<Self, PgError> {
         let (client, connection) = tokio_postgres::connect(conn_str, NoTls)
             .await
@@ -62,12 +64,13 @@ impl PgExecutor {
             }
         });
 
+        let schema = super::unique_namespace();
         client
-            .batch_execute(
-                "DROP SCHEMA IF EXISTS scythe_conformance CASCADE;\n\
-                 CREATE SCHEMA scythe_conformance;\n\
-                 SET search_path TO scythe_conformance;",
-            )
+            .batch_execute(&format!(
+                "DROP SCHEMA IF EXISTS {schema} CASCADE;\n\
+                 CREATE SCHEMA {schema};\n\
+                 SET search_path TO {schema};"
+            ))
             .await
             .map_err(PgError::Isolate)?;
 

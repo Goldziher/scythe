@@ -47,7 +47,9 @@ pub struct MySqlExecutor<E: EngineMarker> {
 
 impl<E: EngineMarker> MySqlExecutor<E> {
     /// Connect using `admin_url` and isolate all subsequent operations
-    /// inside a fresh `scythe_conformance` database.
+    /// inside a fresh database of its own, named by
+    /// [`super::unique_namespace`] -- see there for why that name must not
+    /// be a fixed one.
     ///
     /// `admin_url` must have `CREATE DATABASE` privileges -- the per-app
     /// `scythe` user the containers provision is scoped to only its own
@@ -61,13 +63,14 @@ impl<E: EngineMarker> MySqlExecutor<E> {
         let opts = Opts::from_url(admin_url).map_err(|source| MySqlError::Connect(source.into()))?;
         let mut conn = Conn::new(opts).await.map_err(MySqlError::Connect)?;
 
-        conn.query_drop("DROP DATABASE IF EXISTS scythe_conformance")
+        let database = super::unique_namespace();
+        conn.query_drop(format!("DROP DATABASE IF EXISTS {database}"))
             .await
             .map_err(MySqlError::Isolate)?;
-        conn.query_drop("CREATE DATABASE scythe_conformance")
+        conn.query_drop(format!("CREATE DATABASE {database}"))
             .await
             .map_err(MySqlError::Isolate)?;
-        conn.query_drop("USE scythe_conformance")
+        conn.query_drop(format!("USE {database}"))
             .await
             .map_err(MySqlError::Isolate)?;
 
