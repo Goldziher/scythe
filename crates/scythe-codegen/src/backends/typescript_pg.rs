@@ -210,7 +210,9 @@ impl CodegenBackend for TypescriptPgBackend {
                             params,
                         );
                         let _ = writeln!(out, "\tconst row = rows[0];");
-                        out.push_str(&generate_ts_one_row_remap(columns, |name, _ty| format!("row.{name}")));
+                        out.push_str(&generate_ts_one_row_remap(columns, |name, ty| {
+                            format!("row.{name} as {ty}")
+                        }));
                     }
                 }
                 let _ = write!(out, "}}");
@@ -232,7 +234,9 @@ impl CodegenBackend for TypescriptPgBackend {
                             &sql,
                             params,
                         );
-                        out.push_str(&generate_ts_many_row_remap(columns, |name, _ty| format!("row.{name}")));
+                        out.push_str(&generate_ts_many_row_remap(columns, |name, ty| {
+                            format!("row.{name} as {ty}")
+                        }));
                     }
                 }
                 let _ = write!(out, "}}");
@@ -577,8 +581,10 @@ mod tests {
             "must not trust the StructName generic; got:\n{query_fn}"
         );
         assert!(
-            query_fn.contains("userId: row.user_id,"),
-            "must remap the declared camelCase field from the driver's raw key; got:\n{query_fn}"
+            query_fn.contains("userId: row.user_id as number,"),
+            "must remap the declared camelCase field from the driver's raw key, cast to its \
+             declared type -- row is typed Record<string, unknown>, so row.user_id is `unknown` \
+             and an uncast assignment to a number field fails tsc; got:\n{query_fn}"
         );
     }
 
@@ -605,8 +611,10 @@ mod tests {
             "must map each row; got:\n{query_fn}"
         );
         assert!(
-            query_fn.contains("userId: row.user_id,"),
-            "must remap the declared camelCase field from the driver's raw key; got:\n{query_fn}"
+            query_fn.contains("userId: row.user_id as number,"),
+            "must remap the declared camelCase field from the driver's raw key, cast to its \
+             declared type -- row is typed Record<string, unknown>, so row.user_id is `unknown` \
+             and an uncast assignment to a number field fails tsc; got:\n{query_fn}"
         );
     }
 
