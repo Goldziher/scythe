@@ -617,6 +617,17 @@ impl<'a> Analyzer<'a> {
     /// from `first_arg_nullable` behave. Only the PostgreSQL nested-aggregate
     /// arms use this method; every other call site is untouched.
     ///
+    /// **Arity is not guaranteed to match the source argument list.** Like
+    /// `get_function_args`, this uses `filter_map`: a `FunctionArg` variant
+    /// this match doesn't recognize (currently `ExprNamed`, sqlparser's
+    /// arbitrary-expression-as-name form) is silently dropped rather than
+    /// represented as a shape. Every current caller passes a single-argument
+    /// aggregate call and checks `shapes.len() == 1` before indexing, so a
+    /// dropped argument shows up as a length mismatch and is caught, not
+    /// misread as a different argument. A caller that needs positional
+    /// correspondence with the source list must not assume `shapes[i]`
+    /// corresponds to `arg_list.args[i]`.
+    ///
     /// Unused outside tests until the phase-3 nested-aggregate arms of
     /// `infer_function_type` are added — this commit only introduces the
     /// shape-classification contract and pins it with tests.
@@ -1255,6 +1266,35 @@ mod tests {
         let analyzer = make_analyzer(&catalog);
         let scope = scope_with_source_alias("o", "orders");
         let func = make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Relation(alias) if alias == "o"));
+    }
+
+    /// `add_table_factor_to_scope` (`scope.rs`) always lowercases an
+    /// unquoted table alias when it builds `ScopeSource.alias`, so `FROM
+    /// orders O` still stores `alias: "o"`. `json_agg(O.*)`, written with the
+    /// alias's original case, must resolve against that lowercased scope
+    /// entry rather than degrading to `Wildcard`.
+    #[test]
+    fn test_get_function_arg_shapes_qualified_wildcard_uppercase_alias_resolves_relation() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = scope_with_source_alias("o", "orders");
+        let func = make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("O")]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Relation(alias) if alias == "o"));
+    }
+
+    /// Same as above for the bare-identifier form: `json_agg(O)` against a
+    /// scope built from `FROM orders O` (alias stored lowercased as `"o"`).
+    #[test]
+    fn test_get_function_arg_shapes_bare_identifier_uppercase_alias_is_relation() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = scope_with_source_alias("o", "orders");
+        let func = make_func_with_arg_exprs("json_agg", vec![FunctionArgExpr::Expr(col_expr("O"))]);
         let shapes = analyzer.get_function_arg_shapes(&func, &scope);
         assert_eq!(shapes.len(), 1);
         assert!(matches!(&shapes[0], FuncArgShape::Relation(alias) if alias == "o"));
