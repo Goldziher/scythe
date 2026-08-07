@@ -74,13 +74,14 @@ fn test_select_all_reuses_model() {
             Err(_) => continue, // skip unregistered backends
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = if header.is_empty() {
-                String::from("#![allow(dead_code, unused_imports)]\n")
+            let mut code = preamble;
+            if header.is_empty() {
+                code.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                let mut h = header;
-                h.push('\n');
-                h
+                code.push_str(&header);
+                code.push('\n');
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
@@ -193,13 +194,14 @@ fn test_pascal_case_structs() {
             Err(_) => continue, // skip unregistered backends
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = if header.is_empty() {
-                String::from("#![allow(dead_code, unused_imports)]\n")
+            let mut code = preamble;
+            if header.is_empty() {
+                code.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                let mut h = header;
-                h.push('\n');
-                h
+                code.push_str(&header);
+                code.push('\n');
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
@@ -323,13 +325,14 @@ fn test_snake_case_fields() {
             Err(_) => continue, // skip unregistered backends
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = if header.is_empty() {
-                String::from("#![allow(dead_code, unused_imports)]\n")
+            let mut code = preamble;
+            if header.is_empty() {
+                code.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                let mut h = header;
-                h.push('\n');
-                h
+                code.push_str(&header);
+                code.push('\n');
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
@@ -432,13 +435,14 @@ fn test_exec_query_fn() {
             Err(_) => continue, // skip unregistered backends
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = if header.is_empty() {
-                String::from("#![allow(dead_code, unused_imports)]\n")
+            let mut code = preamble;
+            if header.is_empty() {
+                code.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                let mut h = header;
-                h.push('\n');
-                h
+                code.push_str(&header);
+                code.push('\n');
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
@@ -551,13 +555,14 @@ fn test_one_query_fn() {
             Err(_) => continue, // skip unregistered backends
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = if header.is_empty() {
-                String::from("#![allow(dead_code, unused_imports)]\n")
+            let mut code = preamble;
+            if header.is_empty() {
+                code.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                let mut h = header;
-                h.push('\n');
-                h
+                code.push_str(&header);
+                code.push('\n');
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
@@ -680,13 +685,14 @@ fn test_simple_query_fn() {
             Err(_) => continue, // skip unregistered backends
         };
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = if header.is_empty() {
-                String::from("#![allow(dead_code, unused_imports)]\n")
+            let mut code = preamble;
+            if header.is_empty() {
+                code.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                let mut h = header;
-                h.push('\n');
-                h
+                code.push_str(&header);
+                code.push('\n');
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);

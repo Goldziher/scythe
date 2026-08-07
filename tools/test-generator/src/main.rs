@@ -208,11 +208,14 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("            Err(_) => continue, // skip unregistered backends\n");
     out.push_str("        };\n");
     out.push_str("        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {\n");
+    out.push_str("                let preamble = backend.file_preamble();\n");
     out.push_str("                let header = backend.file_header();\n");
-    out.push_str("                let mut code = if header.is_empty() {\n");
-    out.push_str("                    String::from(\"#![allow(dead_code, unused_imports)]\\n\")\n");
+    out.push_str("                let mut code = preamble;\n");
+    out.push_str("                if header.is_empty() {\n");
+    out.push_str("                    code.push_str(\"#![allow(dead_code, unused_imports)]\\n\");\n");
     out.push_str("                } else {\n");
-    out.push_str("                    let mut h = header; h.push('\\n'); h\n");
+    out.push_str("                    code.push_str(&header);\n");
+    out.push_str("                    code.push('\\n');\n");
     out.push_str("                };\n");
     out.push_str("                if let Some(ref s) = generated.enum_def { code.push_str(s); code.push('\\n'); }\n");
     out.push_str(

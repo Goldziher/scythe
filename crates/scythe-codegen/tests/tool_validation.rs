@@ -176,7 +176,13 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
         }
     }
 
-    let mut full = backend.file_header_for_results(&all_codes);
+    // `file_preamble()` carries text that must be the literal first bytes of
+    // the file (PHP's `<?php`, Ruby's `# frozen_string_literal: true`) and is
+    // never covered by `file_header_for_results()` -- mirrors how assembly
+    // in `scythe-cli` orders the two, so this harness's structural checks
+    // (`<?php` present, frozen-string pragma present, ...) still see them.
+    let mut full = backend.file_preamble();
+    full.push_str(&backend.file_header_for_results(&all_codes));
     full.push('\n');
 
     if use_class_wrapper {
