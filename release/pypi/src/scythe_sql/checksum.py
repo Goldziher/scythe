@@ -5,6 +5,8 @@ from __future__ import annotations
 import hashlib
 import re
 
+from scythe_sql.errors import ScytheSqlError
+
 _ROW_RE = re.compile(r"^([0-9a-fA-F]{64})\s+\*?(\S+)$")
 
 
@@ -23,7 +25,7 @@ def parse_checksums(contents: str) -> dict[str, str]:
     return result
 
 
-class MissingChecksumError(RuntimeError):
+class MissingChecksumError(ScytheSqlError):
     """Raised when the checksums file has no row for the requested asset."""
 
 
@@ -48,7 +50,7 @@ def sha256_hex(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-class ChecksumMismatchError(RuntimeError):
+class ChecksumMismatchError(ScytheSqlError):
     """Raised when a downloaded asset's checksum does not match the expected value."""
 
 

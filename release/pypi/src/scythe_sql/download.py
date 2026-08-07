@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 import platform
+import stat
 import sys
 import urllib.error
 import urllib.request
@@ -11,7 +12,8 @@ from pathlib import Path
 
 from scythe_sql.cache import cached_binary_path, default_home
 from scythe_sql.checksum import expected_checksum, parse_checksums, verify_checksum
-from scythe_sql.extract import extract_tar_gz, extract_zip, make_executable
+from scythe_sql.errors import ScytheSqlError
+from scythe_sql.extract import extract_tar_gz, extract_zip
 from scythe_sql.platform_resolver import UnsupportedPlatformError, is_musl_linux, resolve_target
 from scythe_sql.proxy import resolve_ca_file
 from scythe_sql.version_utils import assert_real_version
@@ -19,7 +21,7 @@ from scythe_sql.version_utils import assert_real_version
 REPO = "https://github.com/Goldziher/scythe"
 
 
-class DownloadError(RuntimeError):
+class DownloadError(ScytheSqlError):
     """Raised when fetching a release asset fails."""
 
 
@@ -41,6 +43,22 @@ def _fetch(url: str) -> bytes:
             return response.read()
     except urllib.error.URLError as exc:
         raise DownloadError(f"scythe-sql: failed to download {url}: {exc}") from exc
+
+
+def is_usable_cached_binary(path: Path) -> bool:
+    """Reports whether `path` holds a complete, runnable cached binary.
+
+    Existence is not enough. A cache entry written by an older, non-atomic
+    version of this package -- or by any interrupted write -- can be an empty or
+    truncated file, and returning it would fail at exec time with an opaque
+    error on every subsequent run. A zero-length file is never a valid binary,
+    so treat it as absent and re-download over it.
+    """
+    try:
+        stat_result = path.stat()
+    except OSError:
+        return False
+    return stat.S_ISREG(stat_result.st_mode) and stat_result.st_size > 0
 
 
 def ensure_binary(version: str, *, env: dict[str, str] | None = None) -> Path:
@@ -68,7 +86,7 @@ def ensure_binary(version: str, *, env: dict[str, str] | None = None) -> Path:
         binary_name=resolved.binary_name,
     )
 
-    if dest_path.exists():
+    if is_usable_cached_binary(dest_path):
         return dest_path
 
     from scythe_sql.preinstalled import has_matching_path_binary
@@ -96,16 +114,15 @@ def ensure_binary(version: str, *, env: dict[str, str] | None = None) -> Path:
     asset_bytes = _fetch(asset_url)
     verify_checksum(asset_bytes, expected, asset_url)
 
+    # Both extractors stage into a temp file, set the mode, then rename, so
+    # dest_path only ever appears complete and executable.
     if resolved.archive_ext == "zip":
         extract_zip(asset_bytes, resolved.binary_name, dest_path)
     else:
         extract_tar_gz(asset_bytes, resolved.binary_name, dest_path)
 
-    if not sys.platform.startswith("win"):
-        make_executable(dest_path)
-
     print(f"scythe-sql: installed scythe {version} to {dest_path}", file=sys.stderr)  # noqa: T201
     return dest_path
 
 
-__all__ = ["DownloadError", "UnsupportedPlatformError", "ensure_binary"]
+__all__ = ["DownloadError", "ScytheSqlError", "UnsupportedPlatformError", "ensure_binary", "is_usable_cached_binary"]

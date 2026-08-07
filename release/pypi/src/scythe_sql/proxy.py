@@ -10,5 +10,13 @@ from __future__ import annotations
 
 
 def resolve_ca_file(env: dict[str, str]) -> str | None:
-    """Resolves the CA bundle file path to trust, honouring pip's and requests' conventions."""
-    return env.get("PIP_CERT") or env.get("REQUESTS_CA_BUNDLE") or env.get("SSL_CERT_FILE")
+    """Resolves the CA bundle file path to trust, honouring pip's and requests' conventions.
+
+    An exported-but-empty variable counts as unset, and yields ``None`` rather
+    than the empty string an ``or`` chain would otherwise fall through to.
+    """
+    for variable in ("PIP_CERT", "REQUESTS_CA_BUNDLE", "SSL_CERT_FILE"):
+        value = env.get(variable)
+        if value:
+            return value
+    return None

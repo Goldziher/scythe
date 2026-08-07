@@ -14,14 +14,19 @@ import os
 import sys
 
 from scythe_sql import __version__
-from scythe_sql.download import DownloadError, UnsupportedPlatformError, ensure_binary
+from scythe_sql.download import ensure_binary
+from scythe_sql.errors import ScytheSqlError
 
 
 def main() -> int:
     """Resolves the pinned scythe binary and execs it with the current argv."""
     try:
         binary_path = ensure_binary(__version__)
-    except (DownloadError, UnsupportedPlatformError) as exc:
+    except ScytheSqlError as exc:
+        # Every error in this hierarchy already carries the `scythe-sql:` prefix
+        # and its own remediation advice; re-wrapping it below would double the
+        # prefix. Catching the shared base rather than naming subclasses is what
+        # keeps checksum and platform failures on this branch as they are added.
         print(str(exc), file=sys.stderr)
         return 1
     except Exception as exc:  # noqa: BLE001 -- surface any unexpected failure with context

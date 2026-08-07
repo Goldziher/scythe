@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import re
 
+from scythe_sql.errors import ScytheSqlError
+
 _VERSION_RE = re.compile(r"(\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?)")
 
 
@@ -18,7 +20,7 @@ def extract_version(output: str) -> str | None:
     return match.group(1) if match else None
 
 
-class PlaceholderVersionError(RuntimeError):
+class PlaceholderVersionError(ScytheSqlError):
     """Raised when the package still carries the unbuilt 0.0.0 placeholder version."""
 
 

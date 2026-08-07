@@ -13,8 +13,11 @@ There is no musl target and no aarch64 Windows asset.
 from __future__ import annotations
 
 import sys
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
+from pathlib import Path
+
+from scythe_sql.errors import ScytheSqlError
 
 TRIPLES: dict[tuple[str, str], str] = {
     ("linux", "x64"): "x86_64-unknown-linux-gnu",
@@ -41,7 +44,7 @@ class ResolvedTarget:
     binary_name: str
 
 
-class UnsupportedPlatformError(RuntimeError):
+class UnsupportedPlatformError(ScytheSqlError):
     """Raised when no release asset exists for the current platform/arch."""
 
 
@@ -61,13 +64,42 @@ def normalize_machine(machine: str) -> str:
     return _MACHINE_ALIASES.get(machine.lower(), machine.lower())
 
 
-def is_musl_linux(libc_ver: tuple[str, str]) -> bool:
+_MUSL_LOADER_DIRS: tuple[str, ...] = ("/lib", "/usr/lib")
+_MUSL_LOADER_GLOB = "ld-musl-*.so.1"
+
+
+def musl_loader_present(loader_dirs: Iterable[str] = _MUSL_LOADER_DIRS) -> bool:
+    """Reports whether a musl dynamic loader (``ld-musl-<arch>.so.1``) exists on disk."""
+    return any(any(Path(directory).glob(_MUSL_LOADER_GLOB)) for directory in loader_dirs)
+
+
+def is_musl_linux(
+    libc_ver: tuple[str, str],
+    *,
+    loader_present: Callable[[], bool] = musl_loader_present,
+) -> bool:
     """Detects musl libc (e.g. Alpine) from :func:`platform.libc_ver` output.
 
-    On musl systems, ``platform.libc_ver()`` (which only recognizes glibc)
-    returns ``("", "")`` instead of a glibc version tuple.
+    ``platform.libc_ver()`` alone cannot answer this across the supported
+    interpreter range. CPython only taught it to recognize musl in 3.14, where a
+    musl host reports ``("musl", "1.2.x")``; on 3.9 through 3.13 the same host
+    reports ``("", "")``. Treating ``("", "")`` as proof of musl is therefore
+    wrong in both directions: it misses musl on 3.14+, and it misfires on glibc
+    whenever the lookup merely fails -- ``sys.executable`` is unset (embedded
+    interpreters), or the binary is statically linked or stripped of the symbols
+    the function scans for. The docs describe it as a heuristic with "intimate
+    knowledge of how different libc versions add symbols", not a contract.
+
+    So: trust an explicit answer in either direction, and fall back to positive
+    on-disk evidence of a musl loader when the tuple is empty and thus tells us
+    nothing.
     """
-    return libc_ver == ("", "")
+    reported_lib = libc_ver[0].lower()
+    if reported_lib == "musl":
+        return True
+    if reported_lib:
+        return False
+    return loader_present()
 
 
 def resolve_target(
