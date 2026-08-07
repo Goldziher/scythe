@@ -9,6 +9,24 @@ pub struct NamingConfig {
     pub fn_case: String,
     pub enum_variant_case: String,
     pub row_suffix: String,
+    /// Case convention for struct/row and function field names (columns and
+    /// params).
+    ///
+    /// Deliberately `#[serde(skip)]`: this field cannot be set from manifest
+    /// TOML at all -- a `field_case` key under `[naming]` in a manifest is
+    /// silently ignored by serde as an unknown field, exactly as before this
+    /// field existed. A prior version of this option was a plain
+    /// deserialized field, declared in all 106 manifests and read by
+    /// nothing (see naming.rs history), so the dead knob was invisible.
+    /// `serde(skip)` makes that trap structurally impossible to reintroduce:
+    /// the only writer is a backend's `apply_options`, so a value can never
+    /// reach here without something in Rust actually reading it back out.
+    #[serde(skip, default = "default_field_case")]
+    pub field_case: String,
+}
+
+fn default_field_case() -> String {
+    "snake_case".to_string()
 }
 
 /// Convert a string to PascalCase.
@@ -162,6 +180,14 @@ pub fn enum_type_name(sql_name: &str, naming: &NamingConfig) -> String {
     apply_case(sql_name, &naming.struct_case).into_owned()
 }
 
+/// Generate a field name (column or param) from its SQL name.
+///
+/// E.g., sql name "user_id" with camelCase -> "userId". Defaults to
+/// `snake_case` -- see [`NamingConfig::field_case`].
+pub fn field_name<'a>(sql_name: &'a str, naming: &NamingConfig) -> Cow<'a, str> {
+    apply_case(sql_name, &naming.field_case)
+}
+
 /// Sanitize a string to be a valid Rust identifier fragment.
 ///
 /// Replaces hyphens, dots, and other non-alphanumeric/non-underscore characters
@@ -200,6 +226,7 @@ mod tests {
             fn_case: "snake_case".to_string(),
             enum_variant_case: "PascalCase".to_string(),
             row_suffix: "Row".to_string(),
+            field_case: "snake_case".to_string(),
         }
     }
 
@@ -366,6 +393,19 @@ mod tests {
     }
 
     #[test]
+    fn test_field_name_defaults_to_snake_case() {
+        let config = test_config();
+        assert_eq!(&*field_name("UserId", &config), "user_id");
+    }
+
+    #[test]
+    fn test_field_name_honors_camel_case() {
+        let mut config = test_config();
+        config.field_case = "camelCase".to_string();
+        assert_eq!(&*field_name("user_id", &config), "userId");
+    }
+
+    #[test]
     fn test_enum_variant_name() {
         let config = test_config();
         assert_eq!(enum_variant_name("active", &config), "Active");
@@ -417,6 +457,7 @@ mod tests {
             fn_case: "snake_case".to_string(),
             enum_variant_case: "SCREAMING_SNAKE_CASE".to_string(),
             row_suffix: "Row".to_string(),
+            field_case: "snake_case".to_string(),
         };
         assert_eq!(enum_variant_name("active", &config), "ACTIVE");
         assert_eq!(enum_variant_name("pending_review", &config), "PENDING_REVIEW");
