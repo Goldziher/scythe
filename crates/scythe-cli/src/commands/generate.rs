@@ -7,7 +7,7 @@ use ahash::AHashSet;
 
 use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
 use scythe_codegen::{
-    CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, TypeOverride,
+    CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, TypeOverride, degrade_unsupported_nested_structs,
     generate_single_enum_def_with_backend, generate_with_backend_and_overrides, get_backend,
 };
 use scythe_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
@@ -438,7 +438,27 @@ fn generate_rbs_if_supported(
 
     for analyzed in analyzed_queries {
         let source_table = analyzed.source_table.as_deref().unwrap_or("");
-        let columns = scythe_codegen::resolve::resolve_columns(&analyzed.columns, manifest, overrides, source_table)?;
+
+        // Same degradation pass generate_with_backend_and_overrides runs
+        // before resolving columns for the .rb file -- this .rbs signature
+        // path resolves columns independently and would otherwise reference
+        // a nested-struct type name the backend never defines anywhere, for
+        // any backend that hasn't opted in. Skipped when nested_structs is
+        // empty (the common case) for the same zero-copy reason as the main
+        // path.
+        let degraded_columns = if analyzed.nested_structs.is_empty() {
+            None
+        } else {
+            let (cols, _defs) =
+                degrade_unsupported_nested_structs(&analyzed.columns, &analyzed.nested_structs, backend)?;
+            Some(cols)
+        };
+        let columns = scythe_codegen::resolve::resolve_columns(
+            degraded_columns.as_deref().unwrap_or(&analyzed.columns),
+            manifest,
+            overrides,
+            source_table,
+        )?;
         let params = scythe_codegen::resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
 
         let func = fn_name(&analyzed.name, naming);
