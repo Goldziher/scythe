@@ -12,8 +12,17 @@ on:
         type: string
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # Key on the resolved tag, not github.ref. A tag push and a workflow_dispatch
+  # re-run for the SAME tag carry different refs and would otherwise race, while
+  # two unrelated dispatches both sit on refs/heads/main and would cancel each
+  # other.
+  #
+  # Never cancel mid-flight: publish_crates pushes six crates in dependency order
+  # with sleeps between them, and a crates.io publish cannot be undone -- only
+  # yanked. Cancelling partway leaves a release where, say, scythe-cli is on
+  # crates.io depending on a scythe-inspect version that never got published.
+  group: publish-${{ github.event.inputs.tag || github.ref_name }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -56,6 +65,30 @@ jobs:
           echo "Git tag: $tag"
           echo "Version: $version"
 
+      - uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+
+      # Runs before anything irreversible. `publish_crates` treats crates.io's
+      # "already exists" as success, so a crate left at the previous version
+      # publishes nothing and still reports green -- which is exactly how v0.10.0
+      # and v0.11.0 shipped five crates instead of six, with scythe-cli depending
+      # on a scythe-inspect that was never published. version:check exists to
+      # catch that, and until now nothing in CI ran it.
+      - name: Verify crate versions agree with each other and with the tag
+        run: |
+          set -euo pipefail
+          version="${{ steps.version.outputs.version }}"
+
+          declared="$(awk -F'"' '/^version = /{print $2; exit}' crates/scythe-cli/Cargo.toml)"
+          if [ "$declared" != "$version" ]; then
+            echo "::error::tag is v$version but crates/scythe-cli/Cargo.toml declares $declared."
+            echo "::error::Run 'task version:sync VERSION=$version' and commit before tagging."
+            exit 1
+          fi
+
+          task version:check
+
       - name: Detect already-published versions
         id: published
         run: |
@@ -96,17 +129,42 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           tag="${{ steps.version.outputs.tag }}"
+          version="${{ steps.version.outputs.version }}"
           release_assets_exist=false
 
+          # Require the COMPLETE set, not merely a non-zero count. goreleaser
+          # publishes the release live rather than as a draft, so a run that dies
+          # partway through uploading leaves a public release carrying some of the
+          # archives. A count-based check would then read that as "done" on every
+          # re-run, skip release_assets forever, and wedge the release with no
+          # automated way back -- while the npm and PyPI wrappers 404 for exactly
+          # the platforms whose archives are missing.
+          required=(
+            "scythe-x86_64-unknown-linux-gnu.tar.gz"
+            "scythe-aarch64-unknown-linux-gnu.tar.gz"
+            "scythe-x86_64-apple-darwin.tar.gz"
+            "scythe-aarch64-apple-darwin.tar.gz"
+            "scythe-x86_64-pc-windows-gnu.zip"
+            "scythe_${version}_checksums.txt"
+          )
+
           if gh release view "$tag" >/dev/null 2>&1; then
-            count="$(gh release view "$tag" --json assets --jq '.assets | length')"
-            if [ "${count:-0}" -gt 0 ]; then
+            present="$(gh release view "$tag" --json assets --jq '.assets[].name')"
+            missing=()
+            for asset in "${required[@]}"; do
+              grep -qxF "$asset" <<<"$present" || missing+=("$asset")
+            done
+
+            if [ ${#missing[@]} -eq 0 ]; then
               release_assets_exist=true
+            else
+              echo "::warning::release $tag exists but is missing ${#missing[@]} asset(s); re-running release_assets"
+              printf '  missing: %s\n' "${missing[@]}"
             fi
           fi
 
           echo "release_assets_exist=$release_assets_exist" >> "$GITHUB_OUTPUT"
-          echo "GitHub release assets exist: $release_assets_exist"
+          echo "GitHub release assets complete: $release_assets_exist"
 
   release_assets:
     name: Publish GitHub release assets
@@ -375,8 +433,13 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
+      # OIDC trusted publishing needs npm >= 11.5.1, and Node 22 still bundles
+      # npm 10. `npm@latest` is npm 12, whose engines are
+      # `^22.22.2 || ^24.15.0 || >=26.0.0` -- satisfied only by the newest Node
+      # 22 patches, so it turns an unrelated setup-node resolution into an
+      # EBADENGINE failure. npm 11 is the newest line that runs on all of Node 22.
       - name: Upgrade npm for OIDC trusted publishing support
-        run: npm install -g npm@latest
+        run: npm install -g npm@11
 
       - name: Set package version
         working-directory: release/npm
@@ -384,19 +447,20 @@ jobs:
 
       - name: Publish to npm
         working-directory: release/npm
-        # No NPM_TOKEN secret exists in this repository (verified via `gh secret list` --
-        # only HOMEBREW_TOKEN is present), so this uses npm's OIDC trusted publishing.
+        # This repository has no NPM_TOKEN, so publishing goes through npm's OIDC
+        # trusted publishing.
         #
-        # BOOTSTRAP: `scythe-cli` does not exist on npm yet (registry returns 404), and a
-        # trusted publisher can only be configured on npmjs.com for a package that already
-        # exists. So THE FIRST PUBLISH MUST BE DONE MANUALLY (`npm publish` from a logged-in
-        # machine), after which the trusted publisher is configured to trust this workflow
-        # and every later release publishes here. This is the same constraint crates.io has
-        # -- OIDC cannot create a package that has never been published.
-        #
-        # PyPI differs: it supports "pending publishers", so `scythe-sql` (also 404 today)
-        # can be pre-configured before its first release and bootstrapped by CI.
-        run: npm publish --provenance --access public
+        # NODE_AUTH_TOKEN must be empty AND unset: `setup-node` with a
+        # `registry-url` writes an .npmrc containing
+        # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}`, and with no such
+        # variable in the environment npm sends the literal unexpanded string as a
+        # token rather than falling through to OIDC. uncomment, ai-rulez and
+        # basemind all clear it the same way.
+        env:
+          NODE_AUTH_TOKEN: ""
+        run: |
+          unset NODE_AUTH_TOKEN
+          npm publish --provenance --access public
 
   publish_pypi:
     name: Publish PyPI
@@ -435,3 +499,7 @@ jobs:
         uses: pypa/gh-action-pypi-publish@release/v1
         with:
           packages-dir: release/pypi/dist
+          # The meta job's pypi_exists probe is a single check with a race window
+          # against index propagation and re-runs. Without this, an upload that
+          # loses that race fails the job with a 400 instead of no-opping.
+          skip-existing: true
