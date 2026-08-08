@@ -174,13 +174,20 @@ allows no silent third:
 - **Listed by a fixture but not selected for this run** is an explicit, recorded skip, printed in
   the report with the fixture, engine, and reason.
 
-Live drivers exist for PostgreSQL, MySQL, MariaDB, and SQLite, each behind its own Cargo feature
-(`pg`, `mysql`, `mariadb`, `sqlite`) plus a `live-tests` gate. No driver is linked by default, so
-`cargo test --workspace` exercises the pure modules without a container. MSSQL and Oracle declare
-their features but have no executor yet: selecting either returns `EngineNotImplemented`, and a
-fixture listing them surfaces as an explicit skip in every other engine's run. CI runs one job per
-implemented engine, gated on changes to the analyzer, the catalog, the fixtures, or the suite
-itself.
+Live drivers exist for all six engines -- PostgreSQL, MySQL, MariaDB, SQLite, SQL Server, and
+Oracle -- each behind its own Cargo feature (`pg`, `mysql`, `mariadb`, `sqlite`, `mssql`, `oracle`)
+plus a `live-tests` gate. No driver is linked by default, so `cargo test --workspace` exercises the
+pure modules without a container. Selecting an engine whose feature was not compiled in is a hard
+error naming the feature to enable, never a silent skip. CI runs one job per engine, gated on
+changes to the analyzer, the catalog, the fixtures, or the suite itself.
+
+Each engine's isolation is its own problem. SQL Server gets a fresh database per connection and
+reconnects into it: T-SQL's default schema belongs to the database principal rather than the
+session, and `USE` does not survive tiberius routing statements through `sp_executesql`, so tables
+would otherwise land in `master`. Oracle gets a user per connection, because in Oracle a schema is
+a user; `CREATE SEQUENCE` is granted explicitly, since identity columns are sequence-backed. Oracle
+column names are folded to lowercase to match the analyzer's normalization, and two names that
+collide once folded are a hard error rather than an arbitrary pick.
 
 ### The divergence registry
 

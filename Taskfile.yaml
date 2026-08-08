@@ -131,6 +131,31 @@ tasks:
         website/src/content/docs/guide/audit.md
         website/src/content/docs/guide/inspect.md
         website/src/content/docs/guide/pre-commit-hooks.md
+      # Every generated-code example in the docs opens with a provenance header,
+      # and that header embeds the scythe version. Same blind spot as the `rev:`
+      # pins above: prose Markdown that no CI job validates, so a stale one just
+      # sits there claiming the release generated output labelled with the
+      # previous version. Driven off a grep rather than an explicit file list --
+      # examples get added over time, and a list cannot forget a file nobody has
+      # written yet. The read loop avoids `xargs -r`, which BSD xargs lacks: a
+      # plain `xargs sed` on empty input runs sed with no file arguments, and it
+      # then blocks reading stdin.
+      #
+      # The changelog is excluded, and must stay excluded. Its entries quote the
+      # header as it looked in the release being described, so rewriting them
+      # would retroactively relabel every historical entry with the version
+      # currently being cut -- turning a record of what shipped into a claim
+      # that every past release emitted today's version.
+      - |
+        files=$(grep -rlE 'scythe:provenance v=[0-9]+\.[0-9]+\.[0-9]+' \
+          website/src website/snippets README.md 2>/dev/null \
+          | grep -v 'changelog\.md$' || true)
+        if [ -n "$files" ]; then
+          echo "$files" | while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            sed -i '' -E 's/(scythe:provenance v=)[0-9]+\.[0-9]+\.[0-9]+/\1{{.VERSION}}/g' "$f"
+          done
+        fi
       - task: version:check
       # `cargo check --workspace` is not subsumed by the regeneration step
       # below: that step only builds scythe-cli in release mode (via
