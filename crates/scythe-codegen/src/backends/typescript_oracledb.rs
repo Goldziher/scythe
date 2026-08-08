@@ -427,6 +427,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
             parent_columns,
             child_columns,
             key_column,
+            false,
             |name, ty| format!("row['{}'] as {ty}", name.to_uppercase()),
         );
         out.push_str(&fold);

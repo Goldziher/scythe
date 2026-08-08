@@ -17,6 +17,9 @@ pub fn validate_structural(code: &str, backend_name: &str) -> Vec<String> {
         | "typescript-mssql"
         | "typescript-oracledb"
         | "typescript-snowflake" => validate_typescript(code),
+        "javascript-pg" | "javascript-postgres" | "javascript-mysql2" | "javascript-better-sqlite3" => {
+            validate_javascript(code)
+        }
         "go-pgx" | "go-database-sql" | "go-godror" | "go-gosnowflake" => validate_go(code),
         "java-jdbc" => validate_java(code),
         "java-r2dbc" => validate_java_r2dbc(code),
@@ -79,6 +82,45 @@ fn validate_python(code: &str) -> Vec<String> {
     for (i, line) in code.lines().enumerate() {
         if line.starts_with('\t') {
             errors.push(format!("line {} uses tab indentation (should use 4 spaces)", i + 1));
+            break;
+        }
+    }
+
+    errors
+}
+
+/// Structurally validate the `javascript-*` (JSDoc emit mode, #81) backends.
+///
+/// Unlike [`validate_typescript`], this rejects the TypeScript-only
+/// declaration forms those backends' generated `.ts` output legitimately
+/// uses (`export interface`, `export enum`) -- a plain `.js` file can never
+/// contain them, so their presence here means a `js_mode` branch fell
+/// through to the TypeScript path by mistake.
+fn validate_javascript(code: &str) -> Vec<String> {
+    let mut errors = Vec::new();
+
+    let has_function = code.contains("export async function") || code.contains("export function");
+    let has_typedef = code.contains("@typedef");
+    if !has_typedef && !has_function {
+        errors.push("missing `@typedef` (for DTOs) and `export function`/`export async function`".into());
+    }
+    if !has_function {
+        errors.push("missing `export async function` or `export function`".into());
+    }
+    if code.contains("export interface") {
+        errors.push("contains `export interface` -- TypeScript-only syntax, invalid in plain .js".into());
+    }
+    if code.contains("export enum") {
+        errors.push("contains `export enum` -- TypeScript-only syntax, invalid in plain .js".into());
+    }
+
+    for line in code.lines() {
+        let trimmed = line.trim();
+        if find_disallowed_any_usage(trimmed).is_some() {
+            errors.push(format!(
+                "contains `any` type (should use `unknown` or specific): {}",
+                trimmed
+            ));
             break;
         }
     }
@@ -395,6 +437,7 @@ fn validate_php(code: &str) -> Vec<String> {
 pub fn validate_with_tools(code: &str, backend_name: &str) -> Option<Vec<String>> {
     match backend_name {
         name if name.starts_with("python") => validate_python_tools(code),
+        name if name.starts_with("javascript") => validate_javascript_tools(code),
         name if name.starts_with("typescript") => validate_typescript_tools(code),
         name if name.starts_with("go") => validate_go_tools(code),
         name if name.starts_with("ruby") => validate_ruby_tools(code),
@@ -479,6 +522,113 @@ fn validate_typescript_tools(code: &str) -> Option<Vec<String>> {
                 errors.push(format!("biome: {line}"));
             }
         }
+    }
+
+    let _ = std::fs::remove_file(&path);
+    Some(errors)
+}
+
+/// Path to the hand-written ambient `.d.ts` stubs for the driver packages
+/// (`pg`, `postgres`, `mysql2/promise`, `better-sqlite3`) the
+/// `javascript-*` (JSDoc emit mode, #81) backends reference via
+/// `import("pkg").Type` JSDoc annotations.
+///
+/// See that file's own header comment for why these are hand-written
+/// stand-ins rather than the real `@types/*` packages (no `npm install` at
+/// test time -- this must stay hermetic and offline-safe).
+fn js_mode_driver_stub_path() -> std::path::PathBuf {
+    std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/js_mode_stubs/driver-stubs.d.ts"
+    ))
+    .to_path_buf()
+}
+
+/// Validate generated `javascript-*` (JSDoc emit mode, #81) code against the
+/// real `node` runtime and, when available, real `tsc --checkJs --strict`.
+///
+/// Unlike every other `validate_*_tools` function in this file, this one
+/// `eprintln!`s which tool it found or is skipping, and why. #81's
+/// verification requirement is specifically "runs under `node`, not `tsx`,
+/// plus `tsc --checkJs --strict`" -- the silent `None` this file's other
+/// validators return when a tool is missing is easy to mistake for
+/// "checked, and clean" instead of "not checked at all", which is exactly
+/// the verification gap #81's review called out. A caller that only inspects
+/// `Some(errors).is_empty()` and ignores a `None` return risks exactly that
+/// mistake, so this also prints loudly enough that `cargo test -- --nocapture`
+/// makes the skip impossible to miss.
+///
+/// Writes the temp file with a `.mjs` extension rather than `.js`: `node`'s
+/// ESM-vs-CommonJS auto-detection for a bare `.js` file depends on Node
+/// version and on whether some enclosing directory happens to have a
+/// `package.json` with `"type": "module"` -- both outside this test's
+/// control, and both irrelevant to what's actually being verified (that the
+/// generated *source* is valid ESM). `.mjs` is an unambiguous, version-
+/// independent signal that sidesteps that entirely.
+fn validate_javascript_tools(code: &str) -> Option<Vec<String>> {
+    let Ok(node_version) = Command::new("node").arg("--version").output() else {
+        eprintln!("  SKIP javascript tool validation: `node` not found on PATH -- nothing was checked with any tool");
+        return None;
+    };
+    eprintln!(
+        "  RUN javascript tool validation: node {} found on PATH",
+        String::from_utf8_lossy(&node_version.stdout).trim()
+    );
+
+    let path = write_temp(code, ".mjs")?;
+    let mut errors = vec![];
+
+    // Real `node`, not `tsx`/`ts-node`/a build step: the generated file must
+    // parse as plain ESM as-is. `--check` parses without executing,
+    // mirroring this file's `ruby -c` / `php -l` precedent above.
+    let out = Command::new("node").args(["--check", path.to_str()?]).output().ok()?;
+    if !out.status.success() {
+        for line in String::from_utf8_lossy(&out.stderr).lines().take(5) {
+            if !line.trim().is_empty() {
+                errors.push(format!("node --check: {line}"));
+            }
+        }
+    }
+
+    if let Ok(tsc_version) = Command::new("tsc").arg("--version").output() {
+        eprintln!(
+            "  RUN tsc --checkJs --strict: {} found on PATH",
+            String::from_utf8_lossy(&tsc_version.stdout).trim()
+        );
+        let stub = js_mode_driver_stub_path();
+        let out = Command::new("tsc")
+            .args([
+                "--checkJs",
+                "--strict",
+                "--allowJs",
+                "--noEmit",
+                "--module",
+                "nodenext",
+                "--moduleResolution",
+                "nodenext",
+                "--target",
+                "es2022",
+            ])
+            .arg(path.to_str()?)
+            .arg(stub.to_str()?)
+            .output()
+            .ok()?;
+        if !out.status.success() {
+            // tsc writes diagnostics to stdout by default; stderr is
+            // included too so a crash/usage error is not silently dropped.
+            let mut lines: Vec<String> = String::from_utf8_lossy(&out.stdout)
+                .lines()
+                .map(str::to_string)
+                .collect();
+            lines.extend(String::from_utf8_lossy(&out.stderr).lines().map(str::to_string));
+            for line in lines.into_iter().take(10) {
+                if !line.trim().is_empty() {
+                    errors.push(format!("tsc: {line}"));
+                }
+            }
+        }
+    } else {
+        eprintln!("  SKIP tsc --checkJs --strict: `tsc` not found on PATH -- only `node --check` ran");
     }
 
     let _ = std::fs::remove_file(&path);

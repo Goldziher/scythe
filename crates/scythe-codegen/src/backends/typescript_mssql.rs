@@ -432,6 +432,7 @@ impl CodegenBackend for TypescriptMssqlBackend {
             parent_columns,
             child_columns,
             key_column,
+            false,
             |name, ty| format!("row['{name}'] as {ty}"),
         );
         out.push_str(&fold);
