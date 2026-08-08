@@ -7,12 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.14.0] - Unreleased
 
-In progress — further changes will land before this release ships.
-
 This release checks scythe's output against something other than scythe. Nullability inference is
-now measured against what live database engines actually return, and a Snowflake backend that had
-never executed anywhere runs in CI for the first time. It also makes a backend's type mappings
-configurable per generation target.
+measured against what live database engines actually return across all six of them. Generated files
+now record the schema they came from, and `scythe check` can diff your DDL against the database the
+code will actually run against. A Snowflake backend that had never executed anywhere runs in CI for
+the first time.
+
+Three of those checks found real bugs the model-only tests could not: Oracle returns NULL for an
+empty string literal, `typescript-duckdb` had been reading rows positionally while indexing them by
+name, and `typescript-oracledb` cast nullable columns to their non-null type. All three are fixed
+below.
+
+**Upgrading**: `scythe check` now exits `2` for findings and `1` for operational failures, so a CI
+script keying on `1` needs updating. Unrecognized options on a TypeScript target are now an error
+rather than silently ignored. Identifiers derived from names with consecutive capitals change
+spelling (`CreateAPIKeyRow` becomes `CreateApiKeyRow`). And every generated file gains a provenance
+header, so the first regeneration after upgrading touches every artifact. See **Changed** for the
+full list.
 
 ### Added
 
@@ -47,12 +58,154 @@ configurable per generation target.
   fixing the gap forces deleting the entry that excused it. A soundness failure is never
   suppressible by any registry entry. The crate is unpublished, has no CLI surface, and nothing in
   `scythe generate` touches it
-- Live drivers in that suite for PostgreSQL, MySQL, MariaDB and SQLite, each behind its own Cargo
-  feature plus a `live-tests` gate, with one CI job per engine. No driver is linked by default, so
-  `cargo test --workspace` exercises the pure comparison logic without a container. MSSQL and Oracle
-  declare their features but have no executor yet: selecting one is a hard error, and a fixture that
-  lists one surfaces as an explicit, printed skip in every other engine's run rather than silently
-  vanishing from the report
+- Live drivers in that suite for all six engines — PostgreSQL, MySQL, MariaDB, SQLite, SQL Server and
+  Oracle — each behind its own Cargo feature plus a `live-tests` gate, with one CI job per engine. No
+  driver is linked by default, so `cargo test --workspace` exercises the pure comparison logic
+  without a container. Selecting an engine whose feature was not compiled in is a hard error naming
+  the feature to enable, never a silent skip. Each engine's isolation is its own problem: SQL Server
+  gets a fresh database per connection, because T-SQL's default schema belongs to the database
+  principal rather than the session and `USE` does not survive tiberius routing statements through
+  `sp_executesql`, so tables would otherwise land in `master`; Oracle gets a user per connection,
+  because in Oracle a schema is a user. Fixtures are now analyzed under their own engine's dialect
+  rather than PostgreSQL's, which is what made the Oracle empty-string bug below observable
+  ([#71](https://github.com/Goldziher/scythe/issues/71))
+- **A provenance header in every generated file**, recording the scythe version, backend, engine and
+  a fingerprint of the schema the file was generated from:
+
+  ```text
+  // scythe:provenance v=0.14.0 backend=go-pgx engine=postgresql schema=sch1:2e813606acee8b51
+  ```
+
+  The comment token follows the target language (`#` for Python, Ruby and Elixir), and where a
+  language requires particular first bytes the header goes second — after `<?php`, after Ruby's
+  `# frozen_string_literal: true`. Python's variant carries a trailing `# noqa: E501`, since the line
+  exceeds ruff's default 88-column limit and would otherwise fail `ruff check` on line 1 of every
+  generated Python file. Ruby's `queries.rbs` signature file gets one too.
+
+  The fingerprint is a SHA-256 over a canonical rendering of the *resolved* catalog — tables,
+  columns, enums, composites, dialect — rather than over DDL text, so reformatting a migration or
+  reordering statements does not move it while a real schema change does. It excludes column defaults
+  (free-form AST text that churns on dependency bumps) and scythe's own version, which would
+  otherwise report every artifact as drifted on every release.
+
+  Generated code is only as correct as the schema snapshot scythe read, and nothing in the artifact
+  recorded which snapshot that was. Code generated against a drifted local schema compiles, reviews
+  as an ordinary diff, and meets a different migration state in production. Raised by **Mads
+  Hansen**.
+
+  `scythe check` verifies it through seven rules: `SC-PRV01` schema drift, `SC-PRV03` backend drift
+  and `SC-PRV04` engine drift as errors; `SC-PRV02` scythe-version drift, `SC-PRV05` missing header,
+  `SC-PRV06` malformed header and `SC-PRV07` unverifiable header as warnings. They are ordinary
+  registry rules, so `[lint.rules]` and `[lint.categories]` can downgrade or disable any of them. A
+  scythe upgrade alone is a warning by design — upgrading the tool must never fail a consumer's CI
+  before they have had a chance to regenerate. A missing artifact produces no finding at all, since
+  the default `.gitignore` excludes `**/generated/`.
+
+  It answers "was this generated from this schema?", not "from these queries?" — editing a query file
+  without touching the schema produces no mismatch
+  ([#68](https://github.com/Goldziher/scythe/issues/68))
+- **`scythe check --database-url` now also diffs your DDL against the live database.** PostgreSQL
+  only; blocks on other engines are skipped with a warning naming the block. Seven `SC-DRF` rules
+  cover tables and columns missing from either side, type mismatches, nullability mismatches and enum
+  value mismatches — all errors except `SC-DRF02`, a table present in the database but not in your
+  DDL, which is a warning because every real database has a `schema_migrations` table scythe knows
+  nothing about.
+
+  `SC-DRF06` is the rule that justifies the feature. Query verification cannot check nullability:
+  preparing a statement makes PostgreSQL report type OIDs and nothing about NULL-ness. Reading
+  `pg_attribute.attnotnull` is the only way scythe can tell you a `NOT NULL` in your DDL is not true
+  in production, where the generated non-optional field fails to decode the first NULL row it meets.
+
+  The catalog is read from `pg_catalog`, not `information_schema`, which reports `USER-DEFINED` for
+  every enum column and never names the type — the enum and type-mismatch rules would be undetectable
+  through it. Type comparison is exact equality rather than the tolerant predicate query verification
+  uses, which forgives string widening and so reported nothing when a `text` column became `uuid`.
+  Types neither side can express in scythe's neutral vocabulary are skipped rather than reported as
+  mismatches. Views and materialized views are excluded from the nullability check, since PostgreSQL
+  stores `attnotnull = false` for every view column.
+
+  Opt-in via the flag: with no `--database-url` nothing connects, and unlike `scythe inspect`, `check`
+  never falls back to `$DATABASE_URL` — it cannot start requiring a database because that variable
+  happens to be set, which is what keeps it usable in a pre-commit hook.
+
+  This is the cheaper intermediate the issue proposes, not its headline `schema_source = "execute"`
+  design: scythe still builds its catalog by parsing DDL and does not execute your migrations against
+  an ephemeral database, so DDL that only a real engine can resolve is still out of reach. Raised by
+  **u/Character-Forever-91** ([#79](https://github.com/Goldziher/scythe/issues/79))
+- **Nested struct types inferred from `json_agg(alias.*)` and `row_to_json(alias.*)`.** A column that
+  aggregates a whole relation now resolves to a generated struct with that relation's fields instead
+  of an opaque JSON scalar. PostgreSQL and CockroachDB only, and only on `rust-sqlx`,
+  `rust-tokio-postgres`, `go-pgx` and `python-psycopg3` — every other backend degrades to exactly the
+  plain `json` mapping it produced before, including on Redshift, where `json_agg` does not exist.
+
+  Element nullability is modelled on the element, not the fields. `json_agg` over a LEFT JOIN emits a
+  JSON `null` element, never an object of null fields, so an inner join yields
+  `Vec<GetUserOrdersRowOrders>` and an outer join `Vec<Option<GetUserOrdersOuterRowOrders>>`.
+  Widening the fields instead would model a value PostgreSQL never produces while leaving the type
+  unable to hold the one it does.
+
+  JSON keys are the raw SQL column names, so a quoted `"createdAt"` column gets `#[serde(rename)]` in
+  Rust, a `json:"createdAt"` struct tag in Go, and an explicit `_from_json` classmethod in Python —
+  `Cls(**item)` would pass `createdAt` as an unexpected keyword argument. Enums reachable only
+  through a nested struct are emitted with per-variant renames, since the driver's own
+  `rename_all` tells serde nothing.
+
+  `jsonb_agg` is deliberately not covered, nor is `json_agg` over a scalar or a bare `*`. Two queries
+  in one file deriving the same struct name deduplicate if their shapes match and are a hard error
+  naming both if they do not. Your own `@json` annotations are untouched
+  ([#78](https://github.com/Goldziher/scythe/issues/78))
+- **A `field_case` option** on a `[[sql.gen]]` target, accepting `snake_case` (the default) or
+  `camelCase`, honored by the 11 TypeScript backends and by `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`,
+  `kotlin-r2dbc` and `kotlin-exposed`. It renames generated field and parameter names only; every
+  backend still reads the driver row by the raw SQL column name, so the rename cannot break decoding.
+
+  On TypeScript the naive version of this would ship a type that lies: 10 of the 11 backends return
+  the driver's row through a blind `rows[0] as StructName` cast, so renaming the declared field alone
+  type-checks green and returns `undefined` for every field at runtime — `tsc` certifies the bug.
+  Under `camelCase` the function body therefore reconstructs the row field by field, reading raw keys
+  and writing renamed ones ([#87](https://github.com/Goldziher/scythe/issues/87))
+- **Four JSDoc `javascript-*` backends**: `javascript-pg`, `javascript-postgres`,
+  `javascript-mysql2` and `javascript-better-sqlite3`. They emit plain ESM `.js` carrying its types
+  entirely in JSDoc comments — `@typedef`/`@property` for row types, `@param`/`@returns` for
+  functions — with no driver import statement, referencing driver types inline as
+  `import("pg").PoolClient`. Nullability is always `T | null`, never the optional-property form.
+  These are an emit mode on the existing TypeScript backends rather than new manifests, so the
+  manifest count is unchanged. `row_type = "zod"`, `outer_join_unions` and `field_case = "camelCase"`
+  are rejected with an error naming the TypeScript backend to use instead: each needs syntax a plain
+  `.js` file cannot carry. Output is validated in CI with real `node --check` and
+  `tsc --checkJs --strict` ([#81](https://github.com/Goldziher/scythe/issues/81))
+- `--exit-zero` on `scythe check`, matching the flag `audit` and `inspect` already had
+
+### Changed
+
+- **`scythe check` exits `2` for findings and `1` for operational failures.** It previously exited
+  `1` for both, so a CI script could not distinguish "your schema drifted" from "your config file is
+  missing". Any script or hook keying on `1` for findings must change to `2`, or use `--exit-zero`
+  for an advisory gate. Warnings have never affected the exit code and still do not
+- **Unrecognized options on a TypeScript target are now a hard error.** Every TypeScript backend
+  previously inherited the default `apply_options`, which silently discarded any key it did not read
+  — `row_typ = "zod"` parsed as valid TOML and did nothing, with no diagnostic. Unknown keys now fail
+  generation, with a suggestion when the key is within edit distance 2 of a real one. A config
+  carrying a forward-compatibility key on a TypeScript target will fail on upgrade. Backends in other
+  languages still ignore unknown keys
+- **Identifiers derived from names with consecutive capitals change spelling.** PascalCase conversion
+  previously returned mixed-case input containing no underscore unchanged, so a query named
+  `CreateAPIKey` generated the function `createApiKey` returning the type `CreateAPIKeyRow` — the
+  same query, spelled two ways. Both sides now normalize identically: `CreateAPIKeyRow` becomes
+  `CreateApiKeyRow`. This affects row, enum and composite type names on every backend, and function
+  names on the 16 backends whose manifests use PascalCase function naming (all `csharp-*` and all
+  `go-*`). Names that are snake_case, or PascalCase without consecutive capitals, are unaffected
+- **Two SQL columns whose names collapse onto one field name are now a hard error.** `SELECT
+  "USER_ID", user_id FROM t` is legal SQL and passes the analyzer's case-sensitive duplicate-alias
+  check, which runs on raw names before conversion; it previously emitted a struct with two
+  identically-named fields. This applies on every backend, including under the default `snake_case`,
+  and covers parameters as well as columns
+- **The `Auto-generated by scythe. Do not edit.` banner is gone**, replaced by the provenance header,
+  which carries the same warning plus the version, backend, engine and schema fingerprint — and which
+  `scythe check` verifies rather than merely stating. Removed from 40 of the 52 backends; the Go,
+  Kotlin and Elixir backends never emitted it. Go's `// Code generated by scythe. DO NOT EDIT.` line
+  is unchanged, since the Go toolchain matches on it. Together with the header, the first
+  regeneration after upgrading touches every generated file
 
 ### Fixed
 
@@ -80,6 +233,40 @@ configurable per generation target.
   carries no meaning and `version:sync` deliberately leaves it alone — which made the two steps
   contradict each other, with no version that could satisfy both. Unpublished crates are now exempt
   from the own-version check; their inter-crate pins are still checked
+- **Oracle's empty string literal is NULL, and the analyzer did not know it.** Oracle is alone in
+  treating `''` as NULL, so `SELECT COALESCE(email, '') AS email_or_empty` was typed non-optional —
+  `String` rather than `Option<String>` — and the driver could not decode the first row where Oracle
+  returned NULL. The literal now carries the right nullability under the Oracle dialect, which
+  propagates through `COALESCE`, `CASE ... ELSE ''` and concatenation. The other five dialects are
+  unaffected. `NVL` is not covered, though it was already optional by a different route. Found by the
+  live Oracle conformance leg; a model-only fixture could never have caught it, since it compares the
+  analyzer against the same model it is built from
+- **`typescript-duckdb` read every row positionally while indexing it by name.** The generated code
+  called `getRows()`, which returns positional arrays, then read fields by property name — so every
+  field came back `undefined` at runtime, with no `tsc` error because the row cast is unchecked. It
+  now calls `getRowObjects()`. Present since the backend shipped in 0.6.0; there is no
+  `typescript-duckdb` integration project, which is why nothing caught it
+- **`typescript-oracledb` cast nullable columns to their non-null type.** Three sites — both read
+  paths and the `RETURNING` out-binds path — cast to the column's base type while the declared
+  interface said `| null`, so a null column was typed as though it could never be null
+- **The TypeScript discriminated-union row type omitted some columns entirely.** With
+  `outer_join_unions = true`, a column belonging to a join group that carries no discriminant — one
+  where every projected column was already nullable in the schema — matched neither the base-field
+  loop nor any union variant, so it was declared nowhere. A query selecting five columns produced a
+  row type declaring three. The Zod form of the same function had the identical defect, despite its
+  contract that the two shapes cannot drift apart
+- **Provenance verification could discard every lint finding.** A target whose backend and engine
+  pair failed to construct — a config with no `[[sql.gen]]` block synthesizes a `rust-sqlx` target,
+  which does not support every engine `check` accepts — aborted the run before findings were emitted,
+  so `check` exited with an error and an empty SARIF report while real findings existed. Verification
+  now cannot unwind past emission. Related: the header was compared against the raw backend alias
+  from the config rather than the canonical name, so a target written as `sqlx` reported backend
+  drift against its own output forever
+- **`task version:sync` invalidated every generated artifact.** The provenance header embeds the
+  scythe version, so bumping it made all committed artifacts stale and failed the generated-freshness
+  gate on the release commit itself — on every future release, not just this one. `version:sync` now
+  regenerates after bumping and rewrites the version in documented examples, and CI carries a guard
+  comparing every committed header against the workspace version
 
 ## [0.13.0] - 2026-08-07
 
