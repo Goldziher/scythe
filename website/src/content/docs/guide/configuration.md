@@ -282,13 +282,36 @@ export interface GetUserRow {
 }
 ```
 
-On TypeScript backends, renaming a field is not just a label change: the driver still returns rows
-keyed by the original SQL column name, so `field_case = "camelCase"` also switches the function body
-from a blind cast of the driver's row to a field-by-field reconstruction (`row['user_name']` read
-into a `userName` property). Without that remap the generated code would still type-check under `tsc`
-but every field would read back `undefined` at runtime. The Java/Kotlin backends need no such remap —
-each column is read by an explicit getter keyed by the raw SQL column name, so only the declared
-field name changes. See [Java + Kotlin](/scythe/backends/java-kotlin/#field-naming-field_case).
+On the ten driver-backed TypeScript backends, renaming a field is not just a label change: the driver
+still returns rows keyed by the original SQL column name, so `field_case = "camelCase"` also switches
+the function body from a blind cast of the driver's row to a field-by-field reconstruction
+(`row['user_name']` read into a `userName` property). Without that remap the generated code would
+still type-check under `tsc` but every field would read back `undefined` at runtime. The Java/Kotlin
+backends need no such remap — each column is read by an explicit getter keyed by the raw SQL column
+name, so only the declared field name changes. See
+[Java + Kotlin](/scythe/backends/java-kotlin/#field-naming-field_case).
+
+:::caution[`typescript-kysely` requires `CamelCasePlugin`]
+`typescript-kysely` is the exception, and it is the one case where the option alone is not enough.
+It hands back Kysely's own result rows and deliberately does **not** remap, because Kysely's
+`CamelCasePlugin` already renames result keys — including for `sql` template results, not just
+builder queries. Two renamers disagreeing is worse than one.
+
+So `field_case = "camelCase"` on `typescript-kysely` means "my Kysely instance already has
+`CamelCasePlugin` installed". Scythe cannot verify that at generation time. If you set the option and
+omit the plugin, the declared type says `userId` while the row carries `user_id`, and every field
+reads back `undefined` at runtime with `tsc` still green.
+
+```ts
+import { Kysely, CamelCasePlugin, PostgresDialect } from "kysely";
+
+const db = new Kysely<Database>({
+	dialect: new PostgresDialect({ pool }),
+	plugins: [new CamelCasePlugin()],
+});
+```
+
+:::
 
 The four `javascript-*` backends accept `field_case = "snake_case"` but reject `"camelCase"`: the
 remap needs a TypeScript `as T` assertion that a plain `.js` file cannot carry. The error points at

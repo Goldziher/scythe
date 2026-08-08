@@ -175,6 +175,28 @@ export async function createUser(
 
 For synchronous SQLite access without Kysely or a Promise-based driver at all, see the dedicated [`typescript-node-sqlite`](#typescript-node-sqlite-and-typescript-wasm-sqlite) and [`typescript-wasm-sqlite`](#typescript-node-sqlite-and-typescript-wasm-sqlite) backends below.
 
+:::caution[`field_case = "camelCase"` requires `CamelCasePlugin`]
+Alone among the TypeScript backends, `typescript-kysely` does not remap rows itself. It returns
+Kysely's own result rows, and Kysely's `CamelCasePlugin` already renames result keys -- including for
+`sql` template results, not only builder queries. Scythe emitting a second rename on top would leave
+two renamers disagreeing.
+
+Setting `field_case = "camelCase"` here is therefore an assertion that your Kysely instance has the
+plugin installed, and scythe cannot check it at generation time. Set the option without the plugin
+and the declared type says `userId` while the row carries `user_id` -- every field reads back
+`undefined`, and `tsc` stays green.
+
+```ts
+const db = new Kysely<Database>({
+	dialect: new PostgresDialect({ pool }),
+	plugins: [new CamelCasePlugin()],
+});
+```
+
+The `:grouped` fold is keyed to match: under `camelCase` it reads the plugin-renamed key, and by
+default it reads the raw SQL column name.
+:::
+
 ```sql
 -- @name GetUser
 -- @returns :one
