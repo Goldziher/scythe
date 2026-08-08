@@ -1,3 +1,4 @@
+// scythe:provenance v=0.13.0 backend=kotlin-jdbc engine=mariadb schema=sch1:262bec5a0954c973
 package generated
 
 import java.math.BigDecimal

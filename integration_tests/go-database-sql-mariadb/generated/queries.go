@@ -1,3 +1,4 @@
+// scythe:provenance v=0.13.0 backend=go-database-sql engine=mariadb schema=sch1:262bec5a0954c973
 package queries
 
 import (

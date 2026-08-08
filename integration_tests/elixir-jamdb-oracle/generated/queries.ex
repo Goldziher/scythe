@@ -1,3 +1,4 @@
+# scythe:provenance v=0.13.0 backend=elixir-jamdb engine=oracle schema=sch1:51c12e41405f20c2
 defmodule CreateAttachmentRow do
   @moduledoc "Row type for CreateAttachment queries."
 

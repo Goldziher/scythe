@@ -1,3 +1,4 @@
+# scythe:provenance v=0.13.0 backend=elixir-postgrex engine=postgresql schema=sch1:2e813606acee8b51
 defmodule UserStatus do
   @moduledoc "Enum type for user_status."
 

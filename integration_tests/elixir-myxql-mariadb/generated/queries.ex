@@ -1,3 +1,4 @@
+# scythe:provenance v=0.13.0 backend=elixir-myxql engine=mariadb schema=sch1:262bec5a0954c973
 defmodule UsersStatus do
   @moduledoc "Enum type for users_status."
 

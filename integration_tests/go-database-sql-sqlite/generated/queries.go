@@ -1,3 +1,4 @@
+// scythe:provenance v=0.13.0 backend=go-database-sql engine=sqlite schema=sch1:588fb635332179bc
 package queries
 
 import (

@@ -1,3 +1,4 @@
+# scythe:provenance v=0.13.0 backend=elixir-tds engine=mssql schema=sch1:f761f948742217a4
 defmodule CreateOrderRow do
   @moduledoc "Row type for CreateOrder queries."
 

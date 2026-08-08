@@ -1,3 +1,4 @@
+# scythe:provenance v=0.13.0 backend=elixir-exqlite engine=sqlite schema=sch1:588fb635332179bc
 defmodule GetOrdersByUserRow do
   @moduledoc "Row type for GetOrdersByUser queries."
 
