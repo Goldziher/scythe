@@ -58,7 +58,11 @@ impl CodegenBackend for RubyMysql2Backend {
     }
 
     fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
-        Some(super::ruby_rbs::generate_rbs_content(context, "Mysql2::Client"))
+        Some(super::ruby_rbs::generate_rbs_content(
+            context,
+            "Mysql2::Client",
+            &self.manifest,
+        ))
     }
 
     fn file_preamble(&self) -> String {

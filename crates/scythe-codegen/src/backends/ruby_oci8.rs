@@ -48,7 +48,7 @@ impl CodegenBackend for RubyOci8Backend {
     }
 
     fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
-        Some(super::ruby_rbs::generate_rbs_content(context, "OCI8"))
+        Some(super::ruby_rbs::generate_rbs_content(context, "OCI8", &self.manifest))
     }
 
     fn file_preamble(&self) -> String {

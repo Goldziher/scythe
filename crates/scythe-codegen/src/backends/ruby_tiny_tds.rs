@@ -108,7 +108,11 @@ impl CodegenBackend for RubyTinyTdsBackend {
     }
 
     fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
-        Some(super::ruby_rbs::generate_rbs_content(context, "TinyTds::Client"))
+        Some(super::ruby_rbs::generate_rbs_content(
+            context,
+            "TinyTds::Client",
+            &self.manifest,
+        ))
     }
 
     fn file_preamble(&self) -> String {

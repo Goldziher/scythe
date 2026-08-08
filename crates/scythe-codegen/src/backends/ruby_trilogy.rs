@@ -95,7 +95,11 @@ impl CodegenBackend for RubyTrilogyBackend {
     }
 
     fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
-        Some(super::ruby_rbs::generate_rbs_content(context, "Trilogy"))
+        Some(super::ruby_rbs::generate_rbs_content(
+            context,
+            "Trilogy",
+            &self.manifest,
+        ))
     }
 
     fn file_preamble(&self) -> String {

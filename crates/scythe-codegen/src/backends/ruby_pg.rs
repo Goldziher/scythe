@@ -60,7 +60,11 @@ impl CodegenBackend for RubyPgBackend {
     }
 
     fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
-        Some(super::ruby_rbs::generate_rbs_content(context, "PG::Connection"))
+        Some(super::ruby_rbs::generate_rbs_content(
+            context,
+            "PG::Connection",
+            &self.manifest,
+        ))
     }
 
     fn file_preamble(&self) -> String {

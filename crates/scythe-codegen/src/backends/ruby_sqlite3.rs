@@ -58,7 +58,11 @@ impl CodegenBackend for RubySqlite3Backend {
     }
 
     fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> {
-        Some(super::ruby_rbs::generate_rbs_content(context, "SQLite3::Database"))
+        Some(super::ruby_rbs::generate_rbs_content(
+            context,
+            "SQLite3::Database",
+            &self.manifest,
+        ))
     }
 
     fn file_preamble(&self) -> String {
