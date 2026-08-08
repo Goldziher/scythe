@@ -2,7 +2,7 @@
 //! All tools are expected to be installed.
 
 use scythe_codegen::provenance;
-use scythe_codegen::validation::{validate_structural, validate_with_tools};
+use scythe_codegen::validation::{ToolValidation, validate_structural, validate_with_tools};
 use scythe_codegen::{CodegenBackend, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;
@@ -307,13 +307,10 @@ macro_rules! backend_test {
                 structural_errors
             );
 
-            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
-                assert!(
-                    tool_errors.is_empty(),
+            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+                panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
-                    $backend,
-                    tool_errors,
-                    code
+                    $backend, tool_errors, code
                 );
             }
         }
@@ -343,13 +340,10 @@ macro_rules! backend_test_with_options {
                 structural_errors
             );
 
-            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
-                assert!(
-                    tool_errors.is_empty(),
+            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+                panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
-                    $backend,
-                    tool_errors,
-                    code
+                    $backend, tool_errors, code
                 );
             }
         }
@@ -377,13 +371,10 @@ macro_rules! mysql_backend_test {
                 structural_errors
             );
 
-            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
-                assert!(
-                    tool_errors.is_empty(),
+            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+                panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
-                    $backend,
-                    tool_errors,
-                    code
+                    $backend, tool_errors, code
                 );
             }
         }
@@ -416,13 +407,10 @@ macro_rules! duckdb_backend_test {
                 structural_errors
             );
 
-            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
-                assert!(
-                    tool_errors.is_empty(),
+            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+                panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
-                    $backend,
-                    tool_errors,
-                    code
+                    $backend, tool_errors, code
                 );
             }
         }
@@ -450,13 +438,10 @@ macro_rules! sqlite_backend_test {
                 structural_errors
             );
 
-            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
-                assert!(
-                    tool_errors.is_empty(),
+            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+                panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
-                    $backend,
-                    tool_errors,
-                    code
+                    $backend, tool_errors, code
                 );
             }
         }
@@ -484,13 +469,10 @@ macro_rules! mssql_backend_test {
                 structural_errors
             );
 
-            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
-                assert!(
-                    tool_errors.is_empty(),
+            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+                panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
-                    $backend,
-                    tool_errors,
-                    code
+                    $backend, tool_errors, code
                 );
             }
         }
@@ -518,13 +500,10 @@ macro_rules! oracle_backend_test {
                 structural_errors
             );
 
-            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
-                assert!(
-                    tool_errors.is_empty(),
+            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+                panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
-                    $backend,
-                    tool_errors,
-                    code
+                    $backend, tool_errors, code
                 );
             }
         }
@@ -552,13 +531,10 @@ macro_rules! snowflake_backend_test {
                 structural_errors
             );
 
-            if let Some(tool_errors) = validate_with_tools(&code, $backend) {
-                assert!(
-                    tool_errors.is_empty(),
+            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+                panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
-                    $backend,
-                    tool_errors,
-                    code
+                    $backend, tool_errors, code
                 );
             }
         }
@@ -993,29 +969,30 @@ fn assert_js_mode_nullable_property_is_type_or_null(code: &str, field: &str) {
 }
 
 /// Run the real `node`/`tsc` tool validation (`validate_with_tools`) and
-/// fail loudly if it ran and found errors. A `None` return (meaning `node`
-/// itself was not on PATH) is reported via `eprintln!` inside
-/// `validate_javascript_tools` and is not itself a test failure -- see that
-/// function's doc comment for why a hard failure on a missing dev tool
-/// would be the wrong tradeoff -- but this wrapper still prints its own
-/// line so the skip is visible at this call site too, not just buried in
-/// `validate_javascript_tools`'s output.
+/// fail loudly if it ran and found errors.
+///
+/// Outside strict mode an uninstalled `node` or `tsc` is not a test failure
+/// -- requiring every contributor to have both would be the wrong tradeoff
+/// -- but the skip is printed at this call site so `cargo test --
+/// --nocapture` makes it impossible to mistake for a pass. Under
+/// `SCYTHE_VALIDATE_STRICT=1`, which CI sets after installing both,
+/// `into_result` turns that same skip into a failure.
+///
+/// This wrapper predates `ToolValidation` and hand-rolled the same
+/// skip-is-not-a-pass distinction for these two tools only; it now defers to
+/// the type so there is one mechanism rather than two.
 fn assert_js_mode_tool_validation_passes(backend_name: &str, code: &str) {
-    match validate_with_tools(code, backend_name) {
-        Some(errors) => {
-            assert!(
-                errors.is_empty(),
-                "{backend_name} tool validation: {:?}\n\nGenerated code:\n{}",
-                errors,
-                code
-            );
-        }
-        None => {
-            eprintln!(
-                "  {backend_name}: validate_with_tools returned None (node not found) -- this test did not \
-                 validate the generated code with any real tool"
-            );
-        }
+    let validation = validate_with_tools(code, backend_name);
+
+    for tool in validation.tools_run() {
+        eprintln!("  {backend_name}: `{tool}` ran against the generated code");
+    }
+    for tool in validation.missing_tools() {
+        eprintln!("  {backend_name}: `{tool}` is not on PATH -- whatever it would have caught went unchecked");
+    }
+
+    if let Err(errors) = validation.into_result() {
+        panic!("{backend_name} tool validation: {errors:?}\n\nGenerated code:\n{code}");
     }
 }
 
@@ -1106,4 +1083,75 @@ fn test_kotlin_r2dbc_extension_functions_default_off() {
         code.contains("cf.create()"),
         "kotlin-r2dbc default: expected 'cf.create()' in body\n\nGenerated:\n{code}"
     );
+}
+
+/// Inventory of the backends `validate_with_tools` cannot check with any real
+/// tool, because no validator has been written for their language.
+///
+/// This is the other half of #98. Strict mode catches a checker that fell out
+/// of the CI image; nothing catches a language that never had one, because
+/// `validate_with_tools` returning `Unsupported` is indistinguishable from a
+/// pass at a call site that only looks at the error list. That was `_ => None`
+/// before `ToolValidation` existed, and it made 18 of this file's backend
+/// tests unconditionally green.
+///
+/// The list is asserted in both directions on purpose:
+///
+/// * adding a backend in one of these languages without noticing it ships
+///   entirely unverified fails here, and
+/// * writing a validator for one of them also fails here, prompting whoever
+///   did it to shorten the list.
+///
+/// Rust is the sharpest entry: `validate_structural` returns `vec![]` for the
+/// four `rust-*` backends too, so their generated code is currently checked by
+/// nothing whatsoever in this file.
+#[test]
+fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
+    const NO_TOOL_VALIDATOR: &[&str] = &[
+        "java-jdbc",
+        "java-r2dbc",
+        "csharp-npgsql",
+        "csharp-mysqlconnector",
+        "csharp-microsoft-sqlite",
+        "csharp-sqlclient",
+        "csharp-oracle",
+        "csharp-snowflake",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "elixir-myxql",
+        "elixir-exqlite",
+        "elixir-tds",
+        "elixir-jamdb",
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "rust-tiberius",
+        "rust-sibyl",
+    ];
+
+    for backend in NO_TOOL_VALIDATOR {
+        assert_eq!(
+            validate_with_tools("", backend),
+            ToolValidation::Unsupported,
+            "{backend} is listed as having no tool validator, but one now answers for it --              remove it from NO_TOOL_VALIDATOR"
+        );
+    }
+
+    // The languages that do have one must not silently regress into this set.
+    const HAS_TOOL_VALIDATOR: &[&str] = &[
+        "python-psycopg3",
+        "typescript-pg",
+        "javascript-pg",
+        "go-pgx",
+        "ruby-pg",
+        "php-pdo",
+        "kotlin-jdbc",
+    ];
+
+    for backend in HAS_TOOL_VALIDATOR {
+        assert_ne!(
+            validate_with_tools("", backend),
+            ToolValidation::Unsupported,
+            "{backend} had a tool validator and no longer does"
+        );
+    }
 }

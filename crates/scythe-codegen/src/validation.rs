@@ -432,10 +432,297 @@ fn validate_php(code: &str) -> Vec<String> {
     errors
 }
 
-/// Validate generated code using real language tools (if available).
-/// Returns None if the tool is not installed, Some(errors) otherwise.
-pub fn validate_with_tools(code: &str, backend_name: &str) -> Option<Vec<String>> {
-    match backend_name {
+/// Environment variable that turns on strict tool validation.
+///
+/// Set to `1` (or `true`) to make a missing tool a hard failure instead of a
+/// skip. CI sets it after installing every checker; a developer's laptop
+/// leaves it unset and still gets whatever checkers they happen to have.
+pub const STRICT_ENV_VAR: &str = "SCYTHE_VALIDATE_STRICT";
+
+/// Whether strict mode is on, read from [`STRICT_ENV_VAR`].
+///
+/// Deliberately an environment variable rather than a separate
+/// `validate_with_tools_strict` entry point. The call sites that matter are
+/// the generated-code assertions in `tests/tool_validation.rs`, and the
+/// property we want is "CI checks every language, a laptop checks what it
+/// can" -- with a second entry point every one of those call sites would have
+/// to branch on the environment itself, which is precisely the per-call-site
+/// policy decision that let the original `None`-is-a-pass bug spread to nine
+/// places. One switch, read in one function, cannot drift.
+pub fn strict_mode_enabled() -> bool {
+    matches!(
+        std::env::var(STRICT_ENV_VAR).as_deref(),
+        Ok("1") | Ok("true") | Ok("TRUE")
+    )
+}
+
+/// What happened when one external checker was pointed at a generated file.
+///
+/// The distinction between these variants is the whole point of this type.
+/// `Ran { errors: [] }` means a real tool inspected the code and found
+/// nothing wrong; `Missing` means nothing was inspected at all. Collapsing
+/// the two -- which is what returning `Option<Vec<String>>` did, since both
+/// arrived at the call site as "no errors to report" -- turns an uninstalled
+/// linter into a green check mark.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolOutcome {
+    /// The tool was found and ran to completion. An empty `errors` genuinely
+    /// means this checker is satisfied.
+    Ran {
+        /// Executable name, as it would be typed on a command line.
+        tool: &'static str,
+        /// Findings, already prefixed with the tool name.
+        errors: Vec<String>,
+    },
+    /// The tool is not on `PATH`, so whatever it would have caught went
+    /// unchecked. Never an error outside strict mode, never a pass inside it.
+    Missing {
+        /// Executable name that was looked for and not found.
+        tool: &'static str,
+    },
+    /// The tool is installed but the harness could not run it -- a temp file
+    /// that would not write, a process that would not spawn.
+    ///
+    /// This is neither a pass nor a skip: it is always an error, strict mode
+    /// or not. The previous implementation reached these paths through `?` on
+    /// an `Option` and returned `None`, i.e. reported a broken harness as an
+    /// uninstalled tool, which then read as a pass.
+    Failed {
+        /// Executable name the harness was trying to drive.
+        tool: &'static str,
+        /// What went wrong, in the harness rather than in the checked code.
+        reason: String,
+    },
+}
+
+/// Every checker's verdict for one generated file.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ToolValidation {
+    /// No tool-based validator exists for this backend's language.
+    ///
+    /// Distinct from "the tools are missing": Java, C#, Elixir and Rust have
+    /// no validator written for them at all, and reporting that as a skip
+    /// would suggest installing something would help.
+    Unsupported,
+    /// A validator exists; one entry per checker it tried to run.
+    Attempted(Vec<ToolOutcome>),
+}
+
+impl ToolValidation {
+    /// Findings from the checkers that actually ran.
+    pub fn errors(&self) -> Vec<&str> {
+        match self {
+            Self::Unsupported => vec![],
+            Self::Attempted(outcomes) => outcomes
+                .iter()
+                .flat_map(|outcome| match outcome {
+                    ToolOutcome::Ran { errors, .. } => errors.iter().map(String::as_str).collect::<Vec<_>>(),
+                    ToolOutcome::Missing { .. } => vec![],
+                    ToolOutcome::Failed { reason, .. } => vec![reason.as_str()],
+                })
+                .collect(),
+        }
+    }
+
+    /// Checkers that were not installed.
+    pub fn missing_tools(&self) -> Vec<&'static str> {
+        match self {
+            Self::Unsupported => vec![],
+            Self::Attempted(outcomes) => outcomes
+                .iter()
+                .filter_map(|outcome| match outcome {
+                    ToolOutcome::Missing { tool } => Some(*tool),
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
+
+    /// Checkers that ran to completion.
+    pub fn tools_run(&self) -> Vec<&'static str> {
+        match self {
+            Self::Unsupported => vec![],
+            Self::Attempted(outcomes) => outcomes
+                .iter()
+                .filter_map(|outcome| match outcome {
+                    ToolOutcome::Ran { tool, .. } => Some(*tool),
+                    _ => None,
+                })
+                .collect(),
+        }
+    }
+
+    /// Whether every checker this validator knows about actually ran.
+    ///
+    /// False for [`Self::Unsupported`]: nothing checked the code, so claiming
+    /// it was fully checked would be the same lie in a different shape.
+    pub fn fully_checked(&self) -> bool {
+        match self {
+            Self::Unsupported => false,
+            Self::Attempted(outcomes) => {
+                !outcomes.is_empty()
+                    && outcomes
+                        .iter()
+                        .all(|outcome| matches!(outcome, ToolOutcome::Ran { .. }))
+            }
+        }
+    }
+
+    /// Collapse to pass/fail under the current [`strict_mode_enabled`] policy.
+    ///
+    /// Outside strict mode a missing tool is tolerated. Inside it, a missing
+    /// tool is a failure -- that is what stops a checker from quietly falling
+    /// out of CI and taking its coverage with it.
+    pub fn into_result(self) -> Result<(), Vec<String>> {
+        self.into_result_with_strictness(strict_mode_enabled())
+    }
+
+    /// [`Self::into_result`] with the policy passed explicitly, so tests can
+    /// exercise both modes without mutating process-global environment state
+    /// (which races under `cargo test`'s thread-per-test execution).
+    ///
+    /// [`Self::Unsupported`] is deliberately **not** a strict-mode failure.
+    /// Strict mode exists to catch a checker that fell out of the CI image,
+    /// and every one of its failures should be fixable by installing
+    /// something. A language with no validator written for it is a real gap
+    /// -- Java, C#, Elixir and Rust are all in it -- but no CI configuration
+    /// closes it, so failing here would leave a permanently red build with no
+    /// action attached. That gap is tracked by an explicit inventory test
+    /// (`backends_with_no_tool_validator_are_a_known_and_shrinking_set` in
+    /// `tests/tool_validation.rs`) which fails when the set changes in either
+    /// direction, rather than by a signal nobody can act on.
+    pub fn into_result_with_strictness(self, strict: bool) -> Result<(), Vec<String>> {
+        let mut failures: Vec<String> = self.errors().into_iter().map(str::to_string).collect();
+
+        if strict {
+            for tool in self.missing_tools() {
+                failures.push(format!(
+                    "strict validation: `{tool}` is not installed, so nothing it checks was verified"
+                ));
+            }
+        }
+
+        if failures.is_empty() { Ok(()) } else { Err(failures) }
+    }
+}
+
+/// A generated source file written to a temporary path, removed on drop.
+///
+/// `Drop` rather than a trailing `remove_file` call: every validator below
+/// has early-return paths, and the previous hand-rolled cleanup was skipped
+/// on all of them, leaking a temp file per failed validation.
+struct TempSource {
+    path: std::path::PathBuf,
+}
+
+impl TempSource {
+    fn new(tool: &'static str, code: &str, ext: &str) -> Result<Self, ToolOutcome> {
+        write_temp(code, ext)
+            .map(|path| Self { path })
+            .ok_or_else(|| ToolOutcome::Failed {
+                tool,
+                reason: format!("{tool}: could not write a temporary `{ext}` file"),
+            })
+    }
+
+    fn arg(&self, tool: &'static str) -> Result<&str, ToolOutcome> {
+        self.path.to_str().ok_or_else(|| ToolOutcome::Failed {
+            tool,
+            reason: format!("{tool}: temporary file path is not valid UTF-8"),
+        })
+    }
+}
+
+impl Drop for TempSource {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.path);
+    }
+}
+
+/// Whether `tool` is on `PATH`, probed by running it with `probe_arg`.
+fn tool_present(tool: &str, probe_arg: &str) -> bool {
+    Command::new(tool).arg(probe_arg).output().is_ok()
+}
+
+/// Which of a process's streams a checker writes its diagnostics to.
+#[derive(Clone, Copy)]
+enum Stream {
+    Stdout,
+    Stderr,
+}
+
+/// Run `tool` with `args` and turn a non-zero exit into findings.
+///
+/// `max_lines` caps how much of the diagnostic output is kept; a syntax error
+/// can produce hundreds of cascading lines and only the first few locate it.
+fn run_tool(tool: &'static str, args: &[&str], stream: Stream, max_lines: usize) -> Result<Vec<String>, ToolOutcome> {
+    let output = Command::new(tool)
+        .args(args)
+        .output()
+        .map_err(|error| ToolOutcome::Failed {
+            tool,
+            reason: format!("{tool}: could not be executed: {error}"),
+        })?;
+
+    if output.status.success() {
+        return Ok(vec![]);
+    }
+
+    let raw = match stream {
+        Stream::Stdout => String::from_utf8_lossy(&output.stdout),
+        Stream::Stderr => String::from_utf8_lossy(&output.stderr),
+    };
+
+    Ok(raw
+        .lines()
+        .filter(|line| !line.trim().is_empty())
+        .take(max_lines)
+        .map(|line| format!("{tool}: {line}"))
+        .collect())
+}
+
+/// Run one checker end to end: probe, write the source, execute, collect.
+fn check_with(
+    tool: &'static str,
+    probe_arg: &str,
+    code: &str,
+    ext: &str,
+    build_args: impl Fn(&str) -> Vec<String>,
+    stream: Stream,
+    max_lines: usize,
+) -> ToolOutcome {
+    if !tool_present(tool, probe_arg) {
+        return ToolOutcome::Missing { tool };
+    }
+
+    let source = match TempSource::new(tool, code, ext) {
+        Ok(source) => source,
+        Err(outcome) => return outcome,
+    };
+    let path = match source.arg(tool) {
+        Ok(path) => path,
+        Err(outcome) => return outcome,
+    };
+
+    let args = build_args(path);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+
+    match run_tool(tool, &args, stream, max_lines) {
+        Ok(errors) => ToolOutcome::Ran { tool, errors },
+        Err(outcome) => outcome,
+    }
+}
+
+/// Validate generated code with the real compilers and linters for its
+/// language.
+///
+/// Returns [`ToolValidation::Unsupported`] when no validator exists for the
+/// backend's language, and a per-tool [`ToolOutcome`] list otherwise. Callers
+/// must not treat "no errors" as "checked" without consulting
+/// [`ToolValidation::fully_checked`] or [`ToolValidation::into_result`] --
+/// see [`ToolOutcome`] for why.
+pub fn validate_with_tools(code: &str, backend_name: &str) -> ToolValidation {
+    let outcomes = match backend_name {
         name if name.starts_with("python") => validate_python_tools(code),
         name if name.starts_with("javascript") => validate_javascript_tools(code),
         name if name.starts_with("typescript") => validate_typescript_tools(code),
@@ -443,8 +730,10 @@ pub fn validate_with_tools(code: &str, backend_name: &str) -> Option<Vec<String>
         name if name.starts_with("ruby") => validate_ruby_tools(code),
         name if name.starts_with("php") => validate_php_tools(code),
         name if name.starts_with("kotlin") => validate_kotlin_tools(code),
-        _ => None,
-    }
+        _ => return ToolValidation::Unsupported,
+    };
+
+    ToolValidation::Attempted(outcomes)
 }
 
 fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
@@ -462,70 +751,73 @@ fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
     Some(path)
 }
 
-fn validate_python_tools(code: &str) -> Option<Vec<String>> {
-    if Command::new("python3").arg("--version").output().is_err() {
-        return None;
-    }
-    let path = write_temp(code, ".py")?;
-    let mut errors = vec![];
+/// `python3 -m ast` for syntax, then `ruff` for imports and obvious defects.
+///
+/// `ruff` is reported as its own outcome rather than folded into python's.
+/// Previously a missing `ruff` still produced `Some(errors)` from this
+/// function, so an absent linter was indistinguishable from a clean one --
+/// the single worst instance of the bug this type exists to prevent.
+fn validate_python_tools(code: &str) -> Vec<ToolOutcome> {
+    let syntax = check_with(
+        "python3",
+        "--version",
+        code,
+        ".py",
+        |path| {
+            vec![
+                "-c".to_string(),
+                format!("import ast; ast.parse(open({path:?}).read())"),
+            ]
+        },
+        Stream::Stderr,
+        1,
+    );
 
-    let out = Command::new("python3")
-        .args(["-c", &format!("import ast; ast.parse(open({:?}).read())", path)])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        errors.push(format!(
-            "python syntax: {}",
-            String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("")
-        ));
-    }
+    let lint = check_with(
+        "ruff",
+        "--version",
+        code,
+        ".py",
+        |path| {
+            ["check", "--select", "E,F,I", "--target-version", "py310", path]
+                .iter()
+                .map(|arg| (*arg).to_string())
+                .collect()
+        },
+        Stream::Stdout,
+        3,
+    );
 
-    if Command::new("ruff").arg("--version").output().is_ok() {
-        let out = Command::new("ruff")
-            .args([
-                "check",
-                "--select",
-                "E,F,I",
-                "--target-version",
-                "py310",
-                path.to_str()?,
-            ])
-            .output()
-            .ok()?;
-        if !out.status.success() {
-            for line in String::from_utf8_lossy(&out.stdout).lines().take(3) {
-                if !line.trim().is_empty() {
-                    errors.push(format!("ruff: {line}"));
-                }
-            }
-        }
-    }
-
-    let _ = std::fs::remove_file(&path);
-    Some(errors)
+    vec![syntax, lint]
 }
 
-fn validate_typescript_tools(code: &str) -> Option<Vec<String>> {
-    if Command::new("biome").arg("--version").output().is_err() {
-        return None;
-    }
-    let path = write_temp(code, ".ts")?;
-    let mut errors = vec![];
-
-    let out = Command::new("biome")
-        .args(["check", "--no-errors-on-unmatched", path.to_str()?])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        for line in String::from_utf8_lossy(&out.stderr).lines().take(3) {
-            if !line.trim().is_empty() {
-                errors.push(format!("biome: {line}"));
-            }
-        }
-    }
-
-    let _ = std::fs::remove_file(&path);
-    Some(errors)
+/// `biome lint`, deliberately not `biome check`.
+///
+/// `check` runs the linter *and* the formatter. Until #98 installed `biome`
+/// this function had never once executed, so that choice was never tested --
+/// and it is wrong: the formatter's only complaints about generated code are
+/// that scythe indents with spaces where biome would use tabs, and where it
+/// would break a line. Generated-code layout is the backends' contract, not
+/// biome's, and `scythe fmt` is what owns it. Running `check` would fail 8
+/// TypeScript backends purely on indentation.
+///
+/// `lint` keeps what is actually worth knowing -- unused bindings, unsafe
+/// casts, `useLiteralKeys` and the rest of the correctness rules.
+fn validate_typescript_tools(code: &str) -> Vec<ToolOutcome> {
+    vec![check_with(
+        "biome",
+        "--version",
+        code,
+        ".ts",
+        |path| {
+            ["lint", "--no-errors-on-unmatched", path]
+                .iter()
+                .map(|arg| (*arg).to_string())
+                .collect()
+        },
+        Stream::Stderr,
+        3,
+    )]
 }
 
 /// Path to the hand-written ambient `.d.ts` stubs for the driver packages
@@ -547,16 +839,11 @@ fn js_mode_driver_stub_path() -> std::path::PathBuf {
 /// Validate generated `javascript-*` (JSDoc emit mode, #81) code against the
 /// real `node` runtime and, when available, real `tsc --checkJs --strict`.
 ///
-/// Unlike every other `validate_*_tools` function in this file, this one
-/// `eprintln!`s which tool it found or is skipping, and why. #81's
-/// verification requirement is specifically "runs under `node`, not `tsx`,
-/// plus `tsc --checkJs --strict`" -- the silent `None` this file's other
-/// validators return when a tool is missing is easy to mistake for
-/// "checked, and clean" instead of "not checked at all", which is exactly
-/// the verification gap #81's review called out. A caller that only inspects
-/// `Some(errors).is_empty()` and ignores a `None` return risks exactly that
-/// mistake, so this also prints loudly enough that `cargo test -- --nocapture`
-/// makes the skip impossible to miss.
+/// #81's verification requirement is specifically "runs under `node`, not
+/// `tsx`, plus `tsc --checkJs --strict`", so both are reported as separate
+/// [`ToolOutcome`]s: a machine with `node` but no `tsc` has verified that the
+/// generated source parses, and verified nothing at all about whether its
+/// JSDoc annotations typecheck.
 ///
 /// Writes the temp file with a `.mjs` extension rather than `.js`: `node`'s
 /// ESM-vs-CommonJS auto-detection for a bare `.js` file depends on Node
@@ -565,39 +852,28 @@ fn js_mode_driver_stub_path() -> std::path::PathBuf {
 /// control, and both irrelevant to what's actually being verified (that the
 /// generated *source* is valid ESM). `.mjs` is an unambiguous, version-
 /// independent signal that sidesteps that entirely.
-fn validate_javascript_tools(code: &str) -> Option<Vec<String>> {
-    let Ok(node_version) = Command::new("node").arg("--version").output() else {
-        eprintln!("  SKIP javascript tool validation: `node` not found on PATH -- nothing was checked with any tool");
-        return None;
-    };
-    eprintln!(
-        "  RUN javascript tool validation: node {} found on PATH",
-        String::from_utf8_lossy(&node_version.stdout).trim()
-    );
-
-    let path = write_temp(code, ".mjs")?;
-    let mut errors = vec![];
-
+fn validate_javascript_tools(code: &str) -> Vec<ToolOutcome> {
     // Real `node`, not `tsx`/`ts-node`/a build step: the generated file must
     // parse as plain ESM as-is. `--check` parses without executing,
-    // mirroring this file's `ruby -c` / `php -l` precedent above.
-    let out = Command::new("node").args(["--check", path.to_str()?]).output().ok()?;
-    if !out.status.success() {
-        for line in String::from_utf8_lossy(&out.stderr).lines().take(5) {
-            if !line.trim().is_empty() {
-                errors.push(format!("node --check: {line}"));
-            }
-        }
-    }
+    // mirroring the `ruby -c` / `php -l` precedent in this file.
+    let parse = check_with(
+        "node",
+        "--version",
+        code,
+        ".mjs",
+        |path| ["--check", path].iter().map(|arg| (*arg).to_string()).collect(),
+        Stream::Stderr,
+        5,
+    );
 
-    if let Ok(tsc_version) = Command::new("tsc").arg("--version").output() {
-        eprintln!(
-            "  RUN tsc --checkJs --strict: {} found on PATH",
-            String::from_utf8_lossy(&tsc_version.stdout).trim()
-        );
-        let stub = js_mode_driver_stub_path();
-        let out = Command::new("tsc")
-            .args([
+    let stub = js_mode_driver_stub_path();
+    let typecheck = check_with(
+        "tsc",
+        "--version",
+        code,
+        ".mjs",
+        |path| {
+            let mut args: Vec<String> = [
                 "--checkJs",
                 "--strict",
                 "--allowJs",
@@ -608,112 +884,73 @@ fn validate_javascript_tools(code: &str) -> Option<Vec<String>> {
                 "nodenext",
                 "--target",
                 "es2022",
-            ])
-            .arg(path.to_str()?)
-            .arg(stub.to_str()?)
-            .output()
-            .ok()?;
-        if !out.status.success() {
-            // tsc writes diagnostics to stdout by default; stderr is
-            // included too so a crash/usage error is not silently dropped.
-            let mut lines: Vec<String> = String::from_utf8_lossy(&out.stdout)
-                .lines()
-                .map(str::to_string)
-                .collect();
-            lines.extend(String::from_utf8_lossy(&out.stderr).lines().map(str::to_string));
-            for line in lines.into_iter().take(10) {
-                if !line.trim().is_empty() {
-                    errors.push(format!("tsc: {line}"));
-                }
-            }
-        }
-    } else {
-        eprintln!("  SKIP tsc --checkJs --strict: `tsc` not found on PATH -- only `node --check` ran");
-    }
+            ]
+            .iter()
+            .map(|arg| (*arg).to_string())
+            .collect();
+            args.push(path.to_string());
+            args.push(stub.to_string_lossy().into_owned());
+            args
+        },
+        // tsc writes diagnostics to stdout by default.
+        Stream::Stdout,
+        10,
+    );
 
-    let _ = std::fs::remove_file(&path);
-    Some(errors)
+    vec![parse, typecheck]
 }
 
-fn validate_go_tools(code: &str) -> Option<Vec<String>> {
-    if Command::new("gofmt").arg("-h").output().is_err() {
-        return None;
-    }
-    let path = write_temp(code, ".go")?;
-    let mut errors = vec![];
-
-    let out = Command::new("gofmt").args(["-e", path.to_str()?]).output().ok()?;
-    if !out.status.success() {
-        for line in String::from_utf8_lossy(&out.stderr).lines().take(3) {
-            if !line.trim().is_empty() {
-                errors.push(format!("gofmt: {line}"));
-            }
-        }
-    }
-
-    let _ = std::fs::remove_file(&path);
-    Some(errors)
+fn validate_go_tools(code: &str) -> Vec<ToolOutcome> {
+    vec![check_with(
+        "gofmt",
+        "-h",
+        code,
+        ".go",
+        |path| ["-e", path].iter().map(|arg| (*arg).to_string()).collect(),
+        Stream::Stderr,
+        3,
+    )]
 }
 
-fn validate_ruby_tools(code: &str) -> Option<Vec<String>> {
-    if Command::new("ruby").arg("--version").output().is_err() {
-        return None;
-    }
-    let path = write_temp(code, ".rb")?;
-    let mut errors = vec![];
-
-    let out = Command::new("ruby").args(["-c", path.to_str()?]).output().ok()?;
-    if !out.status.success() {
-        errors.push(format!(
-            "ruby syntax: {}",
-            String::from_utf8_lossy(&out.stderr).lines().next().unwrap_or("")
-        ));
-    }
-
-    let _ = std::fs::remove_file(&path);
-    Some(errors)
+fn validate_ruby_tools(code: &str) -> Vec<ToolOutcome> {
+    vec![check_with(
+        "ruby",
+        "--version",
+        code,
+        ".rb",
+        |path| ["-c", path].iter().map(|arg| (*arg).to_string()).collect(),
+        Stream::Stderr,
+        1,
+    )]
 }
 
-fn validate_php_tools(code: &str) -> Option<Vec<String>> {
-    if Command::new("php").arg("--version").output().is_err() {
-        return None;
-    }
-    let path = write_temp(code, ".php")?;
-    let mut errors = vec![];
-
-    let out = Command::new("php").args(["-l", path.to_str()?]).output().ok()?;
-    if !out.status.success() {
-        errors.push(format!(
-            "php syntax: {}",
-            String::from_utf8_lossy(&out.stdout).lines().next().unwrap_or("")
-        ));
-    }
-
-    let _ = std::fs::remove_file(&path);
-    Some(errors)
+fn validate_php_tools(code: &str) -> Vec<ToolOutcome> {
+    vec![check_with(
+        "php",
+        "--version",
+        code,
+        ".php",
+        |path| ["-l", path].iter().map(|arg| (*arg).to_string()).collect(),
+        Stream::Stdout,
+        1,
+    )]
 }
 
-fn validate_kotlin_tools(code: &str) -> Option<Vec<String>> {
-    if Command::new("ktlint").arg("--version").output().is_err() {
-        return None;
-    }
-    let path = write_temp(code, ".kt")?;
-    let mut errors = vec![];
-
-    let out = Command::new("ktlint")
-        .args(["--log-level=error", path.to_str()?])
-        .output()
-        .ok()?;
-    if !out.status.success() {
-        for line in String::from_utf8_lossy(&out.stdout).lines().take(3) {
-            if !line.trim().is_empty() {
-                errors.push(format!("ktlint: {line}"));
-            }
-        }
-    }
-
-    let _ = std::fs::remove_file(&path);
-    Some(errors)
+fn validate_kotlin_tools(code: &str) -> Vec<ToolOutcome> {
+    vec![check_with(
+        "ktlint",
+        "--version",
+        code,
+        ".kt",
+        |path| {
+            ["--log-level=error", path]
+                .iter()
+                .map(|arg| (*arg).to_string())
+                .collect()
+        },
+        Stream::Stdout,
+        3,
+    )]
 }
 
 #[cfg(test)]
@@ -838,5 +1075,130 @@ function listUsers($pdo): array {
 "#;
         let errors = validate_structural(code, "php-pdo");
         assert!(errors.is_empty(), "expected no errors, got: {:?}", errors);
+    }
+
+    /// The bug this whole type exists to prevent: before `ToolValidation`,
+    /// a tool that was never installed and a tool that ran and found nothing
+    /// both arrived at the call site as "no errors", so an uninstalled linter
+    /// read as a green check mark.
+    #[test]
+    fn a_missing_tool_is_not_the_same_as_a_clean_run() {
+        let clean = ToolValidation::Attempted(vec![ToolOutcome::Ran {
+            tool: "ruff",
+            errors: vec![],
+        }]);
+        let absent = ToolValidation::Attempted(vec![ToolOutcome::Missing { tool: "ruff" }]);
+
+        // Both report zero findings -- that is exactly why the old
+        // `Option<Vec<String>>` could not tell them apart.
+        assert!(clean.errors().is_empty());
+        assert!(absent.errors().is_empty());
+
+        // The type still distinguishes them.
+        assert!(clean.fully_checked(), "a tool that ran is a real check");
+        assert!(!absent.fully_checked(), "a tool that never ran checked nothing");
+        assert_eq!(absent.missing_tools(), vec!["ruff"]);
+        assert!(clean.missing_tools().is_empty());
+    }
+
+    #[test]
+    fn strict_mode_turns_a_missing_tool_into_a_failure() {
+        let absent = ToolValidation::Attempted(vec![ToolOutcome::Missing { tool: "biome" }]);
+
+        assert!(
+            absent.clone().into_result_with_strictness(false).is_ok(),
+            "outside strict mode a missing tool is tolerated"
+        );
+
+        let failures = absent
+            .into_result_with_strictness(true)
+            .expect_err("strict mode must fail on a missing tool");
+        assert_eq!(failures.len(), 1);
+        assert!(
+            failures[0].contains("biome") && failures[0].contains("not installed"),
+            "the failure must name the tool and say it never ran: {failures:?}"
+        );
+    }
+
+    /// A validator that runs two tools and finds only one of them has
+    /// verified half of what it claims to. `validate_python_tools` shipped
+    /// exactly this shape -- `python3` present, `ruff` absent, `Some([])`
+    /// returned -- which is the strongest possible false signal.
+    #[test]
+    fn a_partially_run_validation_is_not_fully_checked() {
+        let partial = ToolValidation::Attempted(vec![
+            ToolOutcome::Ran {
+                tool: "python3",
+                errors: vec![],
+            },
+            ToolOutcome::Missing { tool: "ruff" },
+        ]);
+
+        assert!(partial.errors().is_empty());
+        assert!(!partial.fully_checked(), "one of two tools running is not a full check");
+        assert_eq!(partial.tools_run(), vec!["python3"]);
+        assert_eq!(partial.missing_tools(), vec!["ruff"]);
+        assert!(partial.into_result_with_strictness(true).is_err());
+    }
+
+    #[test]
+    fn python_reports_ruff_separately_from_the_syntax_check() {
+        // Whatever is or is not installed on this machine, the validator must
+        // account for both tools rather than silently folding one into the
+        // other.
+        let outcomes = validate_python_tools("x = 1\n");
+        assert_eq!(outcomes.len(), 2, "python3 and ruff each get an outcome");
+
+        let named: Vec<&str> = outcomes
+            .iter()
+            .map(|outcome| match outcome {
+                ToolOutcome::Ran { tool, .. } | ToolOutcome::Missing { tool } | ToolOutcome::Failed { tool, .. } => {
+                    *tool
+                }
+            })
+            .collect();
+        assert_eq!(named, vec!["python3", "ruff"]);
+    }
+
+    /// A language with no validator must not masquerade as a clean pass
+    /// either -- `_ => None` previously made Java, C#, Elixir and Rust
+    /// unconditionally green.
+    #[test]
+    fn a_backend_with_no_validator_is_unsupported_not_clean() {
+        let validation = validate_with_tools("public class Foo {}", "java-jdbc");
+
+        assert_eq!(validation, ToolValidation::Unsupported);
+        assert!(validation.errors().is_empty());
+        assert!(!validation.fully_checked(), "no validator means nothing was checked");
+        assert!(validation.clone().into_result_with_strictness(false).is_ok());
+        assert!(
+            validation.into_result_with_strictness(true).is_ok(),
+            "strict mode is for tools that can be installed; a language with no \
+             validator is tracked by an inventory test instead -- see \
+             into_result_with_strictness"
+        );
+    }
+
+    /// A harness that cannot run an installed tool is a failure in both
+    /// modes. The old code reached these paths through `?` on an `Option`
+    /// and reported them as "tool not installed", which then read as a pass.
+    #[test]
+    fn a_harness_failure_is_an_error_even_outside_strict_mode() {
+        let broken = ToolValidation::Attempted(vec![ToolOutcome::Failed {
+            tool: "gofmt",
+            reason: "gofmt: could not be executed: permission denied".into(),
+        }]);
+
+        assert!(!broken.fully_checked());
+        let failures = broken
+            .into_result_with_strictness(false)
+            .expect_err("a broken harness is never a pass");
+        assert!(failures[0].contains("gofmt"));
+    }
+
+    #[test]
+    fn strict_mode_reads_the_documented_environment_variable() {
+        // Guard: the constant and the docs must not drift apart.
+        assert_eq!(STRICT_ENV_VAR, "SCYTHE_VALIDATE_STRICT");
     }
 }
