@@ -1,0 +1,143 @@
+name: Nullability Conformance
+
+# Checks the analyzer's nullability inference against what the engines
+# actually return, rather than against the analyzer's own model. See
+# crates/scythe-conformance/src/lib.rs for the four assertions.
+#
+# The analyzer paths are deliberately in the path filter: a change to
+# crates/scythe-core/src/analyzer/** is exactly what this suite exists to
+# catch, so it must gate those PRs and not only changes to the suite itself.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "crates/scythe-conformance/**"
+      - "crates/scythe-core/src/analyzer/**"
+      - "crates/scythe-core/src/catalog/**"
+      - "testing_data/nullability_live/**"
+      - ".github/workflows/nullability-conformance.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "crates/scythe-conformance/**"
+      - "crates/scythe-core/src/analyzer/**"
+      - "crates/scythe-core/src/catalog/**"
+      - "testing_data/nullability_live/**"
+      - ".github/workflows/nullability-conformance.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: nullability-conformance-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  # No container: SQLite runs in-memory, so this leg is nearly free and is
+  # the one that fails fastest when the suite itself is broken.
+  sqlite:
+    name: SQLite
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run SQLite conformance leg
+        run: cargo test -p scythe-conformance --features sqlite,live-tests --test live -- --nocapture
+
+  postgres:
+    name: PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scythe
+          POSTGRES_PASSWORD: scythe
+          POSTGRES_DB: scythe_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SCYTHE_CONFORMANCE_POSTGRES_URL: postgres://scythe:scythe@localhost:5432/scythe_test
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run PostgreSQL conformance leg
+        run: cargo test -p scythe-conformance --features pg,live-tests --test live -- --nocapture
+
+  # The admin URL is root, not the per-app `scythe` user: the runner
+  # isolates itself into a dedicated database it creates, and the app user
+  # in these images is scoped to `scythe_test` only.
+  mysql:
+    name: MySQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: scythe
+          MYSQL_DATABASE: scythe_test
+          MYSQL_USER: scythe
+          MYSQL_PASSWORD: scythe
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "mysqladmin ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      SCYTHE_CONFORMANCE_MYSQL_ADMIN_URL: mysql://root:scythe@127.0.0.1:3306/
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run MySQL conformance leg
+        run: cargo test -p scythe-conformance --features mysql,live-tests --test live -- --nocapture
+
+  mariadb:
+    name: MariaDB
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mariadb:
+        image: mariadb:11
+        env:
+          MARIADB_ROOT_PASSWORD: scythe
+          MARIADB_DATABASE: scythe_test
+          MARIADB_USER: scythe
+          MARIADB_PASSWORD: scythe
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd "healthcheck.sh --connect --innodb_initialized"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SCYTHE_CONFORMANCE_MARIADB_ADMIN_URL: mysql://root:scythe@127.0.0.1:3306/
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run MariaDB conformance leg
+        run: cargo test -p scythe-conformance --features mariadb,live-tests --test live -- --nocapture

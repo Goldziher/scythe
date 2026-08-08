@@ -1,0 +1,22 @@
+# Registry of accepted analyzer/engine divergences for the live nullability
+# conformance suite.
+#
+# This is a narrow escape hatch for exactly one situation: the analyzer is
+# more pessimistic than a specific live engine (it marked a column nullable,
+# but no live run has ever demonstrated a NULL for it there). It can never
+# excuse a soundness (A2) failure -- `kind` only accepts
+# "analyzer_over_pessimistic", and the loader in
+# `crates/scythe-conformance/src/divergence.rs` rejects any other value.
+#
+# A registered entry that stops reproducing fails the build (see
+# `divergence::check_staleness`): fixing the underlying gap thus forces
+# deleting the entry that excused it. Keep this list empty unless a live run
+# has actually proven the gap.
+#
+# [[entry]]
+# fixture = "live_..."
+# engine = "oracle"
+# column = "..."
+# kind = "analyzer_over_pessimistic"
+# issue = "https://github.com/Goldziher/scythe/issues/NNNN"
+# reason = "..."

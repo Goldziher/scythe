@@ -257,7 +257,15 @@ pub struct SqlcComparison {
 }
 
 /// Recursively loads all `.json` fixture files from `dir`, excluding
-/// `00-FIXTURE-SCHEMA.json`. Returns fixtures sorted by (category, name).
+/// `00-FIXTURE-SCHEMA.json` and any path with an `_`-prefixed directory
+/// component *below `dir`* (e.g. `_schemas/`, used by `scythe-conformance`
+/// to hold non-fixture data alongside its fixtures) -- such a directory
+/// must never be silently picked up as a JSON fixture. The exclusion check
+/// is scoped to the path relative to `dir`: `dir` itself carries the full
+/// filesystem path, including every ancestor, and checking those too would
+/// silently discard every fixture whenever the checkout happens to sit
+/// under a `_`-prefixed directory (e.g. `_work`, the prefix GitHub Actions
+/// self-hosted runners use). Returns fixtures sorted by (category, name).
 pub fn load_fixtures(dir: &Path) -> Result<Vec<Fixture>, Box<dyn std::error::Error>> {
     let pattern = dir.join("**/*.json").to_str().ok_or("non-UTF-8 path")?.to_string();
 
@@ -268,6 +276,14 @@ pub fn load_fixtures(dir: &Path) -> Result<Vec<Fixture>, Box<dyn std::error::Err
 
         if let Some(file_name) = path.file_name().and_then(|n| n.to_str())
             && file_name == "00-FIXTURE-SCHEMA.json"
+        {
+            continue;
+        }
+
+        let relative = path.strip_prefix(dir).unwrap_or(&path);
+        if relative
+            .components()
+            .any(|c| c.as_os_str().to_string_lossy().starts_with('_'))
         {
             continue;
         }
@@ -300,4 +316,70 @@ pub fn load_fixtures(dir: &Path) -> Result<Vec<Fixture>, Box<dyn std::error::Err
     }
 
     Ok(fixtures)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn write_fixture(dir: &Path, file_name: &str, name: &str) {
+        let json = format!(
+            r#"{{
+  "name": "{name}",
+  "description": "d",
+  "category": "smoke",
+  "schema_sql": ["CREATE TABLE t (id INT)"],
+  "expected": {{ "success": true }},
+  "source": "original"
+}}"#
+        );
+        std::fs::write(dir.join(file_name), json).unwrap();
+    }
+
+    #[test]
+    fn load_fixtures_finds_a_well_formed_fixture() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fixture(dir.path(), "f.json", "smoke_test");
+        let fixtures = load_fixtures(dir.path()).expect("well-formed fixture must load");
+        assert_eq!(fixtures.len(), 1);
+        assert_eq!(fixtures[0].name, "smoke_test");
+    }
+
+    #[test]
+    fn load_fixtures_excludes_an_underscore_prefixed_directory_below_dir() {
+        let dir = tempfile::tempdir().unwrap();
+        write_fixture(dir.path(), "f.json", "smoke_test");
+        let underscore_dir = dir.path().join("_schemas");
+        std::fs::create_dir_all(&underscore_dir).unwrap();
+        // Not a valid Fixture -- if the glob ever picked this up, load
+        // would fail to parse it.
+        std::fs::write(underscore_dir.join("not_a_fixture.json"), "{}").unwrap();
+
+        let fixtures = load_fixtures(dir.path()).expect("underscore dir must be excluded");
+        assert_eq!(fixtures.len(), 1);
+    }
+
+    #[test]
+    fn load_fixtures_loads_normally_when_an_ancestor_of_dir_starts_with_underscore() {
+        // The exclusion check must only look at path components *below*
+        // `dir`. `dir.join("**/*.json")` glob results carry the full path,
+        // ancestors included -- checking the whole path would silently
+        // discard every fixture whenever the checkout sits under a
+        // `_`-prefixed directory (e.g. `_work`, the exact prefix GitHub
+        // Actions self-hosted runners use), which would make every
+        // generated test file empty while reporting success.
+        let parent = tempfile::tempdir().unwrap();
+        let underscore_ancestor = parent.path().join("_work");
+        let fixtures_dir = underscore_ancestor.join("testing_data");
+        std::fs::create_dir_all(&fixtures_dir).unwrap();
+        write_fixture(&fixtures_dir, "f.json", "smoke_test");
+
+        let fixtures =
+            load_fixtures(&fixtures_dir).expect("an underscore-prefixed ancestor of dir must not suppress fixtures");
+        assert_eq!(
+            fixtures.len(),
+            1,
+            "dir sits under an underscore-prefixed directory but must still load"
+        );
+    }
 }
