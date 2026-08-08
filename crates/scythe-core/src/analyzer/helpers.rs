@@ -2,6 +2,8 @@ use sqlparser::ast::{
     self, BinaryOperator, Expr, GroupByExpr, ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, Value,
 };
 
+use crate::dialect::SqlDialect;
+
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
@@ -174,6 +176,39 @@ pub(super) fn is_literal(expr: &Expr) -> bool {
         }
         _ => false,
     }
+}
+
+/// Whether this literal *evaluates to NULL* under `dialect`.
+///
+/// Oracle is the only supported dialect where a literal can: it stores a
+/// zero-length string as NULL, so `''` and `N''` are NULL literals there,
+/// not empty values. Everywhere else `''` is a value distinct from NULL.
+///
+/// This is not a cosmetic difference. `COALESCE(email, '')` is inferred
+/// non-nullable *because of* its literal fallback, which makes codegen emit
+/// a non-optional field; on Oracle that column really does come back NULL
+/// and the generated code cannot decode the row. See
+/// `testing_data/nullability_live/coalesce_non_null/live_coalesce_with_empty_string_default_is_null_on_oracle.json`,
+/// which reproduces exactly that against a live Oracle instance and fails
+/// this suite's A2 soundness assertion if this branch is removed.
+pub(super) fn value_is_null_in_dialect(vws: &ast::ValueWithSpan, dialect: SqlDialect) -> bool {
+    if dialect != SqlDialect::Oracle {
+        return false;
+    }
+    // Deliberately not `DoubleQuotedString`: in Oracle double quotes
+    // delimit an identifier, so `""` is not an empty string at all.
+    matches!(
+        &vws.value,
+        Value::SingleQuotedString(s) | Value::NationalStringLiteral(s) if s.is_empty()
+    )
+}
+
+/// Whether `expr` is a literal that `dialect` guarantees is not NULL --
+/// the property callers actually want when a literal is used to prove an
+/// expression non-nullable. [`is_literal`] alone answers a syntactic
+/// question and would accept Oracle's `''`.
+pub(super) fn is_non_null_literal(expr: &Expr, dialect: SqlDialect) -> bool {
+    is_literal(expr) && !matches!(expr, Expr::Value(vws) if value_is_null_in_dialect(vws, dialect))
 }
 
 /// Simple pluralization: add 's' to a name
