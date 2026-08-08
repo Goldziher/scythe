@@ -71,7 +71,7 @@ rather than preceding it, since nothing may come before that tag.
 
 ## Supported backends
 
-Scythe provides 52 backends across 10 languages and 10 database engines. Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
+Scythe provides 56 selectable backend names across 10 languages (plus plain JavaScript, emitted by the TypeScript backends' JSDoc mode) and 10 database engines, implemented by 52 `CodegenBackend` types: the four `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend rather than separate implementations (see [JavaScript output](/scythe/backends/typescript/#javascript-output-jsdoc)). Some backends (like `java-jdbc`) support multiple engines via engine-specific manifests loaded at runtime.
 
 ### PostgreSQL
 
@@ -84,6 +84,8 @@ Scythe provides 52 backends across 10 languages and 10 database engines. Some ba
 | `typescript-postgres` | TypeScript | postgres.js |
 | `typescript-pg` | TypeScript | pg (node-postgres) |
 | `typescript-kysely` | TypeScript | Kysely (any dialect) |
+| `javascript-postgres` | JavaScript | postgres.js (JSDoc types) |
+| `javascript-pg` | JavaScript | pg (node-postgres, JSDoc types) |
 | `go-pgx` | Go | pgx v5 |
 | `java-jdbc` | Java | JDBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
@@ -104,6 +106,7 @@ Scythe provides 52 backends across 10 languages and 10 database engines. Some ba
 | `python-aiomysql` | Python | aiomysql |
 | `typescript-mysql2` | TypeScript | mysql2 |
 | `typescript-kysely` | TypeScript | Kysely (any dialect) |
+| `javascript-mysql2` | JavaScript | mysql2 (JSDoc types) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC |
 | `java-r2dbc` | Java | R2DBC (Project Reactor) |
@@ -126,6 +129,7 @@ Scythe provides 52 backends across 10 languages and 10 database engines. Some ba
 | `typescript-kysely` | TypeScript | Kysely (any SQLite dialect, incl. third-party ones) |
 | `typescript-node-sqlite` | TypeScript | node:sqlite (synchronous) |
 | `typescript-wasm-sqlite` | TypeScript | @sqlite.org/sqlite-wasm (synchronous) |
+| `javascript-better-sqlite3` | JavaScript | better-sqlite3 (JSDoc types, synchronous) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC |
 | `java-r2dbc` | Java | R2DBC (Project Reactor) |
@@ -206,6 +210,7 @@ MariaDB uses MySQL drivers with MariaDB-specific type resolution:
 | `python-aiomysql` | Python | aiomysql |
 | `typescript-mysql2` | TypeScript | mysql2 |
 | `typescript-kysely` | TypeScript | Kysely (any dialect) |
+| `javascript-mysql2` | JavaScript | mysql2 (JSDoc types) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC (MariaDB Connector/J) |
 | `java-r2dbc` | Java | R2DBC (Project Reactor) |
@@ -231,6 +236,8 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 | `typescript-pg` | TypeScript | pg |
 | `typescript-postgres` | TypeScript | postgres.js |
 | `typescript-kysely` | TypeScript | Kysely (any dialect) |
+| `javascript-pg` | JavaScript | pg (JSDoc types) |
+| `javascript-postgres` | JavaScript | postgres.js (JSDoc types) |
 | `go-pgx` | Go | pgx v5 |
 | `java-jdbc` | Java | JDBC (Redshift JDBC driver) |
 | `kotlin-jdbc` | Kotlin | JDBC (Redshift JDBC driver) |
@@ -258,6 +265,7 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 | Rust | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx, tokio-postgres | tiberius | sibyl | sqlx | sqlx, tokio-postgres | -- |
 | Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3, asyncpg | pyodbc | oracledb | aiomysql | psycopg3, asyncpg | snowflake-connector |
 | TypeScript | postgres.js, pg, Kysely | mysql2, Kysely | better-sqlite3, Kysely, node:sqlite, wasm-sqlite | duckdb-node | postgres.js, pg, Kysely | mssql, Kysely | oracledb | mysql2, Kysely | postgres.js, pg, Kysely | snowflake-sdk |
+| JavaScript | postgres.js, pg | mysql2 | better-sqlite3 | -- | postgres.js, pg | -- | -- | mysql2 | postgres.js, pg | -- |
 | Go | pgx | database/sql | database/sql | database/sql | pgx | database/sql | godror | database/sql | pgx | gosnowflake |
 | Java | JDBC, R2DBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
 | Kotlin | JDBC, R2DBC, Exposed | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
@@ -269,7 +277,9 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 `java-r2dbc` and `kotlin-r2dbc` only cover PostgreSQL/CockroachDB, MySQL, MariaDB, and SQLite — not
 MSSQL, Oracle, Redshift, or Snowflake. `elixir-ecto` and `kotlin-exposed` cover PostgreSQL/CockroachDB
 only. `php-amphp` covers PostgreSQL/CockroachDB, MySQL, and MariaDB only. `php-pdo` has no Oracle
-support despite a manifest existing for it.
+support despite a manifest existing for it. The JavaScript row is the `javascript-*` JSDoc emit mode
+of the four TypeScript backends it names -- the remaining seven TypeScript backends have no
+JavaScript counterpart.
 
 ## Adding a new backend
 

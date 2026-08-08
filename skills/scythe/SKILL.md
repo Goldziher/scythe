@@ -14,7 +14,7 @@ metadata:
 
 # Scythe SQL-to-Code Generator
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries with annotations, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 52 backend drivers. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries with annotations, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 56 backends. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
 
 Use this skill when:
 
@@ -242,6 +242,8 @@ structs_only = "true"
 | `typescript-postgres` | TypeScript | postgres.js |
 | `typescript-pg` | TypeScript | pg |
 | `typescript-kysely` | TypeScript | Kysely (`PostgresDialect`) |
+| `javascript-postgres` | JavaScript | postgres.js (JSDoc types) |
+| `javascript-pg` | JavaScript | pg (JSDoc types) |
 | `go-pgx` | Go | pgx v5 |
 | `java-jdbc` | Java | JDBC |
 | `java-r2dbc` | Java | R2DBC |
@@ -262,6 +264,7 @@ structs_only = "true"
 | `python-aiomysql` | Python | aiomysql |
 | `typescript-mysql2` | TypeScript | mysql2 |
 | `typescript-kysely` | TypeScript | Kysely (`MysqlDialect`) |
+| `javascript-mysql2` | JavaScript | mysql2 (JSDoc types) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
@@ -280,6 +283,7 @@ structs_only = "true"
 | `typescript-node-sqlite` | TypeScript | node:sqlite (sync, zero deps) |
 | `typescript-wasm-sqlite` | TypeScript | @sqlite.org/sqlite-wasm (sync) |
 | `typescript-kysely` | TypeScript | Kysely (`SqliteDialect`) |
+| `javascript-better-sqlite3` | JavaScript | better-sqlite3 (JSDoc types, sync) |
 | `go-database-sql` | Go | database/sql |
 | `java-jdbc` | Java | JDBC |
 | `kotlin-jdbc` | Kotlin | JDBC |
@@ -289,6 +293,8 @@ structs_only = "true"
 | `php-pdo` | PHP | PDO |
 
 `typescript-node-sqlite` and `typescript-wasm-sqlite` generate synchronous code -- plain `export function`, no `async`, no `Promise` -- unlike every other TypeScript backend ([#66](https://github.com/Goldziher/scythe/issues/66)). `typescript-node-sqlite` requires `--experimental-sqlite` on Node 22 and is unflagged from Node 23.4 onward; generated code needs Node 23.4+ to run without the flag.
+
+`javascript-postgres`, `javascript-pg`, `javascript-mysql2`, and `javascript-better-sqlite3` are a JSDoc emit mode on the matching TypeScript backend, not separate backends ([#81](https://github.com/Goldziher/scythe/issues/81)). Output is `queries.js`: plain ESM, no driver import (handles are typed inline as `import("pg").PoolClient` in `@param`), row types as `@typedef {object}` with nullable columns always `{T | null}`. `row_type = "zod"`, `outer_join_unions`, and `field_case = "camelCase"` are hard errors there -- each needs TypeScript-only syntax; `structs_only` and `field_case = "snake_case"` work. No other TypeScript backend has a JavaScript counterpart.
 
 ### DuckDB
 
@@ -344,12 +350,12 @@ CockroachDB uses PostgreSQL backends with `engine = "cockroachdb"`:
 ### MariaDB
 
 MariaDB uses MySQL drivers with MariaDB-specific type resolution:
-`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`.
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`.
 
 ### Redshift
 
 Redshift uses PostgreSQL backends with `engine = "redshift"`:
-`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-pg`, `typescript-postgres`, `typescript-kysely`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `elixir-postgrex`, `ruby-pg`, `php-pdo`.
+`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-pg`, `typescript-postgres`, `typescript-kysely`, `javascript-pg`, `javascript-postgres`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `elixir-postgrex`, `ruby-pg`, `php-pdo`.
 
 ### Snowflake
 
@@ -467,7 +473,7 @@ Detailed reference files for specific topics:
 
 - **[Configuration Reference](references/configuration.md)** -- Full scythe.toml reference
 - **[Annotations Reference](references/annotations.md)** -- All annotations with examples
-- **[Backends Reference](references/backends.md)** -- All 52 backends with engine support
+- **[Backends Reference](references/backends.md)** -- All 56 backend names with engine support
 - **[Lint Rules Reference](references/lint-rules.md)** -- All rules with codes and examples
 - **[CLI Reference](references/cli-reference.md)** -- All commands, flags, exit codes
 

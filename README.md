@@ -33,7 +33,7 @@
 
 ---
 
-Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 52 backend drivers. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
+Scythe compiles annotated SQL into type-safe database access code. You write SQL queries, scythe generates the boilerplate -- structs, functions, type mappings -- in 10 languages across 10 databases with 56 backends. Built-in linting (58 rules) and formatting catch SQL bugs before they ship.
 
 ## Installation
 
@@ -348,9 +348,10 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 
 - **10 languages** -- Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP
 - **10 databases** -- PostgreSQL, MySQL, SQLite, DuckDB, CockroachDB, MSSQL, Oracle, MariaDB, Redshift, Snowflake
-- **52 backend drivers** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, Kysely, pgx, JDBC, R2DBC, Exposed, Npgsql, PDO, tiberius, oracledb, pyodbc, and more
+- **56 backends** -- sqlx, tokio-postgres, psycopg3, asyncpg, pg, postgres.js, Kysely, pgx, JDBC, R2DBC, Exposed, Npgsql, PDO, tiberius, oracledb, pyodbc, and more (52 implementations; the four `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend)
 - **Dialect-agnostic TypeScript with Kysely** -- `typescript-kysely` compiles to Kysely's `sql` tag, which works unmodified against any Kysely dialect: five pinned dialects (PostgreSQL, MySQL, SQLite, MSSQL, MariaDB) plus a Redshift manifest, and wire-compatible (but unpinned/untested by scythe) third-party dialects such as libsql, PlanetScale, Cloudflare D1, Neon, and PGlite
 - **Synchronous TypeScript SQLite backends** -- `typescript-node-sqlite` (Node's built-in `node:sqlite`, zero npm dependencies, needs Node 23.4+ or `--experimental-sqlite` on Node 22) and `typescript-wasm-sqlite` (`@sqlite.org/sqlite-wasm`) emit plain `export function` calls with no `async`/`Promise`
+- **JavaScript output via JSDoc** -- `javascript-pg`, `javascript-postgres`, `javascript-mysql2`, and `javascript-better-sqlite3` emit plain ESM `.js` with every type carried in JSDoc comments and no driver import, checkable with `tsc --checkJs --strict` and runnable with no build step
 - **58 built-in rules** -- 23 lint rules (UPDATE without WHERE, SELECT *, NULL comparisons, leading wildcard LIKE) and 35 audit rules, plus sqruff's 69 style rules via integration
 - **`scythe audit`** -- security scanner for SQL: dangerous functions, GRANT ALL, GRANT to PUBLIC, cartesian joins, unbounded LIKE, SECURITY DEFINER without pinned `search_path`, role privilege escalation, literal passwords, weak hashes over credential columns, SELECT * over PII, session-state mutation. Emits human / SARIF / JSON for CI integration
 - **`scythe inspect`** -- live-database operational health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. Connects via `tokio-postgres`, emits the same human / SARIF / JSON reports as audit. (Postgres only at v0.10; MySQL in Phase 3.)

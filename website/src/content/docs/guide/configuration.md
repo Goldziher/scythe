@@ -132,6 +132,13 @@ TypeScript backend accepts (`typescript-pg`, `typescript-postgres`, `typescript-
 `typescript-wasm-sqlite`); `namespace` and `extension_functions` are not on that list. Setting either
 on a TypeScript target fails with the `unknown option` error shown below — see the caution box.
 
+The four `javascript-*` names (`javascript-pg`, `javascript-postgres`, `javascript-mysql2`,
+`javascript-better-sqlite3`) accept the same four keys, but reject three of their values outright:
+`row_type = "zod"`, `outer_join_unions = true`, and `field_case = "camelCase"` each need
+TypeScript-only syntax a plain `.js` file cannot carry, so generation aborts with an error naming the
+TypeScript backend to use instead. See
+[JavaScript output (JSDoc)](/scythe/backends/typescript/#javascript-output-jsdoc).
+
 :::caution[Breaking: unrecognized options are now a hard error]
 `[[sql.gen]]` uses `#[serde(flatten)]`, so every key besides `backend`, `output`, and `manifest` is
 handed to the target backend's `apply_options`. TypeScript backends now reject any key they don't

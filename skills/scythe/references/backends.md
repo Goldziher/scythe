@@ -1,6 +1,6 @@
 # Backends Reference
 
-Scythe provides 52 backends across 10 languages and 10 database engines.
+Scythe provides 56 selectable backend names across 10 languages and 10 database engines, implemented by 52 `CodegenBackend` types -- the four `javascript-*` names are a JSDoc emit mode on the matching TypeScript backend, not separate implementations.
 
 ## Language Coverage
 
@@ -9,6 +9,7 @@ Scythe provides 52 backends across 10 languages and 10 database engines.
 | Rust | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx | tiberius | sibyl | sqlx | sqlx | -- |
 | Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3 | pyodbc | oracledb | aiomysql | psycopg3 | snowflake-connector |
 | TypeScript | postgres.js, pg, kysely | mysql2, kysely | better-sqlite3, node:sqlite, sqlite-wasm, kysely | duckdb-node | pg, kysely | mssql, kysely | oracledb | mysql2, kysely | pg, kysely | snowflake-sdk |
+| JavaScript | postgres.js, pg | mysql2 | better-sqlite3 | -- | postgres.js, pg | -- | -- | mysql2 | postgres.js, pg | -- |
 | Go | pgx | database/sql | database/sql | database/sql | pgx | go-mssqldb | godror | database/sql | pgx | gosnowflake |
 | Java | JDBC, R2DBC | JDBC | JDBC | JDBC | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
 | Kotlin | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
@@ -21,21 +22,23 @@ Scythe provides 52 backends across 10 languages and 10 database engines.
 
 `typescript-node-sqlite` and `typescript-wasm-sqlite` generate synchronous code (plain `export function`, no `async`, no `Promise`), unlike every other TypeScript backend. `typescript-node-sqlite` requires `--experimental-sqlite` on Node 22 and is unflagged from Node 23.4 onward.
 
+The JavaScript row is `javascript-postgres`, `javascript-pg`, `javascript-mysql2`, and `javascript-better-sqlite3` -- a JSDoc emit mode on the matching TypeScript backend, not separate backends. Output is `queries.js`: plain ESM, no driver import (handles are typed inline as `import("pg").PoolClient` in `@param`), row types as `@typedef {object}` with nullable columns always `{T | null}`. `row_type = "zod"`, `outer_join_unions`, and `field_case = "camelCase"` are hard errors there, each naming the TypeScript backend to use instead; `structs_only` and `field_case = "snake_case"` work. The other seven TypeScript backends have no JavaScript counterpart.
+
 ## Backend Names
 
 Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### PostgreSQL
 
-`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-postgres`, `typescript-pg`, `typescript-kysely`, `go-pgx`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `kotlin-exposed`, `csharp-npgsql`, `elixir-postgrex`, `elixir-ecto`, `ruby-pg`, `php-pdo`
+`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-postgres`, `typescript-pg`, `typescript-kysely`, `javascript-postgres`, `javascript-pg`, `go-pgx`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `kotlin-exposed`, `csharp-npgsql`, `elixir-postgrex`, `elixir-ecto`, `ruby-pg`, `php-pdo`
 
 ### MySQL
 
-`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`
 
 ### SQLite
 
-`rust-sqlx`, `python-aiosqlite`, `typescript-better-sqlite3`, `typescript-node-sqlite`, `typescript-wasm-sqlite`, `typescript-kysely`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-microsoft-sqlite`, `elixir-exqlite`, `ruby-sqlite3`, `php-pdo`
+`rust-sqlx`, `python-aiosqlite`, `typescript-better-sqlite3`, `typescript-node-sqlite`, `typescript-wasm-sqlite`, `typescript-kysely`, `javascript-better-sqlite3`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-microsoft-sqlite`, `elixir-exqlite`, `ruby-sqlite3`, `php-pdo`
 
 ### DuckDB
 
@@ -57,11 +60,11 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### MariaDB
 
-`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`
 
 ### Redshift
 
-`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-pg`, `typescript-postgres`, `typescript-kysely`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `elixir-postgrex`, `ruby-pg`, `php-pdo`
+`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-pg`, `typescript-postgres`, `typescript-kysely`, `javascript-pg`, `javascript-postgres`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `elixir-postgrex`, `ruby-pg`, `php-pdo`
 
 ### Snowflake
 
@@ -73,6 +76,7 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 |----------|---------|----------------|
 | Python | all Python backends | `dataclass` (default), `pydantic`, `msgspec` |
 | TypeScript | all TS backends | `interface` (default), `zod` |
+| JavaScript | all `javascript-*` backends | JSDoc `@typedef` only -- `zod` is rejected |
 
 ```toml
 [[sql.gen]]

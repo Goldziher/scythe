@@ -1,11 +1,13 @@
 ---
 title: TypeScript
-description: The typescript-postgres, typescript-pg, typescript-kysely, typescript-node-sqlite, and typescript-wasm-sqlite backends -- generated interfaces, queries, and type mappings.
+description: The typescript-postgres, typescript-pg, typescript-kysely, typescript-node-sqlite, and typescript-wasm-sqlite backends -- generated interfaces, queries, type mappings, and the javascript-* JSDoc emit mode.
 ---
 
 Backends: `typescript-postgres` (postgres.js), `typescript-pg` (node-postgres), `typescript-kysely` (Kysely) | Engine: PostgreSQL (`typescript-kysely` also targets MySQL, SQLite, MSSQL, MariaDB, and Redshift -- see [Kysely](#kysely) below)
 
 All three backends share the same type mappings and TypeScript interfaces. They differ in query execution. Two further TypeScript backends, `typescript-node-sqlite` and `typescript-wasm-sqlite`, target SQLite only and generate synchronous code -- see [typescript-node-sqlite and typescript-wasm-sqlite](#typescript-node-sqlite-and-typescript-wasm-sqlite) below.
+
+Four of the eleven TypeScript backends are also reachable under a `javascript-*` name that emits plain JSDoc-typed `.js` instead of `.ts` -- see [JavaScript output (JSDoc)](#javascript-output-jsdoc).
 
 ## SQL input
 
@@ -319,6 +321,109 @@ Six further shipped TypeScript backends are not covered on this page, each targe
 (DuckDB), `typescript-mssql` (MSSQL, `mssql`/tedious), `typescript-oracledb` (Oracle,
 node-oracledb), and `typescript-snowflake` (Snowflake). See [Backend Architecture](/scythe/backends/overview/#supported-backends)
 for the full backend list.
+
+## JavaScript output (JSDoc)
+
+Four registry names emit plain JavaScript instead of TypeScript. They are an emit mode on the
+TypeScript backend structs above -- not separate backends, and not separate manifests -- selected by
+the name you write in `backend`:
+
+| Registry name | TypeScript counterpart | Handle type | Engines |
+|---------------|------------------------|-------------|---------|
+| `javascript-postgres` | `typescript-postgres` | `import("postgres").Sql` | PostgreSQL, CockroachDB, Redshift |
+| `javascript-pg` | `typescript-pg` | `import("pg").PoolClient` | PostgreSQL, CockroachDB, Redshift |
+| `javascript-mysql2` | `typescript-mysql2` | `import("mysql2/promise").Pool` | MySQL, MariaDB |
+| `javascript-better-sqlite3` | `typescript-better-sqlite3` | `import("better-sqlite3").Database` | SQLite |
+
+The other seven TypeScript backends have no JavaScript counterpart. There are no aliases for these
+four names.
+
+```toml
+[[sql.gen]]
+backend = "javascript-pg"
+output = "src/generated"
+```
+
+Output is `queries.js` (not `queries.ts`) -- ESM, no build step, every type carried in JSDoc
+comments. No driver import is emitted at all: driver types are referenced inline as
+`import("pg").PoolClient` inside the `@param` tag, so the file has no runtime or type-only import
+of `pg`. The provenance header names the JavaScript backend:
+
+```javascript
+// scythe:provenance v=0.13.0 backend=javascript-pg engine=postgresql schema=sch1:...
+```
+
+For the [SQL input](#sql-input) at the top of this page, `javascript-pg` generates:
+
+```javascript
+/**
+ * Row type for GetUser queries.
+ * @typedef {object} GetUserRow
+ * @property {number} id
+ * @property {string} name
+ * @property {string | null} email
+ * @property {Date} created_at
+ */
+
+/**
+ * Fetch a single GetUserRow or null.
+ * @param {import("pg").PoolClient} client
+ * @param {number} id
+ * @returns {Promise<GetUserRow | null>}
+ */
+export async function getUser(client, id) {
+	const { rows } = await client.query(
+		`SELECT id, name, email, created_at FROM users WHERE id = $1`,
+		[id],
+	);
+	return rows[0] ?? null;
+}
+```
+
+Row types are `@typedef {object}` blocks with one `@property` line per column. A nullable column is
+always rendered `{T | null}` -- never JSDoc's optional-property forms `@property {T} [name]` or
+`name?`. Those mean the property may be *absent*; a nullable SQL column is always present and may
+hold `null`. `:grouped` queries emit paired child and parent typedefs, the parent carrying
+`@property {ChildRow[]} children`.
+
+Signatures carry no type annotations, and TypeScript-only expression syntax is avoided throughout:
+where the TypeScript path writes `expr as T`, JSDoc mode writes `/** @type {T} */ (expr)`.
+`javascript-better-sqlite3` is synchronous, mirroring its TypeScript counterpart:
+
+```javascript
+/**
+ * Fetch all ListUsersRow rows.
+ * @param {import("better-sqlite3").Database} db
+ * @param {number} limit_val
+ * @returns {ListUsersRow[]}
+ */
+export function listUsers(db, limit_val) {
+	const stmt = db.prepare(`SELECT id, name FROM users ORDER BY name LIMIT ?`);
+	return /** @type {ListUsersRow[]} */ (stmt.all(limit_val));
+}
+```
+
+### Unsupported options
+
+Three of the TypeScript [option](#options) settings need syntax a plain `.js` file cannot carry, so
+they are hard errors here rather than silent downgrades. Each error names the TypeScript backend to
+use instead:
+
+| Option | JSDoc mode | Why |
+|--------|-----------|-----|
+| `row_type = "zod"` | Error | `export type X = z.infer<...>` is a TypeScript type alias |
+| `outer_join_unions` | Error | The discriminated union is a `type X = A & (B \| C)` alias |
+| `field_case = "camelCase"` | Error | The field remap needs an `as T` assertion |
+| `field_case = "snake_case"` | Supported | The default -- driver rows pass straight through |
+| `structs_only` | Supported | Emits only typedefs; there was no driver import to drop |
+
+Enums always take the `const` object plus derived-type form, spelled `/** @type {const} */` and
+`/** @typedef {typeof UserStatusValues[keyof typeof UserStatusValues]} UserStatus */` --
+including under `javascript-postgres`, whose TypeScript counterpart emits a real `enum` (see
+[Enum generation](#enum-generation)).
+
+Generated output is validated in CI against the real toolchain: `node --check` for ESM parsing, and
+`tsc --checkJs --strict --allowJs --noEmit` for the JSDoc types.
 
 ## Enum generation
 
