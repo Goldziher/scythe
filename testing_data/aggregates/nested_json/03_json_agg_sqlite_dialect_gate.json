@@ -1,0 +1,20 @@
+{
+  "category": "aggregates/nested_json",
+  "config": { "engine": "sqlite" },
+  "description": "The dialect gate: json_agg on SQLite must keep the pre-existing plain json type and infer no nested struct",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "orders", "nullable": true, "type": "json" }],
+      "command": "many",
+      "name": "GetOrdersJsonSqlite",
+      "nested_structs": [],
+      "params": []
+    },
+    "success": true
+  },
+  "name": "json_agg_sqlite_dialect_gate",
+  "query_sql": "-- @name GetOrdersJsonSqlite\n-- @returns :many\nSELECT json_agg(o.*) AS orders FROM orders o;",
+  "schema_sql": ["CREATE TABLE orders (id INTEGER NOT NULL, user_id INTEGER NOT NULL, notes TEXT);"],
+  "source": "original",
+  "tags": ["aggregate", "json_agg", "nested", "dialect_gate", "sqlite"]
+}

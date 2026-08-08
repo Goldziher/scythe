@@ -533,29 +533,29 @@ mod tests {
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
-        AnalyzedQuery {
-            name: "GetUsersWithOrders".to_string(),
-            command: QueryCommand::Grouped,
-            sql: "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUsersWithOrders".to_string();
+            aq.command = QueryCommand::Grouped;
+            aq.sql = "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
                   SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\n\
                   FROM users u\n\
                   JOIN orders o ON o.user_id = u.id"
-                .to_string(),
-            columns: all_cols,
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: Some(GroupByConfig {
+                .to_string();
+            aq.columns = all_cols;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = Some(GroupByConfig {
                 table: "users".to_string(),
                 key_column: "id".to_string(),
                 parent_columns: parent_cols,
                 child_columns: child_cols,
-            }),
-            custom: vec![],
-        }
+            });
+            aq.custom = vec![];
+        })
     }
 
     /// A `RETURNING ... INTO` query mixing nullable and non-nullable columns
@@ -607,16 +607,15 @@ mod tests {
                 ..Default::default()
             },
         ];
-        AnalyzedQuery {
-            name: "CreateWidget".to_string(),
-            command: QueryCommand::One,
-            sql: "-- @name CreateWidget\n-- @returns :one\nINSERT INTO widgets (name) VALUES (:1) \
+        AnalyzedQuery::build(|aq| {
+            aq.name = "CreateWidget".to_string();
+            aq.command = QueryCommand::One;
+            aq.sql = "-- @name CreateWidget\n-- @returns :one\nINSERT INTO widgets (name) VALUES (:1) \
                   RETURNING id, name, email, score, balance, updated_at, created_at"
-                .to_string(),
-            columns,
-            params: vec![],
-            ..Default::default()
-        }
+                .to_string();
+            aq.columns = columns;
+            aq.params = vec![];
+        })
     }
 
     #[test]

@@ -30,6 +30,7 @@ array = "Vec<{T}>"
 nullable = "Option<{T}>"
 range = "sqlx::postgres::types::PgRange<{T}>"
 json_typed = "sqlx::types::Json<{T}>"
+json_nested = "sqlx::types::Json<{T}>"
 
 [naming]
 struct_case = "PascalCase"

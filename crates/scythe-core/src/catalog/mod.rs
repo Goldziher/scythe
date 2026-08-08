@@ -25,6 +25,24 @@ pub struct Catalog {
     /// dialect-specific type semantics (e.g. SQLite's `REAL` is an 8-byte
     /// IEEE float, unlike PostgreSQL's 4-byte `real`).
     dialect: SqlDialect,
+    /// Configured engine name (`scythe.toml`'s `[[sql]] engine`) when the
+    /// caller knows it, e.g. `"postgresql"`, `"redshift"`, `"duckdb"`.
+    ///
+    /// `SqlDialect` deliberately collapses every PostgreSQL-compatible
+    /// engine onto [`SqlDialect::PostgreSQL`] — `SqlDialect::from_str` maps
+    /// `redshift`, `duckdb` and `cockroachdb` all to that one variant —
+    /// because for *parsing and type resolution* they behave the same. That
+    /// collapse is wrong for capability questions: Redshift has no
+    /// `json_agg` at all and DuckDB spells it `json_group_array`, so a
+    /// dialect-only gate silently lets both through. Inference that depends
+    /// on a server-side function actually existing must consult this, not
+    /// the dialect.
+    ///
+    /// `None` means "not stated" and is treated as the dialect's flagship
+    /// engine, which keeps every [`Catalog::from_ddl`] caller (all of the
+    /// unit tests, and any embedder that never had an engine string)
+    /// behaving exactly as it did before this field existed.
+    engine: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -75,6 +93,7 @@ impl Catalog {
             composites: AHashMap::new(),
             domains: AHashMap::new(),
             dialect: *dialect,
+            engine: None,
         };
 
         let parser_dialect = dialect.to_sqlparser_dialect();
@@ -102,6 +121,23 @@ impl Catalog {
     /// The SQL dialect this catalog was parsed with.
     pub(crate) fn dialect(&self) -> SqlDialect {
         self.dialect
+    }
+
+    /// Record the configured engine name for this catalog. See the `engine`
+    /// field for why this is tracked separately from [`SqlDialect`].
+    ///
+    /// Consumed builder-style so a call site that already has the engine
+    /// string can attach it in the same expression that builds the catalog.
+    #[must_use]
+    pub fn with_engine(mut self, engine: &str) -> Self {
+        self.engine = Some(engine.to_lowercase());
+        self
+    }
+
+    /// The configured engine name, or `None` when the caller never stated
+    /// one. See the `engine` field.
+    pub(crate) fn engine(&self) -> Option<&str> {
+        self.engine.as_deref()
     }
 
     pub fn get_table(&self, name: &str) -> Option<&Table> {

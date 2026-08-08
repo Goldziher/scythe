@@ -1,4 +1,4 @@
-use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
+use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo, NestedStructInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 
 use crate::GeneratedCode;
@@ -155,6 +155,61 @@ pub trait CodegenBackend: Send + Sync {
     /// Returns an empty string by default; backends may override.
     fn file_preamble(&self) -> String {
         String::new()
+    }
+
+    /// Generate a struct definition for a nested-aggregate result shape
+    /// (`json_agg(o.*)`, `row_to_json(u.*)`, ...). PostgreSQL only; see
+    /// [`scythe_core::analyzer::AnalyzedQuery::nested_structs`].
+    ///
+    /// ## Opt-in, not opt-out
+    ///
+    /// Returns `Ok(None)` by default — "I do not support this" — so a
+    /// backend is only at risk from this feature if it explicitly
+    /// overrides the method. `crates/scythe-codegen/src/lib.rs` rewrites
+    /// any column referencing a struct this returns `Ok(None)` for back to
+    /// plain `json` *before* type resolution, so the default keeps a
+    /// non-opted-in backend's output byte-identical to what it produced
+    /// before nested-aggregate inference existed.
+    ///
+    /// Deliberately not the same shape as `generate_composite_def`, which
+    /// always returns a definition (`CompositeInfo` only ever exists because
+    /// a column already referenced a real catalog composite; there is
+    /// nothing to opt out of). Overriding to return `Ok(Some(_))` is safe
+    /// only when the backend's row-decoding path actually deserializes the
+    /// resulting JSON into the generated type — a backend whose
+    /// `json_nested<T>` container merely names the type without decoding it
+    /// would produce code that compiles and is wrong, which is worse than
+    /// not supporting it. `Err(_)` is reserved for a genuine failure (e.g. a
+    /// field's neutral type doesn't resolve) and must propagate rather than
+    /// degrade.
+    ///
+    /// An override must also gate on the *engine* it was constructed for,
+    /// not only on being a PostgreSQL backend: `rust-tokio-postgres`,
+    /// `go-pgx` and `python-psycopg3` all list `redshift` in
+    /// [`Self::supported_engines`], and Redshift has no `json_agg`.
+    fn generate_nested_struct_def(&self, _nested: &NestedStructInfo) -> Result<Option<String>, ScytheError> {
+        Ok(None)
+    }
+
+    /// Generate an enum definition for an enum reachable from a nested
+    /// aggregate's field list.
+    ///
+    /// Same enum, different requirements: a value inside a `json_agg` result
+    /// arrives as JSON and is decoded by the language's JSON library, not by
+    /// the database driver, so a backend whose ordinary
+    /// [`Self::generate_enum_def`] emits only driver traits (`sqlx::Type`,
+    /// `postgres_types`) must add the JSON ones here or the nested struct
+    /// will not satisfy its own `Deserialize` bound. Defaults to
+    /// `generate_enum_def`, which is correct for every backend that already
+    /// decodes enums as plain strings.
+    fn generate_enum_def_for_nested(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
+        self.generate_enum_def(enum_info)
+    }
+
+    /// Composite counterpart of [`Self::generate_enum_def_for_nested`], for a
+    /// composite type reachable from a nested aggregate's field list.
+    fn generate_composite_def_for_nested(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        self.generate_composite_def(composite)
     }
 
     /// Generate a file-level header (imports, docstring, etc).

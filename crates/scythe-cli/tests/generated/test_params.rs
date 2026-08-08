@@ -94,6 +94,10 @@ fn test_between_dates() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -228,6 +232,10 @@ fn test_coalesce_param_type() {
             }
             if let Some(ref s) = generated.enum_def {
                 body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
                 body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -372,6 +380,10 @@ fn test_param_as_limit_offset() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -512,6 +524,10 @@ fn test_param_in_array_literal() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -641,6 +657,10 @@ fn test_param_in_case_when() {
             }
             if let Some(ref s) = generated.enum_def {
                 body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
                 body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -778,6 +798,10 @@ fn test_param_in_interval_arithmetic() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -908,6 +932,10 @@ fn test_cast_to_int() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -1036,6 +1064,10 @@ fn test_cast_to_uuid() {
             }
             if let Some(ref s) = generated.enum_def {
                 body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
                 body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -1175,6 +1207,10 @@ fn test_any_array_param() {
             }
             if let Some(ref s) = generated.enum_def {
                 body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
                 body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -1324,6 +1360,10 @@ fn test_insert_all_columns() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -1455,6 +1495,10 @@ fn test_insert_basic_returning() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -1574,6 +1618,10 @@ fn test_insert_coalesce_param_collected() {
             }
             if let Some(ref s) = generated.enum_def {
                 body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
                 body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -1707,6 +1755,10 @@ fn test_insert_no_column_list_positional_binding() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -1830,6 +1882,10 @@ fn test_boolean_param() {
             }
             if let Some(ref s) = generated.enum_def {
                 body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
                 body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -1968,6 +2024,10 @@ fn test_integer_param() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -2102,6 +2162,10 @@ fn test_string_param() {
             }
             if let Some(ref s) = generated.enum_def {
                 body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
                 body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {

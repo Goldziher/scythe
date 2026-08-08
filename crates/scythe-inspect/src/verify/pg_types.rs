@@ -139,6 +139,18 @@ pub fn types_are_compatible(inferred: &str, reported: &str) -> bool {
         return true;
     }
 
+    // A structurally typed JSON column is still a JSON column on the wire.
+    // `json_nested<...>` is what nested-aggregate inference produces for
+    // `json_agg`/`row_to_json`, `json_typed<...>` what a user's `@json`
+    // annotation produces; PostgreSQL reports both as plain `json`
+    // (`row_to_json`/`json_agg` return `json`, and `RowDescription` cannot
+    // describe the row shape inside). Holding these to string equality
+    // would report a verification failure on *every* such column while the
+    // inferred type is not merely compatible but strictly more precise.
+    if reported == "json" && (inferred.starts_with("json_nested<") || inferred.starts_with("json_typed<")) {
+        return true;
+    }
+
     false
 }
 
@@ -240,6 +252,32 @@ mod tests {
         assert!(!types_are_compatible("uuid", "string"));
         assert!(!types_are_compatible("json", "string"));
         assert!(!types_are_compatible("inet", "string"));
+    }
+
+    /// `scythe check --verify` compares inferred types against what the
+    /// server reports for the same column. A `json_agg(o.*)` column is
+    /// inferred as `json_nested<...>` but reported as plain `json`, and a
+    /// user `@json` mapping as `json_typed<...>` for the same reason —
+    /// without this, every such column produces a spurious verification
+    /// failure.
+    #[test]
+    fn structurally_typed_json_is_compatible_with_reported_json() {
+        assert!(types_are_compatible("json_nested<array<GetUserPostsRowPosts>>", "json"));
+        assert!(types_are_compatible(
+            "json_nested<array<nullable<GetUserPostsRowPosts>>>",
+            "json"
+        ));
+        assert!(types_are_compatible("json_nested<GetPostAsJsonRowPost>", "json"));
+        assert!(types_are_compatible("json_typed<EventData>", "json"));
+    }
+
+    /// Only against a reported `json`. A structural JSON type reported as
+    /// anything else is a real mismatch, not inference being coarse.
+    #[test]
+    fn structurally_typed_json_is_not_compatible_with_other_reported_types() {
+        assert!(!types_are_compatible("json_nested<array<Foo>>", "string"));
+        assert!(!types_are_compatible("json_nested<array<Foo>>", "int32"));
+        assert!(!types_are_compatible("json_typed<EventData>", "string"));
     }
 
     #[test]

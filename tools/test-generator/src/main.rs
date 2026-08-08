@@ -126,6 +126,38 @@ fn generate_single_test(fixture: &Fixture) -> String {
     }
 }
 
+/// The `let catalog = ...;` line for a query test, honouring the fixture's
+/// declared engine.
+///
+/// A fixture that declares no engine, or declares PostgreSQL, keeps the
+/// plain `Catalog::from_ddl` call this generator has always emitted — so
+/// adding engine awareness leaves every existing PostgreSQL fixture's
+/// generated test byte-identical.
+///
+/// Two axes, because `SqlDialect` collapses PostgreSQL-compatible engines
+/// onto one variant: the dialect drives parsing and type resolution, while
+/// `with_engine` carries the engine name that gates capabilities the dialect
+/// cannot express (Redshift parses as PostgreSQL but has no `json_agg`).
+fn catalog_expr(fixture: &Fixture) -> String {
+    let Some(engine) = fixture.config.as_ref().and_then(|c| c.engine) else {
+        return "    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n".to_string();
+    };
+
+    let base = match engine.dialect_path() {
+        Some(dialect) => format!(
+            "scythe_core::catalog::Catalog::from_ddl_with_dialect(\n        schema_sql,\n        \
+             &scythe_core::dialect::SqlDialect::{dialect},\n    )\n    .unwrap()"
+        ),
+        None => "scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap()".to_string(),
+    };
+
+    if matches!(engine, fixture::Engine::Postgresql) {
+        format!("    let catalog = {base};\n")
+    } else {
+        format!("    let catalog = {base}.with_engine({:?});\n", engine.as_str())
+    }
+}
+
 fn generate_catalog_test(fixture: &Fixture, file_path: &str) -> String {
     let mut out = String::with_capacity(4096);
     out.push_str("#[test]\n");
@@ -160,7 +192,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     let query_sql = fixture.query_sql.as_deref().unwrap_or("");
     let _ = writeln!(out, "    let query_sql = {:?};\n", query_sql);
 
-    out.push_str("    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n");
+    out.push_str(&catalog_expr(fixture));
     out.push_str("    let query = scythe_core::parser::parse_query(query_sql).unwrap();\n");
     out.push_str("    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();\n\n");
 
@@ -224,6 +256,9 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("                    body.push('\\n');\n");
     out.push_str("                }\n");
     out.push_str("                if let Some(ref s) = generated.enum_def { body.push_str(s); body.push('\\n'); }\n");
+    out.push_str(
+        "                for def in &generated.nested_struct_defs { body.push_str(&def.code); body.push('\\n'); }\n",
+    );
     out.push_str(
         "                if let Some(ref s) = generated.model_struct { body.push_str(s); body.push('\\n'); }\n",
     );
@@ -617,6 +652,51 @@ fn generate_query_assertions(query: &ExpectedQuery) -> String {
                 col.nullable,
                 &format!("column nullable for {}", col.name),
             ));
+        }
+    }
+
+    if let Some(ref nested_structs) = query.nested_structs {
+        let _ = writeln!(
+            out,
+            "    assert_eq!(analyzed.nested_structs.len(), {}, \"nested struct count\");",
+            nested_structs.len(),
+        );
+        for (i, nested) in nested_structs.iter().enumerate() {
+            let _ = writeln!(
+                out,
+                "    assert_eq!(analyzed.nested_structs[{i}].name, {name:?}, \"nested struct name\");",
+                i = i,
+                name = nested.name,
+            );
+            let _ = writeln!(
+                out,
+                "    assert_eq!(analyzed.nested_structs[{i}].fields.len(), {len}, \"nested field count for {name}\");",
+                i = i,
+                len = nested.fields.len(),
+                name = nested.name,
+            );
+            for (j, field) in nested.fields.iter().enumerate() {
+                let _ = writeln!(
+                    out,
+                    "    assert_eq!(analyzed.nested_structs[{i}].fields[{j}].name, {name:?}, \"nested field name\");",
+                    i = i,
+                    j = j,
+                    name = field.name,
+                );
+                let _ = writeln!(
+                    out,
+                    "    assert_eq!(analyzed.nested_structs[{i}].fields[{j}].neutral_type, {ty:?}, \"nested field neutral_type for {fname}\");",
+                    i = i,
+                    j = j,
+                    ty = field.neutral_type,
+                    fname = field.name,
+                );
+                out.push_str(&bool_assert(
+                    &format!("analyzed.nested_structs[{i}].fields[{j}].nullable", i = i, j = j),
+                    field.nullable,
+                    &format!("nested field nullable for {}", field.name),
+                ));
+            }
         }
     }
 

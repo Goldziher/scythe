@@ -3,8 +3,17 @@ use crate::parser::{CustomAnnotation, QueryCommand};
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
+/// Everything inference established about one annotated query.
+///
+/// `#[non_exhaustive]`: adding a public field here is a breaking change for
+/// every downstream struct literal — which is exactly what adding
+/// `nested_structs` was. 0.14.0 is a breaking release regardless, so the
+/// marker goes on now and the *next* field costs nothing. Build one with
+/// [`AnalyzedQuery::build`]; `#[non_exhaustive]` rejects a struct literal
+/// from another crate, including the `..Default::default()` form.
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct AnalyzedQuery {
     pub name: String,
     pub command: QueryCommand,
@@ -25,6 +34,47 @@ pub struct AnalyzedQuery {
     /// Custom (non-native) annotations from the SQL source, in source order.
     /// See [`CustomAnnotation`] for usage.
     pub custom: Vec<CustomAnnotation>,
+    /// Struct definitions needed for nested-aggregate result shapes
+    /// (`json_agg(o.*)`, `row_to_json(u.*)`, ...).
+    ///
+    /// Always empty unless the catalog is both PostgreSQL-dialect *and* on
+    /// an engine that actually has those functions: Redshift and DuckDB map
+    /// to `SqlDialect::PostgreSQL` but ship neither, so the dialect alone is
+    /// not the gate. See `expressions::catalog_has_nested_aggregates`.
+    ///
+    /// `#[serde(default)]` so payloads serialized before this field existed
+    /// keep deserializing — but adding this key changes any content hash
+    /// computed over the serialized `AnalyzedQuery`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub nested_structs: Vec<NestedStructInfo>,
+}
+
+impl AnalyzedQuery {
+    /// Build an `AnalyzedQuery` from [`Default`], assigning fields inside
+    /// `init`.
+    ///
+    /// This is the supported replacement for a struct literal now that the
+    /// type is `#[non_exhaustive]`. Keeping construction a single expression
+    /// (rather than `let mut q = AnalyzedQuery::default(); q.name = ...`)
+    /// also keeps clippy's `field_reassign_with_default` quiet at ~100 call
+    /// sites.
+    ///
+    /// ```
+    /// use scythe_core::analyzer::AnalyzedQuery;
+    /// use scythe_core::parser::QueryCommand;
+    ///
+    /// let query = AnalyzedQuery::build(|q| {
+    ///     q.name = "GetUser".to_string();
+    ///     q.command = QueryCommand::One;
+    /// });
+    /// assert_eq!(query.name, "GetUser");
+    /// ```
+    #[must_use]
+    pub fn build(init: impl FnOnce(&mut Self)) -> Self {
+        let mut query = Self::default();
+        init(&mut query);
+        query
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -52,6 +102,59 @@ pub struct CompositeInfo {
 pub struct CompositeFieldInfo {
     pub name: String,
     pub neutral_type: String,
+}
+
+/// A struct definition synthesized for a nested-aggregate result column
+/// (`json_agg(o.*)`, `row_to_json(u.*)`, ...). PostgreSQL only.
+///
+/// Distinct from [`CompositeInfo`]/[`CompositeFieldInfo`]: those describe a
+/// SQL composite *type* from the catalog, where every backend's
+/// `generate_composite_def` hardcodes `nullable: false` on every field (no
+/// per-field nullability is tracked). A nested-aggregate field's
+/// nullability instead comes from the source column it was built from, so
+/// [`NestedFieldInfo`] carries a real `nullable` rather than reusing that
+/// channel.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct NestedStructInfo {
+    /// snake_case name, e.g. `get_user_orders_row_orders` — survives each
+    /// backend's own `to_pascal_case` step, unlike the PascalCase form
+    /// embedded in the owning column's `neutral_type`.
+    pub name: String,
+    pub fields: Vec<NestedFieldInfo>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+pub struct NestedFieldInfo {
+    pub name: String,
+    pub neutral_type: String,
+    pub nullable: bool,
+}
+
+/// A nested-struct definition captured during expression inference (phase
+/// 1 — `Analyzer::infer_nested_aggregate_type` in `expressions.rs`, the
+/// `json_agg`/`row_to_json` producer built on
+/// [`crate::analyzer::expressions::FuncArgShape`]), before the query name
+/// and output column alias are known and therefore before the struct can
+/// be named.
+///
+/// `analyze()`'s phase-2 pass resolves each entry into a [`NestedStructInfo`]
+/// once `columns` (with aliases applied) exist, and replaces the
+/// `__nested__{id}` placeholder embedded in the owning column's
+/// `neutral_type` with the resolved name.
+///
+/// `id` is producer-assigned and must be unique within one `analyze()` call.
+/// `build_scope_from_from`'s derived-subquery path bubbles a sub-analyzer's
+/// `pending_nested` up to its parent (mirroring how it already bubbles
+/// `params`/`type_errors`/`positional_param_counter`); a future producer
+/// that assigns ids from a plain per-`Analyzer` counter must thread that
+/// counter through the sub-analyzer the same way `positional_param_counter`
+/// already is, or ids can collide across a subquery boundary.
+#[derive(Debug, Clone)]
+pub(super) struct PendingNestedStruct {
+    pub(super) id: u32,
+    pub(super) fields: Vec<NestedFieldInfo>,
 }
 
 #[derive(Debug, Clone)]
@@ -262,4 +365,23 @@ pub(super) struct Analyzer<'a> {
     pub(super) type_errors: Vec<String>,
     /// Auto-incrementing counter for MySQL `?` positional placeholders
     pub(super) positional_param_counter: i64,
+    /// Nested-struct definitions awaiting phase-2 naming. See
+    /// [`PendingNestedStruct`].
+    pub(super) pending_nested: Vec<PendingNestedStruct>,
+    /// Auto-incrementing counter assigning `PendingNestedStruct::id`.
+    /// Threaded into a derived-subquery sub-analyzer and back (mirroring
+    /// `positional_param_counter`) so ids stay unique across a subquery
+    /// boundary once `pending_nested` is bubbled up.
+    pub(super) next_nested_id: u32,
+}
+
+impl<'a> Analyzer<'a> {
+    /// Allocate the next `__nested__{id}` placeholder id and record its
+    /// field shape for phase-2 naming to resolve.
+    pub(super) fn push_pending_nested(&mut self, fields: Vec<NestedFieldInfo>) -> u32 {
+        let id = self.next_nested_id;
+        self.next_nested_id += 1;
+        self.pending_nested.push(PendingNestedStruct { id, fields });
+        id
+    }
 }

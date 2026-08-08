@@ -74,6 +74,10 @@ fn test_live_sum_over_no_matching_rows_is_null() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -202,6 +206,10 @@ fn test_live_coalesce_with_empty_string_default_is_null_on_oracle() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -328,6 +336,10 @@ fn test_live_coalesce_with_literal_default_is_never_null() {
             }
             if let Some(ref s) = generated.enum_def {
                 body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
                 body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -465,6 +477,10 @@ fn test_live_right_side_not_null_becomes_nullable() {
                 body.push_str(s);
                 body.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 body.push_str(s);
                 body.push('\n');
@@ -591,6 +607,10 @@ fn test_live_nullable_column_observes_null_and_non_null() {
             }
             if let Some(ref s) = generated.enum_def {
                 body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
                 body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {

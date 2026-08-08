@@ -402,6 +402,29 @@ pub(super) fn is_single_row_aggregate_query(query: &Query) -> bool {
     }
 }
 
+/// Find the first `__nested__{id}` placeholder embedded in a neutral-type
+/// string (e.g. `json_nested<array<__nested__7>>`) and return its numeric id.
+/// `__nested__` with no digits following it is treated as absent rather than
+/// malformed input.
+///
+/// Shared by phase-2 nested-struct naming (`analyzer/mod.rs`) and UNION arm
+/// widening (`analyze_set_expr`, `statements.rs`), which both need to
+/// recognize a nested-aggregate placeholder rather than treat it as an
+/// ordinary opaque type name.
+pub(super) fn find_nested_placeholder_id(neutral_type: &str) -> Option<u32> {
+    const MARKER: &str = "__nested__";
+    let start = neutral_type.find(MARKER)?;
+    let digits_start = start + MARKER.len();
+    let digits_end = neutral_type[digits_start..]
+        .find(|c: char| !c.is_ascii_digit())
+        .map(|rel| digits_start + rel)
+        .unwrap_or(neutral_type.len());
+    if digits_end == digits_start {
+        return None;
+    }
+    neutral_type[digits_start..digits_end].parse::<u32>().ok()
+}
+
 /// Widen two numeric types to the wider one for UNION type widening
 pub(super) fn widen_type(a: &str, b: &str) -> String {
     if a == b {

@@ -3,11 +3,11 @@ use std::path::Path;
 
 use serde::Deserialize;
 
-use ahash::AHashSet;
+use ahash::{AHashMap, AHashSet};
 
 use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
 use scythe_codegen::{
-    CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, TypeOverride,
+    CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, TypeOverride, degrade_unsupported_nested_structs,
     generate_single_enum_def_with_backend, generate_with_backend_and_overrides, get_backend,
 };
 use scythe_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
@@ -393,6 +393,16 @@ fn apply_manifest_override(
 struct QueryResult {
     code: scythe_codegen::GeneratedCode,
     enums: Vec<EnumInfo>,
+    /// Enums this query reaches *through a nested-aggregate field*, which
+    /// need the nested-capable definition (extra serde derives and variant
+    /// renames) rather than the plain driver-only one.
+    ///
+    /// Carried per query rather than passed alongside `results` because the
+    /// decision needs `AnalyzedQuery`, which [`assemble_body`] does not have;
+    /// it unions these across queries instead. The nested-capable form is a
+    /// superset of the plain one, so one query needing it decides for the
+    /// whole file safely.
+    nested_enum_names: Vec<String>,
 }
 
 /// Build the provenance header line assembly prepends to every generated
@@ -443,14 +453,37 @@ fn assemble_output(backend: &dyn CodegenBackend, results: &[QueryResult], engine
 /// line — both are [`assemble_output`]'s responsibility, not this
 /// function's. See its doc comment for why.
 fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> String {
+    // Unioned across queries: an enum is emitted once for the whole file, so
+    // any query reaching it through a nested aggregate decides the form for
+    // all of them. That form is a superset of the plain one, so widening is
+    // safe -- see `QueryResult::nested_enum_names`.
+    let nested_enum_names: AHashSet<&str> = results
+        .iter()
+        .flat_map(|result| result.nested_enum_names.iter().map(String::as_str))
+        .collect();
+
     let mut seen_enums = AHashSet::new();
     let mut unique_enum_defs: Vec<String> = Vec::new();
     for result in results {
         for info in &result.enums {
             if seen_enums.insert(info.sql_name.clone())
-                && let Ok(def) = generate_single_enum_def_with_backend(info, backend)
+                && let Ok(def) = generate_single_enum_def_with_backend(
+                    info,
+                    backend,
+                    nested_enum_names.contains(info.sql_name.as_str()),
+                )
             {
                 unique_enum_defs.push(def);
+            }
+        }
+    }
+
+    let mut seen_nested = AHashSet::new();
+    let mut unique_nested_defs: Vec<String> = Vec::new();
+    for result in results {
+        for def in &result.code.nested_struct_defs {
+            if seen_nested.insert(def.name.clone()) {
+                unique_nested_defs.push(def.code.clone());
             }
         }
     }
@@ -464,6 +497,13 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
     }
 
     for def in &unique_enum_defs {
+        output_parts.push(def.clone());
+    }
+
+    // Before the row structs: Python evaluates a class body's annotations
+    // eagerly, so a row dataclass annotated `list[GetUserPostsRowPosts]`
+    // needs that name already bound.
+    for def in &unique_nested_defs {
         output_parts.push(def.clone());
     }
 
@@ -566,11 +606,74 @@ fn generate_for_backend(
     engine: &str,
     schema: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    // Nested struct names are deduplicated by (name, shape) only *within*
+    // one analyze() call, so two queries in the same file can each derive
+    // the same name -- `to_snake_case` collapses `GetUserPosts` and
+    // `GETUserPosts` onto one snake_case stem, and `@name` is free-form, so
+    // this is reachable rather than theoretical. Emitting both definitions
+    // is E0428 in Rust and a redeclaration everywhere else. Same name plus
+    // same shape is one definition; same name plus a different shape is
+    // unresolvable and must fail loudly rather than silently give one query
+    // the other's type.
+    let mut nested_shapes: AHashMap<&str, &scythe_core::analyzer::NestedStructInfo> = AHashMap::new();
+    for analyzed in analyzed_queries {
+        for nested in &analyzed.nested_structs {
+            if let Some(existing) = nested_shapes.insert(nested.name.as_str(), nested)
+                && existing.fields != nested.fields
+            {
+                return Err(format!(
+                    "two queries in this output file derive the nested struct name '{}' from different row \
+                     shapes; rename one of the queries or its output column (@name / column alias) so the \
+                     generated struct names differ",
+                    nested.name
+                )
+                .into());
+            }
+        }
+    }
+
     let mut results: Vec<QueryResult> = Vec::new();
     for analyzed in analyzed_queries {
-        let enums = analyzed.enums.clone();
         let code = generate_with_backend_and_overrides(analyzed, backend, overrides)?;
-        results.push(QueryResult { code, enums });
+
+        // `analyzed.enums` covers enums reachable from the top-level
+        // columns/params *and* from nested-aggregate fields. Emitting one
+        // that is only reachable through a nested struct this backend
+        // degraded away would add an unused definition that did not exist
+        // before nested-aggregate inference, breaking the byte-identity
+        // guarantee the degradation pass exists to provide.
+        let mut nested_enum_names: Vec<String> = Vec::new();
+        let enums: Vec<EnumInfo> = analyzed
+            .enums
+            .iter()
+            .filter(|info| {
+                let from_nested = scythe_codegen::nested_type_is_emitted(
+                    analyzed,
+                    &code.nested_struct_defs,
+                    "enum::",
+                    &info.sql_name,
+                );
+                if from_nested {
+                    nested_enum_names.push(info.sql_name.clone());
+                    return true;
+                }
+                analyzed
+                    .columns
+                    .iter()
+                    .any(|col| col.neutral_type.strip_prefix("enum::") == Some(info.sql_name.as_str()))
+                    || analyzed
+                        .params
+                        .iter()
+                        .any(|param| param.neutral_type.strip_prefix("enum::") == Some(info.sql_name.as_str()))
+            })
+            .cloned()
+            .collect();
+
+        results.push(QueryResult {
+            code,
+            enums,
+            nested_enum_names,
+        });
     }
 
     let mut output_content = assemble_output(backend, &results, engine, schema);
@@ -653,7 +756,27 @@ fn generate_rbs_if_supported(
 
     for analyzed in analyzed_queries {
         let source_table = analyzed.source_table.as_deref().unwrap_or("");
-        let columns = scythe_codegen::resolve::resolve_columns(&analyzed.columns, manifest, overrides, source_table)?;
+
+        // Same degradation pass generate_with_backend_and_overrides runs
+        // before resolving columns for the .rb file -- this .rbs signature
+        // path resolves columns independently and would otherwise reference
+        // a nested-struct type name the backend never defines anywhere, for
+        // any backend that hasn't opted in. Skipped when nested_structs is
+        // empty (the common case) for the same zero-copy reason as the main
+        // path.
+        let degraded_columns = if analyzed.nested_structs.is_empty() {
+            None
+        } else {
+            let (cols, _defs) =
+                degrade_unsupported_nested_structs(&analyzed.columns, &analyzed.nested_structs, backend)?;
+            Some(cols)
+        };
+        let columns = scythe_codegen::resolve::resolve_columns(
+            degraded_columns.as_deref().unwrap_or(&analyzed.columns),
+            manifest,
+            overrides,
+            source_table,
+        )?;
         let params = scythe_codegen::resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
 
         let func = fn_name(&analyzed.name, naming);
@@ -1650,13 +1773,13 @@ SELECT * FROM users WHERE id = $1;
 
     fn query_result(model_struct: Option<&str>, row_struct: Option<&str>, query_fn: Option<&str>) -> QueryResult {
         QueryResult {
-            code: scythe_codegen::GeneratedCode {
-                model_struct: model_struct.map(str::to_string),
-                row_struct: row_struct.map(str::to_string),
-                query_fn: query_fn.map(str::to_string),
-                enum_def: None,
-            },
+            code: scythe_codegen::GeneratedCode::build(|c| {
+                c.model_struct = model_struct.map(str::to_string);
+                c.row_struct = row_struct.map(str::to_string);
+                c.query_fn = query_fn.map(str::to_string);
+            }),
             enums: Vec::new(),
+            nested_enum_names: Vec::new(),
         }
     }
 

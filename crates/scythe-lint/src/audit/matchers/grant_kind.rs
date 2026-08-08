@@ -46,20 +46,20 @@ mod tests {
 
     fn make_ctx(sql: &str) -> (sqlparser::ast::Statement, AnalyzedQuery, Catalog, Annotations) {
         let stmt = Parser::parse_sql(&PostgreSqlDialect {}, sql).unwrap().remove(0);
-        let analyzed = AnalyzedQuery {
-            name: "q".to_string(),
-            command: QueryCommand::Many,
-            sql: sql.to_string(),
-            columns: vec![],
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-        };
+        let analyzed = AnalyzedQuery::build(|aq| {
+            aq.name = "q".to_string();
+            aq.command = QueryCommand::Many;
+            aq.sql = sql.to_string();
+            aq.columns = vec![];
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        });
         let catalog = Catalog::from_ddl(&[]).unwrap();
         let annotations = Annotations {
             name: "q".to_string(),

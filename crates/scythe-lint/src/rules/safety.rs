@@ -701,13 +701,12 @@ mod tests {
 
         let cat = make_catalog();
         let q = parse_query("-- @name GetUser\n-- @returns :one\nSELECT id FROM users WHERE id = $1;").unwrap();
-        let analyzed = AnalyzedQuery {
-            name: q.name.clone(),
-            command: QueryCommand::One,
-            sql: q.sql.clone(),
-            params: vec![],
-            ..Default::default()
-        };
+        let analyzed = AnalyzedQuery::build(|aq| {
+            aq.name = q.name.clone();
+            aq.command = QueryCommand::One;
+            aq.sql = q.sql.clone();
+            aq.params = vec![];
+        });
         let ctx = LintContext {
             sql: &q.sql,
             stmt: &q.stmt,
@@ -756,18 +755,17 @@ mod tests {
 
         let cat = make_catalog();
         let q = parse_query("-- @name Up\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
-        let analyzed = AnalyzedQuery {
-            name: q.name.clone(),
-            command: QueryCommand::Exec,
-            sql: q.sql.clone(),
-            params: vec![scythe_core::analyzer::AnalyzedParam {
+        let analyzed = AnalyzedQuery::build(|aq| {
+            aq.name = q.name.clone();
+            aq.command = QueryCommand::Exec;
+            aq.sql = q.sql.clone();
+            aq.params = vec![scythe_core::analyzer::AnalyzedParam {
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 2,
-            }],
-            ..Default::default()
-        };
+            }];
+        });
         let ctx = LintContext {
             sql: &q.sql,
             stmt: &q.stmt,

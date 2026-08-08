@@ -1,0 +1,17 @@
+[package]
+name = "scythe-integration-test-rust-sqlx-nested-json"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+# `json` gives `sqlx::types::Json<T>`, the container the rust-sqlx manifest
+# resolves `json_nested<T>` to; `serde` supplies the derives on the generated
+# nested structs it wraps, and `rust_decimal`/`chrono` need their own `serde`
+# features because a nested struct field can be either type.
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal", "json"] }
+tokio = { version = "1", features = ["full"] }
+chrono = { version = "0.4", features = ["serde"] }
+rust_decimal = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }

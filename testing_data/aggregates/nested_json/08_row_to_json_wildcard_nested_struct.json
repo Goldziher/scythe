@@ -1,0 +1,36 @@
+{
+  "category": "aggregates/nested_json",
+  "config": { "engine": "postgresql" },
+  "description": "row_to_json over a relation wildcard infers a nested struct without the array wrapper json_agg adds",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "payload",
+          "note": "row_to_json over a null-extended row returns SQL NULL, so the column is nullable and there is no element to wrap",
+          "nullable": true,
+          "type": "json_nested<GetOrderPayloadRowPayload>"
+        }
+      ],
+      "command": "many",
+      "name": "GetOrderPayload",
+      "nested_structs": [
+        {
+          "fields": [
+            { "name": "id", "nullable": false, "type": "int32" },
+            { "name": "user_id", "nullable": false, "type": "int32" },
+            { "name": "notes", "nullable": true, "type": "string" }
+          ],
+          "name": "get_order_payload_row_payload"
+        }
+      ],
+      "params": []
+    },
+    "success": true
+  },
+  "name": "row_to_json_wildcard_nested_struct",
+  "query_sql": "-- @name GetOrderPayload\n-- @returns :many\nSELECT row_to_json(o.*) AS payload FROM orders o;",
+  "schema_sql": ["CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, notes TEXT);"],
+  "source": "original",
+  "tags": ["aggregate", "row_to_json", "nested"]
+}

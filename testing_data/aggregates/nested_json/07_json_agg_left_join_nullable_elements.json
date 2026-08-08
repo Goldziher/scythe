@@ -1,0 +1,40 @@
+{
+  "category": "aggregates/nested_json",
+  "config": { "engine": "postgresql" },
+  "description": "json_agg over a LEFT JOIN yields [null] when nothing matched, so the array element is nullable while each field keeps its schema nullability",
+  "expected": {
+    "query": {
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "orders",
+          "note": "PostgreSQL makes the whole-row variable NULL for a non-matching outer-join row, so the element and not the fields is what becomes optional",
+          "nullable": true,
+          "type": "json_nested<array<nullable<GetUserOrdersOuterRowOrders>>>"
+        }
+      ],
+      "command": "many",
+      "name": "GetUserOrdersOuter",
+      "nested_structs": [
+        {
+          "fields": [
+            { "name": "id", "nullable": false, "type": "int32" },
+            { "name": "user_id", "nullable": false, "type": "int32" },
+            { "name": "notes", "nullable": true, "type": "string" }
+          ],
+          "name": "get_user_orders_outer_row_orders"
+        }
+      ],
+      "params": []
+    },
+    "success": true
+  },
+  "name": "json_agg_left_join_nullable_elements",
+  "query_sql": "-- @name GetUserOrdersOuter\n-- @returns :many\nSELECT u.id, json_agg(o.*) AS orders FROM users u LEFT JOIN orders o ON o.user_id = u.id GROUP BY u.id;",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, notes TEXT);"
+  ],
+  "source": "original",
+  "tags": ["aggregate", "json_agg", "nested", "left_join", "nullability"]
+}

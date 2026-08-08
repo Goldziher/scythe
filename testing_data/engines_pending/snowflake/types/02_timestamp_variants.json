@@ -7,7 +7,12 @@
       "name": "GetAuditLog",
       "command": "many",
       "columns": [
-        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "id",
+          "note": "Snowflake has no narrow integer storage: INTEGER is NUMBER(38,0), so it maps to int64 (issue #83)",
+          "nullable": false,
+          "type": "int64"
+        },
         { "name": "created_at", "nullable": false, "type": "datetime" },
         { "name": "scheduled_at", "nullable": true, "type": "datetime_tz" }
       ],

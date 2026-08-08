@@ -1,0 +1,20 @@
+{
+  "category": "aggregates/nested_json",
+  "config": { "engine": "redshift" },
+  "description": "The engine gate: Redshift catalogs map to the PostgreSQL dialect but Redshift has no json_agg, so no nested struct may be inferred",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "orders", "nullable": true, "type": "json" }],
+      "command": "many",
+      "name": "GetOrdersJsonRedshift",
+      "nested_structs": [],
+      "params": []
+    },
+    "success": true
+  },
+  "name": "json_agg_redshift_engine_gate",
+  "query_sql": "-- @name GetOrdersJsonRedshift\n-- @returns :many\nSELECT json_agg(o.*) AS orders FROM orders o;",
+  "schema_sql": ["CREATE TABLE orders (id INTEGER NOT NULL, user_id INTEGER NOT NULL, notes TEXT);"],
+  "source": "original",
+  "tags": ["aggregate", "json_agg", "nested", "engine_gate", "redshift"]
+}

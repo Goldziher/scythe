@@ -1,0 +1,20 @@
+{
+  "category": "aggregates/nested_json",
+  "config": { "engine": "postgresql" },
+  "description": "Regression guard: array_agg shares json_agg's argument shape but aggregates into a SQL array and must never acquire a nested struct",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "ids", "nullable": true, "type": "array<int32>" }],
+      "command": "one",
+      "name": "GetOrderIds",
+      "nested_structs": [],
+      "params": []
+    },
+    "success": true
+  },
+  "name": "array_agg_stays_scalar",
+  "query_sql": "-- @name GetOrderIds\n-- @returns :one\nSELECT array_agg(o.id) AS ids FROM orders o;",
+  "schema_sql": ["CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, notes TEXT);"],
+  "source": "original",
+  "tags": ["aggregate", "array_agg", "nested", "guardrail"]
+}

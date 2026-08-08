@@ -1,5 +1,7 @@
 use sqlparser::ast::{self, BinaryOperator, Expr, FunctionArg, FunctionArgExpr, UnaryOperator};
 
+use crate::dialect::SqlDialect;
+
 use super::helpers::*;
 use super::type_conversion::{datatype_to_neutral, sql_type_to_neutral};
 use super::types::*;
@@ -432,7 +434,13 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(base_type, true)
             }
             "bool_and" | "bool_or" | "every" => TypeInfo::new("bool", true),
-            "json_agg" | "jsonb_agg" | "json_object_agg" | "jsonb_object_agg" => TypeInfo::new("json", true),
+            "json_agg" => self
+                .infer_nested_aggregate_type(func, scope, WrapArray::Yes)
+                .unwrap_or_else(|| TypeInfo::new("json", true)),
+            "jsonb_agg" | "json_object_agg" | "jsonb_object_agg" => TypeInfo::new("json", true),
+            "row_to_json" => self
+                .infer_nested_aggregate_type(func, scope, WrapArray::No)
+                .unwrap_or_else(|| TypeInfo::new(format!("__unknown_func__:{func_name}"), first_arg_nullable)),
 
             "coalesce" => {
                 let args = self.get_function_args(func);
@@ -611,6 +619,271 @@ impl<'a> Analyzer<'a> {
                 .collect(),
         }
     }
+
+    /// Widened view of a function's argument list that preserves wildcard and
+    /// relation-reference shapes `get_function_args` drops.
+    ///
+    /// Deliberately a sibling, not a replacement: `get_function_args` feeds
+    /// `get_first_arg_type`, which in turn feeds `sum`, `avg`, `min`/`max`,
+    /// `array_agg`, `lag`/`lead`, `first_value`, `unnest`, `array_cat` and the
+    /// catch-all arm of [`Analyzer::infer_function_type`]. Widening that path
+    /// would silently change how `array_agg(o.*)` and nullability derived
+    /// from `first_arg_nullable` behave. Only the PostgreSQL nested-aggregate
+    /// arms use this method; every other call site is untouched.
+    ///
+    /// **Arity is not guaranteed to match the source argument list.** Like
+    /// `get_function_args`, this uses `filter_map`: a `FunctionArg` variant
+    /// this match doesn't recognize (currently `ExprNamed`, sqlparser's
+    /// arbitrary-expression-as-name form) is silently dropped rather than
+    /// represented as a shape. Every current caller passes a single-argument
+    /// aggregate call and checks `shapes.len() == 1` before indexing, so a
+    /// dropped argument shows up as a length mismatch and is caught, not
+    /// misread as a different argument. A caller that needs positional
+    /// correspondence with the source list must not assume `shapes[i]`
+    /// corresponds to `arg_list.args[i]`.
+    ///
+    /// Consumed by [`Analyzer::infer_nested_aggregate_type`] for the
+    /// PostgreSQL `json_agg`/`row_to_json` nested-struct arms.
+    pub(super) fn get_function_arg_shapes(&self, func: &ast::Function, scope: &Scope) -> Vec<FuncArgShape> {
+        let ast::FunctionArguments::List(arg_list) = &func.args else {
+            return Vec::new();
+        };
+
+        arg_list
+            .args
+            .iter()
+            .filter_map(|arg| {
+                let fae = match arg {
+                    FunctionArg::Unnamed(fae) | FunctionArg::Named { arg: fae, .. } => fae,
+                    _ => return None,
+                };
+                Some(self.classify_function_arg_expr(fae, scope))
+            })
+            .collect()
+    }
+
+    fn classify_function_arg_expr(&self, fae: &FunctionArgExpr, scope: &Scope) -> FuncArgShape {
+        match fae {
+            FunctionArgExpr::Expr(Expr::Identifier(ident)) => {
+                let name = if ident.quote_style.is_some() {
+                    ident.value.clone()
+                } else {
+                    ident.value.to_lowercase()
+                };
+                match self.scope_relation_alias(&name, scope) {
+                    Some(alias) => FuncArgShape::Relation(alias),
+                    None => FuncArgShape::Expr(Box::new(Expr::Identifier(ident.clone()))),
+                }
+            }
+            FunctionArgExpr::Expr(e) => FuncArgShape::Expr(Box::new(e.clone())),
+            FunctionArgExpr::QualifiedWildcard(object_name) => {
+                let qualifier = object_name_to_string(object_name).to_lowercase();
+                match self.find_scope_source_alias(&qualifier, scope) {
+                    Some(alias) => FuncArgShape::Relation(alias),
+                    None => FuncArgShape::Wildcard,
+                }
+            }
+            FunctionArgExpr::Wildcard | FunctionArgExpr::WildcardWithOptions(_) => FuncArgShape::Wildcard,
+        }
+    }
+
+    /// Resolve a bare identifier to the scope source it names, but only when
+    /// it is unambiguously a relation reference (`json_agg(o)` where `o` is
+    /// the `orders o` alias) rather than a column that happens to share the
+    /// name.
+    fn scope_relation_alias(&self, name: &str, scope: &Scope) -> Option<String> {
+        let is_column = scope.sources.iter().any(|s| s.columns.iter().any(|c| c.name == name));
+        if is_column {
+            return None;
+        }
+        self.find_scope_source_alias(name, scope)
+    }
+
+    /// Resolve a name to the alias of the scope source it matches (by alias
+    /// or table name), mirroring the `o.*` expansion in `statements.rs`.
+    fn find_scope_source_alias(&self, name: &str, scope: &Scope) -> Option<String> {
+        scope
+            .sources
+            .iter()
+            .find(|s| s.alias == name || s.table_name == name)
+            .map(|s| s.alias.clone())
+    }
+
+    /// PostgreSQL-only nested-struct type inference for `json_agg(relation.*)`
+    /// (or the bare-identifier form `json_agg(relation)`) and
+    /// `row_to_json(relation.*)`.
+    ///
+    /// `WrapArray::Yes` wraps the placeholder in `array<>` for `json_agg`
+    /// (one JSON array element per row aggregated); `WrapArray::No` leaves it
+    /// bare for `row_to_json` (one JSON object per output row, not an
+    /// aggregate).
+    ///
+    /// Returns `None` whenever the nested shape can't be established — wrong
+    /// dialect or engine, zero or more than one argument, or an argument that
+    /// isn't a `FuncArgShape::Relation` (a bare wildcard, a scalar expression,
+    /// or a relation alias that somehow resolved to no scope columns). Every
+    /// caller falls back to the pre-existing behaviour for that function on
+    /// `None`, so this never changes output for anything it doesn't
+    /// explicitly handle.
+    fn infer_nested_aggregate_type(
+        &mut self,
+        func: &ast::Function,
+        scope: &Scope,
+        wrap: WrapArray,
+    ) -> Option<TypeInfo> {
+        if !catalog_has_nested_aggregates(self.catalog) {
+            return None;
+        }
+
+        let shapes = self.get_function_arg_shapes(func, scope);
+        let [FuncArgShape::Relation(alias)] = shapes.as_slice() else {
+            return None;
+        };
+
+        let fields = self.nested_fields_for_relation(alias, scope);
+        if fields.is_empty() {
+            return None;
+        }
+
+        // Nested-of-nested: `alias` is a CTE or derived-subquery column
+        // whose own neutral_type is itself an unresolved `__nested__{id}`
+        // placeholder (e.g. an outer json_agg(oi.*) over a CTE column that
+        // is itself the result of an inner json_agg). Phase 2 naming
+        // (resolve_nested_struct_names) only walks the query's own
+        // top-level output columns, not recursively into the fields of the
+        // NestedStructInfo it just built, so a placeholder embedded here
+        // would never be substituted -- it would reach resolve_type in
+        // every backend's generate_nested_struct_def, including opted-in
+        // ones, as an unresolvable type name. Reject with a clear
+        // diagnostic instead of leaking that placeholder into a
+        // downstream "unknown type" error.
+        if let Some(field) = fields.iter().find(|f| f.neutral_type.contains("__nested__")) {
+            self.type_errors.push(format!(
+                "nested aggregate over nested aggregate is not supported: field \"{}\" of \"{alias}\" is itself \
+                 a json_agg/row_to_json result; wrap only one level of aggregation per query",
+                field.name
+            ));
+            return None;
+        }
+
+        let elements_nullable = scope
+            .sources
+            .iter()
+            .find(|s| s.alias == *alias)
+            .is_some_and(|s| s.nullable_from_join);
+
+        let id = self.push_pending_nested(fields);
+        let placeholder = format!("__nested__{id}");
+
+        // Element nullability, not field nullability, is the axis an outer
+        // join moves. For a LEFT JOIN row with no match PostgreSQL makes the
+        // whole-row variable itself NULL — not a row of NULLs — so
+        // `json_agg(o.*)` aggregates one NULL and the column's value is the
+        // JSON array `[null]`, never `[{"id":null,...}]`. Widening the
+        // *fields* would therefore model a value PostgreSQL never produces
+        // while still leaving `Vec<Foo>` / `list[Foo]` unable to hold the one
+        // it does: `serde_json` rejects `[null]` into `Vec<Foo>` with
+        // "invalid type: null", and Python's `[Foo(...) for item in raw]`
+        // raises on the NULL element.
+        //
+        // Deliberately conservative: `json_agg(o.*) FILTER (WHERE o.id IS NOT
+        // NULL)` — the idiom for suppressing exactly that `[null]` — cannot
+        // produce a null element, but recognising that would mean proving an
+        // arbitrary filter excludes the non-matching rows. Over-approximating
+        // costs an `Option`/`| None` that is always `Some`; under-
+        // approximating is a runtime deserialization failure, so this errs
+        // toward the former.
+        let element = if elements_nullable {
+            format!("nullable<{placeholder}>")
+        } else {
+            placeholder.clone()
+        };
+        let neutral_type = match wrap {
+            WrapArray::Yes => format!("json_nested<array<{element}>>"),
+            // `row_to_json(o.*)` over a null-extended row returns SQL NULL,
+            // not a JSON null, so the *column* is nullable (it always is
+            // here) and there is no element to wrap.
+            WrapArray::No => format!("json_nested<{placeholder}>"),
+        };
+        Some(TypeInfo::new(neutral_type, true))
+    }
+
+    /// Build the field list for a nested struct from a scope source's
+    /// columns.
+    ///
+    /// Unlike [`TypeInfo::from_scope_column`] for a plain column reference,
+    /// `nullable_from_join` is deliberately *not* folded in here — see
+    /// [`Analyzer::infer_nested_aggregate_type`], which applies an outer
+    /// join's effect to the array element instead. Inside a JSON object that
+    /// `json_agg` actually emitted, every field carries its own schema
+    /// nullability and nothing more.
+    fn nested_fields_for_relation(&self, alias: &str, scope: &Scope) -> Vec<NestedFieldInfo> {
+        let Some(source) = scope.sources.iter().find(|s| s.alias == alias) else {
+            return Vec::new();
+        };
+        source
+            .columns
+            .iter()
+            .map(|col| NestedFieldInfo {
+                name: col.name.clone(),
+                neutral_type: col.neutral_type.clone(),
+                nullable: col.base_nullable,
+            })
+            .collect()
+    }
+}
+
+/// Whether nested-aggregate inference is available for this catalog.
+///
+/// Two independent conditions, because neither implies the other:
+/// - the dialect must be PostgreSQL, since `json_agg`/`row_to_json` and the
+///   whole-row `alias.*` argument form are PostgreSQL syntax; and
+/// - the *engine*, when stated, must actually ship those functions.
+///   `SqlDialect::from_str` maps `redshift` and `duckdb` onto
+///   `SqlDialect::PostgreSQL`, but Redshift has no `json_agg` at all and
+///   DuckDB spells it `json_group_array`, so the dialect check alone admits
+///   two engines where the inferred type could never be produced.
+///
+/// An unstated engine (`Catalog::from_ddl`, every unit test, any embedder
+/// predating `Catalog::with_engine`) is treated as PostgreSQL proper.
+fn catalog_has_nested_aggregates(catalog: &crate::catalog::Catalog) -> bool {
+    if catalog.dialect() != SqlDialect::PostgreSQL {
+        return false;
+    }
+    catalog
+        .engine()
+        .is_none_or(|engine| matches!(engine, "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb"))
+}
+
+/// Whether [`Analyzer::infer_nested_aggregate_type`] wraps its placeholder in
+/// `array<>` (`json_agg`, one element per aggregated row) or leaves it bare
+/// (`row_to_json`, one object per output row).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum WrapArray {
+    Yes,
+    No,
+}
+
+/// Shape of a single function argument, widened from sqlparser's
+/// `FunctionArgExpr` to preserve wildcard and relation-reference forms that
+/// [`Analyzer::get_function_args`] silently drops.
+///
+/// `infer_nested_aggregate_type` only ever needs to distinguish `Relation`
+/// from everything else, so `Expr`'s payload is currently read by tests only
+/// (see `test_get_function_arg_shapes_plain_expr_unaffected`) — kept for a
+/// caller that needs the actual expression, not because it's unused.
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub(super) enum FuncArgShape {
+    /// A normal scalar/column expression argument. Boxed: `Expr` is ~328
+    /// bytes and this enum is carried by value through `Vec<FuncArgShape>`.
+    Expr(Box<Expr>),
+    /// `*`, or `alias.*` whose qualifier did not resolve to a scope source.
+    Wildcard,
+    /// `alias.*`, or a bare identifier that names a scope source (table
+    /// alias or table name) rather than a column — e.g. `json_agg(o)` where
+    /// `o` is the `orders o` alias. Carries the resolved alias.
+    Relation(String),
 }
 
 #[cfg(test)]
@@ -620,7 +893,8 @@ mod tests {
     use ahash::AHashMap;
     use sqlparser::ast::{
         Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident, ObjectName,
-        ObjectNamePart, Value, ValueWithSpan, WindowFrame, WindowFrameBound, WindowFrameUnits, WindowSpec, WindowType,
+        ObjectNamePart, Value, ValueWithSpan, WildcardAdditionalOptions, WindowFrame, WindowFrameBound,
+        WindowFrameUnits, WindowSpec, WindowType,
     };
     use sqlparser::tokenizer::Span;
 
@@ -639,6 +913,8 @@ mod tests {
             ctes: AHashMap::new(),
             type_errors: Vec::new(),
             positional_param_counter: 0,
+            pending_nested: Vec::new(),
+            next_nested_id: 0,
         }
     }
 
@@ -1188,5 +1464,165 @@ mod tests {
         let ti = analyzer.infer_function_type(&func, &scope);
         assert_eq!(ti.neutral_type, "int64");
         assert!(!ti.nullable);
+    }
+
+    fn make_func_with_arg_exprs(name: &str, args: Vec<FunctionArgExpr>) -> ast::Function {
+        let mut f = make_func(name, Vec::new());
+        f.args = FunctionArguments::List(FunctionArgumentList {
+            args: args.into_iter().map(FunctionArg::Unnamed).collect(),
+            duplicate_treatment: None,
+            clauses: Vec::new(),
+        });
+        f
+    }
+
+    fn qualified_wildcard(qualifier: &str) -> FunctionArgExpr {
+        FunctionArgExpr::QualifiedWildcard(ObjectName(vec![ObjectNamePart::Identifier(Ident::new(qualifier))]))
+    }
+
+    /// Pins `get_function_args` to still drop wildcard args entirely — the
+    /// contract `get_function_arg_shapes` was added alongside, not in place
+    /// of, it (see the doc comment on `get_function_arg_shapes`).
+    #[test]
+    fn test_get_function_args_still_drops_wildcards() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let func = make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]);
+        assert_eq!(analyzer.get_function_args(&func), Vec::<Expr>::new());
+    }
+
+    #[test]
+    fn test_get_function_arg_shapes_qualified_wildcard_resolves_relation() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = scope_with_source_alias("o", "orders");
+        let func = make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Relation(alias) if alias == "o"));
+    }
+
+    /// `add_table_factor_to_scope` (`scope.rs`) always lowercases an
+    /// unquoted table alias when it builds `ScopeSource.alias`, so `FROM
+    /// orders O` still stores `alias: "o"`. `json_agg(O.*)`, written with the
+    /// alias's original case, must resolve against that lowercased scope
+    /// entry rather than degrading to `Wildcard`.
+    #[test]
+    fn test_get_function_arg_shapes_qualified_wildcard_uppercase_alias_resolves_relation() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = scope_with_source_alias("o", "orders");
+        let func = make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("O")]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Relation(alias) if alias == "o"));
+    }
+
+    /// Same as above for the bare-identifier form: `json_agg(O)` against a
+    /// scope built from `FROM orders O` (alias stored lowercased as `"o"`).
+    #[test]
+    fn test_get_function_arg_shapes_bare_identifier_uppercase_alias_is_relation() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = scope_with_source_alias("o", "orders");
+        let func = make_func_with_arg_exprs("json_agg", vec![FunctionArgExpr::Expr(col_expr("O"))]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Relation(alias) if alias == "o"));
+    }
+
+    #[test]
+    fn test_get_function_arg_shapes_qualified_wildcard_unresolved_is_wildcard() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func_with_arg_exprs("json_agg", vec![qualified_wildcard("o")]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Wildcard));
+    }
+
+    #[test]
+    fn test_get_function_arg_shapes_bare_wildcard() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func_with_arg_exprs("count", vec![FunctionArgExpr::Wildcard]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Wildcard));
+    }
+
+    #[test]
+    fn test_get_function_arg_shapes_wildcard_with_options() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func_with_arg_exprs(
+            "count",
+            vec![FunctionArgExpr::WildcardWithOptions(
+                WildcardAdditionalOptions::default(),
+            )],
+        );
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Wildcard));
+    }
+
+    /// `json_agg(o)` where `o` is a scope source alias, not a column, must
+    /// resolve as `Relation("o")` rather than falling into
+    /// `Expr::Identifier` (which would resolve to `__unknown_col__:o` today).
+    #[test]
+    fn test_get_function_arg_shapes_bare_identifier_matching_alias_is_relation() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = scope_with_source_alias("o", "orders");
+        let func = make_func_with_arg_exprs("json_agg", vec![FunctionArgExpr::Expr(col_expr("o"))]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Relation(alias) if alias == "o"));
+    }
+
+    /// A bare identifier that is also a real column name must NOT be
+    /// reclassified as a relation, even if some other source in scope
+    /// happens to share the same alias — column identity wins.
+    #[test]
+    fn test_get_function_arg_shapes_bare_identifier_matching_column_stays_expr() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        // `t` is both a source alias (via scope_with_column) and, separately,
+        // a column named "c" lives on it; use a name ("c") that collides with
+        // the column instead of the alias to prove column identity wins.
+        let mut scope = scope_with_column("string");
+        scope.sources[0].alias = "c".to_string();
+        scope.sources[0].table_name = "c".to_string();
+        let func = make_func_with_arg_exprs("json_agg", vec![FunctionArgExpr::Expr(col_expr("c"))]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(
+            matches!(&shapes[0], FuncArgShape::Expr(e) if matches!(e.as_ref(), Expr::Identifier(ident) if ident.value == "c"))
+        );
+    }
+
+    #[test]
+    fn test_get_function_arg_shapes_plain_expr_unaffected() {
+        let catalog = empty_catalog();
+        let analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func_with_arg_exprs("sum", vec![FunctionArgExpr::Expr(int_literal())]);
+        let shapes = analyzer.get_function_arg_shapes(&func, &scope);
+        assert_eq!(shapes.len(), 1);
+        assert!(matches!(&shapes[0], FuncArgShape::Expr(e) if matches!(e.as_ref(), Expr::Value(_))));
+    }
+
+    fn scope_with_source_alias(alias: &str, table_name: &str) -> Scope {
+        Scope {
+            sources: vec![ScopeSource {
+                alias: alias.to_string(),
+                table_name: table_name.to_string(),
+                columns: vec![ScopeColumn::new("id", "int64", false)],
+                nullable_from_join: false,
+            }],
+        }
     }
 }

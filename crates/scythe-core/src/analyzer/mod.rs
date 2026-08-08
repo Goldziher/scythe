@@ -1,5 +1,6 @@
 mod expressions;
 mod helpers;
+mod naming;
 mod params;
 mod scope;
 mod statements;
@@ -9,15 +10,17 @@ mod types;
 pub use type_conversion::sql_type_to_neutral;
 pub use types::{
     AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, EnumInfo, GroupByConfig,
+    NestedFieldInfo, NestedStructInfo,
 };
 
 use ahash::{AHashMap, AHashSet};
 
 use crate::catalog::Catalog;
+use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 use crate::parser::{Query, QueryCommand};
 
-use helpers::detect_select_star_source;
+use helpers::{detect_select_star_source, find_nested_placeholder_id};
 use types::Analyzer;
 
 pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, ScytheError> {
@@ -27,6 +30,8 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         ctes: AHashMap::new(),
         type_errors: Vec::new(),
         positional_param_counter: 0,
+        pending_nested: Vec::new(),
+        next_nested_id: 0,
     };
 
     let (columns, _) = analyzer.analyze_statement(&query.stmt)?;
@@ -47,6 +52,17 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
             col.neutral_type = format!("json_typed<{}>", mapping.rust_type);
         }
     }
+
+    // Phase 2 of nested-struct naming (see `types::PendingNestedStruct`):
+    // columns now have their final names (aliases and overrides applied),
+    // so each `__nested__{id}` placeholder pushed during expression
+    // inference (phase 1) can be resolved to a real struct name.
+    let nested_structs = resolve_nested_struct_names(
+        catalog,
+        &query.name,
+        std::mem::take(&mut analyzer.pending_nested),
+        &mut columns,
+    );
 
     analyzer.params.sort_by_key(|p| p.position);
     analyzer.params.dedup_by_key(|p| p.position);
@@ -107,10 +123,27 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
 
     let source_table = detect_select_star_source(&query.stmt);
 
+    // Every neutral type that a generated file must be able to name. Nested
+    // struct fields belong here alongside the top-level columns and params:
+    // a `json_agg(o.*)` over a table with an enum or composite column puts
+    // that type in the *nested* struct's field list and nowhere else, so
+    // scanning only `columns`/`params` emits `pub status: OrderStatus` with
+    // no `enum OrderStatus` in the file — E0412 in Rust, an undefined type
+    // in Go, a `NameError` in Python.
+    let nested_field_types: Vec<&str> = nested_structs
+        .iter()
+        .flat_map(|nested| nested.fields.iter())
+        .map(|field| field.neutral_type.as_str())
+        .collect();
+
     let mut composites = Vec::new();
     let mut seen_composites: AHashSet<String> = AHashSet::new();
-    for col in &columns {
-        if let Some(comp_name) = col.neutral_type.strip_prefix("composite::")
+    for neutral_type in columns
+        .iter()
+        .map(|c| c.neutral_type.as_str())
+        .chain(nested_field_types.iter().copied())
+    {
+        if let Some(comp_name) = neutral_type.strip_prefix("composite::")
             && seen_composites.insert(comp_name.to_string())
             && let Some(comp) = catalog.get_composite(comp_name)
         {
@@ -134,6 +167,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         .iter()
         .map(|c| c.neutral_type.as_str())
         .chain(params.iter().map(|p| p.neutral_type.as_str()))
+        .chain(nested_field_types.iter().copied())
         .collect();
     for nt in &all_types {
         if let Some(enum_name) = nt.strip_prefix("enum::")
@@ -203,7 +237,106 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         optional_params: query.annotations.optional_params.clone(),
         group_by,
         custom: query.annotations.custom.clone(),
+        nested_structs,
     })
+}
+
+/// Phase 2 of nested-struct naming. Walks `columns` for `__nested__{id}`
+/// placeholders left by phase-1 expression inference, assigns each a final
+/// name (deduping identical shapes, suffixing collisions against the
+/// catalog or against a differently-shaped struct), substitutes the
+/// placeholder with the resulting PascalCase name in place, and returns the
+/// resolved [`NestedStructInfo`] list for `AnalyzedQuery::nested_structs`.
+///
+/// A non-PostgreSQL dialect returns an empty list and leaves `columns`
+/// untouched. In practice `pending` is only ever non-empty for a catalog
+/// that passed the fuller gate in `Analyzer::infer_nested_aggregate_type`
+/// (the phase-1 producer, `expressions.rs`), which also excludes engines
+/// like Redshift that map onto the PostgreSQL dialect without having
+/// `json_agg` — the dialect check here is a second, independent net so this
+/// pass cannot leave a half-substituted placeholder behind if that
+/// invariant is ever violated. It is deliberately the weaker of the two:
+/// its job is to never *partially* resolve, not to re-derive the engine
+/// policy.
+fn resolve_nested_struct_names(
+    catalog: &Catalog,
+    query_name: &str,
+    pending: Vec<types::PendingNestedStruct>,
+    columns: &mut [AnalyzedColumn],
+) -> Vec<NestedStructInfo> {
+    if pending.is_empty() || catalog.dialect() != SqlDialect::PostgreSQL {
+        return Vec::new();
+    }
+
+    let snake_query = naming::to_snake_case(query_name).into_owned();
+    let mut resolved: AHashMap<u32, String> = AHashMap::new();
+    let mut structs: Vec<NestedStructInfo> = Vec::new();
+
+    for column in columns.iter_mut() {
+        while let Some(id) = find_nested_placeholder_id(&column.neutral_type) {
+            let final_name = if let Some(name) = resolved.get(&id) {
+                name.clone()
+            } else {
+                let fields = pending
+                    .iter()
+                    .find(|p| p.id == id)
+                    .map(|p| p.fields.clone())
+                    .unwrap_or_default();
+                let base = format!("{snake_query}_row_{}", column.name);
+                let name = assign_nested_struct_name(&base, fields, catalog, &mut structs);
+                resolved.insert(id, name.clone());
+                name
+            };
+
+            let pascal = naming::to_pascal_case(&final_name);
+            column.neutral_type = column.neutral_type.replacen(&format!("__nested__{id}"), &pascal, 1);
+        }
+    }
+
+    structs
+}
+
+/// Find a free name for a nested struct, starting from `base` (already
+/// snake_case) and trying `{base}_1`, `{base}_2`, ... in order.
+///
+/// Two independent collision sources are checked per candidate: a catalog
+/// composite or enum sharing the name always forces the next suffix; a
+/// same-named struct already assigned earlier in this `analyze()` call is
+/// reused as-is when its field shape is identical (two output columns can
+/// legitimately produce the same nested shape) and otherwise also forces
+/// the next suffix.
+fn assign_nested_struct_name(
+    base: &str,
+    fields: Vec<NestedFieldInfo>,
+    catalog: &Catalog,
+    structs: &mut Vec<NestedStructInfo>,
+) -> String {
+    let mut suffix: u32 = 0;
+    loop {
+        let candidate = if suffix == 0 {
+            base.to_string()
+        } else {
+            format!("{base}_{suffix}")
+        };
+
+        if let Some(existing) = structs.iter().find(|s| s.name == candidate) {
+            if existing.fields == fields {
+                return candidate;
+            }
+            suffix += 1;
+            continue;
+        }
+
+        if catalog.get_composite(&candidate).is_none() && catalog.get_enum(&candidate).is_none() {
+            structs.push(NestedStructInfo {
+                name: candidate.clone(),
+                fields,
+            });
+            return candidate;
+        }
+
+        suffix += 1;
+    }
 }
 
 #[cfg(test)]
@@ -599,5 +732,605 @@ SELECT name, age FROM users WHERE id = $1;",
         let result = analyze(&catalog, &query).unwrap();
         assert!(result.columns[0].nullable);
         assert!(!result.columns[1].nullable);
+    }
+
+    // -----------------------------------------------------------------
+    // Phase-2 nested-struct naming (`resolve_nested_struct_names`).
+    //
+    // `Analyzer::infer_nested_aggregate_type` (expressions.rs) is the real
+    // producer now, exercised end to end by the json_agg/row_to_json tests
+    // further down. These tests instead exercise the resolver directly
+    // with a hand-built `pending` list and column set, to pin name
+    // derivation, collision handling, and the dialect gate in isolation
+    // from expression inference.
+    // -----------------------------------------------------------------
+
+    fn nested_column(name: &str, neutral_type: &str) -> AnalyzedColumn {
+        AnalyzedColumn {
+            name: name.to_string(),
+            neutral_type: neutral_type.to_string(),
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn test_resolve_nested_struct_names_derives_name_from_query_and_column() {
+        let catalog = make_catalog();
+        let pending = vec![types::PendingNestedStruct {
+            id: 0,
+            fields: vec![NestedFieldInfo {
+                name: "title".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+            }],
+        }];
+        let mut columns = vec![nested_column("orders", "json_nested<array<__nested__0>>")];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetUserOrders", pending, &mut columns);
+
+        assert_eq!(structs.len(), 1);
+        assert_eq!(structs[0].name, "get_user_orders_row_orders");
+        assert_eq!(structs[0].fields.len(), 1);
+        assert_eq!(structs[0].fields[0].name, "title");
+    }
+
+    /// The resolver only ever performs `to_pascal_case(name)`, never a
+    /// round trip back through `to_snake_case` — pin that the PascalCase
+    /// form embedded in the neutral type matches `to_pascal_case` applied
+    /// to the returned `NestedStructInfo.name` exactly.
+    #[test]
+    fn test_resolve_nested_struct_names_pascal_case_matches_neutral_type() {
+        let catalog = make_catalog();
+        let pending = vec![types::PendingNestedStruct {
+            id: 3,
+            fields: Vec::new(),
+        }];
+        let mut columns = vec![nested_column("orders", "json_nested<array<__nested__3>>")];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetUserOrders", pending, &mut columns);
+
+        let expected_pascal = naming::to_pascal_case(&structs[0].name);
+        assert_eq!(
+            columns[0].neutral_type,
+            format!("json_nested<array<{expected_pascal}>>")
+        );
+    }
+
+    #[test]
+    fn test_resolve_nested_struct_names_collision_with_catalog_composite_suffixes() {
+        let catalog = Catalog::from_ddl(&["CREATE TYPE get_user_row_profile AS (x TEXT);"]).unwrap();
+        let pending = vec![types::PendingNestedStruct {
+            id: 0,
+            fields: vec![NestedFieldInfo {
+                name: "bio".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: true,
+            }],
+        }];
+        let mut columns = vec![nested_column("profile", "json_nested<__nested__0>")];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetUser", pending, &mut columns);
+
+        assert_eq!(structs.len(), 1);
+        assert_eq!(
+            structs[0].name, "get_user_row_profile_1",
+            "must suffix rather than collide with the catalog composite \"get_user_row_profile\""
+        );
+        assert_eq!(columns[0].neutral_type, "json_nested<GetUserRowProfile1>");
+    }
+
+    #[test]
+    fn test_resolve_nested_struct_names_duplicate_column_names_dedupe_identical_shape() {
+        let catalog = make_catalog();
+        let shared_fields = vec![NestedFieldInfo {
+            name: "id".to_string(),
+            neutral_type: "int32".to_string(),
+            nullable: false,
+        }];
+        let pending = vec![
+            types::PendingNestedStruct {
+                id: 0,
+                fields: shared_fields.clone(),
+            },
+            types::PendingNestedStruct {
+                id: 1,
+                fields: shared_fields,
+            },
+        ];
+        let mut columns = vec![
+            nested_column("items", "json_nested<array<__nested__0>>"),
+            nested_column("items", "json_nested<array<__nested__1>>"),
+        ];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetOrder", pending, &mut columns);
+
+        assert_eq!(
+            structs.len(),
+            1,
+            "two columns with the same name and identical field shape must dedupe to one struct"
+        );
+        assert_eq!(columns[0].neutral_type, columns[1].neutral_type);
+    }
+
+    #[test]
+    fn test_resolve_nested_struct_names_duplicate_column_names_differing_shape_suffixes() {
+        let catalog = make_catalog();
+        let pending = vec![
+            types::PendingNestedStruct {
+                id: 0,
+                fields: vec![NestedFieldInfo {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                }],
+            },
+            types::PendingNestedStruct {
+                id: 1,
+                fields: vec![NestedFieldInfo {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                }],
+            },
+        ];
+        let mut columns = vec![
+            nested_column("items", "json_nested<array<__nested__0>>"),
+            nested_column("items", "json_nested<array<__nested__1>>"),
+        ];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetOrder", pending, &mut columns);
+
+        assert_eq!(
+            structs.len(),
+            2,
+            "same-named columns with different field shapes must not collapse into one struct"
+        );
+        assert_eq!(structs[0].name, "get_order_row_items");
+        assert_eq!(structs[1].name, "get_order_row_items_1");
+        assert_ne!(columns[0].neutral_type, columns[1].neutral_type);
+    }
+
+    #[test]
+    fn test_resolve_nested_struct_names_mysql_dialect_produces_none() {
+        let catalog =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE orders (id INTEGER NOT NULL);"], &SqlDialect::MySQL)
+                .unwrap();
+        let pending = vec![types::PendingNestedStruct {
+            id: 0,
+            fields: vec![NestedFieldInfo {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+            }],
+        }];
+        let original_neutral_type = "json_nested<array<__nested__0>>".to_string();
+        let mut columns = vec![nested_column("orders", &original_neutral_type)];
+
+        let structs = resolve_nested_struct_names(&catalog, "GetUserOrders", pending, &mut columns);
+
+        assert!(
+            structs.is_empty(),
+            "non-PostgreSQL dialects must never produce nested_structs"
+        );
+        assert_eq!(
+            columns[0].neutral_type, original_neutral_type,
+            "the placeholder must be left untouched, not partially substituted"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Phase-1 producer: json_agg / row_to_json nested-aggregate inference
+    // end to end through analyze().
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn test_json_agg_wildcard_produces_nested_struct() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPosts
+-- @returns :many
+SELECT u.id, json_agg(p.*) AS posts FROM users u JOIN posts p ON u.id = p.user_id GROUP BY u.id;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns.len(), 2);
+        assert_eq!(result.columns[1].name, "posts");
+        assert_eq!(
+            result.nested_structs.len(),
+            1,
+            "exactly one nested struct must be produced"
+        );
+
+        let nested = &result.nested_structs[0];
+        assert_eq!(nested.name, "get_user_posts_row_posts");
+        assert_eq!(
+            result.columns[1].neutral_type, "json_nested<array<GetUserPostsRowPosts>>",
+            "json_agg wraps the resolved name in array<> and must match the PascalCase of nested.name exactly"
+        );
+        assert!(result.columns[1].nullable);
+
+        let field_names: Vec<&str> = nested.fields.iter().map(|f| f.name.as_str()).collect();
+        assert_eq!(
+            field_names,
+            ["id", "user_id", "title", "body", "published", "created_at"]
+        );
+        let title_field = nested.fields.iter().find(|f| f.name == "title").unwrap();
+        assert_eq!(title_field.neutral_type, "string");
+        assert!(!title_field.nullable, "posts.title is NOT NULL and the join is INNER");
+        let body_field = nested.fields.iter().find(|f| f.name == "body").unwrap();
+        assert!(body_field.nullable, "posts.body has no NOT NULL constraint");
+    }
+
+    /// A LEFT JOIN moves *element* nullability, not field nullability. With
+    /// no matching row PostgreSQL makes the whole-row variable `p` itself
+    /// NULL, so `json_agg(p.*)` produces the JSON array `[null]` — a null
+    /// element, never an object whose fields are all null. The element type
+    /// must therefore be optional while each field keeps its schema
+    /// nullability.
+    #[test]
+    fn test_json_agg_left_join_makes_array_elements_nullable() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsOuter
+-- @returns :many
+SELECT u.id, json_agg(p.*) AS posts FROM users u LEFT JOIN posts p ON u.id = p.user_id GROUP BY u.id;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(
+            result.columns[1].neutral_type, "json_nested<array<nullable<GetUserPostsOuterRowPosts>>>",
+            "json_agg over a LEFT JOIN with no match yields [null], so the element type must be nullable"
+        );
+
+        let nested = &result.nested_structs[0];
+        let id_field = nested.fields.iter().find(|f| f.name == "id").unwrap();
+        assert!(
+            !id_field.nullable,
+            "posts.id is NOT NULL; inside an object json_agg actually emitted it can never be null, so \
+             widening the field instead of the element would model a value PostgreSQL never produces"
+        );
+        let body_field = nested.fields.iter().find(|f| f.name == "body").unwrap();
+        assert!(body_field.nullable, "posts.body has no NOT NULL constraint");
+    }
+
+    /// The INNER-JOIN counterpart: every aggregated row matched, so no
+    /// element can be null and the `nullable<>` wrapper must be absent.
+    #[test]
+    fn test_json_agg_inner_join_elements_are_not_nullable() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsInner
+-- @returns :many
+SELECT u.id, json_agg(p.*) AS posts FROM users u JOIN posts p ON u.id = p.user_id GROUP BY u.id;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(
+            result.columns[1].neutral_type,
+            "json_nested<array<GetUserPostsInnerRowPosts>>"
+        );
+    }
+
+    /// `row_to_json` over a null-extended row returns SQL NULL, not a JSON
+    /// null: the column is nullable and there is no element to wrap, so the
+    /// `nullable<>` element wrapper must not appear on this path.
+    #[test]
+    fn test_row_to_json_left_join_does_not_wrap_element() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostJson
+-- @returns :many
+SELECT u.id, row_to_json(p.*) AS post FROM users u LEFT JOIN posts p ON u.id = p.user_id;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns[1].neutral_type, "json_nested<GetUserPostJsonRowPost>");
+        assert!(result.columns[1].nullable, "the column itself carries the NULL");
+    }
+
+    #[test]
+    fn test_row_to_json_wildcard_produces_nested_struct_without_array() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetPostAsJson
+-- @returns :many
+SELECT row_to_json(p.*) AS post FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.nested_structs.len(), 1);
+        assert_eq!(
+            result.columns[0].neutral_type, "json_nested<GetPostAsJsonRowPost>",
+            "row_to_json must not wrap in array<> -- it emits one object per output row, not an aggregate"
+        );
+    }
+
+    #[test]
+    fn test_json_agg_scalar_argument_falls_back_to_plain_json() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserNames
+-- @returns :one
+SELECT json_agg(u.name) AS names FROM users u;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(
+            result.columns[0].neutral_type, "json",
+            "a scalar/column argument is not a relation shape -- must match pre-existing json_agg behaviour exactly"
+        );
+        assert!(result.nested_structs.is_empty());
+    }
+
+    #[test]
+    fn test_json_agg_bare_wildcard_falls_back_to_plain_json() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserCount
+-- @returns :one
+SELECT json_agg(*) AS everything FROM users;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns[0].neutral_type, "json");
+        assert!(result.nested_structs.is_empty());
+    }
+
+    #[test]
+    fn test_json_agg_non_postgres_dialect_falls_back_to_plain_json() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE posts (id INTEGER NOT NULL, title TEXT NOT NULL);"],
+            &crate::dialect::SqlDialect::MySQL,
+        )
+        .unwrap();
+        let query = parse_query(
+            "-- @name GetPosts
+-- @returns :many
+SELECT json_agg(p.*) AS posts FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(
+            result.columns[0].neutral_type, "json",
+            "the dialect gate must produce byte-identical output to today's json_agg behaviour on non-PostgreSQL catalogs"
+        );
+        assert!(result.nested_structs.is_empty());
+    }
+
+    /// Guardrail: `string_agg` must never be reinterpreted as a nested
+    /// aggregate, even when its argument is a relation wildcard shape (not
+    /// valid SQL for `string_agg`, which expects a text expression, but the
+    /// analyzer must not special-case it regardless).
+    #[test]
+    fn test_string_agg_never_produces_nested_struct() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserNamesJoined
+-- @returns :one
+SELECT string_agg(u.name, ',') AS names FROM users u;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns[0].neutral_type, "string");
+        assert!(result.nested_structs.is_empty());
+    }
+
+    /// Guardrail: `jsonb_agg` is explicitly out of scope for this batch and
+    /// must keep today's plain-json behaviour even for a relation shape.
+    #[test]
+    fn test_jsonb_agg_wildcard_stays_plain_json() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsB
+-- @returns :many
+SELECT jsonb_agg(p.*) AS posts FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns[0].neutral_type, "json");
+        assert!(result.nested_structs.is_empty());
+    }
+
+    /// Nested-of-nested: an outer `json_agg` over a CTE column that is
+    /// itself the result of an inner `json_agg`. Phase 2 naming only walks
+    /// the query's own top-level output columns, never recursively into a
+    /// NestedStructInfo's own fields, so the inner `__nested__{id}`
+    /// placeholder can never be substituted if this were allowed through --
+    /// it must be rejected with a clear diagnostic instead of reaching
+    /// codegen as a leaked, unresolvable placeholder.
+    #[test]
+    fn test_nested_of_nested_aggregate_is_rejected_with_clear_diagnostic() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetAllUserPosts
+-- @returns :many
+WITH user_posts AS (
+    SELECT u.id AS user_id, json_agg(p.*) AS posts
+    FROM users u JOIN posts p ON p.user_id = u.id
+    GROUP BY u.id
+)
+SELECT up.user_id, json_agg(up.*) AS all_posts FROM user_posts up;",
+        )
+        .unwrap();
+
+        let err = analyze(&catalog, &query).unwrap_err();
+
+        assert!(
+            err.message.contains("nested aggregate over nested aggregate"),
+            "expected a clear nested-of-nested diagnostic, got: {}",
+            err.message
+        );
+        assert!(
+            err.message.contains("posts"),
+            "diagnostic should name the offending field, got: {}",
+            err.message
+        );
+    }
+
+    /// UNION arm widening: two arms that both `json_agg` the *same*
+    /// underlying table shape must widen cleanly into one nested struct,
+    /// even though each arm's `json_agg` call independently allocated its
+    /// own `__nested__{id}` and so never compares textually equal.
+    #[test]
+    fn test_union_arms_with_identical_nested_shape_widen_to_one_struct() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsEitherWay
+-- @returns :many
+SELECT u.id, json_agg(p.*) AS posts FROM users u JOIN posts p ON p.user_id = u.id GROUP BY u.id
+UNION
+SELECT u2.id, json_agg(p2.*) AS posts FROM users u2 JOIN posts p2 ON p2.user_id = u2.id GROUP BY u2.id;",
+        )
+        .unwrap();
+
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(
+            result.nested_structs.len(),
+            1,
+            "both arms describe the same posts shape and must widen to a single struct"
+        );
+        assert!(result.columns[1].neutral_type.starts_with("json_nested<array<"));
+    }
+
+    /// UNION arm widening: two arms that `json_agg` genuinely different
+    /// table shapes must be rejected with a clear diagnostic, not silently
+    /// resolved to whichever arm happened to be on the left -- the pre-fix
+    /// behaviour would drop the right arm's shape with no signal at all.
+    #[test]
+    fn test_union_arms_with_differing_nested_shape_is_rejected_with_clear_diagnostic() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsOrComments
+-- @returns :many
+SELECT u.id, json_agg(p.*) AS posts FROM users u JOIN posts p ON p.user_id = u.id GROUP BY u.id
+UNION
+SELECT u2.id, json_agg(c.*) AS posts FROM users u2 JOIN comments c ON c.user_id = u2.id GROUP BY u2.id;",
+        )
+        .unwrap();
+
+        let err = analyze(&catalog, &query).unwrap_err();
+
+        assert!(
+            err.message.contains("different row shapes"),
+            "expected a clear shape-mismatch diagnostic, got: {}",
+            err.message
+        );
+    }
+
+    /// UNION arm widening, nested against non-nested. `widen_type`'s
+    /// "different types, left wins" rule would keep the strongly-typed
+    /// struct and then deserialize the right arm's arbitrary JSON into it at
+    /// runtime, with nothing failing at build time.
+    #[test]
+    fn test_union_nested_arm_against_plain_json_arm_is_rejected() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsOrEmpty
+-- @returns :many
+SELECT json_agg(p.*) AS posts FROM posts p
+UNION
+SELECT '[]'::json AS posts;",
+        )
+        .unwrap();
+
+        let err = analyze(&catalog, &query).unwrap_err();
+
+        assert!(
+            err.message.contains("nested aggregate") && err.message.contains("left arm"),
+            "expected a nested-vs-non-nested diagnostic naming the offending side, got: {}",
+            err.message
+        );
+    }
+
+    /// The mirror image: the nested arm on the right, where the pre-fix
+    /// behaviour silently discarded the struct entirely.
+    #[test]
+    fn test_union_plain_json_arm_against_nested_arm_is_rejected() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetEmptyOrUserPosts
+-- @returns :many
+SELECT '[]'::json AS posts
+UNION
+SELECT json_agg(p.*) AS posts FROM posts p;",
+        )
+        .unwrap();
+
+        let err = analyze(&catalog, &query).unwrap_err();
+
+        assert!(
+            err.message.contains("nested aggregate") && err.message.contains("right arm"),
+            "expected a nested-vs-non-nested diagnostic naming the offending side, got: {}",
+            err.message
+        );
+    }
+
+    /// Guardrail: `array_agg` shares the wildcard-argument shape with
+    /// `json_agg` but aggregates into a SQL array, not JSON. It must keep
+    /// resolving through the pre-existing `get_first_arg_type` path and
+    /// never acquire a nested struct.
+    #[test]
+    fn test_array_agg_wildcard_never_produces_nested_struct() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetPostIdsAgg
+-- @returns :one
+SELECT array_agg(p.id) AS ids FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns[0].neutral_type, "array<int32>");
+        assert!(result.nested_structs.is_empty());
+    }
+
+    /// The engine gate, independent of the dialect gate: Redshift catalogs
+    /// map to `SqlDialect::PostgreSQL` (see `SqlDialect::from_str`) but
+    /// Redshift has no `json_agg`, so inference must fall back to plain
+    /// `json` exactly as it does for MySQL.
+    #[test]
+    fn test_json_agg_redshift_engine_falls_back_to_plain_json() {
+        let catalog = make_catalog().with_engine("redshift");
+        let query = parse_query(
+            "-- @name GetPostsRedshift
+-- @returns :many
+SELECT json_agg(p.*) AS posts FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(
+            result.columns[0].neutral_type, "json",
+            "a PostgreSQL-dialect catalog on the Redshift engine must not infer a nested struct"
+        );
+        assert!(result.nested_structs.is_empty());
+    }
+
+    /// The same catalog with the engine stated as PostgreSQL still infers,
+    /// so the gate above is the engine and not merely the presence of
+    /// `with_engine`.
+    #[test]
+    fn test_json_agg_postgresql_engine_still_infers() {
+        let catalog = make_catalog().with_engine("postgresql");
+        let query = parse_query(
+            "-- @name GetPostsPg
+-- @returns :many
+SELECT json_agg(p.*) AS posts FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.nested_structs.len(), 1);
     }
 }

@@ -509,25 +509,25 @@ mod tests {
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
-        AnalyzedQuery {
-            name: "GetUsersWithOrders".to_string(),
-            command: QueryCommand::Grouped,
-            sql: "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id".to_string(),
-            columns: all_cols,
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: Some(GroupByConfig {
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUsersWithOrders".to_string();
+            aq.command = QueryCommand::Grouped;
+            aq.sql = "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id".to_string();
+            aq.columns = all_cols;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = Some(GroupByConfig {
                 table: "users".to_string(),
                 key_column: "id".to_string(),
                 parent_columns: parent_cols,
                 child_columns: child_cols,
-            }),
-            custom: vec![],
-        }
+            });
+            aq.custom = vec![];
+        })
     }
 
     #[test]
@@ -602,12 +602,12 @@ mod tests {
         use super::CsharpSnowflakeBackend;
 
         let backend = CsharpSnowflakeBackend::new("snowflake").unwrap();
-        let query = AnalyzedQuery {
-            name: "CreateOrder".to_string(),
-            command: QueryCommand::Exec,
-            sql: "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3)".to_string(),
-            columns: vec![],
-            params: vec![
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "CreateOrder".to_string();
+            aq.command = QueryCommand::Exec;
+            aq.sql = "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3)".to_string();
+            aq.columns = vec![];
+            aq.params = vec![
                 scythe_core::analyzer::AnalyzedParam {
                     name: "user_id".to_string(),
                     neutral_type: "int32".to_string(),
@@ -626,15 +626,15 @@ mod tests {
                     nullable: true,
                     position: 3,
                 },
-            ],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-        };
+            ];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        });
 
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();

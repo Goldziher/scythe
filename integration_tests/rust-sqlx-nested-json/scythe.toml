@@ -1,0 +1,15 @@
+[scythe]
+version = "1"
+
+# Reuses the shared PostgreSQL schema so this project adds no DDL of its own;
+# only the queries are specific to nested aggregates.
+[[sql]]
+name = "main"
+engine = "postgresql"
+schema = ["../sql/pg/schema.sql"]
+queries = ["queries/*.sql"]
+
+[[sql.gen]]
+backend = "rust-sqlx"
+output = "src"
+structs_only = "true"

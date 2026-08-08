@@ -26,6 +26,10 @@ pub struct SqlxBackend {
     /// When true, only emit struct/enum definitions (no query functions).
     /// This avoids the `sqlx::query_as!()` macro which requires `DATABASE_URL` at compile time.
     structs_only: bool,
+    /// Whether this engine's manifest declares the `json_nested` container
+    /// and its server actually has `json_agg`. See
+    /// [`crate::backends::engine_supports_nested_aggregates`].
+    nested_aggregates: bool,
 }
 
 impl SqlxBackend {
@@ -50,6 +54,7 @@ impl SqlxBackend {
             manifest,
             engine: engine.to_string(),
             structs_only: false,
+            nested_aggregates: super::engine_supports_nested_aggregates(engine),
         })
     }
 }
@@ -524,6 +529,154 @@ impl CodegenBackend for SqlxBackend {
         let _ = write!(out, "}}");
         Ok(out)
     }
+
+    fn generate_nested_struct_def(
+        &self,
+        nested: &scythe_core::analyzer::NestedStructInfo,
+    ) -> Result<Option<String>, ScytheError> {
+        if !self.nested_aggregates {
+            return Ok(None);
+        }
+
+        // Unlike generate_composite_def (always `false` -- CompositeFieldInfo
+        // has no per-field nullability), a nested-aggregate field's
+        // nullability is real and comes from the source column it was
+        // built from.
+        Ok(Some(generate_nested_rust_struct(nested, &self.manifest)?))
+    }
+
+    fn generate_enum_def_for_nested(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
+        // The plain form derives sqlx::Type only, which decodes an enum off
+        // the *wire*. Inside a json_agg result the value arrives as a JSON
+        // string decoded by serde_json instead, so without Deserialize the
+        // nested struct's own derive fails to satisfy its bound and the file
+        // does not compile. Serialize comes along for the reason spelled out
+        // in `generate_nested_rust_struct`.
+        let base = self.generate_enum_def(enum_info)?;
+        Ok(add_serde_to_enum(&base, enum_info, &self.manifest))
+    }
+
+    fn generate_composite_def_for_nested(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        let base = self.generate_composite_def(composite)?;
+        Ok(add_serde_to_first_derive(&base))
+    }
+}
+
+/// Render a nested-aggregate struct for the two Rust backends.
+///
+/// Shared because sqlx and tokio-postgres need byte-for-byte the same
+/// declaration: both resolve `json_nested<T>` to a `Json<T>` wrapper whose
+/// `FromSql`/`Decode` impl is bounded on `T: serde::Deserialize`, and
+/// neither can express the JSON key mapping any other way.
+///
+/// Both serde traits are derived unconditionally, not just `Deserialize`:
+/// - `Deserialize` is what actually decodes the column, and is required
+///   regardless of any `serde` backend option, which governs only whether
+///   the *row* struct opts in (that one is built by `from_row`/`row.get`
+///   and never JSON-decoded, an unrelated question);
+/// - `Serialize` because a row struct built with `serde = true` derives
+///   `Serialize`, its nested field is `Option<Json<Vec<T>>>`, and
+///   `Json<T>: Serialize` is bounded on `T: Serialize`. Deriving only
+///   `Deserialize` breaks every user who combines `serde = true` with one
+///   `json_agg` column. Deriving both unconditionally costs an impl nobody
+///   calls in the `serde = false` case, versus a compile error in the other.
+pub(crate) fn generate_nested_rust_struct(
+    nested: &scythe_core::analyzer::NestedStructInfo,
+    manifest: &BackendManifest,
+) -> Result<String, ScytheError> {
+    use scythe_backend::types::resolve_type;
+
+    let struct_name = to_pascal_case(&nested.name).into_owned();
+    let mut out = String::new();
+
+    let _ = writeln!(out, "#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]");
+    let _ = writeln!(out, "pub struct {} {{", struct_name);
+    for field in &nested.fields {
+        let rust_type = resolve_type(&field.neutral_type, manifest, field.nullable)
+            .map(|t| t.into_owned())
+            .map_err(|e| {
+                ScytheError::new(
+                    ErrorCode::InternalError,
+                    format!("nested struct field type error: {}", e),
+                )
+            })?;
+        let field_name = to_snake_case(&field.name);
+        // The JSON keys json_agg/row_to_json produce are the raw SQL column
+        // names, verbatim -- a quoted "createdAt" column is the key
+        // "createdAt". Renaming the Rust field to snake_case without telling
+        // serde turns that into `missing field \`created_at\`` at runtime,
+        // which no build-time check catches.
+        if field_name != field.name {
+            let _ = writeln!(out, "    #[serde(rename = \"{}\")]", field.name);
+        }
+        let _ = writeln!(out, "    pub {}: {},", field_name, rust_type);
+    }
+    let _ = write!(out, "}}");
+    Ok(out)
+}
+
+/// Add `serde::Serialize, serde::Deserialize` to the first `#[derive(...)]`
+/// line of a generated Rust definition, leaving everything else untouched.
+///
+/// Rewriting the rendered output rather than parameterizing every
+/// enum/composite emitter keeps the non-nested path -- the one all existing
+/// output goes through -- literally unchanged.
+pub(crate) fn add_serde_to_first_derive(rendered: &str) -> String {
+    const SERDE: &str = ", serde::Serialize, serde::Deserialize)]";
+    let Some(line_end) = rendered.find('\n') else {
+        return rendered.to_string();
+    };
+    let (first, rest) = rendered.split_at(line_end);
+    if !first.starts_with("#[derive(") || !first.ends_with(")]") || first.contains("serde::") {
+        return rendered.to_string();
+    }
+    format!("{}{}{}", &first[..first.len() - 2], SERDE, rest)
+}
+
+/// [`add_serde_to_first_derive`] plus a `#[serde(rename = "...")]` on every
+/// variant whose generated identifier differs from the SQL label.
+///
+/// The derive alone is not enough. `#[sqlx(rename_all = "snake_case")]` (or
+/// tokio-postgres's `Display`/`FromStr` pair) tells the *driver* how the
+/// label is spelled on the wire; serde knows nothing about either, and would
+/// look for the PascalCase identifier. A `json_agg` result carries the SQL
+/// label verbatim, so `'active'` against a `Active` variant fails with
+/// `unknown variant \`active\``. Renaming to the label rather than applying a
+/// blanket `rename_all` is exact for any label -- including ones that are not
+/// snake_case at all, like `'IN PROGRESS'`.
+pub(crate) fn add_serde_to_enum(rendered: &str, enum_info: &EnumInfo, manifest: &BackendManifest) -> String {
+    let with_derive = add_serde_to_first_derive(rendered);
+
+    let mut out = String::with_capacity(with_derive.len() + enum_info.values.len() * 32);
+    let mut values = enum_info.values.iter();
+    let mut in_body = false;
+    for line in with_derive.split_inclusive('\n') {
+        if !in_body {
+            out.push_str(line);
+            if line.trim_end().ends_with('{') {
+                in_body = true;
+            }
+            continue;
+        }
+        if line.trim_end() == "}" {
+            // Past the enum body; anything after (Display/FromStr impls)
+            // is copied through untouched.
+            in_body = false;
+            out.push_str(line);
+            continue;
+        }
+        match values.next() {
+            Some(value) => {
+                let variant = enum_variant_name(value, &manifest.naming);
+                if variant != *value {
+                    let _ = writeln!(out, "    #[serde(rename = \"{}\")]", value);
+                }
+                out.push_str(line);
+            }
+            None => out.push_str(line),
+        }
+    }
+    out
 }
 
 /// Rewrite SQL to add enum type annotations for sqlx.

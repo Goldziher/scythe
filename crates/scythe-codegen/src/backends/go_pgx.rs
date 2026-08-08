@@ -15,6 +15,10 @@ const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/go-pgx.red
 
 pub struct GoPgxBackend {
     manifest: BackendManifest,
+    /// Whether this engine's manifest declares the `json_nested` container
+    /// and its server actually has `json_agg`. See
+    /// [`crate::backends::engine_supports_nested_aggregates`].
+    nested_aggregates: bool,
 }
 
 impl GoPgxBackend {
@@ -30,7 +34,10 @@ impl GoPgxBackend {
             }
         };
         let manifest = super::parse_manifest(default_toml)?;
-        Ok(Self { manifest })
+        Ok(Self {
+            manifest,
+            nested_aggregates: super::engine_supports_nested_aggregates(engine),
+        })
     }
 }
 
@@ -406,6 +413,39 @@ impl CodegenBackend for GoPgxBackend {
         let _ = write!(out, "}}");
         Ok(out)
     }
+
+    fn generate_nested_struct_def(
+        &self,
+        nested: &scythe_core::analyzer::NestedStructInfo,
+    ) -> Result<Option<String>, ScytheError> {
+        if !self.nested_aggregates {
+            return Ok(None);
+        }
+
+        // pgx's JSON/JSONB codec falls back to encoding/json.Unmarshal when
+        // the scan destination isn't []byte/json.RawMessage/sql.Scanner, so
+        // this needs no wrapper type the way the Rust backends do -- just
+        // json tags on the destination struct matching row_to_json's/
+        // json_agg's JSON keys, which are the source SQL column names.
+        //
+        // Unlike generate_composite_def (always `false` -- CompositeFieldInfo
+        // has no per-field nullability), a nested-aggregate field's
+        // nullability is real and comes from the source column it was
+        // built from, so it is passed through to resolve_type here.
+        let name = to_pascal_case(&nested.name);
+        let mut out = String::new();
+        let _ = writeln!(out, "type {} struct {{", name);
+        for field in &nested.fields {
+            let field_name = to_pascal_case(&field.name);
+            let go_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
+                .map(|t| t.into_owned())
+                .unwrap_or_else(|_| "any".to_string());
+            let json_tag = &field.name;
+            let _ = writeln!(out, "\t{} {} `json:\"{}\"`", field_name, go_type, json_tag);
+        }
+        let _ = write!(out, "}}");
+        Ok(Some(out))
+    }
 }
 
 #[cfg(test)]
@@ -458,29 +498,29 @@ mod tests {
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
-        AnalyzedQuery {
-            name: "GetUsersWithOrders".to_string(),
-            command: QueryCommand::Grouped,
-            sql: "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUsersWithOrders".to_string();
+            aq.command = QueryCommand::Grouped;
+            aq.sql = "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
                   SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\n\
                   FROM users u\n\
                   JOIN orders o ON o.user_id = u.id"
-                .to_string(),
-            columns: all_cols,
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: Some(GroupByConfig {
+                .to_string();
+            aq.columns = all_cols;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = Some(GroupByConfig {
                 table: "users".to_string(),
                 key_column: "id".to_string(),
                 parent_columns: parent_cols,
                 child_columns: child_cols,
-            }),
-            custom: vec![],
-        }
+            });
+            aq.custom = vec![];
+        })
     }
 
     #[test]

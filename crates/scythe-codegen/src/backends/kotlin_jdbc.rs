@@ -949,26 +949,26 @@ mod tests {
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
-        AnalyzedQuery {
-            name: "GetUsersWithOrders".to_string(),
-            command: QueryCommand::Grouped,
-            sql: "SELECT u.id, u.name, o.id AS order_id, o.total FROM users u JOIN orders o ON o.user_id = u.id"
-                .to_string(),
-            columns: all_cols,
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: Some(GroupByConfig {
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUsersWithOrders".to_string();
+            aq.command = QueryCommand::Grouped;
+            aq.sql = "SELECT u.id, u.name, o.id AS order_id, o.total FROM users u JOIN orders o ON o.user_id = u.id"
+                .to_string();
+            aq.columns = all_cols;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = Some(GroupByConfig {
                 table: "users".to_string(),
                 key_column: "id".to_string(),
                 parent_columns: parent_cols,
                 child_columns: child_cols,
-            }),
-            custom: vec![],
-        }
+            });
+            aq.custom = vec![];
+        })
     }
 
     #[test]
@@ -1054,20 +1054,20 @@ mod tests {
                 ..Default::default()
             },
         ];
-        AnalyzedQuery {
-            name: "ListEvents".to_string(),
-            command: QueryCommand::Many,
-            sql: "SELECT created_at, updated_at, valid_at, expires_at FROM events".to_string(),
-            columns,
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-        }
+        AnalyzedQuery::build(|aq| {
+            aq.name = "ListEvents".to_string();
+            aq.command = QueryCommand::Many;
+            aq.sql = "SELECT created_at, updated_at, valid_at, expires_at FROM events".to_string();
+            aq.columns = columns;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
     }
 
     /// Snowflake's `getObject(col, Type::class.java)` dispatch does not support `java.time`
@@ -1160,11 +1160,11 @@ mod tests {
     }
 
     fn make_one_query_with_snake_case_columns() -> AnalyzedQuery {
-        AnalyzedQuery {
-            name: "GetSession".to_string(),
-            command: QueryCommand::One,
-            sql: "SELECT id, user_id FROM sessions WHERE id = $1".to_string(),
-            columns: vec![
+        AnalyzedQuery::build(|q| {
+            q.name = "GetSession".to_string();
+            q.command = QueryCommand::One;
+            q.sql = "SELECT id, user_id FROM sessions WHERE id = $1".to_string();
+            q.columns = vec![
                 AnalyzedColumn {
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
@@ -1177,16 +1177,16 @@ mod tests {
                     nullable: false,
                     ..Default::default()
                 },
-            ],
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-        }
+            ];
+            q.params = vec![];
+            q.deprecated = None;
+            q.source_table = None;
+            q.composites = vec![];
+            q.enums = vec![];
+            q.optional_params = vec![];
+            q.group_by = None;
+            q.custom = vec![];
+        })
     }
 
     /// The safety invariant this whole feature depends on: renaming the
