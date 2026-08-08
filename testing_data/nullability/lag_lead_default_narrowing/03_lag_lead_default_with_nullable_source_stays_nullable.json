@@ -1,0 +1,47 @@
+{
+  "category": "nullability/lag_lead_default_narrowing",
+  "description": "LAG/LEAD with a non-null default still returns nullable when the tracked column itself is nullable, since the tracked column's own NULL values flow through unchanged",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "discount",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "prev_discount",
+          "note": "the default only replaces the boundary NULL; discount's own NULLs still pass through LAG",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "next_discount",
+          "note": "the default only replaces the boundary NULL; discount's own NULLs still pass through LEAD",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "LagLeadDefaultNullableSource",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "lag_lead_default_with_nullable_source_stays_nullable",
+  "query_sql": "-- @name LagLeadDefaultNullableSource\n-- @returns :many\nSELECT id, discount, LAG(discount, 1, 0) OVER (ORDER BY sale_date) AS prev_discount, LEAD(discount, 1, 0) OVER (ORDER BY sale_date) AS next_discount FROM sales",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, discount INTEGER, sale_date DATE NOT NULL)"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe narrows only when both the tracked expression and the default are proven non-null, avoiding an unsound narrowing when the source column can itself be NULL",
+    "sqlc_behavior": "sqlc does not model the LAG/LEAD default argument and marks the result nullable, matching this case but for the wrong reason"
+  },
+  "tags": ["nullability", "window_function", "lag", "lead"]
+}

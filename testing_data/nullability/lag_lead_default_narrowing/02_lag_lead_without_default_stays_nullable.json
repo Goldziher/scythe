@@ -1,0 +1,47 @@
+{
+  "category": "nullability/lag_lead_default_narrowing",
+  "description": "LAG/LEAD without a default (one or two arguments) genuinely returns NULL at partition boundaries, so the result stays nullable even when the tracked column is NOT NULL",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "amount",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "prev_amount",
+          "note": "LAG(amount, 1) has no default, so it returns NULL when there is no previous row",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "next_amount",
+          "note": "LEAD(amount, 1) has no default, so it returns NULL when there is no next row",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "LagLeadWithoutDefault",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "lag_lead_without_default_stays_nullable",
+  "query_sql": "-- @name LagLeadWithoutDefault\n-- @returns :many\nSELECT id, amount, LAG(amount, 1) OVER (ORDER BY sale_date) AS prev_amount, LEAD(amount, 1) OVER (ORDER BY sale_date) AS next_amount FROM sales",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, discount INTEGER, sale_date DATE NOT NULL)"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe distinguishes the two-argument form (no default, genuinely nullable at boundaries) from the three-argument form (default supplied, narrowable)",
+    "sqlc_behavior": "sqlc does not model the LAG/LEAD default argument at all, so its nullability determination for this form is coincidentally the same but not derived from the offset semantics"
+  },
+  "tags": ["nullability", "window_function", "lag", "lead"]
+}

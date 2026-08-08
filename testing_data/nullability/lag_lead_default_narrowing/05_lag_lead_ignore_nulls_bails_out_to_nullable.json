@@ -1,0 +1,47 @@
+{
+  "category": "nullability/lag_lead_default_narrowing",
+  "description": "IGNORE NULLS changes which rows LAG/LEAD counts as the offset, so it can exhaust the partition and fall back to the default (or NULL) even when both the tracked column and the default are proven non-null; scythe bails out to nullable whenever a null-treatment clause is present",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "amount",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "prev_amount",
+          "note": "IGNORE NULLS is not modeled by the analyzer, so the default-narrowing rule bails out to nullable",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "next_amount",
+          "note": "IGNORE NULLS is not modeled by the analyzer, so the default-narrowing rule bails out to nullable",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "LagLeadIgnoreNulls",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "lag_lead_ignore_nulls_bails_out_to_nullable",
+  "query_sql": "-- @name LagLeadIgnoreNulls\n-- @returns :many\nSELECT id, amount, LAG(amount, 1, 0) IGNORE NULLS OVER (ORDER BY sale_date) AS prev_amount, LEAD(amount, 1, 0) IGNORE NULLS OVER (ORDER BY sale_date) AS next_amount FROM sales",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, discount INTEGER, sale_date DATE NOT NULL)"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe deliberately does not narrow nullability under IGNORE NULLS/RESPECT NULLS, since the null-treatment clause is not otherwise modeled and an unsound narrowing would be worse than an over-conservative one",
+    "sqlc_behavior": "sqlc does not model the LAG/LEAD default argument or null-treatment clauses, so it also marks the result nullable, but for a different reason"
+  },
+  "tags": ["nullability", "window_function", "lag", "lead", "null_treatment"]
+}

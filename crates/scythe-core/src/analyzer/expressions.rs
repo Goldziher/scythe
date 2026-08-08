@@ -547,7 +547,28 @@ impl<'a> Analyzer<'a> {
             }
             "lag" | "lead" => {
                 let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
-                TypeInfo::new(ti.neutral_type, true)
+                // A three-argument LAG/LEAD returns the third argument (the
+                // default) instead of NULL at partition boundaries, so the
+                // result is non-null only when both the tracked expression
+                // and the default are non-null. With fewer than three
+                // arguments the boundary genuinely returns NULL.
+                //
+                // `IGNORE NULLS` changes which rows the offset counts over
+                // and can exhaust the partition even when both operands are
+                // non-null, so it forces nullable regardless of arity. See
+                // `function_has_null_treatment`.
+                let nullable = if function_has_null_treatment(func) {
+                    true
+                } else {
+                    let args = self.get_function_args(func);
+                    if args.len() >= 3 {
+                        let default_ti = self.infer_expr_type(&args[2], scope);
+                        ti.nullable || default_ti.nullable
+                    } else {
+                        true
+                    }
+                };
+                TypeInfo::new(ti.neutral_type, nullable)
             }
             "first_value" | "last_value" | "nth_value" => {
                 let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
@@ -892,9 +913,9 @@ mod tests {
     use crate::catalog::Catalog;
     use ahash::AHashMap;
     use sqlparser::ast::{
-        Function, FunctionArg, FunctionArgExpr, FunctionArgumentList, FunctionArguments, Ident, ObjectName,
-        ObjectNamePart, Value, ValueWithSpan, WildcardAdditionalOptions, WindowFrame, WindowFrameBound,
-        WindowFrameUnits, WindowSpec, WindowType,
+        Function, FunctionArg, FunctionArgExpr, FunctionArgumentClause, FunctionArgumentList, FunctionArguments, Ident,
+        NullTreatment, ObjectName, ObjectNamePart, Value, ValueWithSpan, WildcardAdditionalOptions, WindowFrame,
+        WindowFrameBound, WindowFrameUnits, WindowSpec, WindowType,
     };
     use sqlparser::tokenizer::Span;
 
@@ -985,6 +1006,13 @@ mod tests {
         })
     }
 
+    fn null_literal() -> Expr {
+        Expr::Value(ValueWithSpan {
+            value: Value::Null,
+            span: Span::empty(),
+        })
+    }
+
     fn col_expr(name: &str) -> Expr {
         Expr::Identifier(Ident::new(name))
     }
@@ -999,6 +1027,20 @@ mod tests {
                 alias: "t".to_string(),
                 table_name: "t".to_string(),
                 columns: vec![ScopeColumn::new("c", neutral_type, false)],
+                nullable_from_join: false,
+            }],
+        }
+    }
+
+    /// Same as [`scope_with_column`] but the column is nullable -- for tests
+    /// that need to prove narrowing does *not* fire when the source column
+    /// can be NULL.
+    fn scope_with_nullable_column(neutral_type: &str) -> Scope {
+        Scope {
+            sources: vec![ScopeSource {
+                alias: "t".to_string(),
+                table_name: "t".to_string(),
+                columns: vec![ScopeColumn::new("c", neutral_type, true)],
                 nullable_from_join: false,
             }],
         }
@@ -1328,6 +1370,108 @@ mod tests {
             let ti = analyzer.infer_function_type(&func, &scope);
             assert_eq!(ti.neutral_type, "int64", "{} should pass through input type", fname);
             assert!(ti.nullable, "{} should be nullable", fname);
+        }
+    }
+
+    #[test]
+    fn test_lag_lead_three_args_non_null_default_and_source_is_non_null() {
+        let catalog = empty_catalog();
+        for fname in &["lag", "lead"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let scope = scope_with_column("int64");
+            let func = make_window_func(fname, vec![col_expr("c"), int_literal(), int_literal()]);
+            let ti = analyzer.infer_function_type(&func, &scope);
+            assert!(
+                !ti.nullable,
+                "{} with a non-null default and non-null tracked expr should not be nullable",
+                fname
+            );
+        }
+    }
+
+    #[test]
+    fn test_lag_lead_two_args_stays_nullable_even_when_source_non_null() {
+        let catalog = empty_catalog();
+        for fname in &["lag", "lead"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let scope = scope_with_column("int64");
+            let func = make_window_func(fname, vec![col_expr("c"), int_literal()]);
+            let ti = analyzer.infer_function_type(&func, &scope);
+            assert!(
+                ti.nullable,
+                "{} without a default must stay nullable at partition boundaries",
+                fname
+            );
+        }
+    }
+
+    #[test]
+    fn test_lag_lead_three_args_nullable_source_stays_nullable() {
+        let catalog = empty_catalog();
+        for fname in &["lag", "lead"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let scope = scope_with_nullable_column("int64");
+            let func = make_window_func(fname, vec![col_expr("c"), int_literal(), int_literal()]);
+            let ti = analyzer.infer_function_type(&func, &scope);
+            assert!(
+                ti.nullable,
+                "{} must stay nullable when the tracked expression is nullable, even with a default",
+                fname
+            );
+        }
+    }
+
+    #[test]
+    fn test_lag_lead_three_args_null_default_stays_nullable() {
+        let catalog = empty_catalog();
+        for fname in &["lag", "lead"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let scope = scope_with_column("int64");
+            let func = make_window_func(fname, vec![col_expr("c"), int_literal(), null_literal()]);
+            let ti = analyzer.infer_function_type(&func, &scope);
+            assert!(
+                ti.nullable,
+                "{} with an explicit NULL default should be nullable",
+                fname
+            );
+        }
+    }
+
+    #[test]
+    fn test_lag_lead_ignore_nulls_postfix_bails_out_to_nullable() {
+        let catalog = empty_catalog();
+        for fname in &["lag", "lead"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let scope = scope_with_column("int64");
+            let mut func = make_window_func(fname, vec![col_expr("c"), int_literal(), int_literal()]);
+            func.null_treatment = Some(NullTreatment::IgnoreNulls);
+            let ti = analyzer.infer_function_type(&func, &scope);
+            assert!(
+                ti.nullable,
+                "{} with IGNORE NULLS must stay nullable even with a non-null default",
+                fname
+            );
+        }
+    }
+
+    #[test]
+    fn test_lag_lead_ignore_nulls_argument_clause_bails_out_to_nullable() {
+        let catalog = empty_catalog();
+        for fname in &["lag", "lead"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let scope = scope_with_column("int64");
+            let mut func = make_window_func(fname, vec![col_expr("c"), int_literal(), int_literal()]);
+            if let FunctionArguments::List(arg_list) = &mut func.args {
+                arg_list
+                    .clauses
+                    .push(FunctionArgumentClause::IgnoreOrRespectNulls(NullTreatment::IgnoreNulls));
+            }
+            let ti = analyzer.infer_function_type(&func, &scope);
+            assert!(
+                ti.nullable,
+                "{} with an in-argument-list IGNORE NULLS clause must stay nullable",
+                fname
+            );
         }
     }
 

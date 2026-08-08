@@ -211,6 +211,28 @@ pub(super) fn is_non_null_literal(expr: &Expr, dialect: SqlDialect) -> bool {
     is_literal(expr) && !matches!(expr, Expr::Value(vws) if value_is_null_in_dialect(vws, dialect))
 }
 
+/// Whether `func` carries a `RESPECT NULLS` / `IGNORE NULLS` clause, in either
+/// of the two positions sqlparser recognizes: the postfix `Function::null_treatment`
+/// (`FIRST_VALUE(x) IGNORE NULLS OVER (...)`) or the BigQuery-style in-argument-list
+/// clause (`FIRST_VALUE(x IGNORE NULLS)`).
+///
+/// `IGNORE NULLS` changes which rows an offset function counts over, so it can
+/// exhaust the partition and fall back to the row default (or to NULL) even when
+/// every operand is proven non-null. Any caller that narrows nullability from
+/// operand types must bail out to nullable whenever this returns `true`.
+pub(super) fn function_has_null_treatment(func: &ast::Function) -> bool {
+    if func.null_treatment.is_some() {
+        return true;
+    }
+    match &func.args {
+        ast::FunctionArguments::List(arg_list) => arg_list
+            .clauses
+            .iter()
+            .any(|clause| matches!(clause, ast::FunctionArgumentClause::IgnoreOrRespectNulls(_))),
+        _ => false,
+    }
+}
+
 /// Simple pluralization: add 's' to a name
 pub(super) fn pluralize(name: &str) -> String {
     if name.ends_with('s') || name.ends_with('x') || name.ends_with("sh") || name.ends_with("ch") {

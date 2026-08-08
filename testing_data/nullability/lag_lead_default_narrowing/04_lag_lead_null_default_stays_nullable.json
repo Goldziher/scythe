@@ -1,0 +1,47 @@
+{
+  "category": "nullability/lag_lead_default_narrowing",
+  "description": "LAG/LEAD with an explicit NULL default cannot be narrowed, even when the tracked column is NOT NULL, because the default itself is the value returned at the boundary",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "amount",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "prev_amount",
+          "note": "LAG(amount, 1, NULL) returns NULL at the boundary because the default itself is NULL",
+          "nullable": true,
+          "type": "int32"
+        },
+        {
+          "name": "next_amount",
+          "note": "LEAD(amount, 1, NULL) returns NULL at the boundary because the default itself is NULL",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "LagLeadNullDefault",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "lag_lead_null_default_stays_nullable",
+  "query_sql": "-- @name LagLeadNullDefault\n-- @returns :many\nSELECT id, amount, LAG(amount, 1, NULL) OVER (ORDER BY sale_date) AS prev_amount, LEAD(amount, 1, NULL) OVER (ORDER BY sale_date) AS next_amount FROM sales",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, discount INTEGER, sale_date DATE NOT NULL)"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe inspects the default argument's own nullability rather than assuming any third argument proves non-null",
+    "sqlc_behavior": "sqlc does not model the LAG/LEAD default argument at all, so it cannot distinguish a NULL default from a non-null one"
+  },
+  "tags": ["nullability", "window_function", "lag", "lead", "improvement_over_sqlc"]
+}

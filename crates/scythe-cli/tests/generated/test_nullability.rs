@@ -2385,6 +2385,726 @@ fn test_nullable_column() {
 }
 
 #[test]
+fn test_lag_lead_default_narrows_non_null() {
+    // From: testing_data/nullability/lag_lead_default_narrowing/01_lag_lead_default_narrows_non_null.json
+    // "LAG/LEAD with a non-null default (third argument) cannot return NULL when the tracked column is NOT NULL, because the default is returned instead of NULL at partition boundaries"
+    let schema_sql = &[
+        "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, discount INTEGER, sale_date DATE NOT NULL)",
+    ];
+
+    let query_sql = "-- @name LagLeadWithDefault\n-- @returns :many\nSELECT id, amount, LAG(amount, 1, 0) OVER (ORDER BY sale_date) AS prev_amount, LEAD(amount, 1, 0) OVER (ORDER BY sale_date) AS next_amount FROM sales";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "LagLeadWithDefault", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 4, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "amount", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int32",
+        "column neutral_type for amount"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for amount");
+    assert_eq!(analyzed.columns[2].name, "prev_amount", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for prev_amount"
+    );
+    assert!(!analyzed.columns[2].nullable, "column nullable for prev_amount");
+    assert_eq!(analyzed.columns[3].name, "next_amount", "column name");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "int32",
+        "column neutral_type for next_amount"
+    );
+    assert!(!analyzed.columns[3].nullable, "column nullable for next_amount");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
+            let header = backend.file_header();
+            let mut body = String::new();
+            if header.is_empty() {
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
+            } else {
+                body.push_str(&header);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.enum_def {
+                body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                body.push_str(s);
+                body.push('\n');
+            }
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "lag_lead_default_narrows_non_null"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "lag_lead_default_narrows_non_null",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "lag_lead_default_narrows_non_null"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "lag_lead_default_narrows_non_null"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_lag_lead_default_with_nullable_source_stays_nullable() {
+    // From: testing_data/nullability/lag_lead_default_narrowing/03_lag_lead_default_with_nullable_source_stays_nullable.json
+    // "LAG/LEAD with a non-null default still returns nullable when the tracked column itself is nullable, since the tracked column's own NULL values flow through unchanged"
+    let schema_sql = &[
+        "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, discount INTEGER, sale_date DATE NOT NULL)",
+    ];
+
+    let query_sql = "-- @name LagLeadDefaultNullableSource\n-- @returns :many\nSELECT id, discount, LAG(discount, 1, 0) OVER (ORDER BY sale_date) AS prev_discount, LEAD(discount, 1, 0) OVER (ORDER BY sale_date) AS next_discount FROM sales";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "LagLeadDefaultNullableSource", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 4, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "discount", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int32",
+        "column neutral_type for discount"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for discount");
+    assert_eq!(analyzed.columns[2].name, "prev_discount", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for prev_discount"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for prev_discount");
+    assert_eq!(analyzed.columns[3].name, "next_discount", "column name");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "int32",
+        "column neutral_type for next_discount"
+    );
+    assert!(analyzed.columns[3].nullable, "column nullable for next_discount");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
+            let header = backend.file_header();
+            let mut body = String::new();
+            if header.is_empty() {
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
+            } else {
+                body.push_str(&header);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.enum_def {
+                body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                body.push_str(s);
+                body.push('\n');
+            }
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "lag_lead_default_with_nullable_source_stays_nullable"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "lag_lead_default_with_nullable_source_stays_nullable",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "lag_lead_default_with_nullable_source_stays_nullable"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "lag_lead_default_with_nullable_source_stays_nullable"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_lag_lead_ignore_nulls_bails_out_to_nullable() {
+    // From: testing_data/nullability/lag_lead_default_narrowing/05_lag_lead_ignore_nulls_bails_out_to_nullable.json
+    // "IGNORE NULLS changes which rows LAG/LEAD counts as the offset, so it can exhaust the partition and fall back to the default (or NULL) even when both the tracked column and the default are proven non-null; scythe bails out to nullable whenever a null-treatment clause is present"
+    let schema_sql = &[
+        "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, discount INTEGER, sale_date DATE NOT NULL)",
+    ];
+
+    let query_sql = "-- @name LagLeadIgnoreNulls\n-- @returns :many\nSELECT id, amount, LAG(amount, 1, 0) IGNORE NULLS OVER (ORDER BY sale_date) AS prev_amount, LEAD(amount, 1, 0) IGNORE NULLS OVER (ORDER BY sale_date) AS next_amount FROM sales";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "LagLeadIgnoreNulls", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 4, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "amount", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int32",
+        "column neutral_type for amount"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for amount");
+    assert_eq!(analyzed.columns[2].name, "prev_amount", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for prev_amount"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for prev_amount");
+    assert_eq!(analyzed.columns[3].name, "next_amount", "column name");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "int32",
+        "column neutral_type for next_amount"
+    );
+    assert!(analyzed.columns[3].nullable, "column nullable for next_amount");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
+            let header = backend.file_header();
+            let mut body = String::new();
+            if header.is_empty() {
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
+            } else {
+                body.push_str(&header);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.enum_def {
+                body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                body.push_str(s);
+                body.push('\n');
+            }
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "lag_lead_ignore_nulls_bails_out_to_nullable"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "lag_lead_ignore_nulls_bails_out_to_nullable",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "lag_lead_ignore_nulls_bails_out_to_nullable"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "lag_lead_ignore_nulls_bails_out_to_nullable"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_lag_lead_null_default_stays_nullable() {
+    // From: testing_data/nullability/lag_lead_default_narrowing/04_lag_lead_null_default_stays_nullable.json
+    // "LAG/LEAD with an explicit NULL default cannot be narrowed, even when the tracked column is NOT NULL, because the default itself is the value returned at the boundary"
+    let schema_sql = &[
+        "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, discount INTEGER, sale_date DATE NOT NULL)",
+    ];
+
+    let query_sql = "-- @name LagLeadNullDefault\n-- @returns :many\nSELECT id, amount, LAG(amount, 1, NULL) OVER (ORDER BY sale_date) AS prev_amount, LEAD(amount, 1, NULL) OVER (ORDER BY sale_date) AS next_amount FROM sales";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "LagLeadNullDefault", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 4, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "amount", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int32",
+        "column neutral_type for amount"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for amount");
+    assert_eq!(analyzed.columns[2].name, "prev_amount", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for prev_amount"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for prev_amount");
+    assert_eq!(analyzed.columns[3].name, "next_amount", "column name");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "int32",
+        "column neutral_type for next_amount"
+    );
+    assert!(analyzed.columns[3].nullable, "column nullable for next_amount");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
+            let header = backend.file_header();
+            let mut body = String::new();
+            if header.is_empty() {
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
+            } else {
+                body.push_str(&header);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.enum_def {
+                body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                body.push_str(s);
+                body.push('\n');
+            }
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "lag_lead_null_default_stays_nullable"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "lag_lead_null_default_stays_nullable",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "lag_lead_null_default_stays_nullable"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "lag_lead_null_default_stays_nullable"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_lag_lead_without_default_stays_nullable() {
+    // From: testing_data/nullability/lag_lead_default_narrowing/02_lag_lead_without_default_stays_nullable.json
+    // "LAG/LEAD without a default (one or two arguments) genuinely returns NULL at partition boundaries, so the result stays nullable even when the tracked column is NOT NULL"
+    let schema_sql = &[
+        "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, discount INTEGER, sale_date DATE NOT NULL)",
+    ];
+
+    let query_sql = "-- @name LagLeadWithoutDefault\n-- @returns :many\nSELECT id, amount, LAG(amount, 1) OVER (ORDER BY sale_date) AS prev_amount, LEAD(amount, 1) OVER (ORDER BY sale_date) AS next_amount FROM sales";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "LagLeadWithoutDefault", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 4, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "amount", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "int32",
+        "column neutral_type for amount"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for amount");
+    assert_eq!(analyzed.columns[2].name, "prev_amount", "column name");
+    assert_eq!(
+        analyzed.columns[2].neutral_type, "int32",
+        "column neutral_type for prev_amount"
+    );
+    assert!(analyzed.columns[2].nullable, "column nullable for prev_amount");
+    assert_eq!(analyzed.columns[3].name, "next_amount", "column name");
+    assert_eq!(
+        analyzed.columns[3].neutral_type, "int32",
+        "column neutral_type for next_amount"
+    );
+    assert!(analyzed.columns[3].nullable, "column nullable for next_amount");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
+            let header = backend.file_header();
+            let mut body = String::new();
+            if header.is_empty() {
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
+            } else {
+                body.push_str(&header);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.enum_def {
+                body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                body.push_str(s);
+                body.push('\n');
+            }
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "lag_lead_without_default_stays_nullable"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "lag_lead_without_default_stays_nullable",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "lag_lead_without_default_stays_nullable"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "lag_lead_without_default_stays_nullable"
+            );
+        }
+    }
+}
+
+#[test]
 fn test_chained_left_joins() {
     // From: testing_data/nullability/left_join_nullable/04_chained_left_joins.json
     // "Chained LEFT JOINs make all right-side columns from every join nullable"

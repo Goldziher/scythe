@@ -1,0 +1,47 @@
+{
+  "category": "nullability/lag_lead_default_narrowing",
+  "description": "LAG/LEAD with a non-null default (third argument) cannot return NULL when the tracked column is NOT NULL, because the default is returned instead of NULL at partition boundaries",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "amount",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "prev_amount",
+          "note": "LAG(amount, 1, 0) returns the literal default 0 instead of NULL at the partition boundary",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "next_amount",
+          "note": "LEAD(amount, 1, 0) returns the literal default 0 instead of NULL at the partition boundary",
+          "nullable": false,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "LagLeadWithDefault",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "lag_lead_default_narrows_non_null",
+  "query_sql": "-- @name LagLeadWithDefault\n-- @returns :many\nSELECT id, amount, LAG(amount, 1, 0) OVER (ORDER BY sale_date) AS prev_amount, LEAD(amount, 1, 0) OVER (ORDER BY sale_date) AS next_amount FROM sales",
+  "schema_sql": [
+    "CREATE TABLE sales (id SERIAL PRIMARY KEY, employee_id INTEGER NOT NULL, department TEXT NOT NULL, amount INTEGER NOT NULL, discount INTEGER, sale_date DATE NOT NULL)"
+  ],
+  "source": "original",
+  "sqlc_comparison": {
+    "scythe_improvement": "scythe recognizes that a non-null third argument (default) to LAG/LEAD is returned at partition boundaries instead of NULL, so the result is non-nullable when the tracked expression is also non-null",
+    "sqlc_behavior": "sqlc does not model the LAG/LEAD default argument and marks the result nullable unconditionally, even when a non-null default guarantees a value"
+  },
+  "tags": ["nullability", "window_function", "lag", "lead", "improvement_over_sqlc"]
+}
