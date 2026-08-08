@@ -96,6 +96,19 @@ jobs:
       - uses: actions/checkout@v6
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
+      # `validate_javascript_tools` (scythe-codegen/src/validation.rs) shells out
+      # to real `node --check` and real `tsc --checkJs --strict` to verify the
+      # `javascript-*` JSDoc output, and *skips* whichever of the two is absent
+      # from PATH rather than failing. Neither is guaranteed here: `tsc` is not on
+      # the runner image at all, and the preinstalled `node` floats with the image.
+      # Without these steps the tsc half never ran in CI, so #81's stated
+      # verification -- "runs under node, not tsx, plus tsc --checkJs --strict" --
+      # was only ever satisfied on a developer machine that happened to have tsc.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Install TypeScript
+        run: npm install -g typescript
       - name: Generate integration tests from fixtures
         run: cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
       - name: Run tests
