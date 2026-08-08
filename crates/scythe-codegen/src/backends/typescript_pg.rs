@@ -12,7 +12,7 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
+    TsFieldCase, TsRowShape, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
     generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option, reject_unknown_options,
@@ -210,9 +210,11 @@ impl CodegenBackend for TypescriptPgBackend {
                             params,
                         );
                         let _ = writeln!(out, "\tconst row = rows[0];");
-                        out.push_str(&generate_ts_one_row_remap(columns, |name, ty| {
-                            format!("row.{name} as {ty}")
-                        }));
+                        out.push_str(&generate_ts_one_row_remap(
+                            columns,
+                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            |name, ty| format!("row.{name} as {ty}"),
+                        ));
                     }
                 }
                 let _ = write!(out, "}}");
@@ -234,9 +236,11 @@ impl CodegenBackend for TypescriptPgBackend {
                             &sql,
                             params,
                         );
-                        out.push_str(&generate_ts_many_row_remap(columns, |name, ty| {
-                            format!("row.{name} as {ty}")
-                        }));
+                        out.push_str(&generate_ts_many_row_remap(
+                            columns,
+                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            |name, ty| format!("row.{name} as {ty}"),
+                        ));
                     }
                 }
                 let _ = write!(out, "}}");
@@ -756,6 +760,106 @@ mod tests {
                 "GetUserOrders",
                 &discriminated_join_columns()
             )
+        );
+    }
+
+    fn make_one_query_with_outer_join() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetUserOrder".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT u.id, o.total, o.notes FROM users u LEFT JOIN orders o ON u.id = o.user_id".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                // NOT NULL in the schema, so it discriminates the join.
+                AnalyzedColumn {
+                    name: "order_total".to_string(),
+                    neutral_type: "decimal".to_string(),
+                    nullable: true,
+                    join_group: Some("o".to_string()),
+                    nullable_before_join: false,
+                    ..Default::default()
+                },
+                // Independently nullable, so it says nothing about the join.
+                AnalyzedColumn {
+                    name: "order_notes".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                    join_group: Some("o".to_string()),
+                    nullable_before_join: true,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// This must fail before the fix: the remap cast every field to
+    /// `col.full_type`, but the union's matched variant declares a join
+    /// discriminant as `lang_type` and the unmatched one declares it `null`.
+    /// `string | null` is assignable to neither, so `field_case =
+    /// "camelCase"` and `outer_join_unions = true` — both accepted by the
+    /// same `apply_options` allowlist, with no mutual exclusion — produced a
+    /// row object that does not type-check (TS2322).
+    #[test]
+    fn test_camel_case_combined_with_outer_join_unions_type_checks() {
+        let mut backend = TypescriptPgBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("field_case".to_string(), "camelCase".to_string()),
+                ("outer_join_unions".to_string(), "true".to_string()),
+            ]))
+            .unwrap();
+
+        let result = crate::generate_with_backend(&make_one_query_with_outer_join(), &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        // The matched variant of the union, spelled with the renamed fields.
+        assert!(
+            row_struct.contains("orderTotal: string; orderNotes: string | null"),
+            "the matched variant declares the discriminant non-null; got:\n{row_struct}"
+        );
+        assert!(
+            query_fn.contains("orderTotal: row.order_total as string,"),
+            "the remap must cast the discriminant to the matched variant's type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("orderNotes: row.order_notes as string | null,"),
+            "a column that was already nullable keeps its full_type cast; got:\n{query_fn}"
+        );
+    }
+
+    /// The narrowing above is specific to the union shape: with
+    /// `outer_join_unions` off the row is a flat interface declaring
+    /// `string | null`, so the remap must keep casting to `full_type`.
+    #[test]
+    fn test_camel_case_without_outer_join_unions_keeps_the_full_type_cast() {
+        let mut backend = TypescriptPgBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+
+        let result = crate::generate_with_backend(&make_one_query_with_outer_join(), &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("orderTotal: row.order_total as string | null,"),
+            "flat rows declare the column nullable, so the cast stays nullable; got:\n{query_fn}"
         );
     }
 

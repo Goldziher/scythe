@@ -60,6 +60,49 @@ impl TsFieldCase {
     }
 }
 
+/// Which declared row-type shape a reconstructed row object literal has to
+/// satisfy.
+///
+/// A remap builds a plain object literal and returns it against the query
+/// function's declared row type, so the cast on each field has to agree with
+/// what that type declares for it. The two shapes disagree about exactly one
+/// class of column — see [`TsRowShape::cast_type`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TsRowShape {
+    /// Plain interface (`outer_join_unions = false`, and every `:grouped`
+    /// parent/child struct): every field is declared at `full_type`.
+    #[default]
+    Flat,
+    /// Discriminated union (`outer_join_unions = true`): see
+    /// [`generate_ts_union_row_struct`].
+    Union,
+}
+
+impl TsRowShape {
+    /// The shape a backend declares given its `outer_join_unions` setting.
+    pub fn from_outer_join_unions(outer_join_unions: bool) -> Self {
+        if outer_join_unions { Self::Union } else { Self::Flat }
+    }
+
+    /// The TypeScript type a reconstructed field must be cast to so the
+    /// object literal stays assignable to the declared row type.
+    ///
+    /// `full_type` everywhere except a join discriminant under
+    /// [`TsRowShape::Union`]. There, [`generate_ts_union_row_struct`]
+    /// declares the column as `lang_type` in the matched variant and as
+    /// literal `null` in the unmatched one, and `T | null` is assignable to
+    /// neither — casting through `full_type` is a TS2322, not a widening.
+    /// `lang_type` would stay sound under `Flat` as well (`T` is assignable
+    /// to `T | null`), but `Flat` keeps `full_type` so the generated text is
+    /// unchanged for the shape that never needed the narrowing.
+    pub fn cast_type(self, col: &ResolvedColumn) -> &str {
+        if self == Self::Union && col.is_join_discriminant() {
+            return &col.lang_type;
+        }
+        &col.full_type
+    }
+}
+
 /// Parse a boolean backend option strictly.
 ///
 /// Accepts (case-insensitively) `true`/`false`, `1`/`0`, and `yes`/`no`. Any
@@ -540,6 +583,10 @@ pub fn generate_zod_grouped_structs(
 /// that reads that column from the current row variable -- see
 /// [`generate_ts_grouped_fold_body`] for the per-backend examples.
 ///
+/// `shape` picks the type each field is cast to, so the literal stays
+/// assignable to the row type the caller declared -- see
+/// [`TsRowShape::cast_type`].
+///
 /// Shared by both halves of `generate_ts_grouped_fold_body` -- the parent
 /// object and the child object it pushes into `children` -- so their field
 /// lists cannot drift apart. Also used by [`generate_ts_one_row_remap`] and
@@ -550,6 +597,7 @@ pub fn generate_zod_grouped_structs(
 pub fn generate_ts_row_object_literal(
     columns: &[ResolvedColumn],
     indent: &str,
+    shape: TsRowShape,
     row_access: impl Fn(&str, &str) -> String,
 ) -> String {
     let mut out = String::new();
@@ -558,7 +606,7 @@ pub fn generate_ts_row_object_literal(
             out,
             "{indent}{}: {},",
             col.field_name,
-            row_access(&col.name, &col.full_type)
+            row_access(&col.name, shape.cast_type(col))
         );
     }
     out
@@ -579,13 +627,21 @@ pub fn generate_ts_row_object_literal(
 /// `field_case = "camelCase"` renames the declared fields: the driver still
 /// returns snake_case keys, so `tsc` reports no error while every field
 /// reads back `undefined` at runtime.
-pub fn generate_ts_one_row_remap(columns: &[ResolvedColumn], row_access: impl Fn(&str, &str) -> String) -> String {
+///
+/// `shape` must be the shape of the row type the enclosing function
+/// declares, so the literal is assignable to it -- see
+/// [`TsRowShape::cast_type`].
+pub fn generate_ts_one_row_remap(
+    columns: &[ResolvedColumn],
+    shape: TsRowShape,
+    row_access: impl Fn(&str, &str) -> String,
+) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "\tif (!row) {{");
     let _ = writeln!(out, "\t\treturn null;");
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out, "\treturn {{");
-    out.push_str(&generate_ts_row_object_literal(columns, "\t\t", row_access));
+    out.push_str(&generate_ts_row_object_literal(columns, "\t\t", shape, row_access));
     let _ = writeln!(out, "\t}};");
     out
 }
@@ -596,11 +652,15 @@ pub fn generate_ts_one_row_remap(columns: &[ResolvedColumn], row_access: impl Fn
 /// Assumes the caller has already bound the raw driver rows to a local
 /// `rows` array. Maps each one (bound to `row` inside the callback) through
 /// [`generate_ts_row_object_literal`]. See [`generate_ts_one_row_remap`] for
-/// why this exists instead of a blind cast.
-pub fn generate_ts_many_row_remap(columns: &[ResolvedColumn], row_access: impl Fn(&str, &str) -> String) -> String {
+/// why this exists instead of a blind cast, and for what `shape` selects.
+pub fn generate_ts_many_row_remap(
+    columns: &[ResolvedColumn],
+    shape: TsRowShape,
+    row_access: impl Fn(&str, &str) -> String,
+) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "\treturn rows.map((row) => ({{");
-    out.push_str(&generate_ts_row_object_literal(columns, "\t\t", row_access));
+    out.push_str(&generate_ts_row_object_literal(columns, "\t\t", shape, row_access));
     let _ = writeln!(out, "\t}}));");
     out
 }
@@ -615,6 +675,13 @@ pub fn generate_ts_many_row_remap(columns: &[ResolvedColumn], row_access: impl F
 ///
 /// The helper emits the fold loop into a string that is appended directly inside
 /// the function body; the caller is responsible for surrounding braces.
+///
+/// The parent and child objects are always built at [`TsRowShape::Flat`]:
+/// `:grouped` declares its structs through
+/// [`generate_grouped_interface_structs`] (or its Zod twin), which emits a
+/// plain object per struct at `full_type` regardless of the backend's
+/// `outer_join_unions` setting, so there is no union variant here to agree
+/// with.
 pub fn generate_ts_grouped_fold_body(
     parent_struct_name: &str,
     _child_struct_name: &str,
@@ -636,14 +703,24 @@ pub fn generate_ts_grouped_fold_body(
     let _ = writeln!(out, "\t\tlet parent = index.get(key);");
     let _ = writeln!(out, "\t\tif (!parent) {{");
     let _ = writeln!(out, "\t\t\tparent = {{");
-    out.push_str(&generate_ts_row_object_literal(parent_columns, "\t\t\t\t", &row_access));
+    out.push_str(&generate_ts_row_object_literal(
+        parent_columns,
+        "\t\t\t\t",
+        TsRowShape::Flat,
+        &row_access,
+    ));
     let _ = writeln!(out, "\t\t\t\tchildren: [],");
     let _ = writeln!(out, "\t\t\t}};");
     let _ = writeln!(out, "\t\t\tindex.set(key, parent);");
     let _ = writeln!(out, "\t\t\tresult.push(parent);");
     let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t\tparent.children.push({{");
-    out.push_str(&generate_ts_row_object_literal(child_columns, "\t\t\t", &row_access));
+    out.push_str(&generate_ts_row_object_literal(
+        child_columns,
+        "\t\t\t",
+        TsRowShape::Flat,
+        &row_access,
+    ));
     let _ = writeln!(out, "\t\t}});");
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out, "\treturn result;");
@@ -942,7 +1019,9 @@ mod tests {
             column("id", "number", false, None, false),
             column("name", "string", false, None, false),
         ];
-        let out = generate_ts_row_object_literal(&columns, "\t\t\t\t", |name, ty| format!("row.{name} as {ty}"));
+        let out = generate_ts_row_object_literal(&columns, "\t\t\t\t", TsRowShape::Flat, |name, ty| {
+            format!("row.{name} as {ty}")
+        });
         assert_eq!(
             out,
             "\t\t\t\tid: row.id as number,\n\t\t\t\tname: row.name as string,\n"
@@ -951,8 +1030,64 @@ mod tests {
 
     #[test]
     fn test_generate_ts_row_object_literal_empty_columns_is_empty() {
-        let out = generate_ts_row_object_literal(&[], "\t", |name, ty| format!("row.{name} as {ty}"));
+        let out = generate_ts_row_object_literal(&[], "\t", TsRowShape::Flat, |name, ty| format!("row.{name} as {ty}"));
         assert_eq!(out, "");
+    }
+
+    /// This must fail before the fix: the remap always cast through
+    /// `full_type`, but `generate_ts_union_row_struct` declares a join
+    /// discriminant as `lang_type` in the matched variant and as literal
+    /// `null` in the unmatched one. `string | null` is assignable to neither
+    /// `{ total: string }` nor `{ total: null }`, so
+    /// `field_case = "camelCase"` combined with `outer_join_unions = true`
+    /// emitted a row object that does not type-check (TS2322).
+    #[test]
+    fn test_generate_ts_row_object_literal_union_shape_casts_discriminant_to_matched_type() {
+        let columns = user_orders_columns();
+        let out = generate_ts_row_object_literal(&columns, "\t", TsRowShape::Union, |name, ty| {
+            format!("row['{name}'] as {ty}")
+        });
+        assert_eq!(
+            out,
+            "\tid: row['id'] as number,\n\
+             \tname: row['name'] as string,\n\
+             \ttotal: row['total'] as string,\n\
+             \tnotes: row['notes'] as string | null,\n"
+        );
+    }
+
+    /// The union shape narrows the discriminant only; `Flat` must keep the
+    /// nullable cast, since a plain interface declares it as `T | null`.
+    #[test]
+    fn test_generate_ts_row_object_literal_flat_shape_keeps_full_type() {
+        let columns = user_orders_columns();
+        let out = generate_ts_row_object_literal(&columns, "\t", TsRowShape::Flat, |name, ty| {
+            format!("row['{name}'] as {ty}")
+        });
+        assert!(
+            out.contains("total: row['total'] as string | null,"),
+            "flat rows declare the discriminant nullable; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn test_ts_row_shape_from_outer_join_unions() {
+        assert_eq!(TsRowShape::from_outer_join_unions(false), TsRowShape::Flat);
+        assert_eq!(TsRowShape::from_outer_join_unions(true), TsRowShape::Union);
+        assert_eq!(TsRowShape::default(), TsRowShape::Flat);
+    }
+
+    /// A union row type whose group has no discriminant collapses back to a
+    /// plain interface (see `discriminated_join_groups`), and the cast has
+    /// to collapse with it -- a column that was already nullable in the
+    /// schema is declared `T | null` in the matched variant too.
+    #[test]
+    fn test_ts_row_shape_union_keeps_full_type_for_non_discriminants() {
+        let columns = user_orders_columns();
+        let notes = columns.iter().find(|c| c.name == "notes").unwrap();
+        assert_eq!(TsRowShape::Union.cast_type(notes), "string | null");
+        let name = columns.iter().find(|c| c.name == "name").unwrap();
+        assert_eq!(TsRowShape::Union.cast_type(name), "string");
     }
 
     #[test]
@@ -961,7 +1096,7 @@ mod tests {
             column("id", "number", false, None, false),
             column("name", "string", false, None, false),
         ];
-        let out = generate_ts_one_row_remap(&columns, |name, ty| format!("row['{name}'] as {ty}"));
+        let out = generate_ts_one_row_remap(&columns, TsRowShape::Flat, |name, ty| format!("row['{name}'] as {ty}"));
         assert_eq!(
             out,
             "\tif (!row) {\n\
@@ -977,7 +1112,7 @@ mod tests {
     #[test]
     fn test_generate_ts_many_row_remap_maps_each_row() {
         let columns = vec![column("id", "number", false, None, false)];
-        let out = generate_ts_many_row_remap(&columns, |name, ty| format!("row['{name}'] as {ty}"));
+        let out = generate_ts_many_row_remap(&columns, TsRowShape::Flat, |name, ty| format!("row['{name}'] as {ty}"));
         assert_eq!(
             out,
             "\treturn rows.map((row) => ({\n\

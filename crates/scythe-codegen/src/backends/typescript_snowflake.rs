@@ -9,7 +9,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
+    TsFieldCase, TsRowShape, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
     generate_zod_union_row_struct, parse_bool_option, reject_unknown_options,
@@ -187,9 +187,11 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                             out,
                             "\tconst row = (rawRows[0] ?? null) as Record<string, unknown> | null;"
                         );
-                        out.push_str(&generate_ts_one_row_remap(columns, |name, ty| {
-                            format!("row['{name}'] as {ty}")
-                        }));
+                        out.push_str(&generate_ts_one_row_remap(
+                            columns,
+                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            |name, ty| format!("row['{name}'] as {ty}"),
+                        ));
                     }
                 }
                 let _ = write!(out, "}}");
@@ -271,9 +273,11 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                     TsFieldCase::Camel => {
                         emit_execute(&mut out, &sql, &binds, "rawRows");
                         let _ = writeln!(out, "\tconst rows = rawRows as Record<string, unknown>[];");
-                        out.push_str(&generate_ts_many_row_remap(columns, |name, ty| {
-                            format!("row['{name}'] as {ty}")
-                        }));
+                        out.push_str(&generate_ts_many_row_remap(
+                            columns,
+                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            |name, ty| format!("row['{name}'] as {ty}"),
+                        ));
                     }
                 }
                 let _ = write!(out, "}}");
