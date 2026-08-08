@@ -302,12 +302,13 @@ So `field_case = "camelCase"` on `typescript-kysely` means "my Kysely instance a
 omit the plugin, the declared type says `userId` while the row carries `user_id`, and every field
 reads back `undefined` at runtime with `tsc` still green.
 
-```ts
-import { Kysely, CamelCasePlugin, PostgresDialect } from "kysely";
+```typescript
+import { CamelCasePlugin, Kysely, PostgresDialect } from "kysely";
+import { Pool } from "pg";
 
-const db = new Kysely<Database>({
-	dialect: new PostgresDialect({ pool }),
-	plugins: [new CamelCasePlugin()],
+const db = new Kysely<any>({
+  dialect: new PostgresDialect({ pool: new Pool() }),
+  plugins: [new CamelCasePlugin()],
 });
 ```
 

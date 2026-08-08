@@ -186,10 +186,13 @@ plugin installed, and scythe cannot check it at generation time. Set the option 
 and the declared type says `userId` while the row carries `user_id` -- every field reads back
 `undefined`, and `tsc` stays green.
 
-```ts
-const db = new Kysely<Database>({
-	dialect: new PostgresDialect({ pool }),
-	plugins: [new CamelCasePlugin()],
+```typescript
+import { CamelCasePlugin, Kysely, PostgresDialect } from "kysely";
+import { Pool } from "pg";
+
+const db = new Kysely<any>({
+  dialect: new PostgresDialect({ pool: new Pool() }),
+  plugins: [new CamelCasePlugin()],
 });
 ```
 
