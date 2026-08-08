@@ -1,0 +1,63 @@
+# Until this file existed there was no scheduled dependency maintenance at all.
+# Every Dependabot run on this repo was `event: dynamic` -- that is, triggered
+# by a security alert and nothing else. Ordinary version updates were never
+# proposed, so dependencies moved only when an advisory forced them, which is
+# the most expensive moment to discover that a bump does not build.
+#
+# Updates are grouped aggressively and scheduled weekly on purpose. This repo
+# has a Cargo workspace of seven crates plus two release wrappers; ungrouped
+# daily updates would open a PR storm that trains everyone to ignore the label.
+version: 2
+
+updates:
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      # Patch and minor together: for a workspace this size the interesting
+      # signal is "does everything still build and pass", which one PR answers
+      # as well as twenty. Majors stay separate because they are the ones that
+      # need a human to read a changelog.
+      cargo-minor-and-patch:
+        update-types: ["minor", "patch"]
+    ignore:
+      # tiberius 0.12 hard-pins the rustls 0.21 line, which transitively pins
+      # rustls-webpki 0.101.7 and makes its advisory permanently
+      # `security_update_not_possible`. It is not worth churning: tiberius
+      # reaches only two unpublished places -- crates/scythe-conformance
+      # (publish = false, behind the optional `mssql` feature) and
+      # integration_tests/rust-tiberius-mssql -- so no published scythe
+      # artifact carries the vulnerable path. Moving off it is tracked
+      # separately; a weekly PR that cannot succeed is pure noise.
+      - dependency-name: tiberius
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      github-actions:
+        patterns: ["*"]
+
+  - package-ecosystem: npm
+    directory: "/release/npm"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]
+
+  - package-ecosystem: uv
+    directory: "/release/pypi"
+    schedule:
+      interval: weekly
+      day: monday
+    groups:
+      pypi-minor-and-patch:
+        update-types: ["minor", "patch"]
