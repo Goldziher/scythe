@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
@@ -333,6 +334,13 @@ impl CodegenBackend for JavaJdbcBackend {
 
     fn manifest_mut(&mut self) -> &mut scythe_backend::manifest::BackendManifest {
         &mut self.manifest
+    }
+
+    fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
+        if let Some(value) = options.get("field_case") {
+            super::apply_field_case_option(&mut self.manifest.naming, "java-jdbc", value)?;
+        }
+        Ok(())
     }
 
     fn supported_engines(&self) -> &[&str] {
@@ -796,8 +804,13 @@ impl CodegenBackend for JavaJdbcBackend {
 
 #[cfg(test)]
 mod tests {
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use std::collections::HashMap;
+
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig};
     use scythe_core::parser::QueryCommand;
+
+    use super::JavaJdbcBackend;
+    use crate::backend_trait::CodegenBackend;
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![
@@ -1023,6 +1036,171 @@ mod tests {
         assert!(
             !row_struct.contains("getTimestamp"),
             "postgresql must not be affected by the Snowflake-only legacy getter; got:\n{row_struct}"
+        );
+    }
+
+    fn make_one_query_with_snake_case_columns() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetSession".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT id, user_id FROM sessions WHERE id = $1".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// The safety invariant this whole feature depends on: renaming the
+    /// declared field must never touch the key the driver is asked to look
+    /// up. `col_rs_expr` reads `rs.getInt(col.name)` -- the raw SQL column
+    /// name -- and only the record's declared parameter (`col.field_name`)
+    /// changes under `field_case = "camelCase"`. If this ever reads
+    /// `rs.getInt("userId")` instead, every row decode breaks at runtime
+    /// with no compile-time signal, because `ResultSet.getInt` takes a
+    /// plain string.
+    #[test]
+    fn test_field_case_camel_case_renames_field_but_keeps_raw_lookup_key() {
+        let mut backend = JavaJdbcBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&HashMap::from([("field_case".to_string(), "camelCase".to_string())]))
+            .unwrap();
+        let query = make_one_query_with_snake_case_columns();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("int userId"),
+            "field_case must rename the declared record field; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("rs.getInt(\"user_id\")"),
+            "the ResultSet lookup key must stay the raw SQL column name; got:\n{row_struct}"
+        );
+        assert!(
+            !row_struct.contains("rs.getInt(\"userId\")"),
+            "must never look the driver up by the renamed field; got:\n{row_struct}"
+        );
+        assert!(
+            !row_struct.contains("int user_id"),
+            "must not leave the raw SQL name in the declared field; got:\n{row_struct}"
+        );
+    }
+
+    #[test]
+    fn test_field_case_option_rejects_invalid_value() {
+        let mut backend = JavaJdbcBackend::new("postgresql").unwrap();
+        let result = backend.apply_options(&HashMap::from([("field_case".to_string(), "PascalCase".to_string())]));
+        assert!(result.is_err(), "expected 'PascalCase' to be rejected");
+    }
+
+    fn make_one_query_with_colliding_columns() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetUser".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT user_id, \"userId\" FROM users WHERE user_id = $1".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "userId".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// Collision detection lives in `resolve::resolve_columns` (see
+    /// `resolve.rs`'s own thorough coverage across every spelling and both
+    /// `field_case` settings) and has no backend-specific code path -- see
+    /// `apply_field_case_option`'s doc comment in `backends/mod.rs`. This
+    /// test only proves that wiring actually reaches java-jdbc's
+    /// `generate_with_backend` pipeline, not a second copy of resolve.rs's
+    /// coverage; it is deliberately not repeated in the other four
+    /// Java/Kotlin backends for the same reason.
+    #[test]
+    fn test_field_case_collision_produces_a_clear_error_not_silent_overwrite() {
+        let mut backend = JavaJdbcBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&HashMap::from([("field_case".to_string(), "camelCase".to_string())]))
+            .unwrap();
+        let query = make_one_query_with_colliding_columns();
+        let err = crate::generate_with_backend(&query, &backend)
+            .expect_err("user_id and userId must collide under camelCase");
+        assert!(err.to_string().contains("userId"), "{err}");
+        assert!(err.to_string().contains("user_id"), "{err}");
+    }
+
+    fn make_composite_with_consecutive_capitals() -> CompositeInfo {
+        CompositeInfo {
+            sql_name: "CreateAPIKey".to_string(),
+            fields: vec![
+                CompositeFieldInfo {
+                    name: "HTTPSUrl".to_string(),
+                    neutral_type: "string".to_string(),
+                },
+                CompositeFieldInfo {
+                    name: "internal_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                },
+            ],
+        }
+    }
+
+    /// `to_pascal_case`/`to_camel_case` now normalize consecutive capitals
+    /// through `to_snake_case` (commit 6ab8994), so a composite's SQL name
+    /// and field names that carry runs of capitals ("CreateAPIKey",
+    /// "HTTPSUrl") changed shape here too -- this backend's
+    /// `generate_composite_def` had no coverage of that change landing.
+    #[test]
+    fn test_composite_def_normalizes_consecutive_capitals() {
+        let backend = JavaJdbcBackend::new("postgresql").unwrap();
+        let composite = make_composite_with_consecutive_capitals();
+        let def = backend.generate_composite_def(&composite).unwrap();
+
+        assert!(
+            def.contains("public record CreateApiKey("),
+            "composite type name must normalize consecutive capitals; got:\n{def}"
+        );
+        assert!(
+            def.contains("String httpsUrl"),
+            "composite field name must normalize consecutive capitals; got:\n{def}"
+        );
+        assert!(
+            def.contains("int internalId"),
+            "composite field name must still camelCase a plain snake_case field; got:\n{def}"
         );
     }
 }

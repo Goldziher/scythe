@@ -99,6 +99,9 @@ impl CodegenBackend for KotlinR2dbcBackend {
                 }
             };
         }
+        if let Some(value) = options.get("field_case") {
+            super::apply_field_case_option(&mut self.manifest.naming, "kotlin-r2dbc", value)?;
+        }
         Ok(())
     }
 
@@ -707,8 +710,13 @@ impl CodegenBackend for KotlinR2dbcBackend {
 
 #[cfg(test)]
 mod tests {
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use std::collections::HashMap;
+
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig};
     use scythe_core::parser::QueryCommand;
+
+    use super::KotlinR2dbcBackend;
+    use crate::backend_trait::CodegenBackend;
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![
@@ -812,6 +820,118 @@ mod tests {
         assert!(
             query_fn.contains("asFlow().toList()"),
             "must collect rows with asFlow().toList(); got:\n{query_fn}"
+        );
+    }
+
+    fn make_one_query_with_snake_case_columns() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetSession".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT id, user_id FROM sessions WHERE id = $1".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// The safety invariant this whole feature depends on: renaming the
+    /// declared field must never touch the key the driver is asked to look
+    /// up. `write_row_map` reads `row.get(col.name, class)` -- the raw SQL
+    /// column name -- and only the data class' declared property
+    /// (`col.field_name`) changes under `field_case = "camelCase"`.
+    #[test]
+    fn test_field_case_camel_case_renames_field_but_keeps_raw_lookup_key() {
+        let mut backend = KotlinR2dbcBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&HashMap::from([("field_case".to_string(), "camelCase".to_string())]))
+            .unwrap();
+        let query = make_one_query_with_snake_case_columns();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("val userId: Int"),
+            "field_case must rename the declared data class property; got:\n{row_struct}"
+        );
+        assert!(
+            !row_struct.contains("val user_id"),
+            "must not leave the raw SQL name in the declared property; got:\n{row_struct}"
+        );
+        assert!(
+            query_fn.contains("userId = row.get(\"user_id\", Int::class.javaObjectType)"),
+            "the Row lookup key must stay the raw SQL column name; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("row.get(\"userId\""),
+            "must never look the driver up by the renamed field; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_field_case_option_rejects_invalid_value() {
+        let mut backend = KotlinR2dbcBackend::new("postgresql").unwrap();
+        let result = backend.apply_options(&HashMap::from([("field_case".to_string(), "PascalCase".to_string())]));
+        assert!(result.is_err(), "expected 'PascalCase' to be rejected");
+    }
+
+    fn make_composite_with_consecutive_capitals() -> CompositeInfo {
+        CompositeInfo {
+            sql_name: "CreateAPIKey".to_string(),
+            fields: vec![
+                CompositeFieldInfo {
+                    name: "HTTPSUrl".to_string(),
+                    neutral_type: "string".to_string(),
+                },
+                CompositeFieldInfo {
+                    name: "internal_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                },
+            ],
+        }
+    }
+
+    /// `to_pascal_case`/`to_camel_case` now normalize consecutive capitals
+    /// through `to_snake_case` (commit 6ab8994), so a composite's field
+    /// names that carry runs of capitals ("HTTPSUrl") changed shape here too
+    /// -- this backend's `generate_composite_def` had no coverage of that
+    /// change landing.
+    #[test]
+    fn test_composite_def_normalizes_consecutive_capitals() {
+        let backend = KotlinR2dbcBackend::new("postgresql").unwrap();
+        let composite = make_composite_with_consecutive_capitals();
+        let def = backend.generate_composite_def(&composite).unwrap();
+
+        assert!(
+            def.contains("data class CreateApiKey("),
+            "composite type name must normalize consecutive capitals; got:\n{def}"
+        );
+        assert!(
+            def.contains("val httpsUrl: String"),
+            "composite field name must normalize consecutive capitals; got:\n{def}"
+        );
+        assert!(
+            def.contains("val internalId: Int"),
+            "composite field name must still camelCase a plain snake_case field; got:\n{def}"
         );
     }
 }
