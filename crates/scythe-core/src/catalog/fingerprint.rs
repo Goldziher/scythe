@@ -306,38 +306,71 @@ mod tests {
         );
     }
 
+    /// Line prefix the child half prints its fingerprint behind. Shared by
+    /// both halves so the writer and the reader cannot drift.
+    const CHILD_FINGERPRINT_PREFIX: &str = "SCH1_CHILD_FINGERPRINT=";
+
+    /// Fully qualified name of [`cross_process_child_prints_fingerprint`],
+    /// as libtest's `--exact` filter spells it.
+    const CHILD_TEST_NAME: &str = "catalog::fingerprint::tests::cross_process_child_prints_fingerprint";
+
+    /// The child half of [`test_cross_process_ordering_independence`]:
+    /// prints this process's fingerprint of the shared sample catalog.
+    ///
+    /// Split out into its own `#[test]` rather than living behind an
+    /// environment-variable branch inside the parent. With an env-gated
+    /// branch, a `SCYTHE_FINGERPRINT_CHILD` that happened to already be set
+    /// in the ambient environment sent the *parent* run down the child path:
+    /// it printed a fingerprint, returned, and asserted nothing at all,
+    /// while still reporting as a pass. Which process is the child is now a
+    /// property of which test libtest was asked to run — something only the
+    /// parent decides, via `--exact`, and something no inherited environment
+    /// can forge.
+    ///
+    /// Running this on its own (as a normal `cargo test` sweep does) is
+    /// harmless and asserts nothing; it exists to be spawned.
+    #[test]
+    fn cross_process_child_prints_fingerprint() {
+        println!(
+            "{CHILD_FINGERPRINT_PREFIX}{}",
+            cross_process_sample_catalog().fingerprint()
+        );
+    }
+
     /// Cross-process ordering independence.
     ///
-    /// An in-process loop cannot prove this: `ahash`'s `RandomState` is
-    /// seeded once per process and shared by every `AHashMap` in that
-    /// process, so two `AHashMap`s built in the same test process will
-    /// already agree on iteration order regardless of whether the
-    /// fingerprint code sorts anything. Only a second, independently
-    /// started process has a different seed and can catch a
-    /// `canonical_form` that accidentally depended on map iteration order.
+    /// The failure this guards against is a `canonical_form` that leaked
+    /// `AHashMap` iteration order into the hash, making the same unchanged
+    /// schema fingerprint differently from one run to the next — which would
+    /// report as permanent, unfixable SC-PRV01 drift in CI.
     ///
-    /// This re-invokes the current test binary (`current_exe()`) out of
-    /// process, asking it to run this exact test by name. The child detects
-    /// `SCYTHE_FINGERPRINT_CHILD` and, instead of recursing, prints its own
-    /// fingerprint of the same catalog and exits; the parent compares that
-    /// against its own in-process fingerprint.
+    /// A second process is required to catch it. `ahash`'s `RandomState`
+    /// draws on two sources, and both differ across processes: a set of
+    /// fixed seeds initialized once per process, and a per-instance value
+    /// from `DefaultRandomSource::gen_hasher_seed`, which is a static
+    /// counter seeded from a static's (ASLR-dependent) address. Note the
+    /// per-instance half means the claim that a single process's maps share
+    /// one iteration order is false — two `AHashMap`s built in the same
+    /// process already disagree, so an in-process comparison would be
+    /// *probabilistic*: it could catch an order-dependent `canonical_form`,
+    /// but only by luck, and it would say nothing about the per-process
+    /// fixed seeds that are the actual run-to-run variable. Spawning a real
+    /// second process exercises both sources at once, which is why the
+    /// design is right regardless.
+    ///
+    /// This re-invokes the current test binary (`current_exe()`), asking it
+    /// to run [`cross_process_child_prints_fingerprint`] and nothing else,
+    /// then compares what the child printed against its own in-process
+    /// fingerprint.
     #[test]
     fn test_cross_process_ordering_independence() {
-        let catalog = cross_process_sample_catalog();
-
-        if std::env::var_os("SCYTHE_FINGERPRINT_CHILD").is_some() {
-            println!("SCH1_CHILD_FINGERPRINT={}", catalog.fingerprint());
-            return;
-        }
-
-        let parent_fingerprint = catalog.fingerprint();
+        let parent_fingerprint = cross_process_sample_catalog().fingerprint();
 
         let exe = std::env::current_exe().expect("current test binary path");
         let output = std::process::Command::new(exe)
             .arg("--exact")
-            .arg("catalog::fingerprint::tests::test_cross_process_ordering_independence")
+            .arg(CHILD_TEST_NAME)
             .arg("--nocapture")
-            .env("SCYTHE_FINGERPRINT_CHILD", "1")
             .output()
             .expect("failed to spawn child test process");
 
@@ -351,8 +384,13 @@ mod tests {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let child_fingerprint = stdout
             .lines()
-            .find_map(|line| line.strip_prefix("SCH1_CHILD_FINGERPRINT="))
-            .unwrap_or_else(|| panic!("child process did not print a fingerprint; stdout was:\n{stdout}"));
+            .find_map(|line| line.strip_prefix(CHILD_FINGERPRINT_PREFIX))
+            .unwrap_or_else(|| {
+                panic!(
+                    "child process did not print a fingerprint -- if `{CHILD_TEST_NAME}` was renamed, \
+                     update CHILD_TEST_NAME. stdout was:\n{stdout}"
+                )
+            });
 
         assert_eq!(
             parent_fingerprint, child_fingerprint,
