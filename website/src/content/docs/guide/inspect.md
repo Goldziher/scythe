@@ -196,12 +196,18 @@ those, point a real observability stack (pganalyze, Datadog, Prometheus +
 postgres_exporter) at your database — `scythe inspect` is for the things you
 can catch with a single catalog snapshot.
 
-Also not implemented:
+Also not implemented (by `scythe inspect` specifically):
 
-- **Schema drift** (declared `scythe.toml` catalog vs live database) —
-  unscheduled.
 - **Stats-based checks** (unused indexes via `pg_stat_user_indexes`, slow
   queries via `pg_stat_statements`, bloat via `pgstattuple`) — Phase 4.
+
+:::note[Schema drift shipped, but in `scythe check`, not here]
+Schema drift (declared `scythe.toml` catalog vs. live database) is implemented as of v0.14.0, as
+`SC-DRF01`–`SC-DRF07` under [`scythe check --database-url`](/scythe/guide/cli-reference/#schema-drift),
+not as a `scythe inspect` check. It reads `pg_catalog` the same way `scythe inspect`'s checks do, but
+answers a different question ("does my committed schema still match the database?") than `scythe
+inspect` does ("does my live database have an operational problem?").
+:::
 
 ## Phased roadmap
 
@@ -209,6 +215,6 @@ Also not implemented:
 |---|---|---|---|---|
 | **0** | v0.10.0 (shipped) | MVP — three Postgres checks | PG (MySQL stub) | SC-INS01..03 |
 | **1** | v0.11.0 (shipped) | Full PG check pack + TOML rule registry + `--explain` + `[inspect]` config | PG | SC-INS04..13 |
-| **2** | unscheduled | Schema drift — declared catalog vs live | PG | SC-DFT01..05 |
+| **2** | v0.14.0 (shipped, as `scythe check --database-url`) | Schema drift — declared catalog vs live | PG | SC-DRF01..07 |
 | **3** | v0.13.0 | MySQL driver + initial MySQL check pack | PG + MySQL | SC-INS-MY01..06 |
 | **4** | v0.14.0 | Stats-based — unused indexes, slow queries via `pg_stat_*` | PG | SC-INS-STAT01..04 |

@@ -50,7 +50,9 @@ export interface ListUsersRow {
 }
 ```
 
-Note: generated field names mirror the SQL column names in `snake_case`. Function names (`getUser`, `listUsers`) are `camelCase`, per `fn_case`.
+Note: generated field names mirror the SQL column names in `snake_case` by default -- set
+[`field_case = "camelCase"`](#options) to rename them. Function names (`getUser`, `listUsers`) are
+`camelCase`, per `fn_case`.
 
 ## postgres.js
 
@@ -223,6 +225,7 @@ export type GetUserOrdersRow = {
 | `row_type` | `interface`, `zod` | `interface` | Emit plain TypeScript interfaces or Zod schemas + inferred types |
 | `outer_join_unions` | `true`, `false` | `false` | Discriminated unions for outer-join nullability instead of independent optionals |
 | `structs_only` | `true`, `false` | `false` | Emit only row types (interfaces/Zod schemas, enums, composites) -- no query functions, no driver import |
+| `field_case` | `snake_case`, `camelCase` | `snake_case` | Case convention for generated row/interface field names and function parameter names |
 
 `structs_only` is supported by every TypeScript backend, including `typescript-postgres`, `typescript-pg`, and `typescript-kysely`. Combined with `row_type = "zod"` it produces a types-only package with no driver dependency:
 
@@ -232,6 +235,25 @@ backend = "typescript-pg"
 output = "src/generated/types"
 row_type = "zod"
 structs_only = "true"
+```
+
+Every key besides `row_type`, `outer_join_unions`, `structs_only`, and `field_case` is rejected --
+an unrecognized option aborts generation with a "did you mean" suggestion rather than being
+silently ignored. See [`field_case`](/scythe/guide/configuration/#field_case) in the Configuration
+guide for the runtime-remap behavior it triggers and its collision-detection error.
+
+```toml
+[[sql.gen]]
+backend = "typescript-pg"
+output = "src/generated"
+field_case = "camelCase"
+```
+
+```typescript
+export interface GetUserRow {
+  id: number;
+  userName: string;
+}
 ```
 
 ## typescript-node-sqlite and typescript-wasm-sqlite

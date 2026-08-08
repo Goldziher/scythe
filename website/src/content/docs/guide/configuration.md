@@ -119,8 +119,28 @@ output = "src/generated/kotlin-exposed"
 | `manifest` | string | no | Path to a partial manifest merged over the backend's built-in one. A relative path resolves against the config file's directory. See below. |
 | `row_type` | string | no | Row type style for generated code. See below. |
 | `outer_join_unions` | bool | no | Emit outer-join nullability as a discriminated union. TypeScript backends only. See below. |
+| `field_case` | string | no | Case convention for generated column/param field names. TypeScript backends only. See below. |
 | `namespace` | string | no | PHP namespace for generated code. PHP backends only. See below. |
 | `extension_functions` | bool | no | Generate idiomatic Kotlin extension functions. Kotlin backends only. See below. |
+
+:::caution[Breaking: unrecognized options are now a hard error]
+`[[sql.gen]]` uses `#[serde(flatten)]`, so every key besides `backend`, `output`, and `manifest` is
+handed to the target backend's `apply_options`. TypeScript backends now reject any key they don't
+recognize instead of silently ignoring it. A typo like `row_typ = "zod"` — or any forward-compat key
+you were carrying for a future scythe version — now aborts `scythe generate` instead of doing
+nothing:
+
+```text
+error: backend 'typescript-pg' apply_options failed: unknown option 'row_typ' (did you mean 'row_type'?):
+  valid options are field_case, outer_join_unions, row_type, structs_only
+```
+
+If you hit this after upgrading, remove the offending key or fix the typo the error suggests. This
+applies to every TypeScript backend (`typescript-pg`, `typescript-postgres`, `typescript-kysely`,
+`typescript-mysql2`, `typescript-mssql`, `typescript-oracledb`, `typescript-snowflake`,
+`typescript-duckdb`, `typescript-better-sqlite3`, `typescript-node-sqlite`,
+`typescript-wasm-sqlite`) — the only ones with the change today.
+:::
 
 ### `row_type`
 
@@ -208,6 +228,56 @@ alternative.
 Per-column optionality remains the default and the cross-target shape: Go,
 Java, C# and PHP cannot express this cleanly.
 
+### `field_case`
+
+TypeScript backends only. Controls the case of generated row/interface field names and function
+parameter names — the SQL side (column names, bound parameter order) is unaffected.
+
+| Value | Description |
+|-------|-------------|
+| `"snake_case"` | (default) Field names mirror SQL column/param names as-is |
+| `"camelCase"` | Field names are converted to camelCase |
+
+```toml
+[[sql.gen]]
+backend = "typescript-pg"
+output = "src/generated"
+field_case = "camelCase"
+```
+
+```sql
+-- @name GetUser
+-- @returns :one
+SELECT id, user_name, created_at FROM users WHERE id = $1;
+```
+
+```ts
+export interface GetUserRow {
+  id: number;
+  userName: string;
+  createdAt: Date;
+}
+```
+
+Renaming a field is not just a label change: the driver still returns rows keyed by the original SQL
+column name, so `field_case = "camelCase"` also switches the function body from a blind cast of the
+driver's row to a field-by-field reconstruction (`row['user_name']` read into a `userName` property).
+Without that remap the generated code would still type-check under `tsc` but every field would read
+back `undefined` at runtime.
+
+Two SQL identifiers that collapse onto the same generated name under the active `field_case` are a
+hard error, not a silent last-write-wins — this also applies under the default `snake_case`, since
+quoted SQL (`SELECT "USER_ID", user_id FROM t`) can produce two distinct column names that resolve
+to one field:
+
+```text
+error: columns 'user_id' and 'userId' both resolve to field name 'userId' under field_case = "camelCase"
+  -- alias one of them in SQL, or set field_case = "snake_case"
+```
+
+`field_case` is a backend option, not a manifest field: a manifest's `[naming]` table cannot set it
+(see `manifest` below), so a partial manifest override cannot silently disable it.
+
 ### `namespace`
 
 Controls the PHP namespace declaration emitted at the top of every generated file. Applies to `php-pdo` and `php-amphp` backends.
@@ -281,6 +351,28 @@ The override is **per target**. A backend name alone does not identify a manifes
 Map-valued tables merge one key at a time: a key you list replaces exactly that entry, and every key you omit keeps its built-in value. `[naming]` fields replace whole values; omitted fields inherit.
 
 `[naming]` accepts four fields — `struct_case`, `fn_case`, `enum_variant_case` and `row_suffix`. The list is an allowlist rather than a mirror of the manifest, so any other naming field is a parse error, not a silent no-op.
+
+:::caution[Breaking: acronym handling changed for `PascalCase` and `camelCase`]
+Every case conversion now normalizes a run of consecutive capitals (an acronym, or an
+`ID`/`URL`-style suffix) the same way: `to_pascal_case` — which backs `struct_case = "PascalCase"`,
+set by every one of scythe's 106 shipped manifests — previously returned a mixed-case input with no
+underscore unchanged, so `CreateAPIKey` produced the row type `CreateAPIKeyRow`, preserving the
+`APIKey` run. It now routes through the same snake_case normalization `to_camel_case` (`fn_case =
+"camelCase"`) uses, producing `CreateApiKeyRow`:
+
+| Query name | Old `struct_case = "PascalCase"` row type | New |
+|---|---|---|
+| `CreateAPIKey` | `CreateAPIKeyRow` | `CreateApiKeyRow` |
+| `RetrieveUserAccountByID` | `RetrieveUserAccountByIDRow` | `RetrieveUserAccountByIdRow` |
+
+This is not limited to TypeScript: `struct_case = "PascalCase"` is universal across every backend,
+so every language's generated struct, row-type, and enum-type name changes for any query, table, or
+enum name with an acronym run. `to_camel_case` (`fn_case = "camelCase"`, set by 57 of the 106
+manifests) is now defined in terms of the fixed `to_pascal_case`, guaranteeing struct and function
+names derived from the same identifier agree — its own output for some inputs may shift too where
+the two previously disagreed. `fn_case = "snake_case"` is unaffected. Update call sites that
+reference an old identifier after regenerating.
+:::
 
 `[types.scalars]` and `[types.containers]` are replace-only. Neutral type names (`int32`, `datetime_tz`, `array`, …) are a fixed vocabulary, so a key outside it is a typo — and a silently accepted typo would leave the original mapping in place and generate code you did not ask for. `[imports.rules]` does accept new keys, because its keys are prefixes of the *generated* language types, which necessarily change when you retarget a scalar.
 

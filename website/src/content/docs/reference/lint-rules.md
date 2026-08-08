@@ -81,6 +81,48 @@ Severity levels: `error`, `warn`, `off`.
 
 Priority: per-rule override > per-category override > default severity.
 
+## Provenance rules (7)
+
+`SC-PRV*` rules compare an already-generated artifact's [provenance header](/scythe/guide/cli-reference/#provenance-verification)
+against the current schema, engine, backend, and scythe version. They run only from `scythe check`
+(no flag required) and are excluded from `scythe lint` and `scythe audit --list-rules` — neither
+command reads generated files, so neither can ever produce one of these findings. They are not part
+of the 23 scythe rules or 58 built-in total quoted above.
+
+| Code | Name | Description | Default |
+|------|------|-------------|---------|
+| `SC-PRV01` | `schema-drift` | Generated artifact was produced from a different schema than the one on disk | Error |
+| `SC-PRV02` | `scythe-version-drift` | Generated artifact was produced by a different scythe version than the one running | Warn |
+| `SC-PRV03` | `backend-drift` | Generated artifact was produced by a different backend than this target configures | Error |
+| `SC-PRV04` | `engine-drift` | Generated artifact was produced for a different engine than this target configures | Error |
+| `SC-PRV05` | `missing-provenance-header` | Generated artifact has no provenance header, so it cannot be checked for schema drift | Warn |
+| `SC-PRV06` | `malformed-provenance-header` | Generated artifact's provenance header is missing one or more required fields | Warn |
+| `SC-PRV07` | `unverifiable-provenance` | Generation target could not be verified: backend construction or artifact read failed | Warn |
+
+Configured through the same `[lint]` table (`[lint.rules]`, or `[lint.categories] provenance = "off"`
+to disable the whole category) as every rule above.
+
+## Schema drift rules (7)
+
+`SC-DRF*` rules compare the committed DDL against a live database's catalog. They run only from
+[`scythe check --database-url`](/scythe/guide/cli-reference/#schema-drift) (PostgreSQL only) and are
+likewise excluded from `scythe lint` and `scythe audit --list-rules`, and from the 23/58 counts above.
+
+| Code | Name | Description | Default |
+|------|------|-------------|---------|
+| `SC-DRF01` | `table-missing-from-database` | Table declared in the DDL does not exist in the live database | Error |
+| `SC-DRF02` | `table-missing-from-ddl` | Table exists in the live database but is not declared in the DDL | Warn |
+| `SC-DRF03` | `column-missing-from-database` | Column declared in the DDL does not exist on the live table | Error |
+| `SC-DRF04` | `column-missing-from-ddl` | Column exists on the live table but is not declared in the DDL | Error |
+| `SC-DRF05` | `column-type-mismatch` | Column's DDL type does not match the type the live database reports | Error |
+| `SC-DRF06` | `column-nullability-mismatch` | Column's DDL nullability does not match the live database | Error |
+| `SC-DRF07` | `enum-values-mismatch` | Enum type's DDL value set does not match the live database | Error |
+
+`SC-DRF02` is the one `Warn`: every real database carries objects the committed DDL never declares
+(migration ledgers, extension bookkeeping), so defaulting it to `Error` would fail the first run
+against a production database. Configured through the same `[lint]` table, with its own
+`[lint.categories] drift = "off"` switch.
+
 ## Sqruff rules
 
 Scythe integrates [sqruff](https://github.com/quarylabs/sqruff) for SQL formatting and style linting. Sqruff violations are prefixed with `SQ-` followed by the sqruff rule code.
