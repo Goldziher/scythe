@@ -208,19 +208,41 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("            Err(_) => continue, // skip unregistered backends\n");
     out.push_str("        };\n");
     out.push_str("        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {\n");
+    // Assembled through `provenance::assemble_file`, exactly as `scythe
+    // generate` assembles a real file: preamble, then the provenance header
+    // line, then the body. Concatenating preamble + header directly (as this
+    // generator used to) produced a file no user ever gets, so the `syn` and
+    // structural assertions below were validating a shape that does not
+    // ship — and in particular never saw the provenance comment.
+    out.push_str("                let preamble = backend.file_preamble();\n");
     out.push_str("                let header = backend.file_header();\n");
-    out.push_str("                let mut code = if header.is_empty() {\n");
-    out.push_str("                    String::from(\"#![allow(dead_code, unused_imports)]\\n\")\n");
+    out.push_str("                let mut body = String::new();\n");
+    out.push_str("                if header.is_empty() {\n");
+    out.push_str("                    body.push_str(\"#![allow(dead_code, unused_imports)]\\n\");\n");
     out.push_str("                } else {\n");
-    out.push_str("                    let mut h = header; h.push('\\n'); h\n");
-    out.push_str("                };\n");
-    out.push_str("                if let Some(ref s) = generated.enum_def { code.push_str(s); code.push('\\n'); }\n");
+    out.push_str("                    body.push_str(&header);\n");
+    out.push_str("                    body.push('\\n');\n");
+    out.push_str("                }\n");
+    out.push_str("                if let Some(ref s) = generated.enum_def { body.push_str(s); body.push('\\n'); }\n");
     out.push_str(
-        "                if let Some(ref s) = generated.model_struct { code.push_str(s); code.push('\\n'); }\n",
+        "                if let Some(ref s) = generated.model_struct { body.push_str(s); body.push('\\n'); }\n",
     );
-    out.push_str("                if let Some(ref s) = generated.row_struct { code.push_str(s); code.push('\\n'); }\n");
-    out.push_str("                if let Some(ref s) = generated.query_fn { code.push_str(s); code.push('\\n'); }\n");
-    out.push_str("                if code.lines().count() > 1 {\n");
+    out.push_str("                if let Some(ref s) = generated.row_struct { body.push_str(s); body.push('\\n'); }\n");
+    out.push_str("                if let Some(ref s) = generated.query_fn { body.push_str(s); body.push('\\n'); }\n");
+    out.push_str("                let code = scythe_codegen::provenance::assemble_file(\n");
+    out.push_str("                    &preamble,\n");
+    out.push_str("                    &scythe_codegen::provenance::header_line(\n");
+    out.push_str("                        &*backend,\n");
+    out.push_str("                        env!(\"CARGO_PKG_VERSION\"),\n");
+    out.push_str("                        \"postgresql\",\n");
+    out.push_str("                        \"sch1:0123456789abcdef\",\n");
+    out.push_str("                    ),\n");
+    out.push_str("                    &body,\n");
+    out.push_str("                );\n");
+    // Counted on the body, not on `code`: the preamble and the provenance
+    // line are constants present for every backend, so including them would
+    // turn this "did the backend emit anything?" guard into a tautology.
+    out.push_str("                if body.lines().count() > 1 {\n");
     out.push_str("                    // Only validate Rust syntax with syn for Rust backends\n");
     out.push_str(
         "                    if *backend_name == \"rust-sqlx\" || *backend_name == \"rust-tokio-postgres\" {\n",

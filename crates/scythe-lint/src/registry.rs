@@ -114,6 +114,39 @@ pub fn default_registry() -> RuleRegistry {
     reg
 }
 
+/// The seven `SC-PRV*` provenance rules, in their own registry.
+///
+/// Deliberately **not** part of [`default_registry`]. Every consumer of that
+/// registry evaluates rules through `LintRule::check_query` /
+/// `check_catalog`, and these seven implement neither — their findings come
+/// from `scythe check`'s generated-artifact verification pass, which has no
+/// `LintContext` to offer. Putting them in the default registry would have
+/// `scythe audit --list-rules` (via `load_registry_for_discovery`) and
+/// `scythe lint` advertise seven rules that neither command can ever emit,
+/// and would move the documented "58 built-in rules" figure that appears
+/// across the README, the website, and the skills bundle.
+///
+/// A registry rather than a bare list because that is what makes them
+/// configurable: `scythe check` calls [`RuleRegistry::apply_config`] on this
+/// registry with the same `[lint]` table it applies to the default one, then
+/// resolves each severity through [`RuleRegistry::effective_severity`]. So
+/// `[lint.rules] "SC-PRV01" = "off"` and `[lint.categories] provenance =
+/// "off"` both work, and schema drift is not the one finding in scythe with
+/// no way to opt out of failing CI. See `rules::provenance`'s module doc.
+pub fn provenance_registry() -> RuleRegistry {
+    let mut reg = RuleRegistry::new();
+
+    reg.register(Box::new(rules::provenance::SchemaDrift));
+    reg.register(Box::new(rules::provenance::ScytheVersionDrift));
+    reg.register(Box::new(rules::provenance::BackendDrift));
+    reg.register(Box::new(rules::provenance::EngineDrift));
+    reg.register(Box::new(rules::provenance::MissingProvenanceHeader));
+    reg.register(Box::new(rules::provenance::MalformedProvenanceHeader));
+    reg.register(Box::new(rules::provenance::UnverifiableProvenance));
+
+    reg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,10 +200,96 @@ mod tests {
         assert_eq!(reg.active_rules().len(), 1);
     }
 
+    /// 23 SQL lint rules + 35 canonical audit rules. This is the "58
+    /// built-in rules" figure quoted across the README, the website, and the
+    /// skills bundle, so it moves only when a rule a user can actually
+    /// trigger is added or removed.
     #[test]
     fn default_registry_has_58_rules() {
         let reg = default_registry();
         assert_eq!(reg.rules.len(), 58);
+    }
+
+    /// The `SC-PRV*` rules live in [`provenance_registry`], not here. Every
+    /// consumer of the default registry evaluates rules through
+    /// `check_query` / `check_catalog`, which no provenance rule implements
+    /// — so listing them via `scythe audit --list-rules` or running them
+    /// through `scythe lint` would advertise seven rules that can never
+    /// produce a finding from those commands.
+    #[test]
+    fn default_registry_excludes_provenance_rules() {
+        let reg = default_registry();
+
+        assert!(
+            !reg.rules.iter().any(|r| r.category() == RuleCategory::Provenance),
+            "no provenance-category rule may appear in the default registry"
+        );
+        for id in [
+            "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07",
+        ] {
+            assert!(
+                !reg.rules.iter().any(|r| r.id() == id),
+                "{id} must not be registered in the default registry"
+            );
+        }
+    }
+
+    #[test]
+    fn provenance_registry_has_the_seven_prv_rules() {
+        let reg = provenance_registry();
+        let ids: Vec<&str> = reg.rules.iter().map(|r| r.id()).collect();
+        assert_eq!(
+            ids,
+            vec![
+                "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07"
+            ]
+        );
+    }
+
+    /// The provenance rules must be reachable by id through the same
+    /// severity-resolution path every other rule uses — that reachability is
+    /// the entire reason they get a registry rather than a bare list, and it
+    /// is what lets `[lint.rules]` disable a schema-drift failure in CI.
+    #[test]
+    fn provenance_rules_honor_per_rule_config_overrides() {
+        let mut reg = provenance_registry();
+
+        let mut config = LintConfig::default();
+        config.rules.insert("SC-PRV01".to_string(), Severity::Off);
+        config.rules.insert("SC-PRV02".to_string(), Severity::Error);
+        reg.apply_config(&config);
+
+        assert_eq!(reg.effective_severity(&rules::provenance::SchemaDrift), Severity::Off);
+        assert_eq!(
+            reg.effective_severity(&rules::provenance::ScytheVersionDrift),
+            Severity::Error
+        );
+        // Untouched by the config: still its own default.
+        assert_eq!(
+            reg.effective_severity(&rules::provenance::BackendDrift),
+            Severity::Error
+        );
+    }
+
+    /// A single `[lint.categories] provenance = "off"` switch must turn the
+    /// whole provenance pass off — the coarse opt-out for projects that do
+    /// not commit generated artifacts at all.
+    #[test]
+    fn provenance_category_override_disables_every_provenance_rule() {
+        let mut reg = provenance_registry();
+
+        let mut config = LintConfig::default();
+        config.categories.insert(RuleCategory::Provenance, Severity::Off);
+        reg.apply_config(&config);
+
+        for id in [
+            "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07",
+        ] {
+            assert!(
+                !reg.active_rules().iter().any(|(r, _)| r.id() == id),
+                "{id} must be inactive when the provenance category is off"
+            );
+        }
     }
 
     #[test]

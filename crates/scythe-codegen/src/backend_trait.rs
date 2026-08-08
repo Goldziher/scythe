@@ -139,6 +139,24 @@ pub trait CodegenBackend: Send + Sync {
     /// Generate a composite type definition.
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError>;
 
+    /// Generate text that must be the literal first bytes of the generated
+    /// file — before any comment, including the provenance header that
+    /// assembly prepends ahead of [`file_header`](Self::file_header).
+    ///
+    /// Some languages have syntax that loses its meaning, or becomes a
+    /// syntax error, if anything precedes it: PHP's `<?php` tag must open
+    /// the file, and Ruby's `# frozen_string_literal: true` magic comment is
+    /// only recognized on line 1 (or line 2 after a shebang) — a comment
+    /// placed above it makes Ruby silently ignore the pragma. Backends with
+    /// such a constraint override this method; everything else that may
+    /// legally follow a leading comment (imports, docstrings, `#!`-style
+    /// banners) stays in [`file_header`](Self::file_header).
+    ///
+    /// Returns an empty string by default; backends may override.
+    fn file_preamble(&self) -> String {
+        String::new()
+    }
+
     /// Generate a file-level header (imports, docstring, etc).
     /// Returns an empty string by default; backends may override.
     fn file_header(&self) -> String {

@@ -43,6 +43,12 @@ pub enum RuleCategory {
     Security,
     /// Schema-migration safety: irreversible or lock-prone DDL operations.
     Migration,
+    /// Provenance of *generated artifacts*: whether the committed output
+    /// still matches the schema, engine, backend, and scythe version it was
+    /// generated from. Appended last on purpose — `scythe audit
+    /// --list-rules` groups its output by `category as u8`, so inserting a
+    /// variant anywhere else would silently reorder the printed catalog.
+    Provenance,
 }
 
 impl std::fmt::Display for RuleCategory {
@@ -56,6 +62,7 @@ impl std::fmt::Display for RuleCategory {
             RuleCategory::Codegen => write!(f, "codegen"),
             RuleCategory::Security => write!(f, "security"),
             RuleCategory::Migration => write!(f, "migration"),
+            RuleCategory::Provenance => write!(f, "provenance"),
         }
     }
 }

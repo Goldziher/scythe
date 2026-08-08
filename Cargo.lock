@@ -2289,6 +2289,7 @@ dependencies = [
  "ahash 0.8.12",
  "serde",
  "serde_json",
+ "sha2",
  "sqlparser",
 ]
 

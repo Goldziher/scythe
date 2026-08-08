@@ -1,6 +1,7 @@
 pub mod backend_trait;
 pub mod backends;
 pub mod overrides;
+pub mod provenance;
 pub mod resolve;
 pub mod validation;
 
