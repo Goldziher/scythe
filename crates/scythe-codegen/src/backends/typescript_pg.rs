@@ -12,9 +12,10 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
-    TsRowType, escape_ts_template_literal, generate_grouped_interface_structs, generate_ts_grouped_fold_body,
-    generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
-    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
+    TsFieldCase, TsRowShape, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
+    generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
+    generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
+    generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option, reject_unknown_options,
 };
 use crate::singularize;
 
@@ -32,6 +33,12 @@ pub struct TypescriptPgBackend {
     /// composites) — no query functions, and no `pg` driver import (which
     /// would otherwise be unused).
     structs_only: bool,
+    /// Under `Camel`, `:one`/`:opt`/`:many` reconstruct the row field by
+    /// field from the driver's raw (snake_case) keys instead of trusting the
+    /// `client.query<StructName>` generic -- see
+    /// [`generate_ts_one_row_remap`]/[`generate_ts_many_row_remap`]. `Snake`
+    /// (the default) keeps that generic, which is sound there.
+    field_case: TsFieldCase,
 }
 
 impl TypescriptPgBackend {
@@ -55,6 +62,7 @@ impl TypescriptPgBackend {
             row_type: TsRowType::default(),
             outer_join_unions: false,
             structs_only: false,
+            field_case: TsFieldCase::default(),
         })
     }
 }
@@ -116,7 +124,7 @@ impl CodegenBackend for TypescriptPgBackend {
         &self,
         analyzed: &AnalyzedQuery,
         struct_name: &str,
-        _columns: &[ResolvedColumn],
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         if self.structs_only {
@@ -192,16 +200,53 @@ impl CodegenBackend for TypescriptPgBackend {
                 let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let ret = format!("Promise<{} | null>", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
-                write_typed_query(&mut out, "\tconst { rows } = await ", struct_name, &sql, params);
-                let _ = writeln!(out, "\treturn rows[0] ?? null;");
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        write_typed_query(&mut out, "\tconst { rows } = await ", struct_name, &sql, params);
+                        let _ = writeln!(out, "\treturn rows[0] ?? null;");
+                    }
+                    TsFieldCase::Camel => {
+                        write_typed_query(
+                            &mut out,
+                            "\tconst { rows } = await ",
+                            "Record<string, unknown>",
+                            &sql,
+                            params,
+                        );
+                        let _ = writeln!(out, "\tconst row = rows[0];");
+                        out.push_str(&generate_ts_one_row_remap(
+                            columns,
+                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            |name, ty| format!("row.{name} as {ty}"),
+                        ));
+                    }
+                }
                 let _ = write!(out, "}}");
             }
             QueryCommand::Many => {
                 let _ = writeln!(out, "/** Fetch all {} rows. */", struct_name);
                 let ret = format!("Promise<{}[]>", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
-                write_typed_query(&mut out, "\tconst { rows } = await ", struct_name, &sql, params);
-                let _ = writeln!(out, "\treturn rows;");
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        write_typed_query(&mut out, "\tconst { rows } = await ", struct_name, &sql, params);
+                        let _ = writeln!(out, "\treturn rows;");
+                    }
+                    TsFieldCase::Camel => {
+                        write_typed_query(
+                            &mut out,
+                            "\tconst { rows } = await ",
+                            "Record<string, unknown>",
+                            &sql,
+                            params,
+                        );
+                        out.push_str(&generate_ts_many_row_remap(
+                            columns,
+                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            |name, ty| format!("row.{name} as {ty}"),
+                        ));
+                    }
+                }
                 let _ = write!(out, "}}");
             }
             QueryCommand::Batch => {
@@ -442,6 +487,11 @@ impl CodegenBackend for TypescriptPgBackend {
     }
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(
+            &["row_type", "outer_join_unions", "structs_only", "field_case"],
+            options,
+        )?;
+
         if let Some(value) = options.get("row_type") {
             self.row_type = TsRowType::from_option(value)?;
         }
@@ -450,6 +500,10 @@ impl CodegenBackend for TypescriptPgBackend {
         }
         if let Some(value) = options.get("structs_only") {
             self.structs_only = parse_bool_option("structs_only", value)?;
+        }
+        if let Some(value) = options.get("field_case") {
+            self.field_case = TsFieldCase::from_option(value)?;
+            self.manifest.naming.field_case = value.clone();
         }
         Ok(())
     }
@@ -482,6 +536,111 @@ mod tests {
             group_by: None,
             custom: vec![],
         }
+    }
+
+    fn make_one_query_with_snake_case_column() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetSession".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT id, user_id FROM sessions WHERE id = $1".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "user_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// This must fail before the fix: trusting `client.query<StructName>`'s
+    /// generic is unsound once `field_case = "camelCase"` renames the
+    /// declared fields -- node-postgres still returns snake_case keys.
+    #[test]
+    fn test_one_query_fn_remaps_fields_under_camel_case() {
+        let mut backend = TypescriptPgBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("client.query<Record<string, unknown>>("),
+            "must not trust the StructName generic; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("userId: row.user_id as number,"),
+            "must remap the declared camelCase field from the driver's raw key, cast to its \
+             declared type -- row is typed Record<string, unknown>, so row.user_id is `unknown` \
+             and an uncast assignment to a number field fails tsc; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_many_query_fn_remaps_fields_under_camel_case() {
+        let mut backend = TypescriptPgBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+        let mut query = make_one_query_with_snake_case_column();
+        query.command = QueryCommand::Many;
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("client.query<Record<string, unknown>>("),
+            "must not trust the StructName generic; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("return rows.map((row) => ({"),
+            "must map each row; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("userId: row.user_id as number,"),
+            "must remap the declared camelCase field from the driver's raw key, cast to its \
+             declared type -- row is typed Record<string, unknown>, so row.user_id is `unknown` \
+             and an uncast assignment to a number field fails tsc; got:\n{query_fn}"
+        );
+    }
+
+    #[test]
+    fn test_one_query_fn_keeps_the_typed_generic_under_the_default_snake_case() {
+        let backend = TypescriptPgBackend::new("postgresql").unwrap();
+        let query = make_one_query_with_snake_case_column();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("client.query<GetSessionRow>("),
+            "default field_case must keep the original typed generic unchanged; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("Record<string, unknown>"),
+            "must not switch to the remap path under the default; got:\n{query_fn}"
+        );
     }
 
     /// node-postgres passes the SQL text through as a plain template
@@ -605,6 +764,106 @@ mod tests {
                 "GetUserOrders",
                 &discriminated_join_columns()
             )
+        );
+    }
+
+    fn make_one_query_with_outer_join() -> AnalyzedQuery {
+        AnalyzedQuery {
+            name: "GetUserOrder".to_string(),
+            command: QueryCommand::One,
+            sql: "SELECT u.id, o.total, o.notes FROM users u LEFT JOIN orders o ON u.id = o.user_id".to_string(),
+            columns: vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                // NOT NULL in the schema, so it discriminates the join.
+                AnalyzedColumn {
+                    name: "order_total".to_string(),
+                    neutral_type: "decimal".to_string(),
+                    nullable: true,
+                    join_group: Some("o".to_string()),
+                    nullable_before_join: false,
+                    ..Default::default()
+                },
+                // Independently nullable, so it says nothing about the join.
+                AnalyzedColumn {
+                    name: "order_notes".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                    join_group: Some("o".to_string()),
+                    nullable_before_join: true,
+                    ..Default::default()
+                },
+            ],
+            params: vec![],
+            deprecated: None,
+            source_table: None,
+            composites: vec![],
+            enums: vec![],
+            optional_params: vec![],
+            group_by: None,
+            custom: vec![],
+        }
+    }
+
+    /// This must fail before the fix: the remap cast every field to
+    /// `col.full_type`, but the union's matched variant declares a join
+    /// discriminant as `lang_type` and the unmatched one declares it `null`.
+    /// `string | null` is assignable to neither, so `field_case =
+    /// "camelCase"` and `outer_join_unions = true` — both accepted by the
+    /// same `apply_options` allowlist, with no mutual exclusion — produced a
+    /// row object that does not type-check (TS2322).
+    #[test]
+    fn test_camel_case_combined_with_outer_join_unions_type_checks() {
+        let mut backend = TypescriptPgBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("field_case".to_string(), "camelCase".to_string()),
+                ("outer_join_unions".to_string(), "true".to_string()),
+            ]))
+            .unwrap();
+
+        let result = crate::generate_with_backend(&make_one_query_with_outer_join(), &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        // The matched variant of the union, spelled with the renamed fields.
+        assert!(
+            row_struct.contains("orderTotal: string; orderNotes: string | null"),
+            "the matched variant declares the discriminant non-null; got:\n{row_struct}"
+        );
+        assert!(
+            query_fn.contains("orderTotal: row.order_total as string,"),
+            "the remap must cast the discriminant to the matched variant's type; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("orderNotes: row.order_notes as string | null,"),
+            "a column that was already nullable keeps its full_type cast; got:\n{query_fn}"
+        );
+    }
+
+    /// The narrowing above is specific to the union shape: with
+    /// `outer_join_unions` off the row is a flat interface declaring
+    /// `string | null`, so the remap must keep casting to `full_type`.
+    #[test]
+    fn test_camel_case_without_outer_join_unions_keeps_the_full_type_cast() {
+        let mut backend = TypescriptPgBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "field_case".to_string(),
+                "camelCase".to_string(),
+            )]))
+            .unwrap();
+
+        let result = crate::generate_with_backend(&make_one_query_with_outer_join(), &backend).unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            query_fn.contains("orderTotal: row.order_total as string | null,"),
+            "flat rows declare the column nullable, so the cast stays nullable; got:\n{query_fn}"
         );
     }
 

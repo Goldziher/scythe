@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fmt::Write;
 
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -26,6 +27,82 @@ impl TsRowType {
     }
 }
 
+/// Case convention for row/interface field names, as selected by the
+/// `field_case` backend option.
+///
+/// Naming the field (`NamingConfig.field_case`, read centrally in
+/// `resolve.rs`) and remapping the *runtime* row to match it are two
+/// separate concerns: renaming alone would type-check but return `undefined`
+/// for every field once `Camel` disagrees with what the driver actually
+/// returns. This enum drives the latter -- see
+/// [`generate_ts_one_row_remap`] and [`generate_ts_many_row_remap`], which a
+/// backend's `apply_options` selects between based on the same
+/// `field_case` option string that also sets `NamingConfig.field_case`, so
+/// the two never drift apart.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TsFieldCase {
+    #[default]
+    Snake,
+    Camel,
+}
+
+impl TsFieldCase {
+    /// Parse a field_case option string into a `TsFieldCase`.
+    pub fn from_option(value: &str) -> Result<Self, ScytheError> {
+        match value {
+            "snake_case" => Ok(Self::Snake),
+            "camelCase" => Ok(Self::Camel),
+            _ => Err(ScytheError::new(
+                ErrorCode::InternalError,
+                format!("invalid field_case '{}': expected 'snake_case' or 'camelCase'", value),
+            )),
+        }
+    }
+}
+
+/// Which declared row-type shape a reconstructed row object literal has to
+/// satisfy.
+///
+/// A remap builds a plain object literal and returns it against the query
+/// function's declared row type, so the cast on each field has to agree with
+/// what that type declares for it. The two shapes disagree about exactly one
+/// class of column — see [`TsRowShape::cast_type`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum TsRowShape {
+    /// Plain interface (`outer_join_unions = false`, and every `:grouped`
+    /// parent/child struct): every field is declared at `full_type`.
+    #[default]
+    Flat,
+    /// Discriminated union (`outer_join_unions = true`): see
+    /// [`generate_ts_union_row_struct`].
+    Union,
+}
+
+impl TsRowShape {
+    /// The shape a backend declares given its `outer_join_unions` setting.
+    pub fn from_outer_join_unions(outer_join_unions: bool) -> Self {
+        if outer_join_unions { Self::Union } else { Self::Flat }
+    }
+
+    /// The TypeScript type a reconstructed field must be cast to so the
+    /// object literal stays assignable to the declared row type.
+    ///
+    /// `full_type` everywhere except a join discriminant under
+    /// [`TsRowShape::Union`]. There, [`generate_ts_union_row_struct`]
+    /// declares the column as `lang_type` in the matched variant and as
+    /// literal `null` in the unmatched one, and `T | null` is assignable to
+    /// neither — casting through `full_type` is a TS2322, not a widening.
+    /// `lang_type` would stay sound under `Flat` as well (`T` is assignable
+    /// to `T | null`), but `Flat` keeps `full_type` so the generated text is
+    /// unchanged for the shape that never needed the narrowing.
+    pub fn cast_type(self, col: &ResolvedColumn) -> &str {
+        if self == Self::Union && col.is_join_discriminant() {
+            return &col.lang_type;
+        }
+        &col.full_type
+    }
+}
+
 /// Parse a boolean backend option strictly.
 ///
 /// Accepts (case-insensitively) `true`/`false`, `1`/`0`, and `yes`/`no`. Any
@@ -41,6 +118,73 @@ pub fn parse_bool_option(option_name: &str, value: &str) -> Result<bool, ScytheE
             format!("invalid {option_name} '{value}': expected 'true'/'false', '1'/'0', or 'yes'/'no'"),
         )),
     }
+}
+
+/// Reject any key in `options` that is not in `known`.
+///
+/// Before this, every TypeScript `apply_options` override just did
+/// `options.get("known_key")` and returned `Ok(())` by default (the
+/// `CodegenBackend::apply_options` default impl) -- an unrecognised key like
+/// a typo'd `row_typ = "zod"`, or a real key that TOML happily parses but no
+/// override reads, was silently discarded. The manifest author would see no
+/// error and no effect. Callers run this as the first line of
+/// `apply_options`, before touching any individual option, so a typo is
+/// reported instead of ignored.
+///
+/// When a rejected key is within edit distance 2 of a known one, the error
+/// suggests it -- close enough to catch `row_typ` -> `row_type` or
+/// `outer_join_union` -> `outer_join_unions` without false-positiving on
+/// genuinely unrelated keys.
+pub fn reject_unknown_options(known: &[&str], options: &HashMap<String, String>) -> Result<(), ScytheError> {
+    let mut keys: Vec<&String> = options.keys().collect();
+    keys.sort();
+
+    for key in keys {
+        if known.contains(&key.as_str()) {
+            continue;
+        }
+
+        let suggestion = known
+            .iter()
+            .map(|&candidate| (candidate, levenshtein_distance(key, candidate)))
+            .filter(|&(_, distance)| distance <= 2)
+            .min_by_key(|&(_, distance)| distance)
+            .map(|(candidate, _)| candidate);
+
+        let message = match suggestion {
+            Some(suggestion) => format!(
+                "unknown option '{key}' (did you mean '{suggestion}'?): valid options are {}",
+                known.join(", ")
+            ),
+            None => format!("unknown option '{key}': valid options are {}", known.join(", ")),
+        };
+        return Err(ScytheError::new(ErrorCode::InternalError, message));
+    }
+
+    Ok(())
+}
+
+/// Levenshtein edit distance between two strings, used by
+/// [`reject_unknown_options`] to suggest a likely intended option name.
+fn levenshtein_distance(a: &str, b: &str) -> usize {
+    let a: Vec<char> = a.chars().collect();
+    let b: Vec<char> = b.chars().collect();
+
+    let mut prev_row: Vec<usize> = (0..=b.len()).collect();
+    let mut curr_row = vec![0usize; b.len() + 1];
+
+    for (i, &char_a) in a.iter().enumerate() {
+        curr_row[0] = i + 1;
+        for (j, &char_b) in b.iter().enumerate() {
+            let substitution_cost = usize::from(char_a != char_b);
+            curr_row[j + 1] = (prev_row[j + 1] + 1)
+                .min(curr_row[j] + 1)
+                .min(prev_row[j] + substitution_cost);
+        }
+        std::mem::swap(&mut prev_row, &mut curr_row);
+    }
+
+    prev_row[b.len()]
 }
 
 /// Escape a SQL string for safe splicing into a JS backtick template
@@ -194,7 +338,22 @@ pub fn generate_ts_union_row_struct(
         }
     }
 
-    for col in columns.iter().filter(|c| c.join_group.is_none()) {
+    // Not just `join_group.is_none()`: a column belonging to a join group
+    // that `discriminated_join_groups` dropped -- one where every projected
+    // column was already nullable in the schema -- has no union variant to
+    // live in, so filtering on `is_none()` alone omitted it from the row
+    // type entirely. A query with two LEFT JOINs where only one joined
+    // relation projects a NOT NULL column selected five columns and got a
+    // type declaring three: silent on `typescript-pg`, which hands driver
+    // rows back directly, and a compile error on the nine remap backends,
+    // whose object literal then assigns properties the type does not
+    // declare. Such a column is independently nullable, so `full_type` is
+    // exactly right for it -- which is also what `TsRowShape::cast_type`
+    // gives it, since it is not a join discriminant.
+    for col in columns
+        .iter()
+        .filter(|c| c.join_group.as_ref().is_none_or(|group| !groups.contains(group)))
+    {
         let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
     }
     let _ = write!(out, "}}");
@@ -432,6 +591,95 @@ pub fn generate_zod_grouped_structs(
     out
 }
 
+/// Render the `field: value,` lines of a TypeScript object literal for a
+/// row's columns, one per line, at the given `indent`.
+///
+/// `row_access(sql_col_name, ts_full_type)` returns the TypeScript expression
+/// that reads that column from the current row variable -- see
+/// [`generate_ts_grouped_fold_body`] for the per-backend examples.
+///
+/// `shape` picks the type each field is cast to, so the literal stays
+/// assignable to the row type the caller declared -- see
+/// [`TsRowShape::cast_type`].
+///
+/// Shared by both halves of `generate_ts_grouped_fold_body` -- the parent
+/// object and the child object it pushes into `children` -- so their field
+/// lists cannot drift apart. Also used by [`generate_ts_one_row_remap`] and
+/// [`generate_ts_many_row_remap`] for `:one`/`:many` row construction under
+/// `field_case = "camelCase"`. Callers own the surrounding `{ ... }` and any
+/// additional properties (e.g. `children: []`), since those differ between
+/// call sites.
+pub fn generate_ts_row_object_literal(
+    columns: &[ResolvedColumn],
+    indent: &str,
+    shape: TsRowShape,
+    row_access: impl Fn(&str, &str) -> String,
+) -> String {
+    let mut out = String::new();
+    for col in columns {
+        let _ = writeln!(
+            out,
+            "{indent}{}: {},",
+            col.field_name,
+            row_access(&col.name, shape.cast_type(col))
+        );
+    }
+    out
+}
+
+/// Render a `:one`/`:opt` return body that reconstructs the row field by
+/// field instead of trusting a blind cast of the driver's raw row.
+///
+/// Assumes the caller has already bound the raw driver row (or
+/// `undefined`/`null`, if none matched) to a local `row`. Null-checks it,
+/// then builds the return value via [`generate_ts_row_object_literal`],
+/// using the same `row_access` closure the backend already passes to
+/// [`generate_ts_grouped_fold_body`] to read a named column off a raw row.
+///
+/// A blind `as StructName` cast of the driver's row (what every `:one`/
+/// `:opt` used before this existed, and still does under the default
+/// `field_case = "snake_case"`, where it is sound) is unsound once
+/// `field_case = "camelCase"` renames the declared fields: the driver still
+/// returns snake_case keys, so `tsc` reports no error while every field
+/// reads back `undefined` at runtime.
+///
+/// `shape` must be the shape of the row type the enclosing function
+/// declares, so the literal is assignable to it -- see
+/// [`TsRowShape::cast_type`].
+pub fn generate_ts_one_row_remap(
+    columns: &[ResolvedColumn],
+    shape: TsRowShape,
+    row_access: impl Fn(&str, &str) -> String,
+) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "\tif (!row) {{");
+    let _ = writeln!(out, "\t\treturn null;");
+    let _ = writeln!(out, "\t}}");
+    let _ = writeln!(out, "\treturn {{");
+    out.push_str(&generate_ts_row_object_literal(columns, "\t\t", shape, row_access));
+    let _ = writeln!(out, "\t}};");
+    out
+}
+
+/// Render a `:many` return body that reconstructs each row field by field
+/// instead of trusting a blind cast of the driver's raw rows.
+///
+/// Assumes the caller has already bound the raw driver rows to a local
+/// `rows` array. Maps each one (bound to `row` inside the callback) through
+/// [`generate_ts_row_object_literal`]. See [`generate_ts_one_row_remap`] for
+/// why this exists instead of a blind cast, and for what `shape` selects.
+pub fn generate_ts_many_row_remap(
+    columns: &[ResolvedColumn],
+    shape: TsRowShape,
+    row_access: impl Fn(&str, &str) -> String,
+) -> String {
+    let mut out = String::new();
+    let _ = writeln!(out, "\treturn rows.map((row) => ({{");
+    out.push_str(&generate_ts_row_object_literal(columns, "\t\t", shape, row_access));
+    let _ = writeln!(out, "\t}}));");
+    out
+}
+
 /// Generate the client-side fold body for a `:grouped` query.
 ///
 /// `row_access(sql_col_name, ts_full_type)` returns the TypeScript expression that
@@ -442,6 +690,13 @@ pub fn generate_zod_grouped_structs(
 ///
 /// The helper emits the fold loop into a string that is appended directly inside
 /// the function body; the caller is responsible for surrounding braces.
+///
+/// The parent and child objects are always built at [`TsRowShape::Flat`]:
+/// `:grouped` declares its structs through
+/// [`generate_grouped_interface_structs`] (or its Zod twin), which emits a
+/// plain object per struct at `full_type` regardless of the backend's
+/// `outer_join_unions` setting, so there is no union variant here to agree
+/// with.
 pub fn generate_ts_grouped_fold_body(
     parent_struct_name: &str,
     _child_struct_name: &str,
@@ -463,28 +718,24 @@ pub fn generate_ts_grouped_fold_body(
     let _ = writeln!(out, "\t\tlet parent = index.get(key);");
     let _ = writeln!(out, "\t\tif (!parent) {{");
     let _ = writeln!(out, "\t\t\tparent = {{");
-    for col in parent_columns {
-        let _ = writeln!(
-            out,
-            "\t\t\t\t{}: {},",
-            col.field_name,
-            row_access(&col.name, &col.full_type)
-        );
-    }
+    out.push_str(&generate_ts_row_object_literal(
+        parent_columns,
+        "\t\t\t\t",
+        TsRowShape::Flat,
+        &row_access,
+    ));
     let _ = writeln!(out, "\t\t\t\tchildren: [],");
     let _ = writeln!(out, "\t\t\t}};");
     let _ = writeln!(out, "\t\t\tindex.set(key, parent);");
     let _ = writeln!(out, "\t\t\tresult.push(parent);");
     let _ = writeln!(out, "\t\t}}");
     let _ = writeln!(out, "\t\tparent.children.push({{");
-    for col in child_columns {
-        let _ = writeln!(
-            out,
-            "\t\t\t{}: {},",
-            col.field_name,
-            row_access(&col.name, &col.full_type)
-        );
-    }
+    out.push_str(&generate_ts_row_object_literal(
+        child_columns,
+        "\t\t\t",
+        TsRowShape::Flat,
+        &row_access,
+    ));
     let _ = writeln!(out, "\t\t}});");
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out, "\treturn result;");
@@ -617,6 +868,39 @@ mod tests {
         assert!(out.contains("| { addr: string }"), "{out}");
         assert!(out.contains("| { addr: null }"), "{out}");
         assert_eq!(out.matches(" & (").count(), 2, "one group per relation: {out}");
+    }
+
+    /// This must fail before the fix: a join group `discriminated_join_groups`
+    /// drops -- every projected column already nullable in the schema -- got
+    /// no union variant, and the base-field loop filtered on
+    /// `join_group.is_none()`, so its columns were declared nowhere. The
+    /// query below selects four columns; the row type declared two. The
+    /// whole-query case is caught by the flat-interface fallback, so only a
+    /// query mixing a discriminated group with an undiscriminated one
+    /// reaches it.
+    #[test]
+    fn keeps_columns_from_join_groups_that_carry_no_discriminant() {
+        let columns = vec![
+            column("id", "number", false, None, false),
+            // Undiscriminated group: nullable in the schema before any join.
+            column("bio", "string", true, Some("p"), true),
+            column("website", "string", true, Some("p"), true),
+            // Discriminated group: NOT NULL in the schema, so it can only be
+            // null when the join found no row.
+            column("label", "string", true, Some("b"), false),
+        ];
+
+        let out = generate_ts_union_row_struct("R", "Q", &columns, None);
+
+        assert!(out.contains("bio: string | null;"), "{out}");
+        assert!(out.contains("website: string | null;"), "{out}");
+        assert!(out.contains("| { label: string }"), "{out}");
+        assert!(out.contains("| { label: null }"), "{out}");
+        assert_eq!(
+            out.matches(" & (").count(),
+            1,
+            "only the discriminated group becomes a union: {out}"
+        );
     }
 
     #[test]
@@ -758,5 +1042,194 @@ mod tests {
             grouped.contains("z.instanceof(Uint8Array)"),
             "grouped bytes must follow the backend type; got:\n{grouped}"
         );
+    }
+
+    #[test]
+    fn test_ts_field_case_from_option_accepts_known_values() {
+        assert_eq!(TsFieldCase::from_option("snake_case").unwrap(), TsFieldCase::Snake);
+        assert_eq!(TsFieldCase::from_option("camelCase").unwrap(), TsFieldCase::Camel);
+    }
+
+    #[test]
+    fn test_ts_field_case_from_option_rejects_unknown_values() {
+        let err = TsFieldCase::from_option("PascalCase").expect_err("PascalCase is not a valid field_case");
+        assert!(err.to_string().contains("field_case"), "{err}");
+    }
+
+    #[test]
+    fn test_ts_field_case_default_is_snake() {
+        assert_eq!(TsFieldCase::default(), TsFieldCase::Snake);
+    }
+
+    #[test]
+    fn test_generate_ts_row_object_literal_matches_grouped_fold_field_lines() {
+        let columns = vec![
+            column("id", "number", false, None, false),
+            column("name", "string", false, None, false),
+        ];
+        let out = generate_ts_row_object_literal(&columns, "\t\t\t\t", TsRowShape::Flat, |name, ty| {
+            format!("row.{name} as {ty}")
+        });
+        assert_eq!(
+            out,
+            "\t\t\t\tid: row.id as number,\n\t\t\t\tname: row.name as string,\n"
+        );
+    }
+
+    #[test]
+    fn test_generate_ts_row_object_literal_empty_columns_is_empty() {
+        let out = generate_ts_row_object_literal(&[], "\t", TsRowShape::Flat, |name, ty| format!("row.{name} as {ty}"));
+        assert_eq!(out, "");
+    }
+
+    /// This must fail before the fix: the remap always cast through
+    /// `full_type`, but `generate_ts_union_row_struct` declares a join
+    /// discriminant as `lang_type` in the matched variant and as literal
+    /// `null` in the unmatched one. `string | null` is assignable to neither
+    /// `{ total: string }` nor `{ total: null }`, so
+    /// `field_case = "camelCase"` combined with `outer_join_unions = true`
+    /// emitted a row object that does not type-check (TS2322).
+    #[test]
+    fn test_generate_ts_row_object_literal_union_shape_casts_discriminant_to_matched_type() {
+        let columns = user_orders_columns();
+        let out = generate_ts_row_object_literal(&columns, "\t", TsRowShape::Union, |name, ty| {
+            format!("row['{name}'] as {ty}")
+        });
+        assert_eq!(
+            out,
+            "\tid: row['id'] as number,\n\
+             \tname: row['name'] as string,\n\
+             \ttotal: row['total'] as string,\n\
+             \tnotes: row['notes'] as string | null,\n"
+        );
+    }
+
+    /// The union shape narrows the discriminant only; `Flat` must keep the
+    /// nullable cast, since a plain interface declares it as `T | null`.
+    #[test]
+    fn test_generate_ts_row_object_literal_flat_shape_keeps_full_type() {
+        let columns = user_orders_columns();
+        let out = generate_ts_row_object_literal(&columns, "\t", TsRowShape::Flat, |name, ty| {
+            format!("row['{name}'] as {ty}")
+        });
+        assert!(
+            out.contains("total: row['total'] as string | null,"),
+            "flat rows declare the discriminant nullable; got:\n{out}"
+        );
+    }
+
+    #[test]
+    fn test_ts_row_shape_from_outer_join_unions() {
+        assert_eq!(TsRowShape::from_outer_join_unions(false), TsRowShape::Flat);
+        assert_eq!(TsRowShape::from_outer_join_unions(true), TsRowShape::Union);
+        assert_eq!(TsRowShape::default(), TsRowShape::Flat);
+    }
+
+    /// A union row type whose group has no discriminant collapses back to a
+    /// plain interface (see `discriminated_join_groups`), and the cast has
+    /// to collapse with it -- a column that was already nullable in the
+    /// schema is declared `T | null` in the matched variant too.
+    #[test]
+    fn test_ts_row_shape_union_keeps_full_type_for_non_discriminants() {
+        let columns = user_orders_columns();
+        let notes = columns.iter().find(|c| c.name == "notes").unwrap();
+        assert_eq!(TsRowShape::Union.cast_type(notes), "string | null");
+        let name = columns.iter().find(|c| c.name == "name").unwrap();
+        assert_eq!(TsRowShape::Union.cast_type(name), "string");
+    }
+
+    #[test]
+    fn test_generate_ts_one_row_remap_null_checks_then_builds_fields() {
+        let columns = vec![
+            column("id", "number", false, None, false),
+            column("name", "string", false, None, false),
+        ];
+        let out = generate_ts_one_row_remap(&columns, TsRowShape::Flat, |name, ty| format!("row['{name}'] as {ty}"));
+        assert_eq!(
+            out,
+            "\tif (!row) {\n\
+             \t\treturn null;\n\
+             \t}\n\
+             \treturn {\n\
+             \t\tid: row['id'] as number,\n\
+             \t\tname: row['name'] as string,\n\
+             \t};\n"
+        );
+    }
+
+    #[test]
+    fn test_generate_ts_many_row_remap_maps_each_row() {
+        let columns = vec![column("id", "number", false, None, false)];
+        let out = generate_ts_many_row_remap(&columns, TsRowShape::Flat, |name, ty| format!("row['{name}'] as {ty}"));
+        assert_eq!(
+            out,
+            "\treturn rows.map((row) => ({\n\
+             \t\tid: row['id'] as number,\n\
+             \t}));\n"
+        );
+    }
+
+    fn known_options() -> &'static [&'static str] {
+        &["row_type", "outer_join_unions", "structs_only", "field_case"]
+    }
+
+    #[test]
+    fn test_reject_unknown_options_accepts_known_keys() {
+        let mut options = HashMap::new();
+        options.insert("row_type".to_string(), "zod".to_string());
+        options.insert("field_case".to_string(), "camelCase".to_string());
+        reject_unknown_options(known_options(), &options).unwrap();
+    }
+
+    #[test]
+    fn test_reject_unknown_options_accepts_empty_map() {
+        reject_unknown_options(known_options(), &HashMap::new()).unwrap();
+    }
+
+    /// This must fail before `reject_unknown_options` existed: the default
+    /// `apply_options` returned `Ok(())` for any options map, so a typo like
+    /// `row_typ = "zod"` silently parsed as valid TOML and had no effect.
+    #[test]
+    fn test_reject_unknown_options_rejects_unrecognized_key() {
+        let mut options = HashMap::new();
+        options.insert("row_typ".to_string(), "zod".to_string());
+        let err = reject_unknown_options(known_options(), &options).expect_err("row_typ is not a known option");
+        let message = err.to_string();
+        assert!(message.contains("row_typ"), "{message}");
+        assert!(
+            message.contains("row_type"),
+            "error should list valid options: {message}"
+        );
+    }
+
+    #[test]
+    fn test_reject_unknown_options_suggests_close_typo() {
+        let mut options = HashMap::new();
+        options.insert("row_typ".to_string(), "zod".to_string());
+        let err = reject_unknown_options(known_options(), &options).expect_err("row_typ is not a known option");
+        assert!(
+            err.to_string().contains("did you mean 'row_type'?"),
+            "expected a did-you-mean suggestion: {err}"
+        );
+    }
+
+    #[test]
+    fn test_reject_unknown_options_no_suggestion_when_too_far() {
+        let mut options = HashMap::new();
+        options.insert("completely_unrelated_option".to_string(), "x".to_string());
+        let err = reject_unknown_options(known_options(), &options).expect_err("not a known option");
+        assert!(
+            !err.to_string().contains("did you mean"),
+            "should not suggest anything this far off: {err}"
+        );
+    }
+
+    #[test]
+    fn test_levenshtein_distance_basic_cases() {
+        assert_eq!(levenshtein_distance("row_type", "row_type"), 0);
+        assert_eq!(levenshtein_distance("row_typ", "row_type"), 1);
+        assert_eq!(levenshtein_distance("", "abc"), 3);
+        assert_eq!(levenshtein_distance("abc", ""), 3);
+        assert_eq!(levenshtein_distance("kitten", "sitting"), 3);
     }
 }
