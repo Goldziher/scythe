@@ -103,6 +103,17 @@ impl ScytheError {
         Self::new(ErrorCode::DuplicateAlias, format!("duplicate column alias \"{name}\""))
     }
 
+    /// The explicit column alias list on a CTE (`WITH t(a, b) AS ...`) has a
+    /// different entry count than the CTE body's output columns. PostgreSQL
+    /// rejects this at parse/plan time, so scythe must too — silently matching
+    /// by position would mislabel columns.
+    pub fn cte_column_alias_mismatch(alias_count: usize, column_count: usize) -> Self {
+        Self::new(
+            ErrorCode::ColumnCountMismatch,
+            format!("CTE column alias list has {alias_count} entries but the CTE body produces {column_count} columns"),
+        )
+    }
+
     pub fn invalid_recursion(msg: impl Into<String>) -> Self {
         Self::new(ErrorCode::InvalidRecursion, msg)
     }

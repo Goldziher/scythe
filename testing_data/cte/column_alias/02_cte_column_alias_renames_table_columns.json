@@ -1,0 +1,29 @@
+{
+  "category": "cte/column_alias",
+  "description": "CTE column alias list that renames the body's inferred columns: the outer query must see the aliased names",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "user_id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "full_name",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetRenamedColumns",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "cte_column_alias_renames_table_columns",
+  "query_sql": "-- @name GetRenamedColumns\n-- @returns :many\nWITH t(user_id, full_name) AS (SELECT id, name FROM users) SELECT user_id, full_name FROM t",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL)"],
+  "source": "original",
+  "tags": ["cte", "column_alias"]
+}

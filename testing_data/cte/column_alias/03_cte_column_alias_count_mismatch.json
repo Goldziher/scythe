@@ -1,0 +1,16 @@
+{
+  "category": "cte/column_alias",
+  "description": "CTE column alias list whose entry count disagrees with the body's column count must be rejected, matching PostgreSQL",
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "COLUMN_COUNT_MISMATCH",
+      "message_contains": "CTE column alias list has 1 entries but the CTE body produces 2 columns"
+    }
+  },
+  "name": "cte_column_alias_count_mismatch",
+  "query_sql": "-- @name GetMismatch\n-- @returns :many\nWITH t(a) AS (SELECT 1, 2) SELECT * FROM t",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL)"],
+  "source": "original",
+  "tags": ["cte", "column_alias", "error"]
+}
