@@ -884,6 +884,207 @@ fn test_kotlin_r2dbc_extension_functions_header() {
     );
 }
 
+// -- javascript-* (JSDoc emit mode, #81) -------------------------------------
+//
+// These backends reuse `generate_full_file*`/`backend_test!` above for
+// their `:one`/`:many`/`:exec` coverage (each dialect's schema already has
+// a nullable `email` column, so that path is exercised for free). The tests
+// below add the two cases #81's release plan calls out explicitly and that
+// produced real defects during development: a nullable column emitting
+// `{T | null}` (never JSDoc's bracket-optional or `?`-suffix syntax), and a
+// `:grouped` query (where the mysql2/better-sqlite3 untyped-return defects
+// lived). Both are run through `validate_with_tools`, which for a
+// `javascript-*` backend name now shells out to real `node --check` and
+// (if present) real `tsc --checkJs --strict` -- see `validate_javascript_tools`
+// in `src/validation.rs`.
+
+backend_test!(test_javascript_pg, "javascript-pg");
+backend_test!(test_javascript_postgres, "javascript-postgres");
+mysql_backend_test!(test_javascript_mysql2, "javascript-mysql2");
+sqlite_backend_test!(test_javascript_better_sqlite3, "javascript-better-sqlite3");
+
+const JS_MODE_PG_SCHEMA: [&str; 2] = [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, bio TEXT);",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);",
+];
+const JS_MODE_PG_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
+    SELECT id, name, bio FROM users WHERE id = $1;";
+
+const JS_MODE_MYSQL_SCHEMA: [&str; 2] = [
+    "CREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, bio TEXT);",
+    "CREATE TABLE orders (id INT AUTO_INCREMENT PRIMARY KEY, user_id INT NOT NULL, total DECIMAL(10,2));",
+];
+const JS_MODE_MYSQL_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
+    SELECT id, name, bio FROM users WHERE id = ?;";
+
+const JS_MODE_SQLITE_SCHEMA: [&str; 2] = [
+    "CREATE TABLE users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, bio TEXT);",
+    "CREATE TABLE orders (id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, total REAL);",
+];
+const JS_MODE_SQLITE_ONE: &str = "-- @name GetUserById\n-- @returns :one\n\
+    SELECT id, name, bio FROM users WHERE id = ?;";
+
+// No dialect-specific placeholders (no WHERE clause), so one grouped query
+// covers all three engines.
+const JS_MODE_GROUPED: &str = "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+    SELECT u.id, u.name, o.id AS order_id, o.total\n\
+    FROM users u\n\
+    JOIN orders o ON o.user_id = u.id;";
+
+/// Generate a full file for a `javascript-*` backend covering a nullable
+/// column (`users.bio`, via `one_sql`) and a `:grouped` query
+/// (`JS_MODE_GROUPED`) in one file, the same way `generate_full_file_from_backend`
+/// assembles `:one`/`:many`/`:exec` output above.
+fn generate_js_mode_nullable_and_grouped_file(
+    backend_name: &str,
+    engine: &str,
+    dialect: &SqlDialect,
+    schema: &[&str],
+    one_sql: &str,
+) -> String {
+    let backend = get_backend(backend_name, engine).unwrap();
+    let catalog = Catalog::from_ddl_with_dialect(schema, dialect).unwrap();
+
+    let mut all_codes = Vec::new();
+    for query_sql in [one_sql, JS_MODE_GROUPED] {
+        let parsed = parse_query_with_dialect(query_sql, dialect).unwrap();
+        let analyzed = analyze(&catalog, &parsed).unwrap();
+        let code = generate_with_backend(&analyzed, &*backend).unwrap();
+        all_codes.push(code);
+    }
+
+    let mut full = backend.file_header_for_results(&all_codes);
+    full.push('\n');
+    for code in &all_codes {
+        if let Some(ref s) = code.row_struct {
+            full.push_str(s);
+            full.push('\n');
+        }
+        if let Some(ref s) = code.query_fn {
+            full.push_str(s);
+            full.push('\n');
+        }
+    }
+    full
+}
+
+/// Assert the JSDoc row-struct property for `field` is `{T | null}` -- never
+/// JSDoc's bracket-optional (`[field]`) or `?`-suffix optional syntax, which
+/// mean the property may be *absent* rather than present-and-`null`.
+fn assert_js_mode_nullable_property_is_type_or_null(code: &str, field: &str) {
+    assert!(
+        code.contains(&format!("| null}} {field}")),
+        "expected a `{{T | null}}` JSDoc property for '{field}'; got:\n{code}"
+    );
+    assert!(
+        !code.contains(&format!("[{field}]")),
+        "must never use bracket-optional syntax for '{field}'; got:\n{code}"
+    );
+    assert!(
+        !code.contains(&format!("{field}?")),
+        "must never use `?`-suffix optional syntax for '{field}'; got:\n{code}"
+    );
+}
+
+/// Run the real `node`/`tsc` tool validation (`validate_with_tools`) and
+/// fail loudly if it ran and found errors. A `None` return (meaning `node`
+/// itself was not on PATH) is reported via `eprintln!` inside
+/// `validate_javascript_tools` and is not itself a test failure -- see that
+/// function's doc comment for why a hard failure on a missing dev tool
+/// would be the wrong tradeoff -- but this wrapper still prints its own
+/// line so the skip is visible at this call site too, not just buried in
+/// `validate_javascript_tools`'s output.
+fn assert_js_mode_tool_validation_passes(backend_name: &str, code: &str) {
+    match validate_with_tools(code, backend_name) {
+        Some(errors) => {
+            assert!(
+                errors.is_empty(),
+                "{backend_name} tool validation: {:?}\n\nGenerated code:\n{}",
+                errors,
+                code
+            );
+        }
+        None => {
+            eprintln!(
+                "  {backend_name}: validate_with_tools returned None (node not found) -- this test did not \
+                 validate the generated code with any real tool"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_javascript_pg_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-pg",
+        "postgresql",
+        &SqlDialect::PostgreSQL,
+        &JS_MODE_PG_SCHEMA,
+        JS_MODE_PG_ONE,
+    );
+    eprintln!("\n=== javascript-pg (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-pg", &code);
+}
+
+#[test]
+fn test_javascript_postgres_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-postgres",
+        "postgresql",
+        &SqlDialect::PostgreSQL,
+        &JS_MODE_PG_SCHEMA,
+        JS_MODE_PG_ONE,
+    );
+    eprintln!("\n=== javascript-postgres (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-postgres", &code);
+}
+
+#[test]
+fn test_javascript_mysql2_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-mysql2",
+        "mysql",
+        &SqlDialect::MySQL,
+        &JS_MODE_MYSQL_SCHEMA,
+        JS_MODE_MYSQL_ONE,
+    );
+    eprintln!("\n=== javascript-mysql2 (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-mysql2", &code);
+}
+
+#[test]
+fn test_javascript_better_sqlite3_grouped_and_nullable_pass_real_tools() {
+    let code = generate_js_mode_nullable_and_grouped_file(
+        "javascript-better-sqlite3",
+        "sqlite",
+        &SqlDialect::SQLite,
+        &JS_MODE_SQLITE_SCHEMA,
+        JS_MODE_SQLITE_ONE,
+    );
+    eprintln!("\n=== javascript-better-sqlite3 (nullable + grouped) ===\n{code}\n=== END ===\n");
+    assert_js_mode_nullable_property_is_type_or_null(&code, "bio");
+    assert!(
+        code.contains("@typedef {object} GetUsersWithOrdersRow"),
+        "expected the grouped parent typedef; got:\n{code}"
+    );
+    assert_js_mode_tool_validation_passes("javascript-better-sqlite3", &code);
+}
+
 #[test]
 fn test_kotlin_r2dbc_extension_functions_default_off() {
     let code = generate_full_file("kotlin-r2dbc");

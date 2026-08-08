@@ -526,6 +526,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
             parent_columns,
             child_columns,
             key_column,
+            false,
             |name, ty| format!("row['{}'] as {}", driver_key_for(name), ty),
         );
         out.push_str(&fold);

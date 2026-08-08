@@ -378,9 +378,17 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "typescript-postgres" | "ts" | "typescript" => {
             Box::new(typescript_postgres::TypescriptPostgresBackend::new(canonical_engine)?)
         }
+        "javascript-postgres" => Box::new(typescript_postgres::TypescriptPostgresBackend::new_js(
+            canonical_engine,
+        )?),
         "typescript-pg" => Box::new(typescript_pg::TypescriptPgBackend::new(canonical_engine)?),
+        "javascript-pg" => Box::new(typescript_pg::TypescriptPgBackend::new_js(canonical_engine)?),
         "typescript-mysql2" => Box::new(typescript_mysql2::TypescriptMysql2Backend::new(canonical_engine)?),
+        "javascript-mysql2" => Box::new(typescript_mysql2::TypescriptMysql2Backend::new_js(canonical_engine)?),
         "typescript-better-sqlite3" => Box::new(typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new(
+            canonical_engine,
+        )?),
+        "javascript-better-sqlite3" => Box::new(typescript_better_sqlite3::TypescriptBetterSqlite3Backend::new_js(
             canonical_engine,
         )?),
         "typescript-duckdb" => Box::new(typescript_duckdb::TypescriptDuckdbBackend::new(canonical_engine)?),
