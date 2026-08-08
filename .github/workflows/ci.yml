@@ -45,22 +45,37 @@ jobs:
             echo "::error::Could not read version from crates/scythe-cli/Cargo.toml" >&2
             exit 1
           fi
-          # Plain `for f in $(grep -rl ...)`, not a `... | while read` pipeline:
-          # a pipeline runs its loop in a subshell, so `count`/`offenders` set
-          # inside it would vanish once the pipeline exits and this would
-          # report success even when it found a mismatch -- see
-          # `version:check` in Taskfile.yaml for the same failure mode.
+          # `while read` fed by a here-string, not by a pipe: a *pipeline*
+          # runs its loop in a subshell, so `count`/`offenders` set inside it
+          # would vanish once the pipeline exits and this would report success
+          # even when it found a mismatch -- see `version:check` in
+          # Taskfile.yaml for the same failure mode. A here-string keeps the
+          # loop in this shell while still splitting on newlines only, so a
+          # path containing a space stays one filename. Iterating unquoted
+          # `$files` would split on spaces too, and does not split at all
+          # under zsh, which makes the check silently scan one bogus path.
           files=$(grep -rlE 'scythe:provenance v=[0-9]+\.[0-9]+\.[0-9]+' integration_tests/ 2>/dev/null || true)
           count=0
           offenders=""
-          for f in $files; do
+          while IFS= read -r f; do
+            [ -n "$f" ] || continue
             count=$((count + 1))
             v=$(grep -oE 'scythe:provenance v=[0-9]+\.[0-9]+\.[0-9]+' "$f" | head -1 | sed -E 's/^.*v=//')
             if [ "$v" != "$expected" ]; then
               offenders="${offenders}${f}: v=${v} (expected v=${expected})\n"
             fi
-          done
+          done <<< "$files"
           echo "Checked $count committed provenance header(s) under integration_tests/."
+          # A grep that matches nothing also "passes". Before the artifacts
+          # were regenerated this check scanned zero files and reported
+          # success, which reads identically to "every header agrees" -- so
+          # assert it found something. Any regression that stops the header
+          # being emitted, or that empties integration_tests/, now fails here
+          # instead of silently disarming this job.
+          if [ "$count" -eq 0 ]; then
+            echo "::error::Found no scythe:provenance headers under integration_tests/. Generated artifacts are expected to carry one, so this check would pass vacuously. Run 'cd integration_tests && task generate:all' and commit the result."
+            exit 1
+          fi
           if [ -n "$offenders" ]; then
             printf "%b" "$offenders" >&2
             echo "::error::Provenance header version mismatch: expected v=$expected (from crates/scythe-cli/Cargo.toml) but at least one committed artifact under integration_tests/ disagrees -- see files above. Run 'task version:sync VERSION=$expected' (which regenerates integration_tests) or 'cd integration_tests && task generate:all' and commit the result."
