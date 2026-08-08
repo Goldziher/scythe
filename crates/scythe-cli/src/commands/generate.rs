@@ -715,6 +715,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
                 name: sql_config.name.clone(),
                 engine: sql_config.engine.clone(),
                 queries: analyzed_queries,
+                schema: scythe_inspect::describe_catalog(&catalog)?,
             });
         }
 
@@ -762,7 +763,20 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         .collect();
 
     if let Some(url) = opts.database_url.as_deref() {
-        findings.extend(verify_against_database(url, &verifiable)?);
+        // Drift rules live in their own registry: `scythe lint` and
+        // `scythe audit` cannot observe a live database, so listing SC-DRF*
+        // among their rules would advertise rules those commands can never
+        // report. The same `[lint]` config is applied, so
+        // `rules."SC-DRF02" = "error"` tunes drift like any other rule.
+        // Built here rather than alongside the lint registry so that a run
+        // without `--database-url` does no drift work at all.
+        let mut drift_registry = scythe_lint::drift_registry();
+        if let Some(ref lint_config) = config.lint {
+            drift_registry.apply_config(lint_config);
+        }
+        let drift_severities = scythe_inspect::DriftSeverities::from_registry(&drift_registry);
+
+        findings.extend(verify_against_database(url, &verifiable, &drift_severities)?);
     }
 
     // Findings go to stdout (matching `scythe inspect`) so `--format json` can
@@ -804,6 +818,11 @@ struct VerifiableBlock {
     name: String,
     engine: String,
     queries: Vec<scythe_core::analyzer::AnalyzedQuery>,
+    /// The block's DDL schema, reduced for schema-drift comparison.
+    ///
+    /// Captured here because the `Catalog` it comes from is dropped at the end
+    /// of the loop iteration that built it, long before the connection exists.
+    schema: scythe_inspect::SchemaDescription,
 }
 
 /// Whether per-query analysis results collected while checking a `[[sql]]`
@@ -844,6 +863,7 @@ fn partition_verifiable_blocks(blocks: &[VerifiableBlock]) -> (Vec<&VerifiableBl
 fn verify_against_database(
     url: &str,
     verifiable: &[VerifiableBlock],
+    drift_severities: &scythe_inspect::DriftSeverities,
 ) -> Result<Vec<scythe_lint::reporters::Finding>, Box<dyn std::error::Error>> {
     let (pg_blocks, skipped_blocks) = partition_verifiable_blocks(verifiable);
 
@@ -873,7 +893,7 @@ fn verify_against_database(
         });
 
         let mut findings = Vec::new();
-        for block in pg_blocks {
+        for block in &pg_blocks {
             eprintln!(
                 "[{}] Verifying {} queries against the database...",
                 block.name,
@@ -881,6 +901,16 @@ fn verify_against_database(
             );
             findings.extend(scythe_inspect::verify_queries(&client, &block.name, &block.queries).await);
         }
+
+        // Drift is checked separately from query verification because it
+        // answers a question preparing a statement cannot: whether the
+        // database still has the tables, columns, types and — above all — the
+        // nullability the committed DDL claims.
+        eprintln!("Checking the schema for drift against the database...");
+        let schemas: Vec<(&str, &scythe_inspect::SchemaDescription)> =
+            pg_blocks.iter().map(|b| (b.name.as_str(), &b.schema)).collect();
+        findings.extend(scythe_inspect::drift_findings(&client, &schemas, drift_severities).await?);
+
         Ok(findings)
     })
 }
@@ -986,6 +1016,7 @@ SELECT * FROM users WHERE id = $1;
             name: name.to_string(),
             engine: engine.to_string(),
             queries: Vec::new(),
+            schema: scythe_inspect::SchemaDescription::new(),
         }
     }
 
