@@ -55,6 +55,7 @@ pub(crate) mod typescript_snowflake;
 pub(crate) mod typescript_wasm_sqlite;
 
 use scythe_backend::manifest::BackendManifest;
+use scythe_backend::naming::NamingConfig;
 use scythe_core::analyzer::AnalyzedParam;
 use scythe_core::errors::{ErrorCode, ScytheError};
 
@@ -67,6 +68,39 @@ use crate::backend_trait::CodegenBackend;
 /// on the process working directory (#82).
 pub(crate) fn parse_manifest(manifest_toml: &str) -> Result<BackendManifest, ScytheError> {
     toml::from_str(manifest_toml).map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
+}
+
+/// Validate and apply the `field_case` backend option, writing it into a
+/// backend's `NamingConfig`.
+///
+/// Shared by the five driver-level Java and Kotlin backends (`java-jdbc`,
+/// `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `kotlin-exposed`). Unlike the
+/// TypeScript backends' `field_case` (see `typescript_common::TsFieldCase`),
+/// none of these five need a companion runtime remap: every row they build
+/// comes from an explicit `ResultSet`/`Row` getter call keyed by the raw SQL
+/// column name (`ResolvedColumn::name`), with `ResolvedColumn::field_name`
+/// used only as the emitted record/data-class property name -- see e.g.
+/// `java_jdbc::col_rs_expr`, which reads `rs.getX(col.name)` and assigns it
+/// positionally into a constructor whose declared parameter is `col.field_name`.
+/// Renaming the property therefore never changes what key the driver is
+/// asked to look up. `resolve::resolve_columns` is what performs the actual
+/// rename (and rejects same-query collisions) once this sets
+/// `NamingConfig.field_case`.
+pub(crate) fn apply_field_case_option(
+    naming: &mut NamingConfig,
+    backend_name: &str,
+    value: &str,
+) -> Result<(), ScytheError> {
+    match value {
+        "snake_case" | "camelCase" => {
+            naming.field_case = value.to_string();
+            Ok(())
+        }
+        other => Err(ScytheError::new(
+            ErrorCode::InternalError,
+            format!("{backend_name}: invalid field_case '{other}' (expected 'snake_case' or 'camelCase')"),
+        )),
+    }
 }
 
 /// Strip SQL comments, trailing semicolons, and excess whitespace.
