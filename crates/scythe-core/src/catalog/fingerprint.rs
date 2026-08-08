@@ -20,9 +20,27 @@ use crate::dialect::SqlDialect;
 
 use super::Catalog;
 
-/// Version tag for the fingerprint algorithm itself. Bump this if the
-/// canonical form or hash truncation ever changes, so old and new
-/// fingerprints are never mistaken for one another.
+/// Version tag for the fingerprint algorithm itself.
+///
+/// The trigger for bumping this is **not** "the code in this module
+/// changed" -- it is "the emitted `sch1:...` value moved for a schema that
+/// did not change". Those are different things. [`canonical_form`] uses an
+/// escape-only-when-needed scheme (see [`escape_component`]): a value is
+/// rewritten only if it contains one of the five reserved delimiter bytes
+/// (`\`, `|`, `:`, tab, newline). For every schema that contains none of
+/// them -- which, as of this writing, is every schema in this repo's
+/// `integration_tests/sql/` corpus -- the escaping pass is a no-op and the
+/// emitted bytes are identical to before it existed. Bumping the tag for a
+/// change like that would itself cause the mass false-drift this tag exists
+/// to prevent: [`Catalog::fingerprint`]'s doc comment explains why
+/// `verify_provenance` treats the tag plus hash as one opaque string with no
+/// migration path.
+///
+/// Bump this when a canonical-form change moves the emitted value for a
+/// schema that is otherwise unchanged (a new line kind whose absence was
+/// previously indistinguishable from "no such construct", a changed
+/// separator, a changed truncation length, etc.). Do not bump it merely
+/// because this file's code changed.
 const FINGERPRINT_ALGORITHM_TAG: &str = "sch1";
 
 /// Number of leading hash bytes kept (rendered as `2 * TRUNCATED_BYTES` hex
@@ -36,8 +54,9 @@ impl Catalog {
     /// catalogs produce the same fingerprint if and only if they have the
     /// same tables (name, columns, column order, column type, column
     /// nullability, primary-key flags), the same enum types (name, ordered
-    /// values), the same composite types (name, ordered fields), and the
-    /// same [`SqlDialect`].
+    /// values), the same composite types (name, ordered fields), the same
+    /// domain types (name, base type, `NOT NULL`-ness), and the same
+    /// [`SqlDialect`].
     ///
     /// # Stability guarantees
     ///
@@ -58,10 +77,24 @@ impl Catalog {
     /// - Enum type names and their values, in declared order.
     /// - Composite type names and their fields (name + type), in declared
     ///   order.
+    /// - Domain type names, their resolved base type, and their `NOT NULL`
+    ///   flag. `domains` also feeds column-type resolution (see
+    ///   `type_normalizer::normalize_data_type`),
+    ///   but a domain used only as a query cast target, or one declared in a
+    ///   different file than the table that uses it in a multi-file schema,
+    ///   never surfaces through any table's resolved column type -- so it
+    ///   needs its own line to be covered at all.
     /// - The dialect this catalog was parsed with, as the 6-variant
     ///   [`SqlDialect`] rather than the 9-way engine alias — so `mysql` and
     ///   `mariadb`, which both resolve to [`SqlDialect::MySQL`], never
     ///   register as drift against each other.
+    ///
+    /// Table, enum, composite, and domain names all have a single leading
+    /// `schema.` qualifier stripped before hashing, on every dialect --
+    /// mirroring [`Catalog::get_table`]'s dialect-blind, qualifier-agnostic
+    /// resolution (see [`canonical_entries`]). So `myschema.users` and
+    /// `users`, or MSSQL's `dbo.users` and `users`, fingerprint identically
+    /// when they would also resolve to the same lookup.
     ///
     /// # What is excluded, deliberately
     ///
@@ -84,33 +117,68 @@ impl Catalog {
     /// form suitable for hashing. Never render via `{:?}` (`Debug`) — that
     /// output is not a stable contract and can change on any dependency or
     /// compiler bump.
+    ///
+    /// Every user-controlled string (table/enum/composite/domain names,
+    /// column names, SQL types, enum values, composite field names) is
+    /// passed through [`escape_component`] before it is written into a
+    /// line. Without that, a value containing this format's own delimiters
+    /// (`\t`, `\n`, `|`, `:`) could either collide with an unrelated value
+    /// (two different enums hashing the same) or forge extra fields or
+    /// lines that were never in the schema. See [`escape_component`] for the
+    /// scheme and why it was chosen over alternatives that would move
+    /// already-shipped fingerprints.
     fn canonical_form(&self) -> String {
         let mut lines: Vec<String> = Vec::new();
 
         lines.push(format!("dialect\t{}", dialect_tag(self.dialect)));
 
-        for (key, table) in canonical_entries(self.dialect, &self.tables) {
+        for (key, table) in canonical_entries(&self.tables) {
+            let key = escape_component(&key);
             lines.push(format!("table\t{key}\t{}", table.columns.len()));
             for (idx, column) in table.columns.iter().enumerate() {
                 lines.push(format!(
                     "column\t{key}\t{idx}\t{}\t{}\t{}\t{}",
-                    column.name, column.sql_type, column.nullable, column.primary_key
+                    escape_component(&column.name),
+                    escape_component(&column.sql_type),
+                    column.nullable,
+                    column.primary_key
                 ));
             }
         }
 
-        for (key, enum_type) in canonical_entries(self.dialect, &self.enums) {
-            lines.push(format!("enum\t{key}\t{}", enum_type.values.join("|")));
+        for (key, enum_type) in canonical_entries(&self.enums) {
+            let values = enum_type
+                .values
+                .iter()
+                .map(|value| escape_component(value))
+                .collect::<Vec<_>>()
+                .join("|");
+            lines.push(format!("enum\t{}\t{values}", escape_component(&key)));
         }
 
-        for (key, composite) in canonical_entries(self.dialect, &self.composites) {
+        for (key, composite) in canonical_entries(&self.composites) {
             let fields = composite
                 .fields
                 .iter()
-                .map(|field| format!("{}:{}", field.name, field.sql_type))
+                .map(|field| {
+                    format!(
+                        "{}:{}",
+                        escape_component(&field.name),
+                        escape_component(&field.sql_type)
+                    )
+                })
                 .collect::<Vec<_>>()
                 .join("|");
-            lines.push(format!("composite\t{key}\t{fields}"));
+            lines.push(format!("composite\t{}\t{fields}", escape_component(&key)));
+        }
+
+        for (key, domain) in canonical_entries(&self.domains) {
+            lines.push(format!(
+                "domain\t{}\t{}\t{}",
+                escape_component(&key),
+                escape_component(&domain.base_type),
+                domain.not_null
+            ));
         }
 
         lines.join("\n")
@@ -132,42 +200,127 @@ fn dialect_tag(dialect: SqlDialect) -> &'static str {
     }
 }
 
-/// Return `(key, value)` pairs from `map`, sorted by key, with a PostgreSQL
-/// leading `public.` schema qualifier stripped — mirroring
-/// [`Catalog::get_table`], which already treats `public.users` and `users`
-/// as the same table.
+/// Return `(key, value)` pairs from `map`, sorted by key, with a single
+/// leading schema qualifier stripped — mirroring [`Catalog::get_table`]
+/// (`catalog/mod.rs`'s `get_table`), which already treats `myschema.users`
+/// and `users` as the same table.
+///
+/// Two things distinguish this from a naive `public.`-only strip:
+///
+/// - **Every dialect, not just PostgreSQL.** `get_table` never checks
+///   `self.dialect` at all — it splits on `.` and looks up the remainder
+///   unconditionally. MSSQL's `dbo.` prefix, or any other schema name on any
+///   dialect, resolves exactly the same way `public.` does on PostgreSQL. A
+///   fingerprint gated on `dialect == SqlDialect::PostgreSQL` would treat
+///   `dbo.users` and `users` as different tables even though `get_table`
+///   resolves them to the same one — a guaranteed false-positive drift
+///   report the moment someone adds or drops that qualifier.
+/// - **Any qualifier text, not just the literal `public`.** `get_table`
+///   splits on the first `.` and looks up whatever comes after it,
+///   regardless of what the prefix says. So `myschema.users` and `users`
+///   are the same lookup too. Stripping only `public.` would leave every
+///   other schema name unmirrored.
 ///
 /// If stripping would make two distinct raw keys collide (e.g. both
-/// `public.users` and a literal bare `users` exist in the same catalog),
+/// `myschema.users` and a literal bare `users` exist in the same catalog),
 /// stripping is abandoned for the whole map and raw keys are used instead.
 /// Merging colliding entries would silently drop one of them from the
-/// fingerprint; falling back to raw keys keeps both distinguishable.
-fn canonical_entries<T>(dialect: SqlDialect, map: &AHashMap<String, T>) -> Vec<(String, &T)> {
-    let mut entries: Vec<(String, &T)> = if dialect == SqlDialect::PostgreSQL {
-        let stripped: Vec<(String, &T)> = map
-            .iter()
-            .map(|(key, value)| (strip_public_schema(key), value))
-            .collect();
+/// fingerprint; falling back to raw keys keeps both distinguishable. This
+/// fallback triggers more often now that any prefix is stripped rather than
+/// only `public.` — that is the correct, intended consequence of matching
+/// `get_table`'s broader normalization, not a regression.
+///
+/// A stripped or colliding-fallback key can still collide with another raw
+/// key at the hashing layer if it contains one of `canonical_form`'s
+/// reserved delimiter bytes; [`escape_component`] is applied to every key
+/// this function returns before it reaches a line, independently of this
+/// normalization.
+fn canonical_entries<T>(map: &AHashMap<String, T>) -> Vec<(String, &T)> {
+    let stripped: Vec<(String, &T)> = map
+        .iter()
+        .map(|(key, value)| (strip_leading_qualifier(key), value))
+        .collect();
 
-        let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::with_capacity(stripped.len());
-        let collides = stripped.iter().any(|(key, _)| !seen.insert(key.as_str()));
+    let mut seen: std::collections::HashSet<&str> = std::collections::HashSet::with_capacity(stripped.len());
+    let collides = stripped.iter().any(|(key, _)| !seen.insert(key.as_str()));
 
-        if collides {
-            map.iter().map(|(key, value)| (key.clone(), value)).collect()
-        } else {
-            stripped
-        }
-    } else {
+    let mut entries: Vec<(String, &T)> = if collides {
         map.iter().map(|(key, value)| (key.clone(), value)).collect()
+    } else {
+        stripped
     };
 
     entries.sort_by(|a, b| a.0.cmp(&b.0));
     entries
 }
 
-/// Strip a single leading `public.` schema qualifier, if present.
-fn strip_public_schema(key: &str) -> String {
-    key.strip_prefix("public.").unwrap_or(key).to_string()
+/// Strip a single leading `schema.` qualifier, if present, by splitting on
+/// the first `.` and keeping the remainder — exactly what
+/// [`Catalog::get_table`]'s `split_once('.')` branch does when resolving a
+/// qualified name. A key with no `.` at all is returned unchanged.
+fn strip_leading_qualifier(key: &str) -> String {
+    key.split_once('.')
+        .map_or_else(|| key.to_string(), |(_, rest)| rest.to_string())
+}
+
+/// Escape-only-when-needed encoding for a single user-controlled string
+/// before it is written into a [`canonical_form`] line.
+///
+/// `canonical_form` uses five reserved bytes as structure: `\t` separates
+/// fields within a line, `\n` separates lines, and `|` / `:` separate
+/// sub-components within a field (enum values, composite `name:type`
+/// pairs). Any of the five appearing verbatim inside a *value* — a table,
+/// column, enum, composite, or domain name; an enum value; a resolved SQL
+/// type — would either forge structure that was never in the schema (a
+/// `\t` or `\n` inside a name splitting or adding a line) or make two
+/// different schemas collide on one hash (an enum with the single value
+/// `"a|b"` versus an enum with two values `"a"` and `"b"` previously both
+/// rendered as `a|b`). This function makes the encoding injective by
+/// escaping exactly those five bytes with a leading backslash, and copying
+/// every other byte through unchanged:
+///
+/// - `\` becomes `\\`
+/// - `|` becomes `\|`
+/// - `:` becomes `\:`
+/// - `\t` becomes `\t` (the two-character sequence backslash-t, not a
+///   literal tab)
+/// - `\n` becomes `\n` (backslash-n, not a literal newline)
+///
+/// This is a single left-to-right pass over `value`'s characters — each
+/// input character is matched and emitted exactly once — so there is no
+/// "escape the backslash first" ordering concern at all. That ordering only
+/// matters for the sequential "find `|`, replace with `\|`; then find `\`,
+/// replace with `\\`" style of escaping, where the second pass would
+/// re-escape backslashes the first pass just introduced. A single pass over
+/// the original characters cannot re-match its own output, so it is
+/// injective by construction: decoding (reversing the map) recovers `value`
+/// exactly, which is what makes two differently-shaped inputs guaranteed to
+/// render as different escaped output.
+///
+/// # Why not length-prefixing or percent-encoding
+///
+/// Both are cleaner in isolation, and both are wrong here: they rewrite
+/// every value, including the overwhelming majority that contain none of
+/// the five reserved bytes. That moves the emitted hash for schemas that
+/// did not change. `Catalog::fingerprint`'s `sch1:` tag is compared as an
+/// opaque string by `verify_provenance`, with no migration path — so a
+/// scheme that isn't the identity function on delimiter-free input would
+/// hand every existing user a false `scythe check` drift failure. Escape-
+/// only-when-needed is the identity function on exactly that input, which
+/// is why [`FINGERPRINT_ALGORITHM_TAG`] does not need to move for this fix.
+fn escape_component(value: &str) -> String {
+    let mut escaped = String::with_capacity(value.len());
+    for ch in value.chars() {
+        match ch {
+            '\\' => escaped.push_str("\\\\"),
+            '|' => escaped.push_str("\\|"),
+            ':' => escaped.push_str("\\:"),
+            '\t' => escaped.push_str("\\t"),
+            '\n' => escaped.push_str("\\n"),
+            other => escaped.push(other),
+        }
+    }
+    escaped
 }
 
 #[cfg(test)]
@@ -304,6 +457,229 @@ mod tests {
             changed_qualified.fingerprint(),
             "changing `public.users` must change the hash even though bare `users` also exists"
         );
+    }
+
+    #[test]
+    fn test_schema_qualifier_stripped_on_non_postgresql_dialect() {
+        // `get_table` (catalog/mod.rs) never checks `self.dialect` before
+        // splitting on `.` -- MSSQL's `dbo.` prefix resolves to the bare
+        // table exactly like PostgreSQL's `public.` does. Gating the strip
+        // on `dialect == SqlDialect::PostgreSQL` (the pre-fix behavior)
+        // would fingerprint `dbo.users` and `users` differently even though
+        // `get_table` treats them as the same table.
+        let qualified =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE dbo.users (id INTEGER);"], &SqlDialect::MsSql).unwrap();
+        let bare = Catalog::from_ddl_with_dialect(&["CREATE TABLE users (id INTEGER);"], &SqlDialect::MsSql).unwrap();
+
+        assert_eq!(
+            qualified.fingerprint(),
+            bare.fingerprint(),
+            "a schema-qualified table must fingerprint the same as its bare name on every dialect, not just PostgreSQL"
+        );
+    }
+
+    #[test]
+    fn test_non_public_schema_qualifier_stripped_under_postgresql() {
+        // The pre-fix strip only recognized the literal `public.` prefix.
+        // `get_table` strips *any* single leading qualifier, so
+        // `myschema.users` and `users` must fingerprint the same too.
+        let qualified =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE myschema.users (id INTEGER);"], &SqlDialect::PostgreSQL)
+                .unwrap();
+        let bare =
+            Catalog::from_ddl_with_dialect(&["CREATE TABLE users (id INTEGER);"], &SqlDialect::PostgreSQL).unwrap();
+
+        assert_eq!(
+            qualified.fingerprint(),
+            bare.fingerprint(),
+            "any leading schema qualifier must be stripped under PostgreSQL, not only the literal `public.`"
+        );
+    }
+
+    #[test]
+    fn test_non_public_schema_collision_falls_back_to_raw_keys_on_other_dialects() {
+        // Mirrors `test_public_schema_collision_falls_back_to_raw_keys`, but
+        // exercises the collision fallback for a non-`public`, non-PostgreSQL
+        // qualifier -- the fallback is now reachable from every dialect and
+        // every qualifier text, not just PostgreSQL's `public.`.
+        let base = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE dbo.users (id INTEGER); CREATE TABLE users (name TEXT);"],
+            &SqlDialect::MsSql,
+        )
+        .unwrap();
+        let fp_base = base.fingerprint();
+
+        let changed_bare = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE dbo.users (id INTEGER); CREATE TABLE users (name TEXT, extra BOOLEAN);"],
+            &SqlDialect::MsSql,
+        )
+        .unwrap();
+        assert_ne!(
+            fp_base,
+            changed_bare.fingerprint(),
+            "changing the bare `users` table must change the hash even though `dbo.users` also exists"
+        );
+
+        let changed_qualified = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE dbo.users (id INTEGER, extra BOOLEAN); CREATE TABLE users (name TEXT);"],
+            &SqlDialect::MsSql,
+        )
+        .unwrap();
+        assert_ne!(
+            fp_base,
+            changed_qualified.fingerprint(),
+            "changing `dbo.users` must change the hash even though bare `users` also exists"
+        );
+    }
+
+    #[test]
+    fn test_enum_pipe_value_does_not_collide_with_split_values() {
+        // Pre-fix, `values.join("|")` rendered a single value `"a|b"` and
+        // two values `"a"`, `"b"` as the byte-identical string `a|b` -- a
+        // real drift (one value became two, or vice versa) that produced no
+        // change in the fingerprint at all. This is the collision the issue
+        // calls out as the most important case: it makes SC-PRV01 silently
+        // blind, not merely a false positive.
+        let one_value_with_pipe = Catalog::from_ddl(&["CREATE TYPE t AS ENUM ('a|b');"]).unwrap();
+        let two_values = Catalog::from_ddl(&["CREATE TYPE t AS ENUM ('a', 'b');"]).unwrap();
+
+        assert_ne!(
+            one_value_with_pipe.fingerprint(),
+            two_values.fingerprint(),
+            "an enum with one value containing a literal `|` must not fingerprint the same as \
+             a different enum with two values split at that `|`"
+        );
+    }
+
+    #[test]
+    fn test_composite_field_colon_does_not_collide_across_name_type_boundary() {
+        // Pre-fix, a composite field rendered as `{name}:{sql_type}` with an
+        // unescaped `:`. A field named `a` typed the (quoted, unregistered)
+        // custom type `"b:c"` and a field named the (quoted) `"a:b"` typed
+        // `c` both rendered to the identical string `a:b:c` -- two
+        // differently-shaped composites, one fingerprint.
+        let colon_in_type = Catalog::from_ddl(&["CREATE TYPE addr AS (a \"b:c\");"]).unwrap();
+        let colon_in_name = Catalog::from_ddl(&["CREATE TYPE addr AS (\"a:b\" c);"]).unwrap();
+
+        assert_ne!(
+            colon_in_type.fingerprint(),
+            colon_in_name.fingerprint(),
+            "a composite field name or type containing `:` must not fingerprint the same as a \
+             differently-shaped field whose unescaped `name:type` rendering is byte-identical"
+        );
+    }
+
+    #[test]
+    fn test_enum_value_with_tab_and_newline_cannot_forge_a_composite_line() {
+        // The sharpest version of "a value containing a tab or newline can
+        // forge an entire extra record": an enum value containing `\n` and
+        // `\t` is crafted so that, rendered unescaped, it reads as the
+        // enum's own line followed by a second, syntactically valid
+        // `composite\t...` line for a composite that does not exist in this
+        // catalog at all. A schema with that one enum must not fingerprint
+        // the same as an unrelated schema that genuinely declares both the
+        // enum and the composite.
+        let smuggled_value = "z\ncomposite\taddr\tstreet:text";
+        let forged_ddl = format!("CREATE TYPE e AS ENUM ('{smuggled_value}');");
+        let forged = Catalog::from_ddl(&[forged_ddl.as_str()]).unwrap();
+
+        let genuine =
+            Catalog::from_ddl(&["CREATE TYPE e AS ENUM ('z');", "CREATE TYPE addr AS (street TEXT);"]).unwrap();
+
+        assert_ne!(
+            forged.fingerprint(),
+            genuine.fingerprint(),
+            "a tab/newline-bearing enum value must not be able to forge what looks like an \
+             unrelated composite's canonical-form line"
+        );
+    }
+
+    #[test]
+    fn test_domain_base_type_change_produces_different_hash() {
+        // `Catalog.domains` feeds `normalize_data_type` but, pre-fix, never
+        // appeared in `canonical_form` itself. A domain used only as a query
+        // cast target, or declared in a different file than the table that
+        // uses it, never surfaces through any table's resolved column type
+        // -- so without its own line, changing its base type moved nothing.
+        let a = Catalog::from_ddl(&["CREATE DOMAIN email AS TEXT;"]).unwrap();
+        let b = Catalog::from_ddl(&["CREATE DOMAIN email AS VARCHAR(255);"]).unwrap();
+
+        assert_ne!(
+            a.fingerprint(),
+            b.fingerprint(),
+            "a domain's base type must participate in the fingerprint even when no table column resolves through it"
+        );
+    }
+
+    /// Golden fingerprints, pinned at the values 0.14.0 shipped.
+    ///
+    /// Every other test in this module is *relative* — it asserts that two
+    /// catalogs hash the same, or differently, and would keep passing if the
+    /// canonical form changed shape and moved every emitted value at once.
+    /// That is exactly the change this pin exists to catch.
+    ///
+    /// `verify_provenance` compares the `sch1:` tag as an opaque string. So a
+    /// canonical-form edit that alters the emitted hash for a schema that did
+    /// not change hands every existing user a `scythe check` failure reporting
+    /// schema drift that is not real, until they regenerate. These values are
+    /// the contract that says the emitted bytes did not move.
+    ///
+    /// Each case covers one construct the canonical form renders, so a change
+    /// to any single line format is localized by which case fails:
+    /// - `table`/`column` lines, including nullability and primary-key flags
+    /// - `enum` lines, whose values are joined with `|`
+    /// - `composite` lines, whose fields are joined with `|` and `:`
+    /// - the `dialect` line
+    /// - the PostgreSQL `public.` qualifier strip
+    ///
+    /// **Updating these values is never routine.** A deliberate algorithm
+    /// change must bump `FINGERPRINT_ALGORITHM_TAG` in the same commit, so old
+    /// and new fingerprints are never mistaken for one another — that is what
+    /// the tag is for. If you are here because a change you did not intend to
+    /// be observable moved a value, the change was observable; fix the change.
+    #[test]
+    fn test_fingerprints_are_pinned_to_their_released_values() {
+        let cases: &[(&str, SqlDialect, &str)] = &[
+            (
+                "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, bio TEXT);",
+                SqlDialect::PostgreSQL,
+                "sch1:4bf6bb703d5818da",
+            ),
+            (
+                "CREATE TYPE status AS ENUM ('active', 'inactive', 'banned');",
+                SqlDialect::PostgreSQL,
+                "sch1:b23bd2728dc1df1c",
+            ),
+            (
+                "CREATE TYPE address AS (street TEXT, city TEXT, zip INTEGER);",
+                SqlDialect::PostgreSQL,
+                "sch1:08277bec474dde8b",
+            ),
+            (
+                "CREATE TABLE public.users (id INTEGER PRIMARY KEY);",
+                SqlDialect::PostgreSQL,
+                "sch1:83901ff72944cf53",
+            ),
+            (
+                "CREATE TABLE t (id INT NOT NULL, note VARCHAR(255));",
+                SqlDialect::MySQL,
+                "sch1:d1b6623bd34edc4b",
+            ),
+            (
+                "CREATE TABLE t (id INTEGER NOT NULL, note TEXT);",
+                SqlDialect::SQLite,
+                "sch1:4eb52891d7937ab9",
+            ),
+        ];
+
+        for (ddl, dialect, expected) in cases {
+            let catalog = Catalog::from_ddl_with_dialect(&[ddl], dialect).unwrap_or_else(|e| panic!("{ddl}: {e}"));
+            assert_eq!(
+                catalog.fingerprint(),
+                *expected,
+                "pinned fingerprint moved for {ddl:?} -- see this test's doc comment before updating it"
+            );
+        }
     }
 
     /// Line prefix the child half prints its fingerprint behind. Shared by
