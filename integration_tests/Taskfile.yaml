@@ -88,10 +88,15 @@ tasks:
       # excluded because they are hand-maintained outside the generator.
       BACKENDS:
         sh: cd .. && cargo run --quiet -p integration-test-generator -- --list
-      # These two own their scythe.toml by hand (they pin one-off codegen
-      # options), but their query code still comes from `scythe generate`, so
-      # it drifts like any other generated output and belongs in this loop.
-      HAND_MAINTAINED: kotlin-jdbc-ext php-pdo-namespace
+      # These own their scythe.toml by hand (they pin one-off codegen options,
+      # or in rust-sqlx-nested-json's case a schema and dependency set the
+      # generator has no template for), but their query code still comes from
+      # `scythe generate`, so it drifts like any other generated output and
+      # belongs in this loop. Omitting one does not fail anything loudly: its
+      # committed code simply stops tracking the generator, which is how
+      # rust-sqlx-nested-json came to still carry the pre-0.14.0 banner and no
+      # provenance header while every other artifact had moved on.
+      HAND_MAINTAINED: kotlin-jdbc-ext php-pdo-namespace rust-sqlx-nested-json
       # Absolute path to the just-built workspace binary. TASKFILE_DIR (this
       # directory) rather than ROOT_DIR is deliberate: it always resolves
       # relative to where this Taskfile lives, even if it's ever included

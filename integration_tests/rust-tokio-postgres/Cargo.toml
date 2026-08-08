@@ -9,18 +9,4 @@ edition = "2024"
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
-rust_decimal = { version = "1", features = ["db-tokio-postgres", "serde"] }
-# `postgres-types` is what the generated code names directly
-# (`postgres_types::Json<T>` for any `json_agg`/`row_to_json` column); the
-# `with-serde_json-1` feature is what defines `Json`. `serde` supplies the
-# derives on the nested structs it wraps.
-postgres-types = { version = "0.2", features = ["with-serde_json-1", "with-chrono-0_4"] }
-serde = { version = "1", features = ["derive"] }
-
-# Both are named only by generated code: a `json_agg`/`row_to_json` column
-# resolves to `postgres_types::Json<T>` over a nested struct deriving
-# `serde::Serialize`/`Deserialize`. This project's queries have none today, so
-# cargo-machete sees unused dependencies; they are declared here so adding
-# such a query does not also require a dependency change to compile.
-[package.metadata.cargo-machete]
-ignored = ["postgres-types", "serde"]
+rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
