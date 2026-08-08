@@ -83,8 +83,28 @@ output = "{output}"
         return Err(String::from_utf8_lossy(&output.stderr).into_owned());
     }
 
-    let generated: PathBuf = output_dir.join(format!("queries.{extension}"));
-    Ok(std::fs::read_to_string(&generated).expect("generated file"))
+    Ok(read_generated(&output_dir, extension))
+}
+
+/// Locate the generated file by extension rather than by name. Backends do not
+/// agree on capitalization -- `java-jdbc` emits `Queries.java` where every
+/// other backend emits `queries.<ext>` -- so hardcoding the lowercase form
+/// resolves on case-insensitive macOS and fails on Linux.
+fn read_generated(output_dir: &Path, extension: &str) -> String {
+    let mut matches: Vec<PathBuf> = std::fs::read_dir(output_dir)
+        .unwrap_or_else(|err| panic!("output dir {}: {err}", output_dir.display()))
+        .map(|entry| entry.expect("dir entry").path())
+        .filter(|path| path.extension().is_some_and(|ext| ext == extension))
+        .collect();
+    matches.sort();
+
+    assert_eq!(
+        matches.len(),
+        1,
+        "expected exactly one .{extension} file in {}, found {matches:?}",
+        output_dir.display()
+    );
+    std::fs::read_to_string(&matches[0]).expect("generated file")
 }
 
 #[test]
