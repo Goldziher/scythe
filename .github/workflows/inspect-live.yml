@@ -5,10 +5,14 @@ on:
     branches: [main]
     paths:
       - "crates/scythe-inspect/**"
+      # Drift-rule default severities live here, and the live drift suite
+      # asserts them.
+      - "crates/scythe-lint/src/rules/drift.rs"
       - ".github/workflows/inspect-live.yml"
   pull_request:
     paths:
       - "crates/scythe-inspect/**"
+      - "crates/scythe-lint/src/rules/drift.rs"
       - ".github/workflows/inspect-live.yml"
   workflow_dispatch:
 
@@ -55,6 +59,10 @@ jobs:
           workspaces: . -> target
           cache-on-failure: true
 
+      # Runs pg_live.rs (catalog checks), verify_live.rs (query verification)
+      # and schema_diff_live.rs (schema drift) in one pass. All three gate on
+      # the `live-tests` feature plus $SCYTHE_TEST_DATABASE_URL, so they
+      # compile away entirely wherever no postgres service exists.
       - name: Run scythe-inspect live tests
         env:
           SCYTHE_TEST_DATABASE_URL: postgres://scythe:scythe@localhost:5432/scythe_inspect_test

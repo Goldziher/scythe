@@ -27,14 +27,19 @@ enum Commands {
     Check {
         #[arg(short, long, default_value = "scythe.toml")]
         config: String,
-        /// Verify inferred query types against a live database.
+        /// Verify inferred query types and detect schema drift against a live
+        /// database.
         ///
         /// Each query is prepared server-side (never executed) and the reported
-        /// result columns and parameters are diffed against static inference.
-        /// PostgreSQL only. Without this flag `check` needs no database.
+        /// result columns and parameters are diffed against static inference
+        /// (SC-VER*). The committed schema is then compared against the live
+        /// catalog for missing tables and columns, type mismatches, nullability
+        /// mismatches and enum drift (SC-DRF*). PostgreSQL only. Without this
+        /// flag `check` needs no database.
         ///
-        /// Note this cannot verify nullability — the describe response does not
-        /// carry it.
+        /// Preparing a statement cannot report nullability, so SC-DRF06 —
+        /// reading the catalog directly — is the only check that can tell you a
+        /// `NOT NULL` in your DDL is not true in the database.
         ///
         /// Opt-in by design: the URL is never picked up from the environment,
         /// so `scythe check` cannot start requiring a database just because

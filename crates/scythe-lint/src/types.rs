@@ -43,12 +43,23 @@ pub enum RuleCategory {
     Security,
     /// Schema-migration safety: irreversible or lock-prone DDL operations.
     Migration,
+    // The two categories below are the check-time ones: neither can be
+    // produced by `scythe lint` or `scythe audit`, and their rules live in
+    // their own registries rather than `default_registry()`. Both are
+    // appended after the existing variants on purpose — `scythe audit
+    // --list-rules` groups its output by `category as u8`, so inserting a
+    // variant anywhere else would silently reorder the printed catalog.
     /// Provenance of *generated artifacts*: whether the committed output
     /// still matches the schema, engine, backend, and scythe version it was
-    /// generated from. Appended last on purpose — `scythe audit
-    /// --list-rules` groups its output by `category as u8`, so inserting a
-    /// variant anywhere else would silently reorder the printed catalog.
+    /// generated from.
     Provenance,
+    /// Schema drift: the committed DDL disagrees with a live database.
+    ///
+    /// Its own category rather than a reuse of `Safety` so that an existing
+    /// `[lint.categories] safety = "off"` in someone's `scythe.toml` cannot
+    /// silently disable drift reporting the first time they pass
+    /// `--database-url`.
+    Drift,
 }
 
 impl std::fmt::Display for RuleCategory {
@@ -63,6 +74,7 @@ impl std::fmt::Display for RuleCategory {
             RuleCategory::Security => write!(f, "security"),
             RuleCategory::Migration => write!(f, "migration"),
             RuleCategory::Provenance => write!(f, "provenance"),
+            RuleCategory::Drift => write!(f, "drift"),
         }
     }
 }

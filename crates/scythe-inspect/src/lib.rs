@@ -22,6 +22,7 @@ pub mod error;
 pub mod mysql;
 pub mod postgres;
 pub mod registry;
+pub mod schema_diff;
 pub mod spec;
 pub mod suppression;
 pub mod verify;
@@ -32,6 +33,9 @@ pub use error::InspectError;
 pub use mysql::MysqlDriver;
 pub use postgres::PostgresDriver;
 pub use registry::CheckRegistry;
+pub use schema_diff::{
+    DriftSeverities, SchemaDescription, describe_catalog, diff_schemas, drift_findings, fetch_live_schema,
+};
 pub use spec::{CheckCategory, CheckSpec, ConfigError, load_checks_from_file, parse_check_file};
 pub use suppression::SuppressionEngine;
 pub use verify::verify_queries;

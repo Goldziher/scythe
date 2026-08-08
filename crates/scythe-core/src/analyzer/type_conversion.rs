@@ -7,7 +7,14 @@ use crate::dialect::SqlDialect;
 
 use super::helpers::object_name_to_string;
 
-pub(super) fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'static, str> {
+/// Map a DDL type name onto scythe's neutral type vocabulary.
+///
+/// Re-exported from [`crate::analyzer`] because schema-drift checking has to
+/// speak the same type vocabulary as query analysis.  Giving the drift checker
+/// its own DDL-to-neutral table would let the two definitions diverge, and a
+/// drift checker whose type mapping disagrees with the generator reports
+/// mismatches the generated code does not actually have.
+pub fn sql_type_to_neutral(sql_type: &str, catalog: &Catalog) -> Cow<'static, str> {
     let lower = sql_type.to_lowercase();
     let normalized = strip_precision(&lower);
 

@@ -71,4 +71,32 @@ pub enum InspectError {
         /// The `{var}` name that was absent from the row.
         binding: String,
     },
+
+    /// Two objects in the committed DDL reduce to the same schema-drift
+    /// comparison key.
+    ///
+    /// Drift matches on the bare, unqualified name because scythe's catalog
+    /// stores whatever the DDL wrote (`users` or `public.users`) while
+    /// `pg_catalog` always knows the schema.  When the DDL declares the same
+    /// bare name in two schemas, that key no longer identifies one object and
+    /// there is no search path on this side to arbitrate — unlike the live
+    /// side, which resolves the same collision by search-path position.
+    ///
+    /// Reported rather than resolved by picking one: whichever were picked
+    /// would be a guess, and the guess would silently produce phantom
+    /// missing-table and missing-column findings for the object that lost.
+    #[error(
+        "schema drift cannot tell {kind} `{first}` and `{second}` apart — both reduce to `{key}`, \
+         and the DDL gives no search path to say which one the database's `{key}` is"
+    )]
+    AmbiguousSchemaObject {
+        /// What collided: `"tables"` or `"enum types"`.
+        kind: &'static str,
+        /// The shared bare key both objects reduced to.
+        key: String,
+        /// The lexicographically first colliding name, as the DDL wrote it.
+        first: String,
+        /// The lexicographically second colliding name, as the DDL wrote it.
+        second: String,
+    },
 }
