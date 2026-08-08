@@ -1,18 +1,42 @@
 name: Integration Tests
 
+# The path filter is the list of things that can change generated output. It
+# was previously narrower than that list, and the gap was not academic:
+#
+#   - crates/scythe-backend/** *is* the renderer (renderer.rs, manifest.rs,
+#     naming.rs, types.rs). A naming-convention change there rewrites every
+#     backend's output for every language and triggered nothing at all.
+#   - tools/integration-test-generator/** owns the *.jinja harness templates.
+#     A formatter mangled them once already -- see the comment at ci.yml:167.
+#   - This file was absent from its own filter, so a change that broke the
+#     workflow could not run the workflow that would have reported it.
 on:
   push:
     branches: [main]
     paths:
       - "crates/scythe-codegen/**"
       - "crates/scythe-core/**"
+      - "crates/scythe-backend/**"
+      - "crates/scythe-cli/**"
       - "integration_tests/**"
+      - "tools/integration-test-generator/**"
+      - "testing_data/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/integration.yml"
   pull_request:
     branches: [main]
     paths:
       - "crates/scythe-codegen/**"
       - "crates/scythe-core/**"
+      - "crates/scythe-backend/**"
+      - "crates/scythe-cli/**"
       - "integration_tests/**"
+      - "tools/integration-test-generator/**"
+      - "testing_data/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - ".github/workflows/integration.yml"
   workflow_dispatch:
 
 concurrency:

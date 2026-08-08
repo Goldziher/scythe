@@ -7,6 +7,12 @@ name: Nullability Conformance
 # The analyzer paths are deliberately in the path filter: a change to
 # crates/scythe-core/src/analyzer/** is exactly what this suite exists to
 # catch, so it must gate those PRs and not only changes to the suite itself.
+#
+# parser/** and dialect.rs are here for the same reason. Inference does not
+# read SQL text; it reads the parse tree, and it branches on the dialect. So a
+# parser or dialect change alters what the analyzer concludes just as directly
+# as editing the analyzer does -- and until they were listed, exactly that
+# change sailed past the suite built to catch it.
 on:
   push:
     branches: [main]
@@ -14,6 +20,8 @@ on:
       - "crates/scythe-conformance/**"
       - "crates/scythe-core/src/analyzer/**"
       - "crates/scythe-core/src/catalog/**"
+      - "crates/scythe-core/src/parser/**"
+      - "crates/scythe-core/src/dialect.rs"
       - "testing_data/nullability_live/**"
       - ".github/workflows/nullability-conformance.yml"
   pull_request:
@@ -22,6 +30,8 @@ on:
       - "crates/scythe-conformance/**"
       - "crates/scythe-core/src/analyzer/**"
       - "crates/scythe-core/src/catalog/**"
+      - "crates/scythe-core/src/parser/**"
+      - "crates/scythe-core/src/dialect.rs"
       - "testing_data/nullability_live/**"
       - ".github/workflows/nullability-conformance.yml"
   workflow_dispatch:

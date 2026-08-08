@@ -32,6 +32,18 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      - uses: go-task/setup-task@v2
+        with:
+          version: 3.x
+      # Until now `version:check` ran only in publish.yaml, *after* the release
+      # tag was already pushed -- see the comment at publish.yaml:72-78, which
+      # records that v0.10.0 and v0.11.0 both shipped five crates instead of
+      # six because of it. A gate that runs after the irreversible step is not
+      # a gate. It stays in publish.yaml as a last line of defence; this is the
+      # one that can actually stop a bad release, because it runs on every push
+      # and pull request while the mistake is still cheap to fix.
+      - name: Check crate versions and inter-crate pins
+        run: task version:check
       # `generated-freshness` (below) proves this by actually regenerating
       # everything, which takes real toolchains and ~20 minutes. This step
       # catches the one specific, recurring failure mode -- a version bump
