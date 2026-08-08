@@ -114,6 +114,33 @@ pub fn default_registry() -> RuleRegistry {
     reg
 }
 
+/// Registry holding only the schema-drift rules (`SC-DRF01`–`SC-DRF07`).
+///
+/// Deliberately separate from [`default_registry`]. Drift rules can only fire
+/// when `scythe check` is given `--database-url`; folding them into the
+/// default registry would list seven rules in `scythe lint` and
+/// `scythe audit --list-rules` that those commands can never report, and would
+/// silently restate scythe's documented built-in rule count as if drift
+/// checking were seven more static lint rules.
+///
+/// Being a plain [`RuleRegistry`] is what keeps drift severities configurable:
+/// callers apply the same `[lint]` `LintConfig` to it that they apply to
+/// [`default_registry`], so `rules."SC-DRF02" = "error"` and
+/// `categories.drift = "off"` both work exactly as they do for any other rule.
+pub fn drift_registry() -> RuleRegistry {
+    let mut reg = RuleRegistry::new();
+
+    reg.register(Box::new(rules::drift::TableMissingFromDatabase));
+    reg.register(Box::new(rules::drift::TableMissingFromDdl));
+    reg.register(Box::new(rules::drift::ColumnMissingFromDatabase));
+    reg.register(Box::new(rules::drift::ColumnMissingFromDdl));
+    reg.register(Box::new(rules::drift::ColumnTypeMismatch));
+    reg.register(Box::new(rules::drift::ColumnNullabilityMismatch));
+    reg.register(Box::new(rules::drift::EnumValuesMismatch));
+
+    reg
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -171,6 +198,59 @@ mod tests {
     fn default_registry_has_58_rules() {
         let reg = default_registry();
         assert_eq!(reg.rules.len(), 58);
+    }
+
+    /// Drift rules must stay out of the default registry: `scythe lint` and
+    /// `scythe audit` cannot observe a live database, so listing them there
+    /// would advertise rules those commands can never report.
+    #[test]
+    fn default_registry_excludes_drift_rules() {
+        let reg = default_registry();
+        assert!(
+            !reg.rules.iter().any(|r| r.id().starts_with("SC-DRF")),
+            "drift rules belong to drift_registry(), not default_registry()"
+        );
+    }
+
+    /// The drift registry is a plain `RuleRegistry`, so `[lint]` severity
+    /// overrides reach drift rules through exactly the path every other
+    /// `SC-*` rule uses.
+    #[test]
+    fn drift_registry_honours_lint_config_overrides() {
+        let mut reg = drift_registry();
+
+        let mut config = LintConfig::default();
+        config.rules.insert("SC-DRF02".to_string(), Severity::Error);
+        config.rules.insert("SC-DRF07".to_string(), Severity::Off);
+        reg.apply_config(&config);
+
+        let active = reg.active_rules();
+        let severity_of = |id: &str| active.iter().find(|(r, _)| r.id() == id).map(|(_, s)| *s);
+
+        assert_eq!(severity_of("SC-DRF02"), Some(Severity::Error));
+        assert_eq!(
+            severity_of("SC-DRF07"),
+            None,
+            "an Off rule must drop out of active_rules"
+        );
+        assert_eq!(
+            severity_of("SC-DRF06"),
+            Some(Severity::Error),
+            "untouched rules keep their default"
+        );
+    }
+
+    /// One `categories.drift` switch must silence the whole drift check —
+    /// the escape hatch for a user whose database legitimately differs.
+    #[test]
+    fn drift_category_override_disables_every_drift_rule() {
+        let mut reg = drift_registry();
+
+        let mut config = LintConfig::default();
+        config.categories.insert(RuleCategory::Drift, Severity::Off);
+        reg.apply_config(&config);
+
+        assert!(reg.active_rules().is_empty());
     }
 
     #[test]

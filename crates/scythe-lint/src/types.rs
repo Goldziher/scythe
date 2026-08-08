@@ -43,6 +43,13 @@ pub enum RuleCategory {
     Security,
     /// Schema-migration safety: irreversible or lock-prone DDL operations.
     Migration,
+    /// Schema drift: the committed DDL disagrees with a live database.
+    ///
+    /// Its own category rather than a reuse of `Safety` so that an existing
+    /// `[lint.categories] safety = "off"` in someone's `scythe.toml` cannot
+    /// silently disable drift reporting the first time they pass
+    /// `--database-url`.
+    Drift,
 }
 
 impl std::fmt::Display for RuleCategory {
@@ -56,6 +63,7 @@ impl std::fmt::Display for RuleCategory {
             RuleCategory::Codegen => write!(f, "codegen"),
             RuleCategory::Security => write!(f, "security"),
             RuleCategory::Migration => write!(f, "migration"),
+            RuleCategory::Drift => write!(f, "drift"),
         }
     }
 }
