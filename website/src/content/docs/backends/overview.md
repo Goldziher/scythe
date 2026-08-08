@@ -60,7 +60,7 @@ Every generated file carries a one-line provenance comment, emitted right after
 (`crates/scythe-codegen/src/provenance.rs`):
 
 ```text
-// scythe:provenance v=0.14.0 backend=csharp-npgsql engine=postgresql schema=sch1:2e813606acee8b51
+// scythe:provenance v=0.14.0 backend=csharp-npgsql engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:9c4e1f77a0b3d582
 ```
 
 The comment token is derived from the backend's `language`: `#` for Python, Ruby, and Elixir; `//` for
@@ -239,8 +239,8 @@ Redshift uses PostgreSQL backends with Redshift-specific type resolution:
 | `javascript-pg` | JavaScript | pg (JSDoc types) |
 | `javascript-postgres` | JavaScript | postgres.js (JSDoc types) |
 | `go-pgx` | Go | pgx v5 |
-| `java-jdbc` | Java | JDBC (Redshift JDBC driver) |
-| `kotlin-jdbc` | Kotlin | JDBC (Redshift JDBC driver) |
+| `java-jdbc` | Java | JDBC (PostgreSQL driver) |
+| `kotlin-jdbc` | Kotlin | JDBC (PostgreSQL driver) |
 | `csharp-npgsql` | C# | Npgsql |
 | `elixir-postgrex` | Elixir | Postgrex |
 | `ruby-pg` | Ruby | pg |

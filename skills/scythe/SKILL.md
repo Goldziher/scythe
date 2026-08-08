@@ -72,6 +72,8 @@ scythe generate
 scythe generate [--config <path>]              # Generate code (default: scythe.toml)
 scythe check [--config <path>]                 # Validate SQL without generating
 scythe lint [--config <path>] [--fix] [files]  # Lint SQL files
+scythe audit [--config <path>] [files]         # Security scan (SC-SEC*)
+scythe inspect [database_url]                  # Operational checks on a live database
 scythe fmt [--config <path>] [--check] [files] # Format SQL files
 scythe migrate [sqlc_config]                   # Convert sqlc project
 ```
@@ -82,8 +84,22 @@ scythe migrate [sqlc_config]                   # Convert sqlc project
 | `--fix` | lint | Auto-fix violations |
 | `--check` | fmt | Check without modifying (exit 1 if changes needed) |
 | `--diff` | fmt | Show unified diff of changes |
-| `--dialect` | lint, fmt | SQL dialect: `ansi`, `postgres`, `mysql` |
-| `files...` | lint, fmt | Specific SQL files (if empty, uses config) |
+| `--dialect` | lint, fmt, audit, inspect | SQL dialect: `postgres`, `mysql`, `sqlite`, `mssql`, `oracle`, `snowflake` |
+| `--database-url` | check | Verify types and detect schema drift against a live database (PostgreSQL only) |
+| `--format` | check, audit, inspect | `human` (default), `sarif`, `json` |
+| `-o, --output` | check, audit, inspect | Write findings to a file instead of stdout |
+| `--severity` | audit, inspect | Drop findings below `off`, `warn`, or `error` |
+| `--exit-zero` | check, audit, inspect | Exit 0 even when error-severity findings are present |
+| `files...` | lint, fmt, audit | Specific SQL files (if empty, uses config) |
+
+**Exit codes:** 0 clean, **2** on error-severity findings from `check`, `audit`
+or `inspect`, 1 on operational failure (unreadable config, unparseable SQL, I/O
+error). `--exit-zero` collapses 2 to 0 and leaves 1 alone. Findings failures and
+"scythe could not run" are deliberately distinguishable, so CI never mistakes a
+crashed run for a clean one.
+
+See [references/cli-reference.md](references/cli-reference.md) for the full flag
+tables.
 
 ## Annotations
 
@@ -420,7 +436,7 @@ Common PostgreSQL extension mappings:
 
 23 built-in scythe lint rules + 35 audit rules = 58 built-in, plus sqruff's 69 style rules via integration.
 
-The 7 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not part of the 58. They
+The 8 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not part of the 58. They
 run only from `scythe check` and never appear in `scythe lint` or `scythe audit --list-rules` output.
 
 ### Rule categories

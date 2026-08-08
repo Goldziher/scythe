@@ -54,10 +54,24 @@ fn json_manifest_type_to_rbs(manifest_value: &str) -> &'static str {
 
 /// Map a neutral type to an RBS type string.
 ///
-/// `manifest` supplies the backend-specific Ruby documentation name for `json`, since that
-/// is the only scalar whose RBS type differs by backend (see
-/// [`json_manifest_type_to_rbs`]). Every other neutral type maps to a fixed RBS type
-/// identical across all Ruby backends.
+/// `manifest` supplies the backend-specific Ruby documentation name for `json` (see
+/// [`json_manifest_type_to_rbs`]). Every other neutral type maps through the fixed table
+/// below.
+///
+/// That fixed table is **known to be wrong for two backends**, and deliberately left that
+/// way for now — see #106. `json` is not the only scalar whose manifest value differs by
+/// backend: `ruby-sqlite3` declares `decimal = "Float"` and all five date/time scalars as
+/// `"String"` (SQLite has no native type for either, so the driver returns the raw
+/// string), and `ruby-oci8` declares `date = "Time"`. Seven `(backend, scalar)` pairs in
+/// total disagree with what this function emits, so those signatures contradict the `.rb`
+/// generated beside them.
+///
+/// It is latent rather than live: the SQLite integration schemas use `TEXT` and `REAL`,
+/// which resolve to the neutral `string` and `float64` types and never reach the
+/// `decimal`/`date`/`time` arms. Generalizing the translation table to every scalar is
+/// tracked in #106 rather than done here, because it needs a fixture that declares
+/// `DECIMAL` and `DATE` on SQLite to assert the fix, and that is a wider change than the
+/// `json` correction this function was opened for.
 fn neutral_to_rbs(neutral_type: &str, nullable: bool, manifest: &BackendManifest) -> String {
     let base = match neutral_type {
         "int16" | "int32" | "int64" => "Integer".to_string(),

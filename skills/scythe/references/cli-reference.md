@@ -20,13 +20,23 @@ scythe generate [--config <path>]
 
 ### check
 
-Validate SQL without generating code. Runs parsing, analysis, and lint rules.
+Validate SQL without generating code. Runs parsing, analysis, lint rules, and
+the provenance rules that compare committed artifacts against the current
+schema.
 
 ```bash
-scythe check [--config <path>]
+scythe check [--config <path>] [--database-url <url>] [--format <fmt>] [--output <path>] [--exit-zero]
 ```
 
-Exits with code 1 if any lint errors are found.
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-c, --config` | `scythe.toml` | Path to config file |
+| `--database-url` | none | Verify inferred types and detect schema drift against a live database. PostgreSQL only. Never read from the environment -- `check` cannot start requiring a database just because `DATABASE_URL` is set |
+| `--format` | `human` | `human`, `sarif`, or `json` |
+| `-o, --output` | stdout | Write findings to a file |
+| `--exit-zero` | false | Exit 0 even when error-severity findings are present |
+
+**Exits 2** -- not 1 -- on error-severity findings. See [Exit Codes](#exit-codes).
 
 ### lint
 
@@ -40,7 +50,53 @@ scythe lint [--config <path>] [--fix] [--dialect <dialect>] [files...]
 |------|---------|-------------|
 | `-c, --config` | `scythe.toml` | Path to config file |
 | `--fix` | false | Auto-fix violations where possible |
-| `--dialect` | `ansi` | SQL dialect for sqruff rules |
+| `--dialect` | none | SQL dialect for sqruff rules. No default is declared; sqruff resolves it |
+
+### audit
+
+Scan SQL for security issues: privilege grants, dangerous functions, cartesian
+joins, unbounded `LIKE`, `SECURITY DEFINER` misuse, literal passwords, weak
+hashes over credential columns, `SELECT *` over PII, session-state mutation.
+
+```bash
+scythe audit [--config <path>] [--format <fmt>] [--severity <level>] [--exit-zero] [files...]
+```
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `-c, --config` | `scythe.toml` | Path to config file |
+| `--format` | `human` | `human`, `sarif`, or `json` |
+| `--list-rules` | false | Print the rule catalog (id, name, severity, category) and exit 0 |
+| `--explain <RULE_ID>` | none | Print a rule's description and CWE references, then exit 0 |
+| `--severity <LEVEL>` | none | Drop findings below `off`, `warn`, or `error` |
+| `--exit-zero` | false | Exit 0 even when error-severity findings are present |
+| `-o, --output` | stdout | Write reporter output to a file |
+| `--ignore-suppressions` | false | Disable inline `-- scythe-audit: ignore[...]` annotations |
+| `--dialect` | from config | Dialect for explicit-file mode |
+
+### inspect
+
+Check a live database for operational issues: foreign keys without covering
+indexes, tables carrying policies while RLS is disabled, duplicate indexes.
+PostgreSQL only.
+
+```bash
+scythe inspect [database_url] [--format <fmt>] [--severity <level>] [--exit-zero]
+```
+
+The connection URL resolves in order: positional argument, `$DATABASE_URL`,
+`$SCYTHE_DATABASE_URL`, then `[inspect].database_url` in `scythe.toml`.
+
+| Flag | Default | Description |
+|------|---------|-------------|
+| `--format` | `human` | `human`, `sarif`, or `json` |
+| `--list-checks` | false | Print the check catalog and exit 0 |
+| `--explain <CHECK_ID>` | none | Print a check's rationale and remediation, then exit 0 |
+| `--severity <LEVEL>` | none | Drop findings below `off`, `warn`, or `error` |
+| `--exit-zero` | false | Exit 0 even when error-severity findings are present |
+| `-o, --output` | stdout | Write reporter output to a file |
+| `-c, --config` | `scythe.toml` | Path to config file |
+| `--dialect` | from URL scheme | Engine to target |
 
 **Two modes:**
 
@@ -59,7 +115,7 @@ scythe fmt [--config <path>] [--check] [--diff] [--dialect <dialect>] [files...]
 |------|---------|-------------|
 | `--check` | false | Report unformatted files; exit 1 |
 | `--diff` | false | Show unified diff of changes |
-| `--dialect` | `ansi` | SQL dialect for formatting rules |
+| `--dialect` | none | SQL dialect for formatting rules. No default is declared; sqruff resolves it |
 
 ### migrate
 
@@ -73,10 +129,19 @@ Reads sqlc config (v1 or v2), converts annotations, generates `scythe.toml`.
 
 ## Exit Codes
 
+`check`, `audit` and `inspect` separate "your SQL has problems" from "scythe
+could not run", because CI needs to tell them apart: a findings failure is the
+tool working, while an operational failure means the check never happened and
+must not be mistaken for a clean run.
+
 | Code | Meaning |
 |------|---------|
-| 0 | Success |
-| 1 | Error (lint failures, parse errors, etc.) |
+| 0 | Success -- no error-severity findings, or `--exit-zero` was passed |
+| 1 | Operational failure: unreadable config, unparseable SQL, unconstructible backend, I/O error |
+| 2 | Error-severity findings were reported (`check`, `audit`, `inspect`) |
+
+`--exit-zero` collapses 2 to 0. It does not affect 1: an operational failure is
+still a failure.
 
 ## Examples
 
@@ -84,8 +149,12 @@ Reads sqlc config (v1 or v2), converts annotations, generates `scythe.toml`.
 scythe generate                          # Generate with default config
 scythe generate --config my-project.toml # Custom config path
 scythe check                             # Validate SQL
+scythe check --database-url "$DB_URL"    # Also verify types and detect schema drift
 scythe lint --fix                        # Lint with auto-fix
 scythe lint --dialect postgres sql/*.sql # Lint specific files
+scythe audit --format sarif -o audit.sarif  # Security scan for CI
+scythe audit --explain SC-SEC01          # Why a rule exists, and its CWE refs
+scythe inspect "$DB_URL"                 # Operational health of a live database
 scythe fmt --check                       # CI formatting check
 scythe fmt --diff                        # Preview formatting changes
 scythe migrate sqlc.yaml                 # Migrate from sqlc

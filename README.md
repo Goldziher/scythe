@@ -353,9 +353,9 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 - **Synchronous TypeScript SQLite backends** -- `typescript-node-sqlite` (Node's built-in `node:sqlite`, zero npm dependencies, needs Node 23.4+ or `--experimental-sqlite` on Node 22) and `typescript-wasm-sqlite` (`@sqlite.org/sqlite-wasm`) emit plain `export function` calls with no `async`/`Promise`
 - **JavaScript output via JSDoc** -- `javascript-pg`, `javascript-postgres`, `javascript-mysql2`, and `javascript-better-sqlite3` emit plain ESM `.js` with every type carried in JSDoc comments and no driver import, checkable with `tsc --checkJs --strict` and runnable with no build step
 - **58 built-in rules** -- 23 lint rules (UPDATE without WHERE, SELECT *, NULL comparisons, leading wildcard LIKE) and 35 audit rules, plus sqruff's 69 style rules via integration
-- **14 check-time rules** -- 7 `SC-PRV*` provenance rules (generated artifact vs. current schema, engine, backend, scythe version) and 7 `SC-DRF*` schema drift rules (committed DDL vs. a live PostgreSQL catalog). Reported only by `scythe check`, counted separately from the 58, and configured from the same `[lint]` table as every other rule
+- **15 check-time rules** -- 8 `SC-PRV*` provenance rules (generated artifact vs. current schema, queries, engine, backend, scythe version) and 7 `SC-DRF*` schema drift rules (committed DDL vs. a live PostgreSQL catalog). Reported only by `scythe check`, counted separately from the 58, and configured from the same `[lint]` table as every other rule
 - **`scythe audit`** -- security scanner for SQL: dangerous functions, GRANT ALL, GRANT to PUBLIC, cartesian joins, unbounded LIKE, SECURITY DEFINER without pinned `search_path`, role privilege escalation, literal passwords, weak hashes over credential columns, SELECT * over PII, session-state mutation. Emits human / SARIF / JSON for CI integration
-- **`scythe inspect`** -- live-database operational health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. Connects via `tokio-postgres`, emits the same human / SARIF / JSON reports as audit. (Postgres only at v0.10; MySQL in Phase 3.)
+- **`scythe inspect`** -- live-database operational health checks: foreign keys without covering indexes, tables with policies but RLS disabled, duplicate indexes. Connects via `tokio-postgres`, emits the same human / SARIF / JSON reports as audit. (PostgreSQL only.)
 - **SQL formatting** -- consistent style via sqruff integration
 - **Smart type inference** -- nullability from JOINs, COALESCE, window functions, CASE WHEN, aggregates
 - **`@optional` parameters** -- SQL rewriting for conditional filters (`WHERE ($1 IS NULL OR col = $1)`)
@@ -373,16 +373,19 @@ See the [full quickstart](https://goldziher.github.io/scythe/getting-started/qui
 
 | Language   | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB | MSSQL | Oracle | MariaDB | Redshift | Snowflake |
 |------------|:----------:|:-----:|:------:|:------:|:-----------:|:-----:|:------:|:-------:|:--------:|:---------:|
-| Rust       | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx | tiberius | sibyl | sqlx | sqlx | -- |
-| Python     | psycopg3, asyncpg | aiomysql | aiosqlite | python-duckdb | psycopg3 | pyodbc | oracledb | aiomysql | psycopg3 | snowflake-connector |
-| TypeScript | pg, postgres.js, kysely | mysql2, kysely | better-sqlite3, node:sqlite, sqlite-wasm, kysely | typescript-duckdb | pg, kysely | mssql, kysely | oracledb | mysql2, kysely | pg, kysely | snowflake-sdk |
+| Rust       | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx, tokio-postgres | tiberius | sibyl | sqlx | sqlx, tokio-postgres | -- |
+| Python     | psycopg3, asyncpg | aiomysql | aiosqlite | python-duckdb | psycopg3, asyncpg | pyodbc | oracledb | aiomysql | psycopg3, asyncpg | snowflake-connector |
+| TypeScript | pg, postgres.js, kysely | mysql2, kysely | better-sqlite3, node:sqlite, sqlite-wasm, kysely | typescript-duckdb | pg, postgres.js, kysely | mssql, kysely | oracledb | mysql2, kysely | pg, postgres.js, kysely | snowflake-sdk |
+| JavaScript | pg, postgres.js | mysql2 | better-sqlite3 | -- | pg, postgres.js | -- | -- | mysql2 | pg, postgres.js | -- |
 | Go         | pgx | database/sql | database/sql | database/sql | pgx | go-mssqldb | godror | database/sql | pgx | gosnowflake |
-| Java       | JDBC, R2DBC | JDBC | JDBC | JDBC | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
-| Kotlin     | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
+| Java       | JDBC, R2DBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
+| Kotlin     | JDBC, R2DBC, Exposed | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
 | C#         | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | Npgsql | Microsoft.Data.SqlClient | ODP.NET | MySqlConnector | Npgsql | Snowflake.Data |
-| Ruby       | pg, Trilogy | mysql2, Trilogy | sqlite3 | -- | pg | tiny_tds | ruby-oci8 | mysql2 | pg | -- |
-| PHP        | PDO, AMPHP | PDO | PDO | -- | PDO | PDO | -- | PDO | PDO | PDO |
-| Elixir     | Postgrex, Ecto | MyXQL | Exqlite | -- | Postgrex | tds | jamdb_oracle | MyXQL | Postgrex | -- |
+| Ruby       | pg | mysql2, Trilogy | sqlite3 | -- | pg | tiny_tds | ruby-oci8 | mysql2, Trilogy | pg | -- |
+| PHP        | PDO, AMPHP | PDO, AMPHP | PDO | -- | PDO, AMPHP | PDO | -- | PDO, AMPHP | PDO | PDO |
+| Elixir     | Postgrex, Ecto | MyXQL | Exqlite | -- | Postgrex, Ecto | tds | jamdb_oracle | MyXQL | Postgrex | -- |
+
+The CockroachDB column is identical to the PostgreSQL column by construction, not by coincidence: `normalize_engine` folds `cockroachdb` and `crdb` into `postgresql` before a backend's engine support is ever consulted, so every PostgreSQL backend is a CockroachDB backend. Redshift does *not* fold that way -- it stays its own engine and needs a per-backend `*.redshift.toml` manifest, which is why its column is narrower.
 
 `kysely` (backend `typescript-kysely`) is dialect-parameterised rather than driver-parameterised: the same generated call site runs against any Kysely `Dialect`. Scythe pins and tests five dialects (PostgreSQL, MySQL, SQLite, MSSQL, MariaDB) plus a Redshift manifest that reuses the PostgreSQL dialect. Third-party dialects -- libsql, PlanetScale, Cloudflare D1, Neon, PGlite, and Node's `node:sqlite` / `@sqlite.org/sqlite-wasm` used as a Kysely dialect -- are wire-compatible but not pinned or tested by scythe.
 

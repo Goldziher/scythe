@@ -114,5 +114,19 @@ SELECT id, name FROM users WHERE id = $1;
 :::caution
 The `integration-redshift` CI job runs against plain `postgres:16-alpine`, not Redshift (see
 `.github/workflows/integration.yml`). `SUPER`, `IDENTITY`, and other Redshift-only behavior are exercised
-at the type-mapping level only -- there is no verification against a real Redshift cluster.
+at the type-mapping level only -- there is no verification against a real Redshift cluster. Every project on
+that leg connects with a PostgreSQL wire driver; no Redshift JDBC or ODBC driver is loaded anywhere in CI.
+
+**The schema is substituted too, not just the engine.** CI applies
+`integration_tests/sql/redshift/schema_pg_compat.sql`, a hand-translated PostgreSQL equivalent whose own
+header records the substitutions: `IDENTITY -> SERIAL`, `GETDATE() -> NOW()`. Code generation still reads the
+real `sql/redshift/schema.sql`, so codegen sees Redshift DDL while the runtime sees PostgreSQL DDL.
+
+This specifically erases the `IDENTITY` nullability rule described above: `IDENTITY(1,1)` becomes
+`SERIAL PRIMARY KEY`, which is `NOT NULL` by construction. The one Redshift-specific nullability behavior
+these docs call out is the one the test schema cannot exercise.
+
+Redshift is also absent from the nullability conformance suite, which has six legs -- SQLite, PostgreSQL,
+MySQL, MariaDB, SQL Server and Oracle. That suite is what validates inference against live engines, so no
+live-engine check of Redshift inference exists at all.
 :::

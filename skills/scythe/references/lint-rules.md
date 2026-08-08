@@ -2,7 +2,7 @@
 
 Scythe has 23 built-in lint rules and 35 audit rules (58 built-in), plus sqruff's 69 style rules via integration.
 
-The 7 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not counted in the 58. They
+The 8 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not counted in the 58. They
 run only from `scythe check` and never appear in `scythe lint` or `scythe audit --list-rules` output.
 
 ## Scythe Rules
@@ -66,8 +66,8 @@ These two families are not reachable from `scythe lint`.
 
 ### Provenance (SC-PRV)
 
-Compares a generated artifact's provenance header against the current schema, engine, backend, and
-scythe version. Runs on every `scythe check`, no flag required.
+Compares a generated artifact's provenance header against the current schema, queries, engine,
+backend and scythe version. Runs on every `scythe check`, no flag required.
 
 | Rule | Default | Description |
 |------|---------|-------------|
@@ -78,6 +78,7 @@ scythe version. Runs on every `scythe check`, no flag required.
 | `SC-PRV05` | warn | Generated artifact has no provenance header, so it cannot be checked for schema drift |
 | `SC-PRV06` | warn | Generated artifact's provenance header is missing one or more required fields |
 | `SC-PRV07` | warn | Generation target could not be verified: backend construction or artifact read failed |
+| `SC-PRV08` | error | Generated artifact's embedded query fingerprint differs from the current query set |
 
 ### Schema drift (SC-DRF)
 

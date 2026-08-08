@@ -30,7 +30,7 @@ functions live together in a separate `Scythe.Queries` module. Postgrex uses the
 (`integration_tests/elixir-postgrex/generated/queries.ex:1-3,17-28,141-152`):
 
 ```elixir
-# scythe:provenance v=0.14.0 backend=elixir-postgrex engine=postgresql schema=sch1:...
+# scythe:provenance v=0.14.0 backend=elixir-postgrex engine=postgresql schema=sch1:... queries=q1:...
 defmodule GetUserRow do
   @moduledoc "Row type for GetUser queries."
 
@@ -116,7 +116,7 @@ wrapper. Everything sits inside a single `module Queries ... end`
 (`integration_tests/ruby-pg/generated/queries.rb:1-21`):
 
 ```ruby
-# scythe:provenance v=0.14.0 backend=ruby-pg engine=postgresql schema=sch1:...
+# scythe:provenance v=0.14.0 backend=ruby-pg engine=postgresql schema=sch1:... queries=q1:...
 
 module Queries
 
@@ -174,7 +174,7 @@ generated `public static function fromRow(array $row): self`. `:many` returns **
 
 ```php
 <?php
-// scythe:provenance v=0.14.0 backend=php-pdo engine=postgresql schema=sch1:...
+// scythe:provenance v=0.14.0 backend=php-pdo engine=postgresql schema=sch1:... queries=q1:...
 
 declare(strict_types=1);
 
@@ -254,7 +254,7 @@ quoted, numeric values are interpolated bare
 
 ```ruby
 # frozen_string_literal: true
-# scythe:provenance v=0.14.0 backend=ruby-trilogy engine=mysql schema=sch1:...
+# scythe:provenance v=0.14.0 backend=ruby-trilogy engine=mysql schema=sch1:... queries=q1:...
 
 module Queries
 
@@ -310,7 +310,7 @@ being separate top-level modules
 `integration_tests/elixir-ecto/generated/queries.ex:1-3,17-41`):
 
 ```elixir
-# scythe:provenance v=0.14.0 backend=elixir-ecto engine=postgresql schema=sch1:...
+# scythe:provenance v=0.14.0 backend=elixir-ecto engine=postgresql schema=sch1:... queries=q1:...
 defmodule Scythe.Queries do
 
 defmodule GetUserRow do
@@ -396,7 +396,7 @@ building an array (`integration_tests/php-amphp/generated/queries.php:1-9,198-22
 
 ```php
 <?php
-// scythe:provenance v=0.14.0 backend=php-amphp engine=postgresql schema=sch1:...
+// scythe:provenance v=0.14.0 backend=php-amphp engine=postgresql schema=sch1:... queries=q1:...
 
 declare(strict_types=1);
 

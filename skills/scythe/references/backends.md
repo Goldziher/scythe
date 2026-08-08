@@ -6,17 +6,29 @@ Scythe provides 56 selectable backend names across 10 languages and 10 database 
 
 | Language | PostgreSQL | MySQL | SQLite | DuckDB | CockroachDB | MSSQL | Oracle | MariaDB | Redshift | Snowflake |
 |----------|-----------|-------|--------|--------|-------------|-------|--------|---------|----------|-----------|
-| Rust | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx | tiberius | sibyl | sqlx | sqlx | -- |
-| Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3 | pyodbc | oracledb | aiomysql | psycopg3 | snowflake-connector |
-| TypeScript | postgres.js, pg, kysely | mysql2, kysely | better-sqlite3, node:sqlite, sqlite-wasm, kysely | duckdb-node | pg, kysely | mssql, kysely | oracledb | mysql2, kysely | pg, kysely | snowflake-sdk |
+| Rust | sqlx, tokio-postgres | sqlx | sqlx | -- | sqlx, tokio-postgres | tiberius | sibyl | sqlx | sqlx, tokio-postgres | -- |
+| Python | psycopg3, asyncpg | aiomysql | aiosqlite | duckdb | psycopg3, asyncpg | pyodbc | oracledb | aiomysql | psycopg3, asyncpg | snowflake-connector |
+| TypeScript | postgres.js, pg, kysely | mysql2, kysely | better-sqlite3, node:sqlite, sqlite-wasm, kysely | duckdb-node | postgres.js, pg, kysely | mssql, kysely | oracledb | mysql2, kysely | postgres.js, pg, kysely | snowflake-sdk |
 | JavaScript | postgres.js, pg | mysql2 | better-sqlite3 | -- | postgres.js, pg | -- | -- | mysql2 | postgres.js, pg | -- |
 | Go | pgx | database/sql | database/sql | database/sql | pgx | go-mssqldb | godror | database/sql | pgx | gosnowflake |
-| Java | JDBC, R2DBC | JDBC | JDBC | JDBC | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
-| Kotlin | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC | JDBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC | JDBC |
+| Java | JDBC, R2DBC | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
+| Kotlin | JDBC, R2DBC, Exposed | JDBC, R2DBC | JDBC, R2DBC | JDBC | JDBC, R2DBC, Exposed | JDBC | JDBC | JDBC, R2DBC | JDBC | JDBC |
 | C# | Npgsql | MySqlConnector | Microsoft.Data.Sqlite | -- | Npgsql | Microsoft.Data.SqlClient | ODP.NET | MySqlConnector | Npgsql | Snowflake.Data |
-| Elixir | Postgrex, Ecto | MyXQL | Exqlite | -- | Postgrex | tds | jamdb_oracle | MyXQL | Postgrex | -- |
-| Ruby | pg, Trilogy | mysql2, Trilogy | sqlite3 | -- | pg | tiny_tds | ruby-oci8 | mysql2 | pg | -- |
-| PHP | PDO, AMPHP | PDO | PDO | -- | PDO | PDO | -- | PDO | PDO | PDO |
+| Elixir | Postgrex, Ecto | MyXQL | Exqlite | -- | Postgrex, Ecto | tds | jamdb_oracle | MyXQL | Postgrex | -- |
+| Ruby | pg | mysql2, Trilogy | sqlite3 | -- | pg | tiny_tds | ruby-oci8 | mysql2, Trilogy | pg | -- |
+| PHP | PDO, AMPHP | PDO, AMPHP | PDO | -- | PDO, AMPHP | PDO | -- | PDO, AMPHP | PDO | PDO |
+
+The CockroachDB column matches the PostgreSQL column exactly, by construction:
+`normalize_engine` folds `cockroachdb` and `crdb` into `postgresql` before a
+backend's engine support is consulted, so every PostgreSQL backend is also a
+CockroachDB backend. Redshift does not fold that way -- it stays a distinct
+engine requiring a per-backend `*.redshift.toml` manifest, which is why fewer
+backends offer it.
+
+R2DBC covers PostgreSQL, MySQL, MariaDB and SQLite only. It does *not* cover
+MSSQL or Oracle, despite `java-r2dbc.mssql.toml` and `java-r2dbc.oracle.toml`
+existing in the manifest directory -- those manifests are unreachable, because
+`supported_engines()` rejects the engine before a manifest is ever loaded.
 
 `kysely` (backend `typescript-kysely`) is dialect-parameterised: it compiles to Kysely's `sql` tag, which renders whatever placeholder syntax the connected `Dialect` needs at runtime, so one generated call site runs against any Kysely dialect. Scythe pins and tests five dialects -- PostgreSQL, MySQL, SQLite, MSSQL, MariaDB -- plus a Redshift manifest that reuses the PostgreSQL dialect. Third-party dialects (libsql, PlanetScale, Cloudflare D1, Neon, PGlite, and `node:sqlite` / `@sqlite.org/sqlite-wasm` used as a Kysely dialect) are wire-compatible but not pinned or tested by scythe.
 

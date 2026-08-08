@@ -107,4 +107,8 @@ Scythe parses and supports the `QUALIFY` clause in the Snowflake dialect.
 Integration tests run against [fakesnow](https://github.com/tekumara/fakesnow), a Snowflake emulator built on
 DuckDB, not a live Snowflake instance (see `.github/workflows/integration.yml`, job
 `integration-snowflake`). Behavior that depends on genuine Snowflake server semantics is unverified.
+
+Snowflake is also absent from the nullability conformance suite, which has six legs -- SQLite, PostgreSQL,
+MySQL, MariaDB, SQL Server and Oracle. That suite is what validates inference against live engines, so no
+live-engine check of Snowflake inference exists at all.
 :::

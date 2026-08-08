@@ -1,6 +1,6 @@
 ```ruby title="Ruby (pg)"
 # frozen_string_literal: true
-# scythe:provenance v=0.14.0 backend=ruby-pg engine=postgresql schema=sch1:2e813606acee8b51
+# scythe:provenance v=0.14.0 backend=ruby-pg engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:9c4e1f77a0b3d582
 
 module Queries
 
