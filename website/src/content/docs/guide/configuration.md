@@ -121,7 +121,7 @@ output = "src/generated/kotlin-exposed"
 | `row_type` | string | no | Row type style for generated code. See below. |
 | `outer_join_unions` | bool | no | Emit outer-join nullability as a discriminated union. TypeScript backends only. See below. |
 | `structs_only` | bool | no | Suppress generated query functions, emitting only row/struct types. TypeScript backends and `rust-sqlx`. |
-| `field_case` | string | no | Case convention for generated column/param field names. TypeScript backends only. See below. |
+| `field_case` | string | no | Case convention for generated column/param field names. TypeScript and Java/Kotlin backends. See below. |
 | `namespace` | string | no | PHP namespace for generated code. PHP backends only. See below. |
 | `extension_functions` | bool | no | Generate idiomatic Kotlin extension functions. Kotlin backends only. See below. |
 
@@ -148,7 +148,9 @@ If you hit this after upgrading, remove the offending key or fix the typo the er
 applies to every TypeScript backend (`typescript-pg`, `typescript-postgres`, `typescript-kysely`,
 `typescript-mysql2`, `typescript-mssql`, `typescript-oracledb`, `typescript-snowflake`,
 `typescript-duckdb`, `typescript-better-sqlite3`, `typescript-node-sqlite`,
-`typescript-wasm-sqlite`) — the only ones with the change today.
+`typescript-wasm-sqlite`) — the only ones with the change today. Every other backend still ignores
+unrecognized keys silently, so `field_casing = "camelCase"` on a `java-jdbc` target is accepted with
+no diagnostic and no effect.
 :::
 
 ### `row_type`
@@ -239,13 +241,18 @@ Java, C# and PHP cannot express this cleanly.
 
 ### `field_case`
 
-TypeScript backends only. Controls the case of generated row/interface field names and function
-parameter names — the SQL side (column names, bound parameter order) is unaffected.
+Accepted by 16 backends: the 11 TypeScript backends listed above, plus `java-jdbc`, `java-r2dbc`,
+`kotlin-jdbc`, `kotlin-r2dbc`, and `kotlin-exposed`. Controls the case of generated
+row/interface/record/data-class field names and function parameter names — the SQL side (column
+names, bound parameter order) is unaffected.
 
 | Value | Description |
 |-------|-------------|
 | `"snake_case"` | (default) Field names mirror SQL column/param names as-is |
 | `"camelCase"` | Field names are converted to camelCase |
+
+Those two values are the whole vocabulary; anything else fails `scythe generate` with an error naming
+the backend and the rejected value.
 
 ```toml
 [[sql.gen]]
@@ -268,11 +275,17 @@ export interface GetUserRow {
 }
 ```
 
-Renaming a field is not just a label change: the driver still returns rows keyed by the original SQL
-column name, so `field_case = "camelCase"` also switches the function body from a blind cast of the
-driver's row to a field-by-field reconstruction (`row['user_name']` read into a `userName` property).
-Without that remap the generated code would still type-check under `tsc` but every field would read
-back `undefined` at runtime.
+On TypeScript backends, renaming a field is not just a label change: the driver still returns rows
+keyed by the original SQL column name, so `field_case = "camelCase"` also switches the function body
+from a blind cast of the driver's row to a field-by-field reconstruction (`row['user_name']` read
+into a `userName` property). Without that remap the generated code would still type-check under `tsc`
+but every field would read back `undefined` at runtime. The Java/Kotlin backends need no such remap —
+each column is read by an explicit getter keyed by the raw SQL column name, so only the declared
+field name changes. See [Java + Kotlin](/scythe/backends/java-kotlin/#field-naming-field_case).
+
+The four `javascript-*` backends accept `field_case = "snake_case"` but reject `"camelCase"`: the
+remap needs a TypeScript `as T` assertion that a plain `.js` file cannot carry. The error points at
+the matching `typescript-*` backend.
 
 Two SQL identifiers that collapse onto the same generated name under the active `field_case` are a
 hard error, not a silent last-write-wins — this also applies under the default `snake_case`, since

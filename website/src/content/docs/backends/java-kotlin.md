@@ -17,9 +17,29 @@ Generated files carry a provenance header as their first line, e.g.
 
 Generated field and record-component names are `snake_case` by default, mirroring the SQL column name
 -- **not** `camelCase` (`field_case` defaults to `snake_case`;
-`crates/scythe-backend/src/naming.rs:24-30`). `created_at` stays `created_at`, not `createdAt`, unless
-the manifest overrides `field_case`. All five backends on this page accept a `field_case` option
-(`snake_case` or `camelCase`) via `[[sql.gen]]` to opt into `camelCase` fields.
+`crates/scythe-backend/src/naming.rs:24-30`). `created_at` stays `created_at`, not `createdAt`.
+
+All five backends on this page accept a `field_case` option -- `snake_case` or `camelCase`, and
+nothing else -- to opt into `camelCase` fields. It is a `[[sql.gen]]` target key only; a manifest
+cannot set it, because `NamingConfig::field_case` carries `#[serde(skip)]`
+(`crates/scythe-backend/src/naming.rs:24-25`). A `field_case` key under a full manifest's `[naming]`
+table is ignored, and naming it in a partial manifest override is a parse error.
+
+```toml
+[[sql.gen]]
+backend = "java-jdbc"
+output = "src/generated/java"
+field_case = "camelCase"
+```
+
+`camelCase` renames record components, data-class properties, and query-function parameters --
+`created_at` becomes `createdAt`. It does not change decoding: every backend on this page reads the
+`ResultSet`/`Row` by the raw SQL column name (`rs.getObject("created_at", ...)`,
+`row.get("created_at", ...)`), and only the declared field name changes
+(`crates/scythe-codegen/src/backends/java_jdbc.rs`, `kotlin_jdbc.rs`). Two SQL identifiers that
+collapse onto the same generated name are a hard error, not last-write-wins. See
+[`field_case`](/scythe/guide/configuration/#field_case) in the Configuration guide for the full
+option reference.
 
 ## SQL input
 
