@@ -6,6 +6,7 @@ mod statements;
 mod type_conversion;
 mod types;
 
+pub use type_conversion::sql_type_to_neutral;
 pub use types::{
     AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, EnumInfo, GroupByConfig,
 };
@@ -17,7 +18,6 @@ use crate::errors::ScytheError;
 use crate::parser::{Query, QueryCommand};
 
 use helpers::detect_select_star_source;
-use type_conversion::sql_type_to_neutral;
 use types::Analyzer;
 
 pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, ScytheError> {
