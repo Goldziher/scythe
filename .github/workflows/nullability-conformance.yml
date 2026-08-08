@@ -141,3 +141,96 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - name: Run MariaDB conformance leg
         run: cargo test -p scythe-conformance --features mariadb,live-tests --test live -- --nocapture
+
+  # `sa`, not a per-app login: the runner isolates itself into a database it
+  # creates per connection, which only an admin login can do. The image,
+  # password and health check are the ones integration.yml already uses for
+  # this engine.
+  mssql:
+    name: SQL Server
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    services:
+      mssql:
+        image: mcr.microsoft.com/mssql/server:2022-latest
+        env:
+          ACCEPT_EULA: "Y"
+          MSSQL_SA_PASSWORD: "Scythe_Test1"
+        ports:
+          - 1433:1433
+        options: >-
+          --health-cmd "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P 'Scythe_Test1' -C -Q 'SELECT 1' -b"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      SCYTHE_CONFORMANCE_MSSQL_ADMIN_URL: "sqlserver://sa:Scythe_Test1@localhost:1433?database=master"
+
+    steps:
+      - uses: actions/checkout@v6
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run SQL Server conformance leg
+        run: cargo test -p scythe-conformance --features mssql,live-tests --test live -- --nocapture
+
+  # Oracle needs two things no other leg does. The container is slow to
+  # report healthy, hence the 20 retries (200s) integration.yml also gives
+  # it. And `sibyl` links against OCI, so the Instant Client must be
+  # installed and on the linker and loader paths before `cargo test` --
+  # the same install block and the same LD_LIBRARY_PATH/RUSTFLAGS wiring as
+  # integration.yml's Oracle job, minus sqlplus, which that job needs only
+  # to apply a schema file and this one does not (the runner applies its own
+  # schema through the driver).
+  #
+  # The credential is `system`, not the `scythe` app user integration.yml
+  # uses: in Oracle a schema *is* a user, so isolating this suite means
+  # CREATE USER plus grants, which the app user cannot do.
+  oracle:
+    name: Oracle
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+
+    services:
+      oracle:
+        image: gvenzl/oracle-xe:21-slim
+        env:
+          ORACLE_PASSWORD: scythe
+          APP_USER: scythe
+          APP_USER_PASSWORD: scythe
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd "healthcheck.sh"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 20
+
+    env:
+      SCYTHE_CONFORMANCE_ORACLE_ADMIN_URL: oracle://system:scythe@localhost:1521/XEPDB1
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install Oracle Instant Client
+        run: |
+          sudo apt-get update && sudo apt-get install -y libaio1t64 alien
+          sudo ln -sf /usr/lib/x86_64-linux-gnu/libaio.so.1t64 /usr/lib/x86_64-linux-gnu/libaio.so.1 || true
+          wget -q https://download.oracle.com/otn_software/linux/instantclient/2340000/oracle-instantclient-basic-23.4.0.24.05-1.el9.x86_64.rpm
+          wget -q https://download.oracle.com/otn_software/linux/instantclient/2340000/oracle-instantclient-devel-23.4.0.24.05-1.el9.x86_64.rpm
+          sudo alien -i oracle-instantclient-basic-*.rpm
+          sudo alien -i oracle-instantclient-devel-*.rpm
+          sudo ln -sf libclntsh.so.23.1 /usr/lib/oracle/23/client64/lib/libclntsh.so
+          echo "/usr/lib/oracle/23/client64/lib" | sudo tee /etc/ld.so.conf.d/oracle.conf
+          sudo ldconfig
+
+      - name: Set Oracle library paths
+        run: |
+          echo "LD_LIBRARY_PATH=/usr/lib/oracle/23/client64/lib:${LD_LIBRARY_PATH:-}" >> "$GITHUB_ENV"
+          echo "RUSTFLAGS=-L/usr/lib/oracle/23/client64/lib" >> "$GITHUB_ENV"
+
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Run Oracle conformance leg
+        run: cargo test -p scythe-conformance --features oracle,live-tests --test live -- --nocapture

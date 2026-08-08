@@ -90,7 +90,7 @@ impl<E: EngineMarker + Send> Executor for MySqlExecutor<E> {
         // `execute_batch`, `mysql_async` does not execute multiple
         // statements in one round trip by default, so each `CREATE TABLE`
         // must be sent individually.
-        for statement in split_statements(schema_sql) {
+        for statement in super::split_statements(schema_sql) {
             self.conn.query_drop(statement).await.map_err(MySqlError::Query)?;
         }
         Ok(())
@@ -120,18 +120,4 @@ impl<E: EngineMarker + Send> Executor for MySqlExecutor<E> {
         }
         Ok(observed)
     }
-}
-
-/// Splits `sql` on top-level `;` terminators.
-///
-/// This is a naive split -- it has no notion of string literals or
-/// comments -- which is safe only because this crate's schema files are
-/// plain DDL with no embedded semicolons. It is not a general SQL statement
-/// splitter and must not be reused for arbitrary SQL.
-fn split_statements(sql: &str) -> Vec<String> {
-    sql.split(';')
-        .map(str::trim)
-        .filter(|statement| !statement.is_empty())
-        .map(str::to_string)
-        .collect()
 }

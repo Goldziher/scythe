@@ -5,10 +5,10 @@
 //! `cargo test --workspace` and `cargo clippy --workspace -- -D warnings`
 //! compile the trait without linking a database client. The
 //! implementations live in [`crate::executors`], each behind its own
-//! feature (`pg`, `mysql`, `mariadb`, `sqlite`) plus the `live-tests` gate
-//! for actually dialing a database. `mssql` and `oracle` declare features
-//! but have no implementation yet -- [`crate::runner`] turns selecting
-//! either into a hard error rather than a silent skip.
+//! feature (`pg`, `mysql`, `mariadb`, `sqlite`, `mssql`, `oracle`) plus the
+//! `live-tests` gate for actually dialing a database. Selecting an engine
+//! whose feature is off is a hard error in [`crate::runner`], never a
+//! silent skip.
 
 use std::future::Future;
 

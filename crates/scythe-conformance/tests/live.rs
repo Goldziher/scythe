@@ -6,9 +6,8 @@
 //!
 //! Every test selects *only its own engine* for the run, mirroring how the
 //! CI matrix invokes this: each matrix job enables exactly one engine's
-//! feature. Every other engine a fixture lists (this batch: SQLite,
-//! PostgreSQL, MySQL, MariaDB are implemented; MSSQL and Oracle are not)
-//! shows up as an explicit, printed skip in `report.summary()` -- see
+//! feature. Every other engine a fixture lists shows up as an explicit,
+//! printed skip in `report.summary()` -- see
 //! `scythe_conformance::runner`'s module docs for why that's the correct
 //! outcome for an engine that is simply out of scope for *this* run,
 //! versus a hard error for one that was selected but cannot run.
@@ -105,47 +104,106 @@ async fn mariadb_leg_is_sound() {
     );
 }
 
+#[cfg(feature = "mssql")]
+#[tokio::test]
+async fn mssql_leg_is_sound() {
+    let url =
+        std::env::var("SCYTHE_CONFORMANCE_MSSQL_ADMIN_URL").expect("SCYTHE_CONFORMANCE_MSSQL_ADMIN_URL must be set");
+    let (fixtures, divergences) = load_fixtures_and_divergences();
+    let mut config = RunnerConfig::from_env(vec![Engine::Mssql], testing_data_root().join("_schemas"));
+    config.mssql_admin_url = Some(url);
+    let report = run(&fixtures, &divergences, &config)
+        .await
+        .expect("run must not hard-error");
+    println!("{}", report.summary());
+    assert!(report.is_pass(), "{}", report.summary());
+    assert!(
+        !report.verdicts.is_empty(),
+        "expected at least one SQL Server leg to actually run"
+    );
+}
+
+#[cfg(feature = "oracle")]
+#[tokio::test]
+async fn oracle_leg_is_sound() {
+    let url =
+        std::env::var("SCYTHE_CONFORMANCE_ORACLE_ADMIN_URL").expect("SCYTHE_CONFORMANCE_ORACLE_ADMIN_URL must be set");
+    let (fixtures, divergences) = load_fixtures_and_divergences();
+    let mut config = RunnerConfig::from_env(vec![Engine::Oracle], testing_data_root().join("_schemas"));
+    config.oracle_admin_url = Some(url);
+    let report = run(&fixtures, &divergences, &config)
+        .await
+        .expect("run must not hard-error");
+    println!("{}", report.summary());
+    assert!(report.is_pass(), "{}", report.summary());
+    assert!(
+        !report.verdicts.is_empty(),
+        "expected at least one Oracle leg to actually run"
+    );
+}
+
 /// A fixture-listed engine that is not selected must appear as an explicit
 /// skip in the report -- never silently absent. Runs whenever at least one
 /// driver feature is on, independent of which.
-#[cfg(any(feature = "pg", feature = "sqlite", feature = "mysql", feature = "mariadb"))]
+///
+/// The assertion is written against *every* unselected engine rather than
+/// naming MSSQL and Oracle, which is what it named while those two were the
+/// only engines no job could ever select. Now that all six have drivers,
+/// naming a fixed pair would make this test vacuous in exactly the job that
+/// selects one of them -- and it is the guard against silent dropping, so a
+/// vacuous version of it is worse than none.
+#[cfg(any(
+    feature = "pg",
+    feature = "sqlite",
+    feature = "mysql",
+    feature = "mariadb",
+    feature = "mssql",
+    feature = "oracle"
+))]
 #[tokio::test]
 async fn unselected_engines_are_reported_as_explicit_skips_not_silently_dropped() {
     let (fixtures, divergences) = load_fixtures_and_divergences();
-    // Select an engine that is compiled in (whichever is available) but
-    // deliberately don't select the others the committed fixture lists
-    // (mssql, oracle -- always out of scope this batch -- plus whichever
-    // of pg/sqlite/mysql/mariadb isn't compiled into this test binary).
+    // Select exactly one engine that is compiled into this test binary.
+    // The cheap in-process engines come first so this test does not do a
+    // second full container round trip in the jobs that have one.
     let selected = if cfg!(feature = "sqlite") {
-        vec![Engine::Sqlite]
+        Engine::Sqlite
     } else if cfg!(feature = "pg") {
-        vec![Engine::Postgresql]
+        Engine::Postgresql
     } else if cfg!(feature = "mysql") {
-        vec![Engine::Mysql]
+        Engine::Mysql
+    } else if cfg!(feature = "mariadb") {
+        Engine::Mariadb
+    } else if cfg!(feature = "mssql") {
+        Engine::Mssql
     } else {
-        vec![Engine::Mariadb]
+        Engine::Oracle
     };
-    let mut config = RunnerConfig::from_env(selected, testing_data_root().join("_schemas"));
+    let mut config = RunnerConfig::from_env(vec![selected], testing_data_root().join("_schemas"));
     // Give every driver a shot at connecting, if configured, so the only
     // reason an engine doesn't run is that it wasn't selected -- not that
     // it lacked configuration.
     config.postgres_url = std::env::var("SCYTHE_CONFORMANCE_POSTGRES_URL").ok();
     config.mysql_admin_url = std::env::var("SCYTHE_CONFORMANCE_MYSQL_ADMIN_URL").ok();
     config.mariadb_admin_url = std::env::var("SCYTHE_CONFORMANCE_MARIADB_ADMIN_URL").ok();
+    config.mssql_admin_url = std::env::var("SCYTHE_CONFORMANCE_MSSQL_ADMIN_URL").ok();
+    config.oracle_admin_url = std::env::var("SCYTHE_CONFORMANCE_ORACLE_ADMIN_URL").ok();
 
     let report = run(&fixtures, &divergences, &config)
         .await
         .expect("run must not hard-error");
     println!("{}", report.summary());
 
-    assert!(
-        report.skipped.iter().any(|s| s.engine == Engine::Mssql),
-        "an mssql leg listed by a fixture but not selected must be recorded as an explicit skip: {:?}",
-        report.skipped
-    );
-    assert!(
-        report.skipped.iter().any(|s| s.engine == Engine::Oracle),
-        "an oracle leg listed by a fixture but not selected must be recorded as an explicit skip: {:?}",
-        report.skipped
-    );
+    // Every committed fixture lists all six engines, so each of the five
+    // that were not selected must appear as a recorded skip.
+    for engine in Engine::ALL {
+        if engine == selected {
+            continue;
+        }
+        assert!(
+            report.skipped.iter().any(|skip| skip.engine == engine),
+            "a {engine} leg listed by a fixture but not selected must be recorded as an explicit skip: {:?}",
+            report.skipped
+        );
+    }
 }
