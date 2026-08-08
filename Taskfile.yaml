@@ -109,7 +109,14 @@ tasks:
       # release succeeded green while shipping five crates instead of six.
       # `version:check` below is the guard that makes a recurrence loud.
       - sed -i '' 's/^version = ".*"/version = "{{.VERSION}}"/' crates/scythe-cli/Cargo.toml crates/scythe-core/Cargo.toml crates/scythe-codegen/Cargo.toml crates/scythe-backend/Cargo.toml crates/scythe-lint/Cargo.toml crates/scythe-inspect/Cargo.toml
-      - sed -i '' -E 's/(scythe-(core|codegen|backend|lint|cli|inspect).*version = ")[^"]*"/\1{{.VERSION}}"/' crates/scythe-cli/Cargo.toml crates/scythe-codegen/Cargo.toml crates/scythe-lint/Cargo.toml crates/scythe-inspect/Cargo.toml
+      # Pins are rewritten across every crate, not an explicit list: cargo
+      # rejects a path dependency whose `version` requirement does not match
+      # the path crate's actual version, so a crate missing from the list
+      # breaks the build outright. That includes crates the first substitution
+      # deliberately skips -- an unpublished crate still pins published ones.
+      # An explicit list is exactly how scythe-inspect went unbumped for two
+      # releases; a glob cannot forget a crate that someone adds later.
+      - sed -i '' -E 's/(scythe-(core|codegen|backend|lint|cli|inspect).*version = ")[^"]*"/\1{{.VERSION}}"/' crates/*/Cargo.toml
       # The documented pre-commit `rev:` pins are the one version string a user
       # copies verbatim into their own repo, so a stale one silently pins them to
       # the previous release. They are prose Markdown, not snippets, so no CI job
@@ -140,9 +147,19 @@ tasks:
         expected=$(awk -F'"' '/^version = /{print $2; exit}' crates/scythe-cli/Cargo.toml)
         violations=""
         for f in crates/*/Cargo.toml; do
-          own=$(awk -F'"' '/^version = /{print $2; exit}' "$f")
-          if [ "$own" != "$expected" ]; then
-            violations="${violations}version drift: $f declares $own, expected $expected\n"
+          # An unpublished crate never reaches crates.io, so its own version is
+          # meaningless and version:sync deliberately leaves it alone --
+          # scythe-conformance sits at 0.1.0 forever. Asserting lockstep on it
+          # would make `task version:sync` abort on its own version:check step,
+          # with no spelling of the version that could satisfy both.
+          # Its *pins* are checked below regardless: cargo rejects a path
+          # dependency whose `version` requirement does not match the path
+          # crate's actual version, published or not.
+          if ! grep -qE '^publish[[:space:]]*=[[:space:]]*false' "$f"; then
+            own=$(awk -F'"' '/^version = /{print $2; exit}' "$f")
+            if [ "$own" != "$expected" ]; then
+              violations="${violations}version drift: $f declares $own, expected $expected\n"
+            fi
           fi
           while IFS= read -r v; do
             [ -z "$v" ] && continue
