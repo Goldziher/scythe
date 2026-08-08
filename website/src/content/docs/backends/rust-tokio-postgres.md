@@ -3,7 +3,12 @@ title: Rust + tokio-postgres
 description: The rust-tokio-postgres backend -- generated code, differences from sqlx, and type mappings.
 ---
 
-Backend: `rust-tokio-postgres` | Library: [tokio-postgres](https://docs.rs/tokio-postgres) | Engine: PostgreSQL
+Backend: `rust-tokio-postgres` | Library: [tokio-postgres](https://docs.rs/tokio-postgres) | Engines: PostgreSQL, Redshift
+
+Accepts two undocumented-elsewhere options: `serde` (`true`/`false`, default `false`) adds
+`serde::Serialize, serde::Deserialize` to every generated struct and enum derive list, and `derive`
+(a comma-separated list, e.g. `derive = "PartialEq, Hash"`) appends arbitrary extra derives
+(`crates/scythe-codegen/src/backends/tokio_postgres.rs:22-24,51-74,101-109`).
 
 ## SQL input
 
@@ -34,10 +39,22 @@ CREATE TABLE users (
 
 ## Generated code
 
-### Row struct with manual `from_row()`
+Every generated file starts with a provenance header, then the same
+`#![allow(dead_code, unused_imports, ...)]` line as `rust-sqlx`
+(`integration_tests/rust-tokio-postgres/src/queries.rs:1-2`):
 
 ```rust
-#[derive(Debug)]
+// scythe:provenance v=0.13.0 backend=rust-tokio-postgres engine=postgresql schema=sch1:...
+#![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
+```
+
+### Row struct with manual `from_row()`
+
+Rows derive `Debug, Clone` (not bare `Debug`), and `from_row` is a **public** associated function, not
+private (`crates/scythe-codegen/src/backends/tokio_postgres.rs:51-61,111-120`):
+
+```rust
+#[derive(Debug, Clone)]
 pub struct GetUserRow {
     pub id: i32,
     pub name: String,
@@ -46,7 +63,7 @@ pub struct GetUserRow {
 }
 
 impl GetUserRow {
-    fn from_row(row: &tokio_postgres::Row) -> Self {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
         Self {
             id: row.get("id"),
             name: row.get("name"),
@@ -59,9 +76,13 @@ impl GetUserRow {
 
 ### `:one` query function
 
+The client parameter is `&(impl tokio_postgres::GenericClient + Sync)`, not `&tokio_postgres::Client`
+-- this lets callers pass either a bare `Client` or a `Transaction`
+(`crates/scythe-codegen/src/backends/tokio_postgres.rs:77`):
+
 ```rust
 pub async fn get_user(
-    client: &tokio_postgres::Client,
+    client: &(impl tokio_postgres::GenericClient + Sync),
     id: i32,
 ) -> Result<GetUserRow, tokio_postgres::Error> {
     let row = client
@@ -77,14 +98,14 @@ pub async fn get_user(
 ### `:many` query function
 
 ```rust
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ListUsersRow {
     pub id: i32,
     pub name: String,
 }
 
 impl ListUsersRow {
-    fn from_row(row: &tokio_postgres::Row) -> Self {
+    pub fn from_row(row: &tokio_postgres::Row) -> Self {
         Self {
             id: row.get("id"),
             name: row.get("name"),
@@ -93,7 +114,7 @@ impl ListUsersRow {
 }
 
 pub async fn list_users(
-    client: &tokio_postgres::Client,
+    client: &(impl tokio_postgres::GenericClient + Sync),
     limit: i64,
 ) -> Result<Vec<ListUsersRow>, tokio_postgres::Error> {
     let rows = client
@@ -110,7 +131,7 @@ pub async fn list_users(
 
 ```rust
 pub async fn create_user(
-    client: &tokio_postgres::Client,
+    client: &(impl tokio_postgres::GenericClient + Sync),
     name: &str,
     email: Option<&str>,
 ) -> Result<u64, tokio_postgres::Error> {
@@ -120,6 +141,43 @@ pub async fn create_user(
             &[&name, &email],
         )
         .await
+}
+```
+
+### Enum derives: `Display` and `FromStr`
+
+Unlike `rust-sqlx` (a single `#[derive(sqlx::Type)]`), `rust-tokio-postgres` enums also get manual
+`std::fmt::Display` and `std::str::FromStr` implementations, alongside the `FromSql`/`ToSql` impls
+(`integration_tests/rust-tokio-postgres/src/queries.rs:4-45`):
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum UserStatus {
+    Active,
+    Inactive,
+    Banned,
+}
+
+impl std::fmt::Display for UserStatus {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UserStatus::Active => write!(f, "active"),
+            UserStatus::Inactive => write!(f, "inactive"),
+            UserStatus::Banned => write!(f, "banned"),
+        }
+    }
+}
+
+impl std::str::FromStr for UserStatus {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(UserStatus::Active),
+            "inactive" => Ok(UserStatus::Inactive),
+            "banned" => Ok(UserStatus::Banned),
+            _ => Err(format!("unknown variant: {}", s)),
+        }
+    }
 }
 ```
 

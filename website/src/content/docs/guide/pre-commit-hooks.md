@@ -42,7 +42,10 @@ prek install
 
 ### scythe-fmt
 
-Formats SQL files using sqruff integration. Runs on changed `.sql` files and modifies them in-place. Failed formatting (exit code 1) blocks the commit until files are re-staged.
+Formats SQL files using sqruff integration. Runs on changed `.sql` files and modifies them in-place
+and exits 0 after writing. There is no exit-1 formatting failure to block the commit -- the commit is
+blocked by pre-commit/prek's own detection that the hook modified files, the same mechanism that
+blocks `scythe-lint`. Re-stage the changed files and commit again.
 
 ### scythe-lint
 
@@ -62,7 +65,9 @@ Regenerates code when `.sql` files or `scythe.toml` change. Requires a `scythe.t
 
 ### scythe-check
 
-Validates SQL schema and queries without generating code. Exits with code 1 if any lint errors are found. Useful in CI or as a read-only validation step.
+Validates SQL schema and queries without generating code. Exits with code 2 if any error-severity
+lint finding is present; exit 1 is reserved for operational failures (bad config, unreadable files).
+Useful in CI or as a read-only validation step.
 
 ## Customization
 
@@ -77,14 +82,19 @@ repos:
       - id: scythe-fmt
         args: ["--dialect", "postgres"]
 
-      # Lint without auto-fix (check-only)
-      - id: scythe-lint
-        args: []
-
       # Use a custom config path
       - id: scythe-generate
         args: ["--config", "db/scythe.toml"]
 ```
+
+:::caution[`scythe-lint` has no check-only mode via `args:`]
+`.pre-commit-hooks.yaml` bakes `--fix` into the hook's `entry` (`entry: scythe lint --fix`), not into
+`args:`. Pre-commit's `args:` only *adds* arguments to `entry` -- it cannot remove `--fix` from it. So
+`args: []` on `scythe-lint` still auto-fixes; there is currently no way to make the published
+`scythe-lint` hook check-only without modifying files. Use `scythe-check` (which never writes files)
+for a check-only step, or invoke `scythe lint` directly (without `--fix`) as a `language: system`
+local hook.
+:::
 
 ## Using a Pre-installed Binary
 

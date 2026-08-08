@@ -48,7 +48,8 @@ type = "string"                        # Neutral type to map to
 # Optional: lint configuration
 [lint]
 
-# Set severity by category (naming, safety, style, performance, antipattern, codegen)
+# Set severity by category (naming, safety, style, performance, antipattern, codegen,
+# security, migration, provenance, drift)
 [lint.categories]
 safety = "error"
 naming = "warn"
@@ -76,7 +77,7 @@ performance = "warn"
 | `engine` | string | yes | Database dialect: `postgresql`, `mysql`, `sqlite`, `duckdb`, `cockroachdb`, `mssql`, `oracle`, `mariadb`, `redshift`, `snowflake`. |
 | `schema` | string[] | yes | Glob patterns for schema DDL files. Relative patterns resolve against the config file's directory. |
 | `queries` | string[] | yes | Glob patterns for annotated query files. Relative patterns resolve against the config file's directory. |
-| `output` | string | yes | Output directory for generated code. A relative path resolves against the config file's directory. |
+| `output` | string | no | Legacy output directory, used as the default when no `[[sql.gen]]` targets are specified. Defaults to `"generated"`. A relative path resolves against the config file's directory. |
 | `gen` | table | no | Code generation options per language. |
 | `type_overrides` | array | no | Type mapping overrides. |
 
@@ -119,9 +120,17 @@ output = "src/generated/kotlin-exposed"
 | `manifest` | string | no | Path to a partial manifest merged over the backend's built-in one. A relative path resolves against the config file's directory. See below. |
 | `row_type` | string | no | Row type style for generated code. See below. |
 | `outer_join_unions` | bool | no | Emit outer-join nullability as a discriminated union. TypeScript backends only. See below. |
+| `structs_only` | bool | no | Suppress generated query functions, emitting only row/struct types. TypeScript backends and `rust-sqlx`. |
 | `field_case` | string | no | Case convention for generated column/param field names. TypeScript backends only. See below. |
 | `namespace` | string | no | PHP namespace for generated code. PHP backends only. See below. |
 | `extension_functions` | bool | no | Generate idiomatic Kotlin extension functions. Kotlin backends only. See below. |
+
+`row_type`, `outer_join_unions`, `structs_only`, and `field_case` are the only options every
+TypeScript backend accepts (`typescript-pg`, `typescript-postgres`, `typescript-kysely`,
+`typescript-mysql2`, `typescript-mssql`, `typescript-oracledb`, `typescript-snowflake`,
+`typescript-duckdb`, `typescript-better-sqlite3`, `typescript-node-sqlite`,
+`typescript-wasm-sqlite`); `namespace` and `extension_functions` are not on that list. Setting either
+on a TypeScript target fails with the `unknown option` error shown below — see the caution box.
 
 :::caution[Breaking: unrecognized options are now a hard error]
 `[[sql.gen]]` uses `#[serde(flatten)]`, so every key besides `backend`, `output`, and `manifest` is
@@ -411,13 +420,68 @@ The legacy syntax is still supported but limited to a single backend per languag
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `column` | string | Target a specific column (`table.column`). Mutually exclusive with `db_type`. |
-| `db_type` | string | Target all columns with this database type. Mutually exclusive with `column`. |
+| `column` | string | Target a specific column (`table.column`). If both `column` and `db_type` are set on the same entry, `column` wins silently — nothing rejects setting both. |
+| `db_type` | string | Target all columns whose *neutral* type matches this value (see [Custom Types](/scythe/guide/custom-types/) for what "neutral type" means here). |
 | `type` | string | Neutral type to use (e.g. `string`, `json`, `int64`). |
 
 ### `[lint]`
 
 See [Linting](/scythe/guide/linting/) for the full list of rules and categories.
+
+### `[lint.sqruff]`
+
+Controls the sqruff style-rule integration used by `scythe lint` (not `scythe fmt`, which always runs
+sqruff's default rule set and ignores this table entirely).
+
+```toml
+[lint.sqruff]
+enabled = true      # default; set false to disable sqruff rules under scythe lint
+
+[lint.sqruff.rules]
+"LT01" = "off"      # bare sqruff codes, not the SQ- prefix scythe uses in output
+```
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `enabled` | bool | no | Whether sqruff rules run at all. Default `true`. |
+| `rules` | table | no | Per-rule status keyed by bare sqruff code (e.g. `"LT01"`). Only `"off"` has an effect; any other value leaves the rule at its default severity. |
+
+See [Linting](/scythe/guide/linting/#sqruff-configuration) for details.
+
+### `[inspect]`
+
+Configures `scythe inspect`, the live-database health-check command. See the
+[Inspect guide](/scythe/guide/inspect/#project-configuration-inspect-in-scythetoml) for the full
+field reference, including `[inspect.severity_overrides]`, `[[inspect.suppression]]`, and
+`[[inspect.check]]` for user-defined checks (IDs must be prefixed `USER-INS-`).
+
+```toml
+[inspect]
+database_url = "postgres://localhost/dev"
+api_schemas  = ["public", "api"]
+extra_rules  = ["./inspect-rules.toml"]
+```
+
+### `[audit]`
+
+Configures `scythe audit`'s user-defined rules. See the [Audit guide](/scythe/guide/audit/#user-defined-rules)
+for the full field reference and available matchers. Custom rule IDs must be prefixed `USER-`.
+
+```toml
+[audit]
+extra_rules = ["./security_rules.toml"]
+
+[[audit.rule]]
+id = "USER-001"
+name = "no-debug-functions"
+severity = "error"
+description = "calls to debug-only functions should not ship"
+message = "call to debug function `{func}` — remove before merging"
+matcher = "function_name_in_set"
+
+[audit.rule.matcher_args]
+functions = ["dump_internal_state", "debug_print"]
+```
 
 ## Multiple SQL Blocks
 
@@ -444,15 +508,15 @@ output = "src/generated/analytics"
 
 ## Engine Aliases
 
-| Alias | Engine |
+Aliases resolve to one of six `SqlDialect` variants (`crates/scythe-core/src/dialect.rs`).
+`duckdb`, `redshift`, `cockroachdb`, and `crdb` are not separate dialects — they alias directly to
+the PostgreSQL dialect and get identical parsing and type resolution.
+
+| Alias | Resolves to |
 |-------|--------|
-| `postgresql`, `postgres`, `pg` | PostgreSQL |
-| `mysql` | MySQL |
+| `postgresql`, `postgres`, `pg`, `cockroachdb`, `crdb`, `duckdb`, `redshift` | PostgreSQL |
+| `mysql`, `mariadb` | MySQL |
 | `sqlite`, `sqlite3` | SQLite |
-| `duckdb` | DuckDB |
-| `cockroachdb`, `crdb` | CockroachDB |
-| `mssql`, `sqlserver` | MSSQL |
+| `mssql`, `sqlserver`, `tsql` | MsSql |
 | `oracle` | Oracle |
-| `mariadb` | MariaDB |
-| `redshift` | Redshift |
 | `snowflake` | Snowflake |

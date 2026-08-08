@@ -43,7 +43,16 @@ engine = "postgresql"
 schema = ["sql/schema.sql"]
 queries = ["sql/queries.sql"]
 output = "db"
+
+[sql.gen.go]
+target = "go"
 ```
+
+> **Warning:** `scythe migrate` writes `target = "go"` verbatim from the sqlc plugin name -- it does
+> not know which Go driver you want. `scythe generate` resolves this to backend `go-go`, which does
+> not exist, and generation fails. Replace `target` with a real driver alias before running
+> `scythe generate` -- for example `target = "pgx"` for PostgreSQL (see
+> [Configuration](/scythe/guide/configuration/) for the full backend list).
 
 ### Query Annotations
 
@@ -112,7 +121,8 @@ This is converted to the equivalent scythe.toml with glob patterns for directori
 
 ### sqlc.narg()
 
-sqlc's nullable named arguments convert to standard parameters with the `@nullable` annotation:
+sqlc's named arguments (`sqlc.arg()` and `sqlc.narg()`) convert to positional parameters with a
+`@param` annotation documenting the original name:
 
 **sqlc:**
 
@@ -126,9 +136,13 @@ SELECT * FROM users WHERE name = sqlc.narg('name');
 ```sql
 -- @name SearchUsers
 -- @returns :many
--- @nullable name
+-- @param name
 SELECT * FROM users WHERE name = $1;
 ```
+
+`sqlc.narg()` does not currently convert to a `@nullable` annotation -- nullability of the parameter
+is unaffected by migration and still needs a manual `@nullable` if the column itself isn't already
+nullable.
 
 ### sqlc.embed() and sqlc.slice()
 

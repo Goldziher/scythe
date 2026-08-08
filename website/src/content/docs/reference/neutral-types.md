@@ -37,6 +37,9 @@ Neutral types are scythe's intermediate representation between SQL types and lan
 | `range<T>` | `PgRange<T>` | `tuple[T, T]` | `string` | `string` | `String` | `String` | `string` | `string()` | `String` |
 | `json_typed<T>` | `sqlx::types::Json<T>` | `T` | `T` | `T` | `T` | `T` | `T` | `T` | `T` |
 
+`json_typed<T>` is produced by the [`@json`](/scythe/databases/postgresql/#postgresql-specific-annotations)
+annotation, which binds a JSON/JSONB column to a specific language type `T` instead of the generic `json` mapping.
+
 ## Special types
 
 | Neutral Pattern | Description | Example |
@@ -48,28 +51,49 @@ Enum and composite names are converted to PascalCase for all backends.
 
 ## SQL to neutral mapping
 
-| SQL Type(s) | Neutral Type |
-|------------|-------------|
-| `INTEGER`, `INT`, `INT4`, `SERIAL` | `int32` |
-| `SMALLINT`, `INT2`, `SMALLSERIAL` | `int16` |
-| `BIGINT`, `INT8`, `BIGSERIAL` | `int64` |
-| `REAL`, `FLOAT4` | `float32` |
-| `DOUBLE PRECISION`, `FLOAT8` | `float64` |
-| `FLOAT` (bare, no precision) | `float64` (`float32` on MySQL) |
-| `NUMERIC`, `DECIMAL` | `decimal` |
-| `MONEY`, `SMALLMONEY` | `decimal` |
-| `TEXT`, `VARCHAR`, `CHAR` | `string` |
-| `BOOLEAN`, `BOOL` | `bool` |
-| `BYTEA`, `BLOB`, `BINARY` | `bytes` |
-| `UUID` | `uuid` |
-| `DATE` | `date` |
-| `TIME` | `time` |
-| `TIMETZ` | `time_tz` |
-| `TIMESTAMP` | `datetime` |
-| `TIMESTAMPTZ` | `datetime_tz` |
-| `INTERVAL` | `interval` |
-| `JSON`, `JSONB` | `json` |
-| `INET`, `CIDR`, `MACADDR` | `inet` |
-| `INTEGER[]` | `array<int32>` |
-| `INT4RANGE` | `range<int32>` |
-| `TSTZRANGE` | `range<datetime_tz>` |
+This table has no separate dialect column; instead, dialect-specific exceptions are called out in
+Notes. Where no exception is listed, the mapping is the same across all dialects that have the type.
+
+| SQL Type(s) | Neutral Type | Notes |
+|------------|-------------|-------|
+| `INTEGER`, `INT`, `INT4`, `SERIAL` | `int32` | `int64` on SQLite and Snowflake -- neither has a narrower storage class |
+| `SMALLINT`, `INT2`, `SMALLSERIAL` | `int16` | `int64` on Snowflake -- every integer type is `NUMBER(38,0)` there |
+| `BIGINT`, `INT8`, `BIGSERIAL` | `int64` | |
+| `HUGEINT`, `UHUGEINT` | `decimal` | DuckDB 128-bit integers; no neutral type is wide enough to hold them losslessly |
+| `REAL`, `FLOAT4` | `float32` | `float64` on SQLite and Snowflake |
+| `DOUBLE PRECISION`, `FLOAT8` | `float64` | |
+| `FLOAT` (bare, no precision) | `float64` | `float32` on MySQL |
+| `NUMERIC`, `DECIMAL` | `decimal` | |
+| `NUMBER(p, s)`, `s > 0` | `decimal` | Oracle/Snowflake |
+| `NUMBER(p)` / `NUMBER(p, 0)` | `int64` | Oracle/Snowflake; see the [Oracle](/scythe/databases/oracle/) page for the full split |
+| `MONEY`, `SMALLMONEY` | `decimal` | |
+| MySQL `UNSIGNED` family (e.g. `INT UNSIGNED`) | same-width signed neutral type | No dedicated unsigned neutral type; see [MySQL](/scythe/databases/mysql/) |
+| `TEXT`, `VARCHAR`, `CHAR` | `string` | |
+| `XML` | `string` | |
+| `CLOB`, `NCLOB` | `string` | Oracle |
+| `SET(...)` | `string` | MySQL/MariaDB |
+| `ENUM(...)` | `enum::{table}_{column}` | MySQL/SQLite; `string` on other dialects |
+| `GEOGRAPHY`, `GEOMETRY` | `string` | Snowflake, Redshift |
+| `BOOLEAN`, `BOOL` | `bool` | |
+| `BIT` / `BIT(1)` | `bool` | |
+| `BIT(n)`, `n > 1` | `int64` | MySQL; `bytes` on other dialects with a `BIT(n)` type |
+| `BYTEA`, `BLOB`, `BINARY` | `bytes` | |
+| `BFILE` | `bytes` | Oracle |
+| `UUID` | `uuid` | |
+| `DATE` | `date` | |
+| `TIME` | `time` | |
+| `TIMETZ` | `time_tz` | |
+| `TIMESTAMP` | `datetime` | |
+| `TIMESTAMPTZ` | `datetime_tz` | |
+| `TIMESTAMP_NTZ` | `datetime` | Snowflake |
+| `TIMESTAMP_LTZ`, `TIMESTAMP_TZ` | `datetime_tz` | Snowflake |
+| `YEAR` | `int16` | MySQL |
+| `INTERVAL` | `interval` | |
+| `JSON`, `JSONB` | `json` | |
+| `VARIANT` | `json` | Snowflake |
+| `SUPER` | `json` | Redshift |
+| `INET`, `CIDR`, `MACADDR` | `inet` | |
+| `INTEGER[]` | `array<int32>` | |
+| `INT4RANGE` | `range<int32>` | |
+| `TSRANGE` | `range<datetime>` | |
+| `TSTZRANGE` | `range<datetime_tz>` | |

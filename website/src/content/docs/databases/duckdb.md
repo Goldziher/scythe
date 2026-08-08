@@ -23,14 +23,15 @@ DuckDB is an in-process analytical database designed for OLAP workloads. It spea
 
 ```toml
 # scythe.toml
-[sql]
+[[sql]]
+name = "main"
 engine = "duckdb"
 schema = ["schema.sql"]
 queries = ["queries/"]
 
 [[sql.gen]]
 backend = "python-duckdb"
-out = "src/generated/queries.py"
+output = "src/generated"
 ```
 
 ## Type mapping table
@@ -56,20 +57,29 @@ out = "src/generated/queries.py"
 | `TIMESTAMP WITH TIME ZONE` | `datetime_tz` | |
 | `INTERVAL` | `interval` | |
 | `JSON` | `json` | |
-| `LIST` | `array` | Mapped to language-native array/list |
-| `STRUCT` | `json` | Mapped to JSON object |
-| `MAP` | `json` | Mapped to JSON object |
 
 ## Placeholder syntax
 
-DuckDB uses positional `$N` placeholders, same as PostgreSQL:
+Write positional `$N` placeholders in your SQL, same as PostgreSQL. DuckDB backends translate
+these to `?` in the generated code:
 
 ```sql
+-- Written as:
 SELECT * FROM analytics WHERE user_id = $1 AND event_date > $2;
+
+-- Generated as:
+SELECT * FROM analytics WHERE user_id = ? AND event_date > ?;
 ```
 
 ## Notes
 
-- **Embedded architecture** -- no Docker container needed for testing. DuckDB runs in-process, so integration tests execute directly against an in-memory or file-based database.
-- **PostgreSQL compatibility** -- most PostgreSQL SQL syntax works unchanged. Scythe reuses PostgreSQL dialect parsing with DuckDB-specific type resolution.
+- **Embedded architecture** -- no Docker container needed for testing. DuckDB runs in-process, so
+  there is no server to provision.
+- **PostgreSQL compatibility** -- most PostgreSQL SQL syntax works unchanged. Scythe reuses
+  PostgreSQL dialect parsing with DuckDB-specific type resolution.
 - Standard types (INTEGER, TEXT, BOOLEAN, etc.) follow the same mapping as PostgreSQL.
+
+:::caution
+There is no DuckDB integration test suite and no DuckDB CI job. Type mappings above are verified by
+unit tests in `scythe-core`, but end-to-end behavior against a real DuckDB database is unverified.
+:::

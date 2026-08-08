@@ -9,6 +9,12 @@ description: Install scythe via cargo, npm, pip, Homebrew, from source, or as a 
 cargo install scythe-cli
 ```
 
+`cargo-binstall` is also supported and downloads the prebuilt binary instead of compiling from source:
+
+```bash
+cargo binstall scythe-cli
+```
+
 ## npm (Node.js)
 
 For Node.js projects, install scythe as a pinned dev dependency -- no Rust toolchain required. A
@@ -42,7 +48,7 @@ environment variables.
 brew install Goldziher/tap/scythe
 ```
 
-Pre-built binaries are available for macOS (arm64, x86_64) and Linux (x86_64). No Rust toolchain needed.
+Pre-built binaries are available for macOS (arm64, x86_64) and Linux (x86_64, arm64). No Rust toolchain needed.
 
 ## From Source
 

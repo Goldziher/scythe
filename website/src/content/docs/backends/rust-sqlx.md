@@ -3,7 +3,14 @@ title: Rust + sqlx
 description: The rust-sqlx backend -- generated code, enum generation, and type mappings.
 ---
 
-Backend: `rust-sqlx` | Library: [sqlx](https://github.com/launchbadge/sqlx) | Engine: PostgreSQL
+Backend: `rust-sqlx` | Library: [sqlx](https://github.com/launchbadge/sqlx) | Engines: PostgreSQL, MySQL, MariaDB, SQLite, Redshift
+
+Accepts a `structs_only` option (`true`/`false`, default `false`): when `true`, only row/model structs
+and enums are emitted -- no query functions
+(`crates/scythe-codegen/src/backends/sqlx.rs:126-131,173-175`). The committed
+`integration_tests/rust-sqlx` fixture uses `structs_only = "true"`, so its generated `queries.rs`
+contains structs and enums only; the query functions shown below are reconstructed from the generator
+source (`sqlx.rs:283-355`) rather than copied from that fixture.
 
 ## SQL input
 
@@ -34,10 +41,19 @@ CREATE TABLE users (
 
 ## Generated code
 
+Every generated file starts with a provenance header, then
+`#![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]`
+(`integration_tests/rust-sqlx/src/queries.rs:1-2`):
+
+```rust
+// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:2e813606acee8b51
+#![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
+```
+
 ### Row struct (`:one` / `:many`)
 
 ```rust
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct GetUserRow {
     pub id: i32,
     pub name: String,
@@ -68,7 +84,7 @@ pub async fn get_user(
 ### `:many` query function
 
 ```rust
-#[derive(Debug, sqlx::FromRow)]
+#[derive(Debug, Clone, sqlx::FromRow)]
 pub struct ListUsersRow {
     pub id: i32,
     pub name: String,
@@ -119,7 +135,7 @@ Generates:
 
 ```rust
 #[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]
-#[sqlx(type_name = "user_status", rename_all = "lowercase")]
+#[sqlx(type_name = "user_status", rename_all = "snake_case")]
 pub enum UserStatus {
     Active,
     Inactive,

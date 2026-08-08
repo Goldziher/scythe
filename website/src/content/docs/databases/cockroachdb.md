@@ -3,11 +3,16 @@ title: CockroachDB
 description: Distributed SQL database support -- engine alias, backends, and differences from PostgreSQL.
 ---
 
-Distributed SQL database with PostgreSQL wire compatibility. All PostgreSQL backends work with CockroachDB without modification.
+Distributed SQL database with PostgreSQL wire compatibility. All backends that support the
+`postgresql` engine work with CockroachDB without modification.
 
 ## Overview
 
-CockroachDB is a distributed SQL database that implements the PostgreSQL wire protocol. Scythe treats CockroachDB as a PostgreSQL-compatible engine -- all existing PostgreSQL backends automatically accept the `cockroachdb` engine. No special backends are needed.
+CockroachDB is a distributed SQL database that implements the PostgreSQL wire protocol. Scythe treats
+CockroachDB as a PostgreSQL-compatible engine: `cockroachdb`/`crdb` normalize to the same
+`postgresql` engine string used for backend selection and to `SqlDialect::PostgreSQL` for parsing and
+type inference (`crates/scythe-core/src/dialect.rs`). No special backends or manifests exist for
+CockroachDB -- it is indistinguishable from PostgreSQL past the engine-alias normalization step.
 
 ## Engine alias
 
@@ -15,24 +20,23 @@ CockroachDB can be specified with either its full name or its abbreviation:
 
 ```toml
 # scythe.toml
-[sql]
+[[sql]]
 engine = "cockroachdb"  # or "crdb"
 ```
 
 ## Supported backends
 
-All PostgreSQL backends work with CockroachDB:
+Every backend that accepts the `postgresql` engine works with CockroachDB:
 
 | Backend | Language | Driver |
 |---------|----------|--------|
 | `rust-sqlx` | Rust | sqlx with PostgreSQL driver |
 | `rust-tokio-postgres` | Rust | tokio-postgres |
-| `python-psycopg` | Python | psycopg (v3) |
+| `python-psycopg3` | Python | psycopg (v3) |
 | `python-asyncpg` | Python | asyncpg |
 | `typescript-pg` | TypeScript | node-postgres (pg) |
-| `typescript-postgres-js` | TypeScript | postgres.js |
+| `typescript-postgres` | TypeScript | postgres.js |
 | `go-pgx` | Go | pgx |
-| `go-database-sql` | Go | database/sql with pgx driver |
 | `java-jdbc` | Java | PostgreSQL JDBC driver |
 | `kotlin-jdbc` | Kotlin | PostgreSQL JDBC driver |
 | `java-r2dbc` | Java | r2dbc-postgresql |
@@ -44,18 +48,22 @@ All PostgreSQL backends work with CockroachDB:
 | `php-pdo` | PHP | PDO with pgsql driver |
 | `php-amphp` | PHP | AMPHP PostgreSQL |
 
+`go-database-sql` does **not** support `postgresql`/`cockroachdb` -- its `supported_engines` list is
+`mysql`, `mariadb`, `mssql`, `sqlite`, `duckdb`. Use `go-pgx` for CockroachDB on Go.
+
 ## Configuration
 
 ```toml
 # scythe.toml
-[sql]
+[[sql]]
+name = "main"
 engine = "cockroachdb"
 schema = ["schema.sql"]
 queries = ["queries/"]
 
 [[sql.gen]]
 backend = "python-asyncpg"
-out = "src/generated/queries.py"
+output = "src/generated"
 ```
 
 ## Type differences from PostgreSQL
@@ -80,6 +88,13 @@ INSERT INTO accounts (owner, balance) VALUES ($1, $2);
 
 ## Notes
 
-- All PostgreSQL backends automatically accept the `cockroachdb` (or `crdb`) engine alias. No backend changes are needed when migrating from PostgreSQL to CockroachDB.
+- Every backend that supports the `postgresql` engine automatically accepts the `cockroachdb` (or
+  `crdb`) engine alias -- no backend changes are needed when migrating from PostgreSQL to CockroachDB.
 - Scythe uses PostgreSQL dialect parsing for CockroachDB. If your schema uses CockroachDB-specific features not present in PostgreSQL, define them in your DDL files and use `type_overrides` in `scythe.toml` for correct mapping.
-- Standard type mappings are identical to PostgreSQL. See the [PostgreSQL](/scythe/databases/postgresql/) page for the full type mapping table.
+- Type mappings are identical to PostgreSQL -- there is no CockroachDB-specific type resolution path.
+  See the [PostgreSQL](/scythe/databases/postgresql/) page for the full type mapping table.
+
+:::caution
+There is no CockroachDB CI job. PostgreSQL wire and dialect compatibility is CockroachDB's own claim,
+not something scythe's test suite verifies against a live CockroachDB instance.
+:::

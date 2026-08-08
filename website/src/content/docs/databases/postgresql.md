@@ -10,7 +10,7 @@ Scythe's primary and most complete dialect. All features are supported.
 - **Enums** -- `CREATE TYPE ... AS ENUM (...)` parsed and mapped to `enum::name`
 - **Composite types** -- `CREATE TYPE ... AS (...)` mapped to `composite::name`
 - **Arrays** -- `TEXT[]`, `INTEGER[]`, etc. mapped to `array<T>`
-- **JSONB / JSON** -- mapped to `json`; typed JSON via `@json_typed` annotation
+- **JSONB / JSON** -- mapped to `json`; typed JSON via `@json` annotation
 - **Views** -- resolved through underlying table definitions
 - **Domains** -- `CREATE DOMAIN` resolved to base type with NOT NULL propagation
 - **Range types** -- `int4range`, `tstzrange`, etc. mapped to `range<T>`
@@ -44,6 +44,7 @@ Scythe's primary and most complete dialect. All features are supported.
 | `TEXT[]` | `array<string>` | |
 | `INT4RANGE` | `range<int32>` | |
 | `INT8RANGE` | `range<int64>` | |
+| `TSRANGE` | `range<datetime>` | |
 | `TSTZRANGE` | `range<datetime_tz>` | |
 | `DATERANGE` | `range<date>` | |
 | `NUMRANGE` | `range<decimal>` | |

@@ -17,30 +17,39 @@ MariaDB is a MySQL-compatible database that has diverged with its own features. 
 engine = "mariadb"
 ```
 
-Note: `mariadb` was previously an alias for MySQL. In v0.6.0+, it activates MariaDB-specific type handling and feature support.
+Note: `mariadb` was previously an alias for MySQL. In v0.6.0+, `engine = "mariadb"` selects
+MariaDB-specific backend manifests for the four backends that have one (see below). Parsing and type
+inference are unaffected: the parser resolves `mariadb` to the same `SqlDialect::MySQL` as `mysql`
+(`crates/scythe-core/src/dialect.rs`), so nullability and type analysis are byte-identical to MySQL.
 
 ## Supported backends
 
-MariaDB uses the same drivers as MySQL:
+MariaDB uses the same drivers as MySQL. Only four backends have a dedicated MariaDB manifest; the rest
+accept `engine = "mariadb"` but load the same manifest as `engine = "mysql"`:
 
-| Backend | Language | Driver |
-|---------|----------|--------|
-| `rust-sqlx` | Rust | sqlx (MySQL driver) |
-| `python-aiomysql` | Python | aiomysql |
-| `typescript-mysql2` | TypeScript | mysql2 |
-| `go-database-sql` | Go | database/sql |
-| `java-jdbc` | Java | JDBC (MariaDB Connector/J) |
-| `kotlin-jdbc` | Kotlin | JDBC (MariaDB Connector/J) |
-| `csharp-mysqlconnector` | C# | MySqlConnector |
-| `elixir-myxql` | Elixir | MyXQL |
-| `ruby-mysql2` | Ruby | mysql2 gem |
-| `php-pdo` | PHP | PDO (mysql driver) |
+| Backend | Language | Driver | Manifest |
+|---------|----------|--------|----------|
+| `rust-sqlx` | Rust | sqlx (MySQL driver) | MariaDB-specific |
+| `go-database-sql` | Go | database/sql | MariaDB-specific |
+| `java-jdbc` | Java | JDBC (MariaDB Connector/J) | MariaDB-specific |
+| `kotlin-jdbc` | Kotlin | JDBC (MariaDB Connector/J) | MariaDB-specific |
+| `python-aiomysql` | Python | aiomysql | MySQL (shared) |
+| `typescript-mysql2` | TypeScript | mysql2 | MySQL (shared) |
+| `csharp-mysqlconnector` | C# | MySqlConnector | MySQL (shared) |
+| `elixir-myxql` | Elixir | MyXQL | MySQL (shared) |
+| `ruby-mysql2` | Ruby | mysql2 gem | MySQL (shared) |
+| `php-pdo` | PHP | PDO (mysql driver) | MySQL (shared) |
+
+`java-r2dbc` and `kotlin-r2dbc` also have dedicated MariaDB manifests but are not listed above because
+neither backend supports MSSQL or Oracle either -- see their `supported_engines` list
+(`postgresql`, `mysql`, `mariadb`, `sqlite`).
 
 ## Configuration
 
 ```toml
 # scythe.toml
 [[sql]]
+name = "main"
 engine = "mariadb"
 schema = ["schema.sql"]
 queries = ["queries/"]
@@ -85,9 +94,9 @@ output = "src/generated"
 | `DATETIME` | `datetime` | |
 | `TIMESTAMP` | `datetime` | |
 | `JSON` | `json` | Alias for LONGTEXT in MariaDB |
-| `INET4` | `inet` | MariaDB 10.10+ |
-| `INET6` | `inet` | MariaDB 10.10+ |
-| `ENUM(...)` | `string` | |
+| `ENUM(...)` | `enum::{table}_{column}` | Registered as a catalog enum, same as MySQL |
+
+`INET4` and `INET6` have no type mapping. A column declared with either fails code generation.
 
 `UNSIGNED` integer columns map to the same-width signed neutral type -- there is no
 dedicated unsigned neutral type, and `BIGINT UNSIGNED` has no wider type to widen
@@ -108,5 +117,8 @@ SELECT id, name FROM users WHERE id = ?;
 
 - **Native UUID** -- MariaDB 10.7+ has a native `UUID` type stored as 16 bytes internally. Scythe maps this to the `uuid` neutral type, unlike MySQL where `CHAR(36)` maps to `string`.
 - **RETURNING support** -- MariaDB supports `RETURNING` on INSERT and DELETE statements (10.5+). Scythe generates `:one` and `:many` return handling for these queries.
-- **INET types** -- `INET4` and `INET6` are native MariaDB types (10.10+) mapped to the `inet` neutral type.
+- **INET types unsupported** -- `INET4` and `INET6` are native MariaDB types (10.10+), but scythe has no
+  type mapping for them yet. A column declared with either fails code generation.
 - **JSON handling** -- MariaDB's JSON type is an alias for `LONGTEXT` with JSON check constraint. Type mapping is identical to MySQL.
+- **Inline ENUM** -- like MySQL, an inline `ENUM(...)` column is registered as a catalog enum named
+  `{table}_{column}` and resolves to `enum::{table}_{column}`, not a bare `string`.

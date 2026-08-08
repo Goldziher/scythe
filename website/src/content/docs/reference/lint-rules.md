@@ -4,8 +4,10 @@ description: All 23 built-in scythe lint rules plus sqruff style rules, with cod
 ---
 
 Scythe includes 23 built-in lint rules and integrates sqruff for additional SQL style and formatting
-rules. The `scythe audit` security scanner adds a further 35 rules -- see the [audit
-guide](/scythe/guide/audit/) for those.
+rules. `default_registry()` -- the registry `scythe lint` and `scythe audit --list-rules` both read
+from -- also carries the 35 `scythe audit` rules (`SC-SEC*`, `SC-RLS*`, `SC-MIG*`, `SC-CHK01`), so all
+58 rules run under `scythe lint` too. See the [audit guide](/scythe/guide/audit/) for the audit-only
+catalog.
 
 ## Scythe rules (23)
 
@@ -17,7 +19,7 @@ guide](/scythe/guide/audit/) for those.
 | `SC-S02` | `delete-without-where` | DELETE without WHERE affects all rows | Error |
 | `SC-S03` | `no-select-star` | SELECT * makes queries fragile when columns change | Warn |
 | `SC-S04` | `unused-params` | Declared parameter placeholders ($N) not all used | Warn |
-| `SC-S05` | `missing-returning` | DML with :one/:opt/:many command should have a RETURNING clause | Warn |
+| `SC-S05` | `missing-returning` | DML with :one/:many command should have a RETURNING clause (`:opt` does not trigger this rule) | Warn |
 | `SC-S06` | `ambiguous-column-in-join` | SELECT with JOIN has unqualified column references | Warn |
 | `SC-S07` | `unbound-sql-param` | SQL placeholder $N present in query body but absent from the generated parameter signature | Error |
 
@@ -129,14 +131,14 @@ Scythe integrates [sqruff](https://github.com/quarylabs/sqruff) for SQL formatti
 
 | Category | Rules | Description |
 |----------|-------|-------------|
-| `AL` | AL01-AL07 | Aliasing rules |
-| `AM` | AM01-AM07 | Ambiguity rules |
+| `AL` | AL01-AL09 | Aliasing rules |
+| `AM` | AM01-AM09 | Ambiguity rules |
 | `CP` | CP01-CP05 | Capitalization rules |
-| `CV` | CV01-CV11 | Convention rules |
-| `JJ` | JJ01 | Join rules |
-| `LT` | LT01-LT13 | Layout rules |
+| `CV` | CV01-CV12 | Convention rules |
+| `JJ` | JJ01 | Jinja rules |
+| `LT` | LT01-LT15 | Layout rules |
 | `RF` | RF01-RF06 | Reference rules |
-| `ST` | ST01-ST09 | Structure rules |
+| `ST` | ST01-ST12 | Structure rules |
 
 ### Selected sqruff rules
 
@@ -148,7 +150,7 @@ Scythe integrates [sqruff](https://github.com/quarylabs/sqruff) for SQL formatti
 | `SQ-CP01` | Keyword capitalization | SQL keywords should be consistently capitalized |
 | `SQ-CP02` | Identifier capitalization | Identifiers should be consistently cased |
 | `SQ-CV02` | COALESCE vs IFNULL/NVL | Prefer COALESCE over vendor-specific functions |
-| `SQ-LT01` | Trailing whitespace | No trailing whitespace |
+| `SQ-LT01` | Layout spacing | **Excluded by default** under `scythe lint` (upstream sqruff bug splits compound operators like `>=`); still runs under `scythe fmt`, which ignores rule exclusions |
 | `SQ-LT02` | Indentation | Consistent indentation |
 | `SQ-LT04` | Comma position | Leading or trailing commas consistently |
 | `SQ-LT09` | SELECT targets | Each column on its own line |
@@ -156,3 +158,6 @@ Scythe integrates [sqruff](https://github.com/quarylabs/sqruff) for SQL formatti
 | `SQ-ST05` | No CTEs | CTEs preferred over subqueries |
 
 Sqruff rules are run via `scythe lint` and `scythe fmt`. Fixable violations are auto-corrected by `scythe fmt`.
+
+Scythe prefixes every sqruff finding with `SQ-` in its own output (`SQ-LT02`), but `[lint.sqruff.rules]`
+config keys use the bare sqruff code (`"LT02"`) -- see [Linting](/scythe/guide/linting/#sqruff-configuration).

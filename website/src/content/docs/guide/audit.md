@@ -30,7 +30,12 @@ Exit codes:
 
 ## Rule catalog
 
-The shipped rules use the `SC-SEC*` prefix. Use `scythe audit --list-rules` to print the current set with effective severities, and `scythe audit --explain <RULE_ID>` for the description and CWE references of a specific rule.
+The shipped rules span four prefixes: `SC-SEC*` (12 rules), `SC-RLS*` (3 rules), `SC-MIG*` (19
+rules), and `SC-CHK01` (1 rule) — 35 rules total. Use `scythe audit --list-rules` to print the
+current set with effective severities, and `scythe audit --explain <RULE_ID>` for the description
+and CWE references of a specific rule.
+
+### Security (`SC-SEC*`, category `security`)
 
 | ID | Name | Severity | What it catches |
 |----|------|----------|-----------------|
@@ -45,8 +50,56 @@ The shipped rules use the `SC-SEC*` prefix. Use `scythe audit --list-rules` to p
 | SC-SEC09 | unbounded-like | warn | `LIKE '%…%'` — both-side wildcards, full-scan, DoS-prone (CWE-1333) |
 | SC-SEC10 | security-definer-no-search-path | error | `SECURITY DEFINER` function without pinned `search_path` (CWE-426) — Postgres only |
 | SC-SEC11 | session-mutation | error | `SET ROLE` / `SET SESSION AUTHORIZATION` / `RESET ROLE` inside application SQL (CWE-269) — Postgres only |
+| SC-SEC12 | function-search-path-mutable | warn | `CREATE FUNCTION` without an explicit `SET search_path` (CWE-426) — Postgres only |
 
 PG-only rules are no-ops on other dialects: when the dialect is not PostgreSQL they skip the AST entirely instead of producing false positives.
+
+### Row Level Security (`SC-RLS*`, category `security`)
+
+All three are Postgres-only.
+
+| ID | Name | Severity | What it catches |
+|----|------|----------|-----------------|
+| SC-RLS01 | policy-references-user-metadata | error | RLS policy reads `user_metadata` (end-user-editable JWT claim) instead of `app_metadata` (CWE-639) |
+| SC-RLS02 | policy-always-permissive | error | Permissive RLS policy with an always-true `USING`/`WITH CHECK` on a write command (CWE-285) |
+| SC-RLS03 | policy-uses-uncached-auth-function | warn | RLS policy calls `auth.uid()`/`auth.jwt()`/`current_setting()` directly instead of `(select …)`, so it re-evaluates per row (CWE-405) |
+
+### Migration safety (`SC-MIG*`, category `migration`)
+
+The largest rule family scythe ships — 19 rules, all Postgres-only, all flagging DDL that is
+irreversible, breaks a still-deployed application version, or takes a write-blocking lock.
+
+| ID | Name | Severity | What it catches |
+|----|------|----------|-----------------|
+| SC-MIG01 | ban-drop-table | error | `DROP TABLE` — irreversible |
+| SC-MIG02 | ban-drop-column | error | `ALTER TABLE … DROP COLUMN` — breaks deployed readers |
+| SC-MIG03 | require-concurrent-index-creation | error | `CREATE INDEX` without `CONCURRENTLY` — `ACCESS EXCLUSIVE` for the build |
+| SC-MIG04 | renaming-column | error | `ALTER TABLE … RENAME COLUMN` — breaks deployed readers |
+| SC-MIG05 | constraint-missing-not-valid | error | `ADD CONSTRAINT` without `NOT VALID` — validates every row under `ACCESS EXCLUSIVE` |
+| SC-MIG06 | ban-drop-database-or-schema | error | `DROP DATABASE`/`DROP SCHEMA` — destroys every contained object |
+| SC-MIG07 | renaming-table | error | `ALTER TABLE … RENAME TO` — breaks deployed readers |
+| SC-MIG08 | ban-truncate-cascade | error | `TRUNCATE … CASCADE` — clears every referencing table invisibly |
+| SC-MIG09 | ban-alter-column-type | error | `ALTER COLUMN … TYPE` — rewrites the table under `ACCESS EXCLUSIVE` |
+| SC-MIG10 | prefer-bigint-over-int | error | `int`/`integer`/`int4`/`smallint`/`int2` columns — 32-bit overflow risk |
+| SC-MIG11 | prefer-text-over-varchar | error | `varchar(n)`/`character varying(n)`/`char(n)` — length increases are write-blocking |
+| SC-MIG12 | prefer-timestamptz | error | `timestamp`/`timestamp without time zone` — silently shifts on session timezone |
+| SC-MIG13 | prefer-identity-over-serial | error | `serial`/`bigserial`/`smallserial` — prefer `GENERATED ALWAYS AS IDENTITY` |
+| SC-MIG14 | disallowed-unique-constraint | error | `ADD CONSTRAINT … UNIQUE (…)` — builds the index inline under `ACCESS EXCLUSIVE` |
+| SC-MIG15 | adding-primary-key-constraint | error | `ADD CONSTRAINT … PRIMARY KEY (…)` — builds the index inline under `ACCESS EXCLUSIVE` |
+| SC-MIG16 | ban-create-domain-with-constraint | error | `CREATE DOMAIN` with a `CHECK` — validates every row of every using table under `ACCESS EXCLUSIVE` |
+| SC-MIG17 | ban-drop-not-null | error | `ALTER COLUMN … DROP NOT NULL` — relaxes a contract deployed code may rely on |
+| SC-MIG18 | adding-not-nullable-field | warn | `ADD COLUMN … NOT NULL` without a `DEFAULT` — rewrites rows / breaks deployed writers |
+| SC-MIG19 | unsupported-reg-types | error | `reg*` OID columns (other than `regclass`) — blocks `pg_upgrade`, doesn't survive dump/restore |
+
+### Antipattern (`SC-CHK01`, category `antipattern`)
+
+Despite living in the `quality.toml` source file, this rule's configured category is `antipattern`,
+not `quality` — `[lint.categories]` keys off the configured category, so `[lint.categories]
+antipattern = "off"` silences it, not a nonexistent `quality` key.
+
+| ID | Name | Severity | What it catches |
+|----|------|----------|-----------------|
+| SC-CHK01 | check-constraint-always-true | warn | `CHECK` constraint expression is a tautology (`true`, `1 = 1`, …) — Postgres only |
 
 ## Suppression
 
@@ -74,7 +127,9 @@ CI gates often want a graduated rollout: surface warnings, but only fail the bui
 
 ## User-defined rules
 
-Custom rules live in `scythe.toml` under `[audit]`, or in a separate TOML file referenced by `extra_rules`. Custom rule IDs must start with `USER-` to avoid collisions with shipped rules.
+Custom rules live in `scythe.toml` under `[audit]`, or in a separate TOML file referenced by `extra_rules`. Custom rule IDs must start with `USER-` to avoid collisions with shipped rules. (The
+equivalent for `scythe inspect`'s live-DB checks requires the longer `USER-INS-` prefix — see
+[Inspect](/scythe/guide/inspect/).)
 
 ```toml
 [audit]
@@ -97,6 +152,8 @@ The `matcher` field references one of the in-tree matchers. Run `scythe audit --
 
 ### Available matchers
 
+All 28 matchers scythe registers, with the `matcher_args` each one reads:
+
 | Matcher | Required `matcher_args` |
 |---------|-------------------------|
 | `function_name_in_set` | `functions = ["fn1", "fn2", ...]` |
@@ -110,6 +167,23 @@ The `matcher` field references one of the in-tree matchers. Run `scythe audit --
 | `weak_hash_over_sensitive_column` | `functions = ["md5", "sha1"]`, `column_patterns = ["password", ...]` |
 | `select_star_over_pii_columns` | `column_patterns = ["password", "ssn", ...]` |
 | `session_mutation` | `kinds = ["set_role", "set_session_authorization", "reset_role"]` |
+| `function_search_path_mutable` | -- |
+| `policy_references_user_metadata` | -- |
+| `policy_always_permissive` | -- |
+| `policy_uses_uncached_auth_function` | -- |
+| `drop_statement` | `kinds = ["table"]` (or `"column"`, `"database"`, `"schema"`) |
+| `create_index_concurrency` | -- |
+| `alter_table_rename_column` | -- |
+| `constraint_missing_not_valid` | -- |
+| `alter_table_rename_table` | -- |
+| `truncate_cascade` | -- |
+| `alter_column_type` | -- |
+| `column_type_disallowed` | `disallowed = ["int", "integer", ...]`, `suggested = "bigint"` |
+| `add_constraint_without_using_index` | `kinds = ["unique"]` (or `"primary_key"`) |
+| `create_domain_with_constraint` | -- |
+| `alter_column_drop_not_null` | -- |
+| `add_column_not_null_no_default` | -- |
+| `check_constraint_always_true` | -- |
 
 ## CI integration
 

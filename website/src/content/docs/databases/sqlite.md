@@ -60,7 +60,10 @@ CREATE TABLE users (
 
 SQLite does not support:
 
-- **Enums** -- no `CREATE TYPE ... AS ENUM`. Use `TEXT` with `CHECK` constraints instead.
+- **Enums** -- no `CREATE TYPE ... AS ENUM`. Use `TEXT` with `CHECK` constraints, or declare an inline
+  `ENUM(...)` column type (SQLite's type affinity system accepts arbitrary type names). Scythe registers
+  an inline `ENUM(...)` column the same way it does for MySQL: as a catalog enum named
+  `{table}_{column}`, resolving to `enum::{table}_{column}` rather than a bare `string`.
 - **Arrays** -- no array types. Use JSON arrays or separate tables.
 - **Schemas** -- no `schema.table` syntax. Single namespace per database.
 - **Composite types** -- no `CREATE TYPE ... AS (...)`.
@@ -87,8 +90,13 @@ SQLite does not support:
 
 ## Placeholder syntax
 
-SQLite uses `$N` positional placeholders, same as PostgreSQL:
+Write positional `$N` placeholders in your SQL, same as PostgreSQL. SQLite backends translate these
+to `?` in the generated code:
 
 ```sql
+-- Written as:
 SELECT id, name FROM users WHERE id = $1;
+
+-- Generated as:
+SELECT id, name FROM users WHERE id = ?;
 ```

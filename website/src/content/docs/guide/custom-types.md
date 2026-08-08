@@ -33,7 +33,10 @@ type = "string"
 
 Every column declared as `ltree` or `citext` in your schema will be mapped to the `string` neutral type, which each backend then converts to its language-specific string type.
 
-The `column` and `db_type` fields are mutually exclusive -- each override entry must use exactly one.
+`db_type` matches against the column's already-resolved **neutral** type, not the raw DDL type name
+-- see [How Type Resolution Works](#how-type-resolution-works) below. `column` and `db_type` are not
+mutually exclusive: nothing rejects setting both on the same entry, and if both are set, `column`
+takes priority silently.
 
 ## Common Override Examples
 
@@ -60,20 +63,36 @@ Scythe resolves types in a three-step pipeline:
 2. **Neutral type** -- an intermediate representation defined by the engine manifest (e.g., `string`, `json`, `decimal`). See the [Neutral Types reference](/scythe/reference/neutral-types/) for the full list.
 3. **Language type** -- the concrete type in your target language, defined by the backend manifest (e.g., `String` in Rust, `str` in Python).
 
-Type overrides intercept at step 1: they replace the engine manifest's default SQL-to-neutral mapping with your specified neutral type. The neutral-to-language mapping in step 3 remains unchanged.
+Type overrides intercept **after** step 1, not before it: the analyzer first resolves each column's
+SQL type to a neutral type as normal, and only then does scythe check the override list. A `db_type`
+override is matched against that already-resolved neutral type name, not the DDL type as written in
+your schema.
 
 ```text
 SQL DDL type
     |
     v
-[type_overrides] -- your overrides intercept here
+Neutral type (engine manifest default)
     |
     v
-Neutral type (engine manifest default or override)
+[type_overrides] -- db_type matches HERE, against the neutral type name
+    |
+    v
+Effective neutral type (override, if matched, else unchanged)
     |
     v
 Language type (backend manifest)
 ```
+
+This matters because it means `db_type` only works reliably for types the engine manifest does
+**not** already recognize. `ltree` and `citext` are not in scythe's built-in PostgreSQL type table,
+so they pass through the SQL-to-neutral step unchanged -- their "neutral type" is literally the
+string `"ltree"` or `"citext"` -- which is exactly what `db_type = "ltree"` matches against.
+
+For a type the engine *does* recognize, `db_type` silently does nothing: `db_type = "varchar"` never
+matches, because every `varchar` column's neutral type is already `"string"` by the time overrides
+run, not `"varchar"`. To override a recognized type, use `db_type` with the **neutral** type name
+(e.g. `db_type = "string"`) or use a column-level override instead.
 
 **Note:** As of v0.4.0, type overrides are fully wired into the code generation pipeline. In earlier versions, `type_overrides` were parsed from the configuration but not applied during generation. They are now functional across all backends.
 

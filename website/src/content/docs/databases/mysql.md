@@ -57,7 +57,8 @@ CREATE TABLE users (
 );
 ```
 
-These map to `string` in the neutral type system. There is no separate `enum::` resolution for inline MySQL enums.
+Scythe registers this as a catalog enum named `{table}_{column}` -- here, `users_status` -- and it
+resolves to `enum::users_status`, generating a proper enum type rather than a bare `string`.
 
 ## Placeholder handling
 
@@ -99,7 +100,7 @@ SELECT id, name FROM users WHERE id = ?;
 | `TIMESTAMP` | `datetime` |
 | `YEAR` | `int16` |
 | `JSON` | `json` |
-| `ENUM(...)` | `string` |
+| `ENUM(...)` | `enum::{table}_{column}` |
 | `SET(...)` | `string` |
 
 `UNSIGNED` integer columns map to the same-width signed neutral type -- there is no

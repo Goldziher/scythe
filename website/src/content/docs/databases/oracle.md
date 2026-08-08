@@ -26,19 +26,20 @@ engine = "oracle"
 | `typescript-oracledb` | TypeScript | oracledb (node-oracledb) |
 | `go-godror` | Go | godror |
 | `java-jdbc` | Java | JDBC (Oracle JDBC / ojdbc) |
-| `java-r2dbc` | Java | R2DBC (oracle-r2dbc) |
 | `kotlin-jdbc` | Kotlin | JDBC (Oracle JDBC / ojdbc) |
-| `kotlin-r2dbc` | Kotlin | R2DBC (oracle-r2dbc) |
-| `csharp-odpnet` | C# | ODP.NET (Oracle.ManagedDataAccess) |
+| `csharp-oracle` | C# | ODP.NET (Oracle.ManagedDataAccess) |
 | `ruby-oci8` | Ruby | ruby-oci8 |
-| `php-pdo` | PHP | PDO (oci driver) |
-| `elixir-jamdb-oracle` | Elixir | jamdb_oracle |
+| `elixir-jamdb` | Elixir | jamdb_oracle |
+
+`java-r2dbc`, `kotlin-r2dbc`, and `php-pdo` do not support Oracle -- their `supported_engines` lists
+do not include `oracle`.
 
 ## Configuration
 
 ```toml
 # scythe.toml
 [[sql]]
+name = "main"
 engine = "oracle"
 schema = ["schema.sql"]
 queries = ["queries/"]
@@ -52,9 +53,11 @@ output = "src/generated"
 
 | Oracle Type | Neutral Type | Notes |
 |------------|-------------|-------|
-| `NUMBER(*, 0)` / `INTEGER` / `INT` | `int64` | Oracle INTEGER is NUMBER(38,0) |
-| `NUMBER(p, s)` where s > 0 | `decimal` | |
-| `NUMBER` (no precision) | `int64` | Zero scale is an integer, whatever the precision |
+| `INTEGER` / `INT` | `int64` | Alias for `NUMBER(38,0)` |
+| `NUMBER(p, s)` where `s > 0` | `decimal` | Explicit non-zero scale |
+| `NUMBER(p)` / `NUMBER(p, 0)` | `int64` | Explicit precision, zero (or implied zero) scale |
+| `NUMBER` (table column, no precision or scale) | `int64` | Pragmatic default. Real schemas overwhelmingly use bare `NUMBER` as an integer/boolean-flag column (e.g. `NUMBER(1)`); a table column's bare `NUMBER` is indistinguishable from `NUMBER(p)` by the time it reaches type resolution |
+| `NUMBER` (in `CAST(... AS NUMBER)` or parameter/return type inference, not a column) | `decimal` | Oracle's true "floating" type outside DDL: no precision or scale means it can hold fractional values |
 | `BINARY_FLOAT` | `float32` | |
 | `BINARY_DOUBLE` | `float64` | |
 | `VARCHAR2` / `NVARCHAR2` / `CHAR` / `NCHAR` | `string` | |
@@ -64,10 +67,12 @@ output = "src/generated"
 | `TIMESTAMP` | `datetime` | |
 | `TIMESTAMP WITH TIME ZONE` | `datetime_tz` | |
 | `TIMESTAMP WITH LOCAL TIME ZONE` | `datetime_tz` | |
-| `INTERVAL YEAR TO MONTH` | `string` | |
+| `INTERVAL YEAR TO MONTH` | `interval` | |
 | `INTERVAL DAY TO SECOND` | `interval` | |
-| `XMLTYPE` | `string` | |
 | `BOOLEAN` | `bool` | Oracle 23c+ |
+
+`XMLTYPE` has no type mapping (only the generic `XML` spelling does). A column declared `XMLTYPE`
+fails code generation.
 
 ## Placeholder syntax
 
@@ -89,15 +94,26 @@ SELECT id, name FROM users WHERE id = :1;
 
 ## Docker setup
 
+CI runs Oracle integration tests against `gvenzl/oracle-xe:21-slim`:
+
 ```bash
 docker run -e ORACLE_PASSWORD=oracle -p 1521:1521 --name oracle \
-  gvenzl/oracle-free:latest
+  gvenzl/oracle-xe:21-slim
 ```
 
 ## Notes
 
 - **Oracle DATE** -- Unlike most databases, Oracle's `DATE` type includes time (hour, minute, second). It maps to `datetime`, not `date`.
-- **NUMBER type** -- Oracle uses `NUMBER(precision, scale)` for all numeric types. Scythe infers the neutral type based on the scale: scale 0 maps to integer types, scale > 0 maps to `decimal`.
+- **NUMBER type** -- Oracle uses `NUMBER(precision, scale)` for all numeric types. See the type mapping
+  table above for the full split between column definitions and direct AST resolution (`CAST`,
+  parameters).
 - **DUAL table** -- Oracle requires `SELECT ... FROM DUAL` for expressions without a table. Scythe handles this in query parsing.
 - **No BOOLEAN before 23c** -- Oracle versions before 23c have no native `BOOLEAN` type. Use `NUMBER(1)` with a type override if targeting older versions.
 - **RETURNING INTO** -- Oracle uses `RETURNING ... INTO :var` syntax. Scythe translates `RETURNING` clauses appropriately.
+- **Empty string is NULL** -- Oracle stores a zero-length string as NULL: `''` and `N''` literals
+  evaluate to NULL, not an empty value. This affects nullability inference --
+  `COALESCE(email, '')` is non-nullable everywhere else (the literal fallback proves it), but stays
+  **nullable** on Oracle because the fallback itself is NULL there. See
+  [Type Inference](/scythe/guide/type-inference/#nullability-from-coalesce) and the live conformance
+  fixture
+  `testing_data/nullability_live/coalesce_non_null/live_coalesce_with_empty_string_default_is_null_on_oracle.json`.

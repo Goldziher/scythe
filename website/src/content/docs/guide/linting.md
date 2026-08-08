@@ -1,9 +1,12 @@
 ---
 title: Linting
-description: Scythe's 22 built-in lint rules plus sqruff integration for SQL style and formatting.
+description: Scythe's 23 built-in lint rules plus sqruff integration for SQL style and formatting.
 ---
 
-Scythe includes 22 built-in rules plus sqruff integration for SQL style and formatting.
+Scythe includes 23 built-in lint rules plus sqruff integration for SQL style and formatting. The same
+`default_registry()` also carries the 35 `scythe audit` rules (`SC-SEC*`, `SC-RLS*`, `SC-MIG*`,
+`SC-CHK01`), so `scythe lint` runs all 58 built-in rules together — see [Audit](/scythe/guide/audit/)
+for the audit-only catalog.
 
 ## Running the Linter
 
@@ -21,6 +24,11 @@ scythe lint --fix
 scythe lint --dialect postgres
 ```
 
+Both invocation modes also resolve a database URL the same way `scythe inspect` does
+(`$DATABASE_URL`, `$SCYTHE_DATABASE_URL`, `[inspect].database_url` when a `scythe.toml` exists) and,
+if one is found, connect and run the live `SC-INS*` checks alongside the static rules. If no URL
+resolves, the live checks are silently skipped — no error, no warning.
+
 ## Scythe Rules
 
 ### Safety
@@ -33,6 +41,7 @@ scythe lint --dialect postgres
 | `SC-S04` | warn | Declared parameter placeholders ($N) not all used |
 | `SC-S05` | warn | DML with :one/:many command should have a RETURNING clause |
 | `SC-S06` | warn | SELECT with JOIN has unqualified column references |
+| `SC-S07` | error | SQL placeholder $N present in the query body but absent from the generated parameter signature |
 
 ### Naming
 
@@ -77,7 +86,8 @@ scythe lint --dialect postgres
 
 ## sqruff Rules
 
-Scythe integrates sqruff rules from [sqruff](https://github.com/quarylabs/sqruff), a Rust-based SQL linter. These rules are prefixed with `SQ-` and cover formatting, style, and correctness. They run automatically alongside scythe rules when using `scythe lint` or `scythe check`.
+Scythe integrates sqruff rules from [sqruff](https://github.com/quarylabs/sqruff), a Rust-based SQL linter. These rules are prefixed with `SQ-` and cover formatting, style, and correctness. They run automatically alongside scythe rules when using `scythe lint`. `scythe check` does not run sqruff rules;
+`scythe fmt` also runs sqruff, but ignores `[lint.sqruff]` (see [Formatting](/scythe/guide/formatting/)).
 
 ## Configuration
 
@@ -115,20 +125,36 @@ performance = "off"     # Disable all performance rules
 | `naming` | `SC-N` | Enforces naming conventions |
 | `style` | `SC-T` | Encourages clean SQL style |
 | `performance` | `SC-P` | Flags performance issues |
-| `antipattern` | `SC-A` | Catches common SQL mistakes |
+| `antipattern` | `SC-A` | Catches common SQL mistakes, plus `SC-CHK01` (tautological CHECK constraints) |
 | `codegen` | `SC-C` | Validates code generation annotations |
+| `security` | `SC-SEC`, `SC-RLS` | Dangerous functions, over-broad GRANTs, RLS misconfiguration — see [Audit](/scythe/guide/audit/) |
+| `migration` | `SC-MIG` | Irreversible or lock-prone DDL — see [Audit](/scythe/guide/audit/) |
+| `provenance` | `SC-PRV` | Check-time only: generated artifact vs. current schema/engine/backend/version. Not reachable from `scythe lint`. |
+| `drift` | `SC-DRF` | Check-time only: committed DDL vs. a live database. Not reachable from `scythe lint`. |
+
+`security` and `migration` between them cover 34 of the 58 built-in rules. `provenance` and `drift`
+only fire from `scythe check`; see the [lint rules reference](/scythe/reference/lint-rules/).
 
 Category-level settings are overridden by rule-level settings.
 
 ## sqruff Configuration
 
-Configure sqruff rules in `[lint.sqruff]`:
+Configure sqruff rules in `[lint.sqruff]`. There is no `exclude_rules` key — set the rule's status
+under `[lint.sqruff.rules]` instead:
 
 ```toml
 [lint.sqruff]
-# Exclude specific rules
-exclude_rules = ["LT01", "LT02", "CP01"]
+enabled = true          # default; set false to disable sqruff entirely
+
+[lint.sqruff.rules]
+"LT01" = "off"
+"LT02" = "off"
+"CP01" = "off"
 ```
+
+`[lint.sqruff.rules]` only recognizes `"off"` to disable a rule; any other value leaves the rule at
+its sqruff-assigned severity. This config only affects `scythe lint` — `scythe fmt` ignores
+`[lint.sqruff]` entirely and always runs sqruff's full default rule set.
 
 ### sqruff Rule Categories
 
@@ -138,6 +164,7 @@ exclude_rules = ["LT01", "LT02", "CP01"]
 | AM | Ambiguous | Ambiguous SQL constructs |
 | CP | Capitalisation | Keyword and identifier casing |
 | CV | Convention | SQL conventions |
+| JJ | Jinja | Jinja templating constructs |
 | LT | Layout | Formatting, spacing, indentation |
 | RF | References | Column and table references |
 | ST | Structure | SQL structure |
@@ -146,7 +173,7 @@ exclude_rules = ["LT01", "LT02", "CP01"]
 
 | Code | Description |
 |------|-------------|
-| LT01 | Trailing whitespace |
+| LT01 | Layout spacing around operators — **excluded by default** (upstream sqruff bug; not "trailing whitespace") |
 | LT02 | Inconsistent indentation |
 | LT05 | Line too long |
 | LT12 | File must end with newline |
@@ -154,6 +181,9 @@ exclude_rules = ["LT01", "LT02", "CP01"]
 | AM01 | DISTINCT with GROUP BY |
 | AM02 | UNION without DISTINCT/ALL |
 | ST01 | Unnecessary ELSE NULL |
+
+Scythe re-prefixes every sqruff finding as `SQ-<code>` (e.g. `SQ-LT02`) in its own output, but
+`[lint.sqruff.rules]` config keys use the bare sqruff code (`"LT02"`, not `"SQ-LT02"`).
 
 ## Category-level Configuration
 

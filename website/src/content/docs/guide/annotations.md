@@ -126,6 +126,22 @@ SELECT id, name FROM users WHERE id = $1 AND status = $2;
 
 Format: `-- @param <name>: <description>` or `-- @param <name>` (without description).
 
+### Positional form
+
+A second, distinct `@param` form binds a 1-based position to a name and, unlike the docs-only form
+above, changes generated code: it renames the generated parameter from the `pN` fallback the analyzer
+would otherwise infer.
+
+```sql
+-- @name GetUser
+-- @returns :one
+-- @param $1 user_id: the user's unique identifier
+SELECT id, name FROM users WHERE id = $1;
+```
+
+Format: `-- @param $N name[: description]`. The `$N` token must come first; anything else after
+`@param` is parsed as the docs-only form.
+
 ## @nullable
 
 Forces specific columns to be nullable in generated code, overriding the inferred nullability.
@@ -199,6 +215,13 @@ FROM orders o
 JOIN users u ON o.user_id = u.id
 WHERE o.id = $1;
 ```
+
+## Unrecognized Annotations
+
+An annotation scythe does not recognize (`-- @foo bar`) is not a parse error. It is captured
+verbatim as a custom annotation and exposed to crate consumers who want to layer their own
+annotation vocabulary on top of scythe. This means a typo in a known annotation name (`@nullible`
+instead of `@nullable`) is silently accepted rather than rejected -- double-check spelling manually.
 
 ## Case Insensitivity
 

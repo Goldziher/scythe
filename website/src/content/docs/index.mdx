@@ -28,7 +28,7 @@ Write SQL. Get type-safe code. In any language.
 ## Why Scythe
 
 <CardGrid>
-    <Card title="10 languages, 70+ backend drivers" icon="seti:rust">
+    <Card title="10 languages, 52 backend drivers" icon="seti:rust">
         Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP.
     </Card>
     <Card title="10 databases" icon="seti:db">
@@ -106,10 +106,10 @@ Scythe knows `o.total` and `o.notes` are nullable (right side of LEFT JOIN) and 
     <TabItem label="Go">
         ```go
         type GetUserOrdersRow struct {
-            ID    int32    `json:"id"`
-            Name  string   `json:"name"`
-            Total *string  `json:"total"`
-            Notes *string  `json:"notes"`
+            Id    int32            `json:"id"`
+            Name  string           `json:"name"`
+            Total *decimal.Decimal `json:"total"`
+            Notes *string          `json:"notes"`
         }
         ```
     </TabItem>

@@ -85,7 +85,7 @@ When `get_backend("java-jdbc", "mysql")` is called, the engine-specific manifest
 
 Backends that only support one engine (e.g. `rust-tokio-postgres` for PostgreSQL, `elixir-myxql` for MySQL) reject mismatched engines with a clear error via the `supported_engines()` method on the trait.
 
-> **Note:** SQL parsing and type inference run through six parser dialects -- PostgreSQL, MySQL, SQLite, SQL Server, Oracle and Snowflake -- which the 10 supported engines map onto (CockroachDB, DuckDB and Redshift all parse as PostgreSQL; MariaDB as MySQL). All 10 languages have backend coverage for every engine. Code generation backends produce driver-specific code for each language, loading type mappings from their respective engine-aware manifests.
+> **Note:** SQL parsing and type inference run through six parser dialects -- PostgreSQL, MySQL, SQLite, SQL Server, Oracle and Snowflake -- which the 10 supported engines map onto (CockroachDB, DuckDB and Redshift all parse as PostgreSQL; MariaDB as MySQL). Backend coverage varies by engine: the primary engines (PostgreSQL, MySQL, SQLite) have all 10 languages, but DuckDB has manifests for 5 languages (Java, Kotlin, Go, Python, TypeScript) and Snowflake for 7 (Java, Kotlin, Go, Python, TypeScript, C#, PHP). Code generation backends produce driver-specific code for each language, loading type mappings from their respective engine-aware manifests.
 
 ### Example manifest.toml (rust-sqlx)
 
@@ -117,7 +117,7 @@ row_suffix = "Row"
 
 ## Available Backends
 
-70+ backends across 10 languages and 10 databases (PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, Redshift, SQL Server, Oracle, Snowflake), resolved through 6 parser dialects. See [Backend Overview](/scythe/backends/overview/) for the full list organized by engine. The table below shows the three primary engines; see the overview for the rest.
+52 backends across 10 languages and 10 databases (PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, Redshift, SQL Server, Oracle, Snowflake), resolved through 6 parser dialects. See [Backend Overview](/scythe/backends/overview/) for the full list organized by engine. The table below shows the three primary engines; see the overview for the rest.
 
 | Language | PostgreSQL | MySQL | SQLite |
 |----------|-----------|-------|--------|

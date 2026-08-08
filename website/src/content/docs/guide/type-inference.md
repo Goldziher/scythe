@@ -50,9 +50,14 @@ LEFT JOIN orders o ON u.id = o.user_id;
 
 Similarly, columns from the left side of a `RIGHT JOIN` become nullable.
 
+The same widening applies to `LEFT SEMI JOIN` and `LEFT ANTI JOIN` (the non-preserved side's columns
+are not projected, but the widening rule is the same as `LEFT JOIN`). `FULL OUTER JOIN` widens **both**
+sides -- every column from either table can be NULL, since a row might exist on only one side. This
+also applies inside nested joins (parenthesized `FROM` clauses).
+
 ## Nullability from COALESCE
 
-`COALESCE` strips nullability when the last argument is a non-null literal or expression:
+`COALESCE` strips nullability when **any** argument -- not just the last one -- is non-nullable:
 
 ```sql
 -- @name GetUserDisplayName
@@ -61,7 +66,9 @@ SELECT COALESCE(nickname, name, 'Anonymous') AS display_name
 FROM users WHERE id = $1;
 ```
 
-`display_name` is non-nullable because the final fallback `'Anonymous'` is a non-null literal.
+`display_name` is non-nullable because the final fallback `'Anonymous'` is a non-null literal. The
+same result holds if any earlier argument -- not only the last -- is itself non-nullable (for example
+a `NOT NULL` column), even if later arguments are nullable.
 
 ```sql
 -- @name GetUserNickname
@@ -72,9 +79,17 @@ FROM users WHERE id = $1;
 
 If both `nickname` and `name` are nullable columns, `display_name` remains nullable.
 
+:::caution[Oracle exception]
+On Oracle, empty string literals (`''`, `N''`) evaluate to NULL rather than an empty value. A literal
+fallback like `COALESCE(email, '')` is treated as a non-null literal on every other dialect, but on
+Oracle the fallback itself is NULL, so `display_name` stays **nullable** there. See
+[Oracle: Empty string is NULL](/scythe/databases/oracle/#notes) and the live conformance fixture
+`testing_data/nullability_live/coalesce_non_null/live_coalesce_with_empty_string_default_is_null_on_oracle.json`.
+:::
+
 ## Nullability from Aggregates
 
-Aggregate functions have specific nullability rules:
+Aggregate functions have specific nullability rules for ordinary (non-windowed) aggregation:
 
 | Function | Nullable? | Reason |
 |----------|-----------|--------|
@@ -100,6 +115,30 @@ FROM orders WHERE user_id = $1;
 | `total_orders` | no | COUNT is never null |
 | `revenue` | yes | SUM returns NULL for empty result |
 | `last_order` | yes | MAX returns NULL for empty result |
+
+### Windowed aggregates
+
+A windowed aggregate (`OVER (...)`) produces one output row per input row, so an empty result set
+means zero output rows rather than a NULL aggregate value. Nullability differs from the non-windowed
+case above:
+
+| Function | Windowed nullability | Reason |
+|----------|----------------------|--------|
+| `SUM(col) OVER (...)` | no | Cannot be evaluated over zero rows within the window |
+| `AVG(col) OVER (...)` | no | Same as `SUM` |
+| `MIN(col) OVER (...)` / `MAX(col) OVER (...)` | same as `col` | Takes the nullability of the argument column, not `true` |
+
+### Aggregate result types
+
+Aggregates can widen the argument's neutral type, not just its nullability:
+
+| Function | Argument type | Result type |
+|----------|---------------|-------------|
+| `SUM` | `int32` (or narrower) | `int64` |
+| `SUM` | `int64` | `decimal` (arbitrary precision, since `int64` has no wider integer type) |
+| `SUM` | float type | Same float type, unwidened |
+| `AVG` | non-float | `decimal` |
+| `AVG` | float type | `float64` |
 
 ## Nullability from CASE
 
@@ -129,15 +168,48 @@ FROM users WHERE id = $1;
 
 `tier` is nullable because the implicit ELSE returns NULL.
 
-## Nullability from Expressions
+### The `IS NOT NULL` guard exception
 
-Binary operations propagate nullability:
+A branch that returns a nullable column is not counted as nullable if its condition is exactly
+`WHEN <col> IS NOT NULL THEN <col>` -- guarding a column with its own null check proves that branch's
+result cannot be NULL:
 
 ```sql
-SELECT a + b AS sum FROM t;
+SELECT
+    CASE WHEN bio IS NOT NULL THEN bio ELSE 'No bio' END AS bio_display
+FROM users WHERE id = $1;
 ```
 
-If either `a` or `b` is nullable, `sum` is nullable.
+`bio_display` is non-nullable: the `bio` branch is exempted by the guard, and the `ELSE` branch is a
+non-null literal. This exception only matches the exact `col IS NOT NULL THEN col` shape (same
+expression on both sides); it does not generalize to other guard conditions.
+
+## Nullability from Expressions
+
+Binary operators fall into three groups:
+
+- **Arithmetic (`+`, `-`, `*`, `/`, `%`) and string concatenation (`||`)** propagate nullability: if
+  either operand is nullable, the result is nullable.
+
+  ```sql
+  SELECT a + b AS sum FROM t;
+  ```
+
+  If either `a` or `b` is nullable, `sum` is nullable.
+
+- **Comparison (`=`, `<>`, `<`, `<=`, `>`, `>=`) and boolean (`AND`, `OR`)** always produce a
+  non-nullable `bool`, regardless of operand nullability.
+
+- **JSON operators (`->`, `->>`, `#>`, `#>>`)** are always nullable, regardless of operand nullability
+  -- a missing key or path segment naturally produces SQL NULL.
+
+### Scalar subqueries
+
+A scalar subquery (a subquery used as a single expression value) is nullable if it can return zero
+rows, because a zero-row result evaluates to SQL NULL regardless of the projected column's own
+nullability. The one exception is an ungrouped aggregate query with no `HAVING` clause and a single
+projected column (e.g. `(SELECT COUNT(*) FROM ...)`) -- that shape always returns exactly one row, so
+its nullability is the aggregate's own nullability from the tables above, not forced to nullable.
 
 ## Manual Overrides
 

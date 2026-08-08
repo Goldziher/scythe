@@ -5,6 +5,11 @@ description: How scythe compares to sqlc, SQLDelight, PgTyped, sqlx, jOOQ, aiosq
 
 Scythe is a SQL-first code generator. This page compares it to the tool it is most similar to (sqlc), to the [wider SQL-first landscape](#the-wider-sql-first-landscape) (SQLDelight, PgTyped, sqlx, aiosql, PugSQL, HugSQL, go-jet, SQLBoiler, Kysely, MyBatis and others), and to ORMs (Hibernate, SQLAlchemy, ActiveRecord, and more).
 
+Claims about scythe on this page are checked against this repository's source. Claims about other
+tools reflect their public documentation and behavior as of 2026-08 and are not re-verified against
+their source on every scythe release -- they may drift out of date. If something here looks wrong for
+a competitor tool, check that tool's own docs.
+
 ## Overview
 
 | | Scythe | sqlc | SQLDelight | jOOQ | ORMs |
@@ -12,7 +17,7 @@ Scythe is a SQL-first code generator. This page compares it to the tool it is mo
 | Approach | SQL files to code | SQL files to code | .sq files to code | Java DSL to SQL | Code to SQL |
 | Languages | 10 (Rust, Python, TS, Go, Java, Kotlin, C#, Elixir, Ruby, PHP) | Go (primary), Python, Kotlin, TypeScript (plugin) | Kotlin (JVM, Native, JS via KMP) | Java, Kotlin | Language-specific |
 | Databases | PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, Redshift, SQL Server, Oracle, Snowflake | PostgreSQL, MySQL, SQLite | SQLite, PostgreSQL, MySQL, H2 | 25+ databases | Varies |
-| Backend drivers | 70+ | ~5 | 4 | N/A (JDBC) | Varies |
+| Backend drivers | 52 | ~5 | 4 | N/A (JDBC) | Varies |
 | SQL linting | 58 rules | None | None | None | None |
 | SQL formatting | sqruff integration | None | None | None | None |
 | Nullability inference | JOINs, COALESCE, CASE, window functions, aggregates | Basic (column constraints) | Column constraints | From DB metadata | Varies |
@@ -133,7 +138,7 @@ SQLDelight is the closest tool to scythe in philosophy -- both generate code fro
 
 - **Languages.** SQLDelight generates Kotlin only (JVM, Native, JS via KMP). Scythe generates 10 languages.
 - **Build system.** SQLDelight requires Gradle. Scythe is a CLI that works with any build system.
-- **Reactive queries.** SQLDelight integrates with Kotlin Flow and RxJava -- queries re-emit when data changes. Scythe does not support reactive queries.
+- **Reactive queries.** SQLDelight integrates with Kotlin Flow and RxJava -- queries re-emit when data changes, i.e. a live subscription. Scythe's `java-r2dbc`/`kotlin-r2dbc` backends generate one-shot reactive types (`Flux<T>`/`Flow<T>` for `:many`, `Mono<T>`/`suspend fun` for `:one`) but do not re-emit on data change -- see the [Overview table](#overview) above.
 - **IDE support.** SQLDelight has an IntelliJ plugin with autocomplete and refactoring. Scythe does not (planned).
 - **Migrations.** SQLDelight validates .sqm migration files at build time. Scythe delegates migrations to external tools.
 - **SQL linting.** Scythe has 58 built-in rules. SQLDelight has none.

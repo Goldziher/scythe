@@ -3,7 +3,23 @@ title: Java + Kotlin (JDBC, R2DBC, Exposed)
 description: The java-jdbc, kotlin-jdbc, java-r2dbc, kotlin-r2dbc, and kotlin-exposed backends.
 ---
 
-Backends: `java-jdbc`, `kotlin-jdbc`, `java-r2dbc`, `kotlin-r2dbc`, `kotlin-exposed` | Engine: PostgreSQL
+Backends: `java-jdbc`, `kotlin-jdbc`, `java-r2dbc`, `kotlin-r2dbc`, `kotlin-exposed`
+
+`java-jdbc` and `kotlin-jdbc` support 9 engines (PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, MSSQL,
+Redshift, Snowflake, Oracle). `java-r2dbc` and `kotlin-r2dbc` support PostgreSQL, MySQL, MariaDB, and
+SQLite. `kotlin-exposed` supports PostgreSQL only. The examples on this page use PostgreSQL.
+
+Generated files carry a provenance header as their first line, e.g.
+`// scythe:provenance v=0.13.0 backend=java-jdbc engine=postgresql schema=sch1:...`
+(`integration_tests/java-jdbc/src/main/java/generated/Queries.java:1`).
+
+## Field naming: `field_case`
+
+Generated field and record-component names are `snake_case` by default, mirroring the SQL column name
+-- **not** `camelCase` (`field_case` defaults to `snake_case`;
+`crates/scythe-backend/src/naming.rs:24-30`). `created_at` stays `created_at`, not `createdAt`, unless
+the manifest overrides `field_case`. All five backends on this page accept a `field_case` option
+(`snake_case` or `camelCase`) via `[[sql.gen]]` to opt into `camelCase` fields.
 
 ## SQL input
 
@@ -45,7 +61,7 @@ public record GetUserRow(
     int id,
     String name,
     @Nullable String email,
-    java.time.OffsetDateTime createdAt
+    java.time.OffsetDateTime created_at
 ) {
     public static GetUserRow fromResultSet(ResultSet rs) throws SQLException {
         return new GetUserRow(
@@ -58,16 +74,18 @@ public record GetUserRow(
 }
 ```
 
-### `:one`
+### `:one` -- returns `@Nullable T`, null on no rows
 
 ```java
-public static GetUserRow getUser(Connection conn, int id) throws SQLException {
-    try (var stmt = conn.prepareStatement(
+public static @Nullable GetUserRow getUser(Connection conn, int id) throws SQLException {
+    try (var ps = conn.prepareStatement(
             "SELECT id, name, email, created_at FROM users WHERE id = ?")) {
-        stmt.setInt(1, id);
-        try (var rs = stmt.executeQuery()) {
-            rs.next();
-            return GetUserRow.fromResultSet(rs);
+        ps.setInt(1, id);
+        try (ResultSet rs = ps.executeQuery()) {
+            if (rs.next()) {
+                return GetUserRow.fromResultSet(rs);
+            }
+            return null;
         }
     }
 }
@@ -85,11 +103,11 @@ public record ListUsersRow(int id, String name) {
 }
 
 public static List<ListUsersRow> listUsers(Connection conn, long limit) throws SQLException {
-    try (var stmt = conn.prepareStatement(
+    try (var ps = conn.prepareStatement(
             "SELECT id, name FROM users ORDER BY name LIMIT ?")) {
-        stmt.setLong(1, limit);
-        try (var rs = stmt.executeQuery()) {
-            var result = new ArrayList<ListUsersRow>();
+        ps.setLong(1, limit);
+        try (ResultSet rs = ps.executeQuery()) {
+            List<ListUsersRow> result = new ArrayList<>();
             while (rs.next()) {
                 result.add(ListUsersRow.fromResultSet(rs));
             }
@@ -117,6 +135,10 @@ public static void createUser(Connection conn, String name, @Nullable String ema
 
 ## Kotlin
 
+`kotlin-jdbc` also accepts an `extension_functions` option (default `false`): when `true`, query
+functions are generated as `Connection.query(...)` extension functions instead of taking `conn` as a
+parameter.
+
 ### Data class with `.use {}`
 
 ```kotlin
@@ -124,26 +146,32 @@ data class GetUserRow(
     val id: Int,
     val name: String,
     val email: String?,
-    val createdAt: java.time.OffsetDateTime,
+    val created_at: java.time.OffsetDateTime,
 )
 ```
 
-### `:one`
+### `:one` -- returns `T?`, null on no rows
 
 ```kotlin
-fun getUser(conn: Connection, id: Int): GetUserRow {
-    conn.prepareStatement(
-        "SELECT id, name, email, created_at FROM users WHERE id = ?"
-    ).use { stmt ->
-        stmt.setInt(1, id)
-        stmt.executeQuery().use { rs ->
-            rs.next()
-            return GetUserRow(
-                id = rs.getInt("id"),
-                name = rs.getString("name"),
-                email = rs.getString("email"),
-                createdAt = rs.getObject("created_at", java.time.OffsetDateTime::class.java),
-            )
+fun getUser(
+    conn: Connection,
+    id: Int,
+): GetUserRow? {
+    conn.prepareStatement("SELECT id, name, email, created_at FROM users WHERE id = ?").use { ps ->
+        ps.setInt(1, id)
+        ps.executeQuery().use { rs ->
+            return if (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
+                GetUserRow(
+                    id = rs.getInt("id"),
+                    name = rs.getString("name"),
+                    email = email,
+                    created_at = rs.getObject("created_at", OffsetDateTime::class.java),
+                )
+            } else {
+                null
+            }
         }
     }
 }
@@ -188,43 +216,46 @@ fun createUser(conn: Connection, name: String, email: String?) {
 
 ## Java R2DBC
 
-Backend: `java-r2dbc` | Library: R2DBC with Project Reactor | Engine: PostgreSQL
+Backend: `java-r2dbc` | Library: R2DBC with Project Reactor | Engines: PostgreSQL, MySQL, MariaDB, SQLite
 
-Generates reactive code using `Mono<T>` for `:one` queries and `Flux<T>` for `:many` queries. Requires a `ConnectionFactory` instead of a JDBC `Connection`.
+Generates reactive code using `Mono<T>` for `:one`/`:exec` queries and `Flux<T>` for `:many` queries. Requires a `ConnectionFactory` instead of a JDBC `Connection`.
 
-### Record with row mapping
-
-<!-- snippet:skip -->
+Row types are plain records with **no `fromRow` method** -- row-to-object mapping is inlined directly
+into each query function (`crates/scythe-codegen/src/backends/java_r2dbc.rs:189-210`):
 
 ```java
 public record GetUserRow(
     int id,
     String name,
     @Nullable String email,
-    java.time.OffsetDateTime createdAt
-) {
-    public static GetUserRow fromRow(io.r2dbc.spi.Row row) {
-        return new GetUserRow(
-            row.get("id", Integer.class),
-            row.get("name", String.class),
-            row.get("email", String.class),
-            row.get("created_at", java.time.OffsetDateTime.class)
-        );
-    }
-}
+    java.time.OffsetDateTime created_at
+) {}
 ```
+
+Resource handling uses `Mono.usingWhen(...)` / `Flux.usingWhen(...)`, not `flatMap` + `doFinally`.
+Binds are **zero-based positional integers** -- `.bind(0, x)`, `.bind(1, y)`, ... -- not `"$1"` string
+keys, even against PostgreSQL:
 
 ### `:one`
 
 ```java
 public static Mono<GetUserRow> getUser(ConnectionFactory cf, int id) {
-    return Mono.from(cf.create())
-        .flatMap(conn -> Mono.from(conn.createStatement(
-                "SELECT id, name, email, created_at FROM users WHERE id = $1")
-            .bind("$1", id)
-            .execute())
-        .flatMap(result -> Mono.from(result.map((row, meta) -> GetUserRow.fromRow(row))))
-        .doFinally(sig -> conn.close()));
+    return Mono.usingWhen(
+        Mono.from(cf.create()),
+        conn -> {
+            var stmt = conn.createStatement("SELECT id, name, email, created_at FROM users WHERE id = $1");
+            stmt.bind(0, id);
+            return Mono.from(stmt.execute())
+                .flatMap(result -> Mono.from(result.map((row, meta) ->
+                    new GetUserRow(
+                        row.get("id", Integer.class),
+                        row.get("name", String.class),
+                        row.get("email", String.class),
+                        row.get("created_at", java.time.OffsetDateTime.class)
+                    ))));
+        },
+        conn -> Mono.from(conn.close())
+    );
 }
 ```
 
@@ -232,13 +263,20 @@ public static Mono<GetUserRow> getUser(ConnectionFactory cf, int id) {
 
 ```java
 public static Flux<ListUsersRow> listUsers(ConnectionFactory cf, long limit) {
-    return Mono.from(cf.create())
-        .flatMapMany(conn -> Flux.from(conn.createStatement(
-                "SELECT id, name FROM users ORDER BY name LIMIT $1")
-            .bind("$1", limit)
-            .execute())
-        .flatMap(result -> result.map((row, meta) -> ListUsersRow.fromRow(row)))
-        .doFinally(sig -> conn.close()));
+    return Flux.usingWhen(
+        cf.create(),
+        conn -> {
+            var stmt = conn.createStatement("SELECT id, name FROM users ORDER BY name LIMIT $1");
+            stmt.bind(0, limit);
+            return Flux.from(stmt.execute())
+                .flatMap(result -> result.map((row, meta) ->
+                    new ListUsersRow(
+                        row.get("id", Integer.class),
+                        row.get("name", String.class)
+                    )));
+        },
+        conn -> Mono.from(conn.close())
+    );
 }
 ```
 
@@ -246,14 +284,18 @@ public static Flux<ListUsersRow> listUsers(ConnectionFactory cf, long limit) {
 
 ```java
 public static Mono<Void> createUser(ConnectionFactory cf, String name, @Nullable String email) {
-    return Mono.from(cf.create())
-        .flatMap(conn -> Mono.from(conn.createStatement(
-                "INSERT INTO users (name, email) VALUES ($1, $2)")
-            .bind("$1", name)
-            .bind("$2", email)
-            .execute())
-        .then()
-        .doFinally(sig -> conn.close()));
+    return Mono.usingWhen(
+        Mono.from(cf.create()),
+        conn -> {
+            var stmt = conn.createStatement("INSERT INTO users (name, email) VALUES ($1, $2)");
+            stmt.bind(0, name);
+            stmt.bind(1, email);
+            return Mono.from(stmt.execute())
+                .flatMap(result -> Mono.from(result.getRowsUpdated()))
+                .then();
+        },
+        conn -> Mono.from(conn.close())
+    );
 }
 ```
 
@@ -261,31 +303,44 @@ public static Mono<Void> createUser(ConnectionFactory cf, String name, @Nullable
 
 ## Kotlin R2DBC
 
-Backend: `kotlin-r2dbc` | Library: R2DBC with Kotlin coroutines | Engine: PostgreSQL
+Backend: `kotlin-r2dbc` | Library: R2DBC with Kotlin coroutines | Engines: PostgreSQL, MySQL, MariaDB, SQLite
 
-Generates coroutine-based code using `suspend fun` for `:one` and `:exec` queries, and `Flow<T>` for `:many` queries. Uses `awaitFirst` / `asFlow` extension functions from `kotlinx-coroutines-reactor`.
+Generates coroutine-based code using `suspend fun` for `:one` and `:exec` queries, and `Flow<T>` for
+`:many` queries, via `kotlinx-coroutines-reactor`'s `awaitFirst` / `awaitFirstOrNull` / `asFlow`. Like
+`java-r2dbc`, there is no separate row-mapping method and binds are zero-based positional integers.
+Acquiring the connection is `Mono.from(cf.create()).awaitFirst()` -- not `cf.create().awaitFirst()`,
+since `create()` returns a reactive-streams `Publisher`, not a `Mono` directly.
+
+An `extension_functions` option (default `false`) generates `Connection.query(...)` extension
+functions instead of top-level functions taking a `ConnectionFactory` parameter.
 
 ### `:one`
 
 ```kotlin
-suspend fun getUser(cf: ConnectionFactory, id: Int): GetUserRow {
-    val conn = cf.create().awaitFirst()
+suspend fun getUser(
+    cf: ConnectionFactory,
+    id: Int,
+): GetUserRow? {
+    val conn = Mono.from(cf.create()).awaitFirst()
     try {
-        val result = conn.createStatement(
-            "SELECT id, name, email, created_at FROM users WHERE id = \$1"
-        ).bind("\$1", id)
-            .execute()
-            .awaitFirst()
-        return result.map { row, _ ->
-            GetUserRow(
-                id = row.get("id", Int::class.java)!!,
-                name = row.get("name", String::class.java)!!,
-                email = row.get("email", String::class.java),
-                createdAt = row.get("created_at", java.time.OffsetDateTime::class.java)!!,
-            )
-        }.awaitFirst()
+        val stmt = conn.createStatement("SELECT id, name, email, created_at FROM users WHERE id = $1")
+        stmt.bind(0, id)
+        return Mono
+            .from(stmt.execute())
+            .flatMap { result ->
+                Mono.from(
+                    result.map { row, _ ->
+                        GetUserRow(
+                            id = row.get("id", Int::class.javaObjectType),
+                            name = row.get("name", String::class.java),
+                            email = row.get("email", String::class.java),
+                            created_at = row.get("created_at", java.time.OffsetDateTime::class.java),
+                        )
+                    },
+                )
+            }.awaitFirstOrNull()
     } finally {
-        conn.close().awaitFirstOrNull()
+        Mono.from(conn.close()).awaitFirstOrNull()
     }
 }
 ```
@@ -293,42 +348,47 @@ suspend fun getUser(cf: ConnectionFactory, id: Int): GetUserRow {
 ### `:many`
 
 ```kotlin
-fun listUsers(cf: ConnectionFactory, limit: Long): Flow<ListUsersRow> = flow {
-    val conn = cf.create().awaitFirst()
-    try {
-        val result = conn.createStatement(
-            "SELECT id, name FROM users ORDER BY name LIMIT \$1"
-        ).bind("\$1", limit)
-            .execute()
-            .awaitFirst()
-        emitAll(
-            result.map { row, _ ->
-                ListUsersRow(
-                    id = row.get("id", Int::class.java)!!,
-                    name = row.get("name", String::class.java)!!,
-                )
-            }.asFlow()
-        )
-    } finally {
-        conn.close().awaitFirstOrNull()
-    }
-}
+fun listUsers(
+    cf: ConnectionFactory,
+    limit: Long,
+): Flow<ListUsersRow> =
+    Flux
+        .usingWhen(
+            cf.create(),
+            { conn ->
+                val stmt = conn.createStatement("SELECT id, name FROM users ORDER BY name LIMIT $1")
+                stmt.bind(0, limit)
+                Flux
+                    .from(stmt.execute())
+                    .flatMap { result ->
+                        result.map { row, _ ->
+                            ListUsersRow(
+                                id = row.get("id", Int::class.javaObjectType),
+                                name = row.get("name", String::class.java),
+                            )
+                        }
+                    }
+            },
+            { conn -> Mono.from(conn.close()) },
+        ).asFlow()
 ```
 
 ### `:exec`
 
 ```kotlin
-suspend fun createUser(cf: ConnectionFactory, name: String, email: String?) {
-    val conn = cf.create().awaitFirst()
+suspend fun createUser(
+    cf: ConnectionFactory,
+    name: String,
+    email: String?,
+) {
+    val conn = Mono.from(cf.create()).awaitFirst()
     try {
-        conn.createStatement(
-            "INSERT INTO users (name, email) VALUES (\$1, \$2)"
-        ).bind("\$1", name)
-            .bind("\$2", email)
-            .execute()
-            .awaitFirst()
+        val stmt = conn.createStatement("INSERT INTO users (name, email) VALUES ($1, $2)")
+        stmt.bind(0, name)
+        stmt.bind(1, email)
+        Mono.from(stmt.execute()).flatMap { result -> Mono.from(result.rowsUpdated) }.awaitFirstOrNull()
     } finally {
-        conn.close().awaitFirstOrNull()
+        Mono.from(conn.close()).awaitFirstOrNull()
     }
 }
 ```
@@ -339,45 +399,49 @@ suspend fun createUser(cf: ConnectionFactory, name: String, email: String?) {
 
 Backend: `kotlin-exposed` | Library: JetBrains Exposed | Engine: PostgreSQL
 
-Generates Exposed Table objects and query functions using the `transaction {}` DSL. Table definitions mirror the SQL schema, and queries use Exposed's type-safe DSL or raw SQL via `exec()`.
+`kotlin-exposed` does **not** generate Exposed's type-safe query DSL (`selectAll().where {}`,
+`insert {}`). Every query -- `:one`, `:many`, and `:exec` alike -- is emitted as raw SQL passed to
+`exec()` inside a `transaction {}` block, decoding rows with plain JDBC `ResultSet` getters
+(`crates/scythe-codegen/src/backends/kotlin_exposed.rs:228-330`). Table objects are still generated for
+table declarations (not queries), but as `IntIdTable`/`LongIdTable`/`UUIDTable` subclasses -- never a
+bare `Table` -- and without a `PrimaryKey` override, since the id table base class already declares one:
 
 ### Table object
 
 ```kotlin
-object UsersTable : Table("users") {
-    val id = integer("id").autoIncrement()
+object UsersTable : IntIdTable("users") {
+    val id = integer("id")
     val name = text("name")
     val email = text("email").nullable()
-    val createdAt = timestampWithTimeZone("created_at")
-        .defaultExpression(CurrentTimestampWithTimeZone)
-
-    override val primaryKey = PrimaryKey(id)
+    val created_at = timestampWithTimeZone("created_at")
 }
 ```
 
-### `:one`
+### `:one` -- raw SQL via `exec()`, decoded manually
 
 ```kotlin
 data class GetUserRow(
     val id: Int,
     val name: String,
     val email: String?,
-    val createdAt: java.time.OffsetDateTime,
+    val created_at: java.time.OffsetDateTime,
 )
 
-fun getUser(id: Int): GetUserRow = transaction {
-    UsersTable.selectAll()
-        .where { UsersTable.id eq id }
-        .single()
-        .let { row ->
-            GetUserRow(
-                id = row[UsersTable.id],
-                name = row[UsersTable.name],
-                email = row[UsersTable.email],
-                createdAt = row[UsersTable.createdAt],
-            )
+fun getUser(id: Int): GetUserRow? =
+    transaction {
+        exec("SELECT id, name, email, created_at FROM users WHERE id = ?", listOf(IntegerColumnType() to id)) { rs ->
+            if (rs.next()) {
+                GetUserRow(
+                    id = rs.getInt("id"),
+                    name = rs.getString("name"),
+                    email = rs.getString("email"),
+                    created_at = rs.getObject("created_at"),
+                )
+            } else {
+                null
+            }
         }
-}
+    }
 ```
 
 ### `:many`
@@ -385,26 +449,34 @@ fun getUser(id: Int): GetUserRow = transaction {
 ```kotlin
 data class ListUsersRow(val id: Int, val name: String)
 
-fun listUsers(limit: Int): List<ListUsersRow> = transaction {
-    UsersTable.select(UsersTable.id, UsersTable.name)
-        .orderBy(UsersTable.name)
-        .limit(limit)
-        .map { row ->
-            ListUsersRow(id = row[UsersTable.id], name = row[UsersTable.name])
+fun listUsers(limit: Long): List<ListUsersRow> =
+    transaction {
+        val result = mutableListOf<ListUsersRow>()
+        exec("SELECT id, name FROM users ORDER BY name LIMIT ?", listOf(LongColumnType() to limit)) { rs ->
+            while (rs.next()) {
+                result.add(
+                    ListUsersRow(
+                        id = rs.getInt("id"),
+                        name = rs.getString("name"),
+                    ),
+                )
+            }
         }
-}
+        result
+    }
 ```
 
 ### `:exec`
 
 ```kotlin
-fun createUser(name: String, email: String?) {
-    transaction {
-        UsersTable.insert {
-            it[UsersTable.name] = name
-            it[UsersTable.email] = email
-        }
-    }
+fun createUser(
+    name: String,
+    email: String?,
+) = transaction {
+    exec(
+        "INSERT INTO users (name, email) VALUES (?, ?)",
+        listOf(TextColumnType() to name, TextColumnType() to email),
+    )
 }
 ```
 

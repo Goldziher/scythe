@@ -1,13 +1,15 @@
 ---
 title: Snowflake
-description: Snowflake support -- VARIANT/OBJECT/ARRAY types, TIMESTAMP variants, and the QUALIFY clause.
+description: Snowflake support -- VARIANT semi-structured type, TIMESTAMP variants, and the QUALIFY clause.
 ---
 
-Snowflake support with VARIANT/OBJECT/ARRAY semi-structured types, TIMESTAMP variants, and QUALIFY clause.
+Snowflake support with the VARIANT semi-structured type, TIMESTAMP variants, and QUALIFY clause.
 
 ## Overview
 
-Snowflake is a cloud-native data warehouse with its own SQL dialect. It features semi-structured data types (`VARIANT`, `OBJECT`, `ARRAY`), multiple timestamp variants, and the `QUALIFY` clause for filtering window function results. Snowflake is cloud-only -- there is no local Docker container for development.
+Snowflake is a cloud-native data warehouse with its own SQL dialect. It features the `VARIANT` semi-structured
+data type, multiple timestamp variants, and the `QUALIFY` clause for filtering window function results.
+Snowflake is cloud-only -- there is no local Docker container for development.
 
 ## Engine alias
 
@@ -36,6 +38,7 @@ Note: Rust, Ruby, and Elixir backends are not yet available for Snowflake due to
 ```toml
 # scythe.toml
 [[sql]]
+name = "main"
 engine = "snowflake"
 schema = ["schema.sql"]
 queries = ["queries/"]
@@ -62,8 +65,6 @@ output = "src/generated"
 | `TIMESTAMP_LTZ` | `datetime_tz` | Local time zone |
 | `TIMESTAMP_TZ` | `datetime_tz` | With time zone offset |
 | `VARIANT` | `json` | Semi-structured data |
-| `OBJECT` | `json` | Key-value semi-structured data |
-| `ARRAY` | `json` | Semi-structured array |
 | `GEOGRAPHY` | `string` | Spatial type |
 | `GEOMETRY` | `string` | Spatial type |
 
@@ -93,8 +94,17 @@ Scythe parses and supports the `QUALIFY` clause in the Snowflake dialect.
 
 ## Notes
 
-- **Cloud-only** -- Snowflake has no local Docker container or embedded mode. For local development, use a Snowflake trial account or mock the database layer. Integration tests must run against a live Snowflake instance.
-- **VARIANT/OBJECT/ARRAY** -- All semi-structured types map to `json` in the neutral type system. Use `@json` annotation for typed JSON deserialization.
+- **VARIANT** -- maps to `json` in the neutral type system. Use the `@json` annotation for typed JSON
+  deserialization.
 - **TIMESTAMP variants** -- Snowflake has three timestamp types: `TIMESTAMP_NTZ` (no time zone, default), `TIMESTAMP_LTZ` (local time zone), and `TIMESTAMP_TZ` (with offset). Scythe maps NTZ to `datetime` and LTZ/TZ to `datetime_tz`.
 - **Integer types** -- All Snowflake integer types (`INT`, `BIGINT`, `SMALLINT`, `TINYINT`, `BYTEINT`) are stored as `NUMBER(38,0)`. Scythe maps them to `int64`, and maps an explicit `NUMBER(38,0)` the same way -- that is the spelling `DESCRIBE TABLE` reports, so a schema dumped from a live table types its keys identically to one written with `INT`.
-- **No ENUM or ARRAY** -- Snowflake has no `ENUM` type and its `ARRAY` is a semi-structured type (not a typed array). Use `VARCHAR` for enum values and `VARIANT` for structured data.
+- **No ENUM** -- Snowflake has no `ENUM` type. Use `VARCHAR` with a check constraint for enum-like behavior.
+- **`OBJECT` and scalar `ARRAY` are unsupported** -- there is no type mapping for Snowflake's `OBJECT` or
+  `ARRAY` column types; a column declared with either fails code generation. Only `VARIANT` is supported
+  for semi-structured data.
+
+:::caution
+Integration tests run against [fakesnow](https://github.com/tekumara/fakesnow), a Snowflake emulator built on
+DuckDB, not a live Snowflake instance (see `.github/workflows/integration.yml`, job
+`integration-snowflake`). Behavior that depends on genuine Snowflake server semantics is unverified.
+:::

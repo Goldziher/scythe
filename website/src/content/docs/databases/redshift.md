@@ -7,7 +7,7 @@ Amazon Redshift support with PostgreSQL-compatible dialect, columnar storage typ
 
 ## Overview
 
-Amazon Redshift is a cloud data warehouse based on PostgreSQL. It uses the PostgreSQL wire protocol and a compatible SQL dialect, with additions like the `SUPER` type for semi-structured data, `IDENTITY` columns, and columnar storage optimizations. Scythe reuses PostgreSQL backends with Redshift-specific type resolution.
+Amazon Redshift is a cloud data warehouse based on PostgreSQL. It uses the PostgreSQL wire protocol and a compatible SQL dialect, with additions like the `SUPER` type for semi-structured data, `IDENTITY` columns, and columnar storage optimizations. Scythe reuses PostgreSQL backends with Redshift-specific manifests.
 
 ## Engine alias
 
@@ -36,12 +36,14 @@ Redshift uses PostgreSQL backends:
 | `elixir-postgrex` | Elixir | Postgrex |
 | `ruby-pg` | Ruby | pg gem |
 | `php-pdo` | PHP | PDO (pgsql driver) |
+| `typescript-kysely` | TypeScript | Kysely |
 
 ## Configuration
 
 ```toml
 # scythe.toml
 [[sql]]
+name = "main"
 engine = "redshift"
 schema = ["schema.sql"]
 queries = ["queries/"]
@@ -74,17 +76,19 @@ output = "src/generated"
 | `REAL` / `FLOAT4` | `float32` | |
 | `DOUBLE PRECISION` / `FLOAT8` | `float64` | |
 | `DECIMAL` / `NUMERIC` | `decimal` | |
-| `VARCHAR` / `CHAR` / `TEXT` / `BPCHAR` | `string` | |
+| `VARCHAR` / `CHAR` / `TEXT` | `string` | |
 | `BOOLEAN` / `BOOL` | `bool` | |
-| `VARBYTE` / `BINARY VARYING` | `bytes` | Redshift binary type |
 | `DATE` | `date` | |
-| `TIME` / `TIMETZ` | `time` | |
+| `TIME` | `time` | |
+| `TIMETZ` | `time_tz` | |
 | `TIMESTAMP` | `datetime` | |
 | `TIMESTAMPTZ` | `datetime_tz` | |
 | `SUPER` | `json` | Semi-structured data |
-| `HLLSKETCH` | `string` | HyperLogLog sketch |
 | `GEOMETRY` | `string` | Spatial type |
 | `GEOGRAPHY` | `string` | Spatial type |
+
+`BPCHAR`, `VARBYTE`/`BINARY VARYING`, and `HLLSKETCH` have no type mapping. A column declared with
+any of these fails code generation.
 
 ## Placeholder syntax
 
@@ -97,7 +101,18 @@ SELECT id, name FROM users WHERE id = $1;
 ## Notes
 
 - **No ENUM or ARRAY** -- Redshift does not support PostgreSQL `ENUM` or `ARRAY` types. Use `VARCHAR` with check constraints for enum-like behavior, and normalize arrays into separate tables.
-- **IDENTITY columns** -- Use `IDENTITY(1,1)` instead of `SERIAL`. Scythe treats `IDENTITY` columns as NOT NULL.
+- **IDENTITY columns** -- Use `IDENTITY(1,1)` instead of `SERIAL`. Scythe strips the `IDENTITY(seed, step)`
+  clause when parsing; the column is nullable unless it also declares `NOT NULL` or `PRIMARY KEY`, same as
+  any other column. Unlike PostgreSQL's `SERIAL`, `IDENTITY` alone does not imply NOT NULL.
 - **SUPER type** -- Redshift's `SUPER` type stores semi-structured data (JSON-like). Scythe maps it to the `json` neutral type.
-- **Cloud-only with local testing** -- Redshift is a cloud service, but you can use PostgreSQL locally for development since they share the same wire protocol. Use `engine = "redshift"` to get Redshift-specific type handling.
+- **Cloud-only with local testing** -- Redshift is a cloud service, but you can use PostgreSQL locally for
+  development since they share the same wire protocol. `engine = "redshift"` selects Redshift-specific
+  backend manifests (driver imports, connection setup); analyzer type inference is identical to
+  `engine = "postgresql"`.
 - **QUALIFY clause** -- Redshift does not support `QUALIFY`. Use subqueries with window functions instead.
+
+:::caution
+The `integration-redshift` CI job runs against plain `postgres:16-alpine`, not Redshift (see
+`.github/workflows/integration.yml`). `SUPER`, `IDENTITY`, and other Redshift-only behavior are exercised
+at the type-mapping level only -- there is no verification against a real Redshift cluster.
+:::

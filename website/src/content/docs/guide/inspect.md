@@ -5,9 +5,9 @@ description: Connect to a running database and run operational health checks wit
 
 `scythe inspect` connects to a running database and runs a set of catalog
 checks for operational issues that **only emerge in a live system** — foreign
-keys without covering indexes, tables with policies but Row Level Security
-disabled, duplicate indexes, and (in later phases) schema drift, unused
-indexes, slow queries.
+keys without covering indexes, RLS misconfiguration, missing primary keys,
+unlogged tables, sequences approaching overflow, and more. Stats-based checks
+(unused indexes, slow queries) are not yet implemented — see the roadmap below.
 
 It is the live counterpart to `scythe audit` (static rules) and `scythe lint`
 (schema-aware static rules + sqruff). All three share the same `Finding`
@@ -31,19 +31,29 @@ The connection URL is resolved in order: positional argument →
 `$DATABASE_URL` → `$SCYTHE_DATABASE_URL` → `[inspect].database_url` in
 `scythe.toml`. If none is set, `scythe inspect` exits with a clear error.
 
-## Phase 0 check catalog
+## Check catalog
 
-Phase 0 (v0.10.0) ships three Postgres checks. The catalog grows in later
-phases — see the roadmap below.
+Scythe ships 13 Postgres checks across three categories: `performance`, `security`, and
+`reliability`.
 
-| ID | Name | Severity | Detection |
-|---|---|---|---|
-| SC-INS01 | missing-fk-index | warn | Foreign-key columns with no covering index — every join through the constraint forces a sequential scan. |
-| SC-INS02 | policy-exists-rls-disabled | error | Table has `CREATE POLICY` definitions but `ROW LEVEL SECURITY` is disabled — policies never apply. |
-| SC-INS03 | duplicate-index | warn | Two or more indexes on the same table have identical definitions modulo name — wasted writes and storage. |
+| ID | Name | Category | Severity | Detection |
+|---|---|---|---|---|
+| SC-INS01 | missing-fk-index | performance | warn | Foreign-key columns with no covering index — every join through the constraint forces a sequential scan. |
+| SC-INS02 | policy-exists-rls-disabled | security | error | Table has `CREATE POLICY` definitions but `ROW LEVEL SECURITY` is disabled — policies never apply. |
+| SC-INS03 | duplicate-index | performance | warn | Two or more indexes on the same table have identical definitions modulo name — wasted writes and storage. |
+| SC-INS04 | no-primary-key | reliability | warn | Ordinary table with no `PRIMARY KEY` — breaks logical replication and index-based joins. |
+| SC-INS05 | rls-enabled-no-policy | security | warn | `ROW LEVEL SECURITY` is on but no policies exist — table is unreadable to non-owners (default-deny). |
+| SC-INS06 | multiple-permissive-policies | performance | warn | Two or more `PERMISSIVE` policies for the same table/role/command — each adds an OR to every row filter. |
+| SC-INS07 | security-definer-view | security | error | View not created with `security_invoker=true` — queries run with the view owner's permissions, bypassing RLS. Requires PG 15+. |
+| SC-INS08 | function-search-path-mutable-live | security | error | `SECURITY DEFINER` function with no fixed `search_path` — vulnerable to search-path hijacking. |
+| SC-INS09 | extension-in-public | security | warn | Extension installed in the `public` schema — widens search_path attack surface. |
+| SC-INS10 | rls-disabled-in-public | security | warn | Table in `public` (default API exposure) with RLS disabled — any role with SELECT reads every row. |
+| SC-INS11 | unlogged-table-in-prod | reliability | warn | `UNLOGGED` table — all data is discarded on crash or unclean shutdown. |
+| SC-INS12 | partition-without-default | reliability | warn | Partitioned table has no `DEFAULT` partition — out-of-range inserts fail at runtime. |
+| SC-INS13 | sequence-overflow-risk | reliability | warn | Sequence has consumed over 70% of its range — approaching overflow. |
 
-Detection patterns are clean-room reimplementations of the equivalent
-supabase/splinter lints (0001, 0006, 0009). See `ATTRIBUTIONS.md`.
+SC-INS01–03 are clean-room reimplementations of the equivalent supabase/splinter lints (0001, 0006,
+0009). See `ATTRIBUTIONS.md`.
 
 ## Severity and exit codes
 
@@ -62,12 +72,17 @@ emission. The default keeps everything.
 
 ## Engine support
 
-Phase 0 supports PostgreSQL (and PostgreSQL-compatible engines like
+`scythe inspect` supports PostgreSQL (and PostgreSQL-compatible engines like
 CockroachDB; see the [`SqlDialect::from_str`](https://docs.rs/scythe-core/)
 mapping for the full list of accepted scheme aliases). MySQL is recognised
-but stubbed — `scythe inspect --dialect mysql --list-checks` prints
-"no checks available for engine `mysql` at Phase 0". A real MySQL driver
-lands in Phase 3.
+but stubbed — every driver method returns "unsupported", and `scythe inspect
+--dialect mysql --list-checks` prints:
+
+```text
+no checks available for engine `mysql` — try `scythe inspect --list-checks` with --dialect postgres
+```
+
+A real MySQL driver has not shipped yet — see the roadmap below.
 
 Other engines (MSSQL, Snowflake, Oracle) are not yet wired.
 
@@ -216,5 +231,10 @@ inspect` does ("does my live database have an operational problem?").
 | **0** | v0.10.0 (shipped) | MVP — three Postgres checks | PG (MySQL stub) | SC-INS01..03 |
 | **1** | v0.11.0 (shipped) | Full PG check pack + TOML rule registry + `--explain` + `[inspect]` config | PG | SC-INS04..13 |
 | **2** | v0.14.0 (shipped, as `scythe check --database-url`) | Schema drift — declared catalog vs live | PG | SC-DRF01..07 |
-| **3** | v0.13.0 | MySQL driver + initial MySQL check pack | PG + MySQL | SC-INS-MY01..06 |
-| **4** | v0.14.0 | Stats-based — unused indexes, slow queries via `pg_stat_*` | PG | SC-INS-STAT01..04 |
+| **3** | not yet shipped | MySQL driver + initial MySQL check pack | PG + MySQL | SC-INS-MY01..06 |
+| **4** | not yet shipped | Stats-based — unused indexes, slow queries via `pg_stat_*` | PG | SC-INS-STAT01..04 |
+
+Phases 0, 1, and 2 are implemented; phase 2 landed as `scythe check --database-url` rather than as an
+`inspect` check (see the note above). Phases 3 and 4 — including the MySQL driver — are not
+implemented; `crates/scythe-inspect/src/mysql/` remains a stub whose every method returns
+`InspectError::Unsupported`.

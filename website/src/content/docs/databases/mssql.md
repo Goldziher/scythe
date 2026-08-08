@@ -7,7 +7,9 @@ Microsoft SQL Server support with T-SQL dialect parsing, parameter syntax, and t
 
 ## Overview
 
-MSSQL (Microsoft SQL Server) is a widely used enterprise relational database. Scythe supports T-SQL dialect parsing with `@pN` named parameter syntax. MSSQL backends generate code that uses the native parameter binding conventions for each language driver.
+MSSQL (Microsoft SQL Server) is a widely used enterprise relational database. Scythe supports T-SQL
+dialect parsing; you write `$N` placeholders in your SQL and each backend translates them to its
+driver's native parameter binding convention (see [Placeholder syntax](#placeholder-syntax)).
 
 ## Engine alias
 
@@ -24,21 +26,24 @@ engine = "mssql"  # or "sqlserver"
 | `rust-tiberius` | Rust | tiberius |
 | `python-pyodbc` | Python | pyodbc |
 | `typescript-mssql` | TypeScript | mssql (tedious) |
-| `go-mssqldb` | Go | go-mssqldb |
+| `typescript-kysely` | TypeScript | Kysely |
+| `go-database-sql` | Go | database/sql (with `engine = "mssql"`) |
 | `java-jdbc` | Java | JDBC (Microsoft JDBC Driver) |
-| `java-r2dbc` | Java | R2DBC (r2dbc-mssql) |
 | `kotlin-jdbc` | Kotlin | JDBC (Microsoft JDBC Driver) |
-| `kotlin-r2dbc` | Kotlin | R2DBC (r2dbc-mssql) |
 | `csharp-sqlclient` | C# | Microsoft.Data.SqlClient |
 | `ruby-tiny-tds` | Ruby | tiny_tds |
 | `php-pdo` | PHP | PDO (sqlsrv driver) |
 | `elixir-tds` | Elixir | tds |
+
+`java-r2dbc` and `kotlin-r2dbc` do not support MSSQL -- their `supported_engines` list is
+`postgresql`, `mysql`, `mariadb`, `sqlite`.
 
 ## Configuration
 
 ```toml
 # scythe.toml
 [[sql]]
+name = "main"
 engine = "mssql"
 schema = ["schema.sql"]
 queries = ["queries/"]
@@ -73,19 +78,22 @@ output = "src/generated"
 
 ## Placeholder syntax
 
-MSSQL uses `@pN` named parameter placeholders:
+Write positional `$N` placeholders in your SQL. Each backend translates them to its driver's native
+convention -- placeholder style is per-backend, not uniform across MSSQL:
 
-```sql
-INSERT INTO users (name, email) VALUES (@p1, @p2);
-```
-
-Scythe translates `$N` in your SQL to `@pN` for MSSQL backends:
+| Backend | Placeholder style |
+|---------|-------------------|
+| `rust-tiberius`, `csharp-sqlclient`, `typescript-mssql`, `typescript-kysely` | `@p1`, `@p2`, ... |
+| `python-pyodbc`, `java-jdbc`, `kotlin-jdbc`, `go-database-sql` | `?` |
+| `ruby-tiny-tds` | `@1`, `@2`, ... |
+| `elixir-tds` | `:p1`, `:p2`, ... |
+| `php-pdo` | `?` |
 
 ```sql
 -- Written as:
 SELECT id, name FROM users WHERE id = $1;
 
--- Translated to:
+-- csharp-sqlclient generates:
 SELECT id, name FROM users WHERE id = @p1;
 ```
 
@@ -100,6 +108,8 @@ docker run -e 'ACCEPT_EULA=Y' -e 'MSSQL_SA_PASSWORD=YourStrong@Passw0rd' \
 ## Notes
 
 - **T-SQL dialect** -- Scythe parses T-SQL syntax including `TOP`, `OUTPUT`, `MERGE`, and `OFFSET FETCH`.
-- **IDENTITY columns** -- `IDENTITY(1,1)` columns are treated as NOT NULL, equivalent to PostgreSQL's `SERIAL`.
+- **IDENTITY columns** -- Scythe strips the `IDENTITY(seed, step)` clause when parsing. Unlike
+  PostgreSQL's `SERIAL`, `IDENTITY` alone does not imply NOT NULL: the column is nullable unless it
+  also declares `NOT NULL` or `PRIMARY KEY`.
 - **OUTPUT clause** -- MSSQL uses `OUTPUT INSERTED.*` instead of `RETURNING`. Scythe handles this translation.
 - **String types** -- `NVARCHAR` and `VARCHAR` both map to `string`. No distinction is made between Unicode and non-Unicode strings in the neutral type system.

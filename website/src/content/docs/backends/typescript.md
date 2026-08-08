@@ -36,6 +36,14 @@ CREATE TABLE users (
 
 ## Generated code -- shared interfaces
 
+Every generated file starts with a provenance header, then its driver import
+(`integration_tests/typescript-pg/generated/queries.ts:1-2`):
+
+```typescript
+// scythe:provenance v=0.13.0 backend=typescript-pg engine=postgresql schema=sch1:...
+import type { PoolClient } from "pg";
+```
+
 ```typescript
 export interface GetUserRow {
   id: number;
@@ -54,24 +62,28 @@ Note: generated field names mirror the SQL column names in `snake_case` by defau
 [`field_case = "camelCase"`](#options) to rename them. Function names (`getUser`, `listUsers`) are
 `camelCase`, per `fn_case`.
 
+Every `:one` query on every TypeScript backend returns `Promise<Row | null>` and ends
+`return rows[0] ?? null;` -- none return a bare `Promise<Row>`.
+
 ## postgres.js
 
-Uses tagged template literals for query parameterization.
+Uses tagged template literals for query parameterization. The handle type is a bare `Sql`, imported
+with `import type { Sql } from "postgres"` -- not `postgres.Sql`
+(`integration_tests/typescript-postgres/generated/queries.ts:1-2`).
 
 ### `:one`
 
 ```typescript
-import postgres from "postgres";
+import type { Sql } from "postgres";
 
 export async function getUser(
-  sql: postgres.Sql,
-  id: number
-): Promise<GetUserRow> {
-  const [row] = await sql<GetUserRow[]>`
-    SELECT id, name, email, created_at
-    FROM users WHERE id = ${id}
+  sql: Sql,
+  id: number,
+): Promise<GetUserRow | null> {
+  const rows = await sql<GetUserRow[]>`
+    SELECT id, name, email, created_at FROM users WHERE id = ${id}
   `;
-  return row;
+  return rows[0] ?? null;
 }
 ```
 
@@ -79,12 +91,13 @@ export async function getUser(
 
 ```typescript
 export async function listUsers(
-  sql: postgres.Sql,
-  limit: number
+  sql: Sql,
+  limit: number,
 ): Promise<ListUsersRow[]> {
-  return await sql<ListUsersRow[]>`
+  const rows = await sql<ListUsersRow[]>`
     SELECT id, name FROM users ORDER BY name LIMIT ${limit}
   `;
+  return rows;
 }
 ```
 
@@ -92,9 +105,9 @@ export async function listUsers(
 
 ```typescript
 export async function createUser(
-  sql: postgres.Sql,
+  sql: Sql,
   name: string,
-  email: string | null
+  email: string | null,
 ): Promise<void> {
   await sql`
     INSERT INTO users (name, email) VALUES (${name}, ${email})
@@ -104,22 +117,23 @@ export async function createUser(
 
 ## pg (node-postgres)
 
-Uses `$N` positional parameters with `client.query()`.
+Uses `$N` positional parameters with `client.query()`. The handle type is `PoolClient` (via
+`import type { PoolClient } from "pg"`), not `Client`.
 
 ### `:one`
 
 ```typescript
-import { Client } from "pg";
+import type { PoolClient } from "pg";
 
 export async function getUser(
-  client: Client,
-  id: number
-): Promise<GetUserRow> {
+  client: PoolClient,
+  id: number,
+): Promise<GetUserRow | null> {
   const { rows } = await client.query<GetUserRow>(
     "SELECT id, name, email, created_at FROM users WHERE id = $1",
-    [id]
+    [id],
   );
-  return rows[0];
+  return rows[0] ?? null;
 }
 ```
 
@@ -127,12 +141,12 @@ export async function getUser(
 
 ```typescript
 export async function listUsers(
-  client: Client,
-  limit: number
+  client: PoolClient,
+  limit: number,
 ): Promise<ListUsersRow[]> {
   const { rows } = await client.query<ListUsersRow>(
     "SELECT id, name FROM users ORDER BY name LIMIT $1",
-    [limit]
+    [limit],
   );
   return rows;
 }
@@ -142,20 +156,20 @@ export async function listUsers(
 
 ```typescript
 export async function createUser(
-  client: Client,
+  client: PoolClient,
   name: string,
-  email: string | null
+  email: string | null,
 ): Promise<void> {
   await client.query(
     "INSERT INTO users (name, email) VALUES ($1, $2)",
-    [name, email]
+    [name, email],
   );
 }
 ```
 
 ## Kysely
 
-`typescript-kysely` is dialect-parameterised, not driver-parameterised: generated functions take a `Kysely<DB>` handle and execute through Kysely's `sql` tagged-template. Kysely's own query compiler renders whatever placeholder syntax the connected `Dialect` needs at runtime, so the same generated call site works against every Kysely dialect scythe pins and tests -- PostgreSQL, MySQL, SQLite, MSSQL, MariaDB, plus Redshift via the PostgreSQL dialect -- and, being wire-compatible, against third-party dialects scythe does not pin or test, such as libsql, PlanetScale, Cloudflare D1, Neon, PGlite, or a community `node:sqlite`/`wasm-sqlite` Kysely adapter.
+`typescript-kysely` is dialect-parameterised, not driver-parameterised: generated functions take a `QueryExecutorProvider` handle (not a concrete `Kysely<DB>`) and execute through Kysely's `sql` tagged-template. Kysely's own query compiler renders whatever placeholder syntax the connected `Dialect` needs at runtime, so the same generated call site works against every Kysely dialect scythe pins and tests -- PostgreSQL, MySQL, SQLite, MSSQL, MariaDB, plus Redshift via the PostgreSQL dialect -- and, being wire-compatible, against third-party dialects scythe does not pin or test, such as libsql, PlanetScale, Cloudflare D1, Neon, PGlite, or a community `node:sqlite`/`wasm-sqlite` Kysely adapter.
 
 For synchronous SQLite access without Kysely or a Promise-based driver at all, see the dedicated [`typescript-node-sqlite`](#typescript-node-sqlite-and-typescript-wasm-sqlite) and [`typescript-wasm-sqlite`](#typescript-node-sqlite-and-typescript-wasm-sqlite) backends below.
 
@@ -168,16 +182,21 @@ SELECT id, name, email, created_at FROM users WHERE id = ?;
 (SQLite/MySQL source SQL uses bare `?`; PostgreSQL uses `$1`; MSSQL uses `@p1` -- the engine set in `scythe.toml` picks which syntax scythe expects, but none of it survives into the generated code, since every placeholder becomes a `${}` interpolation regardless.)
 
 ```typescript
-import { Kysely, sql } from "kysely";
+import { type QueryExecutorProvider, sql } from "kysely";
 
-export async function getUser<DB = any>(
-  db: Kysely<DB>,
-  id: number
+export async function getUser(
+  db: QueryExecutorProvider,
+  id: number,
 ): Promise<GetUserRow | null> {
   const result = await sql<GetUserRow>`SELECT id, name, email, created_at FROM users WHERE id = ${id}`.execute(db);
   return result.rows[0] ?? null;
 }
 ```
+
+The parameter is `QueryExecutorProvider`, not `Kysely<DB>` -- there is no `<DB>` generic on the
+generated function at all. Any `Kysely` instance satisfies `QueryExecutorProvider` structurally, so
+passing a concrete `Kysely<YourSchema>` still works
+(`integration_tests/typescript-kysely/generated/queries.ts:1-2,23-31`).
 
 Pass any Kysely instance -- built-in or third-party dialect -- since the generated code never hardcodes a placeholder format:
 
@@ -290,7 +309,16 @@ export function getOrdersByUser(
 
 `typescript-wasm-sqlite` generates the equivalent using `db.selectObjects(...)` instead of `db.prepare(...).all(...)`. Neither backend's `DatabaseSync`/`Database` handle has a `.transaction()` helper, so `:batch` queries wrap explicit `BEGIN`/`COMMIT`/`ROLLBACK` statements instead.
 
-Both backends support the same `row_type`, `outer_join_unions`, and `structs_only` options as the other TypeScript backends.
+Both backends support the same `row_type`, `outer_join_unions`, `structs_only`, and `field_case`
+options as the other TypeScript backends.
+
+## Other TypeScript backends
+
+Six further shipped TypeScript backends are not covered on this page, each targeting one engine:
+`typescript-mysql2` (MySQL/MariaDB), `typescript-better-sqlite3` (SQLite), `typescript-duckdb`
+(DuckDB), `typescript-mssql` (MSSQL, `mssql`/tedious), `typescript-oracledb` (Oracle,
+node-oracledb), and `typescript-snowflake` (Snowflake). See [Backend Architecture](/scythe/backends/overview/#supported-backends)
+for the full backend list.
 
 ## Enum generation
 
@@ -298,12 +326,31 @@ Both backends support the same `row_type`, `outer_join_unions`, and `structs_onl
 CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned');
 ```
 
+Only `typescript-postgres` emits a real TypeScript `enum`. `typescript-pg` and `typescript-kysely`
+emit a `const` object of values plus a derived type instead -- `enum` values are not narrowable the
+way a driver returns raw strings, and the `as const` pattern round-trips through `pg`/Kysely without a
+runtime enum object.
+
+**typescript-postgres:**
+
 ```typescript
 export enum UserStatus {
   Active = "active",
   Inactive = "inactive",
   Banned = "banned",
 }
+```
+
+**typescript-pg and typescript-kysely:**
+
+```typescript
+export const UserStatusValues = {
+  Active: "active",
+  Inactive: "inactive",
+  Banned: "banned",
+} as const;
+
+export type UserStatus = typeof UserStatusValues[keyof typeof UserStatusValues];
 ```
 
 ## Type mappings

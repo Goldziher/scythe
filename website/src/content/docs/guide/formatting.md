@@ -30,7 +30,13 @@ scythe fmt --dialect mysql
 scythe fmt --dialect ansi
 ```
 
-If no dialect is specified, `ansi` is used by default. When using a config file, both query files and schema files are included.
+If `--dialect` is not given, scythe falls back to the first `[[sql]].engine` in `scythe.toml` (mapped
+to its sqruff dialect); only when no config resolves a dialect either does it fall back to `ansi`. When
+using a config file, both query files and schema files are included.
+
+`scythe fmt` always runs sqruff's full default rule set and ignores `[lint.sqruff]` entirely -- a
+rule turned `"off"` there for `scythe lint` still runs (and can still rewrite files) under `scythe
+fmt`.
 
 ## CI Integration
 
