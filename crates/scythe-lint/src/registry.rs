@@ -114,15 +114,15 @@ pub fn default_registry() -> RuleRegistry {
     reg
 }
 
-/// The seven `SC-PRV*` provenance rules, in their own registry.
+/// The eight `SC-PRV*` provenance rules, in their own registry.
 ///
 /// Deliberately **not** part of [`default_registry`]. Every consumer of that
 /// registry evaluates rules through `LintRule::check_query` /
-/// `check_catalog`, and these seven implement neither — their findings come
+/// `check_catalog`, and these eight implement neither — their findings come
 /// from `scythe check`'s generated-artifact verification pass, which has no
 /// `LintContext` to offer. Putting them in the default registry would have
 /// `scythe audit --list-rules` (via `load_registry_for_discovery`) and
-/// `scythe lint` advertise seven rules that neither command can ever emit,
+/// `scythe lint` advertise eight rules that neither command can ever emit,
 /// and would move the documented "58 built-in rules" figure that appears
 /// across the README, the website, and the skills bundle.
 ///
@@ -143,6 +143,7 @@ pub fn provenance_registry() -> RuleRegistry {
     reg.register(Box::new(rules::provenance::MissingProvenanceHeader));
     reg.register(Box::new(rules::provenance::MalformedProvenanceHeader));
     reg.register(Box::new(rules::provenance::UnverifiableProvenance));
+    reg.register(Box::new(rules::provenance::QueryDrift));
 
     reg
 }
@@ -241,7 +242,7 @@ mod tests {
     /// consumer of the default registry evaluates rules through
     /// `check_query` / `check_catalog`, which no provenance rule implements
     /// — so listing them via `scythe audit --list-rules` or running them
-    /// through `scythe lint` would advertise seven rules that can never
+    /// through `scythe lint` would advertise eight rules that can never
     /// produce a finding from those commands.
     #[test]
     fn default_registry_excludes_provenance_rules() {
@@ -252,7 +253,7 @@ mod tests {
             "no provenance-category rule may appear in the default registry"
         );
         for id in [
-            "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07",
+            "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08",
         ] {
             assert!(
                 !reg.rules.iter().any(|r| r.id() == id),
@@ -262,13 +263,13 @@ mod tests {
     }
 
     #[test]
-    fn provenance_registry_has_the_seven_prv_rules() {
+    fn provenance_registry_has_the_eight_prv_rules() {
         let reg = provenance_registry();
         let ids: Vec<&str> = reg.rules.iter().map(|r| r.id()).collect();
         assert_eq!(
             ids,
             vec![
-                "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07"
+                "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08"
             ]
         );
     }
@@ -310,7 +311,7 @@ mod tests {
         reg.apply_config(&config);
 
         for id in [
-            "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07",
+            "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08",
         ] {
             assert!(
                 !reg.active_rules().iter().any(|(r, _)| r.id() == id),

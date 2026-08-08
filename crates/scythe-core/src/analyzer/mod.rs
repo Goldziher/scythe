@@ -2,6 +2,7 @@ mod expressions;
 mod helpers;
 mod naming;
 mod params;
+mod query_fingerprint;
 mod scope;
 mod statements;
 mod type_conversion;

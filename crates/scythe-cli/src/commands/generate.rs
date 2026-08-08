@@ -312,6 +312,13 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
             analyzed_queries.push(analyzed);
         }
 
+        // Computed once per `[[sql]]` block, not per target, exactly like
+        // `schema_fingerprint` above and for the same reason: every target
+        // under one block shares the same analyzed query set, and
+        // `verify_provenance` recomputes the identical value from the same
+        // inputs when checking these same artifacts later (#94).
+        let queries_fingerprint = AnalyzedQuery::fingerprint_set(&analyzed_queries);
+
         let overrides: Vec<TypeOverride> = sql_config
             .type_overrides
             .as_deref()
@@ -363,8 +370,11 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
                 &analyzed_queries,
                 &output_dir,
                 &overrides,
-                &sql_config.engine,
-                &schema_fingerprint,
+                ProvenanceFields {
+                    engine: &sql_config.engine,
+                    schema: &schema_fingerprint,
+                    queries: &queries_fingerprint,
+                },
             )?;
         }
     }
@@ -456,8 +466,8 @@ struct QueryResult {
 /// `scythe-codegen`'s to decide: the number that belongs in the header is the
 /// version of the `scythe` binary that wrote the file, because that is
 /// exactly what [`verify_artifact`]'s SC-PRV02 check compares against.
-fn provenance_header_line(backend: &dyn CodegenBackend, engine: &str, schema: &str) -> String {
-    scythe_codegen::provenance::header_line(backend, env!("CARGO_PKG_VERSION"), engine, schema)
+fn provenance_header_line(backend: &dyn CodegenBackend, engine: &str, schema: &str, queries: &str) -> String {
+    scythe_codegen::provenance::header_line(backend, env!("CARGO_PKG_VERSION"), engine, schema, queries)
 }
 
 /// Assemble a backend's complete generated file: preamble (text that must
@@ -475,10 +485,16 @@ fn provenance_header_line(backend: &dyn CodegenBackend, engine: &str, schema: &s
 /// [`scythe_codegen::provenance::assemble_file`], which also documents why
 /// the blank separator after the provenance line is conditional on the
 /// preamble being non-empty.
-fn assemble_output(backend: &dyn CodegenBackend, results: &[QueryResult], engine: &str, schema: &str) -> String {
+fn assemble_output(
+    backend: &dyn CodegenBackend,
+    results: &[QueryResult],
+    engine: &str,
+    schema: &str,
+    queries: &str,
+) -> String {
     scythe_codegen::provenance::assemble_file(
         &backend.file_preamble(),
-        &provenance_header_line(backend, engine, schema),
+        &provenance_header_line(backend, engine, schema, queries),
         &assemble_body(backend, results),
     )
 }
@@ -631,22 +647,46 @@ fn backend_emits_rbs(backend: &dyn CodegenBackend) -> bool {
     backend.generate_rbs_file(&empty_context).is_some()
 }
 
+/// The three provenance-header fields that are derived once per `[[sql]]`
+/// block and then travel together down every generation path.
+///
+/// They are grouped rather than passed individually because they are only
+/// ever read as a set — by [`provenance_header_line`], and by nothing else —
+/// and because passing them separately pushed both
+/// [`generate_for_backend`] and [`generate_rbs_if_supported`] past clippy's
+/// argument-count threshold when `queries` was added.
+#[derive(Clone, Copy)]
+struct ProvenanceFields<'a> {
+    /// The raw `[[sql]]` engine alias (e.g. `"mariadb"`), exactly as the
+    /// user wrote it — deliberately not normalized, so the header records
+    /// the configured engine rather than the one inference resolved it to.
+    engine: &'a str,
+    /// The current [`scythe_core::catalog::Catalog::fingerprint`].
+    schema: &'a str,
+    /// The sibling
+    /// [`scythe_core::analyzer::AnalyzedQuery::fingerprint_set`] over the
+    /// analyzed query set — see that method's doc comment for what
+    /// participates.
+    queries: &'a str,
+}
+
 /// Generate output for a single backend target.
 ///
-/// `engine` and `schema` are the raw `[[sql]]` engine alias (e.g.
-/// `"mariadb"`, exactly as the user wrote it — not normalized) and the
-/// current [`scythe_core::catalog::Catalog::fingerprint`], threaded through
-/// to [`assemble_output`] for the provenance header line every generated
-/// file now carries.
+/// `provenance` is threaded through to [`assemble_output`] for the header
+/// line every generated file now carries.
 fn generate_for_backend(
     config_name: &str,
     backend: &dyn CodegenBackend,
     analyzed_queries: &[AnalyzedQuery],
     output_dir: &str,
     overrides: &[TypeOverride],
-    engine: &str,
-    schema: &str,
+    provenance: ProvenanceFields<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
+    let ProvenanceFields {
+        engine,
+        schema,
+        queries,
+    } = provenance;
     // Nested struct names are deduplicated by (name, shape) only *within*
     // one analyze() call, so two queries in the same file can each derive
     // the same name -- `to_snake_case` collapses `GetUserPosts` and
@@ -717,7 +757,7 @@ fn generate_for_backend(
         });
     }
 
-    let mut output_content = assemble_output(backend, &results, engine, schema);
+    let mut output_content = assemble_output(backend, &results, engine, schema, queries);
 
     let filename = output_filename(backend);
 
@@ -740,15 +780,7 @@ fn generate_for_backend(
         output_file.display()
     );
 
-    generate_rbs_if_supported(
-        config_name,
-        backend,
-        analyzed_queries,
-        overrides,
-        out_path,
-        engine,
-        schema,
-    )?;
+    generate_rbs_if_supported(config_name, backend, analyzed_queries, overrides, out_path, provenance)?;
 
     Ok(())
 }
@@ -766,8 +798,8 @@ fn determine_struct_name(analyzed: &AnalyzedQuery, naming: &scythe_backend::nami
 /// Generate an RBS type signature file alongside the Ruby output file,
 /// if the backend supports RBS generation (Ruby backends only).
 ///
-/// `engine` and `schema` are threaded through for the same reason
-/// [`generate_for_backend`] takes them: `queries.rbs` gets a provenance
+/// `provenance` is threaded through for the same reason
+/// [`generate_for_backend`] takes it: `queries.rbs` gets a provenance
 /// header too. It is a tracked artifact in all six `integration_tests/ruby-*`
 /// projects, and its content is schema-derived — a column changing type or
 /// nullability rewrites the RBS signatures. Emitting it without a header
@@ -781,12 +813,16 @@ fn generate_rbs_if_supported(
     analyzed_queries: &[AnalyzedQuery],
     overrides: &[TypeOverride],
     out_path: &Path,
-    engine: &str,
-    schema: &str,
+    provenance: ProvenanceFields<'_>,
 ) -> Result<(), Box<dyn std::error::Error>> {
     if !backend_emits_rbs(backend) {
         return Ok(());
     }
+    let ProvenanceFields {
+        engine,
+        schema,
+        queries,
+    } = provenance;
 
     let manifest = backend.manifest();
     let naming = &manifest.naming;
@@ -865,7 +901,7 @@ fn generate_rbs_if_supported(
         // language (`ruby` -> `#`), which is also RBS's comment syntax.
         let rbs_content = scythe_codegen::provenance::assemble_file(
             "",
-            &provenance_header_line(backend, engine, schema),
+            &provenance_header_line(backend, engine, schema, queries),
             &rbs_content,
         );
 
@@ -992,16 +1028,23 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
                 });
             }
 
-            // Retained only for live-database verification, which requires
-            // `--database-url` (see `should_retain_for_verification`).
-            // Without it, cloning and keeping every analyzed query (columns,
-            // params, source tables, ...) around for the rest of the process
-            // is pure waste on the overwhelmingly common no-database `scythe
-            // check` path.
-            if should_retain_for_verification(opts.database_url.as_deref()) {
-                analyzed_queries.push(analyzed);
-            }
+            // Unconditionally retained, unlike before #94: `verify_provenance`
+            // now needs the full analyzed query set for every `scythe check`
+            // run, not just ones with `--database-url`, to compute the
+            // current `queries=` fingerprint for SC-PRV08. The
+            // `--database-url`-gated cost this used to avoid was `queries`
+            // being consumed a second time by `VerifiableBlock` below (for
+            // live-database verification) -- that part of the retention is
+            // still conditional; only the always-needed part (holding
+            // `analyzed` long enough to fingerprint it) is not.
+            analyzed_queries.push(analyzed);
         }
+
+        // Computed from every analyzed query in this block, exactly as
+        // `run_generate` computes the same value -- see
+        // `AnalyzedQuery::fingerprint_set` for what participates. Read
+        // before the possible move into `VerifiableBlock` just below.
+        let queries_fingerprint = AnalyzedQuery::fingerprint_set(&analyzed_queries);
 
         if should_retain_for_verification(opts.database_url.as_deref()) {
             verifiable.push(VerifiableBlock {
@@ -1038,7 +1081,13 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         // plain `Vec` precisely so it cannot abort the run before
         // `emit_findings` below and take every other block's findings with
         // it. See its doc comment.
-        all_violations.extend(verify_provenance(sql_config, &catalog, base_dir, provenance_severities));
+        all_violations.extend(verify_provenance(
+            sql_config,
+            &catalog,
+            &queries_fingerprint,
+            base_dir,
+            provenance_severities,
+        ));
 
         eprintln!("[{}] All queries valid.", sql_config.name);
     }
@@ -1230,7 +1279,8 @@ fn verify_against_database(
 }
 
 /// Sentinel a generated file's provenance header line is built around, e.g.
-/// `// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef`.
+/// `// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef
+/// queries=q1:fedcba9876543210`.
 ///
 /// Deliberately comment-syntax-agnostic: the header sits behind whatever
 /// comment token the target language uses (`//`, `#`, `--`, a block
@@ -1249,17 +1299,34 @@ const PROVENANCE_SENTINEL: &str = "scythe:provenance";
 const PROVENANCE_SCAN_LINES: usize = 20;
 
 /// Fields parsed from a generated file's provenance header line.
+///
+/// `queries` is deliberately excluded from [`missing_fields`](Self::missing_fields)
+/// and therefore from [`is_complete`](Self::is_complete) -- those two stay
+/// the *original* four-field completeness contract from #68. A header
+/// written by scythe 0.14.0 or earlier has no `queries=` field at all, and
+/// that must read as "query drift is not covered for this artifact", not as
+/// SC-PRV06 malformed-header. See [`verify_artifact`]'s SC-PRV08 check for
+/// where `queries` actually gets used, and why it is compared only when
+/// present.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 struct ProvenanceHeader {
     version: Option<String>,
     backend: Option<String>,
     engine: Option<String>,
     schema: Option<String>,
+    /// `q1:<16 hex>` fingerprint of the analyzed query set this file was
+    /// generated from (#94). `None` for both "no such field in the header"
+    /// (an artifact from scythe 0.14.0 or earlier) and "no header at all" --
+    /// both are handled the same way by [`verify_artifact`]'s SC-PRV08
+    /// check: skipped, not reported as drift.
+    queries: Option<String>,
 }
 
 impl ProvenanceHeader {
     /// Names of fields the header is missing, in a stable order, for the
     /// SC-PRV06 "malformed header" message.
+    ///
+    /// `queries` never appears here -- see the struct doc comment.
     fn missing_fields(&self) -> Vec<&'static str> {
         [
             (self.version.is_none(), "v"),
@@ -1305,6 +1372,7 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
             "backend" => header.backend = Some(value.to_string()),
             "engine" => header.engine = Some(value.to_string()),
             "schema" => header.schema = Some(value.to_string()),
+            "queries" => header.queries = Some(value.to_string()),
             // Forward-compatible: the header format may grow fields later.
             // An older verifier ignoring keys it does not recognize (rather
             // than erroring) is what lets the header format and this
@@ -1325,7 +1393,7 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
 /// their severity the way a SQL rule does, by being iterated out of
 /// [`scythe_lint::RuleRegistry::active_rules`]. That is also why they are
 /// kept out of `default_registry`: `scythe lint` and `scythe audit
-/// --list-rules` would otherwise advertise seven rules neither can emit.
+/// --list-rules` would otherwise advertise eight rules neither can emit.
 /// Resolving them here through
 /// [`scythe_lint::RuleRegistry::effective_severity`] -- the same call every
 /// SQL rule's severity goes through, against a registry the same `[lint]`
@@ -1338,7 +1406,7 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
 ///
 /// Snapshotted into a `Copy` struct rather than holding a `&RuleRegistry` so
 /// the registry does not have to outlive the whole check run just to answer
-/// seven fixed questions.
+/// eight fixed questions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 struct ProvenanceSeverities {
     schema_drift: Severity,
@@ -1348,6 +1416,7 @@ struct ProvenanceSeverities {
     missing_header: Severity,
     malformed_header: Severity,
     unverifiable: Severity,
+    query_drift: Severity,
 }
 
 impl ProvenanceSeverities {
@@ -1370,14 +1439,15 @@ impl ProvenanceSeverities {
             missing_header: registry.effective_severity(&rules::MissingProvenanceHeader),
             malformed_header: registry.effective_severity(&rules::MalformedProvenanceHeader),
             unverifiable: registry.effective_severity(&rules::UnverifiableProvenance),
+            query_drift: registry.effective_severity(&rules::QueryDrift),
         }
     }
 }
 
 /// What a single on-disk artifact's provenance header is checked against.
 ///
-/// Bundled rather than passed as seven loose arguments because every field
-/// is fixed for a whole `[[sql]]` block (or, for `backend_name`, for a whole
+/// Bundled rather than passed as loose arguments because every field is
+/// fixed for a whole `[[sql]]` block (or, for `backend_name`, for a whole
 /// target) while [`verify_artifact`] is called once per artifact file -- a
 /// Ruby target has two.
 struct ProvenanceExpectation<'a> {
@@ -1391,27 +1461,35 @@ struct ProvenanceExpectation<'a> {
     /// Sanitized `[[sql]]` engine -- see the SC-PRV04 comparison below.
     engine: &'a str,
     schema: &'a str,
+    /// Current `q1:<16 hex>` fingerprint of this block's analyzed query set
+    /// (see [`scythe_core::analyzer::AnalyzedQuery::fingerprint_set`]),
+    /// compared against the header's `queries` field for SC-PRV08 -- see
+    /// that comparison in [`verify_artifact`] for why it only fires when the
+    /// header actually has one.
+    queries: &'a str,
     version: &'a str,
     severities: ProvenanceSeverities,
 }
 
 /// Compare each of `sql_config`'s resolved generation targets' on-disk
-/// artifacts against `catalog` and the current scythe build, reporting
-/// provenance drift as `SC-PRV01`-`SC-PRV07` violations.
+/// artifacts against `catalog`, the current analyzed query set, and the
+/// current scythe build, reporting provenance drift as `SC-PRV01`-`SC-PRV08`
+/// violations.
 ///
 /// # Scope
 ///
-/// This answers "was this file generated from the *current schema*?" --
-/// nothing more. It does not answer "was this file generated from the
-/// current *queries*?": editing a query file without touching the schema
-/// and without regenerating produces no schema-fingerprint mismatch, because
-/// [`scythe_core::catalog::Catalog::fingerprint`] covers only tables,
-/// columns, enums, and composites -- never query SQL. Where a full
-/// toolchain is available, `scythe generate` followed by `git status`
-/// already answers the stronger question by actually regenerating and
-/// diffing; provenance verification exists for the CI/review path where
-/// running the full generator on every check is too expensive or the
-/// toolchain (database drivers, per-language compilers) is unavailable.
+/// This answers "was this file generated from the *current schema*?" and,
+/// as of #94, "was this file generated from the *current queries*?" --
+/// nothing more. The second question (SC-PRV08) is answered only when the
+/// artifact's header actually carries a `queries=` field: a header written
+/// by scythe 0.14.0 or earlier predates it, and that reads as "not covered
+/// for this artifact", not as drift -- see [`verify_artifact`]'s SC-PRV08
+/// check. Neither question is a substitute for actually regenerating: where
+/// a full toolchain is available, `scythe generate` followed by `git status`
+/// answers both by actually regenerating and diffing byte-for-byte;
+/// provenance verification exists for the CI/review path where running the
+/// full generator on every check is too expensive or the toolchain (database
+/// drivers, per-language compilers) is unavailable.
 ///
 /// # This function cannot fail
 ///
@@ -1461,6 +1539,7 @@ struct ProvenanceExpectation<'a> {
 fn verify_provenance(
     sql_config: &SqlConfig,
     catalog: &Catalog,
+    current_queries: &str,
     base_dir: &Path,
     severities: ProvenanceSeverities,
 ) -> Vec<QueryViolation> {
@@ -1515,6 +1594,7 @@ fn verify_provenance(
             backend_name: backend.name(),
             engine: sanitized_engine.as_ref(),
             schema: &current_schema,
+            queries: current_queries,
             version: env!("CARGO_PKG_VERSION"),
             severities,
         };
@@ -1607,6 +1687,36 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
                 "{path_display}: schema drift -- generated against schema {header_schema}, \
                  current schema is {} (run `scythe generate` to refresh)",
                 expected.schema
+            ),
+        });
+    }
+
+    // SC-PRV08 (#94) -- a distinct finding from SC-PRV01 above: this compares
+    // the *query* fingerprint, not the schema fingerprint, so editing a
+    // `.sql` query file without touching the schema is no longer invisible
+    // to `scythe check`.
+    //
+    // Deliberately gated on `header.queries` being present, unlike every
+    // other field compared here: those four are covered by
+    // `header.is_complete()` returning early above, but `queries` is not
+    // part of that four-field completeness contract (see
+    // [`ProvenanceHeader`]'s doc comment) precisely so that a header written
+    // by scythe 0.14.0 or earlier -- which has no `queries=` field at all --
+    // is treated as "query drift is not covered for this artifact" rather
+    // than as either SC-PRV06 malformed-header or SC-PRV08 drift. Only a
+    // header that *has* a `queries=` field and disagrees with the current
+    // fingerprint fires this rule.
+    if let Some(header_queries) = header.queries.as_deref()
+        && header_queries != expected.queries
+    {
+        violations.push(QueryViolation {
+            query_name: expected.target_label.to_string(),
+            rule_id: Cow::Borrowed("SC-PRV08"),
+            severity: expected.severities.query_drift,
+            message: format!(
+                "{path_display}: query drift -- generated against queries {header_queries}, \
+                 current queries are {} (run `scythe generate` to refresh)",
+                expected.queries
             ),
         });
     }
@@ -2016,22 +2126,28 @@ SELECT * FROM users WHERE id = $1;
     // -----------------------------------------------------------------------
 
     #[test]
-    fn provenance_header_line_contains_sentinel_and_all_four_fields() {
+    fn provenance_header_line_contains_sentinel_and_all_five_fields() {
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
-        let line = provenance_header_line(backend.as_ref(), "postgresql", "sch1:0123456789abcdef");
+        let line = provenance_header_line(
+            backend.as_ref(),
+            "postgresql",
+            "sch1:0123456789abcdef",
+            "q1:fedcba9876543210",
+        );
 
         assert!(line.starts_with("// scythe:provenance "), "got: {line:?}");
         assert!(line.contains(&format!("v={}", env!("CARGO_PKG_VERSION"))));
         assert!(line.contains("backend=rust-sqlx"));
         assert!(line.contains("engine=postgresql"));
         assert!(line.contains("schema=sch1:0123456789abcdef"));
+        assert!(line.contains("queries=q1:fedcba9876543210"));
         assert!(line.ends_with('\n'));
     }
 
     #[test]
     fn provenance_header_line_uses_hash_comment_for_ruby() {
         let backend = get_backend("ruby-pg", "postgresql").expect("ruby-pg should support postgresql");
-        let line = provenance_header_line(backend.as_ref(), "postgresql", "sch1:aaaa");
+        let line = provenance_header_line(backend.as_ref(), "postgresql", "sch1:aaaa", "q1:fedcba9876543210");
         assert!(line.starts_with("# scythe:provenance "), "got: {line:?}");
     }
 
@@ -2048,7 +2164,7 @@ SELECT * FROM users WHERE id = $1;
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
         let malicious_engine = "postgresql\nfn evil() {}";
 
-        let line = provenance_header_line(backend.as_ref(), malicious_engine, "sch1:ffff");
+        let line = provenance_header_line(backend.as_ref(), malicious_engine, "sch1:ffff", "q1:fedcba9876543210");
 
         assert_eq!(
             line.lines().count(),
@@ -2058,7 +2174,8 @@ SELECT * FROM users WHERE id = $1;
         assert_eq!(
             line,
             format!(
-                "// scythe:provenance v={} backend=rust-sqlx engine=postgresqlfn evil() {{}} schema=sch1:ffff\n",
+                "// scythe:provenance v={} backend=rust-sqlx engine=postgresqlfn evil() {{}} schema=sch1:ffff \
+                 queries=q1:fedcba9876543210\n",
                 env!("CARGO_PKG_VERSION")
             )
         );
@@ -2072,7 +2189,13 @@ SELECT * FROM users WHERE id = $1;
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
         let malicious_engine = "postgresql\nfn evil() {}";
 
-        let output = assemble_output(backend.as_ref(), &[], malicious_engine, "sch1:ffff");
+        let output = assemble_output(
+            backend.as_ref(),
+            &[],
+            malicious_engine,
+            "sch1:ffff",
+            "q1:fedcba9876543210",
+        );
 
         let provenance_lines: Vec<&str> = output.lines().filter(|l| l.contains("scythe:provenance")).collect();
         assert_eq!(
@@ -2103,7 +2226,13 @@ SELECT * FROM users WHERE id = $1;
         // `parse_provenance_header_truncates_engine_values_containing_spaces`.
         let malicious_engine = "postgresql\ndroptable";
 
-        let output = assemble_output(backend.as_ref(), &[], malicious_engine, "sch1:ffff");
+        let output = assemble_output(
+            backend.as_ref(),
+            &[],
+            malicious_engine,
+            "sch1:ffff",
+            "q1:fedcba9876543210",
+        );
         let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
 
         let expected = scythe_codegen::provenance::sanitize_field(malicious_engine);
@@ -2136,7 +2265,13 @@ SELECT * FROM users WHERE id = $1;
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
         let malicious_engine = "postgresql\nfn evil() {}";
 
-        let output = assemble_output(backend.as_ref(), &[], malicious_engine, "sch1:ffff");
+        let output = assemble_output(
+            backend.as_ref(),
+            &[],
+            malicious_engine,
+            "sch1:ffff",
+            "q1:fedcba9876543210",
+        );
         let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
 
         let fully_sanitized = scythe_codegen::provenance::sanitize_field(malicious_engine);
@@ -2167,7 +2302,7 @@ SELECT * FROM users WHERE id = $1;
             "canonical name backends must agree on"
         );
 
-        let line = provenance_header_line(alias_backend.as_ref(), "postgresql", "sch1:aaaa");
+        let line = provenance_header_line(alias_backend.as_ref(), "postgresql", "sch1:aaaa", "q1:fedcba9876543210");
         assert!(line.contains("backend=rust-sqlx"));
         assert!(!line.contains("backend=sqlx"));
     }
@@ -2183,13 +2318,20 @@ SELECT * FROM users WHERE id = $1;
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
         let results = vec![query_result(Some("MODEL_A"), Some("ROW_A"), Some("FN_A"))];
 
-        let output = assemble_output(backend.as_ref(), &results, "postgresql", "sch1:fedcba9876543210");
+        let output = assemble_output(
+            backend.as_ref(),
+            &results,
+            "postgresql",
+            "sch1:fedcba9876543210",
+            "q1:0123456789abcdef",
+        );
 
         let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
         assert_eq!(header.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(header.backend.as_deref(), Some("rust-sqlx"));
         assert_eq!(header.engine.as_deref(), Some("postgresql"));
         assert_eq!(header.schema.as_deref(), Some("sch1:fedcba9876543210"));
+        assert_eq!(header.queries.as_deref(), Some("q1:0123456789abcdef"));
     }
 
     /// `<?php` must be the literal first five bytes of the assembled file --
@@ -2200,7 +2342,7 @@ SELECT * FROM users WHERE id = $1;
     fn assemble_output_keeps_php_open_tag_as_the_first_bytes() {
         for backend_name in ["php-pdo", "php-amphp"] {
             let backend = get_backend(backend_name, "postgresql").unwrap_or_else(|e| panic!("{backend_name}: {e}"));
-            let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:aaaa");
+            let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:aaaa", "q1:fedcba9876543210");
             assert!(
                 output.starts_with("<?php\n"),
                 "{backend_name}: expected output to start with '<?php\\n', got:\n{}",
@@ -2232,7 +2374,7 @@ SELECT * FROM users WHERE id = $1;
                 .or_else(|_| get_backend(backend_name, "mssql"))
                 .or_else(|_| get_backend(backend_name, "oracle"))
                 .unwrap_or_else(|e| panic!("{backend_name}: {e}"));
-            let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:bbbb");
+            let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:bbbb", "q1:fedcba9876543210");
             let first_line = output.lines().next().unwrap_or_default();
             assert_eq!(
                 first_line,
@@ -2264,7 +2406,13 @@ SELECT * FROM users WHERE id = $1;
             "test assumes python-psycopg3 has no preamble, so the header is line 1"
         );
 
-        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:0123456789abcdef");
+        let output = assemble_output(
+            backend.as_ref(),
+            &[],
+            "postgresql",
+            "sch1:0123456789abcdef",
+            "q1:fedcba9876543210",
+        );
 
         let first_line = output.lines().next().expect("output must have a first line");
         assert!(first_line.starts_with("# scythe:provenance "), "got: {first_line:?}");
@@ -2282,9 +2430,10 @@ SELECT * FROM users WHERE id = $1;
         assert_eq!(header.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
         assert_eq!(header.backend.as_deref(), Some("python-psycopg3"));
         assert_eq!(header.engine.as_deref(), Some("postgresql"));
+        assert_eq!(header.schema.as_deref(), Some("sch1:0123456789abcdef"));
         assert_eq!(
-            header.schema.as_deref(),
-            Some("sch1:0123456789abcdef"),
+            header.queries.as_deref(),
+            Some("q1:fedcba9876543210"),
             "the last field before the suffix must not absorb any of it"
         );
     }
@@ -2300,7 +2449,7 @@ SELECT * FROM users WHERE id = $1;
             "test assumes rust-sqlx has no preamble"
         );
 
-        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:cccc");
+        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:cccc", "q1:fedcba9876543210");
         assert!(
             output.starts_with("// scythe:provenance "),
             "got:\n{}",
@@ -2333,7 +2482,7 @@ SELECT * FROM users WHERE id = $1;
             .next()
             .expect("test assumes rust-sqlx's file_header is non-empty");
 
-        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:dddd");
+        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:dddd", "q1:fedcba9876543210");
         let mut lines = output.lines();
         let provenance_line = lines.next().expect("output must have a first line");
         assert!(
@@ -2368,7 +2517,7 @@ SELECT * FROM users WHERE id = $1;
             "test assumes php-pdo has a non-empty preamble"
         );
 
-        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:eeee");
+        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:eeee", "q1:fedcba9876543210");
         let mut lines = output.lines();
         let preamble_line = lines.next().expect("output must have a first line");
         assert_eq!(preamble_line, "<?php");
@@ -2462,6 +2611,55 @@ SELECT * FROM users WHERE id = $1;
         assert_eq!(header.missing_fields(), vec!["engine", "schema"]);
     }
 
+    /// #94: `parse_provenance_header` must read a `queries=` field when
+    /// present.
+    #[test]
+    fn parse_provenance_header_reads_queries_field() {
+        let content = "// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee \
+                        queries=q1:fedcba9876543210\n";
+        let header = parse_provenance_header(content).expect("header must be found");
+        assert_eq!(header.queries.as_deref(), Some("q1:fedcba9876543210"));
+    }
+
+    /// #94: `queries` is not one of the four fields
+    /// `ProvenanceHeader::is_complete` requires. A header from before #94 has
+    /// no `queries=` field at all and must still verify as complete -- that
+    /// is the backward-compatibility contract `verify_artifact`'s SC-PRV08
+    /// gate depends on.
+    #[test]
+    fn parse_provenance_header_without_queries_field_is_still_complete() {
+        let content = "// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:eeee\n";
+        let header = parse_provenance_header(content).expect("header must be found");
+        assert_eq!(header.queries, None);
+        assert!(
+            header.is_complete(),
+            "a pre-#94 header with no queries= field must still be complete: {header:?}"
+        );
+    }
+
+    /// Round-trip through the real assembler: `header_line` writes the
+    /// `queries=` field scythe generate embeds, and `parse_provenance_header`
+    /// must read back the exact value handed to it -- the same contract
+    /// already pinned for `schema` by
+    /// `assemble_output_python_header_carries_noqa_and_still_round_trips`
+    /// and friends.
+    #[test]
+    fn queries_field_round_trips_through_header_line_and_parse() {
+        let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let line = scythe_codegen::provenance::header_line(
+            backend.as_ref(),
+            "0.15.0",
+            "postgresql",
+            "sch1:0123456789abcdef",
+            "q1:fedcba9876543210",
+        );
+
+        let header = parse_provenance_header(&line).expect("header must be found");
+        assert!(header.is_complete());
+        assert_eq!(header.queries.as_deref(), Some("q1:fedcba9876543210"));
+        assert_eq!(header.schema.as_deref(), Some("sch1:0123456789abcdef"));
+    }
+
     // -----------------------------------------------------------------------
     // End-to-end provenance verification (`verify_provenance`)
     // -----------------------------------------------------------------------
@@ -2510,7 +2708,13 @@ SELECT * FROM users WHERE id = $1;
 
         // No file written at all -- `.gitignore`'d `generated/` output is
         // the normal state of a fresh checkout, not drift.
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
         assert!(violations.is_empty());
     }
 
@@ -2530,8 +2734,118 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
         assert!(violations.is_empty(), "expected no violations, got {violations:?}");
+    }
+
+    /// #94: a header with no `queries=` field at all -- exactly what every
+    /// artifact scythe 0.14.0 or earlier wrote -- must verify clean, even
+    /// though the current queries fingerprint disagrees with... nothing,
+    /// because there is nothing in the header to compare it against. This is
+    /// the backward-compatibility contract `ProvenanceHeader::is_complete`
+    /// and the `header.queries` gate in `verify_artifact` exist to guarantee:
+    /// SC-PRV08 must never fire, and SC-PRV06 (malformed header) must not
+    /// fire either, since `queries` is not part of that four-field
+    /// completeness contract.
+    #[test]
+    fn verify_provenance_queries_less_header_verifies_clean() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let schema = catalog.fingerprint();
+        let sql_config = provenance_test_sql_config(dir.path());
+
+        // No `queries=` field -- the pre-#94 header shape.
+        write_artifact(
+            dir.path(),
+            &format!(
+                "v={} backend=rust-sqlx engine=postgresql schema={}",
+                env!("CARGO_PKG_VERSION"),
+                schema
+            ),
+        );
+
+        // Deliberately does not match anything real -- if `queries` ever
+        // leaked into a comparison it would have to fire, so a nonsense
+        // value pins that it never does.
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:does-not-matter",
+            std::path::Path::new("."),
+            default_severities(),
+        );
+        assert!(violations.is_empty(), "expected no violations, got {violations:?}");
+    }
+
+    /// A header that *does* carry `queries=` and matches the current
+    /// fingerprint must produce no violations -- the companion positive case
+    /// to `verify_provenance_detects_query_drift_as_error` below.
+    #[test]
+    fn verify_provenance_matching_queries_header_produces_no_violations() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let schema = catalog.fingerprint();
+        let sql_config = provenance_test_sql_config(dir.path());
+
+        write_artifact(
+            dir.path(),
+            &format!(
+                "v={} backend=rust-sqlx engine=postgresql schema={} queries=q1:fedcba9876543210",
+                env!("CARGO_PKG_VERSION"),
+                schema
+            ),
+        );
+
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:fedcba9876543210",
+            std::path::Path::new("."),
+            default_severities(),
+        );
+        assert!(violations.is_empty(), "expected no violations, got {violations:?}");
+    }
+
+    /// #94: editing a `.sql` query file without touching the schema must be
+    /// visible to `scythe check` -- the whole point of SC-PRV08. Distinct
+    /// from SC-PRV01: the schema fingerprint in the header still matches, so
+    /// SC-PRV01 must *not* fire alongside it.
+    #[test]
+    fn verify_provenance_detects_query_drift_as_error() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let schema = catalog.fingerprint();
+        let sql_config = provenance_test_sql_config(dir.path());
+
+        write_artifact(
+            dir.path(),
+            &format!(
+                "v={} backend=rust-sqlx engine=postgresql schema={} queries=q1:0000000000000000",
+                env!("CARGO_PKG_VERSION"),
+                schema
+            ),
+        );
+
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:fedcba9876543210",
+            std::path::Path::new("."),
+            default_severities(),
+        );
+        assert_eq!(
+            violations.len(),
+            1,
+            "expected exactly one violation, got {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV08");
+        assert_eq!(violations[0].severity, scythe_lint::Severity::Error);
     }
 
     #[test]
@@ -2548,7 +2862,13 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
         assert_eq!(
             violations.len(),
             1,
@@ -2570,7 +2890,13 @@ SELECT * FROM users WHERE id = $1;
             &format!("v=0.0.1-does-not-exist backend=rust-sqlx engine=postgresql schema={schema}"),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
         assert_eq!(
             violations.len(),
             1,
@@ -2600,7 +2926,13 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
         assert_eq!(
             violations.len(),
             1,
@@ -2647,7 +2979,13 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
         assert!(
             violations.is_empty(),
             "backend alias must not cause false-positive drift, got {violations:?}"
@@ -2670,7 +3008,13 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
         assert_eq!(
             violations.len(),
             1,
@@ -2692,7 +3036,13 @@ SELECT * FROM users WHERE id = $1;
         )
         .unwrap();
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
         assert_eq!(
             violations.len(),
             1,
@@ -2714,7 +3064,13 @@ SELECT * FROM users WHERE id = $1;
             &format!("v={} backend=rust-sqlx", env!("CARGO_PKG_VERSION")),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
         assert_eq!(
             violations.len(),
             1,
@@ -2740,7 +3096,13 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
         let mut ids: Vec<&str> = violations.iter().map(|v| v.rule_id.as_ref()).collect();
         ids.sort_unstable();
         assert_eq!(ids, vec!["SC-PRV01", "SC-PRV03", "SC-PRV04"]);
@@ -2781,7 +3143,13 @@ SELECT * FROM users WHERE id = $1;
             "test premise: rust-sqlx must not support oracle"
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
 
         assert_eq!(
             violations.len(),
@@ -2819,7 +3187,13 @@ SELECT * FROM users WHERE id = $1;
             type_overrides: None,
         };
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
 
         assert_eq!(
             violations.len(),
@@ -2847,7 +3221,13 @@ SELECT * FROM users WHERE id = $1;
 
         std::fs::create_dir(dir.path().join("queries.rs")).unwrap();
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
 
         assert_eq!(
             violations.len(),
@@ -2871,7 +3251,13 @@ SELECT * FROM users WHERE id = $1;
         // Lone 0x80 continuation byte: never valid UTF-8 in any position.
         std::fs::write(dir.path().join("queries.rs"), [0x80_u8]).unwrap();
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
 
         assert_eq!(
             violations.len(),
@@ -2913,6 +3299,7 @@ SELECT * FROM users WHERE id = $1;
         let violations = verify_provenance(
             &sql_config,
             &catalog,
+            "q1:0000000000000000",
             std::path::Path::new("."),
             ProvenanceSeverities::from_registry(&registry),
         );
@@ -2995,7 +3382,13 @@ SELECT * FROM users WHERE id = $1;
         )
         .unwrap();
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            "q1:0000000000000000",
+            std::path::Path::new("."),
+            default_severities(),
+        );
 
         assert_eq!(
             violations.len(),

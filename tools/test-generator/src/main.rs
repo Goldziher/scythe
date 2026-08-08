@@ -271,6 +271,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("                        env!(\"CARGO_PKG_VERSION\"),\n");
     out.push_str("                        \"postgresql\",\n");
     out.push_str("                        \"sch1:0123456789abcdef\",\n");
+    out.push_str("                        \"q1:fedcba9876543210\",\n");
     out.push_str("                    ),\n");
     out.push_str("                    &body,\n");
     out.push_str("                );\n");

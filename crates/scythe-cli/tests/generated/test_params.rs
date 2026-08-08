@@ -117,6 +117,7 @@ fn test_between_dates() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -257,6 +258,7 @@ fn test_coalesce_param_type() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -403,6 +405,7 @@ fn test_param_as_limit_offset() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -547,6 +550,7 @@ fn test_param_in_array_literal() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -682,6 +686,7 @@ fn test_param_in_case_when() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -821,6 +826,7 @@ fn test_param_in_interval_arithmetic() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -955,6 +961,7 @@ fn test_cast_to_int() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1089,6 +1096,7 @@ fn test_cast_to_uuid() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1232,6 +1240,7 @@ fn test_any_array_param() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1383,6 +1392,7 @@ fn test_insert_all_columns() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1518,6 +1528,7 @@ fn test_insert_basic_returning() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1643,6 +1654,7 @@ fn test_insert_coalesce_param_collected() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1778,6 +1790,7 @@ fn test_insert_no_column_list_positional_binding() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1907,6 +1920,7 @@ fn test_boolean_param() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2047,6 +2061,7 @@ fn test_integer_param() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2187,6 +2202,7 @@ fn test_string_param() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );

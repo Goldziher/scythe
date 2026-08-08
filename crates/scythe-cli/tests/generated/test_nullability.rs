@@ -95,6 +95,7 @@ fn test_avg_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -221,6 +222,7 @@ fn test_count_column_non_null() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -347,6 +349,7 @@ fn test_count_star_non_null() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -480,6 +483,7 @@ fn test_count_with_group_by() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -615,6 +619,7 @@ fn test_min_max_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -744,6 +749,7 @@ fn test_sum_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -873,6 +879,7 @@ fn test_case_mixed_branches() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1002,6 +1009,7 @@ fn test_case_nullable_branch() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1131,6 +1139,7 @@ fn test_case_with_else() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1260,6 +1269,7 @@ fn test_case_without_else() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1393,6 +1403,7 @@ fn test_coalesce_in_where() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1530,6 +1541,7 @@ fn test_coalesce_nullable_with_default() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1660,6 +1672,7 @@ fn test_coalesce_two_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1794,6 +1807,7 @@ fn test_coalesce_with_literal_last() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1924,6 +1938,7 @@ fn test_nested_coalesce() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2070,6 +2085,7 @@ fn test_mixed_nullability() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2207,6 +2223,7 @@ fn test_not_null_columns() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2344,6 +2361,7 @@ fn test_nullable_column() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2488,6 +2506,7 @@ fn test_lag_lead_default_narrows_non_null() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2632,6 +2651,7 @@ fn test_lag_lead_default_with_nullable_source_stays_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2776,6 +2796,7 @@ fn test_lag_lead_ignore_nulls_bails_out_to_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2920,6 +2941,7 @@ fn test_lag_lead_null_default_stays_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3064,6 +3086,7 @@ fn test_lag_lead_without_default_stays_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3220,6 +3243,7 @@ fn test_chained_left_joins() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3359,6 +3383,7 @@ fn test_left_side_stays_non_null() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3507,6 +3532,7 @@ fn test_right_side_multiple_cols() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3640,6 +3666,7 @@ fn test_right_side_not_null_becomes_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3778,6 +3805,7 @@ fn test_force_nonnull() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3916,6 +3944,7 @@ fn test_force_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -4049,6 +4078,7 @@ fn test_left_side_becomes_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -4197,6 +4227,7 @@ fn test_left_side_multiple_cols() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );

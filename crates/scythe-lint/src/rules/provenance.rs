@@ -16,7 +16,7 @@
 //! - Out of the default registry, because everything that consumes it —
 //!   `scythe lint`, and `scythe audit --list-rules` via
 //!   `load_registry_for_discovery` — evaluates rules through `check_query` /
-//!   `check_catalog`. Listing seven rules there that neither command can
+//!   `check_catalog`. Listing eight rules there that neither command can
 //!   ever emit would advertise a capability that does not exist, and would
 //!   move the documented "58 built-in rules" figure that appears across the
 //!   README, the website, and the skills bundle.
@@ -222,11 +222,50 @@ impl LintRule for UnverifiableProvenance {
     }
 }
 
+/// `SC-PRV08` — the artifact's embedded *query* fingerprint differs from the
+/// fingerprint of the analyzed query set currently on disk.
+///
+/// A distinct finding from [`SchemaDrift`] (`SC-PRV01`), deliberately:
+/// `SchemaDrift` answers "does this artifact match the current *schema*?"
+/// and says nothing about the `.sql` query files that produced the
+/// generated functions themselves. Editing a query without touching the
+/// schema used to produce no drift signal at all -- this rule is what closes
+/// that gap (#94).
+///
+/// `Error` by default, matching `SchemaDrift`: this is the same class of
+/// failure (stale generated code, not merely stale metadata) and it is
+/// always fixable by running `scythe generate`.
+///
+/// Only fires when the header actually carries a `queries=` field. A header
+/// written by scythe 0.14.0 or earlier has no such field -- that reads as
+/// "query drift is not covered for this artifact" (silently skipped), not
+/// as drift. See `verify_artifact` in `scythe-cli` for where that
+/// backward-compatibility decision is made.
+pub struct QueryDrift;
+
+impl LintRule for QueryDrift {
+    fn id(&self) -> &'static str {
+        "SC-PRV08"
+    }
+    fn name(&self) -> &'static str {
+        "query-drift"
+    }
+    fn category(&self) -> RuleCategory {
+        RuleCategory::Provenance
+    }
+    fn default_severity(&self) -> Severity {
+        Severity::Error
+    }
+    fn description(&self) -> &'static str {
+        "Generated artifact was produced from a different analyzed query set than the one on disk"
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// The seven provenance rules, in id order, as `&dyn LintRule`.
+    /// The eight provenance rules, in id order, as `&dyn LintRule`.
     fn all_rules() -> Vec<&'static dyn LintRule> {
         vec![
             &SchemaDrift as &dyn LintRule,
@@ -236,6 +275,7 @@ mod tests {
             &MissingProvenanceHeader,
             &MalformedProvenanceHeader,
             &UnverifiableProvenance,
+            &QueryDrift,
         ]
     }
 
@@ -245,7 +285,7 @@ mod tests {
         assert_eq!(
             ids,
             vec![
-                "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07"
+                "SC-PRV01", "SC-PRV02", "SC-PRV03", "SC-PRV04", "SC-PRV05", "SC-PRV06", "SC-PRV07", "SC-PRV08"
             ]
         );
     }
@@ -266,6 +306,7 @@ mod tests {
         assert_eq!(SchemaDrift.default_severity(), Severity::Error);
         assert_eq!(BackendDrift.default_severity(), Severity::Error);
         assert_eq!(EngineDrift.default_severity(), Severity::Error);
+        assert_eq!(QueryDrift.default_severity(), Severity::Error);
 
         assert_eq!(
             ScytheVersionDrift.default_severity(),

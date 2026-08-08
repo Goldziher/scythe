@@ -104,6 +104,7 @@ fn test_select_all_columns() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -233,6 +234,7 @@ fn test_select_count() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -370,6 +372,7 @@ fn test_select_one() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -526,6 +529,7 @@ fn test_select_star() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -658,6 +662,7 @@ fn test_select_with_alias() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -790,6 +795,7 @@ fn test_select_with_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -922,6 +928,7 @@ fn test_expression_alias() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1054,6 +1061,7 @@ fn test_simple_alias() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1183,6 +1191,7 @@ fn test_select_distinct() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1334,6 +1343,7 @@ fn test_select_distinct_on() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1471,6 +1481,7 @@ fn test_join_table_with_view() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1610,6 +1621,7 @@ fn test_select_from_view() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1745,6 +1757,7 @@ fn test_select_for_share() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -1887,6 +1900,7 @@ fn test_select_for_update() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2025,6 +2039,7 @@ fn test_order_by_case_expression() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2157,6 +2172,7 @@ fn test_order_by_function_expression() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2293,6 +2309,7 @@ fn test_select_except() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2429,6 +2446,7 @@ fn test_select_intersect() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2561,6 +2579,7 @@ fn test_star_from_cte() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2722,6 +2741,7 @@ fn test_star_single_table() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -2885,6 +2905,7 @@ fn test_star_with_join() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3018,6 +3039,7 @@ fn test_exists_subquery() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3157,6 +3179,7 @@ fn test_scalar_subquery() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3290,6 +3313,7 @@ fn test_scalar_subquery_non_aggregate_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3429,6 +3453,7 @@ fn test_scalar_subquery_sum_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3562,6 +3587,7 @@ fn test_scalar_subquery_windowed_aggregate_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3694,6 +3720,7 @@ fn test_subquery_in_from() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3832,6 +3859,7 @@ fn test_subquery_in_where() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -3966,6 +3994,7 @@ fn test_union() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -4099,6 +4128,7 @@ fn test_union_all() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -4252,6 +4282,7 @@ fn test_where_between() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -4395,6 +4426,7 @@ fn test_where_equals() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -4541,6 +4573,7 @@ fn test_where_in() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -4673,6 +4706,7 @@ fn test_where_is_not_null() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -4805,6 +4839,7 @@ fn test_where_is_null() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -4949,6 +4984,7 @@ fn test_where_like() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -5099,6 +5135,7 @@ fn test_where_multiple() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );

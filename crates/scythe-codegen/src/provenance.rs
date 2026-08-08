@@ -128,16 +128,26 @@ pub fn sanitize_field(value: &str) -> Cow<'_, str> {
 /// `engine` is sanitized via [`sanitize_field`] before embedding — see that
 /// function's doc comment for why only `engine` needs it.
 ///
+/// `queries` is the `q1:<16 hex>` fingerprint of the analyzed query set that
+/// produced this file (see `AnalyzedQuery::fingerprint_set` in
+/// `scythe-core`), the `queries=` counterpart to `schema`'s `sch1:<16 hex>`
+/// — added in #94 so that editing a `.sql` query file without touching the
+/// schema is no longer invisible to `scythe check`. It is a plain `&str`,
+/// not sanitized like `engine`: unlike `engine` (a free-form config value),
+/// it is always produced by `fingerprint_set`, which can only ever return
+/// the fixed `q1:` tag plus lowercase hex — there is no path by which it
+/// could contain a line terminator.
+///
 /// A per-language [`header_suffix`] may be appended after the last field —
 /// today only Python's `# noqa: E501`, without which the line trips ruff's
 /// default 88-character limit in every generated file.
-pub fn header_line(backend: &dyn CodegenBackend, version: &str, engine: &str, schema: &str) -> String {
+pub fn header_line(backend: &dyn CodegenBackend, version: &str, engine: &str, schema: &str, queries: &str) -> String {
     let language = &backend.manifest().backend.language;
     let comment = comment_prefix(language);
     let suffix = header_suffix(language);
     let engine = sanitize_field(engine);
     format!(
-        "{comment} scythe:provenance v={version} backend={} engine={engine} schema={schema}{suffix}\n",
+        "{comment} scythe:provenance v={version} backend={} engine={engine} schema={schema} queries={queries}{suffix}\n",
         backend.name()
     )
 }
@@ -248,7 +258,13 @@ mod tests {
         ] {
             let backend = crate::get_backend(backend_name, engine)
                 .unwrap_or_else(|e| panic!("{backend_name} with {engine}: {e}"));
-            let line = header_line(backend.as_ref(), "0.13.0", engine, "sch1:0123456789abcdef");
+            let line = header_line(
+                backend.as_ref(),
+                "0.13.0",
+                engine,
+                "sch1:0123456789abcdef",
+                "q1:fedcba9876543210",
+            );
             let line = line.strip_suffix('\n').expect("header line ends with a newline");
 
             assert!(
@@ -272,11 +288,18 @@ mod tests {
     #[test]
     fn hash_comment_languages_other_than_python_get_no_suffix() {
         let backend = crate::get_backend("ruby-pg", "postgresql").expect("ruby-pg should support postgresql");
-        let line = header_line(backend.as_ref(), "0.13.0", "postgresql", "sch1:0123456789abcdef");
+        let line = header_line(
+            backend.as_ref(),
+            "0.13.0",
+            "postgresql",
+            "sch1:0123456789abcdef",
+            "q1:fedcba9876543210",
+        );
 
         assert_eq!(
             line,
-            "# scythe:provenance v=0.13.0 backend=ruby-pg engine=postgresql schema=sch1:0123456789abcdef\n"
+            "# scythe:provenance v=0.13.0 backend=ruby-pg engine=postgresql schema=sch1:0123456789abcdef \
+             queries=q1:fedcba9876543210\n"
         );
     }
 
@@ -326,11 +349,18 @@ mod tests {
     #[test]
     fn header_line_embeds_the_caller_supplied_version_not_this_crates_own() {
         let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
-        let line = header_line(backend.as_ref(), "9.9.9-caller", "postgresql", "sch1:0123456789abcdef");
+        let line = header_line(
+            backend.as_ref(),
+            "9.9.9-caller",
+            "postgresql",
+            "sch1:0123456789abcdef",
+            "q1:fedcba9876543210",
+        );
 
         assert_eq!(
             line,
-            "// scythe:provenance v=9.9.9-caller backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef\n"
+            "// scythe:provenance v=9.9.9-caller backend=rust-sqlx engine=postgresql schema=sch1:0123456789abcdef \
+             queries=q1:fedcba9876543210\n"
         );
     }
 

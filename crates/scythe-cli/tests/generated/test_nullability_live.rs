@@ -97,6 +97,7 @@ fn test_live_sum_over_no_matching_rows_is_null() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -229,6 +230,7 @@ fn test_live_coalesce_with_empty_string_default_is_null_on_oracle() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -361,6 +363,7 @@ fn test_live_coalesce_with_literal_default_is_never_null() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -500,6 +503,7 @@ fn test_live_right_side_not_null_becomes_nullable() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );
@@ -632,6 +636,7 @@ fn test_live_nullable_column_observes_null_and_non_null() {
                     env!("CARGO_PKG_VERSION"),
                     "postgresql",
                     "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
                 ),
                 &body,
             );

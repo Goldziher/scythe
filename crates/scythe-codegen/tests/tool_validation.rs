@@ -270,12 +270,18 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
     // *statement*, so only a real `php -l` can confirm a preceding comment is
     // allowed there.
     //
-    // The version, engine, and schema values are placeholders: the header's
-    // legality depends on its comment prefix and its position, not on its
-    // field values.
+    // The version, engine, schema, and queries values are placeholders: the
+    // header's legality depends on its comment prefix and its position, not
+    // on its field values.
     provenance::assemble_file(
         &backend.file_preamble(),
-        &provenance::header_line(backend, env!("CARGO_PKG_VERSION"), engine, "sch1:0123456789abcdef"),
+        &provenance::header_line(
+            backend,
+            env!("CARGO_PKG_VERSION"),
+            engine,
+            "sch1:0123456789abcdef",
+            "q1:fedcba9876543210",
+        ),
         &full,
     )
 }
