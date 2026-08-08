@@ -118,6 +118,20 @@ pub trait CodegenBackend: Send + Sync {
     /// turns that into a compile error.
     fn manifest_mut(&mut self) -> &mut scythe_backend::manifest::BackendManifest;
 
+    /// The file extension for this backend's generated output, without a
+    /// leading dot.
+    ///
+    /// Defaults to the manifest's `[backend] file_extension`, which is right
+    /// for every backend that owns its manifest. It is overridable because the
+    /// `javascript-*` backends deliberately reuse the TypeScript manifests —
+    /// they differ only in emit mode, so giving them their own manifests would
+    /// duplicate every type mapping to change one field. `[backend]` is not
+    /// overridable through a manifest overlay (it is identity, not
+    /// configuration), so the extension has to be expressible here instead.
+    fn output_extension(&self) -> &str {
+        &self.manifest().backend.file_extension
+    }
+
     /// Generate a row struct for a query result.
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError>;
 

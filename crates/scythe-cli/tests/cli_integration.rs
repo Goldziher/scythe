@@ -555,3 +555,79 @@ fn test_audit_dialect_flag_skips_pg_only_rule_on_sqlite() {
         "SC-SEC11 must not fire under --dialect sqlite; got: {stdout}"
     );
 }
+
+/// The four `javascript-*` backends reuse the TypeScript manifests, which
+/// declare `file_extension = "ts"`. Nothing else in the tree exercises the
+/// filename they actually write: there is no javascript integration project,
+/// and the tool validator writes its own temp `.mjs` rather than going
+/// through `output_filename`. So this asserts the end-to-end path -- untyped
+/// JSDoc output landing in a `.ts` file is `noImplicitAny` under `--strict`
+/// and is not something node will run.
+#[test]
+fn test_javascript_backend_writes_a_js_file() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let schema_path = temp.path().join("schema.sql");
+    let queries_path = temp.path().join("queries.sql");
+    let output_dir = temp.path().join("out");
+    std::fs::write(&schema_path, "CREATE TABLE users (id SERIAL PRIMARY KEY, bio TEXT);\n").unwrap();
+    std::fs::write(
+        &queries_path,
+        "-- @name GetUserById\n-- @returns :one\nSELECT id, bio FROM users WHERE id = $1;\n",
+    )
+    .unwrap();
+
+    let config = format!(
+        r#"[scythe]
+version = "1"
+
+[[sql]]
+name = "test"
+engine = "postgresql"
+schema = ["{schema}"]
+queries = ["{queries}"]
+
+[[sql.gen]]
+backend = "javascript-pg"
+output = "{output}"
+"#,
+        schema = schema_path.display().to_string().replace('\\', "/"),
+        queries = queries_path.display().to_string().replace('\\', "/"),
+        output = output_dir.display().to_string().replace('\\', "/"),
+    );
+    let config_path = temp.path().join("scythe.toml");
+    std::fs::write(&config_path, &config).unwrap();
+
+    let output = scythe_bin()
+        .args(["generate", "--config", config_path.to_str().unwrap()])
+        .output()
+        .expect("generate run");
+    assert!(
+        output.status.success(),
+        "generate failed: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+
+    assert!(
+        output_dir.join("queries.js").exists(),
+        "javascript-pg must write queries.js; found {:?}",
+        std::fs::read_dir(&output_dir)
+            .map(|entries| entries
+                .filter_map(Result::ok)
+                .map(|e| e.file_name())
+                .collect::<Vec<_>>())
+            .unwrap_or_default()
+    );
+    assert!(
+        !output_dir.join("queries.ts").exists(),
+        "javascript-pg must not write a .ts file"
+    );
+
+    // The provenance header has to name the js backend, not the ts one it
+    // shares a manifest with, or `scythe check` reports backend drift against
+    // this project's own output forever.
+    let code = std::fs::read_to_string(output_dir.join("queries.js")).expect("generated file");
+    assert!(
+        code.contains("backend=javascript-pg"),
+        "provenance must name javascript-pg; got:\n{code}"
+    );
+}

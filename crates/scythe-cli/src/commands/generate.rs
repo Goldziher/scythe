@@ -559,7 +559,7 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
 /// verification (`artifact_paths`) has to locate the same file this names,
 /// and a second copy of the rule would diverge silently.
 fn output_filename(backend: &dyn CodegenBackend) -> String {
-    let ext = &backend.manifest().backend.file_extension;
+    let ext = backend.output_extension();
     if ext == "java" {
         format!("Queries.{}", ext)
     } else {

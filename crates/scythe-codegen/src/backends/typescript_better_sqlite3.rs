@@ -88,6 +88,17 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
         }
     }
 
+    /// The manifest is shared with `typescript-better-sqlite3` and says `ts`;
+    /// JSDoc output is plain JavaScript and must land in a `.js` file to be
+    /// runnable.
+    fn output_extension(&self) -> &str {
+        if self.js_mode {
+            "js"
+        } else {
+            &self.manifest.backend.file_extension
+        }
+    }
+
     fn manifest(&self) -> &scythe_backend::manifest::BackendManifest {
         &self.manifest
     }
