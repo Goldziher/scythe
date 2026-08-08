@@ -6,7 +6,12 @@ pub struct ScytheError {
     pub message: String,
 }
 
+/// A machine-readable classification for a [`ScytheError`].
+///
+/// Marked `#[non_exhaustive]` so that adding a variant is not a breaking change
+/// for downstream crates matching on it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ErrorCode {
     SyntaxError,
     UnknownTable,
@@ -19,6 +24,10 @@ pub enum ErrorCode {
     ColumnCountMismatch,
     DuplicateAlias,
     InvalidRecursion,
+    /// The user's configuration is wrong — an unknown `[[sql.gen]]` key, an
+    /// unrecognized option value, a malformed manifest override. Distinct from
+    /// [`ErrorCode::InternalError`], which means scythe itself is at fault.
+    InvalidConfig,
     InternalError,
 }
 
@@ -36,6 +45,7 @@ impl fmt::Display for ErrorCode {
             ErrorCode::ColumnCountMismatch => write!(f, "COLUMN_COUNT_MISMATCH"),
             ErrorCode::DuplicateAlias => write!(f, "DUPLICATE_ALIAS"),
             ErrorCode::InvalidRecursion => write!(f, "INVALID_RECURSION"),
+            ErrorCode::InvalidConfig => write!(f, "INVALID_CONFIG"),
             ErrorCode::InternalError => write!(f, "INTERNAL_ERROR"),
         }
     }
@@ -116,5 +126,15 @@ impl ScytheError {
 
     pub fn invalid_recursion(msg: impl Into<String>) -> Self {
         Self::new(ErrorCode::InvalidRecursion, msg)
+    }
+
+    /// Build an error for user-supplied configuration that scythe understood
+    /// well enough to reject — a misspelled option key, an out-of-range value.
+    ///
+    /// Prefer this over [`ScytheError::new`] with [`ErrorCode::InternalError`]
+    /// anywhere the offending input came from `scythe.toml` rather than from
+    /// scythe's own state.
+    pub fn invalid_config(msg: impl Into<String>) -> Self {
+        Self::new(ErrorCode::InvalidConfig, msg)
     }
 }
