@@ -32,6 +32,41 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # `generated-freshness` (below) proves this by actually regenerating
+      # everything, which takes real toolchains and ~20 minutes. This step
+      # catches the one specific, recurring failure mode -- a version bump
+      # that forgot to regenerate, so committed provenance headers still name
+      # the old release -- in seconds, from text already on disk, so it fails
+      # fast on the release commit instead of waiting on the expensive job.
+      - name: Check provenance header versions match Cargo.toml
+        run: |
+          expected=$(awk -F'"' '/^version = /{print $2; exit}' crates/scythe-cli/Cargo.toml)
+          if [ -z "$expected" ]; then
+            echo "::error::Could not read version from crates/scythe-cli/Cargo.toml" >&2
+            exit 1
+          fi
+          # Plain `for f in $(grep -rl ...)`, not a `... | while read` pipeline:
+          # a pipeline runs its loop in a subshell, so `count`/`offenders` set
+          # inside it would vanish once the pipeline exits and this would
+          # report success even when it found a mismatch -- see
+          # `version:check` in Taskfile.yaml for the same failure mode.
+          files=$(grep -rlE 'scythe:provenance v=[0-9]+\.[0-9]+\.[0-9]+' integration_tests/ 2>/dev/null || true)
+          count=0
+          offenders=""
+          for f in $files; do
+            count=$((count + 1))
+            v=$(grep -oE 'scythe:provenance v=[0-9]+\.[0-9]+\.[0-9]+' "$f" | head -1 | sed -E 's/^.*v=//')
+            if [ "$v" != "$expected" ]; then
+              offenders="${offenders}${f}: v=${v} (expected v=${expected})\n"
+            fi
+          done
+          echo "Checked $count committed provenance header(s) under integration_tests/."
+          if [ -n "$offenders" ]; then
+            printf "%b" "$offenders" >&2
+            echo "::error::Provenance header version mismatch: expected v=$expected (from crates/scythe-cli/Cargo.toml) but at least one committed artifact under integration_tests/ disagrees -- see files above. Run 'task version:sync VERSION=$expected' (which regenerates integration_tests) or 'cd integration_tests && task generate:all' and commit the result."
+            exit 1
+          fi
+          echo "All $count provenance header(s) agree on v=$expected"
       - name: Generate integration tests from fixtures
         run: |
           cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated

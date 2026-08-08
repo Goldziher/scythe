@@ -132,7 +132,24 @@ tasks:
         website/src/content/docs/guide/inspect.md
         website/src/content/docs/guide/pre-commit-hooks.md
       - task: version:check
+      # `cargo check --workspace` is not subsumed by the regeneration step
+      # below: that step only builds scythe-cli in release mode (via
+      # integration_tests/Taskfile.yaml's `build:scythe`), which does not
+      # type-check crates that aren't in scythe-cli's dependency graph (e.g.
+      # scythe-lint, tools/*). Keep both.
       - cargo check --workspace 2>/dev/null || true
+      # Every generated artifact's first line embeds CARGO_PKG_VERSION (the
+      # `v=` field of its `scythe:provenance` header), so the moment the
+      # substitutions above land, every committed
+      # integration_tests/**/generated/ file is stale: its header still names
+      # the old version while a freshly built `scythe` would emit the new
+      # one. CI's `generated-freshness` job then fails on the release commit
+      # itself. `generate:all` in integration_tests/Taskfile.yaml already
+      # rebuilds `scythe` from source via its `build:scythe` dependency and
+      # invokes it by absolute path (see that task's comment, issue #85) so a
+      # stale `scythe` on $PATH cannot silently revert this step -- reuse it
+      # here instead of re-deriving that binary-resolution logic.
+      - cd integration_tests && task generate:all
       - echo "All crate versions updated to {{.VERSION}}"
 
   version:check:
