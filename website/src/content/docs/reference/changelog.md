@@ -21,11 +21,11 @@ name, and `typescript-oracledb` cast nullable columns to their non-null type. Al
 below.
 
 **Upgrading**: `scythe check` now exits `2` for findings and `1` for operational failures, so a CI
-script keying on `1` needs updating. Unrecognized options on a TypeScript target are now an error
-rather than silently ignored. Identifiers derived from names with consecutive capitals change
-spelling (`CreateAPIKeyRow` becomes `CreateApiKeyRow`). And every generated file gains a provenance
-header, so the first regeneration after upgrading touches every artifact. See **Changed** for the
-full list.
+script keying on `1` needs updating. Unrecognized options on any `[[sql.gen]]` target — not just
+TypeScript — are now an error rather than silently ignored. Identifiers derived from names with
+consecutive capitals change spelling (`CreateAPIKeyRow` becomes `CreateApiKeyRow`). And every
+generated file gains a provenance header, so the first regeneration after upgrading touches every
+artifact. See **Changed** for the full list.
 
 ### Added
 
@@ -71,11 +71,11 @@ full list.
   because in Oracle a schema is a user. Fixtures are now analyzed under their own engine's dialect
   rather than PostgreSQL's, which is what made the Oracle empty-string bug below observable
   ([#71](https://github.com/Goldziher/scythe/issues/71))
-- **A provenance header in every generated file**, recording the scythe version, backend, engine and
-  a fingerprint of the schema the file was generated from:
+- **A provenance header in every generated file**, recording the scythe version, backend, engine, a
+  fingerprint of the schema and a fingerprint of the query set the file was generated from:
 
   ```text
-  // scythe:provenance v=0.14.0 backend=go-pgx engine=postgresql schema=sch1:2e813606acee8b51
+  // scythe:provenance v=0.14.0 backend=go-pgx engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:9c4e1f77a0b3d582
   ```
 
   The comment token follows the target language (`#` for Python, Ruby and Elixir), and where a
@@ -84,11 +84,20 @@ full list.
   exceeds ruff's default 88-column limit and would otherwise fail `ruff check` on line 1 of every
   generated Python file. Ruby's `queries.rbs` signature file gets one too.
 
-  The fingerprint is a SHA-256 over a canonical rendering of the *resolved* catalog — tables,
-  columns, enums, composites, dialect — rather than over DDL text, so reformatting a migration or
-  reordering statements does not move it while a real schema change does. It excludes column defaults
-  (free-form AST text that churns on dependency bumps) and scythe's own version, which would
-  otherwise report every artifact as drifted on every release.
+  The schema fingerprint is a SHA-256 over a canonical rendering of the *resolved* catalog — tables,
+  columns, enums, composites, domains, dialect — rather than over DDL text, so reformatting a
+  migration or reordering statements does not move it while a real schema change does. It excludes
+  column defaults (free-form AST text that churns on dependency bumps) and scythe's own version,
+  which would otherwise report every artifact as drifted on every release.
+
+  The query fingerprint covers the *analyzed* query set — each query's name, command, parameter names
+  and types, and resolved column names, types and nullability — rather than the SQL text, so
+  reformatting a `.sql` file or editing a comment does not report drift while a change that moves a
+  generated signature does. Parameter names participate because every backend emits them as the
+  generated function's argument names: swapping `WHERE name = $1` for `WHERE email = $1` leaves both
+  parameters typed `string` but rewrites the signature from `name: &str` to `email: &str`, breaking
+  every caller. Schema drift and query drift are reported as distinct findings, `SC-PRV01` and
+  `SC-PRV08`.
 
   Generated code is only as correct as the schema snapshot scythe read, and nothing in the artifact
   recorded which snapshot that was. Code generated against a drifted local schema compiles, reviews
@@ -177,19 +186,58 @@ full list.
   `.js` file cannot carry. Output is validated in CI with real `node --check` and
   `tsc --checkJs --strict` ([#81](https://github.com/Goldziher/scythe/issues/81))
 - `--exit-zero` on `scythe check`, matching the flag `audit` and `inspect` already had
+- **A `queries=` fingerprint in the provenance header**, covering the analyzed query set alongside
+  the schema. The schema fingerprint said nothing about the `.sql` files, so editing a query and
+  forgetting to regenerate left an artifact that `scythe check` called clean. Computed over each
+  query's name, command, parameter names and types, and resolved column names, types and
+  nullability — not the SQL text — so reformatting a query or editing a comment stays silent while a
+  change that moves a generated signature does not. Parameter names participate because every
+  backend emits them as the generated function's argument name: swapping `WHERE name = $1` for
+  `WHERE email = $1` leaves both typed `string` but rewrites the signature from `name: &str` to
+  `email: &str`, breaking every caller. Reported as `SC-PRV08` (`query-drift`, Error), distinct from
+  `SC-PRV01`, so a drift report names which of the two moved. An artifact whose header predates this
+  field is not reported as malformed ([#94](https://github.com/Goldziher/scythe/issues/94))
+- **`ErrorCode::InvalidConfig`**, so a mistake in `scythe.toml` no longer surfaces under
+  `INTERNAL_ERROR` and read as a scythe bug rather than something the user can fix. `ErrorCode` is
+  now `#[non_exhaustive]`, so adding a future variant is no longer a breaking change ([#102](https://github.com/Goldziher/scythe/issues/102))
+- Live nullability coverage for seven more rules: `MAX`/`AVG` over an empty set, `NULLIF` with equal
+  operands, `CASE` with no `ELSE`, a scalar subquery matching no row, `RIGHT JOIN` and `FULL JOIN`.
+  Each is asserted against real engines rather than against the analyzer's own model. `FULL JOIN`
+  joins users to tags rather than users to orders, because the foreign key on `orders.user_id` means
+  no order can ever be unmatched and the join would degenerate to a `LEFT JOIN` — proving half the
+  rule while appearing to prove all of it. It is scoped away from MySQL and MariaDB, which parse
+  `FULL` as a table alias and reject the query ([#71](https://github.com/Goldziher/scythe/issues/71))
 
 ### Changed
+
+- **Generated-code tool validation reports a skipped checker as a skip, not a pass.**
+  `validate_with_tools` returned `Option<Vec<String>>`, where `None` meant "tool not installed" and
+  every call site spelled `if let Some(errors)` — so a checker that was never installed was
+  indistinguishable from one that ran and found nothing. In practice 31 of 76 backend tests were
+  passing without any tool touching the generated code: 13 because `biome` was installed nowhere,
+  and 18 because Java, C#, Elixir and Rust have no validator at all. `validate_python_tools` was the
+  worst case, returning `Some([])` when `ruff` was absent. The return type is now `ToolValidation`,
+  reporting each checker separately as `Ran`/`Missing`/`Failed`, and CI installs every checker and
+  runs with `SCYTHE_VALIDATE_STRICT=1`, where a missing tool fails the build. TypeScript validation
+  moved from `biome check` to `biome lint`: `check` also runs the formatter, whose only complaints
+  about generated code are indentation and line breaks, which the backends own ([#98](https://github.com/Goldziher/scythe/issues/98))
+- **Unknown `[[sql.gen]]` keys are rejected on every backend**, not just TypeScript. 24 of the 52
+  backends had no `apply_options` at all and inherited a permissive default that accepted anything
+  ([#103](https://github.com/Goldziher/scythe/issues/103))
 
 - **`scythe check` exits `2` for findings and `1` for operational failures.** It previously exited
   `1` for both, so a CI script could not distinguish "your schema drifted" from "your config file is
   missing". Any script or hook keying on `1` for findings must change to `2`, or use `--exit-zero`
   for an advisory gate. Warnings have never affected the exit code and still do not
-- **Unrecognized options on a TypeScript target are now a hard error.** Every TypeScript backend
-  previously inherited the default `apply_options`, which silently discarded any key it did not read
-  — `row_typ = "zod"` parsed as valid TOML and did nothing, with no diagnostic. Unknown keys now fail
-  generation, with a suggestion when the key is within edit distance 2 of a real one. A config
-  carrying a forward-compatibility key on a TypeScript target will fail on upgrade. Backends in other
-  languages still ignore unknown keys
+- **Unrecognized options on any `[[sql.gen]]` target are now a hard error.** Every backend previously
+  inherited the default `apply_options`, which silently discarded any key it did not read —
+  `row_typ = "zod"` parsed as valid TOML and did nothing, with no diagnostic. This was fixed for the
+  11 TypeScript backends first; the same typo behaving differently depending on target language was
+  itself a trap, so the `CodegenBackend` trait default now rejects every key unless a backend
+  declares it known, closing the gap for the other 41 backends in one change
+  ([#103](https://github.com/Goldziher/scythe/issues/103)). Unknown keys fail generation, with a
+  suggestion when the key is within edit distance 2 of a real one. A config carrying a
+  forward-compatibility key on any target will fail on upgrade
 - **Identifiers derived from names with consecutive capitals change spelling.** PascalCase conversion
   previously returned mixed-case input containing no underscore unchanged, so a query named
   `CreateAPIKey` generated the function `createApiKey` returning the type `CreateAPIKeyRow` — the
@@ -210,6 +258,36 @@ full list.
   regeneration after upgrading touches every generated file
 
 ### Fixed
+
+- **The schema fingerprint could report drift that was not real, and miss a change that was.**
+  Schema-qualifier stripping was gated on PostgreSQL although `Catalog::get_table` is dialect-blind,
+  and it stripped only `public.` where `get_table` strips any prefix, so `myschema.users` and
+  `users` diverged. Enum values were emitted unescaped, so `ENUM ('a|b')` and `ENUM ('a','b')`
+  produced an identical canonical line, and a value containing a tab or newline could forge an
+  entire extra record. `CREATE DOMAIN` was absent from the canonical form. The escaping scheme
+  escapes only when a delimiter is actually present, so every fingerprint in the corpus is unchanged
+  and `FINGERPRINT_ALGORITHM_TAG` is deliberately not bumped — bumping it would hand every user a
+  spurious drift report on upgrade. Eight fixture fingerprints are now pinned to their released
+  values ([#91](https://github.com/Goldziher/scythe/issues/91))
+- **`scythe migrate` wrote configs that could not generate.** A stock sqlc-for-Go config produced
+  `backend = "go-go"`, since the language and target were concatenated unconditionally. Kotlin was
+  worse: it had no field in the legacy config at all, so a migrated Kotlin project silently emitted
+  `rust-sqlx` output. This is the on-ramp for every sqlc user ([#97](https://github.com/Goldziher/scythe/issues/97))
+- **Generated Go failed to compile against a schema with no temporal or decimal column**, because
+  the import block was emitted unconditionally across `go-pgx`, `go-godror` and `go-gosnowflake`.
+  `gofmt -e` parses but does not typecheck, so it could never have caught an unused import
+  ([#100](https://github.com/Goldziher/scythe/issues/100))
+- **`ruby-sqlite3` and `ruby-tiny-tds` emitted an `.rbs` signature contradicting the `.rb` beside
+  it**, because the RBS generator hardcoded the `json` type instead of following the manifest.
+  Manifest scalars are Ruby *doc* names rather than RBS types, so this needed a translation table,
+  not a passthrough ([#101](https://github.com/Goldziher/scythe/issues/101))
+- **`LEAD`/`LAG` were always inferred nullable**, even when both the argument and the three-argument
+  default are non-null. `IGNORE NULLS` bails out, since it can return NULL regardless ([#89](https://github.com/Goldziher/scythe/issues/89))
+- `typescript-kysely` output now carries a note recording that it requires `CamelCasePlugin`
+  ([#96](https://github.com/Goldziher/scythe/issues/96))
+- The grouped-fold row reads in `typescript-pg` and `typescript-mysql2` are cast in TypeScript mode,
+  matching every other read site. The two `js_mode` sites stay uncast, since `as T` is not valid
+  JavaScript ([#95](https://github.com/Goldziher/scythe/issues/95))
 
 - **`csharp-snowflake` generated parameter bindings that Snowflake rejects.** Generated code named
   each positional binding `p1`, `p2`, `p3`, but Snowflake's REST protocol keys `?` placeholders by

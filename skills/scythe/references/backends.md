@@ -42,11 +42,11 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### PostgreSQL
 
-`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-postgres`, `typescript-pg`, `typescript-kysely`, `javascript-postgres`, `javascript-pg`, `go-pgx`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `kotlin-exposed`, `csharp-npgsql`, `elixir-postgrex`, `elixir-ecto`, `ruby-pg`, `php-pdo`
+`rust-sqlx`, `rust-tokio-postgres`, `python-psycopg3`, `python-asyncpg`, `typescript-postgres`, `typescript-pg`, `typescript-kysely`, `javascript-postgres`, `javascript-pg`, `go-pgx`, `java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`, `kotlin-exposed`, `csharp-npgsql`, `elixir-postgrex`, `elixir-ecto`, `ruby-pg`, `php-pdo`, `php-amphp`
 
 ### MySQL
 
-`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `ruby-trilogy`, `php-pdo`, `php-amphp`
 
 ### SQLite
 
@@ -58,7 +58,7 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### CockroachDB
 
-`rust-sqlx`, `python-psycopg3`, `typescript-pg`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `ruby-pg`, `php-pdo`, `elixir-postgrex`
+`rust-sqlx`, `python-psycopg3`, `typescript-pg`, `go-pgx`, `java-jdbc`, `kotlin-jdbc`, `csharp-npgsql`, `ruby-pg`, `php-pdo`, `php-amphp`, `elixir-postgrex`
 
 ### MSSQL
 
@@ -72,7 +72,7 @@ Use these exact names in `[[sql.gen]] backend = "..."`:
 
 ### MariaDB
 
-`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `php-pdo`
+`rust-sqlx`, `python-aiomysql`, `typescript-mysql2`, `typescript-kysely`, `javascript-mysql2`, `go-database-sql`, `java-jdbc`, `kotlin-jdbc`, `csharp-mysqlconnector`, `elixir-myxql`, `ruby-mysql2`, `ruby-trilogy`, `php-pdo`, `php-amphp`
 
 ### Redshift
 
