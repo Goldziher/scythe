@@ -33,35 +33,31 @@ fn default_field_case() -> String {
 ///
 /// Handles snake_case input ("user_status" -> "UserStatus")
 /// and already-PascalCase input ("UserStatus" -> "UserStatus").
+///
+/// Normalizes through [`to_snake_case`] first: it is the only converter
+/// here with real consecutive-capital handling, so it is what turns
+/// "CreateAPIKey" into word boundaries this can rebuild from. Without it,
+/// mixed-case input with no underscore was returned unchanged
+/// ("CreateAPIKey" -> "CreateAPIKey"), which left `struct_case =
+/// "PascalCase"` and `fn_case = "camelCase"` disagreeing: the row type
+/// stayed `CreateAPIKeyRow` while the function became `createApiKey`. Both
+/// now derive from the same snake_case stem, so a query's function and its
+/// row type always spell the name the same way.
 pub fn to_pascal_case(s: &str) -> Cow<'_, str> {
-    let mut result = String::with_capacity(s.len());
-    if s.contains('_') {
-        for part in s.split('_') {
-            let mut chars = part.chars();
-            if let Some(c) = chars.next() {
-                result.extend(c.to_uppercase());
-                for ch in chars {
-                    result.extend(ch.to_lowercase());
-                }
-            }
+    let snake = to_snake_case(s);
+    let mut result = String::with_capacity(snake.len());
+    for part in snake.split('_') {
+        let mut chars = part.chars();
+        if let Some(first) = chars.next() {
+            result.extend(first.to_uppercase());
+            // `snake` is already lowercased, so the tail needs no further
+            // case folding.
+            result.push_str(chars.as_str());
         }
-    } else if let Some(first) = s.chars().next() {
-        if first.is_lowercase() {
-            let mut chars = s.chars();
-            if let Some(first) = chars.next() {
-                result.extend(first.to_uppercase());
-                result.push_str(chars.as_str());
-            }
-        } else if s.chars().all(|c| c.is_uppercase() || c == '_') {
-            let mut chars = s.chars();
-            if let Some(first) = chars.next() {
-                result.extend(first.to_uppercase());
-                result.push_str(&chars.as_str().to_lowercase());
-            }
-        } else {
-            return Cow::Borrowed(s);
-        }
-    } else {
+    }
+    // Keep the borrow when the input was already PascalCase; callers rely on
+    // it to avoid an allocation per column and per query name.
+    if result == s {
         return Cow::Borrowed(s);
     }
     Cow::Owned(result)
@@ -113,16 +109,12 @@ pub fn to_snake_case(s: &str) -> Cow<'_, str> {
 /// Handles snake_case input ("user_status" -> "userStatus")
 /// and PascalCase input ("UserStatus" -> "userStatus").
 ///
-/// Routes through [`to_snake_case`] first, then [`to_pascal_case`], then
-/// lowercases the first character. `to_pascal_case` alone borrows unchanged
-/// for mixed-case input with no underscore (e.g. "HTTPSUrl"), so calling it
-/// directly on arbitrary input produced the broken "hTTPSUrl" instead of
-/// "httpsUrl" — `to_snake_case` already has real consecutive-capital
-/// handling, so normalizing through it first is what makes this the inverse
-/// of `to_snake_case`.
+/// This is [`to_pascal_case`] with the first character lowercased, so it
+/// inherits that function's normalization through [`to_snake_case`] and is
+/// its exact inverse: "HTTPSUrl" -> "httpsUrl", not the "hTTPSUrl" that
+/// lowercasing an unnormalized "HTTPSUrl" would give.
 pub fn to_camel_case(s: &str) -> Cow<'_, str> {
-    let snake = to_snake_case(s);
-    let pascal = to_pascal_case(&snake);
+    let pascal = to_pascal_case(s);
     let mut chars = pascal.chars();
     match chars.next() {
         Some(c) => {
@@ -131,10 +123,13 @@ pub fn to_camel_case(s: &str) -> Cow<'_, str> {
             result.push_str(chars.as_str());
             Cow::Owned(result)
         }
-        // Only reachable when `pascal` collapsed to nothing (e.g. an
-        // all-underscore input like "__"), so the result is empty
-        // regardless of what the original string held.
-        None => Cow::Borrowed(""),
+        // Reachable only when the input held no word characters at all
+        // (e.g. "__", which splits into nothing but empty parts). Returning
+        // the empty string there would emit a field declaration with no
+        // name -- a syntax error in every target language -- so hand back
+        // the original, which at least stays a valid identifier wherever
+        // the raw SQL name was one.
+        None => Cow::Borrowed(s),
     }
 }
 
@@ -243,6 +238,31 @@ mod tests {
         assert!(matches!(to_pascal_case("UserStatus"), Cow::Borrowed(_)));
     }
 
+    /// This must fail before the fix: `to_pascal_case` returned mixed-case
+    /// input with no underscore unchanged, so "CreateAPIKey" stayed
+    /// "CreateAPIKey" while `to_camel_case` (which does normalize) produced
+    /// "createApiKey" — the same query's row type and function spelled its
+    /// name differently. See [`test_fn_name_and_row_struct_name_agree`].
+    #[test]
+    fn test_to_pascal_case_normalizes_consecutive_capitals() {
+        assert_eq!(&*to_pascal_case("CreateAPIKey"), "CreateApiKey");
+        assert_eq!(&*to_pascal_case("RetrieveUserAccountByID"), "RetrieveUserAccountById");
+        assert_eq!(&*to_pascal_case("HTTPSUrl"), "HttpsUrl");
+        assert_eq!(&*to_pascal_case("ABCDef"), "AbcDef");
+    }
+
+    /// The all-uppercase and degenerate inputs `to_pascal_case` used to
+    /// special-case with its own branches, now that everything routes
+    /// through `to_snake_case`.
+    #[test]
+    fn test_to_pascal_case_degenerate() {
+        assert_eq!(&*to_pascal_case(""), "");
+        assert_eq!(&*to_pascal_case("a"), "A");
+        assert_eq!(&*to_pascal_case("ID"), "Id");
+        assert_eq!(&*to_pascal_case("USER_ID"), "UserId");
+        assert_eq!(&*to_pascal_case("PG_13"), "Pg13");
+    }
+
     #[test]
     fn test_to_snake_case() {
         assert_eq!(&*to_snake_case("UserStatus"), "user_status");
@@ -293,7 +313,12 @@ mod tests {
         assert_eq!(&*to_camel_case("_id"), "id");
         assert_eq!(&*to_camel_case("id_"), "id");
         assert_eq!(&*to_camel_case("user__id"), "userId");
-        assert_eq!(&*to_camel_case("__"), "");
+        // This must fail before the fix: an input that holds no word
+        // characters at all used to camel-case to the empty string, which
+        // reaches codegen as a field declaration with no name (`: number,`)
+        // — a syntax error in the generated file. Preserving the input keeps
+        // whatever identifier the raw SQL name already was.
+        assert_eq!(&*to_camel_case("__"), "__");
     }
 
     #[test]
@@ -384,6 +409,39 @@ mod tests {
         let config = test_config();
         assert_eq!(row_struct_name("GetUser", &config), "GetUserRow");
         assert_eq!(row_struct_name("ListUsers", &config), "ListUsersRow");
+    }
+
+    /// This must fail before the fix: `fn_case = "camelCase"` (set by 57 of
+    /// the 106 manifests) renamed "CreateAPIKey" to "createApiKey" while
+    /// `struct_case = "PascalCase"` left the row type "CreateAPIKeyRow", so
+    /// a generated function and the row type it returns disagreed about the
+    /// stem of the very same query name. Both derive from the same
+    /// snake_case normalization now, so the only difference between them is
+    /// the leading character's case and the row suffix.
+    #[test]
+    fn test_fn_name_and_row_struct_name_agree() {
+        let mut config = test_config();
+        config.fn_case = "camelCase".to_string();
+
+        for query_name in [
+            "CreateAPIKey",
+            "RetrieveUserAccountByID",
+            "RetrieveApplicationInternalAPIKeyID",
+            "GetUser",
+        ] {
+            let function = fn_name(query_name, &config);
+            let row_type = row_struct_name(query_name, &config);
+            let mut chars = function.chars();
+            let capitalized: String = chars
+                .next()
+                .map(|c| c.to_uppercase().to_string() + chars.as_str())
+                .unwrap_or_default();
+            let expected_row_type = format!("{}{}", capitalized, config.row_suffix);
+            assert_eq!(row_type, expected_row_type, "query name: {query_name}");
+        }
+
+        assert_eq!(fn_name("CreateAPIKey", &config), "createApiKey");
+        assert_eq!(row_struct_name("CreateAPIKey", &config), "CreateApiKeyRow");
     }
 
     #[test]
