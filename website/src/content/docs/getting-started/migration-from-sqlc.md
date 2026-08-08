@@ -45,14 +45,16 @@ queries = ["sql/queries.sql"]
 output = "db"
 
 [sql.gen.go]
-target = "go"
+target = "pgx"
 ```
 
-> **Warning:** `scythe migrate` writes `target = "go"` verbatim from the sqlc plugin name -- it does
-> not know which Go driver you want. `scythe generate` resolves this to backend `go-go`, which does
-> not exist, and generation fails. Replace `target` with a real driver alias before running
-> `scythe generate` -- for example `target = "pgx"` for PostgreSQL (see
-> [Configuration](/scythe/guide/configuration/) for the full backend list).
+`scythe migrate` picks the driver from the engine in your sqlc config: `pgx` for PostgreSQL,
+`database-sql` for MySQL, SQLite, DuckDB and SQL Server, `godror` for Oracle, `gosnowflake` for
+Snowflake. Change it if you want a different one -- see
+[Configuration](/scythe/guide/configuration/) for the full backend list.
+
+If an engine has no scythe backend for your language, `migrate` fails and names both rather than
+writing a config that cannot generate.
 
 ### Query Annotations
 

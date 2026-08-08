@@ -115,6 +115,15 @@ struct SqlcGen {
     kotlin: Option<SqlcGenTarget>,
     #[serde(default)]
     python: Option<SqlcGenTarget>,
+    /// Any other sqlc plugin under `gen:` (e.g. a future/experimental
+    /// language, or the `json` schema-description plugin) that scythe has no
+    /// backend for. Captured via flatten -- rather than left to serde's
+    /// default unknown-field handling, which would silently drop it -- so
+    /// `convert_config` can name it in a hard error instead of writing a
+    /// `scythe.toml` that quietly omits a language the sqlc config asked
+    /// for. See issue #97.
+    #[serde(flatten)]
+    other: BTreeMap<String, serde_json::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -192,6 +201,75 @@ fn internal(msg: impl Into<String>) -> ScytheError {
     ScytheError::new(ErrorCode::InternalError, msg)
 }
 
+/// Build an error for something wrong with the *user's* sqlc config, as
+/// opposed to a fault in scythe.
+///
+/// `migrate` reads a file the user wrote, so most of its failure modes are
+/// theirs to fix: an unparseable YAML document, a `gen:` target scythe has no
+/// backend for, a language/engine pair with no driver. Reporting those as
+/// `INTERNAL_ERROR` reads as "file a bug" for input scythe diagnosed
+/// correctly. Genuine internal faults -- a regex that fails to compile, a
+/// TOML serializer that rejects a struct we built ourselves -- keep
+/// [`internal`].
+fn invalid_config(msg: impl Into<String>) -> ScytheError {
+    ScytheError::invalid_config(msg)
+}
+
+/// Map a sqlc `gen.<lang>` plugin (or, for v1 `packages`, the implicit Go
+/// target) plus a SQL engine to a concrete scythe backend driver suffix --
+/// the part after the `<lang>-` prefix in backend names like `go-pgx`.
+///
+/// sqlc's `gen:` block only ever selects a *language*; the driver is
+/// implicit in whichever sqlc plugin the user installed. scythe backends,
+/// unlike sqlc plugins, are one-per-driver, so `migrate` has to pick a
+/// concrete default. This is the single place that mapping lives -- keeping
+/// it here (instead of writing the sqlc plugin name straight into `target`,
+/// which is what caused issue #97's `go-go`) means every `(lang, engine)`
+/// pair either produces a backend name `scythe_codegen::get_backend`
+/// actually recognizes, or fails migration loudly, naming both the language
+/// and the engine, rather than writing a `scythe.toml` that only fails much
+/// later at `scythe generate` with a confusing "unknown backend" error.
+fn default_driver_for(lang: &str, engine: &str) -> Result<&'static str, ScytheError> {
+    let normalized_engine = match engine {
+        "postgresql" | "postgres" | "pg" | "redshift" => "postgresql",
+        "mysql" | "mariadb" => "mysql",
+        "sqlite" | "sqlite3" => "sqlite",
+        "mssql" | "sqlserver" => "mssql",
+        other => other,
+    };
+
+    let driver = match (lang, normalized_engine) {
+        ("go", "postgresql") => "pgx",
+        ("go", "mysql" | "sqlite" | "duckdb" | "mssql") => "database-sql",
+        ("go", "oracle") => "godror",
+        ("go", "snowflake") => "gosnowflake",
+
+        ("python", "postgresql") => "asyncpg",
+        ("python", "mysql") => "aiomysql",
+        ("python", "sqlite") => "aiosqlite",
+        ("python", "duckdb") => "duckdb",
+        ("python", "oracle") => "oracledb",
+        ("python", "mssql") => "pyodbc",
+        ("python", "snowflake") => "snowflake",
+
+        // kotlin-jdbc is the only Kotlin backend that covers every engine
+        // scythe supports, so it is the safe universal default here (unlike
+        // kotlin-exposed, which is Postgres-only, or kotlin-r2dbc, which
+        // doesn't cover duckdb/mssql/snowflake/oracle).
+        ("kotlin", "postgresql" | "mysql" | "sqlite" | "duckdb" | "mssql" | "snowflake" | "oracle") => "jdbc",
+
+        _ => {
+            return Err(invalid_config(format!(
+                "sqlc gen target '{lang}' has no scythe backend for engine '{engine}'; remove the \
+                 `gen.{lang}` block from the sqlc config, or configure `[sql.gen.{lang}]` manually in \
+                 scythe.toml after migration"
+            )));
+        }
+    };
+
+    Ok(driver)
+}
+
 fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheError> {
     let mut sql_blocks: Vec<ScytheSqlBlock> = Vec::new();
 
@@ -215,13 +293,29 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
                 .unwrap_or_default();
             let output = pkg.path.clone().unwrap_or_else(|| "generated".to_string());
 
+            // sqlc's v1 `packages` config predates the multi-language `gen:`
+            // block and only ever generated Go code, so the equivalent
+            // scythe target is always Go -- emitting no gen block here would
+            // leave `scythe generate` to silently fall back to its own
+            // `rust-sqlx` default, generating the wrong language entirely
+            // with no error (issue #97).
+            let driver = default_driver_for("go", &engine)?;
+            let mut gen_map = BTreeMap::new();
+            gen_map.insert(
+                "go".to_string(),
+                ScytheGenTarget {
+                    target: driver.to_string(),
+                    derive: Vec::new(),
+                },
+            );
+
             sql_blocks.push(ScytheSqlBlock {
                 name,
                 engine,
                 schema,
                 queries,
                 output,
-                gen_block: None,
+                gen_block: Some(gen_map),
                 type_overrides: Vec::new(),
             });
         }
@@ -289,14 +383,30 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
                         if output.is_empty() {
                             output = out.clone();
                         }
+                        // `target` must be a real driver suffix (e.g.
+                        // "pgx"), never the bare language name -- `scythe
+                        // generate` builds the backend as
+                        // `format!("{lang}-{target}")`, so `target = lang`
+                        // produced unusable names like "go-go" (issue #97).
+                        let driver = default_driver_for(lang, &engine)?;
                         gen_map.insert(
                             lang.to_string(),
                             ScytheGenTarget {
-                                target: lang.to_string(),
+                                target: driver.to_string(),
                                 derive: Vec::new(),
                             },
                         );
                     }
+                }
+
+                if !g.other.is_empty() {
+                    let mut unsupported: Vec<&str> = g.other.keys().map(String::as_str).collect();
+                    unsupported.sort_unstable();
+                    return Err(invalid_config(format!(
+                        "sqlc gen target(s) not supported by scythe migrate: {}; remove them from `gen:` \
+                         or configure their scythe backend manually in scythe.toml after migration",
+                        unsupported.join(", ")
+                    )));
                 }
             }
 
@@ -555,7 +665,7 @@ fn convert_query_content(input: &str) -> Result<(String, usize, usize), ScytheEr
 
 pub fn run_migrate(sqlc_config_path: &Path) -> Result<(), ScytheError> {
     if !sqlc_config_path.exists() {
-        return Err(internal(format!(
+        return Err(invalid_config(format!(
             "config file not found: {}",
             sqlc_config_path.display()
         )));
@@ -565,9 +675,9 @@ pub fn run_migrate(sqlc_config_path: &Path) -> Result<(), ScytheError> {
         .map_err(|e| internal(format!("read {}: {e}", sqlc_config_path.display())))?;
 
     let sqlc: SqlcConfig = if sqlc_config_path.extension().is_some_and(|ext| ext == "json") {
-        serde_json::from_str(&raw).map_err(|e| internal(format!("parse json config: {e}")))?
+        serde_json::from_str(&raw).map_err(|e| invalid_config(format!("parse json config: {e}")))?
     } else {
-        serde_yaml::from_str(&raw).map_err(|e| internal(format!("parse yaml config: {e}")))?
+        serde_yaml::from_str(&raw).map_err(|e| invalid_config(format!("parse yaml config: {e}")))?
     };
 
     let base_dir = sqlc_config_path.parent().unwrap_or_else(|| Path::new("."));

@@ -70,8 +70,9 @@ struct GenTarget {
     ///
     /// Declared explicitly rather than left to the `options` catch-all below:
     /// `#[serde(flatten)]` would otherwise swallow it and hand it to
-    /// `apply_options`, where every backend that does not recognise the key
-    /// ignores it — so a `manifest = "..."` line would silently do nothing.
+    /// `apply_options`, where no backend declares `manifest` as a known key --
+    /// so a `manifest = "..."` line would be rejected outright by every
+    /// backend (#103) instead of being applied as the overlay it names.
     ///
     /// Keyed per target, not globally, because a backend name alone does not
     /// determine a manifest: `java-jdbc` covers nine engines and `rust-sqlx`
@@ -90,6 +91,14 @@ struct LegacyGenConfig {
     python: Option<LegacyLangGenConfig>,
     typescript: Option<LegacyLangGenConfig>,
     go: Option<LegacyLangGenConfig>,
+    kotlin: Option<LegacyLangGenConfig>,
+    /// Any other `[sql.gen.<lang>]` table -- a language this legacy format
+    /// has no mapping for. Captured via flatten (rather than left to serde's
+    /// default unknown-field handling, which would silently drop it) so
+    /// `resolve_gen_targets` can name it in a hard error instead of quietly
+    /// generating nothing for that language. See issue #97.
+    #[serde(flatten)]
+    unsupported: std::collections::HashMap<String, toml::Value>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -138,11 +147,19 @@ fn toml_value_to_string(value: &toml::Value) -> String {
 }
 
 /// Convert config into a list of resolved generation targets.
-fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
+///
+/// Returns `Err` (naming the offending config value) instead of silently
+/// falling back to a default backend when a legacy `target` cannot be
+/// resolved to a real backend -- see issue #97, where an unrecognized
+/// `[sql.gen.rust] target` silently produced `rust-sqlx` and an unrecognized
+/// `[sql.gen.<lang>]` table (e.g. `kotlin`, which this legacy format had no
+/// field for at all) was silently dropped, generating the wrong language
+/// with no error.
+fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>, String> {
     let default_output = sql_config.output.clone().unwrap_or_else(|| "generated".to_string());
 
     match &sql_config.gen_config {
-        Some(GenTargets::Array(targets)) => targets
+        Some(GenTargets::Array(targets)) => Ok(targets
             .iter()
             .map(|t| {
                 let options = t
@@ -157,13 +174,31 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
                     options,
                 }
             })
-            .collect(),
+            .collect()),
         Some(GenTargets::Legacy(legacy)) => {
+            if !legacy.unsupported.is_empty() {
+                let mut names: Vec<&str> = legacy.unsupported.keys().map(String::as_str).collect();
+                names.sort_unstable();
+                return Err(format!(
+                    "[sql.gen] has no backend for language(s): {} (supported: rust, python, typescript, go, \
+                     kotlin -- use the `[[sql.gen]]` array form with an explicit `backend` for anything else)",
+                    names.join(", ")
+                ));
+            }
+
             let mut targets = Vec::new();
             if let Some(ref rust) = legacy.rust {
                 let backend = match rust.target.as_str() {
+                    "sqlx" => "rust-sqlx",
                     "tokio-postgres" => "rust-tokio-postgres",
-                    _ => "rust-sqlx",
+                    "tiberius" => "rust-tiberius",
+                    "sibyl" => "rust-sibyl",
+                    other => {
+                        return Err(format!(
+                            "[sql.gen.rust] target '{other}' is not a supported rust backend (expected one \
+                             of: sqlx, tokio-postgres, tiberius, sibyl)"
+                        ));
+                    }
                 };
                 let mut options = std::collections::HashMap::new();
                 if let Some(true) = rust.serde {
@@ -203,6 +238,14 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
                     options: std::collections::HashMap::new(),
                 });
             }
+            if let Some(ref kotlin) = legacy.kotlin {
+                targets.push(ResolvedGenTarget {
+                    backend: format!("kotlin-{}", kotlin.target),
+                    output: default_output.clone(),
+                    manifest_override: None,
+                    options: std::collections::HashMap::new(),
+                });
+            }
             if targets.is_empty() {
                 targets.push(ResolvedGenTarget {
                     backend: "rust-sqlx".to_string(),
@@ -211,16 +254,14 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Vec<ResolvedGenTarget> {
                     options: std::collections::HashMap::new(),
                 });
             }
-            targets
+            Ok(targets)
         }
-        None => {
-            vec![ResolvedGenTarget {
-                backend: "rust-sqlx".to_string(),
-                output: default_output,
-                manifest_override: None,
-                options: std::collections::HashMap::new(),
-            }]
-        }
+        None => Ok(vec![ResolvedGenTarget {
+            backend: "rust-sqlx".to_string(),
+            output: default_output,
+            manifest_override: None,
+            options: std::collections::HashMap::new(),
+        }]),
     }
 }
 
@@ -283,7 +324,7 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
             })
             .collect();
 
-        let gen_targets = resolve_gen_targets(sql_config);
+        let gen_targets = resolve_gen_targets(sql_config)?;
 
         for target in &gen_targets {
             let mut backend = get_backend(&target.backend, &sql_config.engine).map_err(|e| {
@@ -1433,7 +1474,23 @@ fn verify_provenance(
 
     let mut violations = Vec::new();
 
-    for target in resolve_gen_targets(sql_config) {
+    let targets = match resolve_gen_targets(sql_config) {
+        Ok(targets) => targets,
+        Err(e) => {
+            violations.push(QueryViolation {
+                query_name: sql_config.name.clone(),
+                rule_id: Cow::Borrowed("SC-PRV07"),
+                severity: severities.unverifiable,
+                message: format!(
+                    "cannot verify provenance: failed to resolve [sql.gen] targets: {e} (run `scythe generate` \
+                     for the full diagnosis)"
+                ),
+            });
+            return violations;
+        }
+    };
+
+    for target in targets {
         let target_label = format!("{}:{}", sql_config.name, target.backend);
 
         let backend = match get_backend(&target.backend, &sql_config.engine) {
