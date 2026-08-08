@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=csharp-snowflake engine=snowflake schema=sch1:c91500313602fb46
+// scythe:provenance v=0.14.0 backend=csharp-snowflake engine=snowflake schema=sch1:c91500313602fb46 queries=q1:4bc3d50da85e2742
 #nullable enable
 
 using System.Data;

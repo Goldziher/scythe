@@ -1,5 +1,5 @@
 <?php
-// scythe:provenance v=0.14.0 backend=php-amphp engine=postgresql schema=sch1:2e813606acee8b51
+// scythe:provenance v=0.14.0 backend=php-amphp engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046
 
 declare(strict_types=1);
 

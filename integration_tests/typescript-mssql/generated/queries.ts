@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=typescript-mssql engine=mssql schema=sch1:f761f948742217a4
+// scythe:provenance v=0.14.0 backend=typescript-mssql engine=mssql schema=sch1:f761f948742217a4 queries=q1:e28b6d666ef6b1da
 import sql from "mssql";
 
 

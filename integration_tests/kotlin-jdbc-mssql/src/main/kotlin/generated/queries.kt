@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=kotlin-jdbc engine=mssql schema=sch1:f761f948742217a4
+// scythe:provenance v=0.14.0 backend=kotlin-jdbc engine=mssql schema=sch1:f761f948742217a4 queries=q1:e28b6d666ef6b1da
 package generated
 
 import java.math.BigDecimal

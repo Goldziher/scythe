@@ -1,5 +1,5 @@
 <?php
-// scythe:provenance v=0.14.0 backend=php-pdo engine=mysql schema=sch1:4332a9c33cb39297
+// scythe:provenance v=0.14.0 backend=php-pdo engine=mysql schema=sch1:4332a9c33cb39297 queries=q1:f928696deb211f90
 
 declare(strict_types=1);
 

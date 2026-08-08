@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=typescript-pg engine=redshift schema=sch1:f882401b5f0b3b0a
+// scythe:provenance v=0.14.0 backend=typescript-pg engine=redshift schema=sch1:f882401b5f0b3b0a queries=q1:1d594d539783fc08
 import type { PoolClient } from "pg";
 
 

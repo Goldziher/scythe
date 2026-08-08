@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=csharp-npgsql engine=postgresql schema=sch1:2e813606acee8b51
+// scythe:provenance v=0.14.0 backend=csharp-npgsql engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046
 #nullable enable
 
 using Npgsql;

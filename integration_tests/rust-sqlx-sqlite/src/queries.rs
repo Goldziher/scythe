@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=rust-sqlx engine=sqlite schema=sch1:588fb635332179bc
+// scythe:provenance v=0.14.0 backend=rust-sqlx engine=sqlite schema=sch1:588fb635332179bc queries=q1:f7199f36438b6396
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 
 #[derive(Debug, Clone, sqlx::FromRow)]

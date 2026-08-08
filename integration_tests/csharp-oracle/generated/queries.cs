@@ -1,4 +1,4 @@
-// scythe:provenance v=0.14.0 backend=csharp-oracle engine=oracle schema=sch1:51c12e41405f20c2
+// scythe:provenance v=0.14.0 backend=csharp-oracle engine=oracle schema=sch1:51c12e41405f20c2 queries=q1:9b9c257a90458ab4
 #nullable enable
 
 using Oracle.ManagedDataAccess.Client;
