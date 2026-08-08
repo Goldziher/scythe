@@ -154,9 +154,16 @@ tasks:
       # would retroactively relabel every historical entry with the version
       # currently being cut -- turning a record of what shipped into a claim
       # that every past release emitted today's version.
+      #
+      # `skills` is in the search path even though no provenance string lives
+      # there today. It is latent, not hypothetical: the `rev:` sync above
+      # records that `skills/` was left out of exactly this kind of list once
+      # before and went eight and nine releases stale as a result. A grep over a
+      # directory that currently matches nothing costs nothing; a directory
+      # nobody remembered to add costs a release.
       - |
         files=$(grep -rlE 'scythe:provenance v=[0-9]+\.[0-9]+\.[0-9]+' \
-          website/src website/snippets README.md 2>/dev/null \
+          website/src website/snippets README.md skills 2>/dev/null \
           | grep -v 'changelog\.md$' || true)
         if [ -n "$files" ]; then
           echo "$files" | while IFS= read -r f; do
