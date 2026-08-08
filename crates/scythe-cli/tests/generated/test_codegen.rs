@@ -86,6 +86,10 @@ fn test_select_all_reuses_model() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -203,6 +207,10 @@ fn test_pascal_case_structs() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -335,6 +343,10 @@ fn test_snake_case_fields() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -442,6 +454,10 @@ fn test_exec_query_fn() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -561,6 +577,10 @@ fn test_one_query_fn() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -690,6 +710,10 @@ fn test_simple_query_fn() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {

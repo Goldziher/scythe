@@ -74,6 +74,10 @@ fn test_group_by_count() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -197,6 +201,10 @@ fn test_group_by_having() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -328,6 +336,10 @@ fn test_group_by_multiple_aggregates() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -372,6 +384,1102 @@ fn test_group_by_multiple_aggregates() {
                 "backend {} should produce query_fn for {}",
                 backend_name,
                 "group_by_multiple_aggregates"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_array_agg_stays_scalar() {
+    // From: testing_data/aggregates/nested_json/05_array_agg_stays_scalar.json
+    // "Regression guard: array_agg shares json_agg's argument shape but aggregates into a SQL array and must never acquire a nested struct"
+    let schema_sql = &["CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, notes TEXT);"];
+
+    let query_sql = "-- @name GetOrderIds\n-- @returns :one\nSELECT array_agg(o.id) AS ids FROM orders o;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetOrderIds", "query name");
+    assert_eq!(analyzed.command.to_string(), "one", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "ids", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "array<int32>",
+        "column neutral_type for ids"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for ids");
+    assert_eq!(analyzed.nested_structs.len(), 0, "nested struct count");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "array_agg_stays_scalar"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "array_agg_stays_scalar",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "array_agg_stays_scalar"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "array_agg_stays_scalar"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_json_agg_left_join_nullable_elements() {
+    // From: testing_data/aggregates/nested_json/07_json_agg_left_join_nullable_elements.json
+    // "json_agg over a LEFT JOIN yields [null] when nothing matched, so the array element is nullable while each field keeps its schema nullability"
+    let schema_sql = &[
+        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+        "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, notes TEXT);",
+    ];
+
+    let query_sql = "-- @name GetUserOrdersOuter\n-- @returns :many\nSELECT u.id, json_agg(o.*) AS orders FROM users u LEFT JOIN orders o ON o.user_id = u.id GROUP BY u.id;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetUserOrdersOuter", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 2, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "orders", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "json_nested<array<nullable<GetUserOrdersOuterRowOrders>>>",
+        "column neutral_type for orders"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for orders");
+    assert_eq!(analyzed.nested_structs.len(), 1, "nested struct count");
+    assert_eq!(
+        analyzed.nested_structs[0].name, "get_user_orders_outer_row_orders",
+        "nested struct name"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields.len(),
+        3,
+        "nested field count for get_user_orders_outer_row_orders"
+    );
+    assert_eq!(analyzed.nested_structs[0].fields[0].name, "id", "nested field name");
+    assert_eq!(
+        analyzed.nested_structs[0].fields[0].neutral_type, "int32",
+        "nested field neutral_type for id"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[0].nullable,
+        "nested field nullable for id"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[1].name, "user_id",
+        "nested field name"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[1].neutral_type, "int32",
+        "nested field neutral_type for user_id"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[1].nullable,
+        "nested field nullable for user_id"
+    );
+    assert_eq!(analyzed.nested_structs[0].fields[2].name, "notes", "nested field name");
+    assert_eq!(
+        analyzed.nested_structs[0].fields[2].neutral_type, "string",
+        "nested field neutral_type for notes"
+    );
+    assert!(
+        analyzed.nested_structs[0].fields[2].nullable,
+        "nested field nullable for notes"
+    );
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "json_agg_left_join_nullable_elements"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "json_agg_left_join_nullable_elements",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "json_agg_left_join_nullable_elements"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "json_agg_left_join_nullable_elements"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_json_agg_mysql_dialect_gate() {
+    // From: testing_data/aggregates/nested_json/02_json_agg_mysql_dialect_gate.json
+    // "The dialect gate: json_agg on MySQL must keep the pre-existing plain json type and infer no nested struct"
+    let schema_sql = &["CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL, notes VARCHAR(255));"];
+
+    let query_sql = "-- @name GetOrdersJsonMysql\n-- @returns :many\nSELECT json_agg(o.*) AS orders FROM orders o;";
+
+    let catalog =
+        scythe_core::catalog::Catalog::from_ddl_with_dialect(schema_sql, &scythe_core::dialect::SqlDialect::MySQL)
+            .unwrap()
+            .with_engine("mysql");
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetOrdersJsonMysql", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "orders", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "json",
+        "column neutral_type for orders"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for orders");
+    assert_eq!(analyzed.nested_structs.len(), 0, "nested struct count");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "json_agg_mysql_dialect_gate"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "json_agg_mysql_dialect_gate",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "json_agg_mysql_dialect_gate"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "json_agg_mysql_dialect_gate"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_json_agg_redshift_engine_gate() {
+    // From: testing_data/aggregates/nested_json/04_json_agg_redshift_engine_gate.json
+    // "The engine gate: Redshift catalogs map to the PostgreSQL dialect but Redshift has no json_agg, so no nested struct may be inferred"
+    let schema_sql = &["CREATE TABLE orders (id INTEGER NOT NULL, user_id INTEGER NOT NULL, notes TEXT);"];
+
+    let query_sql = "-- @name GetOrdersJsonRedshift\n-- @returns :many\nSELECT json_agg(o.*) AS orders FROM orders o;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql)
+        .unwrap()
+        .with_engine("redshift");
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetOrdersJsonRedshift", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "orders", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "json",
+        "column neutral_type for orders"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for orders");
+    assert_eq!(analyzed.nested_structs.len(), 0, "nested struct count");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "json_agg_redshift_engine_gate"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "json_agg_redshift_engine_gate",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "json_agg_redshift_engine_gate"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "json_agg_redshift_engine_gate"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_json_agg_sqlite_dialect_gate() {
+    // From: testing_data/aggregates/nested_json/03_json_agg_sqlite_dialect_gate.json
+    // "The dialect gate: json_agg on SQLite must keep the pre-existing plain json type and infer no nested struct"
+    let schema_sql = &["CREATE TABLE orders (id INTEGER NOT NULL, user_id INTEGER NOT NULL, notes TEXT);"];
+
+    let query_sql = "-- @name GetOrdersJsonSqlite\n-- @returns :many\nSELECT json_agg(o.*) AS orders FROM orders o;";
+
+    let catalog =
+        scythe_core::catalog::Catalog::from_ddl_with_dialect(schema_sql, &scythe_core::dialect::SqlDialect::SQLite)
+            .unwrap()
+            .with_engine("sqlite");
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetOrdersJsonSqlite", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "orders", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "json",
+        "column neutral_type for orders"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for orders");
+    assert_eq!(analyzed.nested_structs.len(), 0, "nested struct count");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "json_agg_sqlite_dialect_gate"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "json_agg_sqlite_dialect_gate",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "json_agg_sqlite_dialect_gate"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "json_agg_sqlite_dialect_gate"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_json_agg_wildcard_nested_struct() {
+    // From: testing_data/aggregates/nested_json/01_json_agg_wildcard_nested_struct.json
+    // "json_agg over a relation wildcard infers a named nested struct, including an enum field and a quoted mixed-case column"
+    let schema_sql = &[
+        "CREATE TYPE order_status AS ENUM ('pending', 'shipped');",
+        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+        "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, status order_status NOT NULL, notes TEXT, \"createdAt\" TIMESTAMPTZ NOT NULL);",
+    ];
+
+    let query_sql = "-- @name GetUserOrders\n-- @returns :many\nSELECT u.id, json_agg(o.*) AS orders FROM users u JOIN orders o ON o.user_id = u.id GROUP BY u.id;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetUserOrders", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 2, "column count");
+    assert_eq!(analyzed.columns[0].name, "id", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert!(!analyzed.columns[0].nullable, "column nullable for id");
+    assert_eq!(analyzed.columns[1].name, "orders", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "json_nested<array<GetUserOrdersRowOrders>>",
+        "column neutral_type for orders"
+    );
+    assert!(analyzed.columns[1].nullable, "column nullable for orders");
+    assert_eq!(analyzed.nested_structs.len(), 1, "nested struct count");
+    assert_eq!(
+        analyzed.nested_structs[0].name, "get_user_orders_row_orders",
+        "nested struct name"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields.len(),
+        5,
+        "nested field count for get_user_orders_row_orders"
+    );
+    assert_eq!(analyzed.nested_structs[0].fields[0].name, "id", "nested field name");
+    assert_eq!(
+        analyzed.nested_structs[0].fields[0].neutral_type, "int32",
+        "nested field neutral_type for id"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[0].nullable,
+        "nested field nullable for id"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[1].name, "user_id",
+        "nested field name"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[1].neutral_type, "int32",
+        "nested field neutral_type for user_id"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[1].nullable,
+        "nested field nullable for user_id"
+    );
+    assert_eq!(analyzed.nested_structs[0].fields[2].name, "status", "nested field name");
+    assert_eq!(
+        analyzed.nested_structs[0].fields[2].neutral_type, "enum::order_status",
+        "nested field neutral_type for status"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[2].nullable,
+        "nested field nullable for status"
+    );
+    assert_eq!(analyzed.nested_structs[0].fields[3].name, "notes", "nested field name");
+    assert_eq!(
+        analyzed.nested_structs[0].fields[3].neutral_type, "string",
+        "nested field neutral_type for notes"
+    );
+    assert!(
+        analyzed.nested_structs[0].fields[3].nullable,
+        "nested field nullable for notes"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[4].name, "createdAt",
+        "nested field name"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[4].neutral_type, "datetime_tz",
+        "nested field neutral_type for createdAt"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[4].nullable,
+        "nested field nullable for createdAt"
+    );
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "json_agg_wildcard_nested_struct"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "json_agg_wildcard_nested_struct",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "json_agg_wildcard_nested_struct"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "json_agg_wildcard_nested_struct"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_row_to_json_wildcard_nested_struct() {
+    // From: testing_data/aggregates/nested_json/08_row_to_json_wildcard_nested_struct.json
+    // "row_to_json over a relation wildcard infers a nested struct without the array wrapper json_agg adds"
+    let schema_sql = &["CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, notes TEXT);"];
+
+    let query_sql = "-- @name GetOrderPayload\n-- @returns :many\nSELECT row_to_json(o.*) AS payload FROM orders o;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetOrderPayload", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "payload", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "json_nested<GetOrderPayloadRowPayload>",
+        "column neutral_type for payload"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for payload");
+    assert_eq!(analyzed.nested_structs.len(), 1, "nested struct count");
+    assert_eq!(
+        analyzed.nested_structs[0].name, "get_order_payload_row_payload",
+        "nested struct name"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields.len(),
+        3,
+        "nested field count for get_order_payload_row_payload"
+    );
+    assert_eq!(analyzed.nested_structs[0].fields[0].name, "id", "nested field name");
+    assert_eq!(
+        analyzed.nested_structs[0].fields[0].neutral_type, "int32",
+        "nested field neutral_type for id"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[0].nullable,
+        "nested field nullable for id"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[1].name, "user_id",
+        "nested field name"
+    );
+    assert_eq!(
+        analyzed.nested_structs[0].fields[1].neutral_type, "int32",
+        "nested field neutral_type for user_id"
+    );
+    assert!(
+        !analyzed.nested_structs[0].fields[1].nullable,
+        "nested field nullable for user_id"
+    );
+    assert_eq!(analyzed.nested_structs[0].fields[2].name, "notes", "nested field name");
+    assert_eq!(
+        analyzed.nested_structs[0].fields[2].neutral_type, "string",
+        "nested field neutral_type for notes"
+    );
+    assert!(
+        analyzed.nested_structs[0].fields[2].nullable,
+        "nested field nullable for notes"
+    );
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "row_to_json_wildcard_nested_struct"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "row_to_json_wildcard_nested_struct",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "row_to_json_wildcard_nested_struct"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "row_to_json_wildcard_nested_struct"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_string_agg_stays_scalar() {
+    // From: testing_data/aggregates/nested_json/06_string_agg_stays_scalar.json
+    // "Guardrail: string_agg stays a scalar string aggregate and must never be reinterpreted as a nested aggregate"
+    let schema_sql = &["CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, notes TEXT);"];
+
+    let query_sql =
+        "-- @name GetOrderNotes\n-- @returns :one\nSELECT string_agg(o.notes, ',') AS all_notes FROM orders o;";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetOrderNotes", "query name");
+    assert_eq!(analyzed.command.to_string(), "one", "query command");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "all_notes", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "string",
+        "column neutral_type for all_notes"
+    );
+    assert!(analyzed.columns[0].nullable, "column nullable for all_notes");
+    assert_eq!(analyzed.nested_structs.len(), 0, "nested struct count");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let header = backend.file_header();
+            let mut code = if header.is_empty() {
+                String::from("#![allow(dead_code, unused_imports)]\n")
+            } else {
+                let mut h = header;
+                h.push('\n');
+                h
+            };
+            if let Some(ref s) = generated.enum_def {
+                code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                code.push_str(s);
+                code.push('\n');
+            }
+            if code.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "string_agg_stays_scalar"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "string_agg_stays_scalar",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "string_agg_stays_scalar"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "string_agg_stays_scalar"
             );
         }
     }
@@ -440,6 +1548,10 @@ fn test_avg_float64_stays_float64() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -556,6 +1668,10 @@ fn test_sum_float32_stays_float32() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -668,6 +1784,10 @@ fn test_sum_float64_stays_float64() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -784,6 +1904,10 @@ fn test_sum_int32_widens_to_int64() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -896,6 +2020,10 @@ fn test_sum_int64_widens_to_decimal() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -1027,6 +2155,10 @@ fn test_window_lag_lead() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -1148,6 +2280,10 @@ fn test_window_ntile() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -1279,6 +2415,10 @@ fn test_window_partition_by() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -1405,6 +2545,10 @@ fn test_window_rank_dense_rank() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -1523,6 +2667,10 @@ fn test_window_row_number() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -1652,6 +2800,10 @@ fn test_window_sum_over_partition() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {

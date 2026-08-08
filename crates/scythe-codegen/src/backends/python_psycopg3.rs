@@ -26,22 +26,37 @@ const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/python-psy
 /// psycopg3 auto-decodes `json`/`jsonb` columns to a plain `dict`/`list` --
 /// it has no mechanism to construct an arbitrary dataclass/BaseModel/Struct
 /// from that automatically (unlike, e.g., pgx's reflective JSON-unmarshal
-/// fallback in Go). A `json_typed<...>` column -- whether from
-/// `json_agg`/`row_to_json` nested-aggregate inference or a user's own
-/// `@json` mapping -- therefore needs an explicit constructor call here;
-/// without it, the field would hold a raw dict typed as the nested class,
-/// which compiles (Python has no static check) and breaks on first
-/// attribute access. An ordinary column keeps the exact `field=row[i]` form
-/// this always emitted.
+/// fallback in Go). A `json_nested<...>` column therefore needs an explicit
+/// constructor call here; without it, the field would hold a raw dict typed
+/// as the nested class, which "compiles" (Python has no static check) and
+/// breaks on first attribute access.
+///
+/// Keyed strictly on `json_nested`, never on `json_typed`: the latter is a
+/// user's own `@json` mapping to a type scythe knows nothing about -- it may
+/// be a `TypedDict`, may describe a JSON array, may not be constructible
+/// from a mapping at all -- so calling a constructor on it would break code
+/// that works today. Every non-nested column keeps the exact `field=row[i]`
+/// form this always emitted.
 fn field_assignment_expr(col: &ResolvedColumn, var: &str, index: usize) -> String {
     let raw = format!("{var}[{index}]");
-    let Some((is_array, pascal_name)) = crate::nested_struct_shape(&col.neutral_type) else {
+    let Some(shape) = crate::nested_struct_shape(&col.neutral_type) else {
         return format!("{}={raw}", col.field_name);
     };
-    let ctor = if is_array {
-        format!("[{pascal_name}(**item) for item in {raw}]")
+    let name = shape.name;
+    // `_from_json` rather than `Cls(**item)`: the JSON keys are the raw SQL
+    // column names, which need not match the snake_case Python field names
+    // (`"createdAt"` -> `created_at`), and `**` on a mismatched key raises
+    // `TypeError: unexpected keyword argument`. The classmethod holds the
+    // key mapping next to the field declarations it belongs with.
+    let ctor = if shape.is_array {
+        let element = if shape.element_nullable {
+            format!("None if item is None else {name}._from_json(item)")
+        } else {
+            format!("{name}._from_json(item)")
+        };
+        format!("[{element} for item in {raw}]")
     } else {
-        format!("{pascal_name}(**{raw})")
+        format!("{name}._from_json({raw})")
     };
     if col.nullable {
         format!("{}=None if {raw} is None else {ctor}", col.field_name)
@@ -53,6 +68,10 @@ fn field_assignment_expr(col: &ResolvedColumn, var: &str, index: usize) -> Strin
 pub struct PythonPsycopg3Backend {
     manifest: BackendManifest,
     row_type: PythonRowType,
+    /// Whether this engine's manifest declares the `json_nested` container
+    /// and its server actually has `json_agg`. See
+    /// [`crate::backends::engine_supports_nested_aggregates`].
+    nested_aggregates: bool,
 }
 
 impl PythonPsycopg3Backend {
@@ -74,6 +93,7 @@ impl PythonPsycopg3Backend {
         Ok(Self {
             manifest,
             row_type: PythonRowType::default(),
+            nested_aggregates: super::engine_supports_nested_aggregates(engine),
         })
     }
 }
@@ -422,6 +442,10 @@ impl CodegenBackend for PythonPsycopg3Backend {
         &self,
         nested: &scythe_core::analyzer::NestedStructInfo,
     ) -> Result<Option<String>, ScytheError> {
+        if !self.nested_aggregates {
+            return Ok(None);
+        }
+
         // Unlike generate_composite_def (always `false` -- CompositeFieldInfo
         // has no per-field nullability), a nested-aggregate field's
         // nullability is real and comes from the source column it was
@@ -433,20 +457,41 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let _ = writeln!(out, "    \"\"\"Nested struct for {}.\"\"\"", nested.name);
         if nested.fields.is_empty() {
             let _ = writeln!(out, "    pass");
-        } else {
-            let _ = writeln!(out);
-            for field in &nested.fields {
-                let py_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
-                    .map(|t| t.into_owned())
-                    .map_err(|e| {
-                        ScytheError::new(
-                            ErrorCode::InternalError,
-                            format!("nested struct field type error: {}", e),
-                        )
-                    })?;
-                let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
-            }
+            return Ok(Some(out));
         }
+
+        let _ = writeln!(out);
+        let mut field_names: Vec<String> = Vec::with_capacity(nested.fields.len());
+        for field in &nested.fields {
+            let py_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
+                .map(|t| t.into_owned())
+                .map_err(|e| {
+                    ScytheError::new(
+                        ErrorCode::InternalError,
+                        format!("nested struct field type error: {}", e),
+                    )
+                })?;
+            let field_name = to_snake_case(&field.name).into_owned();
+            let _ = writeln!(out, "    {}: {}", field_name, py_type);
+            field_names.push(field_name);
+        }
+
+        // The JSON keys json_agg/row_to_json produce are the raw SQL column
+        // names, verbatim -- a quoted "createdAt" column is the key
+        // "createdAt", which `Cls(**item)` would pass as an unexpected
+        // keyword argument. Emitting the mapping as a classmethod keeps it
+        // beside the field declarations rather than duplicated into every
+        // query function that builds one, and works identically for
+        // dataclass, pydantic and msgspec row types.
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    @classmethod");
+        let _ = writeln!(out, "    def _from_json(cls, obj: dict[str, Any]) -> \"{}\":", name);
+        let _ = writeln!(out, "        \"\"\"Build from one decoded JSON object.\"\"\"");
+        let _ = writeln!(out, "        return cls(");
+        for (field, field_name) in nested.fields.iter().zip(&field_names) {
+            let _ = writeln!(out, "            {}=obj[\"{}\"],", field_name, field.name);
+        }
+        let _ = writeln!(out, "        )");
         Ok(Some(out))
     }
 
@@ -592,27 +637,26 @@ mod tests {
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
-        AnalyzedQuery {
-            name: "GetUsersWithOrders".to_string(),
-            command: QueryCommand::Grouped,
-            sql: "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id"
-                .to_string(),
-            columns: all_cols,
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: Some(GroupByConfig {
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUsersWithOrders".to_string();
+            aq.command = QueryCommand::Grouped;
+            aq.sql = "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id"
+                .to_string();
+            aq.columns = all_cols;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = Some(GroupByConfig {
                 table: "users".to_string(),
                 key_column: "id".to_string(),
                 parent_columns: parent_cols,
                 child_columns: child_cols,
-            }),
-            custom: vec![],
-            ..Default::default()
-        }
+            });
+            aq.custom = vec![];
+        })
     }
 
     #[test]

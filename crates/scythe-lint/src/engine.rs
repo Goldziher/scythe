@@ -225,21 +225,20 @@ mod tests {
     }
 
     fn dummy_analyzed(name: &str) -> AnalyzedQuery {
-        AnalyzedQuery {
-            name: name.to_string(),
-            command: QueryCommand::Many,
-            sql: "SELECT 1".to_string(),
-            columns: vec![],
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-            ..Default::default()
-        }
+        AnalyzedQuery::build(|aq| {
+            aq.name = name.to_string();
+            aq.command = QueryCommand::Many;
+            aq.sql = "SELECT 1".to_string();
+            aq.columns = vec![];
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
     }
 
     fn dummy_annotations(name: &str) -> Annotations {

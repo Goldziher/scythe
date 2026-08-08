@@ -763,30 +763,29 @@ mod tests {
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
-        AnalyzedQuery {
-            name: "GetUsersWithOrders".to_string(),
-            command: QueryCommand::Grouped,
-            sql: "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUsersWithOrders".to_string();
+            aq.command = QueryCommand::Grouped;
+            aq.sql = "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
                   SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\n\
                   FROM users u\n\
                   JOIN orders o ON o.user_id = u.id"
-                .to_string(),
-            columns: all_cols,
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: Some(GroupByConfig {
+                .to_string();
+            aq.columns = all_cols;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = Some(GroupByConfig {
                 table: "users".to_string(),
                 key_column: "id".to_string(),
                 parent_columns: parent_cols,
                 child_columns: child_cols,
-            }),
-            custom: vec![],
-            ..Default::default()
-        }
+            });
+            aq.custom = vec![];
+        })
     }
 
     #[test]
@@ -874,11 +873,11 @@ mod tests {
     #[test]
     fn test_clob_column_reads_via_lob_locator_not_row_get_string() {
         let backend = RustSibylBackend::new("oracle").unwrap();
-        let query = AnalyzedQuery {
-            name: "GetOrdersByUser".to_string(),
-            command: QueryCommand::Many,
-            sql: "SELECT id, notes FROM orders".to_string(),
-            columns: vec![
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetOrdersByUser".to_string();
+            aq.command = QueryCommand::Many;
+            aq.sql = "SELECT id, notes FROM orders".to_string();
+            aq.columns = vec![
                 AnalyzedColumn {
                     name: "id".to_string(),
                     sql_type: "integer".to_string(),
@@ -893,9 +892,8 @@ mod tests {
                     nullable: true,
                     ..Default::default()
                 },
-            ],
-            ..Default::default()
-        };
+            ];
+        });
 
         let result = generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -921,19 +919,18 @@ mod tests {
     #[test]
     fn test_clob_read_loops_until_full_length_consumed() {
         let backend = RustSibylBackend::new("oracle").unwrap();
-        let query = AnalyzedQuery {
-            name: "GetOrdersByUser".to_string(),
-            command: QueryCommand::Many,
-            sql: "SELECT notes FROM orders".to_string(),
-            columns: vec![AnalyzedColumn {
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetOrdersByUser".to_string();
+            aq.command = QueryCommand::Many;
+            aq.sql = "SELECT notes FROM orders".to_string();
+            aq.columns = vec![AnalyzedColumn {
                 name: "notes".to_string(),
                 sql_type: "clob".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
                 ..Default::default()
-            }],
-            ..Default::default()
-        };
+            }];
+        });
 
         let result = generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -966,19 +963,18 @@ mod tests {
     #[test]
     fn test_blob_column_reads_via_lob_locator_as_bytes() {
         let backend = RustSibylBackend::new("oracle").unwrap();
-        let query = AnalyzedQuery {
-            name: "GetAttachment".to_string(),
-            command: QueryCommand::Opt,
-            sql: "SELECT payload FROM attachments".to_string(),
-            columns: vec![AnalyzedColumn {
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetAttachment".to_string();
+            aq.command = QueryCommand::Opt;
+            aq.sql = "SELECT payload FROM attachments".to_string();
+            aq.columns = vec![AnalyzedColumn {
                 name: "payload".to_string(),
                 sql_type: "blob".to_string(),
                 neutral_type: "bytes".to_string(),
                 nullable: false,
                 ..Default::default()
-            }],
-            ..Default::default()
-        };
+            }];
+        });
 
         let result = generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -1007,19 +1003,18 @@ mod tests {
     #[test]
     fn test_nclob_column_reads_via_lob_locator() {
         let backend = RustSibylBackend::new("oracle").unwrap();
-        let query = AnalyzedQuery {
-            name: "GetDoc".to_string(),
-            command: QueryCommand::Opt,
-            sql: "SELECT body FROM docs".to_string(),
-            columns: vec![AnalyzedColumn {
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetDoc".to_string();
+            aq.command = QueryCommand::Opt;
+            aq.sql = "SELECT body FROM docs".to_string();
+            aq.columns = vec![AnalyzedColumn {
                 name: "body".to_string(),
                 sql_type: "nclob".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: true,
                 ..Default::default()
-            }],
-            ..Default::default()
-        };
+            }];
+        });
 
         let result = generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -1044,19 +1039,18 @@ mod tests {
     #[test]
     fn test_bfile_column_opens_before_reading_as_bytes() {
         let backend = RustSibylBackend::new("oracle").unwrap();
-        let query = AnalyzedQuery {
-            name: "GetExternalDoc".to_string(),
-            command: QueryCommand::Opt,
-            sql: "SELECT contents FROM external_docs".to_string(),
-            columns: vec![AnalyzedColumn {
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetExternalDoc".to_string();
+            aq.command = QueryCommand::Opt;
+            aq.sql = "SELECT contents FROM external_docs".to_string();
+            aq.columns = vec![AnalyzedColumn {
                 name: "contents".to_string(),
                 sql_type: "bfile".to_string(),
                 neutral_type: "bytes".to_string(),
                 nullable: false,
                 ..Default::default()
-            }],
-            ..Default::default()
-        };
+            }];
+        });
 
         let result = generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -1084,11 +1078,11 @@ mod tests {
     #[test]
     fn test_non_clob_string_column_still_uses_plain_row_get() {
         let backend = RustSibylBackend::new("oracle").unwrap();
-        let query = AnalyzedQuery {
-            name: "GetUserById".to_string(),
-            command: QueryCommand::Opt,
-            sql: "SELECT id, name FROM users".to_string(),
-            columns: vec![
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetUserById".to_string();
+            aq.command = QueryCommand::Opt;
+            aq.sql = "SELECT id, name FROM users".to_string();
+            aq.columns = vec![
                 AnalyzedColumn {
                     name: "id".to_string(),
                     sql_type: "integer".to_string(),
@@ -1103,9 +1097,8 @@ mod tests {
                     nullable: false,
                     ..Default::default()
                 },
-            ],
-            ..Default::default()
-        };
+            ];
+        });
 
         let result = generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();

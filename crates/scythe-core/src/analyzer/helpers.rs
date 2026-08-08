@@ -368,7 +368,7 @@ pub(super) fn is_single_row_aggregate_query(query: &Query) -> bool {
 }
 
 /// Find the first `__nested__{id}` placeholder embedded in a neutral-type
-/// string (e.g. `json_typed<array<__nested__7>>`) and return its numeric id.
+/// string (e.g. `json_nested<array<__nested__7>>`) and return its numeric id.
 /// `__nested__` with no digits following it is treated as absent rather than
 /// malformed input.
 ///

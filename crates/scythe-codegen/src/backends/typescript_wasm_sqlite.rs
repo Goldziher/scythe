@@ -548,26 +548,25 @@ mod tests {
     }
 
     fn make_one_query(sql: &str) -> AnalyzedQuery {
-        AnalyzedQuery {
-            name: "GetUserById".to_string(),
-            command: QueryCommand::One,
-            sql: sql.to_string(),
-            columns: vec![AnalyzedColumn {
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUserById".to_string();
+            aq.command = QueryCommand::One;
+            aq.sql = sql.to_string();
+            aq.columns = vec![AnalyzedColumn {
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 ..Default::default()
-            }],
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-            ..Default::default()
-        }
+            }];
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
     }
 
     #[test]
@@ -630,26 +629,25 @@ mod tests {
     }
 
     fn make_many_query() -> AnalyzedQuery {
-        AnalyzedQuery {
-            name: "ListUsers".to_string(),
-            command: QueryCommand::Many,
-            sql: "SELECT id FROM users".to_string(),
-            columns: vec![AnalyzedColumn {
+        AnalyzedQuery::build(|aq| {
+            aq.name = "ListUsers".to_string();
+            aq.command = QueryCommand::Many;
+            aq.sql = "SELECT id FROM users".to_string();
+            aq.columns = vec![AnalyzedColumn {
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 ..Default::default()
-            }],
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-            ..Default::default()
-        }
+            }];
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
     }
 
     #[test]
@@ -669,26 +667,25 @@ mod tests {
     }
 
     fn make_exec_query() -> AnalyzedQuery {
-        AnalyzedQuery {
-            name: "DeleteUser".to_string(),
-            command: QueryCommand::Exec,
-            sql: "DELETE FROM users WHERE id = ?".to_string(),
-            columns: vec![],
-            params: vec![scythe_core::analyzer::AnalyzedParam {
+        AnalyzedQuery::build(|aq| {
+            aq.name = "DeleteUser".to_string();
+            aq.command = QueryCommand::Exec;
+            aq.sql = "DELETE FROM users WHERE id = ?".to_string();
+            aq.columns = vec![];
+            aq.params = vec![scythe_core::analyzer::AnalyzedParam {
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
-            }],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-            ..Default::default()
-        }
+            }];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
     }
 
     #[test]
@@ -709,12 +706,12 @@ mod tests {
     }
 
     fn make_exec_result_query() -> AnalyzedQuery {
-        AnalyzedQuery {
-            name: "UpdateUserName".to_string(),
-            command: QueryCommand::ExecResult,
-            sql: "UPDATE users SET name = ? WHERE id = ?".to_string(),
-            columns: vec![],
-            params: vec![
+        AnalyzedQuery::build(|aq| {
+            aq.name = "UpdateUserName".to_string();
+            aq.command = QueryCommand::ExecResult;
+            aq.sql = "UPDATE users SET name = ? WHERE id = ?".to_string();
+            aq.columns = vec![];
+            aq.params = vec![
                 scythe_core::analyzer::AnalyzedParam {
                     name: "name".to_string(),
                     neutral_type: "string".to_string(),
@@ -727,16 +724,15 @@ mod tests {
                     nullable: false,
                     position: 2,
                 },
-            ],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-            ..Default::default()
-        }
+            ];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
     }
 
     #[test]
@@ -760,12 +756,12 @@ mod tests {
     }
 
     fn make_batch_query() -> AnalyzedQuery {
-        AnalyzedQuery {
-            name: "InsertUser".to_string(),
-            command: QueryCommand::Batch,
-            sql: "INSERT INTO users (id, name) VALUES (?, ?)".to_string(),
-            columns: vec![],
-            params: vec![
+        AnalyzedQuery::build(|aq| {
+            aq.name = "InsertUser".to_string();
+            aq.command = QueryCommand::Batch;
+            aq.sql = "INSERT INTO users (id, name) VALUES (?, ?)".to_string();
+            aq.columns = vec![];
+            aq.params = vec![
                 scythe_core::analyzer::AnalyzedParam {
                     name: "id".to_string(),
                     neutral_type: "int32".to_string(),
@@ -778,16 +774,15 @@ mod tests {
                     nullable: false,
                     position: 2,
                 },
-            ],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-            ..Default::default()
-        }
+            ];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
     }
 
     #[test]
@@ -855,27 +850,26 @@ mod tests {
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
-        AnalyzedQuery {
-            name: "GetUsersWithOrders".to_string(),
-            command: QueryCommand::Grouped,
-            sql: "SELECT u.id, u.name, o.id AS order_id, o.total FROM users u JOIN orders o ON o.user_id = u.id"
-                .to_string(),
-            columns: all_cols,
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: Some(GroupByConfig {
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUsersWithOrders".to_string();
+            aq.command = QueryCommand::Grouped;
+            aq.sql = "SELECT u.id, u.name, o.id AS order_id, o.total FROM users u JOIN orders o ON o.user_id = u.id"
+                .to_string();
+            aq.columns = all_cols;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = Some(GroupByConfig {
                 table: "users".to_string(),
                 key_column: "id".to_string(),
                 parent_columns: parent_cols,
                 child_columns: child_cols,
-            }),
-            custom: vec![],
-            ..Default::default()
-        }
+            });
+            aq.custom = vec![];
+        })
     }
 
     #[test]
@@ -935,21 +929,20 @@ mod tests {
     }
 
     fn make_named_batch_query(name: &str, sql: &str, params: Vec<AnalyzedParam>) -> AnalyzedQuery {
-        AnalyzedQuery {
-            name: name.to_string(),
-            command: QueryCommand::Batch,
-            sql: sql.to_string(),
-            columns: vec![],
-            params,
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-            ..Default::default()
-        }
+        AnalyzedQuery::build(|aq| {
+            aq.name = name.to_string();
+            aq.command = QueryCommand::Batch;
+            aq.sql = sql.to_string();
+            aq.columns = vec![];
+            aq.params = params;
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
     }
 
     /// Regression test: `write_fn_sig`'s wrapped (>80 char) branch used to

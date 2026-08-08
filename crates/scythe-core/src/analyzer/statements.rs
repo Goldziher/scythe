@@ -194,7 +194,7 @@ impl<'a> Analyzer<'a> {
     /// Widen two UNION-arm column types, with a nested-aggregate-aware path
     /// `widen_type` alone can't provide.
     ///
-    /// `widen_type` has no concept of `json_typed<...>`, and every
+    /// `widen_type` has no concept of `json_nested<...>`, and every
     /// `json_agg`/`row_to_json` call gets a *fresh* `__nested__{id}`
     /// placeholder (see `Analyzer::push_pending_nested`) -- so two arms
     /// producing the exact same nested shape would still carry different
@@ -206,13 +206,38 @@ impl<'a> Analyzer<'a> {
     /// acceptable degradation, because the discarded shape's fields are
     /// gone with no diagnostic.
     ///
-    /// Only one path recurses through `self.pending_nested`; every other
-    /// input (including a nested type paired with a non-nested one, which
-    /// is an ordinary type mismatch the same as any other) falls straight
-    /// through to `widen_type` unchanged.
+    /// Three outcomes, in order of how the arms pair up:
+    /// - both arms nested with the identical shape: widen to the left arm's
+    ///   placeholder, which phase 2 then resolves once;
+    /// - both arms nested with different shapes: diagnostic;
+    /// - exactly one arm nested: also a diagnostic. This is *not* an
+    ///   ordinary "different types, left wins" mismatch. If the nested arm
+    ///   is on the left, the column keeps the strongly-typed struct and the
+    ///   other arm's arbitrary JSON (`'[]'::json`, a `jsonb` column, ...)
+    ///   gets deserialized into it at runtime with nothing failing at build
+    ///   time; if it is on the right, the struct silently disappears. Both
+    ///   directions produce code that compiles and is wrong.
+    ///
+    /// Two non-nested arms are untouched and fall straight through to
+    /// `widen_type`.
     fn widen_union_arm_type(&mut self, left: &str, right: &str) -> String {
-        let (Some(left_id), Some(right_id)) = (find_nested_placeholder_id(left), find_nested_placeholder_id(right))
-        else {
+        let (left_nested, right_nested) = (find_nested_placeholder_id(left), find_nested_placeholder_id(right));
+
+        let (Some(left_id), Some(right_id)) = (left_nested, right_nested) else {
+            if left_nested.is_some() || right_nested.is_some() {
+                let (nested_side, other) = if left_nested.is_some() {
+                    ("left", right)
+                } else {
+                    ("right", left)
+                };
+                self.type_errors.push(format!(
+                    "UNION arms disagree: the {nested_side} arm produces a nested aggregate \
+                     (json_agg/row_to_json) with an inferred row shape, but the other arm produces \
+                     \"{other}\"; there is no way to widen a nested struct against a type that is not one, \
+                     and silently keeping either arm would deserialize the other arm's values into the \
+                     wrong shape at runtime"
+                ));
+            }
             return widen_type(left, right);
         };
 

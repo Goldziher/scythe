@@ -120,6 +120,19 @@ fn generate_for_schema(relative_path: &str) -> GenerationResult {
 
             match scythe_codegen::generate(&analyzed) {
                 Ok(code) => {
+                    // Ahead of the row struct that names them: this file is
+                    // assembled in emission order and then type-checked as a
+                    // unit, so a nested struct referenced before it is
+                    // declared would fail here for the wrong reason.
+                    for def in &code.nested_struct_defs {
+                        combined.push_str(&def.code);
+                        combined.push_str("\n\n");
+                        fragments.push(CodeFragment {
+                            query_name: query_name.clone(),
+                            kind: "nested_struct",
+                            code: def.code.clone(),
+                        });
+                    }
                     if let Some(ref s) = code.model_struct {
                         combined.push_str(s);
                         combined.push_str("\n\n");

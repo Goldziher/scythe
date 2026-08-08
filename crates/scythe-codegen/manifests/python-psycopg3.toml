@@ -30,6 +30,7 @@ array = "list[{T}]"
 nullable = "{T} | None"
 range = "tuple[{T}, {T}]"
 json_typed = "{T}"
+json_nested = "{T}"
 
 [naming]
 struct_case = "PascalCase"

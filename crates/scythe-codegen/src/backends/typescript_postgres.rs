@@ -515,26 +515,25 @@ mod tests {
     }
 
     fn make_one_query(sql: &str, params: Vec<AnalyzedParam>) -> AnalyzedQuery {
-        AnalyzedQuery {
-            name: "GetUserById".to_string(),
-            command: QueryCommand::One,
-            sql: sql.to_string(),
-            columns: vec![AnalyzedColumn {
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUserById".to_string();
+            aq.command = QueryCommand::One;
+            aq.sql = sql.to_string();
+            aq.columns = vec![AnalyzedColumn {
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 ..Default::default()
-            }],
-            params,
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-            ..Default::default()
-        }
+            }];
+            aq.params = params;
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
     }
 
     /// postgres.js's `sql` tag turns every `${}` into a live parameter
@@ -638,26 +637,25 @@ mod tests {
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
-        AnalyzedQuery {
-            name: "GetUsersWithOrders".to_string(),
-            command: QueryCommand::Grouped,
-            sql: "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id".to_string(),
-            columns: all_cols,
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: Some(GroupByConfig {
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUsersWithOrders".to_string();
+            aq.command = QueryCommand::Grouped;
+            aq.sql = "SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\nFROM users u\nJOIN orders o ON o.user_id = u.id".to_string();
+            aq.columns = all_cols;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = Some(GroupByConfig {
                 table: "users".to_string(),
                 key_column: "id".to_string(),
                 parent_columns: parent_cols,
                 child_columns: child_cols,
-            }),
-            custom: vec![],
-            ..Default::default()
-        }
+            });
+            aq.custom = vec![];
+        })
     }
 
     #[test]
@@ -800,21 +798,20 @@ mod tests {
     }
 
     fn make_batch_query(name: &str, sql: &str, params: Vec<AnalyzedParam>) -> AnalyzedQuery {
-        AnalyzedQuery {
-            name: name.to_string(),
-            command: QueryCommand::Batch,
-            sql: sql.to_string(),
-            columns: vec![],
-            params,
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: None,
-            custom: vec![],
-            ..Default::default()
-        }
+        AnalyzedQuery::build(|aq| {
+            aq.name = name.to_string();
+            aq.command = QueryCommand::Batch;
+            aq.sql = sql.to_string();
+            aq.columns = vec![];
+            aq.params = params;
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = None;
+            aq.custom = vec![];
+        })
     }
 
     /// Regression test: `write_fn_sig`'s wrapped (>80 char) branch used to

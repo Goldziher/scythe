@@ -44,7 +44,7 @@ pub struct FixtureConfig {
     pub naming: Option<NamingConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Engine {
     Postgresql,
@@ -56,6 +56,44 @@ pub enum Engine {
     Redshift,
     Snowflake,
     Duckdb,
+}
+
+impl Engine {
+    /// The `scythe.toml` engine string this variant corresponds to, which is
+    /// what `SqlDialect::from_str` and `Catalog::with_engine` consume.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Engine::Postgresql => "postgresql",
+            Engine::Mysql => "mysql",
+            Engine::Sqlite => "sqlite",
+            Engine::Mssql => "mssql",
+            Engine::Oracle => "oracle",
+            Engine::Mariadb => "mariadb",
+            Engine::Redshift => "redshift",
+            Engine::Snowflake => "snowflake",
+            Engine::Duckdb => "duckdb",
+        }
+    }
+
+    /// The `SqlDialect` variant path to emit, or `None` when the engine is
+    /// PostgreSQL proper.
+    ///
+    /// `None` keeps the generated test on the plain `Catalog::from_ddl` call
+    /// it has always used, so adding engine awareness leaves every
+    /// PostgreSQL fixture's generated test byte-identical.
+    pub fn dialect_path(self) -> Option<&'static str> {
+        match self {
+            Engine::Postgresql => None,
+            Engine::Mysql | Engine::Mariadb => Some("MySQL"),
+            Engine::Sqlite => Some("SQLite"),
+            Engine::Mssql => Some("MsSql"),
+            Engine::Oracle => Some("Oracle"),
+            Engine::Snowflake => Some("Snowflake"),
+            // Redshift and DuckDB parse as PostgreSQL; only the engine name
+            // distinguishes them, and it is what gates nested aggregates.
+            Engine::Redshift | Engine::Duckdb => None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,6 +209,31 @@ pub struct ExpectedQuery {
     pub params: Vec<ExpectedParam>,
     #[serde(default)]
     pub columns: Vec<ExpectedReturnColumn>,
+    /// Nested-aggregate struct definitions (`json_agg`, `row_to_json`).
+    ///
+    /// `Option`, not a plain `Vec`: an omitted key means "this fixture says
+    /// nothing about nested structs" and asserts nothing, while an explicit
+    /// `[]` asserts there are none — which is the whole point of the
+    /// dialect-gate and `array_agg`/`string_agg` guardrail fixtures.
+    #[serde(default)]
+    pub nested_structs: Option<Vec<ExpectedNestedStruct>>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpectedNestedStruct {
+    /// snake_case name, as it appears in `NestedStructInfo::name`.
+    pub name: String,
+    #[serde(default)]
+    pub fields: Vec<ExpectedNestedField>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ExpectedNestedField {
+    /// The *raw* SQL column name, which is also the JSON key.
+    pub name: String,
+    #[serde(rename = "type")]
+    pub neutral_type: String,
+    pub nullable: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -57,6 +57,7 @@ jobs:
         with:
           workspaces: |
             integration_tests/rust-sqlx -> target
+            integration_tests/rust-sqlx-nested-json -> target
             integration_tests/rust-tokio-postgres -> target
       - uses: actions/setup-go@v5
         with:
@@ -96,6 +97,10 @@ jobs:
 
       - name: Test rust-sqlx
         working-directory: integration_tests/rust-sqlx
+        run: cargo run --quiet
+
+      - name: Test rust-sqlx-nested-json
+        working-directory: integration_tests/rust-sqlx-nested-json
         run: cargo run --quiet
 
       - name: Test rust-tokio-postgres

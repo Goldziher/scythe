@@ -69,6 +69,24 @@ pub(crate) fn parse_manifest(manifest_toml: &str) -> Result<BackendManifest, Scy
     toml::from_str(manifest_toml).map_err(|e| ScytheError::new(ErrorCode::InternalError, format!("manifest: {e}")))
 }
 
+/// Whether a backend built for `engine` may emit nested-aggregate structs.
+///
+/// The four opted-in backends (`rust-sqlx`, `rust-tokio-postgres`, `go-pgx`,
+/// `python-psycopg3`) all also serve `redshift`, and `rust-sqlx` serves
+/// MySQL/MariaDB/SQLite besides. `json_agg` and `row_to_json` are PostgreSQL
+/// functions; Redshift has neither. The analyzer already declines to infer a
+/// nested type for a Redshift catalog, but the backend cannot rely on that
+/// alone — it also selects a *different manifest* per engine, and the
+/// Redshift manifests deliberately do not declare the `json_nested`
+/// container. Opting in there would resolve the column against a container
+/// the manifest never defines.
+///
+/// Kept as one predicate so all four backends answer the question the same
+/// way instead of each spelling out its own engine list.
+pub(crate) fn engine_supports_nested_aggregates(engine: &str) -> bool {
+    matches!(engine, "postgresql" | "postgres" | "pg")
+}
+
 /// Strip SQL comments, trailing semicolons, and excess whitespace.
 /// Preserves newlines between lines.
 pub(crate) fn clean_sql(sql: &str) -> String {

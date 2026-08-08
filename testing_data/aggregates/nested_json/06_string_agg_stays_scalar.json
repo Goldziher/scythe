@@ -1,0 +1,20 @@
+{
+  "category": "aggregates/nested_json",
+  "config": { "engine": "postgresql" },
+  "description": "Guardrail: string_agg stays a scalar string aggregate and must never be reinterpreted as a nested aggregate",
+  "expected": {
+    "query": {
+      "columns": [{ "name": "all_notes", "nullable": true, "type": "string" }],
+      "command": "one",
+      "name": "GetOrderNotes",
+      "nested_structs": [],
+      "params": []
+    },
+    "success": true
+  },
+  "name": "string_agg_stays_scalar",
+  "query_sql": "-- @name GetOrderNotes\n-- @returns :one\nSELECT string_agg(o.notes, ',') AS all_notes FROM orders o;",
+  "schema_sql": ["CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, notes TEXT);"],
+  "source": "original",
+  "tags": ["aggregate", "string_agg", "nested", "guardrail"]
+}

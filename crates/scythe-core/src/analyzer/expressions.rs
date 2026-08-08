@@ -713,9 +713,9 @@ impl<'a> Analyzer<'a> {
     /// aggregate).
     ///
     /// Returns `None` whenever the nested shape can't be established — wrong
-    /// dialect, zero or more than one argument, or an argument that isn't a
-    /// `FuncArgShape::Relation` (a bare wildcard, a scalar expression, or a
-    /// relation alias that somehow resolved to no scope columns). Every
+    /// dialect or engine, zero or more than one argument, or an argument that
+    /// isn't a `FuncArgShape::Relation` (a bare wildcard, a scalar expression,
+    /// or a relation alias that somehow resolved to no scope columns). Every
     /// caller falls back to the pre-existing behaviour for that function on
     /// `None`, so this never changes output for anything it doesn't
     /// explicitly handle.
@@ -725,7 +725,7 @@ impl<'a> Analyzer<'a> {
         scope: &Scope,
         wrap: WrapArray,
     ) -> Option<TypeInfo> {
-        if self.catalog.dialect() != SqlDialect::PostgreSQL {
+        if !catalog_has_nested_aggregates(self.catalog) {
             return None;
         }
 
@@ -760,18 +760,57 @@ impl<'a> Analyzer<'a> {
             return None;
         }
 
+        let elements_nullable = scope
+            .sources
+            .iter()
+            .find(|s| s.alias == *alias)
+            .is_some_and(|s| s.nullable_from_join);
+
         let id = self.push_pending_nested(fields);
         let placeholder = format!("__nested__{id}");
+
+        // Element nullability, not field nullability, is the axis an outer
+        // join moves. For a LEFT JOIN row with no match PostgreSQL makes the
+        // whole-row variable itself NULL — not a row of NULLs — so
+        // `json_agg(o.*)` aggregates one NULL and the column's value is the
+        // JSON array `[null]`, never `[{"id":null,...}]`. Widening the
+        // *fields* would therefore model a value PostgreSQL never produces
+        // while still leaving `Vec<Foo>` / `list[Foo]` unable to hold the one
+        // it does: `serde_json` rejects `[null]` into `Vec<Foo>` with
+        // "invalid type: null", and Python's `[Foo(...) for item in raw]`
+        // raises on the NULL element.
+        //
+        // Deliberately conservative: `json_agg(o.*) FILTER (WHERE o.id IS NOT
+        // NULL)` — the idiom for suppressing exactly that `[null]` — cannot
+        // produce a null element, but recognising that would mean proving an
+        // arbitrary filter excludes the non-matching rows. Over-approximating
+        // costs an `Option`/`| None` that is always `Some`; under-
+        // approximating is a runtime deserialization failure, so this errs
+        // toward the former.
+        let element = if elements_nullable {
+            format!("nullable<{placeholder}>")
+        } else {
+            placeholder.clone()
+        };
         let neutral_type = match wrap {
-            WrapArray::Yes => format!("json_typed<array<{placeholder}>>"),
-            WrapArray::No => format!("json_typed<{placeholder}>"),
+            WrapArray::Yes => format!("json_nested<array<{element}>>"),
+            // `row_to_json(o.*)` over a null-extended row returns SQL NULL,
+            // not a JSON null, so the *column* is nullable (it always is
+            // here) and there is no element to wrap.
+            WrapArray::No => format!("json_nested<{placeholder}>"),
         };
         Some(TypeInfo::new(neutral_type, true))
     }
 
     /// Build the field list for a nested struct from a scope source's
-    /// columns, carrying outer-join nullability the same way
-    /// [`TypeInfo::from_scope_column`] does for a normal column reference.
+    /// columns.
+    ///
+    /// Unlike [`TypeInfo::from_scope_column`] for a plain column reference,
+    /// `nullable_from_join` is deliberately *not* folded in here — see
+    /// [`Analyzer::infer_nested_aggregate_type`], which applies an outer
+    /// join's effect to the array element instead. Inside a JSON object that
+    /// `json_agg` actually emitted, every field carries its own schema
+    /// nullability and nothing more.
     fn nested_fields_for_relation(&self, alias: &str, scope: &Scope) -> Vec<NestedFieldInfo> {
         let Some(source) = scope.sources.iter().find(|s| s.alias == alias) else {
             return Vec::new();
@@ -782,10 +821,32 @@ impl<'a> Analyzer<'a> {
             .map(|col| NestedFieldInfo {
                 name: col.name.clone(),
                 neutral_type: col.neutral_type.clone(),
-                nullable: col.base_nullable || source.nullable_from_join,
+                nullable: col.base_nullable,
             })
             .collect()
     }
+}
+
+/// Whether nested-aggregate inference is available for this catalog.
+///
+/// Two independent conditions, because neither implies the other:
+/// - the dialect must be PostgreSQL, since `json_agg`/`row_to_json` and the
+///   whole-row `alias.*` argument form are PostgreSQL syntax; and
+/// - the *engine*, when stated, must actually ship those functions.
+///   `SqlDialect::from_str` maps `redshift` and `duckdb` onto
+///   `SqlDialect::PostgreSQL`, but Redshift has no `json_agg` at all and
+///   DuckDB spells it `json_group_array`, so the dialect check alone admits
+///   two engines where the inferred type could never be produced.
+///
+/// An unstated engine (`Catalog::from_ddl`, every unit test, any embedder
+/// predating `Catalog::with_engine`) is treated as PostgreSQL proper.
+fn catalog_has_nested_aggregates(catalog: &crate::catalog::Catalog) -> bool {
+    if catalog.dialect() != SqlDialect::PostgreSQL {
+        return false;
+    }
+    catalog
+        .engine()
+        .is_none_or(|engine| matches!(engine, "postgresql" | "postgres" | "pg" | "cockroachdb" | "crdb"))
 }
 
 /// Whether [`Analyzer::infer_nested_aggregate_type`] wraps its placeholder in

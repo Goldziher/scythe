@@ -6,7 +6,19 @@ edition = "2024"
 [workspace]
 
 [dependencies]
-sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal"] }
+# `json` gives `sqlx::types::Json<T>`, which the generated code uses for any
+# `json_agg`/`row_to_json` column; `serde` supplies the `Serialize`/
+# `Deserialize` derives on the generated nested structs those wrap.
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal", "json"] }
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
-rust_decimal = "1"
+rust_decimal = { version = "1", features = ["serde"] }
+serde = { version = "1", features = ["derive"] }
+
+# `serde` is named only by generated code: a `json_agg`/`row_to_json` column
+# makes scythe emit nested structs deriving `serde::Serialize`/`Deserialize`.
+# This project's queries have none today, so cargo-machete sees an unused
+# dependency; it is declared here so adding such a query does not also
+# require a dependency change to compile.
+[package.metadata.cargo-machete]
+ignored = ["serde"]

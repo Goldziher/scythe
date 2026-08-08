@@ -3,8 +3,17 @@ use crate::parser::{CustomAnnotation, QueryCommand};
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
+/// Everything inference established about one annotated query.
+///
+/// `#[non_exhaustive]`: adding a public field here is a breaking change for
+/// every downstream struct literal — which is exactly what adding
+/// `nested_structs` was. 0.14.0 is a breaking release regardless, so the
+/// marker goes on now and the *next* field costs nothing. Build one with
+/// [`AnalyzedQuery::build`]; `#[non_exhaustive]` rejects a struct literal
+/// from another crate, including the `..Default::default()` form.
 #[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
+#[non_exhaustive]
 pub struct AnalyzedQuery {
     pub name: String,
     pub command: QueryCommand,
@@ -26,14 +35,46 @@ pub struct AnalyzedQuery {
     /// See [`CustomAnnotation`] for usage.
     pub custom: Vec<CustomAnnotation>,
     /// Struct definitions needed for nested-aggregate result shapes
-    /// (`json_agg(o.*)`, `row_to_json(u.*)`, ...). PostgreSQL only; always
-    /// empty for every other dialect.
+    /// (`json_agg(o.*)`, `row_to_json(u.*)`, ...).
+    ///
+    /// Always empty unless the catalog is both PostgreSQL-dialect *and* on
+    /// an engine that actually has those functions: Redshift and DuckDB map
+    /// to `SqlDialect::PostgreSQL` but ship neither, so the dialect alone is
+    /// not the gate. See `expressions::catalog_has_nested_aggregates`.
     ///
     /// `#[serde(default)]` so payloads serialized before this field existed
     /// keep deserializing — but adding this key changes any content hash
     /// computed over the serialized `AnalyzedQuery`.
     #[cfg_attr(feature = "serde", serde(default))]
     pub nested_structs: Vec<NestedStructInfo>,
+}
+
+impl AnalyzedQuery {
+    /// Build an `AnalyzedQuery` from [`Default`], assigning fields inside
+    /// `init`.
+    ///
+    /// This is the supported replacement for a struct literal now that the
+    /// type is `#[non_exhaustive]`. Keeping construction a single expression
+    /// (rather than `let mut q = AnalyzedQuery::default(); q.name = ...`)
+    /// also keeps clippy's `field_reassign_with_default` quiet at ~100 call
+    /// sites.
+    ///
+    /// ```
+    /// use scythe_core::analyzer::AnalyzedQuery;
+    /// use scythe_core::parser::QueryCommand;
+    ///
+    /// let query = AnalyzedQuery::build(|q| {
+    ///     q.name = "GetUser".to_string();
+    ///     q.command = QueryCommand::One;
+    /// });
+    /// assert_eq!(query.name, "GetUser");
+    /// ```
+    #[must_use]
+    pub fn build(init: impl FnOnce(&mut Self)) -> Self {
+        let mut query = Self::default();
+        init(&mut query);
+        query
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -30,6 +30,7 @@ array = "[]{T}"
 nullable = "*{T}"
 range = "string"
 json_typed = "{T}"
+json_nested = "{T}"
 
 [naming]
 struct_case = "PascalCase"

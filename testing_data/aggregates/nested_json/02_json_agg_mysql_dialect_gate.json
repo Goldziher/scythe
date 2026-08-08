@@ -1,0 +1,28 @@
+{
+  "category": "aggregates/nested_json",
+  "config": {
+    "engine": "mysql"
+  },
+  "description": "The dialect gate: json_agg on MySQL must keep the pre-existing plain json type and infer no nested struct",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "orders",
+          "nullable": true,
+          "type": "json"
+        }
+      ],
+      "command": "many",
+      "name": "GetOrdersJsonMysql",
+      "nested_structs": [],
+      "params": []
+    },
+    "success": true
+  },
+  "name": "json_agg_mysql_dialect_gate",
+  "query_sql": "-- @name GetOrdersJsonMysql\n-- @returns :many\nSELECT json_agg(o.*) AS orders FROM orders o;",
+  "schema_sql": ["CREATE TABLE orders (id INT NOT NULL, user_id INT NOT NULL, notes VARCHAR(255));"],
+  "source": "original",
+  "tags": ["aggregate", "json_agg", "nested", "dialect_gate", "mysql"]
+}

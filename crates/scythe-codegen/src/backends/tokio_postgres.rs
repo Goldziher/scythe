@@ -22,6 +22,10 @@ pub struct TokioPostgresBackend {
     manifest: BackendManifest,
     serde: bool,
     extra_derives: Vec<String>,
+    /// Whether this engine's manifest declares the `json_nested` container
+    /// and its server actually has `json_agg`. See
+    /// [`crate::backends::engine_supports_nested_aggregates`].
+    nested_aggregates: bool,
 }
 
 impl TokioPostgresBackend {
@@ -44,6 +48,7 @@ impl TokioPostgresBackend {
             manifest,
             serde: false,
             extra_derives: Vec::new(),
+            nested_aggregates: super::engine_supports_nested_aggregates(engine),
         })
     }
 
@@ -503,36 +508,31 @@ impl CodegenBackend for TokioPostgresBackend {
         &self,
         nested: &scythe_core::analyzer::NestedStructInfo,
     ) -> Result<Option<String>, ScytheError> {
-        // Always derives serde::Deserialize regardless of self.serde/
-        // struct_derives(): that flag controls whether the *row* struct
-        // (constructed via from_row/row.get, never JSON-deserialized)
-        // opts into serde, which is unrelated to this struct's own need
-        // for Deserialize -- required because the manifest resolves
-        // json_typed<T> to postgres_types::Json<T>, whose FromSql impl is
-        // bounded on T: Deserialize.
-        //
-        // Unlike generate_composite_def (always `false` -- CompositeFieldInfo
-        // has no per-field nullability), a nested-aggregate field's
-        // nullability is real and comes from the source column it was
-        // built from.
-        let struct_name = to_pascal_case(&nested.name).into_owned();
-        let mut out = String::new();
-
-        let _ = writeln!(out, "#[derive(Debug, Clone, serde::Deserialize)]");
-        let _ = writeln!(out, "pub struct {} {{", struct_name);
-        for field in &nested.fields {
-            let rust_type = resolve_type(&field.neutral_type, &self.manifest, field.nullable)
-                .map(|t| t.into_owned())
-                .map_err(|e| {
-                    ScytheError::new(
-                        ErrorCode::InternalError,
-                        format!("nested struct field type error: {}", e),
-                    )
-                })?;
-            let _ = writeln!(out, "    pub {}: {},", to_snake_case(&field.name), rust_type);
+        if !self.nested_aggregates {
+            return Ok(None);
         }
-        let _ = write!(out, "}}");
-        Ok(Some(out))
+
+        // Deliberately not self.struct_derives(): the `serde` option decides
+        // whether the *row* struct (built by from_row/row.get, never
+        // JSON-decoded) opts into serde, which is a separate question from
+        // this struct's own unconditional need for both serde traits --
+        // `json_nested<T>` resolves to `postgres_types::Json<T>`, whose
+        // `FromSql` is bounded on `T: Deserialize`. See
+        // `generate_nested_rust_struct` for the rest.
+        Ok(Some(super::sqlx::generate_nested_rust_struct(nested, &self.manifest)?))
+    }
+
+    fn generate_enum_def_for_nested(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
+        // enum_derives() adds serde only when the `serde` option is on, but
+        // a nested struct needs its field types `Deserialize` regardless:
+        // that struct is decoded from JSON, not off the wire.
+        let base = self.generate_enum_def(enum_info)?;
+        Ok(super::sqlx::add_serde_to_enum(&base, enum_info, &self.manifest))
+    }
+
+    fn generate_composite_def_for_nested(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
+        let base = self.generate_composite_def(composite)?;
+        Ok(super::sqlx::add_serde_to_first_derive(&base))
     }
 }
 
@@ -619,30 +619,29 @@ mod tests {
             },
         ];
         let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
-        AnalyzedQuery {
-            name: "GetUsersWithOrders".to_string(),
-            command: QueryCommand::Grouped,
-            sql: "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+        AnalyzedQuery::build(|aq| {
+            aq.name = "GetUsersWithOrders".to_string();
+            aq.command = QueryCommand::Grouped;
+            aq.sql = "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
                   SELECT u.id, u.name, u.email, o.id AS order_id, o.total, o.created_at AS order_date\n\
                   FROM users u\n\
                   JOIN orders o ON o.user_id = u.id"
-                .to_string(),
-            columns: all_cols,
-            params: vec![],
-            deprecated: None,
-            source_table: None,
-            composites: vec![],
-            enums: vec![],
-            optional_params: vec![],
-            group_by: Some(GroupByConfig {
+                .to_string();
+            aq.columns = all_cols;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = Some(GroupByConfig {
                 table: "users".to_string(),
                 key_column: "id".to_string(),
                 parent_columns: parent_cols,
                 child_columns: child_cols,
-            }),
-            custom: vec![],
-            ..Default::default()
-        }
+            });
+            aq.custom = vec![];
+        })
     }
 
     #[test]

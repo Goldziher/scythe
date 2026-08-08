@@ -14,7 +14,10 @@ fn test_mariadb_insert_returning() {
 
     let query_sql = "-- @name InsertUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING id, name;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog =
+        scythe_core::catalog::Catalog::from_ddl_with_dialect(schema_sql, &scythe_core::dialect::SqlDialect::MySQL)
+            .unwrap()
+            .with_engine("mariadb");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -76,6 +79,10 @@ fn test_mariadb_insert_returning() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -133,7 +140,10 @@ fn test_mariadb_uuid_type() {
 
     let query_sql = "-- @name GetUsers\n-- @returns :many\nSELECT id, name FROM users;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog =
+        scythe_core::catalog::Catalog::from_ddl_with_dialect(schema_sql, &scythe_core::dialect::SqlDialect::MySQL)
+            .unwrap()
+            .with_engine("mariadb");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -189,6 +199,10 @@ fn test_mariadb_uuid_type() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -250,7 +264,10 @@ fn test_mssql_basic_types() {
 
     let query_sql = "-- @name GetUsers\n-- @returns :many\nSELECT id, name, active, external_id FROM users;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog =
+        scythe_core::catalog::Catalog::from_ddl_with_dialect(schema_sql, &scythe_core::dialect::SqlDialect::MsSql)
+            .unwrap()
+            .with_engine("mssql");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -320,6 +337,10 @@ fn test_mssql_basic_types() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -379,7 +400,10 @@ fn test_mssql_datetime_types() {
 
     let query_sql = "-- @name GetEvents\n-- @returns :many\nSELECT id, event_date, event_time, created_at, scheduled_at FROM events;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog =
+        scythe_core::catalog::Catalog::from_ddl_with_dialect(schema_sql, &scythe_core::dialect::SqlDialect::MsSql)
+            .unwrap()
+            .with_engine("mssql");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -455,6 +479,10 @@ fn test_mssql_datetime_types() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -514,7 +542,10 @@ fn test_oracle_number_types() {
 
     let query_sql = "-- @name GetProducts\n-- @returns :many\nSELECT id, name, quantity, price FROM products;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog =
+        scythe_core::catalog::Catalog::from_ddl_with_dialect(schema_sql, &scythe_core::dialect::SqlDialect::Oracle)
+            .unwrap()
+            .with_engine("oracle");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -584,6 +615,10 @@ fn test_oracle_number_types() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -641,7 +676,10 @@ fn test_oracle_varchar2_clob() {
 
     let query_sql = "-- @name GetArticles\n-- @returns :many\nSELECT id, title, body FROM articles;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog =
+        scythe_core::catalog::Catalog::from_ddl_with_dialect(schema_sql, &scythe_core::dialect::SqlDialect::Oracle)
+            .unwrap()
+            .with_engine("oracle");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -705,6 +743,10 @@ fn test_oracle_varchar2_clob() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -762,7 +804,9 @@ fn test_redshift_identity_column() {
 
     let query_sql = "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql)
+        .unwrap()
+        .with_engine("redshift");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -824,6 +868,10 @@ fn test_redshift_identity_column() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -881,7 +929,9 @@ fn test_redshift_no_enum() {
 
     let query_sql = "-- @name GetUsersByStatus\n-- @returns :many\nSELECT id, status FROM users WHERE status = $1;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql)
+        .unwrap()
+        .with_engine("redshift");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -946,6 +996,10 @@ fn test_redshift_no_enum() {
                 code.push_str(s);
                 code.push('\n');
             }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
+                code.push('\n');
+            }
             if let Some(ref s) = generated.model_struct {
                 code.push_str(s);
                 code.push('\n');
@@ -1003,7 +1057,9 @@ fn test_redshift_super_type() {
 
     let query_sql = "-- @name GetEvents\n-- @returns :many\nSELECT id, data FROM events;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql)
+        .unwrap()
+        .with_engine("redshift");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -1056,6 +1112,10 @@ fn test_redshift_super_type() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -1117,7 +1177,10 @@ fn test_snowflake_timestamp_variants() {
 
     let query_sql = "-- @name GetAuditLog\n-- @returns :many\nSELECT id, created_at, scheduled_at FROM audit_log;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog =
+        scythe_core::catalog::Catalog::from_ddl_with_dialect(schema_sql, &scythe_core::dialect::SqlDialect::Snowflake)
+            .unwrap()
+            .with_engine("snowflake");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -1125,7 +1188,7 @@ fn test_snowflake_timestamp_variants() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 3, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert_eq!(analyzed.columns[0].neutral_type, "int64", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "created_at", "column name");
     assert_eq!(
@@ -1179,6 +1242,10 @@ fn test_snowflake_timestamp_variants() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
@@ -1238,7 +1305,10 @@ fn test_snowflake_variant_type() {
 
     let query_sql = "-- @name GetEvents\n-- @returns :many\nSELECT id, payload FROM events;";
 
-    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog =
+        scythe_core::catalog::Catalog::from_ddl_with_dialect(schema_sql, &scythe_core::dialect::SqlDialect::Snowflake)
+            .unwrap()
+            .with_engine("snowflake");
     let query = scythe_core::parser::parse_query(query_sql).unwrap();
     let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
 
@@ -1246,7 +1316,7 @@ fn test_snowflake_variant_type() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "id", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for id");
+    assert_eq!(analyzed.columns[0].neutral_type, "int64", "column neutral_type for id");
     assert!(!analyzed.columns[0].nullable, "column nullable for id");
     assert_eq!(analyzed.columns[1].name, "payload", "column name");
     assert_eq!(
@@ -1294,6 +1364,10 @@ fn test_snowflake_variant_type() {
             };
             if let Some(ref s) = generated.enum_def {
                 code.push_str(s);
+                code.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                code.push_str(&def.code);
                 code.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
