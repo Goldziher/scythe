@@ -480,7 +480,15 @@ pub fn generate_zod_union_row_struct(struct_name: &str, query_name: &str, column
     let mut out = String::new();
     let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
     let _ = writeln!(out, "export const {} = z.object({{", schema_name);
-    for col in columns.iter().filter(|c| c.join_group.is_none()) {
+    // Not just `join_group.is_none()`, for the same reason as the interface
+    // path above: a column in a group `discriminated_join_groups` dropped --
+    // one where every projected column was already nullable in the schema --
+    // gets no union variant, so filtering on `is_none()` alone left it out of
+    // the schema entirely and `z.infer` produced a type missing that field.
+    for col in columns
+        .iter()
+        .filter(|c| c.join_group.as_ref().is_none_or(|group| !groups.contains(group)))
+    {
         let zod_type = column_to_zod(col);
         let _ = writeln!(out, "\t{}: {},", col.field_name, zod_type);
     }
@@ -1033,6 +1041,27 @@ mod tests {
             1,
             "only the discriminated group becomes a union: {out}"
         );
+    }
+
+    /// The Zod counterpart of the case above. The doc comment on
+    /// `generate_zod_union_row_struct` promises its inferred type matches the
+    /// interface form, so the two base-field filters have to agree; they did
+    /// not, and `z.infer` produced a type missing the undiscriminated group's
+    /// columns while the interface declared them.
+    #[test]
+    fn zod_keeps_columns_from_join_groups_that_carry_no_discriminant() {
+        let columns = vec![
+            column("id", "number", false, None, false),
+            column("bio", "string", true, Some("p"), true),
+            column("website", "string", true, Some("p"), true),
+            column("label", "string", true, Some("b"), false),
+        ];
+
+        let out = generate_zod_union_row_struct("R", "Q", &columns);
+
+        assert!(out.contains("bio:"), "{out}");
+        assert!(out.contains("website:"), "{out}");
+        assert!(out.contains("label:"), "{out}");
     }
 
     #[test]
