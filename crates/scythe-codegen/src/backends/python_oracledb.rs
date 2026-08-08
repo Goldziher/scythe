@@ -31,7 +31,7 @@ impl PythonOracledbBackend {
             "oracle" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("python-oracledb only supports Oracle, got engine '{}'", engine),
                 ));
             }

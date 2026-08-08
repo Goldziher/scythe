@@ -31,7 +31,7 @@ impl PythonAiomysqlBackend {
             "mysql" | "mariadb" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("python-aiomysql only supports MySQL/MariaDB, got engine '{}'", engine),
                 ));
             }

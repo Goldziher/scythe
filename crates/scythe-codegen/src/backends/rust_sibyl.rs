@@ -24,7 +24,7 @@ impl RustSibylBackend {
             "oracle" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("rust-sibyl only supports Oracle, got engine '{}'", engine),
                 ));
             }

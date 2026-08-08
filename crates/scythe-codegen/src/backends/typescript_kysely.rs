@@ -82,7 +82,7 @@ impl TypescriptKyselyBackend {
             "mssql" => DEFAULT_MANIFEST_MSSQL,
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!(
                         "typescript-kysely only supports PostgreSQL/Redshift/MySQL/MariaDB/SQLite/MSSQL, got engine '{}'",
                         engine

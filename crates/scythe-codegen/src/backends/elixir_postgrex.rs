@@ -24,7 +24,7 @@ impl ElixirPostgrexBackend {
             "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!(
                         "elixir-postgrex only supports PostgreSQL/Redshift, got engine '{}'",
                         engine

@@ -20,7 +20,7 @@ impl RubyOci8Backend {
             "oracle" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("ruby-oci8 only supports Oracle, got engine '{}'", engine),
                 ));
             }

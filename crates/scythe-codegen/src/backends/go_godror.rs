@@ -90,7 +90,7 @@ impl GoGodrorBackend {
             "oracle" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("go-godror only supports Oracle, got engine '{}'", engine),
                 ));
             }

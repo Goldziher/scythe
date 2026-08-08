@@ -38,7 +38,7 @@ impl TypescriptOracledbBackend {
             "oracle" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("typescript-oracledb only supports Oracle, got engine '{}'", engine),
                 ));
             }

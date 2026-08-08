@@ -26,7 +26,7 @@ impl GoGosnowflakeBackend {
             "snowflake" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("go-gosnowflake only supports Snowflake, got engine '{}'", engine),
                 ));
             }

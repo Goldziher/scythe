@@ -79,7 +79,7 @@ impl RubyTinyTdsBackend {
             "mssql" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("ruby-tiny-tds only supports MSSQL, got engine '{}'", engine),
                 ));
             }

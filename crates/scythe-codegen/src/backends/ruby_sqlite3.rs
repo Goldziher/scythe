@@ -20,7 +20,7 @@ impl RubySqlite3Backend {
             "sqlite" | "sqlite3" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("ruby-sqlite3 only supports SQLite, got engine '{}'", engine),
                 ));
             }

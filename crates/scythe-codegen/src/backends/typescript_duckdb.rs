@@ -45,7 +45,7 @@ impl TypescriptDuckdbBackend {
             "duckdb" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("typescript-duckdb only supports DuckDB, got engine '{}'", engine),
                 ));
             }

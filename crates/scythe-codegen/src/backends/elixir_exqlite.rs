@@ -22,7 +22,7 @@ impl ElixirExqliteBackend {
             "sqlite" | "sqlite3" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("elixir-exqlite only supports SQLite, got engine '{}'", engine),
                 ));
             }

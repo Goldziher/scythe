@@ -29,7 +29,7 @@ impl PythonDuckdbBackend {
             "duckdb" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("python-duckdb only supports DuckDB, got engine '{}'", engine),
                 ));
             }

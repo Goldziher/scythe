@@ -84,7 +84,7 @@ impl ElixirTdsBackend {
             "mssql" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("elixir-tds only supports MSSQL, got engine '{}'", engine),
                 ));
             }

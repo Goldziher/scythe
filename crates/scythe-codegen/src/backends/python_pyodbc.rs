@@ -31,7 +31,7 @@ impl PythonPyodbcBackend {
             "mssql" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("python-pyodbc only supports MSSQL, got engine '{}'", engine),
                 ));
             }

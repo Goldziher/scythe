@@ -36,7 +36,7 @@ impl TokioPostgresBackend {
             "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!(
                         "rust-tokio-postgres only supports PostgreSQL/Redshift, got engine '{}'",
                         engine

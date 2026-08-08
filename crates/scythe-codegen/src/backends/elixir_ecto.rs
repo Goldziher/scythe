@@ -22,7 +22,7 @@ impl ElixirEctoBackend {
             "postgresql" | "postgres" | "pg" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("elixir-ecto only supports PostgreSQL, got engine '{}'", engine),
                 ));
             }

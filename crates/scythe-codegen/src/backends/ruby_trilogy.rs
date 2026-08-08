@@ -20,7 +20,7 @@ impl RubyTrilogyBackend {
             "mysql" | "mariadb" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("ruby-trilogy only supports MySQL, got engine '{}'", engine),
                 ));
             }

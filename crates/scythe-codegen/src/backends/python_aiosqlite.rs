@@ -29,7 +29,7 @@ impl PythonAiosqliteBackend {
             "sqlite" | "sqlite3" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("python-aiosqlite only supports SQLite, got engine '{}'", engine),
                 ));
             }

@@ -21,7 +21,7 @@ impl ElixirJamdbBackend {
             "oracle" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("elixir-jamdb only supports Oracle, got engine '{}'", engine),
                 ));
             }

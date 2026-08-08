@@ -54,7 +54,7 @@ impl TypescriptWasmSqliteBackend {
             "sqlite" | "sqlite3" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("typescript-wasm-sqlite only supports SQLite, got engine '{}'", engine),
                 ));
             }

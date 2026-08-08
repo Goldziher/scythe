@@ -22,7 +22,7 @@ impl ElixirMyxqlBackend {
             "mysql" | "mariadb" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("elixir-myxql only supports MySQL, got engine '{}'", engine),
                 ));
             }

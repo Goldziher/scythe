@@ -55,7 +55,7 @@ impl TypescriptPostgresBackend {
             "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!(
                         "typescript-postgres only supports PostgreSQL/Redshift, got engine '{}'",
                         engine

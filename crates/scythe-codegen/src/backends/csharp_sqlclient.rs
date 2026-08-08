@@ -21,7 +21,7 @@ impl CsharpSqlClientBackend {
             "mssql" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("csharp-sqlclient only supports MSSQL, got engine '{}'", engine),
                 ));
             }

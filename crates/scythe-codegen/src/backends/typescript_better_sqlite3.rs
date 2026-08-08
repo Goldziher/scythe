@@ -53,7 +53,7 @@ impl TypescriptBetterSqlite3Backend {
             "sqlite" | "sqlite3" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!(
                         "typescript-better-sqlite3 only supports SQLite, got engine '{}'",
                         engine

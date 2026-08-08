@@ -22,7 +22,7 @@ impl CsharpOracleBackend {
             "oracle" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("csharp-oracle only supports Oracle, got engine '{}'", engine),
                 ));
             }

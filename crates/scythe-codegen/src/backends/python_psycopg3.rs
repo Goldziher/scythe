@@ -82,7 +82,7 @@ impl PythonPsycopg3Backend {
             "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!(
                         "python-psycopg3 only supports PostgreSQL/Redshift, got engine '{}'",
                         engine

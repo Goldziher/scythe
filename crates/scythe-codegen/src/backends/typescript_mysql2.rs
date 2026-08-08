@@ -65,7 +65,7 @@ impl TypescriptMysql2Backend {
             "mysql" | "mariadb" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("typescript-mysql2 only supports MySQL/MariaDB, got engine '{}'", engine),
                 ));
             }

@@ -24,7 +24,7 @@ impl RustTiberiusBackend {
             "mssql" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("rust-tiberius only supports MSSQL, got engine '{}'", engine),
                 ));
             }

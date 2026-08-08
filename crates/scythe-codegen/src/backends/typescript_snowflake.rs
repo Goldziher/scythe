@@ -45,7 +45,7 @@ impl TypescriptSnowflakeBackend {
             "snowflake" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("typescript-snowflake only supports Snowflake, got engine '{}'", engine),
                 ));
             }

@@ -31,7 +31,7 @@ impl PythonAsyncpgBackend {
             "redshift" => DEFAULT_MANIFEST_REDSHIFT,
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!(
                         "python-asyncpg only supports PostgreSQL/Redshift, got engine '{}'",
                         engine

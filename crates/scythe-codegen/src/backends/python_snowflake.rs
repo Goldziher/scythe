@@ -32,7 +32,7 @@ impl PythonSnowflakeBackend {
             "snowflake" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("python-snowflake only supports Snowflake, got engine '{}'", engine),
                 ));
             }
