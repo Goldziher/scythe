@@ -140,6 +140,146 @@ Aggregates can widen the argument's neutral type, not just its nullability:
 | `AVG` | non-float | `decimal` |
 | `AVG` | float type | `float64` |
 
+## Nested aggregates
+
+On PostgreSQL, `json_agg(alias.*)` and `row_to_json(alias.*)` resolve to a struct scythe synthesizes
+from the aggregated relation, not to an opaque `json` scalar. The neutral type is `json_nested<T>`:
+
+| Expression | Join | Neutral type |
+|---|---|---|
+| `json_agg(o.*)` | inner | `json_nested<array<GetUserOrdersRowOrders>>` |
+| `json_agg(o.*)` | outer | `json_nested<array<nullable<GetUserOrdersOuterRowOrders>>>` |
+| `row_to_json(o.*)` | -- | `json_nested<GetOrderPayloadRowPayload>` |
+
+The struct name is the query name, then `Row`, then the output column name: query `GetUserOrders` with
+an `AS orders` column produces `GetUserOrdersRowOrders`. A name that collides with a composite or enum
+in the catalog gains a numeric suffix. Fields are the aggregated relation's columns in schema order,
+each keeping its own schema nullability.
+
+The bare-identifier form (`json_agg(o)`, where `o` is a table alias rather than a column) is
+recognized the same way.
+
+### Generated code
+
+```sql
+-- @name GetUsersWithOrders
+-- @returns :many
+SELECT u.id, u.name, json_agg(o.*) AS orders
+FROM users u
+JOIN orders o ON o.user_id = u.id
+GROUP BY u.id, u.name;
+```
+
+Against an `orders` table of `id`, `user_id`, `total`, `weight_kg`, `notes`, `created_at`, the
+`rust-sqlx` backend emits:
+
+```rust
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct GetUsersWithOrdersRowOrders {
+    pub id: i32,
+    pub user_id: i32,
+    pub total: rust_decimal::Decimal,
+    pub weight_kg: Option<f64>,
+    pub notes: Option<String>,
+    pub created_at: chrono::DateTime<chrono::Utc>,
+}
+
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct GetUsersWithOrdersRow {
+    pub id: i32,
+    pub name: String,
+    pub orders: Option<sqlx::types::Json<Vec<GetUsersWithOrdersRowOrders>>>,
+}
+```
+
+`row_to_json` has no array wrapper -- one JSON object per output row rather than one element per
+aggregated row:
+
+```rust
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct GetUserAsJsonRow {
+    pub payload: Option<sqlx::types::Json<GetUserAsJsonRowPayload>>,
+}
+```
+
+### Nullability of the aggregate
+
+The column is always nullable: `json_agg` returns NULL for an empty group, and `row_to_json` over a
+null-extended row returns SQL NULL.
+
+An outer join widens the array *element*, not the fields. For a non-matching row PostgreSQL makes the
+whole-row variable itself NULL, so `json_agg(o.*)` aggregates one JSON `null` and the column's value
+is `[null]` -- never `[{"id": null, ...}]`. The same query over a `LEFT JOIN` therefore emits:
+
+```rust
+#[derive(Debug, Clone, sqlx::FromRow)]
+pub struct GetUsersWithOrdersOuterRow {
+    pub id: i32,
+    pub orders: Option<sqlx::types::Json<Vec<Option<GetUsersWithOrdersOuterRowOrders>>>>,
+}
+```
+
+`json_agg(o.*) FILTER (WHERE o.id IS NOT NULL)` -- the idiom for suppressing that `[null]` -- cannot
+produce a null element, but scythe does not prove that. The element stays optional.
+
+### JSON keys
+
+The keys `json_agg` and `row_to_json` emit are the raw SQL column names, which need not match the
+generated field names. Each backend spells the mapping out:
+
+| Backend | Row field type for `json_nested<T>` | Key mapping |
+|---|---|---|
+| `rust-sqlx` | `sqlx::types::Json<T>` | `#[serde(rename = "...")]` where the field name differs |
+| `rust-tokio-postgres` | `postgres_types::Json<T>` | same |
+| `go-pgx` | `T` | `json:"..."` struct tag |
+| `python-psycopg3` | `T` | a `_from_json` classmethod |
+
+A quoted mixed-case column keeps its key and renames the field:
+
+```rust
+    #[serde(rename = "createdAt")]
+    pub created_at: chrono::DateTime<chrono::Utc>,
+```
+
+An enum reachable only through a nested struct is emitted with serde derives and per-variant renames,
+because inside a JSON result the value is decoded by serde rather than off the wire by the driver:
+
+```rust
+#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type, serde::Serialize, serde::Deserialize)]
+#[sqlx(type_name = "user_status", rename_all = "snake_case")]
+pub enum UserStatus {
+    #[serde(rename = "active")]
+    Active,
+    #[serde(rename = "inactive")]
+    Inactive,
+    #[serde(rename = "banned")]
+    Banned,
+}
+```
+
+### Where it does not apply
+
+Only the four backends in the table above emit nested structs. Every other backend rewrites the column
+to plain `json`, byte-identical to what it produced before nested inference existed -- including the
+enums and composites reachable only through the discarded struct, which are not emitted.
+
+Inference is also gated on the engine. PostgreSQL and CockroachDB infer nested structs; on every other
+engine `json_agg` keeps its plain `json` mapping. That includes Redshift and DuckDB, which map onto
+the PostgreSQL dialect but have no `json_agg`.
+
+These are not covered:
+
+- `jsonb_agg`, `json_object_agg` and `jsonb_object_agg` -- plain `json`.
+- `json_agg` over a scalar expression, or over a bare `*` -- plain `json`.
+- `array_agg` and `string_agg` -- unaffected, still `array<T>` and `string`.
+- A nested aggregate over a nested aggregate -- rejected with an error. Wrap one level per query.
+- `@json` annotations, which produce `json_typed<T>` -- untouched.
+
+Two queries in one output file that derive the same struct name emit one definition when their field
+shapes match, and fail with an error naming both when they do not.
+
+See [Neutral Types](/scythe/reference/neutral-types/) for the full container table.
+
 ## Nullability from CASE
 
 CASE expressions are nullable if any branch can produce NULL:

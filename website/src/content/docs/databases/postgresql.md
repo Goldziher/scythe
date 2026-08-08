@@ -11,6 +11,7 @@ Scythe's primary and most complete dialect. All features are supported.
 - **Composite types** -- `CREATE TYPE ... AS (...)` mapped to `composite::name`
 - **Arrays** -- `TEXT[]`, `INTEGER[]`, etc. mapped to `array<T>`
 - **JSONB / JSON** -- mapped to `json`; typed JSON via `@json` annotation
+- **Nested aggregates** -- `json_agg(alias.*)` and `row_to_json(alias.*)` mapped to `json_nested<T>`
 - **Views** -- resolved through underlying table definitions
 - **Domains** -- `CREATE DOMAIN` resolved to base type with NOT NULL propagation
 - **Range types** -- `int4range`, `tstzrange`, etc. mapped to `range<T>`
@@ -64,6 +65,31 @@ SELECT id, name, email FROM users WHERE id = $1;
 - `RETURNING` clause support for `:one` and `:many` on INSERT/UPDATE/DELETE
 - `ON CONFLICT` (UPSERT) is fully supported
 - `SERIAL` / `BIGSERIAL` columns are automatically marked NOT NULL
+
+## Nested aggregates
+
+`json_agg(alias.*)` and `row_to_json(alias.*)` over a relation resolve to a struct scythe synthesizes
+from that relation's columns, rather than to an opaque `json` scalar:
+
+```sql
+-- @name GetUsersWithOrders
+-- @returns :many
+SELECT u.id, u.name, json_agg(o.*) AS orders
+FROM users u
+JOIN orders o ON o.user_id = u.id
+GROUP BY u.id, u.name;
+```
+
+`orders` becomes `Option<sqlx::types::Json<Vec<GetUsersWithOrdersRowOrders>>>` on `rust-sqlx`, with
+the struct declared alongside the row struct.
+
+This is PostgreSQL-only, and among PostgreSQL-compatible engines it applies to PostgreSQL and
+CockroachDB. Redshift is excluded: it uses the PostgreSQL dialect but has no `json_agg`. Four backends
+decode the result -- `rust-sqlx`, `rust-tokio-postgres`, `go-pgx` and `python-psycopg3`. On every other
+backend the column keeps the plain `json` mapping.
+
+See [Type Inference](/scythe/guide/type-inference/#nested-aggregates) for naming, nullability and JSON
+key handling.
 
 ## Placeholder syntax
 
