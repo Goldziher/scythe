@@ -61,30 +61,40 @@ fn test_case_numeric_branches() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -176,30 +186,40 @@ fn test_case_type_from_branches() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -297,30 +317,40 @@ fn test_cast_preserves_nullability() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -417,30 +447,40 @@ fn test_cast_text() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -537,30 +577,40 @@ fn test_explicit_cast() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -662,30 +712,40 @@ fn test_cast_composite_field_access() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -786,30 +846,40 @@ fn test_cast_pg_double_colon() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -900,30 +970,40 @@ fn test_cast_union_type_widening() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -1020,30 +1100,40 @@ fn test_coalesce_preserves_type() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -1137,30 +1227,40 @@ fn test_coalesce_type_inference() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -1255,30 +1355,40 @@ fn test_date_age_interval() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -1381,30 +1491,40 @@ fn test_date_current_functions() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -1504,30 +1624,40 @@ fn test_date_extract() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -1621,30 +1751,40 @@ fn test_date_trunc() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -1751,30 +1891,40 @@ fn test_math_abs_ceil_floor() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -1875,30 +2025,40 @@ fn test_math_power_sqrt() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -1994,30 +2154,40 @@ fn test_math_round() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -2110,30 +2280,40 @@ fn test_nullif_always_nullable() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -2225,30 +2405,40 @@ fn test_nullif_on_non_null() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -2340,30 +2530,40 @@ fn test_arithmetic() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -2455,30 +2655,40 @@ fn test_arithmetic_with_nullable() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -2571,30 +2781,40 @@ fn test_string_concat() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -2690,30 +2910,40 @@ fn test_like_returns_bool() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -2808,30 +3038,40 @@ fn test_string_concat_function() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -2931,30 +3171,40 @@ fn test_string_length_trim() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -3049,30 +3299,40 @@ fn test_string_substring() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(
@@ -3172,30 +3432,40 @@ fn test_string_upper_lower() {
         if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
             let preamble = backend.file_preamble();
             let header = backend.file_header();
-            let mut code = preamble;
+            let mut body = String::new();
             if header.is_empty() {
-                code.push_str("#![allow(dead_code, unused_imports)]\n");
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
             } else {
-                code.push_str(&header);
-                code.push('\n');
-            };
+                body.push_str(&header);
+                body.push('\n');
+            }
             if let Some(ref s) = generated.enum_def {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.model_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.row_struct {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
             if let Some(ref s) = generated.query_fn {
-                code.push_str(s);
-                code.push('\n');
+                body.push_str(s);
+                body.push('\n');
             }
-            if code.lines().count() > 1 {
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
                 // Only validate Rust syntax with syn for Rust backends
                 if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
                     assert!(

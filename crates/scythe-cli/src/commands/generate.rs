@@ -14,6 +14,7 @@ use scythe_core::analyzer::{AnalyzedQuery, EnumInfo, analyze};
 use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::{QueryCommand, parse_query_with_dialect};
+use scythe_lint::{QueryViolation, RuleRegistry, Severity};
 
 use super::shared::{config_dir, redact_url_password, resolve_globs, split_query_file};
 
@@ -394,83 +395,18 @@ struct QueryResult {
     enums: Vec<EnumInfo>,
 }
 
-/// Line-comment token to embed the provenance header behind, derived from
-/// `manifest().backend.language`.
-///
-/// `language` is a `String`, not a Rust enum, but exactly 10 distinct values
-/// are used across every one of the 106 shipped manifests, so this one match
-/// table is the single place backends' comment syntax is derived from —
-/// no per-backend declaration, and no manifest schema change. Unrecognized
-/// values fall back to `//`: every backend shipped today matches one of the
-/// listed languages, and `//` is a safe default for any future one that
-/// doesn't.
-fn provenance_comment_prefix(language: &str) -> &'static str {
-    match language {
-        "python" | "ruby" | "elixir" => "#",
-        _ => "//",
-    }
-}
-
-/// Strip `\n` and `\r` from a provenance field value before it is embedded
-/// in the header line.
-///
-/// Only [`provenance_header_line`]'s `engine` argument needs this: `version`
-/// is a compile-time constant, `backend.name()` is a hardcoded per-backend
-/// literal, and `schema` is always `sch1:` plus 16 lowercase hex characters
-/// — none of those three can contain a line terminator. `engine` is
-/// `sql_config.engine`, deserialized verbatim from the user's `scythe.toml`
-/// with no validation upstream (`normalize_engine` only consults it to pick
-/// a dialect; the raw string is what a caller passes through to here). A
-/// value containing `\n` or a lone `\r` would terminate the comment early —
-/// everything after it would land on its own physical line with no comment
-/// prefix, becoming live, uncommented content in the generated file. That
-/// breaks the exact guarantee this module is built on: the header always
-/// reads as an ordinary comment, never as code. Sanitizing at the point of
-/// embedding (rather than at config parse time) means the guarantee holds
-/// regardless of how `engine` arrives — this call site today, or any future
-/// one — not just for callers that happen to validate it first.
-///
-/// [`verify_provenance`] must sanitize `sql_config.engine` the same way
-/// before comparing it against the parsed header's `engine` field: the
-/// header always holds the sanitized value, so comparing it against a raw,
-/// unsanitized value would permanently false-flag SC-PRV04 for any config
-/// whose engine string needed sanitizing — the same class of bug as the
-/// backend-alias mismatch fixed in SC-PRV03 above.
-fn sanitize_provenance_field(value: &str) -> Cow<'_, str> {
-    if value.contains(['\n', '\r']) {
-        Cow::Owned(value.replace(['\n', '\r'], ""))
-    } else {
-        Cow::Borrowed(value)
-    }
-}
-
 /// Build the provenance header line assembly prepends to every generated
-/// file, right after [`CodegenBackend::file_preamble`] and before
-/// [`CodegenBackend::file_header`]: the sentinel `scythe check` searches for
-/// (see `PROVENANCE_SENTINEL` and `parse_provenance_header` below),
-/// commented out using the target language's own line-comment syntax so it
-/// reads as an ordinary comment to every downstream compiler, formatter, and
-/// human.
+/// file, pinning the embedded `v=` field to *this binary's* version.
 ///
-/// `backend.name()` (not the raw `[[sql.gen]]` `backend = "..."` config
-/// value) is what gets embedded — `get_backend` accepts several aliases per
-/// backend (`"sqlx"`, `"rust"`, and `"rust-sqlx"` all construct the same
-/// backend), and `name()` is the one canonical form every alias agrees on.
-/// `verify_provenance`'s SC-PRV03 check compares against this same
-/// `backend.name()`, not the config alias, for exactly this reason.
-///
-/// `engine` is sanitized via [`sanitize_provenance_field`] before embedding
-/// — see that function's doc comment for why only `engine` needs it.
+/// The construction itself lives in [`scythe_codegen::provenance::header_line`]
+/// so that `scythe-codegen`'s `tool_validation` harness can assemble the same
+/// bytes and hand them to `php -l` / `ruby -c` / `gofmt`; see that module's
+/// doc comment. This wrapper exists only to supply the version, which is not
+/// `scythe-codegen`'s to decide: the number that belongs in the header is the
+/// version of the `scythe` binary that wrote the file, because that is
+/// exactly what [`verify_artifact`]'s SC-PRV02 check compares against.
 fn provenance_header_line(backend: &dyn CodegenBackend, engine: &str, schema: &str) -> String {
-    let comment = provenance_comment_prefix(&backend.manifest().backend.language);
-    let engine = sanitize_provenance_field(engine);
-    format!(
-        "{comment} scythe:provenance v={} backend={} engine={} schema={}\n",
-        env!("CARGO_PKG_VERSION"),
-        backend.name(),
-        engine,
-        schema
-    )
+    scythe_codegen::provenance::header_line(backend, env!("CARGO_PKG_VERSION"), engine, schema)
 }
 
 /// Assemble a backend's complete generated file: preamble (text that must
@@ -484,34 +420,16 @@ fn provenance_header_line(backend: &dyn CodegenBackend, engine: &str, schema: &s
 /// scythe version threaded through every call, and keeping the ordering
 /// invariant (preamble first, unconditionally, before anything else — even
 /// the provenance comment) in exactly one place is what makes it possible to
-/// state and test that invariant at all.
-///
-/// The blank line between the provenance line and the body is emitted only
-/// when `file_preamble()` is non-empty. This is not cosmetic: for the 8
-/// backends with a preamble override, the old (pre-provenance) `file_header()`
-/// text already opened with its own blank line (PHP's `"<?php\n\ndeclare(...)"`,
-/// Ruby's `"# frozen_string_literal: true\n\n# Auto-generated..."`), so the
-/// unconditional separator reproduced those exact bytes once the provenance
-/// line was accounted for. For the other 44 backends, `file_header()` never
-/// had a leading blank line, so an unconditional separator silently inserted
-/// one that was never there before — invisible in the assembled output, but
-/// a real, provable byte-level regression (caught by generating real
-/// integration_tests projects and diffing against the committed artifacts
-/// with just the provenance line stripped back out; see
-/// `assemble_output_no_blank_line_after_provenance_when_preamble_is_empty`
-/// and `assemble_output_blank_line_after_provenance_when_preamble_is_non_empty`
-/// below). Conditioning the separator on `preamble.is_empty()` reproduces the
-/// old bytes in both cases:
-/// - preamble non-empty (PHP): `"<?php\n"` + provenance + `"\n"` + `"declare..."`;
-///   strip the provenance line → `"<?php\n\ndeclare..."`, the old header exactly.
-/// - preamble empty (Go): provenance + `""` + `"// Code generated..."`;
-///   strip the provenance line → `"// Code generated..."`, the old header exactly.
+/// state and test that invariant at all. That one place is
+/// [`scythe_codegen::provenance::assemble_file`], which also documents why
+/// the blank separator after the provenance line is conditional on the
+/// preamble being non-empty.
 fn assemble_output(backend: &dyn CodegenBackend, results: &[QueryResult], engine: &str, schema: &str) -> String {
-    let preamble = backend.file_preamble();
-    let provenance = provenance_header_line(backend, engine, schema);
-    let separator = if preamble.is_empty() { "" } else { "\n" };
-
-    format!("{preamble}{provenance}{separator}{}", assemble_body(backend, results))
+    scythe_codegen::provenance::assemble_file(
+        &backend.file_preamble(),
+        &provenance_header_line(backend, engine, schema),
+        &assemble_body(backend, results),
+    )
 }
 
 /// Assemble the full file body for a backend from its per-query results:
@@ -597,10 +515,9 @@ fn assemble_body(backend: &dyn CodegenBackend, results: &[QueryResult]) -> Strin
 }
 
 /// The output filename for a backend's generated queries file. Extracted so
-/// the `.java` capitalization rule lives in exactly one place: `run_check`
-/// does not read generated artifacts today, but header verification will need
-/// to locate the same file this writes, and a second copy of the rule would
-/// diverge silently.
+/// the `.java` capitalization rule lives in exactly one place: header
+/// verification (`artifact_paths`) has to locate the same file this names,
+/// and a second copy of the rule would diverge silently.
 fn output_filename(backend: &dyn CodegenBackend) -> String {
     let ext = &backend.manifest().backend.file_extension;
     if ext == "java" {
@@ -608,6 +525,29 @@ fn output_filename(backend: &dyn CodegenBackend) -> String {
     } else {
         format!("queries.{}", ext)
     }
+}
+
+/// Filename of the RBS type-signature file Ruby backends emit alongside
+/// `queries.rb`. Fixed, not derived from the manifest: RBS is Ruby's own
+/// signature format, so the extension is a property of RBS rather than of
+/// the backend.
+const RBS_FILENAME: &str = "queries.rbs";
+
+/// Whether `backend` emits an RBS signature file alongside its main output.
+///
+/// Probes [`CodegenBackend::generate_rbs_file`] with an empty context rather
+/// than testing `manifest().backend.language == "ruby"`: the trait method's
+/// `None` default *is* the definition of "does not emit RBS", so asking it
+/// directly cannot disagree with what generation actually does. Shared by
+/// [`generate_rbs_if_supported`] and [`artifact_paths`] so writing and
+/// verifying can never end up with different ideas about which targets have
+/// a second artifact.
+fn backend_emits_rbs(backend: &dyn CodegenBackend) -> bool {
+    let empty_context = RbsGenerationContext {
+        queries: vec![],
+        enums: vec![],
+    };
+    backend.generate_rbs_file(&empty_context).is_some()
 }
 
 /// Generate output for a single backend target.
@@ -656,7 +596,15 @@ fn generate_for_backend(
         output_file.display()
     );
 
-    generate_rbs_if_supported(config_name, backend, analyzed_queries, overrides, out_path)?;
+    generate_rbs_if_supported(
+        config_name,
+        backend,
+        analyzed_queries,
+        overrides,
+        out_path,
+        engine,
+        schema,
+    )?;
 
     Ok(())
 }
@@ -673,18 +621,26 @@ fn determine_struct_name(analyzed: &AnalyzedQuery, naming: &scythe_backend::nami
 
 /// Generate an RBS type signature file alongside the Ruby output file,
 /// if the backend supports RBS generation (Ruby backends only).
+///
+/// `engine` and `schema` are threaded through for the same reason
+/// [`generate_for_backend`] takes them: `queries.rbs` gets a provenance
+/// header too. It is a tracked artifact in all six `integration_tests/ruby-*`
+/// projects, and its content is schema-derived — a column changing type or
+/// nullability rewrites the RBS signatures. Emitting it without a header
+/// would have left the one generated file per Ruby target that `scythe
+/// check` could never report as drifted, which is worse than not verifying
+/// it at all: RBS is what `steep` type-checks the caller's code against, so
+/// a stale `.rbs` reports type errors against a schema that no longer exists.
 fn generate_rbs_if_supported(
     config_name: &str,
     backend: &dyn CodegenBackend,
     analyzed_queries: &[AnalyzedQuery],
     overrides: &[TypeOverride],
     out_path: &Path,
+    engine: &str,
+    schema: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let empty_context = RbsGenerationContext {
-        queries: vec![],
-        enums: vec![],
-    };
-    if backend.generate_rbs_file(&empty_context).is_none() {
+    if !backend_emits_rbs(backend) {
         return Ok(());
     }
 
@@ -737,7 +693,19 @@ fn generate_rbs_if_supported(
     };
 
     if let Some(rbs_content) = backend.generate_rbs_file(&context) {
-        let rbs_file = out_path.join("queries.rbs");
+        // No preamble: RBS has no construct that must be the first bytes of
+        // the file (`generate_rbs_content` opens with its own `#` comment),
+        // so the header goes straight on line 1 with no separator — the same
+        // shape `assemble_output` produces for the 44 backends without a
+        // preamble. The comment token comes from the backend's manifest
+        // language (`ruby` -> `#`), which is also RBS's comment syntax.
+        let rbs_content = scythe_codegen::provenance::assemble_file(
+            "",
+            &provenance_header_line(backend, engine, schema),
+            &rbs_content,
+        );
+
+        let rbs_file = out_path.join(RBS_FILENAME);
         std::fs::write(&rbs_file, &rbs_content)
             .map_err(|e| format!("failed to write RBS file '{}': {}", rbs_file.display(), e))?;
         eprintln!(
@@ -767,7 +735,7 @@ pub struct RunCheckOpts {
 
 pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     use scythe_lint::reporters::{Finding, Format};
-    use scythe_lint::{LintContext, LintEngine, QueryViolation, Severity, default_registry, emit_findings};
+    use scythe_lint::{LintContext, LintEngine, default_registry, emit_findings, provenance_registry};
 
     let config_path = opts.config_path.as_str();
 
@@ -784,6 +752,19 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         registry.apply_config(lint_config);
     }
     let engine = LintEngine::new(registry);
+
+    // The `SC-PRV*` rules are kept out of `default_registry` (they implement
+    // neither `check_query` nor `check_catalog`, so `scythe lint` and
+    // `scythe audit --list-rules` would advertise rules they can never
+    // emit). They still need the user's `[lint]` table applied to them, and
+    // it must be the *same* table, so that one `[lint.rules]` /
+    // `[lint.categories]` block governs SQL rules and provenance rules
+    // alike.
+    let mut provenance_rules = provenance_registry();
+    if let Some(ref lint_config) = config.lint {
+        provenance_rules.apply_config(lint_config);
+    }
+    let provenance_severities = ProvenanceSeverities::from_registry(&provenance_rules);
 
     let mut all_violations: Vec<QueryViolation> = Vec::new();
     // Queries are grouped per `[[sql]]` block so verification connects once and
@@ -886,7 +867,11 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        all_violations.extend(verify_provenance(sql_config, &catalog, base_dir)?);
+        // Deliberately not `?`-propagating: `verify_provenance` returns a
+        // plain `Vec` precisely so it cannot abort the run before
+        // `emit_findings` below and take every other block's findings with
+        // it. See its doc comment.
+        all_violations.extend(verify_provenance(sql_config, &catalog, base_dir, provenance_severities));
 
         eprintln!("[{}] All queries valid.", sql_config.name);
     }
@@ -1120,9 +1105,88 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
     Some(header)
 }
 
+/// Effective severity of each `SC-PRV*` rule, resolved once from the
+/// [`scythe_lint::provenance_registry`] that `run_check` builds and applies
+/// `[lint]` from `scythe.toml` to.
+///
+/// Provenance findings are produced outside the `LintRule::check_*` path --
+/// there is no `LintContext` for "a file on disk" -- so they cannot pick up
+/// their severity the way a SQL rule does, by being iterated out of
+/// [`scythe_lint::RuleRegistry::active_rules`]. That is also why they are
+/// kept out of `default_registry`: `scythe lint` and `scythe audit
+/// --list-rules` would otherwise advertise seven rules neither can emit.
+/// Resolving them here through
+/// [`scythe_lint::RuleRegistry::effective_severity`] -- the same call every
+/// SQL rule's severity goes through, against a registry the same `[lint]`
+/// table was applied to -- is what keeps them configurable anyway:
+/// `[lint.rules]` and `[lint.categories]` reach them exactly like any other
+/// rule. Hardcoding these severities at the comparison sites -- as this
+/// struct's consumer used to -- left schema drift as the one finding in
+/// scythe with no configured way to downgrade or disable it, and therefore
+/// no opt-out from failing CI on it.
+///
+/// Snapshotted into a `Copy` struct rather than holding a `&RuleRegistry` so
+/// the registry does not have to outlive the whole check run just to answer
+/// seven fixed questions.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct ProvenanceSeverities {
+    schema_drift: Severity,
+    version_drift: Severity,
+    backend_drift: Severity,
+    engine_drift: Severity,
+    missing_header: Severity,
+    malformed_header: Severity,
+    unverifiable: Severity,
+}
+
+impl ProvenanceSeverities {
+    /// Resolve every provenance rule's severity against `registry`.
+    ///
+    /// [`scythe_lint::RuleRegistry::effective_severity`] is total -- it falls
+    /// back to the rule's own `default_severity()` when neither a per-rule
+    /// nor a per-category override applies -- so this cannot fail and needs
+    /// no defaults of its own. That matters: a second copy of the defaults
+    /// here could disagree with `rules::provenance` without anything
+    /// noticing.
+    fn from_registry(registry: &RuleRegistry) -> Self {
+        use scythe_lint::rules::provenance as rules;
+
+        Self {
+            schema_drift: registry.effective_severity(&rules::SchemaDrift),
+            version_drift: registry.effective_severity(&rules::ScytheVersionDrift),
+            backend_drift: registry.effective_severity(&rules::BackendDrift),
+            engine_drift: registry.effective_severity(&rules::EngineDrift),
+            missing_header: registry.effective_severity(&rules::MissingProvenanceHeader),
+            malformed_header: registry.effective_severity(&rules::MalformedProvenanceHeader),
+            unverifiable: registry.effective_severity(&rules::UnverifiableProvenance),
+        }
+    }
+}
+
+/// What a single on-disk artifact's provenance header is checked against.
+///
+/// Bundled rather than passed as seven loose arguments because every field
+/// is fixed for a whole `[[sql]]` block (or, for `backend_name`, for a whole
+/// target) while [`verify_artifact`] is called once per artifact file -- a
+/// Ruby target has two.
+struct ProvenanceExpectation<'a> {
+    /// `"<block name>:<configured backend>"`, used as the finding's
+    /// `query_name`. Deliberately the *configured* backend string, so a
+    /// finding points back at the `scythe.toml` line the reader has to edit.
+    target_label: &'a str,
+    /// Canonical `backend.name()`, never the configured alias -- see the
+    /// SC-PRV03 comparison below.
+    backend_name: &'a str,
+    /// Sanitized `[[sql]]` engine -- see the SC-PRV04 comparison below.
+    engine: &'a str,
+    schema: &'a str,
+    version: &'a str,
+    severities: ProvenanceSeverities,
+}
+
 /// Compare each of `sql_config`'s resolved generation targets' on-disk
-/// artifact against `catalog` and the current scythe build, reporting
-/// provenance drift as `SC-PRV01`-`SC-PRV06` violations.
+/// artifacts against `catalog` and the current scythe build, reporting
+/// provenance drift as `SC-PRV01`-`SC-PRV07` violations.
 ///
 /// # Scope
 ///
@@ -1138,156 +1202,236 @@ fn parse_provenance_header(content: &str) -> Option<ProvenanceHeader> {
 /// running the full generator on every check is too expensive or the
 /// toolchain (database drivers, per-language compilers) is unavailable.
 ///
+/// # This function cannot fail
+///
+/// It returns a plain `Vec`, not a `Result`, and that is a deliberate
+/// structural guarantee rather than a stylistic choice. `run_check`
+/// accumulates findings across every `[[sql]]` block and only emits them --
+/// as SARIF, JSON, or human text -- after the last block. Any `?` in here
+/// therefore unwinds straight out of `run_check` past `emit_findings`, so a
+/// single unconstructable backend or unreadable file would hand a CI
+/// consumer an *empty* report plus exit 1 and silently discard every lint
+/// finding from every block checked before it. Provenance verification is
+/// the newest and least essential thing `check` does; it must never be able
+/// to take the rest of the run down with it.
+///
+/// The two failures that used to propagate are now findings instead:
+///
+/// - A target whose backend/engine pair does not construct (a typo'd or
+///   removed backend name, or an engine that backend does not support --
+///   note that a config with no `[[sql.gen]]` block at all synthesizes a
+///   `rust-sqlx` target, which does not support every engine `check` accepts).
+///   A target that cannot be constructed is a target that cannot be verified,
+///   so it is reported as SC-PRV07 and skipped. `scythe generate` still
+///   reports the same misconfiguration as a hard error, which is the right
+///   place for it.
+/// - Any read failure other than "the file does not exist": a non-UTF-8
+///   artifact, a directory sitting where the artifact should be, a
+///   permissions problem. Same reasoning -- unverifiable, not drifted.
+///
 /// # Missing artifacts
 ///
-/// A target whose output file does not exist is skipped without a finding.
-/// The `.gitignore` a scythe project ships by default excludes
-/// `**/generated/`, so an absent artifact in a fresh checkout is the normal
-/// case, not drift.
+/// A target whose output file does not exist is skipped without any finding
+/// at all, not even SC-PRV07. The `.gitignore` a scythe project ships by
+/// default excludes `**/generated/`, so an absent artifact in a fresh
+/// checkout is the normal case, not a problem worth reporting.
 ///
-/// # Version mismatches are warnings, never errors
+/// # Severities
 ///
-/// SC-PRV02 (embedded scythe version differs from the running version) is
-/// hardcoded to [`Severity::Warn`] with no path to escalate it: erroring
-/// here would fail every consumer's CI on the day scythe itself cuts a
-/// release, before they have had a chance to regenerate.
-///
-/// # Errors
-///
-/// Returns an error only for a genuinely broken target configuration (an
-/// unknown backend/engine combination, mirroring `run_generate`'s own
-/// behavior for the same lookup) or an I/O failure other than the artifact
-/// simply not existing -- both are config/environment problems, not
-/// provenance findings.
+/// Every finding's severity comes from `severities`, which `run_check`
+/// resolved from [`scythe_lint::provenance_registry`] after applying the
+/// same `[lint]` table it applies to the SQL rules' registry. Nothing here
+/// is hardcoded. See
+/// [`ProvenanceSeverities`] for why that matters, and
+/// [`scythe_lint::rules::provenance::ScytheVersionDrift`] for why SC-PRV02
+/// nevertheless *defaults* to `Warn`. A rule configured `off` still produces
+/// an entry here; `run_check` drops `Severity::Off` findings before
+/// reporting, exactly as it does for SQL rules.
 fn verify_provenance(
     sql_config: &SqlConfig,
     catalog: &Catalog,
     base_dir: &Path,
-) -> Result<Vec<scythe_lint::QueryViolation>, Box<dyn std::error::Error>> {
-    use scythe_lint::{QueryViolation, Severity};
-
+    severities: ProvenanceSeverities,
+) -> Vec<QueryViolation> {
     let current_schema = catalog.fingerprint();
-    let current_version = env!("CARGO_PKG_VERSION");
+    // Sanitized once, for the same reason `provenance_header_line` sanitizes
+    // before embedding: the header can only ever hold the sanitized string,
+    // so comparing it against a raw config value would permanently
+    // false-flag SC-PRV04 for any config whose engine string needed
+    // sanitizing.
+    let sanitized_engine = scythe_codegen::provenance::sanitize_field(&sql_config.engine);
 
     let mut violations = Vec::new();
 
     for target in resolve_gen_targets(sql_config) {
-        let backend = get_backend(&target.backend, &sql_config.engine).map_err(|e| {
-            format!(
-                "backend '{}' with engine '{}': {}",
-                target.backend, sql_config.engine, e
-            )
-        })?;
-
-        let artifact_path = base_dir.join(&target.output).join(output_filename(&*backend));
-
-        let content = match std::fs::read_to_string(&artifact_path) {
-            Ok(content) => content,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
-            Err(e) => return Err(format!("failed to read '{}': {}", artifact_path.display(), e).into()),
-        };
-
         let target_label = format!("{}:{}", sql_config.name, target.backend);
-        let path_display = artifact_path.display().to_string();
 
-        let Some(header) = parse_provenance_header(&content) else {
-            violations.push(QueryViolation {
-                query_name: target_label,
-                rule_id: Cow::Borrowed("SC-PRV05"),
-                severity: Severity::Warn,
-                message: format!(
-                    "{path_display}: no provenance header found (predates provenance tracking, or is not scythe-managed)"
-                ),
-            });
-            continue;
+        let backend = match get_backend(&target.backend, &sql_config.engine) {
+            Ok(backend) => backend,
+            Err(e) => {
+                violations.push(QueryViolation {
+                    query_name: target_label,
+                    rule_id: Cow::Borrowed("SC-PRV07"),
+                    severity: severities.unverifiable,
+                    message: format!(
+                        "cannot verify provenance: backend '{}' with engine '{}' could not be \
+                         constructed: {} (run `scythe generate` for the full diagnosis)",
+                        target.backend, sql_config.engine, e
+                    ),
+                });
+                continue;
+            }
         };
 
-        if !header.is_complete() {
-            violations.push(QueryViolation {
-                query_name: target_label,
-                rule_id: Cow::Borrowed("SC-PRV06"),
-                severity: Severity::Warn,
-                message: format!(
-                    "{path_display}: provenance header is missing field(s): {}",
-                    header.missing_fields().join(", ")
-                ),
-            });
-            continue;
-        }
+        let expected = ProvenanceExpectation {
+            target_label: &target_label,
+            backend_name: backend.name(),
+            engine: sanitized_engine.as_ref(),
+            schema: &current_schema,
+            version: env!("CARGO_PKG_VERSION"),
+            severities,
+        };
 
-        // Safe: `is_complete()` above just confirmed every field is `Some`.
-        let header_schema = header.schema.as_deref().unwrap();
-        let header_version = header.version.as_deref().unwrap();
-        let header_backend = header.backend.as_deref().unwrap();
-        let header_engine = header.engine.as_deref().unwrap();
-
-        if header_schema != current_schema {
-            violations.push(QueryViolation {
-                query_name: target_label.clone(),
-                rule_id: Cow::Borrowed("SC-PRV01"),
-                severity: Severity::Error,
-                message: format!(
-                    "{path_display}: schema drift -- generated against schema {header_schema}, \
-                     current schema is {current_schema} (run `scythe generate` to refresh)"
-                ),
-            });
-        }
-
-        // Compared against `backend.name()` (the canonical form assembly
-        // embeds), not `target.backend` (whatever alias the user wrote in
-        // `scythe.toml`, e.g. `"sqlx"` or `"rb"`). `get_backend` accepts
-        // several aliases per backend and every one of them constructs a
-        // backend whose `name()` returns the same canonical string -- so
-        // comparing against the raw config alias would flag every config
-        // using an alias as permanent, unfixable drift.
-        if header_backend != backend.name() {
-            violations.push(QueryViolation {
-                query_name: target_label.clone(),
-                rule_id: Cow::Borrowed("SC-PRV03"),
-                severity: Severity::Error,
-                message: format!(
-                    "{path_display}: generated by backend '{header_backend}', but this target now \
-                     configures backend '{}' (run `scythe generate` to refresh)",
-                    backend.name()
-                ),
-            });
-        }
-
-        // Compared against the sanitized form of `sql_config.engine`
-        // (`sanitize_provenance_field`, the same function
-        // `provenance_header_line` runs `engine` through before embedding
-        // it), not the raw config value: the header can only ever hold the
-        // sanitized string, so comparing it against a raw value would
-        // permanently false-flag every config whose engine string needed
-        // sanitizing -- the same class of bug as the backend-alias mismatch
-        // fixed above for SC-PRV03.
-        let sanitized_engine = sanitize_provenance_field(&sql_config.engine);
-        if header_engine != sanitized_engine.as_ref() {
-            violations.push(QueryViolation {
-                query_name: target_label.clone(),
-                rule_id: Cow::Borrowed("SC-PRV04"),
-                severity: Severity::Error,
-                message: format!(
-                    "{path_display}: generated for engine '{header_engine}', but this target now \
-                     configures engine '{sanitized_engine}' (run `scythe generate` to refresh)"
-                ),
-            });
-        }
-
-        if header_version != current_version {
-            violations.push(QueryViolation {
-                query_name: target_label,
-                rule_id: Cow::Borrowed("SC-PRV02"),
-                severity: Severity::Warn,
-                message: format!(
-                    "{path_display}: generated by scythe {header_version}, this is scythe {current_version} \
-                     (consider running `scythe generate`)"
-                ),
-            });
+        let output_dir = base_dir.join(&target.output);
+        for artifact_path in artifact_paths(&*backend, &output_dir) {
+            violations.extend(verify_artifact(&artifact_path, &expected));
         }
     }
 
-    Ok(violations)
+    violations
+}
+
+/// Every file `generate_for_backend` writes for one target, in the order it
+/// writes them.
+///
+/// Derived from the same two predicates generation uses --
+/// [`output_filename`] and [`backend_emits_rbs`] -- so verification can
+/// never end up looking at a different set of files than generation
+/// produces. Ruby targets contribute a second entry: `queries.rbs` is a
+/// tracked artifact whose signatures change with the schema, so leaving it
+/// out of verification left it able to go stale with no drift signal at all.
+fn artifact_paths(backend: &dyn CodegenBackend, output_dir: &Path) -> Vec<std::path::PathBuf> {
+    let mut paths = vec![output_dir.join(output_filename(backend))];
+    if backend_emits_rbs(backend) {
+        paths.push(output_dir.join(RBS_FILENAME));
+    }
+    paths
+}
+
+/// Check one generated file's provenance header against `expected`.
+///
+/// Returns no findings at all when the file does not exist -- see
+/// [`verify_provenance`]'s "Missing artifacts" section.
+fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -> Vec<QueryViolation> {
+    let mut violations = Vec::new();
+    let path_display = artifact_path.display().to_string();
+
+    let content = match std::fs::read_to_string(artifact_path) {
+        Ok(content) => content,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return violations,
+        Err(e) => {
+            violations.push(QueryViolation {
+                query_name: expected.target_label.to_string(),
+                rule_id: Cow::Borrowed("SC-PRV07"),
+                severity: expected.severities.unverifiable,
+                message: format!("{path_display}: cannot verify provenance: {e}"),
+            });
+            return violations;
+        }
+    };
+
+    let Some(header) = parse_provenance_header(&content) else {
+        violations.push(QueryViolation {
+            query_name: expected.target_label.to_string(),
+            rule_id: Cow::Borrowed("SC-PRV05"),
+            severity: expected.severities.missing_header,
+            message: format!(
+                "{path_display}: no provenance header found (predates provenance tracking, or is not scythe-managed)"
+            ),
+        });
+        return violations;
+    };
+
+    if !header.is_complete() {
+        violations.push(QueryViolation {
+            query_name: expected.target_label.to_string(),
+            rule_id: Cow::Borrowed("SC-PRV06"),
+            severity: expected.severities.malformed_header,
+            message: format!(
+                "{path_display}: provenance header is missing field(s): {}",
+                header.missing_fields().join(", ")
+            ),
+        });
+        return violations;
+    }
+
+    // Safe: `is_complete()` above just confirmed every field is `Some`.
+    let header_schema = header.schema.as_deref().unwrap();
+    let header_version = header.version.as_deref().unwrap();
+    let header_backend = header.backend.as_deref().unwrap();
+    let header_engine = header.engine.as_deref().unwrap();
+
+    if header_schema != expected.schema {
+        violations.push(QueryViolation {
+            query_name: expected.target_label.to_string(),
+            rule_id: Cow::Borrowed("SC-PRV01"),
+            severity: expected.severities.schema_drift,
+            message: format!(
+                "{path_display}: schema drift -- generated against schema {header_schema}, \
+                 current schema is {} (run `scythe generate` to refresh)",
+                expected.schema
+            ),
+        });
+    }
+
+    // Compared against `backend.name()` (the canonical form assembly
+    // embeds), not the configured `backend = "..."` alias. `get_backend`
+    // accepts several aliases per backend (e.g. `"sqlx"` or `"rb"`) and
+    // every one of them constructs a backend whose `name()` returns the same
+    // canonical string -- so comparing against the raw config alias would
+    // flag every config using an alias as permanent, unfixable drift.
+    if header_backend != expected.backend_name {
+        violations.push(QueryViolation {
+            query_name: expected.target_label.to_string(),
+            rule_id: Cow::Borrowed("SC-PRV03"),
+            severity: expected.severities.backend_drift,
+            message: format!(
+                "{path_display}: generated by backend '{header_backend}', but this target now \
+                 configures backend '{}' (run `scythe generate` to refresh)",
+                expected.backend_name
+            ),
+        });
+    }
+
+    // `expected.engine` is already the *sanitized* configured engine (see
+    // `verify_provenance`), matching what the header can only ever hold.
+    if header_engine != expected.engine {
+        violations.push(QueryViolation {
+            query_name: expected.target_label.to_string(),
+            rule_id: Cow::Borrowed("SC-PRV04"),
+            severity: expected.severities.engine_drift,
+            message: format!(
+                "{path_display}: generated for engine '{header_engine}', but this target now \
+                 configures engine '{}' (run `scythe generate` to refresh)",
+                expected.engine
+            ),
+        });
+    }
+
+    if header_version != expected.version {
+        violations.push(QueryViolation {
+            query_name: expected.target_label.to_string(),
+            rule_id: Cow::Borrowed("SC-PRV02"),
+            severity: expected.severities.version_drift,
+            message: format!(
+                "{path_display}: generated by scythe {header_version}, this is scythe {} \
+                 (consider running `scythe generate`)",
+                expected.version
+            ),
+        });
+    }
+
+    violations
 }
 
 /// Format Rust code using rustfmt if available.
@@ -1632,29 +1776,16 @@ SELECT * FROM users WHERE id = $1;
     }
 
     // -----------------------------------------------------------------------
-    // Provenance header production (`provenance_comment_prefix`,
-    // `provenance_header_line`, `assemble_output`)
+    // Provenance header production (`provenance_header_line`,
+    // `assemble_output`)
+    //
+    // The comment-prefix table, the field sanitizer, and the
+    // preamble/header/body ordering they feed are unit-tested in
+    // `scythe_codegen::provenance`, where they live. What is tested here is
+    // this crate's use of them: that the embedded version is *this binary's*,
+    // and that the round trip back through `parse_provenance_header` below
+    // holds.
     // -----------------------------------------------------------------------
-
-    #[test]
-    fn provenance_comment_prefix_covers_all_ten_manifest_languages() {
-        // The exact 10 values used across every shipped manifest (see
-        // `grep -h '^language' crates/scythe-codegen/manifests/*.toml | sort -u`).
-        let hash_comment = ["python", "ruby", "elixir"];
-        let slash_comment = ["rust", "typescript", "go", "java", "kotlin", "csharp", "php"];
-
-        for language in hash_comment {
-            assert_eq!(provenance_comment_prefix(language), "#", "language: {language}");
-        }
-        for language in slash_comment {
-            assert_eq!(provenance_comment_prefix(language), "//", "language: {language}");
-        }
-    }
-
-    #[test]
-    fn provenance_comment_prefix_defaults_to_slash_slash_for_unknown_language() {
-        assert_eq!(provenance_comment_prefix("cobol"), "//");
-    }
 
     #[test]
     fn provenance_header_line_contains_sentinel_and_all_four_fields() {
@@ -1674,60 +1805,6 @@ SELECT * FROM users WHERE id = $1;
         let backend = get_backend("ruby-pg", "postgresql").expect("ruby-pg should support postgresql");
         let line = provenance_header_line(backend.as_ref(), "postgresql", "sch1:aaaa");
         assert!(line.starts_with("# scythe:provenance "), "got: {line:?}");
-    }
-
-    #[test]
-    fn sanitize_provenance_field_strips_newline_and_carriage_return() {
-        assert_eq!(
-            sanitize_provenance_field("postgresql\nfn evil() {}"),
-            "postgresqlfn evil() {}"
-        );
-        assert_eq!(
-            sanitize_provenance_field("postgresql\r\nfn evil() {}"),
-            "postgresqlfn evil() {}"
-        );
-        assert_eq!(
-            sanitize_provenance_field("postgresql\rfn evil() {}"),
-            "postgresqlfn evil() {}"
-        );
-        assert_eq!(sanitize_provenance_field("clean"), "clean");
-    }
-
-    /// Documents why `verify_provenance`'s sanitized-vs-sanitized SC-PRV04
-    /// comparison cannot be exercised end to end with a value that actually
-    /// differs pre/post sanitization: `get_backend` rejects any `engine`
-    /// whose `normalize_engine()` output is not an exact-string match for
-    /// one of the backend's `supported_engines()`, and every recognized
-    /// alias is a clean literal containing neither `\n` nor `\r`. Any
-    /// engine value containing one fails `get_backend` before
-    /// `verify_provenance` ever reaches the comparison -- so today the fix
-    /// there closes a latent bug, not a currently reachable one. It is
-    /// still correct: `provenance_header_line`/`assemble_output` (tested
-    /// below) accept an arbitrary `&str` with no such gate, so the
-    /// comparison must not depend on `get_backend` policing its input for
-    /// it.
-    #[test]
-    fn sanitize_provenance_field_is_a_no_op_for_every_alias_get_backend_accepts() {
-        for alias in [
-            "postgresql",
-            "postgres",
-            "pg",
-            "cockroachdb",
-            "crdb",
-            "mysql",
-            "mariadb",
-            "sqlite",
-            "sqlite3",
-            "duckdb",
-            "mssql",
-            "sqlserver",
-            "tsql",
-            "oracle",
-            "snowflake",
-            "redshift",
-        ] {
-            assert_eq!(sanitize_provenance_field(alias).as_ref(), alias);
-        }
     }
 
     /// Regression test for the header-injection defect: an `engine` value
@@ -1801,12 +1878,13 @@ SELECT * FROM users WHERE id = $1;
         let output = assemble_output(backend.as_ref(), &[], malicious_engine, "sch1:ffff");
         let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
 
-        let expected = sanitize_provenance_field(malicious_engine);
+        let expected = scythe_codegen::provenance::sanitize_field(malicious_engine);
         assert_eq!(header.engine.as_deref(), Some(expected.as_ref()));
     }
 
     /// **Known limitation, not fixed here, reported per the coordinator's
-    /// own request to check round-trip fidelity.** `sanitize_provenance_field`
+    /// own request to check round-trip fidelity.**
+    /// `scythe_codegen::provenance::sanitize_field`
     /// only strips `\n`/`\r` (the characters that would break the "header
     /// is always a comment" guarantee); it does not touch spaces. But
     /// `parse_provenance_header`'s tail is tokenized with
@@ -1833,7 +1911,7 @@ SELECT * FROM users WHERE id = $1;
         let output = assemble_output(backend.as_ref(), &[], malicious_engine, "sch1:ffff");
         let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
 
-        let fully_sanitized = sanitize_provenance_field(malicious_engine);
+        let fully_sanitized = scythe_codegen::provenance::sanitize_field(malicious_engine);
         assert_eq!(fully_sanitized.as_ref(), "postgresqlfn evil() {}");
 
         // What actually comes back is truncated at the first space -- not
@@ -1936,6 +2014,51 @@ SELECT * FROM users WHERE id = $1;
             );
             assert!(output.contains("scythe:provenance"));
         }
+    }
+
+    /// Python's header carries a `# noqa: E501` suppression (see
+    /// `scythe_codegen::provenance::header_suffix`), and that suffix must be
+    /// invisible to the verifier. `parse_provenance_header` tokenizes the
+    /// text after the sentinel on whitespace and skips tokens without an
+    /// `=`, so `#`, `noqa:` and `E501` are dropped -- but nothing else pins
+    /// that the two sides agree, and a parser change that started treating
+    /// unrecognized tokens as errors (or a suffix that grew a `key=value`
+    /// shape) would break every Python target's drift detection silently.
+    ///
+    /// Doubles as the regression test for the suffix itself: without it,
+    /// every generated `.py` file opens with a ~99-character line and
+    /// `ruff check --select E` reports E501 on line 1.
+    #[test]
+    fn assemble_output_python_header_carries_noqa_and_still_round_trips() {
+        let backend = get_backend("python-psycopg3", "postgresql").expect("python-psycopg3 should support postgresql");
+        assert!(
+            backend.file_preamble().is_empty(),
+            "test assumes python-psycopg3 has no preamble, so the header is line 1"
+        );
+
+        let output = assemble_output(backend.as_ref(), &[], "postgresql", "sch1:0123456789abcdef");
+
+        let first_line = output.lines().next().expect("output must have a first line");
+        assert!(first_line.starts_with("# scythe:provenance "), "got: {first_line:?}");
+        assert!(
+            first_line.ends_with("  # noqa: E501"),
+            "a Python provenance header must suppress E501, or `ruff check --select E` \
+             fails on line 1 of every generated file: {first_line:?}"
+        );
+
+        let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
+        assert!(
+            header.is_complete(),
+            "the noqa suffix must not cost the header a field: {header:?}"
+        );
+        assert_eq!(header.version.as_deref(), Some(env!("CARGO_PKG_VERSION")));
+        assert_eq!(header.backend.as_deref(), Some("python-psycopg3"));
+        assert_eq!(header.engine.as_deref(), Some("postgresql"));
+        assert_eq!(
+            header.schema.as_deref(),
+            Some("sch1:0123456789abcdef"),
+            "the last field before the suffix must not absorb any of it"
+        );
     }
 
     /// A backend with no preamble (the overwhelming majority) must start
@@ -2119,6 +2242,15 @@ SELECT * FROM users WHERE id = $1;
         Catalog::from_ddl(&["CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);"]).unwrap()
     }
 
+    /// Severities as an unconfigured project gets them: straight out of
+    /// `provenance_registry()`, with no `[lint]` overrides applied. Resolved
+    /// through the registry rather than hand-written here so that a change
+    /// to a rule's `default_severity()` shows up in these tests instead of
+    /// being masked by a second copy of the defaults.
+    fn default_severities() -> ProvenanceSeverities {
+        ProvenanceSeverities::from_registry(&scythe_lint::provenance_registry())
+    }
+
     /// A `SqlConfig` whose single implicit generation target (no
     /// `[[sql.gen]]` block, matching `resolve_gen_targets`'s documented
     /// fallback) is `rust-sqlx`, writing to `output_dir`.
@@ -2150,7 +2282,7 @@ SELECT * FROM users WHERE id = $1;
 
         // No file written at all -- `.gitignore`'d `generated/` output is
         // the normal state of a fresh checkout, not drift.
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new(".")).unwrap();
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
         assert!(violations.is_empty());
     }
 
@@ -2170,7 +2302,7 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new(".")).unwrap();
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
         assert!(violations.is_empty(), "expected no violations, got {violations:?}");
     }
 
@@ -2188,7 +2320,7 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new(".")).unwrap();
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
         assert_eq!(
             violations.len(),
             1,
@@ -2210,7 +2342,7 @@ SELECT * FROM users WHERE id = $1;
             &format!("v=0.0.1-does-not-exist backend=rust-sqlx engine=postgresql schema={schema}"),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new(".")).unwrap();
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
         assert_eq!(
             violations.len(),
             1,
@@ -2240,7 +2372,7 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new(".")).unwrap();
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
         assert_eq!(
             violations.len(),
             1,
@@ -2287,7 +2419,7 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new(".")).unwrap();
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
         assert!(
             violations.is_empty(),
             "backend alias must not cause false-positive drift, got {violations:?}"
@@ -2310,7 +2442,7 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new(".")).unwrap();
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
         assert_eq!(
             violations.len(),
             1,
@@ -2332,7 +2464,7 @@ SELECT * FROM users WHERE id = $1;
         )
         .unwrap();
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new(".")).unwrap();
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
         assert_eq!(
             violations.len(),
             1,
@@ -2354,7 +2486,7 @@ SELECT * FROM users WHERE id = $1;
             &format!("v={} backend=rust-sqlx", env!("CARGO_PKG_VERSION")),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new(".")).unwrap();
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
         assert_eq!(
             violations.len(),
             1,
@@ -2380,9 +2512,341 @@ SELECT * FROM users WHERE id = $1;
             ),
         );
 
-        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new(".")).unwrap();
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
         let mut ids: Vec<&str> = violations.iter().map(|v| v.rule_id.as_ref()).collect();
         ids.sort_unstable();
         assert_eq!(ids, vec!["SC-PRV01", "SC-PRV03", "SC-PRV04"]);
+    }
+
+    // -----------------------------------------------------------------------
+    // Targets that cannot be verified at all (SC-PRV07)
+    // -----------------------------------------------------------------------
+
+    /// The exact configuration that used to abort the whole run: `engine =
+    /// "oracle"` with **no `[[sql.gen]]` block**, so `resolve_gen_targets`
+    /// synthesizes a `rust-sqlx` target, and `SqlxBackend::new("oracle")`
+    /// fails because `supported_engines` is postgresql/mysql/mariadb/sqlite/
+    /// redshift. That failure used to `?`-propagate out of `run_check`
+    /// before `emit_findings` ran, handing a SARIF or JSON consumer an empty
+    /// report plus exit 1 and discarding every lint finding from every
+    /// preceding `[[sql]]` block. It must now be an ordinary finding.
+    #[test]
+    fn verify_provenance_reports_unconstructable_backend_as_a_finding_not_a_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+
+        let sql_config = SqlConfig {
+            name: "main".to_string(),
+            engine: "oracle".to_string(),
+            schema: Vec::new(),
+            queries: Vec::new(),
+            output: Some(dir.path().to_string_lossy().into_owned()),
+            gen_config: None,
+            type_overrides: None,
+        };
+
+        // Guards the premise: if `rust-sqlx` ever gains Oracle support this
+        // test stops exercising the path it was written for, and should be
+        // repointed at another unsupported pair rather than quietly passing.
+        assert!(
+            get_backend("rust-sqlx", "oracle").is_err(),
+            "test premise: rust-sqlx must not support oracle"
+        );
+
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+
+        assert_eq!(
+            violations.len(),
+            1,
+            "expected exactly one violation, got {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV07");
+        assert_eq!(
+            violations[0].severity,
+            scythe_lint::Severity::Warn,
+            "an unverifiable target must never be able to fail a check run on its own"
+        );
+    }
+
+    /// A typo'd or removed `backend = "..."` is the same class of failure as
+    /// the engine mismatch above, reached through an explicit `[[sql.gen]]`
+    /// block rather than through the synthesized default target.
+    #[test]
+    fn verify_provenance_reports_unknown_backend_name_as_a_finding_not_a_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+
+        let sql_config = SqlConfig {
+            name: "main".to_string(),
+            engine: "postgresql".to_string(),
+            schema: Vec::new(),
+            queries: Vec::new(),
+            output: None,
+            gen_config: Some(GenTargets::Array(vec![GenTarget {
+                backend: "rust-sqlx-typo".to_string(),
+                output: dir.path().to_string_lossy().into_owned(),
+                manifest: None,
+                options: std::collections::HashMap::new(),
+            }])),
+            type_overrides: None,
+        };
+
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+
+        assert_eq!(
+            violations.len(),
+            1,
+            "expected exactly one violation, got {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV07");
+        assert!(
+            violations[0].message.contains("rust-sqlx-typo"),
+            "the finding must name the backend that could not be constructed: {}",
+            violations[0].message
+        );
+    }
+
+    /// An I/O failure that is not `NotFound` — here, a *directory* sitting
+    /// where `generated/queries.rs` should be — must also degrade to a
+    /// finding. The same applies to a non-UTF-8 artifact (`InvalidData`) and
+    /// to a permissions failure; a directory is the one variant that can be
+    /// provoked portably and without root.
+    #[test]
+    fn verify_provenance_reports_unreadable_artifact_as_a_finding_not_a_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let sql_config = provenance_test_sql_config(dir.path());
+
+        std::fs::create_dir(dir.path().join("queries.rs")).unwrap();
+
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+
+        assert_eq!(
+            violations.len(),
+            1,
+            "expected exactly one violation, got {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV07");
+        assert_eq!(violations[0].severity, scythe_lint::Severity::Warn);
+    }
+
+    /// A non-UTF-8 artifact reads as `InvalidData`, not `NotFound`, so it
+    /// took the same aborting branch as the directory case above. Written as
+    /// its own test because it is the variant a real project is most likely
+    /// to hit: any generated file that a downstream tool re-encoded.
+    #[test]
+    fn verify_provenance_reports_non_utf8_artifact_as_a_finding_not_a_failure() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let sql_config = provenance_test_sql_config(dir.path());
+
+        // Lone 0x80 continuation byte: never valid UTF-8 in any position.
+        std::fs::write(dir.path().join("queries.rs"), [0x80_u8]).unwrap();
+
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+
+        assert_eq!(
+            violations.len(),
+            1,
+            "expected exactly one violation, got {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV07");
+    }
+
+    /// Provenance severities must come from the lint registry, so a project
+    /// can turn schema drift off (or escalate a version mismatch) from
+    /// `[lint]` in `scythe.toml` like any other rule. Before this, SC-PRV01,
+    /// SC-PRV03 and SC-PRV04 were hardcoded `Error` with no opt-out from
+    /// failing CI on drift.
+    #[test]
+    fn verify_provenance_severities_follow_the_lint_config() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let sql_config = provenance_test_sql_config(dir.path());
+
+        write_artifact(
+            dir.path(),
+            &format!(
+                "v={} backend=rust-sqlx engine=postgresql schema=sch1:0000000000000000",
+                env!("CARGO_PKG_VERSION")
+            ),
+        );
+
+        // Built the way `run_check` builds it: `provenance_registry()` plus
+        // the user's `[lint]` table, the same table applied to the default
+        // registry.
+        let mut registry = scythe_lint::provenance_registry();
+        let mut lint_config = scythe_lint::LintConfig::default();
+        lint_config
+            .rules
+            .insert("SC-PRV01".to_string(), scythe_lint::Severity::Warn);
+        registry.apply_config(&lint_config);
+
+        let violations = verify_provenance(
+            &sql_config,
+            &catalog,
+            std::path::Path::new("."),
+            ProvenanceSeverities::from_registry(&registry),
+        );
+
+        assert_eq!(
+            violations.len(),
+            1,
+            "expected exactly one violation, got {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV01");
+        assert_eq!(
+            violations[0].severity,
+            scythe_lint::Severity::Warn,
+            "a downgraded SC-PRV01 must be reported at the configured severity"
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // Ruby's second artifact (`queries.rbs`)
+    // -----------------------------------------------------------------------
+
+    /// Ruby targets write two tracked files, and both must be verified —
+    /// `queries.rbs` is what `steep` type-checks caller code against, so a
+    /// stale one reports type errors against a schema that no longer exists.
+    #[test]
+    fn artifact_paths_includes_the_rbs_file_for_ruby_backends_only() {
+        let output_dir = std::path::Path::new("/out");
+
+        let ruby = get_backend("ruby-pg", "postgresql").expect("ruby-pg should support postgresql");
+        assert!(backend_emits_rbs(ruby.as_ref()), "test premise: ruby-pg emits RBS");
+        assert_eq!(
+            artifact_paths(ruby.as_ref(), output_dir),
+            vec![output_dir.join("queries.rb"), output_dir.join("queries.rbs")]
+        );
+
+        let rust = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        assert!(
+            !backend_emits_rbs(rust.as_ref()),
+            "test premise: rust-sqlx emits no RBS"
+        );
+        assert_eq!(
+            artifact_paths(rust.as_ref(), output_dir),
+            vec![output_dir.join("queries.rs")]
+        );
+    }
+
+    /// A drifted `queries.rbs` must be reported even when `queries.rb` next
+    /// to it is perfectly current — the exact situation a schema change
+    /// produces when only the RBS signatures move.
+    #[test]
+    fn verify_provenance_detects_drift_in_the_rbs_artifact() {
+        let dir = tempfile::tempdir().unwrap();
+        let catalog = provenance_test_catalog();
+        let schema = catalog.fingerprint();
+        let version = env!("CARGO_PKG_VERSION");
+
+        let sql_config = SqlConfig {
+            name: "main".to_string(),
+            engine: "postgresql".to_string(),
+            schema: Vec::new(),
+            queries: Vec::new(),
+            output: None,
+            gen_config: Some(GenTargets::Array(vec![GenTarget {
+                backend: "ruby-pg".to_string(),
+                output: dir.path().to_string_lossy().into_owned(),
+                manifest: None,
+                options: std::collections::HashMap::new(),
+            }])),
+            type_overrides: None,
+        };
+
+        std::fs::write(
+            dir.path().join("queries.rb"),
+            format!("# scythe:provenance v={version} backend=ruby-pg engine=postgresql schema={schema}\n"),
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("queries.rbs"),
+            format!("# scythe:provenance v={version} backend=ruby-pg engine=postgresql schema=sch1:0000000000000000\n"),
+        )
+        .unwrap();
+
+        let violations = verify_provenance(&sql_config, &catalog, std::path::Path::new("."), default_severities());
+
+        assert_eq!(
+            violations.len(),
+            1,
+            "expected exactly one violation, got {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV01");
+        assert!(
+            violations[0].message.contains("queries.rbs"),
+            "the finding must point at the RBS file, not the .rb next to it: {}",
+            violations[0].message
+        );
+    }
+
+    // -----------------------------------------------------------------------
+    // `run_check` end to end
+    // -----------------------------------------------------------------------
+
+    /// The regression this whole class of fix exists for: a `[[sql]]` block
+    /// whose generation target cannot be constructed must still emit the
+    /// lint findings from its queries. Before the fix, `verify_provenance`'s
+    /// `?` unwound out of `run_check` before `emit_findings` ran, so the
+    /// report file was created but left empty and every SQL finding was
+    /// thrown away.
+    ///
+    /// Asserted through the emitted JSON report rather than through
+    /// `verify_provenance` directly, because the discarded findings were
+    /// produced by an entirely different part of `run_check` — only an
+    /// end-to-end run can show they survive.
+    #[test]
+    fn run_check_still_emits_lint_findings_when_a_gen_target_cannot_be_constructed() {
+        let dir = tempfile::tempdir().unwrap();
+
+        std::fs::write(
+            dir.path().join("schema.sql"),
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n",
+        )
+        .unwrap();
+        // `SELECT *` trips SC-S03 (no-select-star), a `Warn` — the finding
+        // that must survive. Deliberately not an `Error`-severity rule, so
+        // that the run's exit status stays `Ok` and this test asserts on
+        // report *content*, not on the error path.
+        std::fs::write(
+            dir.path().join("queries.sql"),
+            "-- @name ListUsers\n-- @returns :many\nSELECT * FROM users;\n",
+        )
+        .unwrap();
+        std::fs::write(
+            dir.path().join("scythe.toml"),
+            concat!(
+                "[scythe]\nversion = \"1\"\n\n",
+                "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
+                "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n\n",
+                "[[sql.gen]]\nbackend = \"rust-sqlx-typo\"\noutput = \"generated\"\n",
+            ),
+        )
+        .unwrap();
+
+        let report_path = dir.path().join("report.json");
+        let result = run_check(RunCheckOpts {
+            config_path: dir.path().join("scythe.toml").to_string_lossy().into_owned(),
+            database_url: None,
+            format: "json".to_string(),
+            output: Some(report_path.to_string_lossy().into_owned()),
+        });
+
+        assert!(
+            result.is_ok(),
+            "an unconstructable gen target must not fail the run: {result:?}"
+        );
+
+        let report = std::fs::read_to_string(&report_path).expect("a report file must have been written");
+        assert!(
+            report.contains("SC-S03"),
+            "the lint finding must survive provenance verification:\n{report}"
+        );
+        assert!(
+            report.contains("SC-PRV07"),
+            "the unverifiable target must itself be reported:\n{report}"
+        );
     }
 }

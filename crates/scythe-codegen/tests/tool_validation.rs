@@ -1,6 +1,7 @@
 //! Validate generated code for all backends using real language tools.
 //! All tools are expected to be installed.
 
+use scythe_codegen::provenance;
 use scythe_codegen::validation::{validate_structural, validate_with_tools};
 use scythe_codegen::{CodegenBackend, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
@@ -147,16 +148,36 @@ fn generate_full_file_snowflake(backend_name: &str) -> String {
 }
 
 fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBackend, dialect: &SqlDialect) -> String {
-    let (schema, queries) = match dialect {
-        SqlDialect::MySQL => (MYSQL_SCHEMA, [MYSQL_QUERY_ONE, MYSQL_QUERY_MANY, MYSQL_QUERY_EXEC]),
-        SqlDialect::SQLite => (SQLITE_SCHEMA, [SQLITE_QUERY_ONE, SQLITE_QUERY_MANY, SQLITE_QUERY_EXEC]),
-        SqlDialect::MsSql => (MSSQL_SCHEMA, [MSSQL_QUERY_ONE, MSSQL_QUERY_MANY, MSSQL_QUERY_EXEC]),
-        SqlDialect::Oracle => (ORACLE_SCHEMA, [ORACLE_QUERY_ONE, ORACLE_QUERY_MANY, ORACLE_QUERY_EXEC]),
+    // The engine alias is carried alongside the fixtures purely so the
+    // provenance header this harness emits below says something truthful;
+    // nothing about the languages' acceptance of that line depends on it.
+    let (schema, queries, engine) = match dialect {
+        SqlDialect::MySQL => (
+            MYSQL_SCHEMA,
+            [MYSQL_QUERY_ONE, MYSQL_QUERY_MANY, MYSQL_QUERY_EXEC],
+            "mysql",
+        ),
+        SqlDialect::SQLite => (
+            SQLITE_SCHEMA,
+            [SQLITE_QUERY_ONE, SQLITE_QUERY_MANY, SQLITE_QUERY_EXEC],
+            "sqlite",
+        ),
+        SqlDialect::MsSql => (
+            MSSQL_SCHEMA,
+            [MSSQL_QUERY_ONE, MSSQL_QUERY_MANY, MSSQL_QUERY_EXEC],
+            "mssql",
+        ),
+        SqlDialect::Oracle => (
+            ORACLE_SCHEMA,
+            [ORACLE_QUERY_ONE, ORACLE_QUERY_MANY, ORACLE_QUERY_EXEC],
+            "oracle",
+        ),
         SqlDialect::Snowflake => (
             SNOWFLAKE_SCHEMA,
             [SNOWFLAKE_QUERY_ONE, SNOWFLAKE_QUERY_MANY, SNOWFLAKE_QUERY_EXEC],
+            "snowflake",
         ),
-        _ => (SCHEMA, [QUERY_ONE, QUERY_MANY, QUERY_EXEC]),
+        _ => (SCHEMA, [QUERY_ONE, QUERY_MANY, QUERY_EXEC], "postgresql"),
     };
 
     let catalog = Catalog::from_ddl_with_dialect(&[schema], dialect).unwrap();
@@ -176,13 +197,11 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
         }
     }
 
-    // `file_preamble()` carries text that must be the literal first bytes of
-    // the file (PHP's `<?php`, Ruby's `# frozen_string_literal: true`) and is
-    // never covered by `file_header_for_results()` -- mirrors how assembly
-    // in `scythe-cli` orders the two, so this harness's structural checks
-    // (`<?php` present, frozen-string pragma present, ...) still see them.
-    let mut full = backend.file_preamble();
-    full.push_str(&backend.file_header_for_results(&all_codes));
+    // Only the *body* is accumulated here. The preamble and the provenance
+    // header line are added by `provenance::assemble_file` at the bottom of
+    // this function, in the one place that owns their ordering — the same
+    // call `scythe-cli`'s `assemble_output` makes.
+    let mut full = backend.file_header_for_results(&all_codes);
     full.push('\n');
 
     if use_class_wrapper {
@@ -239,7 +258,26 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
         }
     }
 
-    full
+    // The point of this harness is that `php -l`, `ruby -c`, `gofmt`,
+    // `python -m py_compile`, `tsc`, and `kotlinc` below are handed the bytes
+    // a real `scythe generate` writes — provenance header included. Without
+    // it, nothing anywhere proves that the header sits in a position each
+    // language actually accepts: the structural checks in `validation.rs` are
+    // substring matches (`code.contains("<?php")`) that pass regardless of
+    // what precedes them, and the ordering assertions in `scythe-cli` are
+    // Rust string comparisons that no language tool ever sees. PHP is the
+    // sharpest case — `declare(strict_types=1);` must be the file's first
+    // *statement*, so only a real `php -l` can confirm a preceding comment is
+    // allowed there.
+    //
+    // The version, engine, and schema values are placeholders: the header's
+    // legality depends on its comment prefix and its position, not on its
+    // field values.
+    provenance::assemble_file(
+        &backend.file_preamble(),
+        &provenance::header_line(backend, env!("CARGO_PKG_VERSION"), engine, "sch1:0123456789abcdef"),
+        &full,
+    )
 }
 
 macro_rules! backend_test {
