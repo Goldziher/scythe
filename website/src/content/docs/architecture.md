@@ -33,9 +33,9 @@ SQL Schema + Annotated Queries
 |-------|---------|
 | `scythe-core` | SQL parsing, catalog building, type inference, nullability analysis |
 | `scythe-codegen` | Code generation via trait-based backends |
-| `scythe-lint` | 23 lint rules + 35 audit rules + sqruff integration + engine |
+| `scythe-lint` | 23 lint rules + 35 audit rules (58 in `default_registry()`), plus 7 `SC-PRV*` and 7 `SC-DRF*` check-time rules in their own registries, sqruff integration, and the lint engine |
 | `scythe-backend` | Type resolution, naming conventions, MiniJinja rendering |
-| `scythe-inspect` | Live-database health checks behind `scythe inspect` |
+| `scythe-inspect` | Live-database health checks behind `scythe inspect`, and DDL-vs-catalog drift comparison for `scythe check --database-url` |
 | `scythe-cli` | CLI binary with generate, check, lint, fmt, migrate commands |
 | `scythe-conformance` | Dev-only: runs inferred nullability against live database engines (not published, no CLI surface) |
 

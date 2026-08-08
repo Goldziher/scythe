@@ -1,6 +1,6 @@
 ---
 title: Lint Rules
-description: All 23 built-in scythe lint rules plus sqruff style rules, with codes and examples.
+description: All 58 built-in scythe rules plus the check-time provenance and drift rules and sqruff style rules.
 ---
 
 Scythe includes 23 built-in lint rules and integrates sqruff for additional SQL style and formatting
@@ -8,6 +8,12 @@ rules. `default_registry()` -- the registry `scythe lint` and `scythe audit --li
 from -- also carries the 35 `scythe audit` rules (`SC-SEC*`, `SC-RLS*`, `SC-MIG*`, `SC-CHK01`), so all
 58 rules run under `scythe lint` too. See the [audit guide](/scythe/guide/audit/) for the audit-only
 catalog.
+
+Two further families ship in their own registries and are **not** counted in that 58: the 7 `SC-PRV*`
+[provenance rules](#provenance-rules-7) and the 7 `SC-DRF*` [schema drift rules](#schema-drift-rules-7).
+Both fire only from `scythe check`, never from `scythe lint` or `scythe audit --list-rules`, so adding
+them to the 58 would advertise rules those commands can never report. Every rule count elsewhere in
+these docs refers to the 58; the two check-time families are always stated separately.
 
 ## Scythe rules (23)
 
@@ -87,9 +93,9 @@ Priority: per-rule override > per-category override > default severity.
 
 `SC-PRV*` rules compare an already-generated artifact's [provenance header](/scythe/guide/cli-reference/#provenance-verification)
 against the current schema, engine, backend, and scythe version. They run only from `scythe check`
-(no flag required) and are excluded from `scythe lint` and `scythe audit --list-rules` — neither
+(no flag required) and are excluded from `scythe lint` and `scythe audit --list-rules` -- neither
 command reads generated files, so neither can ever produce one of these findings. They are not part
-of the 23 scythe rules or 58 built-in total quoted above.
+of the 23 scythe rules or the 58 built-in total quoted above.
 
 | Code | Name | Description | Default |
 |------|------|-------------|---------|
@@ -101,8 +107,18 @@ of the 23 scythe rules or 58 built-in total quoted above.
 | `SC-PRV06` | `malformed-provenance-header` | Generated artifact's provenance header is missing one or more required fields | Warn |
 | `SC-PRV07` | `unverifiable-provenance` | Generation target could not be verified: backend construction or artifact read failed | Warn |
 
-Configured through the same `[lint]` table (`[lint.rules]`, or `[lint.categories] provenance = "off"`
-to disable the whole category) as every rule above.
+`SC-PRV*` rules are ordinary registry rules: `scythe check` applies the same `[lint]` table to the
+provenance registry that it applies to the SQL rules, so severities are overridable and the whole
+family is disableable.
+
+```toml
+[lint.rules]
+"SC-PRV02" = "error"    # fail CI on scythe version drift too
+"SC-PRV05" = "off"      # ignore artifacts with no provenance header
+
+[lint.categories]
+provenance = "off"      # skip provenance verification entirely
+```
 
 ## Schema drift rules (7)
 
@@ -121,9 +137,20 @@ likewise excluded from `scythe lint` and `scythe audit --list-rules`, and from t
 | `SC-DRF07` | `enum-values-mismatch` | Enum type's DDL value set does not match the live database | Error |
 
 `SC-DRF02` is the one `Warn`: every real database carries objects the committed DDL never declares
-(migration ledgers, extension bookkeeping), so defaulting it to `Error` would fail the first run
-against a production database. Configured through the same `[lint]` table, with its own
-`[lint.categories] drift = "off"` switch.
+(migration ledgers such as `schema_migrations`, extension bookkeeping), so defaulting it to `Error`
+would fail the first run against a production database. Every other rule describes the DDL promising
+something the database does not deliver, which breaks generated code, so it errors.
+
+Drift severities come from the same `[lint]` table as every other rule:
+
+```toml
+[lint.rules]
+"SC-DRF02" = "error"    # fail on any undeclared table
+"SC-DRF04" = "warn"     # downgrade an undeclared column to a warning
+
+[lint.categories]
+drift = "off"           # skip drift checking entirely
+```
 
 ## Sqruff rules
 

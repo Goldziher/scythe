@@ -420,6 +420,9 @@ Common PostgreSQL extension mappings:
 
 23 built-in scythe lint rules + 35 audit rules = 58 built-in, plus sqruff's 69 style rules via integration.
 
+The 7 `SC-PRV*` provenance rules and the 7 `SC-DRF*` schema drift rules are not part of the 58. They
+run only from `scythe check` and never appear in `scythe lint` or `scythe audit --list-rules` output.
+
 ### Rule categories
 
 | Category | Prefix | Examples |
@@ -430,6 +433,10 @@ Common PostgreSQL extension mappings:
 | Performance | `SC-P` | Missing ORDER BY with LIMIT, leading wildcard LIKE |
 | Antipattern | `SC-A` | NULL comparisons with =, implicit type coercion |
 | Codegen | `SC-C` | Missing @returns, duplicate @name |
+| Security | `SC-SEC`, `SC-RLS` | Dangerous functions, GRANT ALL, RLS misconfiguration |
+| Migration | `SC-MIG` | Irreversible or lock-prone DDL |
+| Provenance | `SC-PRV` | `scythe check` only: generated artifact vs. current schema/engine/backend/version |
+| Drift | `SC-DRF` | `scythe check --database-url` only: committed DDL vs. a live database |
 
 ### Configuration
 
@@ -442,6 +449,19 @@ style = "off"
 [lint.rules]
 "SC-S03" = "off"        # allow SELECT *
 "SC-N03" = "error"      # enforce query naming
+```
+
+`SC-PRV*` and `SC-DRF*` are configured from the same table -- `scythe check` applies `[lint]` to their
+registries before resolving severities:
+
+```toml
+[lint.rules]
+"SC-PRV02" = "error"    # fail CI on scythe version drift
+"SC-DRF02" = "error"    # fail on tables the DDL never declares
+
+[lint.categories]
+provenance = "off"      # skip provenance verification
+drift = "off"           # skip schema drift checking
 ```
 
 ## Pre-commit Hooks
