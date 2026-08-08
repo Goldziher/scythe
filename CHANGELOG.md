@@ -5,6 +5,82 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.14.0] - Unreleased
+
+In progress — further changes will land before this release ships.
+
+This release checks scythe's output against something other than scythe. Nullability inference is
+now measured against what live database engines actually return, and a Snowflake backend that had
+never executed anywhere runs in CI for the first time. It also makes a backend's type mappings
+configurable per generation target.
+
+### Added
+
+- A per-target manifest override: `manifest = "..."` on a `[[sql.gen]]` target names a **partial**
+  manifest merged over the backend's compiled-in one, so a project can retarget a few type mappings,
+  naming fields or import rules without vendoring a whole manifest. The path resolves against the
+  directory containing `scythe.toml` — the same rule every other path in the config follows since
+  0.13.0 — so generated output does not depend on where the command was run. The override is keyed
+  per target rather than per backend name: `rust-sqlx` covers five engines and `java-jdbc` nine,
+  each with its own type mappings, and a `[[sql.gen]]` target inherits its engine from the enclosing
+  `[[sql]]` block, so two targets naming the same backend under different engines each get their own
+  file. `[types.scalars]` and `[types.containers]` may only replace mappings the backend already
+  defines — neutral type names are a fixed vocabulary, so a key outside it is a typo, and the error
+  suggests the near miss; `[imports.rules]` does accept new keys, because retargeting a scalar
+  requires an import rule keyed on the new type's prefix. There is no `[backend]` section: manifest
+  selection stays a pure function of `(backend, engine)`. Every failure — unknown section, unknown
+  key, missing file — fails `scythe generate` naming the backend, the resolved absolute path and the
+  offending key, and nothing falls back to the compiled-in manifest silently
+  ([#82](https://github.com/Goldziher/scythe/issues/82))
+- A live nullability conformance suite (`scythe-conformance`), a dev-only workspace member that
+  compares inferred nullability against what engines actually return rather than against scythe's
+  own model. Per (fixture, engine, column) it holds three facts side by side: the analyzer's
+  verdict, whether the generated code actually *renders* the column as optional (parsed out of the
+  resolved type against the backend manifest, deliberately not copied from the analyzer, so the two
+  can genuinely disagree), and the engine's observed per-row nullness from a real query run. Four
+  assertions relate them: fidelity (analyzer and generated code agree), soundness (an observed NULL
+  implies the generated code renders the column optional), anti-vacuity (a column called nullable
+  must be demonstrated NULL by some run, or the suite is satisfied by marking everything nullable),
+  and join-group coherence (columns widened by the same outer join go NULL together). Accepted
+  over-pessimism — the analyzer is stricter than an engine turns out to be — goes in a capped
+  registry with a tracking issue per entry, and an entry that stops reproducing fails the build, so
+  fixing the gap forces deleting the entry that excused it. A soundness failure is never
+  suppressible by any registry entry. The crate is unpublished, has no CLI surface, and nothing in
+  `scythe generate` touches it
+- Live drivers in that suite for PostgreSQL, MySQL, MariaDB and SQLite, each behind its own Cargo
+  feature plus a `live-tests` gate, with one CI job per engine. No driver is linked by default, so
+  `cargo test --workspace` exercises the pure comparison logic without a container. MSSQL and Oracle
+  declare their features but have no executor yet: selecting one is a hard error, and a fixture that
+  lists one surfaces as an explicit, printed skip in every other engine's run rather than silently
+  vanishing from the report
+
+### Fixed
+
+- **`csharp-snowflake` generated parameter bindings that Snowflake rejects.** Generated code named
+  each positional binding `p1`, `p2`, `p3`, but Snowflake's REST protocol keys `?` placeholders by
+  bare ordinal, so the server read them as *named* bindings and the query failed. Bindings are now
+  named `"1"`, `"2"`, `"3"`. The backend had shipped since 0.6.0 without ever running anywhere: it
+  was held out of the Snowflake integration job on the diagnosis that fakesnow's binding-name
+  heuristic was at fault, and 0.12.0 recorded that as a fakesnow limitation rather than a codegen
+  one. The diagnosis was backwards — fakesnow was right to reject `p1`, and real Snowflake would
+  have rejected it too. The backend now runs against the shared fakesnow server in CI
+- **`scythe migrate` silently converted nothing when the project directory contained a glob
+  metacharacter.** The pattern used to find `.sql` query files was built by joining the base
+  directory onto the `queries` entry, and the "is this already a glob, or a bare directory needing
+  `/*.sql`" decision was then made on the *joined* string. Neither step escaped the base directory,
+  so a project in a directory named e.g. `a[b]` had its `[b]` compiled as a glob character class,
+  matched no files, and reported `Migration complete: 0 file(s) converted` instead of converting
+  anything — the same silent-zero failure mode #84 fixed for `generate`/`check`/`lint`/`audit`/`fmt`
+  in 0.13.0. The base directory is now escaped with `glob::Pattern::escape` and joined with `/` on
+  every platform, and the directory-vs-glob decision is made on the raw pattern, never on the string
+  after the base directory has been prefixed onto it
+  ([#88](https://github.com/Goldziher/scythe/issues/88))
+- `task version:check` asserted that every crate's own version matched `scythe-cli`'s, including
+  crates marked `publish = false`. An unpublished crate never reaches crates.io, so its version
+  carries no meaning and `version:sync` deliberately leaves it alone — which made the two steps
+  contradict each other, with no version that could satisfy both. Unpublished crates are now exempt
+  from the own-version check; their inter-crate pins are still checked
+
 ## [0.13.0] - 2026-08-07
 
 This release makes generation depend on committed inputs rather than on where the command was run

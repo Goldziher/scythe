@@ -280,9 +280,13 @@ The override is **per target**. A backend name alone does not identify a manifes
 
 Map-valued tables merge one key at a time: a key you list replaces exactly that entry, and every key you omit keeps its built-in value. `[naming]` fields replace whole values; omitted fields inherit.
 
+`[naming]` accepts four fields — `struct_case`, `fn_case`, `enum_variant_case` and `row_suffix`. The list is an allowlist rather than a mirror of the manifest, so any other naming field is a parse error, not a silent no-op.
+
 `[types.scalars]` and `[types.containers]` are replace-only. Neutral type names (`int32`, `datetime_tz`, `array`, …) are a fixed vocabulary, so a key outside it is a typo — and a silently accepted typo would leave the original mapping in place and generate code you did not ask for. `[imports.rules]` does accept new keys, because its keys are prefixes of the *generated* language types, which necessarily change when you retarget a scalar.
 
 There is no `[backend]` section. `name`, `language`, `file_extension`, and `engine` are identity, not configuration.
+
+`manifest` is read by `scythe generate` and exists only on the `[[sql.gen]]` array form; the legacy `[sql.gen.rust]` syntax below has no equivalent key.
 
 #### Errors
 
