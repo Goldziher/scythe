@@ -124,13 +124,21 @@ tasks:
       # `[[:space:]]`, not `\s`: BSD sed -E is POSIX ERE and does not know `\s`,
       # so that spelling matches nothing and reports success -- the same silent
       # no-op that let scythe-inspect go unbumped for two releases.
-      - >-
-        sed -i '' -E 's/^([[:space:]]*rev: )v[0-9]+\.[0-9]+\.[0-9]+/\1v{{.VERSION}}/'
-        README.md
-        website/src/content/docs/getting-started/installation.md
-        website/src/content/docs/guide/audit.md
-        website/src/content/docs/guide/inspect.md
-        website/src/content/docs/guide/pre-commit-hooks.md
+      # Driven off a grep, not a list, for the same reason as the pin
+      # substitution above: an explicit list silently omits whatever nobody
+      # remembered to add. It did. `skills/scythe/SKILL.md` sat at v0.6.0 and
+      # `skills/scythe/references/cli-reference.md` at v0.5.0 -- eight and nine
+      # releases stale -- purely because `skills/` was never in the list, and
+      # `version:check` could not catch it because it read the same list.
+      - |
+        files=$(grep -rlE '^[[:space:]]*rev: v[0-9]+\.[0-9]+\.[0-9]+' \
+          README.md website/src skills 2>/dev/null || true)
+        if [ -n "$files" ]; then
+          echo "$files" | while IFS= read -r f; do
+            [ -n "$f" ] || continue
+            sed -i '' -E 's/^([[:space:]]*rev: )v[0-9]+\.[0-9]+\.[0-9]+/\1v{{.VERSION}}/' "$f"
+          done
+        fi
       # Every generated-code example in the docs opens with a provenance header,
       # and that header embeds the scythe version. Same blind spot as the `rev:`
       # pins above: prose Markdown that no CI job validates, so a stale one just
@@ -215,7 +223,7 @@ tasks:
         # The documented pre-commit `rev:` pins are rewritten by version:sync but
         # validated by no other job, so without this they drift silently -- and a
         # stale one pins every user who copies the snippet to the old release.
-        for f in README.md website/src/content/docs/getting-started/installation.md website/src/content/docs/guide/audit.md website/src/content/docs/guide/inspect.md website/src/content/docs/guide/pre-commit-hooks.md; do
+        for f in $(grep -rlE '^[[:space:]]*rev: v[0-9]+\.[0-9]+\.[0-9]+' README.md website/src skills 2>/dev/null || true); do
           while IFS= read -r r; do
             [ -z "$r" ] && continue
             if [ "$r" != "v$expected" ]; then
