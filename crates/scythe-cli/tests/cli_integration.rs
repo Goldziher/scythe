@@ -257,13 +257,94 @@ output = "{output}"
 }
 
 #[test]
-fn test_missing_config_exits_nonzero() {
+fn test_missing_config_exits_one() {
     let output = scythe_bin()
         .args(["check", "--config", "nonexistent.toml"])
         .output()
         .expect("failed to run scythe check");
 
-    assert!(!output.status.success(), "scythe check with missing config should fail");
+    // Exit 1 is the operational-failure code, distinct from exit 2 (which
+    // means "the config was readable and error-severity findings were
+    // reported"). A missing config is never a finding, so it must not share
+    // the findings exit code.
+    assert_eq!(
+        output.status.code(),
+        Some(1),
+        "scythe check with missing config should exit 1 (operational failure), not 2 (findings); stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+
+/// Write a minimal `check` project whose only query fires SC-S01
+/// (update-without-where), an `Error`-severity rule by default, and return
+/// the config path.
+fn write_check_error_project(temp: &tempfile::TempDir) -> PathBuf {
+    std::fs::write(
+        temp.path().join("schema.sql"),
+        "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL);\n",
+    )
+    .unwrap();
+    std::fs::write(
+        temp.path().join("queries.sql"),
+        "-- @name DisableAllUsers\n-- @returns :exec\nUPDATE users SET name = 'x';\n",
+    )
+    .unwrap();
+    let config_path = temp.path().join("scythe.toml");
+    std::fs::write(
+        &config_path,
+        concat!(
+            "[scythe]\nversion = \"1\"\n\n",
+            "[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n",
+            "schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n",
+        ),
+    )
+    .unwrap();
+    config_path
+}
+
+#[test]
+fn test_check_error_finding_exits_two() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let config_path = write_check_error_project(&temp);
+
+    let output = scythe_bin()
+        .args(["check", "--config", config_path.to_str().unwrap()])
+        .output()
+        .expect("failed to run scythe check");
+
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "an error-severity finding (SC-S01) must yield check exit code 2; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("SC-S01"),
+        "expected SC-S01 (update-without-where) in the report; stdout: {stdout}"
+    );
+}
+
+#[test]
+fn test_check_exit_zero_overrides_error_exit_code() {
+    let temp = tempfile::TempDir::new().unwrap();
+    let config_path = write_check_error_project(&temp);
+
+    let output = scythe_bin()
+        .args(["check", "--config", config_path.to_str().unwrap(), "--exit-zero"])
+        .output()
+        .expect("failed to run scythe check --exit-zero");
+
+    assert!(
+        output.status.success(),
+        "--exit-zero must produce exit 0 even with error-severity findings; stderr: {}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        stdout.contains("SC-S01"),
+        "finding must still be emitted under --exit-zero; got: {stdout}"
+    );
 }
 
 #[test]

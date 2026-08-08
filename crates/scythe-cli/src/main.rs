@@ -23,7 +23,10 @@ enum Commands {
         #[arg(default_value = "sqlc.yaml")]
         sqlc_config: String,
     },
-    /// Validate SQL without generating code
+    /// Validate SQL without generating code. Exits 0 clean, 2 on
+    /// error-severity lint/drift findings (unless --exit-zero), 1 on
+    /// operational failure (unreadable config, unparseable SQL,
+    /// unconstructible backend, or other I/O error).
     Check {
         #[arg(short, long, default_value = "scythe.toml")]
         config: String,
@@ -52,6 +55,9 @@ enum Commands {
         /// Write findings to a file instead of stdout
         #[arg(short, long)]
         output: Option<String>,
+        /// Exit 0 even if error-severity findings are present
+        #[arg(long)]
+        exit_zero: bool,
     },
     /// Format SQL files using sqruff
     Fmt {
@@ -168,11 +174,13 @@ fn main() {
             database_url,
             format,
             output,
+            exit_zero,
         } => commands::generate::run_check(commands::generate::RunCheckOpts {
             config_path: config,
             database_url,
             format,
             output,
+            exit_zero,
         }),
         Commands::Fmt {
             config,

@@ -731,6 +731,8 @@ pub struct RunCheckOpts {
     pub format: String,
     /// Output path; `None` means stdout.
     pub output: Option<String>,
+    /// `--exit-zero` flag: always exit 0 even with error-severity findings.
+    pub exit_zero: bool,
 }
 
 pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
@@ -933,13 +935,28 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         .iter()
         .filter(|f| matches!(f.severity, Severity::Error))
         .count();
-    let warning_count = findings.iter().filter(|f| matches!(f.severity, Severity::Warn)).count();
 
-    if error_count > 0 {
-        return Err(format!("check: {} error(s), {} warning(s)", error_count, warning_count).into());
+    // `emit_findings` and the flush above have already run, so the report is
+    // on disk (or stdout) before any exit happens here — see
+    // `run_check_still_emits_lint_findings_when_a_gen_target_cannot_be_constructed`
+    // for the regression this ordering guards against.
+    if let Some(code) = check_exit_code(error_count, opts.exit_zero) {
+        std::process::exit(code);
     }
 
     Ok(())
+}
+
+/// Decides `check`'s process exit code for error-severity findings, split out
+/// from the `std::process::exit` call site so the decision itself stays unit
+/// testable: `std::process::exit` tears down the test binary, so nothing
+/// after it can be observed in-process. Mirrors `audit`/`inspect`'s
+/// severity-to-exit-code convention (see `run_audit` / `run_inspect`):
+/// `Some(2)` when error-severity findings are present and `--exit-zero` was
+/// not passed, `None` otherwise (the caller falls through to `Ok(())`, exit
+/// 0).
+fn check_exit_code(error_count: usize, exit_zero: bool) -> Option<i32> {
+    if error_count > 0 && !exit_zero { Some(2) } else { None }
 }
 
 /// A `[[sql]]` block queued for live-database verification: its display
@@ -2814,6 +2831,30 @@ SELECT * FROM users WHERE id = $1;
     }
 
     // -----------------------------------------------------------------------
+    // `check_exit_code`
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn check_exit_code_is_none_when_clean() {
+        assert_eq!(check_exit_code(0, false), None);
+    }
+
+    #[test]
+    fn check_exit_code_is_two_when_errors_present() {
+        assert_eq!(check_exit_code(1, false), Some(2));
+    }
+
+    #[test]
+    fn check_exit_code_is_none_when_exit_zero_overrides_errors() {
+        assert_eq!(check_exit_code(3, true), None);
+    }
+
+    #[test]
+    fn check_exit_code_is_none_when_clean_even_with_exit_zero() {
+        assert_eq!(check_exit_code(0, true), None);
+    }
+
+    // -----------------------------------------------------------------------
     // `run_check` end to end
     // -----------------------------------------------------------------------
 
@@ -2863,6 +2904,7 @@ SELECT * FROM users WHERE id = $1;
             database_url: None,
             format: "json".to_string(),
             output: Some(report_path.to_string_lossy().into_owned()),
+            exit_zero: false,
         });
 
         assert!(
