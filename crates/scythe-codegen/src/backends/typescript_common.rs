@@ -338,7 +338,22 @@ pub fn generate_ts_union_row_struct(
         }
     }
 
-    for col in columns.iter().filter(|c| c.join_group.is_none()) {
+    // Not just `join_group.is_none()`: a column belonging to a join group
+    // that `discriminated_join_groups` dropped -- one where every projected
+    // column was already nullable in the schema -- has no union variant to
+    // live in, so filtering on `is_none()` alone omitted it from the row
+    // type entirely. A query with two LEFT JOINs where only one joined
+    // relation projects a NOT NULL column selected five columns and got a
+    // type declaring three: silent on `typescript-pg`, which hands driver
+    // rows back directly, and a compile error on the nine remap backends,
+    // whose object literal then assigns properties the type does not
+    // declare. Such a column is independently nullable, so `full_type` is
+    // exactly right for it -- which is also what `TsRowShape::cast_type`
+    // gives it, since it is not a join discriminant.
+    for col in columns
+        .iter()
+        .filter(|c| c.join_group.as_ref().is_none_or(|group| !groups.contains(group)))
+    {
         let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
     }
     let _ = write!(out, "}}");
@@ -853,6 +868,39 @@ mod tests {
         assert!(out.contains("| { addr: string }"), "{out}");
         assert!(out.contains("| { addr: null }"), "{out}");
         assert_eq!(out.matches(" & (").count(), 2, "one group per relation: {out}");
+    }
+
+    /// This must fail before the fix: a join group `discriminated_join_groups`
+    /// drops -- every projected column already nullable in the schema -- got
+    /// no union variant, and the base-field loop filtered on
+    /// `join_group.is_none()`, so its columns were declared nowhere. The
+    /// query below selects four columns; the row type declared two. The
+    /// whole-query case is caught by the flat-interface fallback, so only a
+    /// query mixing a discriminated group with an undiscriminated one
+    /// reaches it.
+    #[test]
+    fn keeps_columns_from_join_groups_that_carry_no_discriminant() {
+        let columns = vec![
+            column("id", "number", false, None, false),
+            // Undiscriminated group: nullable in the schema before any join.
+            column("bio", "string", true, Some("p"), true),
+            column("website", "string", true, Some("p"), true),
+            // Discriminated group: NOT NULL in the schema, so it can only be
+            // null when the join found no row.
+            column("label", "string", true, Some("b"), false),
+        ];
+
+        let out = generate_ts_union_row_struct("R", "Q", &columns, None);
+
+        assert!(out.contains("bio: string | null;"), "{out}");
+        assert!(out.contains("website: string | null;"), "{out}");
+        assert!(out.contains("| { label: string }"), "{out}");
+        assert!(out.contains("| { label: null }"), "{out}");
+        assert_eq!(
+            out.matches(" & (").count(),
+            1,
+            "only the discriminated group becomes a union: {out}"
+        );
     }
 
     #[test]
