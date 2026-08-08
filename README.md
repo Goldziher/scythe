@@ -63,7 +63,7 @@ Scythe provides [pre-commit](https://pre-commit.com/) / [prek](https://github.co
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.13.0
+    rev: v0.14.0
     hooks:
       - id: scythe-fmt       # Format SQL files
       - id: scythe-lint      # Lint SQL with auto-fix (includes audit rules when scythe.toml is present)

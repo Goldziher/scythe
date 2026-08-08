@@ -65,7 +65,7 @@ If you only need scythe for pre-commit hooks, add it directly to your `.pre-comm
 ```yaml
 repos:
   - repo: https://github.com/Goldziher/scythe
-    rev: v0.13.0
+    rev: v0.14.0
     hooks:
       - id: scythe-fmt
       - id: scythe-lint

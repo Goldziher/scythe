@@ -60,7 +60,7 @@ Every generated file carries a one-line provenance comment, emitted right after
 (`crates/scythe-codegen/src/provenance.rs`):
 
 ```text
-// scythe:provenance v=0.13.0 backend=csharp-npgsql engine=postgresql schema=sch1:2e813606acee8b51
+// scythe:provenance v=0.14.0 backend=csharp-npgsql engine=postgresql schema=sch1:2e813606acee8b51
 ```
 
 The comment token is derived from the backend's `language`: `#` for Python, Ruby, and Elixir; `//` for

@@ -1,4 +1,4 @@
-// scythe:provenance v=0.13.0 backend=typescript-kysely engine=mysql schema=sch1:4332a9c33cb39297
+// scythe:provenance v=0.14.0 backend=typescript-kysely engine=mysql schema=sch1:4332a9c33cb39297
 import { type QueryExecutorProvider, sql } from "kysely";
 
 

@@ -1,5 +1,5 @@
 # frozen_string_literal: true
-# scythe:provenance v=0.13.0 backend=ruby-tiny-tds engine=mssql schema=sch1:f761f948742217a4
+# scythe:provenance v=0.14.0 backend=ruby-tiny-tds engine=mssql schema=sch1:f761f948742217a4
 
 require "tiny_tds"
 

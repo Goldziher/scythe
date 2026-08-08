@@ -1,4 +1,4 @@
-# scythe:provenance v=0.13.0 backend=python-aiomysql engine=mariadb schema=sch1:262bec5a0954c973  # noqa: E501
+# scythe:provenance v=0.14.0 backend=python-aiomysql engine=mariadb schema=sch1:262bec5a0954c973  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 from dataclasses import dataclass

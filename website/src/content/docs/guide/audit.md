@@ -219,7 +219,7 @@ Use the public hooks published by this repo:
 
 ```yaml
 - repo: https://github.com/Goldziher/scythe
-  rev: v0.13.0              # pin to a released tag
+  rev: v0.14.0              # pin to a released tag
   hooks:
     - id: scythe-audit     # SC-SEC*/SC-RLS*/SC-MIG*/SC-CHK* on changed files
     # - id: scythe-lint    # full pipeline: sqruff + scythe-lint + audit (needs scythe.toml)

@@ -53,7 +53,7 @@ Every file `scythe generate` writes carries a first-line header recording the sc
 backend, and scythe version it was generated from:
 
 ```text
-// scythe:provenance v=0.13.0 backend=rust-sqlx engine=postgresql schema=sch1:ebbab3de0c9715b8
+// scythe:provenance v=0.14.0 backend=rust-sqlx engine=postgresql schema=sch1:ebbab3de0c9715b8
 ```
 
 The comment marker matches the target language (`#` for Python, Ruby, and Elixir; `//` for

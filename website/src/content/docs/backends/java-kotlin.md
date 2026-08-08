@@ -10,7 +10,7 @@ Redshift, Snowflake, Oracle). `java-r2dbc` and `kotlin-r2dbc` support PostgreSQL
 SQLite. `kotlin-exposed` supports PostgreSQL only. The examples on this page use PostgreSQL.
 
 Generated files carry a provenance header as their first line, e.g.
-`// scythe:provenance v=0.13.0 backend=java-jdbc engine=postgresql schema=sch1:...`
+`// scythe:provenance v=0.14.0 backend=java-jdbc engine=postgresql schema=sch1:...`
 (`integration_tests/java-jdbc/src/main/java/generated/Queries.java:1`).
 
 ## Field naming: `field_case`

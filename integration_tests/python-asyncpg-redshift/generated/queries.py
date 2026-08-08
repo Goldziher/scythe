@@ -1,4 +1,4 @@
-# scythe:provenance v=0.13.0 backend=python-asyncpg engine=redshift schema=sch1:f882401b5f0b3b0a  # noqa: E501
+# scythe:provenance v=0.14.0 backend=python-asyncpg engine=redshift schema=sch1:f882401b5f0b3b0a  # noqa: E501
 import datetime  # noqa: F401
 import decimal  # noqa: F401
 import uuid  # noqa: F401

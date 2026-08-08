@@ -7,7 +7,7 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/Goldziher/scythe/blob/main/CHANGELOG.md) in the repository root.
 
-## [0.14.0] - Unreleased
+## [0.14.0] - 2026-08-08
 
 This release checks scythe's output against something other than scythe. Nullability inference is
 measured against what live database engines actually return across all six of them. Generated files

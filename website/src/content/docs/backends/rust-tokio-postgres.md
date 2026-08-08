@@ -44,7 +44,7 @@ Every generated file starts with a provenance header, then the same
 (`integration_tests/rust-tokio-postgres/src/queries.rs:1-2`):
 
 ```rust
-// scythe:provenance v=0.13.0 backend=rust-tokio-postgres engine=postgresql schema=sch1:...
+// scythe:provenance v=0.14.0 backend=rust-tokio-postgres engine=postgresql schema=sch1:...
 #![allow(dead_code, unused_imports, clippy::needless_question_mark, clippy::redundant_closure)]
 ```
 

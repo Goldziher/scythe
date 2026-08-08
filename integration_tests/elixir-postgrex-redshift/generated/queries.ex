@@ -1,4 +1,4 @@
-# scythe:provenance v=0.13.0 backend=elixir-postgrex engine=redshift schema=sch1:f882401b5f0b3b0a
+# scythe:provenance v=0.14.0 backend=elixir-postgrex engine=redshift schema=sch1:f882401b5f0b3b0a
 defmodule CreateOrderRow do
   @moduledoc "Row type for CreateOrder queries."
 
