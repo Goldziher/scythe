@@ -10,6 +10,7 @@ pub(crate) mod elixir_jamdb;
 pub(crate) mod elixir_myxql;
 pub(crate) mod elixir_postgrex;
 pub(crate) mod elixir_tds;
+pub(crate) mod go_common;
 pub(crate) mod go_database_sql;
 pub(crate) mod go_godror;
 pub(crate) mod go_gosnowflake;
@@ -97,7 +98,7 @@ pub(crate) fn apply_field_case_option(
             Ok(())
         }
         other => Err(ScytheError::new(
-            ErrorCode::InternalError,
+            ErrorCode::InvalidConfig,
             format!("{backend_name}: invalid field_case '{other}' (expected 'snake_case' or 'camelCase')"),
         )),
     }
@@ -464,7 +465,7 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         "csharp-snowflake" => Box::new(csharp_snowflake::CsharpSnowflakeBackend::new(canonical_engine)?),
         _ => {
             return Err(ScytheError::new(
-                ErrorCode::InternalError,
+                ErrorCode::InvalidConfig,
                 format!("unknown backend: {}", name),
             ));
         }
@@ -476,7 +477,7 @@ pub fn get_backend(name: &str, engine: &str) -> Result<Box<dyn CodegenBackend>, 
         .any(|e| normalize_engine(e) == canonical_engine)
     {
         return Err(ScytheError::new(
-            ErrorCode::InternalError,
+            ErrorCode::InvalidConfig,
             format!(
                 "backend '{}' does not support engine '{}'. Supported: {:?}",
                 name,

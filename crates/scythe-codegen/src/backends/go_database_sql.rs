@@ -10,6 +10,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::GeneratedCode;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backends::go_common::{generated_code_uses_time, go_file_header};
 
 pub struct GoDatabaseSqlBackend {
     manifest: BackendManifest,
@@ -60,11 +61,17 @@ impl CodegenBackend for GoDatabaseSqlBackend {
     }
 
     fn file_header(&self) -> String {
-        go_file_header(false)
+        go_file_header("package queries", &["context", "database/sql"], &[], false, false)
     }
 
     fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
-        go_file_header(generated.iter().any(generated_code_uses_time))
+        go_file_header(
+            "package queries",
+            &["context", "database/sql"],
+            &[],
+            generated_code_uses_time(generated),
+            false,
+        )
     }
 
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
@@ -429,27 +436,6 @@ impl CodegenBackend for GoDatabaseSqlBackend {
     }
 }
 
-fn go_file_header(uses_time: bool) -> String {
-    let mut header = String::from("package queries\n\nimport (\n\t\"context\"\n\t\"database/sql\"");
-    if uses_time {
-        header.push_str("\n\t\"time\"");
-    }
-    header.push_str("\n)\n");
-    header
-}
-
-fn generated_code_uses_time(code: &GeneratedCode) -> bool {
-    [
-        code.enum_def.as_deref(),
-        code.model_struct.as_deref(),
-        code.row_struct.as_deref(),
-        code.query_fn.as_deref(),
-    ]
-    .into_iter()
-    .flatten()
-    .any(|fragment| fragment.contains("time."))
-}
-
 #[cfg(test)]
 mod tests {
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
@@ -595,5 +581,81 @@ mod tests {
             query_fn.contains("rows.Err()"),
             "must return rows.Err(); got:\n{query_fn}"
         );
+    }
+
+    fn make_simple_query(name: &str, sql: &str, columns: Vec<AnalyzedColumn>) -> AnalyzedQuery {
+        AnalyzedQuery::build(|aq| {
+            aq.name = name.to_string();
+            aq.command = QueryCommand::Many;
+            aq.sql = sql.to_string();
+            aq.columns = columns;
+            aq.params = vec![];
+        })
+    }
+
+    /// Regression test for #100: a schema with only int/string columns must
+    /// not emit a `"time"` import, or `go build` fails with "imported and
+    /// not used".
+    #[test]
+    fn test_go_database_sql_file_header_omits_time_for_int_and_string_only_schema() {
+        let backend = get_backend("go-database-sql", "mysql").unwrap();
+        let query = make_simple_query(
+            "ListWidgets",
+            "-- @name ListWidgets\n-- @returns :many\nSELECT id, name FROM widgets",
+            vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+        );
+        let code = generate_with_backend(&query, &*backend).unwrap();
+        let header = backend.file_header_for_results(&[code]);
+
+        assert!(
+            !header.contains("\"time\""),
+            "int/string-only schema must not import \"time\"; got:\n{header}"
+        );
+        // The always-required imports must still be present, or the file
+        // fails to compile for a different reason.
+        assert!(header.contains("\"context\""), "got:\n{header}");
+        assert!(header.contains("\"database/sql\""), "got:\n{header}");
+    }
+
+    /// Positive counterpart: a schema with a temporal column must still
+    /// emit the `"time"` import.
+    #[test]
+    fn test_go_database_sql_file_header_includes_time_when_columns_need_it() {
+        let backend = get_backend("go-database-sql", "mysql").unwrap();
+        let query = make_simple_query(
+            "ListOrders",
+            "-- @name ListOrders\n-- @returns :many\nSELECT id, created_at FROM orders",
+            vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "created_at".to_string(),
+                    neutral_type: "datetime".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+        );
+        let code = generate_with_backend(&query, &*backend).unwrap();
+        let header = backend.file_header_for_results(&[code]);
+
+        assert!(header.contains("\"time\""), "got:\n{header}");
     }
 }
