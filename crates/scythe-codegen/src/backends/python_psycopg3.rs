@@ -10,6 +10,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::singularize;
 
@@ -116,6 +117,8 @@ impl CodegenBackend for PythonPsycopg3Backend {
     }
 
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(&["row_type"], options)?;
+
         if let Some(rt) = options.get("row_type") {
             self.row_type = PythonRowType::from_option(rt)?;
         }
@@ -718,5 +721,36 @@ mod tests {
                 line.len()
             );
         }
+    }
+
+    /// #103: before this, python-psycopg3 inherited the `CodegenBackend`
+    /// default `apply_options` (`Ok(())` for any map), so an unrecognized key
+    /// was silently discarded here while the same typo was a hard error on
+    /// every TypeScript backend. The trait default now rejects every key
+    /// unless a backend declares it known.
+    #[test]
+    fn test_apply_options_rejects_unknown_key_with_invalid_config() {
+        let mut backend = PythonPsycopg3Backend::new("postgresql").unwrap();
+        let err = backend
+            .apply_options(&HashMap::from([("row_typ".to_string(), "pydantic".to_string())]))
+            .expect_err("row_typ is not a known python-psycopg3 option");
+        assert_eq!(err.code, ErrorCode::InvalidConfig);
+        assert!(err.message.contains("row_typ"), "{}", err.message);
+        assert!(
+            err.message.contains("row_type"),
+            "error should list the real option: {}",
+            err.message
+        );
+    }
+
+    /// Regression guard: a real, known key must keep working -- the risk
+    /// with inverting the trait default is a false positive that breaks
+    /// every existing user's config.
+    #[test]
+    fn test_apply_options_accepts_known_key() {
+        let mut backend = PythonPsycopg3Backend::new("postgresql").unwrap();
+        backend
+            .apply_options(&HashMap::from([("row_type".to_string(), "pydantic".to_string())]))
+            .expect("row_type is a known python-psycopg3 option");
     }
 }

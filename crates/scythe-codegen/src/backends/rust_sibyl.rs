@@ -1114,4 +1114,25 @@ mod tests {
             "non-CLOB query must not reference CLOB; got:\n{query_fn}"
         );
     }
+
+    /// #103: rust-sibyl takes no `[[sql.gen]]` options at all and does not
+    /// override `apply_options`, so it exercises the `CodegenBackend` trait
+    /// default directly. Before this, that default was `Ok(())` for any map,
+    /// so any key -- typo or otherwise -- was silently discarded. The
+    /// default now rejects every key, which is the correct behavior for a
+    /// backend with nothing to configure.
+    #[test]
+    fn apply_options_rejects_any_key_via_the_trait_default() {
+        use crate::backend_trait::CodegenBackend;
+
+        let mut backend = RustSibylBackend::new("oracle").unwrap();
+        let err = backend
+            .apply_options(&std::collections::HashMap::from([(
+                "row_type".to_string(),
+                "pydantic".to_string(),
+            )]))
+            .expect_err("rust-sibyl takes no options, so any key must be rejected");
+        assert_eq!(err.code, scythe_core::errors::ErrorCode::InvalidConfig);
+        assert!(err.message.contains("row_type"), "{}", err.message);
+    }
 }

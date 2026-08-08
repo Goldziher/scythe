@@ -9,6 +9,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
     TsFieldCase, TsRowShape, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
@@ -16,7 +17,6 @@ use crate::backends::typescript_common::{
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct_with_base, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
     generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line, js_type_cast, parse_bool_option,
-    reject_unknown_options,
 };
 use crate::singularize;
 
@@ -529,7 +529,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
             child_columns,
             key_column,
             false,
-            |name, _ty| format!("row.{name}"),
+            |name, ty| format!("row.{name} as {ty}"),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");

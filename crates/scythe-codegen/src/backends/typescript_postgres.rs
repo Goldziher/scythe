@@ -9,6 +9,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
@@ -17,7 +18,6 @@ use crate::backends::typescript_common::{
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
     generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line, js_type_cast, parse_bool_option,
-    reject_unknown_options,
 };
 use crate::singularize;
 

@@ -8,6 +8,7 @@ use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeInfo, EnumIn
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::parse_bool_option;
 use crate::singularize;
@@ -38,7 +39,7 @@ impl SqlxBackend {
             "postgresql" | "postgres" | "pg" | "mysql" | "mariadb" | "sqlite" | "sqlite3" | "redshift" => {}
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("unsupported engine '{}' for rust-sqlx backend", engine),
                 ));
             }
@@ -129,6 +130,8 @@ impl CodegenBackend for SqlxBackend {
     }
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(&["structs_only"], options)?;
+
         if let Some(value) = options.get("structs_only") {
             self.structs_only = parse_bool_option("structs_only", value)?;
         }
@@ -759,5 +762,27 @@ mod option_tests {
             "maybe".to_string(),
         )]));
         assert!(result.is_err(), "expected 'maybe' to be rejected");
+    }
+
+    /// #103: before this, rust-sqlx inherited the `CodegenBackend` default
+    /// `apply_options` (`Ok(())` for any map), so an unrecognized key was
+    /// silently discarded here while the same typo was a hard error on
+    /// every TypeScript backend.
+    #[test]
+    fn apply_options_rejects_unknown_key_with_invalid_config() {
+        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let err = backend
+            .apply_options(&std::collections::HashMap::from([(
+                "structs_onl".to_string(),
+                "true".to_string(),
+            )]))
+            .expect_err("structs_onl is not a known rust-sqlx option");
+        assert_eq!(err.code, ErrorCode::InvalidConfig);
+        assert!(err.message.contains("structs_onl"), "{}", err.message);
+        assert!(
+            err.message.contains("structs_only"),
+            "error should list the real option: {}",
+            err.message
+        );
     }
 }

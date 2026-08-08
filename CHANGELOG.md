@@ -19,11 +19,11 @@ name, and `typescript-oracledb` cast nullable columns to their non-null type. Al
 below.
 
 **Upgrading**: `scythe check` now exits `2` for findings and `1` for operational failures, so a CI
-script keying on `1` needs updating. Unrecognized options on a TypeScript target are now an error
-rather than silently ignored. Identifiers derived from names with consecutive capitals change
-spelling (`CreateAPIKeyRow` becomes `CreateApiKeyRow`). And every generated file gains a provenance
-header, so the first regeneration after upgrading touches every artifact. See **Changed** for the
-full list.
+script keying on `1` needs updating. Unrecognized options on any `[[sql.gen]]` target — not just
+TypeScript — are now an error rather than silently ignored. Identifiers derived from names with
+consecutive capitals change spelling (`CreateAPIKeyRow` becomes `CreateApiKeyRow`). And every
+generated file gains a provenance header, so the first regeneration after upgrading touches every
+artifact. See **Changed** for the full list.
 
 ### Added
 
@@ -182,12 +182,15 @@ full list.
   `1` for both, so a CI script could not distinguish "your schema drifted" from "your config file is
   missing". Any script or hook keying on `1` for findings must change to `2`, or use `--exit-zero`
   for an advisory gate. Warnings have never affected the exit code and still do not
-- **Unrecognized options on a TypeScript target are now a hard error.** Every TypeScript backend
-  previously inherited the default `apply_options`, which silently discarded any key it did not read
-  — `row_typ = "zod"` parsed as valid TOML and did nothing, with no diagnostic. Unknown keys now fail
-  generation, with a suggestion when the key is within edit distance 2 of a real one. A config
-  carrying a forward-compatibility key on a TypeScript target will fail on upgrade. Backends in other
-  languages still ignore unknown keys
+- **Unrecognized options on any `[[sql.gen]]` target are now a hard error.** Every backend previously
+  inherited the default `apply_options`, which silently discarded any key it did not read —
+  `row_typ = "zod"` parsed as valid TOML and did nothing, with no diagnostic. This was fixed for the
+  11 TypeScript backends first; the same typo behaving differently depending on target language was
+  itself a trap, so the `CodegenBackend` trait default now rejects every key unless a backend
+  declares it known, closing the gap for the other 41 backends in one change
+  ([#103](https://github.com/Goldziher/scythe/issues/103)). Unknown keys fail generation, with a
+  suggestion when the key is within edit distance 2 of a real one. A config carrying a
+  forward-compatibility key on any target will fail on upgrade
 - **Identifiers derived from names with consecutive capitals change spelling.** PascalCase conversion
   previously returned mixed-case input containing no underscore unchanged, so a query named
   `CreateAPIKey` generated the function `createApiKey` returning the type `CreateAPIKeyRow` — the

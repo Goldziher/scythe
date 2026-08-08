@@ -10,6 +10,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::singularize;
 
@@ -60,6 +61,8 @@ impl CodegenBackend for PythonAiosqliteBackend {
     }
 
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(&["row_type"], options)?;
+
         if let Some(rt) = options.get("row_type") {
             self.row_type = PythonRowType::from_option(rt)?;
         }

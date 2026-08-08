@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::fmt::Write;
 
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -20,7 +19,7 @@ impl TsRowType {
             "interface" => Ok(Self::Interface),
             "zod" => Ok(Self::Zod),
             _ => Err(ScytheError::new(
-                ErrorCode::InternalError,
+                ErrorCode::InvalidConfig,
                 format!("invalid row_type '{}': expected 'interface' or 'zod'", value),
             )),
         }
@@ -53,7 +52,7 @@ impl TsFieldCase {
             "snake_case" => Ok(Self::Snake),
             "camelCase" => Ok(Self::Camel),
             _ => Err(ScytheError::new(
-                ErrorCode::InternalError,
+                ErrorCode::InvalidConfig,
                 format!("invalid field_case '{}': expected 'snake_case' or 'camelCase'", value),
             )),
         }
@@ -114,77 +113,10 @@ pub fn parse_bool_option(option_name: &str, value: &str) -> Result<bool, ScytheE
         "true" | "1" | "yes" => Ok(true),
         "false" | "0" | "no" => Ok(false),
         _ => Err(ScytheError::new(
-            ErrorCode::InternalError,
+            ErrorCode::InvalidConfig,
             format!("invalid {option_name} '{value}': expected 'true'/'false', '1'/'0', or 'yes'/'no'"),
         )),
     }
-}
-
-/// Reject any key in `options` that is not in `known`.
-///
-/// Before this, every TypeScript `apply_options` override just did
-/// `options.get("known_key")` and returned `Ok(())` by default (the
-/// `CodegenBackend::apply_options` default impl) -- an unrecognised key like
-/// a typo'd `row_typ = "zod"`, or a real key that TOML happily parses but no
-/// override reads, was silently discarded. The manifest author would see no
-/// error and no effect. Callers run this as the first line of
-/// `apply_options`, before touching any individual option, so a typo is
-/// reported instead of ignored.
-///
-/// When a rejected key is within edit distance 2 of a known one, the error
-/// suggests it -- close enough to catch `row_typ` -> `row_type` or
-/// `outer_join_union` -> `outer_join_unions` without false-positiving on
-/// genuinely unrelated keys.
-pub fn reject_unknown_options(known: &[&str], options: &HashMap<String, String>) -> Result<(), ScytheError> {
-    let mut keys: Vec<&String> = options.keys().collect();
-    keys.sort();
-
-    for key in keys {
-        if known.contains(&key.as_str()) {
-            continue;
-        }
-
-        let suggestion = known
-            .iter()
-            .map(|&candidate| (candidate, levenshtein_distance(key, candidate)))
-            .filter(|&(_, distance)| distance <= 2)
-            .min_by_key(|&(_, distance)| distance)
-            .map(|(candidate, _)| candidate);
-
-        let message = match suggestion {
-            Some(suggestion) => format!(
-                "unknown option '{key}' (did you mean '{suggestion}'?): valid options are {}",
-                known.join(", ")
-            ),
-            None => format!("unknown option '{key}': valid options are {}", known.join(", ")),
-        };
-        return Err(ScytheError::new(ErrorCode::InternalError, message));
-    }
-
-    Ok(())
-}
-
-/// Levenshtein edit distance between two strings, used by
-/// [`reject_unknown_options`] to suggest a likely intended option name.
-fn levenshtein_distance(a: &str, b: &str) -> usize {
-    let a: Vec<char> = a.chars().collect();
-    let b: Vec<char> = b.chars().collect();
-
-    let mut prev_row: Vec<usize> = (0..=b.len()).collect();
-    let mut curr_row = vec![0usize; b.len() + 1];
-
-    for (i, &char_a) in a.iter().enumerate() {
-        curr_row[0] = i + 1;
-        for (j, &char_b) in b.iter().enumerate() {
-            let substitution_cost = usize::from(char_a != char_b);
-            curr_row[j + 1] = (prev_row[j + 1] + 1)
-                .min(curr_row[j] + 1)
-                .min(prev_row[j] + substitution_cost);
-        }
-        std::mem::swap(&mut prev_row, &mut curr_row);
-    }
-
-    prev_row[b.len()]
 }
 
 /// Escape a SQL string for safe splicing into a JS backtick template
@@ -692,9 +624,20 @@ pub fn generate_ts_many_row_remap(
 ///
 /// `row_access(sql_col_name, ts_full_type)` returns the TypeScript expression that
 /// reads that column from the current `row` loop variable.  Examples:
-/// - pg/mysql2 (rows are `Record<string, any>`): `|name, _| format!("row.{name}")`
+/// - pg/mysql2 (dot access):   `|name, ty| format!("row.{name} as {ty}")`
 /// - postgres.js/mssql/duckdb: `|name, ty| format!("row['{}'] as {}", name, ty)`
 /// - Oracle (uppercase keys):  `|name, ty| format!("row['{}'] as {}", name.to_uppercase(), ty)`
+///
+/// Every TypeScript-mode caller casts. pg and mysql2 hand back rows whose
+/// fields are already `any` (`QueryResult<any>` and `RowDataPacket`'s index
+/// signature), so the cast is not load-bearing *today* -- but the `:one` and
+/// `:many` paths in those same two backends have always cast, and a fold that
+/// silently disagreed with its neighbours would be the thing to break first if
+/// either driver's row type were ever narrowed.
+///
+/// The `javascript-*` emit mode is the sole exception and must never cast:
+/// `as T` is not valid JavaScript. Those callers pass `|name, _ty|` by
+/// necessity, not by preference.
 ///
 /// The helper emits the fold loop into a string that is appended directly inside
 /// the function body; the caller is responsible for surrounding braces.
@@ -1330,61 +1273,6 @@ mod tests {
         );
     }
 
-    fn known_options() -> &'static [&'static str] {
-        &["row_type", "outer_join_unions", "structs_only", "field_case"]
-    }
-
-    #[test]
-    fn test_reject_unknown_options_accepts_known_keys() {
-        let mut options = HashMap::new();
-        options.insert("row_type".to_string(), "zod".to_string());
-        options.insert("field_case".to_string(), "camelCase".to_string());
-        reject_unknown_options(known_options(), &options).unwrap();
-    }
-
-    #[test]
-    fn test_reject_unknown_options_accepts_empty_map() {
-        reject_unknown_options(known_options(), &HashMap::new()).unwrap();
-    }
-
-    /// This must fail before `reject_unknown_options` existed: the default
-    /// `apply_options` returned `Ok(())` for any options map, so a typo like
-    /// `row_typ = "zod"` silently parsed as valid TOML and had no effect.
-    #[test]
-    fn test_reject_unknown_options_rejects_unrecognized_key() {
-        let mut options = HashMap::new();
-        options.insert("row_typ".to_string(), "zod".to_string());
-        let err = reject_unknown_options(known_options(), &options).expect_err("row_typ is not a known option");
-        let message = err.to_string();
-        assert!(message.contains("row_typ"), "{message}");
-        assert!(
-            message.contains("row_type"),
-            "error should list valid options: {message}"
-        );
-    }
-
-    #[test]
-    fn test_reject_unknown_options_suggests_close_typo() {
-        let mut options = HashMap::new();
-        options.insert("row_typ".to_string(), "zod".to_string());
-        let err = reject_unknown_options(known_options(), &options).expect_err("row_typ is not a known option");
-        assert!(
-            err.to_string().contains("did you mean 'row_type'?"),
-            "expected a did-you-mean suggestion: {err}"
-        );
-    }
-
-    #[test]
-    fn test_reject_unknown_options_no_suggestion_when_too_far() {
-        let mut options = HashMap::new();
-        options.insert("completely_unrelated_option".to_string(), "x".to_string());
-        let err = reject_unknown_options(known_options(), &options).expect_err("not a known option");
-        assert!(
-            !err.to_string().contains("did you mean"),
-            "should not suggest anything this far off: {err}"
-        );
-    }
-
     /// Structural guard for #81's critical correctness rule: a nullable
     /// column must be emitted as `{T | null}`, never as JSDoc's
     /// bracket-optional (`[name]`) or `?`-suffix property syntax (which mean
@@ -1506,12 +1394,25 @@ mod tests {
         );
     }
 
+    /// The three option parsers reach the same user input by a different
+    /// route, so they are pinned together rather than one standing in for all.
     #[test]
-    fn test_levenshtein_distance_basic_cases() {
-        assert_eq!(levenshtein_distance("row_type", "row_type"), 0);
-        assert_eq!(levenshtein_distance("row_typ", "row_type"), 1);
-        assert_eq!(levenshtein_distance("", "abc"), 3);
-        assert_eq!(levenshtein_distance("abc", ""), 3);
-        assert_eq!(levenshtein_distance("kitten", "sitting"), 3);
+    fn should_classify_bad_option_values_as_invalid_config() {
+        assert_eq!(
+            TsRowType::from_option("zodd").expect_err("unknown row_type").code,
+            ErrorCode::InvalidConfig
+        );
+        assert_eq!(
+            TsFieldCase::from_option("CamelCase")
+                .expect_err("unknown field_case")
+                .code,
+            ErrorCode::InvalidConfig
+        );
+        assert_eq!(
+            parse_bool_option("structs_only", "maybe")
+                .expect_err("non-boolean bool option")
+                .code,
+            ErrorCode::InvalidConfig
+        );
     }
 }

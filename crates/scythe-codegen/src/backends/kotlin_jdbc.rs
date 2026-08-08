@@ -11,6 +11,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/kotlin-jdbc.toml");
@@ -43,7 +44,7 @@ impl KotlinJdbcBackend {
             "oracle" => DEFAULT_MANIFEST_ORACLE,
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("unsupported engine '{}' for kotlin-jdbc backend", engine),
                 ));
             }
@@ -272,13 +273,15 @@ impl CodegenBackend for KotlinJdbcBackend {
     }
 
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(&["extension_functions", "field_case"], options)?;
+
         if let Some(v) = options.get("extension_functions") {
             self.extension_functions = match v.as_str() {
                 "true" => true,
                 "false" => false,
                 other => {
                     return Err(ScytheError::new(
-                        ErrorCode::InternalError,
+                        ErrorCode::InvalidConfig,
                         format!(
                             "kotlin-jdbc: invalid value '{other}' for extension_functions (expected 'true' or 'false')"
                         ),

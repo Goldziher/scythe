@@ -10,13 +10,13 @@ use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
 use crate::GeneratedCode;
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::GroupedQueryFn;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::{
     TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_enum,
     generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
-    reject_unknown_options,
 };
 use crate::singularize;
 
@@ -103,18 +103,46 @@ impl TypescriptKyselyBackend {
     /// Build the file header, importing the `Kysely` type only when something
     /// in the file actually needs it.
     fn header_with_kysely_import(&self, needs_kysely: bool) -> String {
+        let mut header = self.camel_case_plugin_note();
         if self.structs_only {
             if self.row_type == TsRowType::Zod {
-                return "import { z } from \"zod\";\n".to_string();
+                header.push_str("import { z } from \"zod\";\n");
             }
-            return String::new();
+            return header;
         }
         let kysely_type = if needs_kysely { "type Kysely, " } else { "" };
-        let mut header = format!("import {{ {kysely_type}type QueryExecutorProvider, sql }} from \"kysely\";\n");
+        let _ = writeln!(
+            header,
+            "import {{ {kysely_type}type QueryExecutorProvider, sql }} from \"kysely\";"
+        );
         if self.row_type == TsRowType::Zod {
             header.push_str("import { z } from \"zod\";\n");
         }
         header
+    }
+
+    /// Warn, in the generated file itself, that `field_case = "camelCase"` on
+    /// this backend is a promise the caller has to keep.
+    ///
+    /// Unlike every other TypeScript backend, kysely does not remap the row --
+    /// it indexes the driver row directly, so `field_case` here means "my
+    /// Kysely instance already has `CamelCasePlugin` installed" rather than
+    /// "rename the fields for me". Scythe cannot verify that at generation
+    /// time, and getting it wrong is silent: the declared type says `userId`,
+    /// the row carries `user_id`, every field reads back `undefined`, and
+    /// `tsc` stays green because the driver row is index-signature typed.
+    ///
+    /// A comment in the file is the only place this warning reaches someone
+    /// reading the generated code rather than the docs.
+    fn camel_case_plugin_note(&self) -> String {
+        if self.field_case != TsFieldCase::Camel {
+            return String::new();
+        }
+        "// scythe: this file was generated with field_case = \"camelCase\".\n\
+         // Kysely does not remap rows -- register CamelCasePlugin on your Kysely\n\
+         // instance or every field below reads back undefined at runtime:\n\
+         //   new Kysely({ dialect, plugins: [new CamelCasePlugin()] })\n"
+            .to_string()
     }
 }
 
@@ -1135,6 +1163,39 @@ mod tests {
             query_fn.contains("parent.children.push"),
             "must fold children; got:\n{query_fn}"
         );
+    }
+
+    /// The whole point of the note is that scythe cannot check the caller
+    /// actually registered the plugin, so the warning has to ride along in
+    /// the generated file. If it only appeared under `field_case`, and only
+    /// when structs are not suppressed, a `structs_only` project would lose
+    /// it -- so both shapes are pinned.
+    #[test]
+    fn should_emit_camel_case_plugin_note_only_under_camel_case() {
+        let plain = TypescriptKyselyBackend::new("postgresql").unwrap();
+        assert!(
+            !plain.file_header().contains("CamelCasePlugin"),
+            "the default snake_case config needs no plugin, so it must not warn about one"
+        );
+
+        for structs_only in [false, true] {
+            let mut backend = TypescriptKyselyBackend::new("postgresql").unwrap();
+            let mut options = std::collections::HashMap::from([("field_case".to_string(), "camelCase".to_string())]);
+            if structs_only {
+                options.insert("structs_only".to_string(), "true".to_string());
+            }
+            backend.apply_options(&options).unwrap();
+
+            let header = backend.file_header();
+            assert!(
+                header.contains("CamelCasePlugin"),
+                "field_case = camelCase must warn (structs_only = {structs_only}); got:\n{header}"
+            );
+            assert!(
+                header.contains("undefined"),
+                "the warning has to state the consequence, not just name the plugin; got:\n{header}"
+            );
+        }
     }
 
     /// CamelCasePlugin, when registered on the caller's `Kysely` instance,

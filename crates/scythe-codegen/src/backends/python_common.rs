@@ -1,5 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_core::errors::{ErrorCode, ScytheError};
+use scythe_core::errors::ScytheError;
 
 use std::fmt::Write as _;
 
@@ -16,18 +16,19 @@ pub enum PythonRowType {
 
 impl PythonRowType {
     /// Parse a row_type option string into a `PythonRowType`.
+    ///
+    /// A bad value here came from the user's `scythe.toml`, not from scythe's
+    /// own state, so it is classified `InvalidConfig` (not `InternalError`)
+    /// -- see [`ScytheError::invalid_config`].
     pub fn from_option(value: &str) -> Result<Self, ScytheError> {
         match value {
             "dataclass" => Ok(Self::Dataclass),
             "pydantic" => Ok(Self::Pydantic),
             "msgspec" => Ok(Self::Msgspec),
-            _ => Err(ScytheError::new(
-                ErrorCode::InternalError,
-                format!(
-                    "invalid row_type '{}': expected 'dataclass', 'pydantic', or 'msgspec'",
-                    value
-                ),
-            )),
+            _ => Err(ScytheError::invalid_config(format!(
+                "invalid row_type '{}': expected 'dataclass', 'pydantic', or 'msgspec'",
+                value
+            ))),
         }
     }
 

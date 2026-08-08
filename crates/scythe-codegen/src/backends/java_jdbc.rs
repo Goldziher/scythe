@@ -12,6 +12,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/java-jdbc.toml");
@@ -43,7 +44,7 @@ impl JavaJdbcBackend {
             "oracle" => DEFAULT_MANIFEST_ORACLE,
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("unsupported engine '{}' for java-jdbc backend", engine),
                 ));
             }
@@ -337,6 +338,8 @@ impl CodegenBackend for JavaJdbcBackend {
     }
 
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(&["field_case"], options)?;
+
         if let Some(value) = options.get("field_case") {
             super::apply_field_case_option(&mut self.manifest.naming, "java-jdbc", value)?;
         }
@@ -1109,6 +1112,38 @@ mod tests {
         let mut backend = JavaJdbcBackend::new("postgresql").unwrap();
         let result = backend.apply_options(&HashMap::from([("field_case".to_string(), "PascalCase".to_string())]));
         assert!(result.is_err(), "expected 'PascalCase' to be rejected");
+    }
+
+    /// #103: before this, java-jdbc inherited the `CodegenBackend` default
+    /// `apply_options` (`Ok(())` for any map), so a typo'd key like
+    /// `field_casing` was silently discarded here while the same typo was a
+    /// hard error on every TypeScript backend. The trait default now rejects
+    /// every key unless a backend declares it known, so this must fail the
+    /// same way `typescript-pg` already does for its own unknown keys.
+    #[test]
+    fn test_apply_options_rejects_unknown_key_with_invalid_config() {
+        let mut backend = JavaJdbcBackend::new("postgresql").unwrap();
+        let err = backend
+            .apply_options(&HashMap::from([("field_casing".to_string(), "camelCase".to_string())]))
+            .expect_err("field_casing is not a known java-jdbc option");
+        assert_eq!(err.code, scythe_core::errors::ErrorCode::InvalidConfig);
+        assert!(err.message.contains("field_casing"), "{}", err.message);
+        assert!(
+            err.message.contains("field_case"),
+            "error should list the real option: {}",
+            err.message
+        );
+    }
+
+    /// Regression guard for the same change: a real, known key must keep
+    /// working -- the risk with inverting the trait default is a false
+    /// positive that breaks every existing user's config.
+    #[test]
+    fn test_apply_options_accepts_known_key() {
+        let mut backend = JavaJdbcBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&HashMap::from([("field_case".to_string(), "camelCase".to_string())]))
+            .expect("field_case is a known java-jdbc option");
     }
 
     fn make_one_query_with_colliding_columns() -> AnalyzedQuery {

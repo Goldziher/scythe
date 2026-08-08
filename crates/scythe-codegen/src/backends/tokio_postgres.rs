@@ -9,6 +9,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::parse_bool_option;
 use crate::singularize;
@@ -104,6 +105,8 @@ impl CodegenBackend for TokioPostgresBackend {
     }
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(&["serde", "derive"], options)?;
+
         if let Some(val) = options.get("serde") {
             self.serde = parse_bool_option("serde", val)?;
         }

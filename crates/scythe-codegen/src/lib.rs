@@ -1,3 +1,4 @@
+pub mod backend_options;
 pub mod backend_trait;
 pub mod backends;
 pub mod overrides;

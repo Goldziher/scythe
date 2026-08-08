@@ -423,8 +423,9 @@ output = "out-plain"
 
 /// `manifest` must not be swallowed by the `#[serde(flatten)]` options
 /// catch-all on `[[sql.gen]]`. If it were, it would be handed to
-/// `apply_options` as a string option, every backend that does not recognise
-/// the key would ignore it, and the line would silently do nothing.
+/// `apply_options` as a string option, no backend declares `manifest` as a
+/// known key, and generation would fail outright (#103) instead of applying
+/// the overlay the line names.
 #[test]
 fn manifest_key_is_not_treated_as_a_backend_option() {
     let (dir, config_path) = project(&config_with_manifest(r#"manifest = "custom.toml""#));

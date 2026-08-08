@@ -8,6 +8,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-pdo.toml");
@@ -33,7 +34,7 @@ impl PhpPdoBackend {
             "snowflake" => DEFAULT_MANIFEST_SNOWFLAKE,
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("unsupported engine '{}' for php-pdo backend", engine),
                 ));
             }
@@ -186,6 +187,8 @@ impl CodegenBackend for PhpPdoBackend {
     }
 
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(&["namespace"], options)?;
+
         if let Some(ns) = options.get("namespace") {
             self.namespace = ns.clone();
         }

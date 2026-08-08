@@ -357,9 +357,25 @@ pub trait CodegenBackend: Send + Sync {
     }
 
     /// Apply per-backend configuration options from [[sql.gen]].
-    /// Backends override this to handle options like `row_type = "pydantic"`.
-    fn apply_options(&mut self, _options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
-        Ok(())
+    ///
+    /// Backends that take options override this: parse each one, and reject
+    /// anything else via [`crate::backend_options::reject_unknown_options`]
+    /// against that backend's own known-key list -- see any TypeScript
+    /// backend's `apply_options` for the established shape.
+    ///
+    /// The default rejects every key (an empty known-key list), which is the
+    /// correct behavior for the majority of backends that take no options at
+    /// all -- and, just as importantly, is what a brand-new backend gets for
+    /// free if its author forgets to override this. Before #103 the default
+    /// was `Ok(())`, so any unrecognized key -- a typo, or a real key that
+    /// TOML happily parsed but no override read -- was silently discarded
+    /// everywhere except the 11 TypeScript backends, which called
+    /// `reject_unknown_options` explicitly. The same typo behaving
+    /// differently depending on target language was itself a trap; inverting
+    /// the default closes it for every backend at once instead of requiring
+    /// each one to opt in.
+    fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
+        crate::backend_options::reject_unknown_options(&[], options)
     }
 
     /// Database engines this backend supports.

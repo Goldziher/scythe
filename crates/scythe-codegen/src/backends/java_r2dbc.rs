@@ -12,6 +12,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/java-r2dbc.toml");
@@ -33,7 +34,7 @@ impl JavaR2dbcBackend {
             "sqlite" | "sqlite3" => DEFAULT_MANIFEST_SQLITE,
             _ => {
                 return Err(ScytheError::new(
-                    ErrorCode::InternalError,
+                    ErrorCode::InvalidConfig,
                     format!("unsupported engine '{}' for java-r2dbc backend", engine),
                 ));
             }
@@ -160,6 +161,8 @@ impl CodegenBackend for JavaR2dbcBackend {
     }
 
     fn apply_options(&mut self, options: &HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(&["field_case"], options)?;
+
         if let Some(value) = options.get("field_case") {
             super::apply_field_case_option(&mut self.manifest.naming, "java-r2dbc", value)?;
         }
