@@ -1,0 +1,51 @@
+{
+  "name": "live_nullif_with_equal_operands_is_null",
+  "category": "nullability_live/nullif_nullable",
+  "description": "NULLIF returns NULL when its two operands are equal, so its result is nullable even when the input column is NOT NULL -- proven against a live engine rather than asserted",
+  "tags": ["nullability", "nullif", "live"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "query_sql": "-- @name GetUserNamesExceptAda\n-- @returns :many\nSELECT u.id, NULLIF(u.name, 'Ada Lovelace') AS maybe_name FROM users u ORDER BY u.id",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "GetUserNamesExceptAda",
+      "command": "many",
+      "params": [],
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "maybe_name",
+          "nullable": true,
+          "type": "string",
+          "note": "NOT NULL in the schema, but NULLIF yields NULL for the row whose name matches the literal"
+        }
+      ]
+    }
+  },
+  "source": "original",
+  "sqlc_comparison": {
+    "sqlc_behavior": "sqlc propagates the NOT NULL of the first argument, so NULLIF(name, ...) is typed non-nullable",
+    "scythe_improvement": "scythe treats NULLIF as nullable by construction, and this fixture makes an engine return the NULL for the matching row"
+  },
+  "live": {
+    "schema_profile": "users_orders",
+    "engines": ["postgresql", "mysql", "mariadb", "sqlite", "mssql", "oracle"],
+    "runs": [
+      {
+        "name": "one_matching_one_not",
+        "seed": {
+          "default": [
+            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+            "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', 'grace@example.com')"
+          ]
+        },
+        "rows": [
+          { "non_null": ["id"], "null": ["maybe_name"] },
+          { "non_null": ["id", "maybe_name"], "null": [] }
+        ]
+      }
+    ]
+  }
+}

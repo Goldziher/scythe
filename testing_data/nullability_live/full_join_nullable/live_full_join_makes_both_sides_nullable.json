@@ -1,0 +1,60 @@
+{
+  "name": "live_full_join_makes_both_sides_nullable",
+  "category": "nullability_live/full_join_nullable",
+  "description": "FULL JOIN makes NOT NULL columns on BOTH sides nullable, since a row can be unmatched in either direction. Joins users to tags rather than users to orders: orders.user_id carries a foreign key to users, so no order can ever be unmatched and the join would degenerate to a LEFT JOIN, proving only half the rule.",
+  "tags": ["nullability", "full_join", "live"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE tags (id SERIAL PRIMARY KEY, name TEXT NOT NULL UNIQUE)"
+  ],
+  "query_sql": "-- @name GetUsersFullJoinedToTags\n-- @returns :many\nSELECT u.name AS user_name, t.name AS tag_name FROM users u FULL JOIN tags t ON u.id = t.id ORDER BY COALESCE(u.id, t.id)",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "GetUsersFullJoinedToTags",
+      "command": "many",
+      "params": [],
+      "columns": [
+        {
+          "name": "user_name",
+          "nullable": true,
+          "type": "string",
+          "note": "NOT NULL in schema but nullable: a tag with no matching user leaves the whole users side NULL"
+        },
+        {
+          "name": "tag_name",
+          "nullable": true,
+          "type": "string",
+          "note": "NOT NULL in schema but nullable: a user with no matching tag leaves the whole tags side NULL"
+        }
+      ]
+    }
+  },
+  "source": "original",
+  "sqlc_comparison": {
+    "sqlc_behavior": "sqlc keeps both sides non-nullable, so a FULL JOIN generates two fields that are both wrong",
+    "scythe_improvement": "scythe marks both sides nullable, and this fixture seeds genuinely unmatched rows on each side so the engine returns a NULL in both columns"
+  },
+  "live": {
+    "schema_profile": "users_orders",
+    "engines": ["postgresql", "sqlite", "mssql", "oracle"],
+    "runs": [
+      {
+        "name": "unmatched_on_each_side",
+        "seed": {
+          "default": [
+            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+            "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', 'grace@example.com')",
+            "INSERT INTO tags (id, name) VALUES (2, 'mathematician')",
+            "INSERT INTO tags (id, name) VALUES (3, 'compiler')"
+          ]
+        },
+        "rows": [
+          { "non_null": ["user_name"], "null": ["tag_name"] },
+          { "non_null": ["user_name", "tag_name"], "null": [] },
+          { "non_null": ["tag_name"], "null": ["user_name"] }
+        ]
+      }
+    ]
+  }
+}

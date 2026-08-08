@@ -1,0 +1,51 @@
+{
+  "name": "live_case_without_else_is_null",
+  "category": "nullability_live/case_nullable",
+  "description": "A CASE expression with no ELSE branch falls through to NULL when no WHEN matches, so its result is nullable even when every branch returns a NOT NULL column",
+  "tags": ["nullability", "case", "live"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "query_sql": "-- @name GetNamesOfUsersWithEmail\n-- @returns :many\nSELECT u.id, CASE WHEN u.email IS NOT NULL THEN u.name END AS conditional_name FROM users u ORDER BY u.id",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "GetNamesOfUsersWithEmail",
+      "command": "many",
+      "params": [],
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "conditional_name",
+          "nullable": true,
+          "type": "string",
+          "note": "the only branch returns NOT NULL name, but an unmatched CASE with no ELSE yields NULL"
+        }
+      ]
+    }
+  },
+  "source": "original",
+  "sqlc_comparison": {
+    "sqlc_behavior": "sqlc infers the CASE result from its branch types and misses the implicit NULL of the absent ELSE",
+    "scythe_improvement": "scythe treats a CASE without ELSE as nullable, and the second seeded user has no email so the engine returns the NULL"
+  },
+  "live": {
+    "schema_profile": "users_orders",
+    "engines": ["postgresql", "mysql", "mariadb", "sqlite", "mssql", "oracle"],
+    "runs": [
+      {
+        "name": "one_with_email_one_without",
+        "seed": {
+          "default": [
+            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+            "INSERT INTO users (id, name) VALUES (2, 'Grace Hopper')"
+          ]
+        },
+        "rows": [
+          { "non_null": ["id", "conditional_name"], "null": [] },
+          { "non_null": ["id"], "null": ["conditional_name"] }
+        ]
+      }
+    ]
+  }
+}

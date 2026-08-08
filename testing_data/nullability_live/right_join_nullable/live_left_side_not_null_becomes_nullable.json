@@ -1,0 +1,60 @@
+{
+  "name": "live_right_join_left_side_not_null_becomes_nullable",
+  "category": "nullability_live/right_join_nullable",
+  "description": "RIGHT JOIN makes left-side NOT NULL columns nullable -- the mirror of the LEFT JOIN rule, and a separate code path in the analyzer",
+  "tags": ["nullability", "right_join", "live"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC(10, 2) NOT NULL, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "query_sql": "-- @name GetUsersWithOrdersRightJoined\n-- @returns :many\nSELECT u.id, o.id AS order_id, o.total FROM orders o RIGHT JOIN users u ON o.user_id = u.id ORDER BY u.id",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "GetUsersWithOrdersRightJoined",
+      "command": "many",
+      "params": [],
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "order_id",
+          "nullable": true,
+          "type": "int32",
+          "note": "PRIMARY KEY on the left side of a RIGHT JOIN, so nullable for an unmatched user"
+        },
+        {
+          "name": "total",
+          "nullable": true,
+          "type": "decimal",
+          "note": "NOT NULL in schema but nullable because orders is the left side of a RIGHT JOIN"
+        }
+      ]
+    }
+  },
+  "source": "original",
+  "sqlc_comparison": {
+    "sqlc_behavior": "sqlc keeps left-side columns non-nullable, ignoring the RIGHT JOIN just as it ignores the LEFT JOIN",
+    "scythe_improvement": "scythe applies the outer-join rule to whichever side is optional, and the second seeded user has no order so the engine returns the NULLs"
+  },
+  "live": {
+    "schema_profile": "users_orders",
+    "engines": ["postgresql", "mysql", "mariadb", "sqlite", "mssql", "oracle"],
+    "runs": [
+      {
+        "name": "one_matched_one_unmatched",
+        "seed": {
+          "default": [
+            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+            "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', 'grace@example.com')",
+            "INSERT INTO orders (id, user_id, total) VALUES (1, 1, 42.50)"
+          ]
+        },
+        "rows": [
+          { "non_null": ["id", "order_id", "total"], "null": [] },
+          { "non_null": ["id"], "null": ["order_id", "total"] }
+        ]
+      }
+    ],
+    "null_together": [["order_id", "total"]]
+  }
+}
