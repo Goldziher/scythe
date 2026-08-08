@@ -14,8 +14,14 @@ pub mod sqlite;
 #[cfg(any(feature = "mysql", feature = "mariadb"))]
 pub mod mysql;
 
-/// A namespace name (a Postgres schema, a MySQL database) unique to this
-/// call, for an executor to isolate itself into.
+#[cfg(feature = "mssql")]
+pub mod mssql;
+
+#[cfg(feature = "oracle")]
+pub mod oracle;
+
+/// A namespace name (a Postgres schema, a MySQL/SQL Server database, an
+/// Oracle user) unique to this call, for an executor to isolate itself into.
 ///
 /// It must be unique per *connection*, not per process. `run_one_leg`
 /// connects once per (fixture, engine), and the test binary runs its
@@ -36,11 +42,39 @@ pub mod mysql;
 /// `Drop`, and the containers CI uses are discarded wholesale. A developer
 /// pointing this at a long-lived database will accumulate
 /// `scythe_conformance_*` namespaces and can drop them by prefix.
-#[cfg(any(feature = "pg", feature = "mysql", feature = "mariadb"))]
+#[cfg(any(
+    feature = "pg",
+    feature = "mysql",
+    feature = "mariadb",
+    feature = "mssql",
+    feature = "oracle"
+))]
 pub(crate) fn unique_namespace() -> String {
     use std::sync::atomic::{AtomicU64, Ordering};
 
     static COUNTER: AtomicU64 = AtomicU64::new(0);
     let n = COUNTER.fetch_add(1, Ordering::Relaxed);
     format!("scythe_conformance_{}_{}", std::process::id(), n)
+}
+
+/// Splits `sql` on top-level `;` terminators.
+///
+/// This is a naive split -- it has no notion of string literals or
+/// comments -- which is safe only because this crate's schema files are
+/// plain DDL with no embedded semicolons. It is not a general SQL statement
+/// splitter and must not be reused for arbitrary SQL.
+///
+/// Shared by the three drivers whose clients refuse a multi-statement
+/// batch: `mysql_async` (MySQL/MariaDB) does not enable multi-statement
+/// queries by default, T-SQL rejects `CREATE`-family statements that are
+/// not first in their batch, and OCI accepts exactly one statement per
+/// prepare. PostgreSQL (`batch_execute`) and SQLite (`execute_batch`) send
+/// the file verbatim and never call this.
+#[cfg(any(feature = "mysql", feature = "mariadb", feature = "mssql", feature = "oracle"))]
+pub(crate) fn split_statements(sql: &str) -> Vec<String> {
+    sql.split(';')
+        .map(str::trim)
+        .filter(|statement| !statement.is_empty())
+        .map(str::to_string)
+        .collect()
 }

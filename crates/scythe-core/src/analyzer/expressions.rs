@@ -34,7 +34,10 @@ impl<'a> Analyzer<'a> {
                 if value_is_number(vws) {
                     TypeInfo::new("int64", false)
                 } else if value_is_string(vws) {
-                    TypeInfo::new("string", false)
+                    // A string literal is non-nullable everywhere except
+                    // Oracle's `''`, which the engine stores as NULL --
+                    // see `value_is_null_in_dialect`.
+                    TypeInfo::new("string", value_is_null_in_dialect(vws, self.catalog.dialect()))
                 } else if value_is_boolean(vws) {
                     TypeInfo::new("bool", false)
                 } else if value_is_null(vws) {
@@ -442,7 +445,10 @@ impl<'a> Analyzer<'a> {
                     if result_type == "unknown" && ti.neutral_type != "unknown" {
                         result_type = ti.neutral_type.clone();
                     }
-                    if !ti.nullable || is_literal(arg) {
+                    // `is_non_null_literal`, not `is_literal`: on Oracle a
+                    // `''` fallback proves nothing, because the engine
+                    // returns NULL for it.
+                    if !ti.nullable || is_non_null_literal(arg, self.catalog.dialect()) {
                         any_non_nullable = true;
                     }
                     if coalesce_name.is_none()
@@ -620,6 +626,10 @@ mod tests {
 
     fn empty_catalog() -> Catalog {
         Catalog::from_ddl(&[]).unwrap()
+    }
+
+    fn empty_catalog_with_dialect(dialect: crate::dialect::SqlDialect) -> Catalog {
+        Catalog::from_ddl_with_dialect(&[], &dialect).unwrap()
     }
 
     fn make_analyzer(catalog: &Catalog) -> Analyzer<'_> {
@@ -1076,6 +1086,63 @@ mod tests {
         let ti = analyzer.infer_function_type(&func, &scope);
         assert_eq!(ti.neutral_type, "string");
         assert!(!ti.nullable, "coalesce with a literal fallback should not be nullable");
+    }
+
+    #[test]
+    fn coalesce_with_an_empty_string_fallback_is_nullable_on_oracle() {
+        // Oracle stores `''` as NULL, so the fallback is itself NULL and
+        // COALESCE really can return NULL. Inferring this non-nullable made
+        // codegen emit a non-optional field that the driver then could not
+        // decode -- caught by the live Oracle conformance leg as an A2
+        // soundness failure, see
+        // `testing_data/nullability_live/coalesce_non_null/live_coalesce_with_empty_string_default_is_null_on_oracle.json`.
+        let catalog = empty_catalog_with_dialect(crate::dialect::SqlDialect::Oracle);
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func("coalesce", vec![col_expr("x"), string_literal("")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert!(
+            ti.nullable,
+            "on Oracle an empty-string COALESCE fallback proves nothing about nullability"
+        );
+    }
+
+    #[test]
+    fn coalesce_with_an_empty_string_fallback_is_not_nullable_off_oracle() {
+        // The counterpart the Oracle branch must not overreach into: every
+        // other engine keeps `''` distinct from NULL, so the fallback does
+        // guarantee non-NULL there and marking it nullable would be a
+        // gratuitous `Option` in generated code for five of six engines.
+        for dialect in [
+            crate::dialect::SqlDialect::PostgreSQL,
+            crate::dialect::SqlDialect::MySQL,
+            crate::dialect::SqlDialect::SQLite,
+            crate::dialect::SqlDialect::MsSql,
+            crate::dialect::SqlDialect::Snowflake,
+        ] {
+            let catalog = empty_catalog_with_dialect(dialect);
+            let mut analyzer = make_analyzer(&catalog);
+            let scope = empty_scope();
+            let func = make_func("coalesce", vec![col_expr("x"), string_literal("")]);
+            let ti = analyzer.infer_function_type(&func, &scope);
+            assert!(
+                !ti.nullable,
+                "{dialect:?} keeps '' distinct from NULL, so the fallback guarantees non-NULL"
+            );
+        }
+    }
+
+    #[test]
+    fn a_non_empty_string_fallback_is_still_non_nullable_on_oracle() {
+        // The Oracle branch is about the *empty* literal only: `''` is NULL
+        // there, `'none'` is not. Widening it to every string literal would
+        // make every COALESCE on Oracle nullable.
+        let catalog = empty_catalog_with_dialect(crate::dialect::SqlDialect::Oracle);
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func("coalesce", vec![col_expr("x"), string_literal("none")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert!(!ti.nullable, "a non-empty literal fallback is non-NULL on Oracle too");
     }
 
     #[test]

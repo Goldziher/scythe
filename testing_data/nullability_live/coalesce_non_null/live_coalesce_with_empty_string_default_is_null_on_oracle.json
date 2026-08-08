@@ -1,0 +1,62 @@
+{
+  "name": "live_coalesce_with_empty_string_default_is_null_on_oracle",
+  "category": "nullability_live/coalesce_non_null",
+  "description": "COALESCE over a nullable column with an EMPTY string default is non-nullable on every engine except Oracle, which stores '' as NULL; the analyzer must be dialect-aware here or it renders a non-optional column that Oracle then returns NULL for",
+  "tags": ["nullability", "coalesce", "live", "oracle", "dialect"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
+  ],
+  "query_sql": "-- @name ListUserEmailsWithEmptyDefault\n-- @returns :many\nSELECT id, COALESCE(email, '') AS email_or_empty FROM users ORDER BY id",
+  "expected": {
+    "success": true,
+    "query": {
+      "name": "ListUserEmailsWithEmptyDefault",
+      "command": "many",
+      "params": [],
+      "columns": [
+        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "email_or_empty",
+          "nullable": false,
+          "type": "string",
+          "note": "'' is a value distinct from NULL under this fixture's default (PostgreSQL) dialect, so the COALESCE fallback really does guarantee non-NULL there"
+        }
+      ]
+    }
+  },
+  "source": "original",
+  "sqlc_comparison": {
+    "sqlc_behavior": "sqlc marks the COALESCE result nullable on every engine because its first argument is nullable, so it never has to decide what '' means",
+    "scythe_improvement": "scythe infers non-nullable from the literal fallback, which is correct everywhere except Oracle -- and this fixture is the one that forces that exception to be real inference rather than a footnote, by making Oracle return the NULL"
+  },
+  "live": {
+    "schema_profile": "users_orders",
+    "engines": ["postgresql", "mysql", "mariadb", "sqlite", "mssql", "oracle"],
+    "runs": [
+      {
+        "name": "one_with_email_one_without",
+        "seed": {
+          "default": [
+            "INSERT INTO users (id, name, email) VALUES (1, 'Ada Lovelace', 'ada@example.com')",
+            "INSERT INTO users (id, name, email) VALUES (2, 'Grace Hopper', NULL)"
+          ]
+        },
+        "rows": [
+          { "non_null": ["id", "email_or_empty"], "null": [] },
+          { "non_null": ["id", "email_or_empty"], "null": [] }
+        ]
+      }
+    ],
+    "engine_expectations": {
+      "oracle": {
+        "reason": "Oracle stores the empty string as NULL, so COALESCE(email, '') falls back to a value that is itself NULL. This is a real semantic difference in the engine, not a defect in the fixture -- and it is exactly why the analyzer's nullability for this expression has to depend on the dialect.",
+        "runs": {
+          "one_with_email_one_without": [
+            { "non_null": ["id", "email_or_empty"], "null": [] },
+            { "non_null": ["id"], "null": ["email_or_empty"] }
+          ]
+        }
+      }
+    }
+  }
+}

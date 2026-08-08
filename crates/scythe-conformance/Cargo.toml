@@ -6,15 +6,6 @@ license = "MIT"
 publish = false
 description = "Live-database conformance suite for scythe nullability inference"
 
-[package.metadata.cargo-machete]
-# sibyl (Oracle) and tiberius/tokio-util (MSSQL) are optional, feature-gated,
-# and deliberately unused: their features exist for the license check (see
-# crate-level docs) and declare the feature flags, but no Executor
-# implementation lands for either engine until a later batch -- see
-# `src/runner.rs`'s module docs. mysql_async, rusqlite, tokio, and
-# tokio-postgres are all used by the four executors this batch adds.
-ignored = ["sibyl", "tiberius", "tokio-util"]
-
 [features]
 default = []
 # Per-engine live drivers. Each pulls in the engine's native client crate;
@@ -28,8 +19,8 @@ mysql = ["dep:mysql_async"]
 # other.
 mariadb = ["dep:mysql_async"]
 sqlite = ["dep:rusqlite"]
-mssql = ["dep:tiberius", "dep:tokio-util"]
-oracle = ["dep:sibyl", "dep:tokio"]
+mssql = ["dep:tiberius", "dep:tokio-util", "dep:tokio", "dep:url"]
+oracle = ["dep:sibyl", "dep:tokio", "dep:url"]
 # Gate for actually dialing a database in tests (vs. compiling the executor
 # impls). Kept separate from the per-engine features so CI can compile-check
 # drivers without a live container.
@@ -60,6 +51,10 @@ tokio = { version = "1", features = ["rt-multi-thread"], optional = true }
 tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"], optional = true }
 tokio-util = { version = "0.7", features = ["compat"], optional = true }
 toml = "1.1"
+# Only for parsing the `sqlserver://` and `oracle://` connection URLs:
+# neither `tiberius` nor `sibyl` accepts a URL, unlike `tokio_postgres` and
+# `mysql_async`, which parse their own.
+url = { version = "2", optional = true }
 
 [dev-dependencies]
 tempfile = "3"

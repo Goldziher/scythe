@@ -25,8 +25,7 @@
 //! `cargo test --workspace` and `cargo clippy --workspace -- -D warnings`
 //! exercise them without a container. Per-engine drivers live in
 //! [`executors`], each behind its own Cargo feature (`pg`, `mysql`,
-//! `mariadb`, `sqlite` implemented this batch; `mssql` and `oracle` declare
-//! their feature flags for the license check but have no driver yet), plus
+//! `mariadb`, `sqlite`, `mssql`, `oracle` -- all six engines), plus
 //! the `live-tests` gate for actually dialing a database. [`runner`] wires
 //! a driver, the analyzer, codegen, and the four assertions together into
 //! real verdicts -- see its module docs for how it handles an engine that
