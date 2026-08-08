@@ -22,23 +22,26 @@
 //! of them is a skip:
 //!
 //! - **Selected but not runnable** (its feature is off, or it has no
-//!   connection configuration, or -- for MSSQL/Oracle this batch -- no
-//!   driver has been written yet at all): a **hard error**. [`run`] returns
-//!   `Err` before evaluating a single fixture. Asking to run an engine that
+//!   connection configuration): a **hard error**. [`run`] returns `Err`
+//!   before evaluating a single fixture. Asking to run an engine that
 //!   cannot run is a misconfiguration, not a scoping decision, and must
 //!   stop the whole batch rather than silently produce a partial result.
 //! - **Listed by a fixture but not selected for this invocation** (e.g. a
-//!   fixture lists Oracle/MSSQL while this batch only selected PostgreSQL,
-//!   SQLite, MySQL, and MariaDB): an **explicit, recorded skip**. It is
-//!   pushed onto [`RunReport::skipped`] with the fixture name, engine, and
-//!   a reason, so it is always visible in the report -- never indistinguishable
-//!   from a pass, and never simply absent.
+//!   fixture lists all six engines while this job selected only Oracle):
+//!   an **explicit, recorded skip**. It is pushed onto
+//!   [`RunReport::skipped`] with the fixture name, engine, and a reason, so
+//!   it is always visible in the report -- never indistinguishable from a
+//!   pass, and never simply absent.
 //!
-//! The second case has to be a skip rather than a hard error precisely
-//! *because* this crate is being brought up engine-by-engine (this batch is
-//! PostgreSQL/SQLite/MySQL/MariaDB; MSSQL/Oracle are held for later): a
-//! fixture is allowed to list an engine this repo doesn't run yet without
-//! failing every other engine's legs.
+//! The second case has to be a skip rather than a hard error because the CI
+//! matrix runs one engine per job: each job compiles exactly one driver
+//! feature, so every other engine a fixture lists is out of scope for that
+//! invocation and must not fail it.
+//!
+//! All six engines now have a driver. The `EngineNotCompiled` arm is what
+//! remains of the bring-up: it fires when an engine is *selected* in a
+//! build that did not compile its feature, which is still a
+//! misconfiguration rather than a scoping decision.
 
 use std::path::PathBuf;
 
@@ -71,6 +74,16 @@ pub struct RunnerConfig {
     pub mysql_admin_url: Option<String>,
     /// Same as `mysql_admin_url`, for MariaDB. Required iff `Engine::Mariadb` is selected.
     pub mariadb_admin_url: Option<String>,
+    /// `sqlserver://user:pass@host:port?database=db` connection URL for SQL
+    /// Server. Required iff `Engine::Mssql` is selected. Admin, for the same
+    /// reason as MySQL's: the runner creates a database per connection to
+    /// isolate itself, which the per-app login cannot do.
+    pub mssql_admin_url: Option<String>,
+    /// `oracle://user:pass@host:port/service` connection URL. Required iff
+    /// `Engine::Oracle` is selected. Admin, and more strictly so than the
+    /// others: Oracle's unit of isolation is a *user*, so this credential
+    /// must be able to `CREATE USER` and grant privileges.
+    pub oracle_admin_url: Option<String>,
 }
 
 impl RunnerConfig {
@@ -85,6 +98,8 @@ impl RunnerConfig {
             postgres_url: std::env::var("SCYTHE_CONFORMANCE_POSTGRES_URL").ok(),
             mysql_admin_url: std::env::var("SCYTHE_CONFORMANCE_MYSQL_ADMIN_URL").ok(),
             mariadb_admin_url: std::env::var("SCYTHE_CONFORMANCE_MARIADB_ADMIN_URL").ok(),
+            mssql_admin_url: std::env::var("SCYTHE_CONFORMANCE_MSSQL_ADMIN_URL").ok(),
+            oracle_admin_url: std::env::var("SCYTHE_CONFORMANCE_ORACLE_ADMIN_URL").ok(),
         }
     }
 }
@@ -150,8 +165,6 @@ impl RunReport {
 
 #[derive(Debug, thiserror::Error)]
 pub enum RunnerError {
-    #[error("engine {engine} was selected to run, but no live driver has been implemented for it yet in this crate")]
-    EngineNotImplemented { engine: Engine },
     #[error("engine {engine} was selected to run, but this crate was not compiled with its {feature:?} feature")]
     EngineNotCompiled { engine: Engine, feature: &'static str },
     #[error("engine {engine} was selected to run, but no connection configuration was provided for it")]
@@ -241,18 +254,50 @@ pub enum RunnerError {
 /// active Cargo features -- `cfg!()` evaluates to a compile-time-constant
 /// bool, so this function is exhaustive and correct regardless of which
 /// features are active, without itself needing `#[cfg(feature = ...)]`.
-/// MSSQL and Oracle report `false` unconditionally: no driver exists for
-/// them in this crate yet, independent of their Cargo features being
-/// declared (see `Cargo.toml`'s `mssql`/`oracle` features, which currently
-/// only pull in the driver dependency for the license/compile check -- see
-/// the crate-level docs).
 fn is_compiled(engine: Engine) -> bool {
     match engine {
         Engine::Postgresql => cfg!(feature = "pg"),
         Engine::Sqlite => cfg!(feature = "sqlite"),
         Engine::Mysql => cfg!(feature = "mysql"),
         Engine::Mariadb => cfg!(feature = "mariadb"),
-        Engine::Mssql | Engine::Oracle => false,
+        Engine::Mssql => cfg!(feature = "mssql"),
+        Engine::Oracle => cfg!(feature = "oracle"),
+    }
+}
+
+/// The Cargo feature that compiles `engine`'s driver in, named in the
+/// `EngineNotCompiled` error so the fix is stated rather than guessed at.
+fn feature_for(engine: Engine) -> &'static str {
+    match engine {
+        Engine::Postgresql => "pg",
+        Engine::Sqlite => "sqlite",
+        Engine::Mysql => "mysql",
+        Engine::Mariadb => "mariadb",
+        Engine::Mssql => "mssql",
+        Engine::Oracle => "oracle",
+    }
+}
+
+/// The codegen backend whose rendered output stands in for "what scythe
+/// actually generates" when computing G for `engine`.
+///
+/// Every arm is a *Rust* backend, and every one of their manifests renders
+/// an optional column as `Option<{T}>`. That is what makes G comparable
+/// across engines: A1 fidelity and A2 soundness both ask whether the
+/// generated code wraps a column, so if two engines were checked against
+/// backends in different target languages, a difference in G could just be
+/// a difference in how those languages spell "optional" rather than a
+/// difference in scythe's inference.
+///
+/// `rust-sqlx` cannot be used uniformly: sqlx has no SQL Server or Oracle
+/// driver, and `get_backend` rejects those engines outright rather than
+/// quietly substituting a manifest -- which is how the first MSSQL leg
+/// surfaced as a hard `Resolve` error instead of a wrong verdict.
+fn representative_backend(engine: Engine) -> &'static str {
+    match engine {
+        Engine::Postgresql | Engine::Mysql | Engine::Mariadb | Engine::Sqlite => "rust-sqlx",
+        Engine::Mssql => "rust-tiberius",
+        Engine::Oracle => "rust-sibyl",
     }
 }
 
@@ -261,25 +306,19 @@ fn is_compiled(engine: Engine) -> bool {
 /// every selected engine *before* [`run`] evaluates a single fixture, so a
 /// misconfigured batch fails fast instead of partway through.
 fn ensure_available(engine: Engine, config: &RunnerConfig) -> Result<(), RunnerError> {
-    if matches!(engine, Engine::Mssql | Engine::Oracle) {
-        return Err(RunnerError::EngineNotImplemented { engine });
-    }
     if !is_compiled(engine) {
-        let feature = match engine {
-            Engine::Postgresql => "pg",
-            Engine::Sqlite => "sqlite",
-            Engine::Mysql => "mysql",
-            Engine::Mariadb => "mariadb",
-            Engine::Mssql | Engine::Oracle => unreachable!("handled by the EngineNotImplemented check above"),
-        };
-        return Err(RunnerError::EngineNotCompiled { engine, feature });
+        return Err(RunnerError::EngineNotCompiled {
+            engine,
+            feature: feature_for(engine),
+        });
     }
     let has_connection_config = match engine {
         Engine::Postgresql => config.postgres_url.is_some(),
         Engine::Mysql => config.mysql_admin_url.is_some(),
         Engine::Mariadb => config.mariadb_admin_url.is_some(),
+        Engine::Mssql => config.mssql_admin_url.is_some(),
+        Engine::Oracle => config.oracle_admin_url.is_some(),
         Engine::Sqlite => true, // in-memory, no external configuration needed
-        Engine::Mssql | Engine::Oracle => unreachable!("handled by the EngineNotImplemented check above"),
     };
     if !has_connection_config {
         return Err(RunnerError::MissingConnectionConfig { engine });
@@ -332,12 +371,18 @@ pub async fn run(
 /// wildcard and no arm that silently does nothing.
 ///
 /// `fixture` and `config` go genuinely unused when no driver feature is
-/// active (every arm degenerates to its `EngineNotCompiled`/
-/// `EngineNotImplemented` branch) -- the `allow` below is scoped to exactly
-/// that configuration via `cfg_attr`, so a build with any driver feature on
-/// keeps the lint live.
+/// active (every arm degenerates to its `EngineNotCompiled` branch) -- the
+/// `allow` below is scoped to exactly that configuration via `cfg_attr`, so
+/// a build with any driver feature on keeps the lint live.
 #[cfg_attr(
-    not(any(feature = "pg", feature = "sqlite", feature = "mysql", feature = "mariadb")),
+    not(any(
+        feature = "pg",
+        feature = "sqlite",
+        feature = "mysql",
+        feature = "mariadb",
+        feature = "mssql",
+        feature = "oracle"
+    )),
     allow(unused_variables)
 )]
 async fn run_one_leg(fixture: &LiveFixture, engine: Engine, config: &RunnerConfig) -> Result<Verdict, RunnerError> {
@@ -431,7 +476,54 @@ async fn run_one_leg(fixture: &LiveFixture, engine: Engine, config: &RunnerConfi
                 })
             }
         }
-        Engine::Mssql | Engine::Oracle => Err(RunnerError::EngineNotImplemented { engine }),
+        Engine::Mssql => {
+            #[cfg(feature = "mssql")]
+            {
+                let url = config
+                    .mssql_admin_url
+                    .as_deref()
+                    .ok_or(RunnerError::MissingConnectionConfig { engine })?;
+                let executor = crate::executors::mssql::MssqlExecutor::connect(url)
+                    .await
+                    .map_err(|source| RunnerError::Connect {
+                        fixture: fixture.name.clone(),
+                        engine,
+                        reason: source.to_string(),
+                    })?;
+                evaluate_fixture(fixture, executor, config).await
+            }
+            #[cfg(not(feature = "mssql"))]
+            {
+                Err(RunnerError::EngineNotCompiled {
+                    engine,
+                    feature: "mssql",
+                })
+            }
+        }
+        Engine::Oracle => {
+            #[cfg(feature = "oracle")]
+            {
+                let url = config
+                    .oracle_admin_url
+                    .as_deref()
+                    .ok_or(RunnerError::MissingConnectionConfig { engine })?;
+                let executor = crate::executors::oracle::OracleExecutor::connect(url)
+                    .await
+                    .map_err(|source| RunnerError::Connect {
+                        fixture: fixture.name.clone(),
+                        engine,
+                        reason: source.to_string(),
+                    })?;
+                evaluate_fixture(fixture, executor, config).await
+            }
+            #[cfg(not(feature = "oracle"))]
+            {
+                Err(RunnerError::EngineNotCompiled {
+                    engine,
+                    feature: "oracle",
+                })
+            }
+        }
     }
 }
 
@@ -445,7 +537,14 @@ async fn run_one_leg(fixture: &LiveFixture, engine: Engine, config: &RunnerConfi
 /// Only called from [`run_one_leg`]'s feature-gated branches, so it is dead
 /// code in a build with no driver feature active -- see the `allow` there.
 #[cfg_attr(
-    not(any(feature = "pg", feature = "sqlite", feature = "mysql", feature = "mariadb")),
+    not(any(
+        feature = "pg",
+        feature = "sqlite",
+        feature = "mysql",
+        feature = "mariadb",
+        feature = "mssql",
+        feature = "oracle"
+    )),
     allow(dead_code)
 )]
 async fn evaluate_fixture<E: Executor>(
@@ -456,8 +555,18 @@ async fn evaluate_fixture<E: Executor>(
     let engine = E::ENGINE;
     let err_ctx = || (fixture.name.clone(), engine);
 
+    // The analyzer must run under the dialect of the engine this leg is
+    // about to query, not under the default (PostgreSQL). Every
+    // dialect-aware inference rule in `scythe_core` keys off
+    // `Catalog::dialect()`, so parsing every fixture as PostgreSQL would
+    // make all of them dead code from this suite's point of view -- it
+    // would compare a PostgreSQL-flavoured inference against Oracle's
+    // actual behaviour and call the difference a divergence. `schema_sql`
+    // stays the portable DDL: what changes here is the grammar and
+    // semantics it is read under, not the schema.
+    let dialect = engine.dialect();
     let schema_refs: Vec<&str> = fixture.schema_sql.iter().map(String::as_str).collect();
-    let catalog = scythe_core::catalog::Catalog::from_ddl(&schema_refs).map_err(|source| {
+    let catalog = scythe_core::catalog::Catalog::from_ddl_with_dialect(&schema_refs, &dialect).map_err(|source| {
         let (fixture, engine) = err_ctx();
         RunnerError::Analysis {
             fixture,
@@ -465,7 +574,7 @@ async fn evaluate_fixture<E: Executor>(
             source,
         }
     })?;
-    let query = scythe_core::parser::parse_query(&fixture.query_sql).map_err(|source| {
+    let query = scythe_core::parser::parse_query_with_dialect(&fixture.query_sql, &dialect).map_err(|source| {
         let (fixture, engine) = err_ctx();
         RunnerError::Analysis {
             fixture,
@@ -482,12 +591,8 @@ async fn evaluate_fixture<E: Executor>(
         }
     })?;
 
-    // Representative backend for computing G (rendered nullability): the
-    // sqlx family supports every engine in this batch through one manifest
-    // family, so using it uniformly keeps the comparison apples-to-apples
-    // across engines instead of picking a different target language per
-    // engine for no principled reason.
-    let backend = scythe_codegen::get_backend("rust-sqlx", engine.as_str()).map_err(|source| {
+    // Representative backend for computing G (rendered nullability).
+    let backend = scythe_codegen::get_backend(representative_backend(engine), engine.as_str()).map_err(|source| {
         let (fixture, engine) = err_ctx();
         RunnerError::Resolve {
             fixture,
