@@ -125,7 +125,12 @@ pub fn resolve_params(
 /// regardless of `field_case`: it is O(n^2) over one query's column or
 /// param list, typically well under thirty items, so the cost is
 /// negligible next to the type resolution this function already does.
-fn check_field_name_collisions<'a>(
+///
+/// `pub(crate)` rather than private: `lib.rs`'s `:grouped` path reuses this
+/// same check against the parent column list *plus* the synthesized
+/// `children` field a grouped backend injects, so that collision is caught
+/// by the same single rule instead of a second, independent one (#188).
+pub(crate) fn check_field_name_collisions<'a>(
     items: impl Iterator<Item = (&'a str, &'a str)>,
     kind: &str,
     naming: &NamingConfig,

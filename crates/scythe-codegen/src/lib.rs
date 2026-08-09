@@ -20,6 +20,13 @@ use scythe_core::catalog::Catalog;
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+/// SQL-level name of the field every `generate_grouped_structs`
+/// implementation synthesizes on a `:grouped` query's parent struct to hold
+/// the folded child rows. Named once here so the collision guard in
+/// [`generate_with_backend_and_overrides`] and each backend's synthesized
+/// field agree on what name they're both talking about (#188).
+const GROUPED_CHILDREN_FIELD: &str = "children";
+
 #[derive(Debug, Clone, Default)]
 #[non_exhaustive]
 pub struct GeneratedCode {
@@ -255,6 +262,30 @@ pub fn generate_with_backend_and_overrides(
             source_table,
         )?;
 
+        // Every `generate_grouped_structs` implementation injects one more
+        // field into the parent struct beyond `parent_cols`: `children`
+        // (`GROUPED_CHILDREN_FIELD`), holding the folded child rows. That
+        // field is synthesized here, not resolved from SQL, so it never
+        // passes through `resolve::resolve_columns` -- which is exactly why
+        // `check_field_name_collisions` inside it never sees it. Running the
+        // same collision check again here, against the parent columns plus
+        // this synthesized field, is the single rule that also catches a
+        // real `u.children` column colliding with it (#188) instead of a
+        // second, independent "no collisions" check that only ever covers
+        // SQL-derived columns.
+        let children_field_name = scythe_backend::naming::field_name(GROUPED_CHILDREN_FIELD, &manifest.naming);
+        resolve::check_field_name_collisions(
+            parent_cols
+                .iter()
+                .map(|c| (c.name.as_str(), c.field_name.as_str()))
+                .chain(std::iter::once((
+                    "<synthesized :grouped children field>",
+                    children_field_name.as_ref(),
+                ))),
+            "parent columns",
+            &manifest.naming,
+        )?;
+
         result.row_struct = Some(backend.generate_grouped_structs(
             &parent_struct_name,
             &child_struct_name,
@@ -310,9 +341,10 @@ impl NestedTypeRefs {
                 continue;
             }
             for field in &nested.fields {
-                if let Some(name) = field.neutral_type.strip_prefix("enum::") {
+                let unwrapped = unwrap_containers(&field.neutral_type);
+                if let Some(name) = unwrapped.strip_prefix("enum::") {
                     refs.enums.insert(name.to_string());
-                } else if let Some(name) = field.neutral_type.strip_prefix("composite::") {
+                } else if let Some(name) = unwrapped.strip_prefix("composite::") {
                     refs.composites.insert(name.to_string());
                 }
             }
@@ -321,16 +353,53 @@ impl NestedTypeRefs {
     }
 }
 
-/// Whether a query's top-level columns or params reference `sql_name` under
-/// `prefix` (`"enum::"` or `"composite::"`).
+/// Strip any number of `array<...>` / `nullable<...>` container wrappers
+/// from a neutral type, returning the innermost type.
 ///
-/// Matches the exact `prefix + sql_name` neutral type, the same rule
-/// `generate_enum_defs_via_backend` has always used, so "reachable from
+/// These are the only two generic container names the analyzer emits around
+/// an arbitrary inner neutral type (see `sql_type_to_neutral` and the outer
+/// -join nullable-widening path in `scythe-core`); `json_nested<...>` is
+/// deliberately not one of them -- see [`nested_struct_shape`]'s doc comment
+/// -- so it is never unwrapped here.
+///
+/// The single point every "is `enum::x` / `composite::x` reachable"
+/// question in this file must go through: matching only the bare
+/// `"enum::x"` / `"composite::x"` string, as every call site here used to,
+/// misses `array<enum::x>` and `array<nullable<composite::x>>` entirely --
+/// the type is inferred correctly by `resolve.rs` -> `types.rs`, which
+/// *does* recurse into containers, but the definition-emission side stayed
+/// an exact-match check, so the row struct referenced a type whose
+/// definition was never emitted (#187).
+pub(crate) fn unwrap_containers(neutral: &str) -> &str {
+    let mut current = neutral;
+    loop {
+        if let Some(inner) = current.strip_prefix("array<").and_then(|r| r.strip_suffix('>')) {
+            current = inner.trim();
+        } else if let Some(inner) = current.strip_prefix("nullable<").and_then(|r| r.strip_suffix('>')) {
+            current = inner.trim();
+        } else {
+            return current;
+        }
+    }
+}
+
+/// Whether a query's top-level columns or params reference `sql_name` under
+/// `prefix` (`"enum::"` or `"composite::"`), directly or through any number
+/// of `array<...>` / `nullable<...>` wrappers.
+///
+/// Matches the `prefix + sql_name` neutral type after [`unwrap_containers`],
+/// the same rule `generate_enum_defs_via_backend` uses, so "reachable from
 /// columns" means the same thing in both places.
 fn type_referenced_by_columns(analyzed: &AnalyzedQuery, prefix: &str, sql_name: &str) -> bool {
     let neutral = format!("{prefix}{sql_name}");
-    analyzed.columns.iter().any(|col| col.neutral_type == neutral)
-        || analyzed.params.iter().any(|param| param.neutral_type == neutral)
+    analyzed
+        .columns
+        .iter()
+        .any(|col| unwrap_containers(&col.neutral_type) == neutral)
+        || analyzed
+            .params
+            .iter()
+            .any(|param| unwrap_containers(&param.neutral_type) == neutral)
 }
 
 /// Whether `sql_name` is reachable from a nested-aggregate struct the
@@ -350,7 +419,12 @@ pub fn nested_type_is_emitted(
         .nested_structs
         .iter()
         .filter(|nested| supported.iter().any(|def| def.name == nested.name))
-        .any(|nested| nested.fields.iter().any(|field| field.neutral_type == neutral))
+        .any(|nested| {
+            nested
+                .fields
+                .iter()
+                .any(|field| unwrap_containers(&field.neutral_type) == neutral)
+        })
 }
 
 /// Generate enum definitions via the backend trait.
@@ -368,12 +442,12 @@ fn generate_enum_defs_via_backend(
     let enum_sources: Vec<&str> = analyzed
         .columns
         .iter()
-        .filter_map(|col| col.neutral_type.strip_prefix("enum::"))
+        .filter_map(|col| unwrap_containers(&col.neutral_type).strip_prefix("enum::"))
         .chain(
             analyzed
                 .params
                 .iter()
-                .filter_map(|p| p.neutral_type.strip_prefix("enum::")),
+                .filter_map(|p| unwrap_containers(&p.neutral_type).strip_prefix("enum::")),
         )
         .chain(nested_refs.enums.iter().map(String::as_str))
         .collect();
@@ -1444,5 +1518,745 @@ mod tests {
             "query fn output must match byte for byte"
         );
         assert_eq!(baseline_result.model_struct, nested_result.model_struct);
+    }
+
+    // -----------------------------------------------------------------
+    // #187: an enum or composite inside `array<...>` must be both
+    // referenced *and* defined, not just referenced.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn test_enum_inside_array_is_emitted_not_just_referenced() {
+        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let mut query = make_query(
+            "GetMany",
+            QueryCommand::Many,
+            "SELECT id, many_status FROM t",
+            vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "many_status".to_string(),
+                    neutral_type: "array<enum::user_status>".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            vec![],
+        );
+        query.enums = vec![EnumInfo {
+            sql_name: "user_status".to_string(),
+            values: vec!["active".to_string(), "banned".to_string()],
+        }];
+
+        let result = generate_with_backend(&query, &*backend).unwrap();
+
+        let enum_def = result
+            .enum_def
+            .expect("an enum reached only through array<enum::...> must still get a definition emitted");
+        assert!(
+            enum_def.contains("pub enum UserStatus"),
+            "expected a UserStatus enum definition; got:\n{enum_def}"
+        );
+
+        let row_struct = result.row_struct.unwrap();
+        assert!(
+            row_struct.contains("Vec<UserStatus>"),
+            "row struct must reference the array of the enum; got:\n{row_struct}"
+        );
+    }
+
+    #[test]
+    fn test_composite_inside_array_is_emitted_not_just_referenced() {
+        use scythe_core::analyzer::{CompositeFieldInfo, CompositeInfo};
+
+        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let mut query = make_query(
+            "GetManyAddrs",
+            QueryCommand::Many,
+            "SELECT id, addrs FROM t",
+            vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "addrs".to_string(),
+                    neutral_type: "array<composite::address>".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            vec![],
+        );
+        query.composites = vec![CompositeInfo {
+            sql_name: "address".to_string(),
+            fields: vec![CompositeFieldInfo {
+                name: "street".to_string(),
+                neutral_type: "string".to_string(),
+            }],
+        }];
+
+        let result = generate_with_backend(&query, &*backend).unwrap();
+
+        let model = result
+            .model_struct
+            .expect("a composite reached only through array<composite::...> must still get a definition emitted");
+        assert!(
+            model.contains("pub struct Address"),
+            "expected an Address composite definition; got:\n{model}"
+        );
+    }
+
+    #[test]
+    fn test_unwrap_containers() {
+        assert_eq!(unwrap_containers("enum::user_status"), "enum::user_status");
+        assert_eq!(unwrap_containers("array<enum::user_status>"), "enum::user_status");
+        assert_eq!(unwrap_containers("array<composite::address>"), "composite::address");
+        assert_eq!(
+            unwrap_containers("array<nullable<enum::user_status>>"),
+            "enum::user_status"
+        );
+        assert_eq!(unwrap_containers("nullable<array<int32>>"), "int32");
+        assert_eq!(unwrap_containers("int32"), "int32");
+    }
+
+    // -----------------------------------------------------------------
+    // #188: a `:grouped` parent column named `children` must not silently
+    // collide with the synthesized `children` field.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn test_grouped_parent_column_named_children_collides_with_synthesized_field() {
+        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let parent_cols = vec![
+            AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "children".to_string(),
+                neutral_type: "string".to_string(),
+                nullable: false,
+                ..Default::default()
+            },
+        ];
+        let child_cols = vec![AnalyzedColumn {
+            name: "order_id".to_string(),
+            neutral_type: "int32".to_string(),
+            nullable: false,
+            ..Default::default()
+        }];
+        let all_cols = [parent_cols.clone(), child_cols.clone()].concat();
+
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetUsersWithOrders".to_string();
+            aq.command = QueryCommand::Grouped;
+            aq.sql = "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by users.id\n\
+                  SELECT u.id, u.children, o.id AS order_id\n\
+                  FROM users u\n\
+                  JOIN orders o ON o.user_id = u.id"
+                .to_string();
+            aq.columns = all_cols;
+            aq.params = vec![];
+            aq.deprecated = None;
+            aq.source_table = None;
+            aq.composites = vec![];
+            aq.enums = vec![];
+            aq.optional_params = vec![];
+            aq.group_by = Some(GroupByConfig {
+                table: "users".to_string(),
+                key_column: "id".to_string(),
+                parent_columns: parent_cols,
+                child_columns: child_cols,
+            });
+            aq.custom = vec![];
+        });
+
+        let result = generate_with_backend(&query, &*backend);
+        let err = result.expect_err(
+            "a parent column literally named 'children' must be rejected, not silently \
+             produce two `children` fields on the generated struct",
+        );
+        assert_eq!(err.code, ErrorCode::DuplicateAlias);
+        assert!(
+            err.message.contains("children"),
+            "error should name the colliding field, got: {}",
+            err.message
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // #164: `SELECT *` must declare and reference the same struct name,
+    // across every registered backend -- not just the two (rust-sqlx,
+    // rust-tokio-postgres) with a hand-written `generate_model_struct`.
+    // -----------------------------------------------------------------
+
+    /// Strip line comments (`//`, `#`), block comments (`/* ... */`), and
+    /// triple-quoted docstrings (`"""..."""`, `'''...'''`) from generated
+    /// source.
+    ///
+    /// Every backend's doc comment for a `SELECT *` query says something
+    /// like "Row type for User query" / "Fetch all User rows" -- the *SQL*
+    /// entity name in prose, which is a whole-word match for `struct_name`
+    /// that has nothing to do with whether the code actually declares or
+    /// references that identifier. Without stripping these first,
+    /// [`contains_identifier`] finds "User" in that prose and reports a
+    /// backend as correct when its actual declaration says `UserRow`.
+    fn strip_comments(source: &str) -> String {
+        let mut out = String::with_capacity(source.len());
+        let mut i = 0;
+        while i < source.len() {
+            let rest = &source[i..];
+            if rest.starts_with("//") || rest.starts_with('#') {
+                match rest.find('\n') {
+                    Some(nl) => i += nl,
+                    None => i = source.len(),
+                }
+                continue;
+            }
+            if rest.starts_with("/*") {
+                match rest.find("*/") {
+                    Some(end) => i += end + 2,
+                    None => i = source.len(),
+                }
+                continue;
+            }
+            if let Some(quote) = ["\"\"\"", "'''"].into_iter().find(|q| rest.starts_with(q)) {
+                match rest[quote.len()..].find(quote) {
+                    Some(end) => i += quote.len() + end + quote.len(),
+                    None => i = source.len(),
+                }
+                continue;
+            }
+            let ch = rest.chars().next().expect("i < source.len()");
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+        out
+    }
+
+    /// Whether `needle` appears in `haystack` as a whole identifier --
+    /// bounded by a non-identifier character (or a string edge) on both
+    /// sides.
+    ///
+    /// The 50+ backends here don't share one declaration/reference syntax
+    /// (`pub struct X {`, `export interface X {`, `type X struct {`,
+    /// `class X:`, `record X(...)`, `object XTable : IntIdTable(...)`, ...),
+    /// so this test cannot parse each one's grammar and still be a single
+    /// check "worth more than a per-backend one". What every one of them
+    /// does share is spelling the struct/class/record name as one
+    /// identifier token -- so a boundary-aware substring search is enough
+    /// to tell "declares/references `User`" apart from "declares/references
+    /// `UserRow`" without knowing any backend's actual syntax.
+    fn contains_identifier(haystack: &str, needle: &str) -> bool {
+        if needle.is_empty() {
+            return false;
+        }
+        let is_ident_char = |c: char| c.is_alphanumeric() || c == '_';
+        let mut start = 0;
+        while let Some(rel) = haystack[start..].find(needle) {
+            let idx = start + rel;
+            let before_ok = haystack[..idx].chars().next_back().is_none_or(|c| !is_ident_char(c));
+            let after_ok = haystack[idx + needle.len()..]
+                .chars()
+                .next()
+                .is_none_or(|c| !is_ident_char(c));
+            if before_ok && after_ok {
+                return true;
+            }
+            start = idx + 1;
+            if start >= haystack.len() {
+                break;
+            }
+        }
+        false
+    }
+
+    /// Every backend `get_backend` recognizes, keyed by its canonical
+    /// (first-listed) name in `backends::get_backend`'s match arms.
+    const ALL_BACKEND_NAMES: &[&str] = &[
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "python-aiomysql",
+        "python-aiosqlite",
+        "python-duckdb",
+        "typescript-postgres",
+        "javascript-postgres",
+        "typescript-pg",
+        "javascript-pg",
+        "typescript-mysql2",
+        "javascript-mysql2",
+        "typescript-better-sqlite3",
+        "javascript-better-sqlite3",
+        "typescript-duckdb",
+        "typescript-node-sqlite",
+        "typescript-wasm-sqlite",
+        "typescript-kysely",
+        "go-database-sql",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "csharp-mysqlconnector",
+        "csharp-microsoft-sqlite",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "elixir-myxql",
+        "elixir-exqlite",
+        "ruby-pg",
+        "ruby-mysql2",
+        "ruby-sqlite3",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+        "rust-tiberius",
+        "python-pyodbc",
+        "typescript-mssql",
+        "csharp-sqlclient",
+        "ruby-tiny-tds",
+        "elixir-tds",
+        "rust-sibyl",
+        "python-oracledb",
+        "typescript-oracledb",
+        "go-godror",
+        "csharp-oracle",
+        "ruby-oci8",
+        "elixir-jamdb",
+        "python-snowflake",
+        "typescript-snowflake",
+        "go-gosnowflake",
+        "csharp-snowflake",
+    ];
+
+    /// `get_backend(name, engine)` rejects an engine the backend's manifest
+    /// doesn't cover (e.g. `go-database-sql` has no PostgreSQL manifest at
+    /// all); try engines in order and use whichever one the backend
+    /// actually accepts, since this test cares about naming consistency,
+    /// not which engine.
+    fn backend_for_select_star(name: &str) -> Box<dyn CodegenBackend> {
+        const ENGINES: &[&str] = &[
+            "postgresql",
+            "mysql",
+            "sqlite",
+            "mssql",
+            "mariadb",
+            "duckdb",
+            "oracle",
+            "snowflake",
+            "redshift",
+        ];
+        for engine in ENGINES {
+            if let Ok(backend) = get_backend(name, engine) {
+                return backend;
+            }
+        }
+        panic!("no known engine works for backend '{name}'");
+    }
+
+    fn select_star_query() -> AnalyzedQuery {
+        let mut query = make_query(
+            "GetAllUsers",
+            QueryCommand::Many,
+            "SELECT * FROM users",
+            vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            vec![],
+        );
+        query.source_table = Some("users".to_string());
+        query
+    }
+
+    /// One entry in [`KNOWN_DIVERGENT_BACKENDS`] or [`NOT_APPLICABLE_BACKENDS`]:
+    /// a backend name paired with why it is listed, so the list doubles as
+    /// its own documentation.
+    struct BackendNote {
+        backend: &'static str,
+        reason: &'static str,
+    }
+
+    /// Root cause shared by every entry in [`KNOWN_DIVERGENT_BACKENDS`]
+    /// except `kotlin-exposed`: `generate_model_struct`
+    /// (`crates/scythe-codegen/src/backends/*.rs`) computes `let name =
+    /// to_pascal_case(&singularize(table_name))` -- the correct, unsuffixed
+    /// model name -- and then delegates to `self.generate_row_struct(&name,
+    /// columns)`, whose contract unconditionally appends
+    /// `manifest.naming.row_suffix`. That turns "User" into "UserRow" on
+    /// *declaration* while `determine_struct_name` (this file, already
+    /// correct) keeps the *reference* at "User". Fix: replace that
+    /// delegation with an inline emission under `name` with no further
+    /// suffixing, matching what `backends/sqlx.rs` and
+    /// `backends/tokio_postgres.rs` already do for their own
+    /// `generate_model_struct` -- the two backends that do not appear below.
+    const ROW_SUFFIX_DELEGATION_BUG: &str = "generate_model_struct delegates to generate_row_struct, which appends row_suffix onto \
+         the already-final, unsuffixed model name (#164)";
+
+    /// Ratcheting allowlist for
+    /// [`test_select_star_declares_and_references_the_same_struct_name_across_all_backends`],
+    /// matching the pattern established by `scripts/torture-expected-failures.txt`
+    /// / `scripts/check-generated-backends.py`: the test fails in *both*
+    /// directions --
+    /// - a backend not listed here that diverges is a regression: investigate,
+    ///   don't just add a line.
+    /// - a backend listed here that now agrees means this entry is stale: the
+    ///   underlying defect was fixed, delete the line.
+    ///
+    /// No percentage, no tolerance, no `#[ignore]`: every entry names one
+    /// backend and one reason, and the list is forced to shrink to empty as
+    /// backends get fixed instead of silently rotting.
+    const KNOWN_DIVERGENT_BACKENDS: &[BackendNote] = &[
+        BackendNote {
+            backend: "python-psycopg3",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "python-asyncpg",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "python-aiomysql",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "python-aiosqlite",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "python-duckdb",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-postgres",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-pg",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-mysql2",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-better-sqlite3",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-duckdb",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-node-sqlite",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-wasm-sqlite",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-kysely",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "go-database-sql",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "go-pgx",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "java-jdbc",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "java-r2dbc",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "kotlin-jdbc",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "kotlin-r2dbc",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "kotlin-exposed",
+            reason: "generate_model_struct emits an Exposed `object XTable : IntIdTable(...)` in place \
+                      of a row type entirely -- a different, more severe defect than the row_suffix bug \
+                      shared by every other entry in this list (#214)",
+        },
+        BackendNote {
+            backend: "csharp-npgsql",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "csharp-mysqlconnector",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "csharp-microsoft-sqlite",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "elixir-postgrex",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "elixir-ecto",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "elixir-myxql",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "elixir-exqlite",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "ruby-pg",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "ruby-mysql2",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "ruby-sqlite3",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "ruby-trilogy",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "php-pdo",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "php-amphp",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "rust-tiberius",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "python-pyodbc",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-mssql",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "csharp-sqlclient",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "ruby-tiny-tds",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "elixir-tds",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "rust-sibyl",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "python-oracledb",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-oracledb",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "go-godror",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "csharp-oracle",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "ruby-oci8",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "elixir-jamdb",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "python-snowflake",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "typescript-snowflake",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "go-gosnowflake",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+        BackendNote {
+            backend: "csharp-snowflake",
+            reason: ROW_SUFFIX_DELEGATION_BUG,
+        },
+    ];
+
+    /// Backends this check cannot render a verdict on at all -- distinct
+    /// from [`KNOWN_DIVERGENT_BACKENDS`], which lists backends the check
+    /// *did* run and found broken. The four `javascript-*` backends type
+    /// their generated functions entirely through JSDoc comments (see
+    /// `generate_js_typedef_row_struct` / the `js_mode` branches in
+    /// `backends/typescript_*.rs`): both the struct name they declare and
+    /// the one they reference live only inside comment text, which
+    /// [`strip_comments`] deliberately removes before matching (see its own
+    /// doc comment for why -- otherwise unrelated prose like "Fetch all User
+    /// rows" reads as a match). After stripping there is no runtime
+    /// identifier left to check either way, so this check always reports
+    /// both sides as absent regardless of whether the row_suffix bug is
+    /// fixed. Excluding these four from the pass/fail logic entirely, but
+    /// listing them here by name and reason, is what keeps that exclusion
+    /// visible instead of reading as a quiet, unexplained pass -- the same
+    /// defect shape (a skip that looks like a pass) this whole effort exists
+    /// to catch.
+    const NOT_APPLICABLE_BACKENDS: &[BackendNote] = &[
+        BackendNote {
+            backend: "javascript-postgres",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+        BackendNote {
+            backend: "javascript-pg",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+        BackendNote {
+            backend: "javascript-mysql2",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+        BackendNote {
+            backend: "javascript-better-sqlite3",
+            reason: "js_mode types via JSDoc comments only; no runtime identifier for either side of \
+                      the check to find once comments are stripped",
+        },
+    ];
+
+    /// Ratcheting guard for #164: `SELECT *` must declare and reference the
+    /// same struct name. Every backend not in [`KNOWN_DIVERGENT_BACKENDS`]
+    /// or [`NOT_APPLICABLE_BACKENDS`] must agree; every backend in
+    /// `KNOWN_DIVERGENT_BACKENDS` must currently disagree (a stale entry
+    /// fails the test exactly as loudly as a regression does -- see that
+    /// const's doc comment). This makes the list impossible to forget about:
+    /// it can only shrink, never quietly rot.
+    #[test]
+    fn test_select_star_declares_and_references_the_same_struct_name_across_all_backends() {
+        let query = select_star_query();
+
+        let mut regressions = Vec::new();
+        let mut stale_entries = Vec::new();
+        let mut seen_not_applicable: Vec<&str> = Vec::new();
+
+        for &name in ALL_BACKEND_NAMES {
+            if let Some(note) = NOT_APPLICABLE_BACKENDS.iter().find(|n| n.backend == name) {
+                seen_not_applicable.push(note.backend);
+                continue;
+            }
+
+            let backend = backend_for_select_star(name);
+            let struct_name = determine_struct_name(&query, backend.manifest());
+
+            let agrees = match generate_with_backend(&query, &*backend) {
+                Err(_) => false,
+                Ok(result) => match (result.model_struct, result.query_fn) {
+                    (Some(model_struct), Some(query_fn)) => {
+                        let declared = contains_identifier(&strip_comments(&model_struct), &struct_name);
+                        let referenced = contains_identifier(&strip_comments(&query_fn), &struct_name);
+                        declared && referenced
+                    }
+                    _ => false,
+                },
+            };
+
+            let listed = KNOWN_DIVERGENT_BACKENDS.iter().find(|n| n.backend == name);
+            match (agrees, listed) {
+                (true, Some(_)) => stale_entries.push(name),
+                (false, None) => regressions.push(name),
+                // Confirmed still divergent for the reason on file -- print
+                // it (visible with `--nocapture`) so `reason` is more than
+                // documentation nobody's code path ever reads.
+                (false, Some(note)) => eprintln!("expected divergence, {name}: {}", note.reason),
+                (true, None) => {}
+            }
+        }
+
+        // NOT_APPLICABLE_BACKENDS naming a backend ALL_BACKEND_NAMES doesn't
+        // know about would silently exclude nothing (the `if let` above
+        // never matches it) -- catch that the same way a stale
+        // KNOWN_DIVERGENT_BACKENDS entry is caught, rather than let the
+        // exclusion quietly fail to apply.
+        let unknown_not_applicable: Vec<&str> = NOT_APPLICABLE_BACKENDS
+            .iter()
+            .map(|n| n.backend)
+            .filter(|b| !seen_not_applicable.contains(b))
+            .collect();
+
+        let mut failures = Vec::new();
+        for name in &regressions {
+            let reason = "diverges on SELECT * struct naming and is not in KNOWN_DIVERGENT_BACKENDS";
+            failures.push(format!(
+                "REGRESSION: {name}: {reason} -- investigate before adding a line"
+            ));
+        }
+        for name in &stale_entries {
+            failures.push(format!(
+                "STALE ALLOWLIST: {name}: listed in KNOWN_DIVERGENT_BACKENDS but now agrees -- delete its entry"
+            ));
+        }
+        for name in &unknown_not_applicable {
+            failures.push(format!(
+                "STALE ALLOWLIST: {name}: listed in NOT_APPLICABLE_BACKENDS but is not in ALL_BACKEND_NAMES"
+            ));
+        }
+
+        assert!(
+            failures.is_empty(),
+            "{} of {} backends need attention:\n{}",
+            failures.len(),
+            ALL_BACKEND_NAMES.len(),
+            failures.join("\n")
+        );
     }
 }
