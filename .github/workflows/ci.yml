@@ -217,8 +217,13 @@ jobs:
       # A formatter once reflowed the templates as prose, which produced
       # harnesses whose string literals were split across lines. That reached CI
       # as unrelated-looking compiler errors, so parse the output directly.
+      # --harness-only: this job only installs the toolchains the four
+      # scaffolding checks need (python/go/ruby/php). The generated *query*
+      # code -- everything check-generated-syntax.sh checks without this flag
+      # -- is covered by the "Validate: Generated Query Code" job below,
+      # which installs the full ten-language toolchain instead.
       - name: Syntax-check generated harnesses
-        run: ./scripts/check-generated-syntax.sh --strict
+        run: ./scripts/check-generated-syntax.sh --strict --harness-only
       # The integration jobs test the committed files and never regenerate, so
       # drift here means CI is validating output no current build produces.
       - name: Fail if regeneration changed anything
@@ -234,6 +239,110 @@ jobs:
             echo "::error::Committed integration code is stale or incomplete. Run 'cd integration_tests && task generate:all' and commit the result. If a backend directory is untracked here, it is new output that must be committed; if you removed a backend, its old directory must be deleted by hand."
             exit 1
           fi
+
+  validate-generated-queries:
+    name: "Validate: Generated Query Code"
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v7
+      # 115 committed files under integration_tests/**/generated/,
+      # integration_tests/*/src/queries.rs and the Java/Kotlin generated/
+      # trees were compiled by nothing in CI: `generated-freshness` above
+      # only syntax-checks the *hand-written harnesses* it regenerates, and
+      # its 4-language toolchain (python/go/ruby/php) can't reach the other
+      # six. This job checks the query code actually committed, as
+      # committed -- it does not regenerate first, unlike the job above,
+      # because the point is to catch what a reviewer approved without a
+      # compiler ever having looked at it.
+      #
+      # Toolchain setup below is the validate-snippets block verbatim (that
+      # job independently needed all ten languages for the same reason:
+      # compiling committed output with no live database).
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - uses: actions/setup-go@v7
+        with:
+          go-version: "stable"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: "temurin"
+          java-version: "21"
+      - uses: actions/setup-dotnet@v6
+        with:
+          dotnet-version: "10.0"
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17"
+          otp-version: "27"
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+      - uses: pnpm/action-setup@v4
+        with:
+          version: "9"
+      - name: Install Kotlin
+        run: |
+          curl -sL https://github.com/JetBrains/kotlin/releases/download/v2.1.20/kotlin-compiler-2.1.20.zip -o kotlin.zip
+          unzip -q kotlin.zip -d /opt/kotlin
+          echo "/opt/kotlin/kotlinc/bin" >> "$GITHUB_PATH"
+      - name: Install TypeScript
+        run: npm install -g typescript
+      # `rbs parse` is the RBS-signature syntax checker (script comment has
+      # the full rationale); the gem is not part of a stock Ruby install.
+      - name: Install rbs
+        run: gem install rbs --no-document
+      # Same rationale as generated-freshness's "Verify every checker is on
+      # PATH": name the missing installer, not the dozen confusing
+      # downstream compiler errors it would otherwise produce once
+      # check-generated-syntax.sh runs in --strict mode.
+      - name: Verify every checker is on PATH
+        run: |
+          set -euo pipefail
+          missing=""
+          for tool in php ruby python3 gofmt kotlinc rbs pnpm dotnet cargo mvn mix; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              echo "ok      $tool"
+            else
+              echo "MISSING $tool"
+              missing="$missing $tool"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Generated-query-code checkers not installed:$missing."
+            exit 1
+          fi
+      - name: Compile/type-check every committed generated query file
+        run: ./scripts/check-generated-syntax.sh --strict
+      # Committed output is checked against sql/pg/schema.sql (29 lines, one
+      # enum, a handful of scalar columns) above -- too narrow to reach the
+      # type/identifier shapes several known codegen defects live in (#146).
+      # This regenerates every postgresql-engine backend fresh, into a
+      # scratch copy, against sql/torture/schema.sql instead, and real-build
+      # checks the result the same way the step above does.
+      #
+      # This is a hard gate, not `continue-on-error: true` -- a step that
+      # cannot fail is the exact anti-pattern the rest of this job exists to
+      # eliminate (see Taskfile.yaml's old `cargo check --workspace
+      # 2>/dev/null || true`). 24 of the 25 postgresql-engine backends
+      # currently fail against the torture schema, so the script compares
+      # against the checked-in scripts/torture-expected-failures.txt instead
+      # of a plain pass/fail count: a listed project failing is a known,
+      # already-reported defect and does not fail this step; an unlisted
+      # project failing is a regression and does; a listed project that now
+      # PASSES means the allowlist is stale and also fails this step, so the
+      # list is forced to shrink as backends are fixed instead of quietly
+      # rotting once nobody remembers to prune it.
+      - name: Build scythe
+        run: cargo build --release -p scythe-cli
+      - name: Compile-check every backend against the torture schema (issue #146)
+        run: python3 scripts/check-generated-backends.py
 
   validate-snippets:
     name: "Validate: Documentation Snippets"
