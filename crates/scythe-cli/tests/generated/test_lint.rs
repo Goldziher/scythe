@@ -23,19 +23,17 @@ fn test_and_in_join_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUserOrders\n-- @returns :many\nSELECT u.id, o.total FROM users u JOIN orders o ON u.id = o.user_id AND o.total > 0;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -57,19 +55,17 @@ fn test_equal_null_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetNullStatus\n-- @returns :many\nSELECT id, name FROM users WHERE status = NULL;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(!_violations.is_empty(), "expected lint violations for equal_null_fires");
     assert!(
         _violations.iter().any(|v| v.0.rule_id.contains("SC-A01")),
@@ -91,19 +87,17 @@ fn test_is_null_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetNullStatus\n-- @returns :many\nSELECT id, name FROM users WHERE status IS NULL;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -128,19 +122,17 @@ fn test_or_in_join_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUserOrders\n-- @returns :many\nSELECT u.id, o.total FROM users u JOIN orders o ON u.id = o.user_id OR u.name = o.total::text;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(!_violations.is_empty(), "expected lint violations for or_in_join_fires");
     assert!(
         _violations.iter().any(|v| v.0.rule_id.contains("SC-A03")),
@@ -162,19 +154,17 @@ fn test_duplicate_query_names_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -196,19 +186,17 @@ fn test_exec_with_returning_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateUser\n-- @returns :exec\nINSERT INTO users (name) VALUES ($1) RETURNING id;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for exec_with_returning_fires"
@@ -233,19 +221,17 @@ fn test_exec_without_returning_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateUser\n-- @returns :exec\nINSERT INTO users (name) VALUES ($1);";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -267,19 +253,17 @@ fn test_one_with_returning_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING id;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -301,19 +285,17 @@ fn test_bad_query_name_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name doSomething\n-- @returns :many\nSELECT id, name FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for bad_query_name_fires"
@@ -338,19 +320,17 @@ fn test_good_query_name_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUser\n-- @returns :many\nSELECT id, name FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -372,19 +352,17 @@ fn test_lowercase_alias_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUsers\n-- @returns :many\nSELECT id FROM users u;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -406,19 +384,17 @@ fn test_non_snake_case_alias_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUsers\n-- @returns :many\nSELECT id AS userId FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for non_snake_case_alias_fires"
@@ -443,19 +419,17 @@ fn test_non_snake_case_table_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetProfiles\n-- @returns :many\nSELECT id, name FROM \"User-Profiles\";";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for non_snake_case_table_fires"
@@ -480,19 +454,17 @@ fn test_snake_case_alias_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUsers\n-- @returns :many\nSELECT id AS user_id FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -514,19 +486,17 @@ fn test_snake_case_table_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetAccounts\n-- @returns :many\nSELECT id, name FROM user_accounts;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -548,19 +518,17 @@ fn test_uppercase_alias_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUsers\n-- @returns :many\nSELECT id FROM users U;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for uppercase_alias_fires"
@@ -588,19 +556,17 @@ fn test_in_subquery_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUsersWithOrders\n-- @returns :many\nSELECT id, name FROM users WHERE id IN (SELECT user_id FROM orders);";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -622,19 +588,17 @@ fn test_like_leading_wildcard_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name SearchUsers\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE '%test%';";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for like_leading_wildcard_fires"
@@ -660,19 +624,17 @@ fn test_like_suffix_wildcard_clean() {
 
     let query_sql =
         "-- @name SearchUsersByPrefix\n-- @returns :many\nSELECT id, name FROM users WHERE name LIKE 'test%';";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -697,19 +659,17 @@ fn test_not_in_subquery_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUsersWithoutOrders\n-- @returns :many\nSELECT id, name FROM users WHERE id NOT IN (SELECT user_id FROM orders);";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for not_in_subquery_fires"
@@ -734,19 +694,17 @@ fn test_order_with_limit_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetTopUsers\n-- @returns :many\nSELECT id, name FROM users ORDER BY name LIMIT 10;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -768,19 +726,17 @@ fn test_order_without_limit_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUsersSorted\n-- @returns :many\nSELECT id, name FROM users ORDER BY name;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for order_without_limit_fires"
@@ -805,19 +761,17 @@ fn test_all_params_used_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUserByNameAndStatus\n-- @returns :many\nSELECT id, name FROM users WHERE name = $1 AND status = $2;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -843,19 +797,17 @@ fn test_ambiguous_column_fires() {
 
     let query_sql =
         "-- @name GetUserOrders\n-- @returns :many\nSELECT u.id, name FROM users u JOIN orders o ON u.id = o.user_id;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for ambiguous_column_fires"
@@ -880,19 +832,17 @@ fn test_delete_with_where_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name DeleteUser\n-- @returns :exec\nDELETE FROM users WHERE id = $1;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -914,19 +864,17 @@ fn test_delete_without_where_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name DeleteAllUsers\n-- @returns :exec\nDELETE FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for delete_without_where_fires"
@@ -951,19 +899,17 @@ fn test_has_returning_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING id;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -985,19 +931,17 @@ fn test_missing_returning_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateUser\n-- @returns :one\nINSERT INTO users (name) VALUES ($1);";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for missing_returning_fires"
@@ -1026,19 +970,17 @@ fn test_qualified_column_clean() {
 
     let query_sql =
         "-- @name GetUserOrders\n-- @returns :many\nSELECT u.id FROM users u JOIN orders o ON u.id = o.user_id;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1060,19 +1002,17 @@ fn test_select_columns_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUsers\n-- @returns :many\nSELECT id, name FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1094,19 +1034,17 @@ fn test_select_star_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetAllUsers\n-- @returns :many\nSELECT * FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for select_star_fires"
@@ -1132,19 +1070,17 @@ fn test_unused_params_fires() {
 
     let query_sql =
         "-- @name GetUserByName\n-- @returns :many\nSELECT id, name FROM users WHERE name = $1 AND id > $3;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for unused_params_fires"
@@ -1169,19 +1105,17 @@ fn test_update_with_where_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name UpdateUser\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1203,19 +1137,17 @@ fn test_update_without_where_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name UpdateAllUsers\n-- @returns :exec\nUPDATE users SET name = $1;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for update_without_where_fires"
@@ -1240,19 +1172,17 @@ fn test_adding_not_nullable_field_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name UpdateUsersAddRequiredEmail\n-- @returns :exec\nALTER TABLE users ADD COLUMN email text NOT NULL DEFAULT ''";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1275,19 +1205,17 @@ fn test_adding_not_nullable_field_fires() {
 
     let query_sql =
         "-- @name UpdateUsersAddRequiredEmail\n-- @returns :exec\nALTER TABLE users ADD COLUMN email text NOT NULL";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for adding_not_nullable_field_fires"
@@ -1312,19 +1240,17 @@ fn test_adding_primary_key_constraint_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name UpdateAccountsAttachPrimaryKeyIndex\n-- @returns :exec\nALTER TABLE accounts ADD CONSTRAINT accounts_pk PRIMARY KEY USING INDEX accounts_pk_idx";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1346,19 +1272,17 @@ fn test_adding_primary_key_constraint_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name UpdateAccountsAddPrimaryKey\n-- @returns :exec\nALTER TABLE accounts ADD CONSTRAINT accounts_pk PRIMARY KEY (id)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for adding_primary_key_constraint_fires"
@@ -1384,19 +1308,17 @@ fn test_alter_column_type_clean() {
 
     let query_sql =
         "-- @name UpdateUsersActiveDefault\n-- @returns :exec\nALTER TABLE users ALTER COLUMN active SET DEFAULT TRUE";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1418,19 +1340,17 @@ fn test_alter_column_type_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name UpdateUsersIdToBigint\n-- @returns :exec\nALTER TABLE users ALTER COLUMN id TYPE bigint";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for alter_column_type_fires"
@@ -1455,19 +1375,17 @@ fn test_ban_create_domain_with_constraint_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreatePositiveIntDomain\n-- @returns :exec\nCREATE DOMAIN positive_int AS integer";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1490,19 +1408,17 @@ fn test_ban_create_domain_with_constraint_fires() {
 
     let query_sql =
         "-- @name CreatePositiveIntDomain\n-- @returns :exec\nCREATE DOMAIN positive_int AS integer CHECK (VALUE > 0)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for ban_create_domain_with_constraint_fires"
@@ -1527,19 +1443,17 @@ fn test_ban_drop_column_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateNicknameColumn\n-- @returns :exec\nALTER TABLE users ADD COLUMN nickname text";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1561,19 +1475,17 @@ fn test_ban_drop_column_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name DeleteLegacyColumn\n-- @returns :exec\nALTER TABLE users DROP COLUMN legacy_id";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for ban_drop_column_fires"
@@ -1598,19 +1510,17 @@ fn test_ban_drop_database_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateReportingSchema\n-- @returns :exec\nCREATE SCHEMA reporting";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1632,19 +1542,17 @@ fn test_ban_drop_database_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name DeleteLegacyAppDatabase\n-- @returns :exec\nDROP DATABASE legacy_app";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for ban_drop_database_fires"
@@ -1670,19 +1578,17 @@ fn test_ban_drop_not_null_clean() {
 
     let query_sql =
         "-- @name UpdateUsersRequireEmail\n-- @returns :exec\nALTER TABLE users ALTER COLUMN email SET NOT NULL";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1705,19 +1611,17 @@ fn test_ban_drop_not_null_fires() {
 
     let query_sql =
         "-- @name UpdateUsersAllowNullEmail\n-- @returns :exec\nALTER TABLE users ALTER COLUMN email DROP NOT NULL";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for ban_drop_not_null_fires"
@@ -1742,19 +1646,17 @@ fn test_ban_drop_table_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name DeleteUserSummaryView\n-- @returns :exec\nDROP VIEW user_summary";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1776,19 +1678,17 @@ fn test_ban_drop_table_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name DeleteUsersTable\n-- @returns :exec\nDROP TABLE users";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for ban_drop_table_fires"
@@ -1813,19 +1713,17 @@ fn test_ban_truncate_cascade_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name DeleteAllUsers\n-- @returns :exec\nTRUNCATE TABLE users";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1847,19 +1745,17 @@ fn test_ban_truncate_cascade_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name DeleteAllUsersAndDependents\n-- @returns :exec\nTRUNCATE TABLE users CASCADE";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for ban_truncate_cascade_fires"
@@ -1887,19 +1783,17 @@ fn test_cartesian_join_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name ListOrdersWithUser\n-- @returns :many\nSELECT users.id AS user_id, orders.id AS order_id FROM users JOIN orders ON orders.user_id = users.id;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1924,19 +1818,17 @@ fn test_cartesian_join_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name ListAllUserOrderPairs\n-- @returns :many\nSELECT users.id AS user_id, orders.id AS order_id FROM users, orders;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for cartesian_join_fires"
@@ -1961,19 +1853,17 @@ fn test_check_constraint_always_true_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateAccountsTable\n-- @returns :exec\nCREATE TABLE accounts (id bigint PRIMARY KEY, balance numeric CHECK (balance >= 0))";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -1995,19 +1885,17 @@ fn test_check_constraint_always_true_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateAccountsTable\n-- @returns :exec\nCREATE TABLE accounts (id bigint PRIMARY KEY, balance numeric CHECK (true))";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for check_constraint_always_true_fires"
@@ -2032,19 +1920,17 @@ fn test_constraint_missing_not_valid_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateOrdersUserFkNotValid\n-- @returns :exec\nALTER TABLE orders ADD CONSTRAINT orders_user_fk FOREIGN KEY (user_id) REFERENCES users (id) NOT VALID";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2066,19 +1952,17 @@ fn test_constraint_missing_not_valid_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateOrdersUserFk\n-- @returns :exec\nALTER TABLE orders ADD CONSTRAINT orders_user_fk FOREIGN KEY (user_id) REFERENCES users (id)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for constraint_missing_not_valid_fires"
@@ -2103,19 +1987,17 @@ fn test_dangerous_function_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CountFiles\n-- @returns :one\nSELECT count(*) AS total FROM files;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2137,19 +2019,17 @@ fn test_dangerous_function_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetServerFileSize\n-- @returns :one\nSELECT length(pg_read_file('/etc/passwd')) AS sz;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for dangerous_function_fires"
@@ -2174,19 +2054,17 @@ fn test_disallowed_unique_constraint_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name UpdateUsersAttachEmailUniqueIndex\n-- @returns :exec\nALTER TABLE users ADD CONSTRAINT users_email_uniq UNIQUE USING INDEX users_email_idx";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2208,19 +2086,17 @@ fn test_disallowed_unique_constraint_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name UpdateUsersAddEmailUnique\n-- @returns :exec\nALTER TABLE users ADD CONSTRAINT users_email_uniq UNIQUE (email)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for disallowed_unique_constraint_fires"
@@ -2245,19 +2121,17 @@ fn test_function_search_path_mutable_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateAddOneFunction\n-- @returns :exec\nCREATE FUNCTION public.add_one(i int) RETURNS int LANGUAGE sql SET search_path = pg_catalog, public AS $$ SELECT i + 1 $$";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2279,19 +2153,17 @@ fn test_function_search_path_mutable_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateAddOneFunction\n-- @returns :exec\nCREATE FUNCTION public.add_one(i int) RETURNS int LANGUAGE sql AS $$ SELECT i + 1 $$";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for function_search_path_mutable_fires"
@@ -2316,19 +2188,17 @@ fn test_grant_all_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateReadOnlyGrant\n-- @returns :exec\nGRANT SELECT ON users TO app_role;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2350,19 +2220,17 @@ fn test_grant_all_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateGrantAll\n-- @returns :exec\nGRANT ALL ON users TO app_role;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(!_violations.is_empty(), "expected lint violations for grant_all_fires");
     assert!(
         _violations.iter().any(|v| v.0.rule_id.contains("SC-SEC02")),
@@ -2384,19 +2252,17 @@ fn test_grant_to_public_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateRoleGrant\n-- @returns :exec\nGRANT SELECT ON users TO app_role;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2418,19 +2284,17 @@ fn test_grant_to_public_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreatePublicGrant\n-- @returns :exec\nGRANT SELECT ON users TO PUBLIC;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for grant_to_public_fires"
@@ -2455,19 +2319,17 @@ fn test_literal_password_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateNopwdRole\n-- @returns :exec\nCREATE ROLE nopwd PASSWORD NULL";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2489,19 +2351,17 @@ fn test_literal_password_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateAppRole\n-- @returns :exec\nCREATE ROLE appuser PASSWORD 'hunter2'";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for literal_password_fires"
@@ -2527,19 +2387,17 @@ fn test_policy_always_permissive_clean() {
 
     let query_sql =
         "-- @name CreateReadablePolicy\n-- @returns :exec\nCREATE POLICY readable ON tenants FOR SELECT USING (true)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2561,19 +2419,17 @@ fn test_policy_always_permissive_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateAllowAllUpdatePolicy\n-- @returns :exec\nCREATE POLICY allow_all ON tenants FOR UPDATE USING (true)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for policy_always_permissive_fires"
@@ -2598,19 +2454,17 @@ fn test_policy_references_user_metadata_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateTrustJwtPolicy\n-- @returns :exec\nCREATE POLICY trust_jwt ON tenants USING ((select auth.jwt()) -> 'app_metadata' ->> 'tenant_id' = tenant_id)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2632,19 +2486,17 @@ fn test_policy_references_user_metadata_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateTrustJwtPolicy\n-- @returns :exec\nCREATE POLICY trust_jwt ON tenants USING (auth.jwt() -> 'user_metadata' ->> 'tenant_id' = tenant_id)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for policy_references_user_metadata_fires"
@@ -2669,19 +2521,17 @@ fn test_policy_uses_uncached_auth_function_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateTenantPolicy\n-- @returns :exec\nCREATE POLICY tenant ON tenants USING (user_id = (select auth.uid()))";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2704,19 +2554,17 @@ fn test_policy_uses_uncached_auth_function_fires() {
 
     let query_sql =
         "-- @name CreateTenantPolicy\n-- @returns :exec\nCREATE POLICY tenant ON tenants USING (user_id = auth.uid())";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for policy_uses_uncached_auth_function_fires"
@@ -2742,19 +2590,17 @@ fn test_prefer_bigint_over_int_clean() {
 
     let query_sql =
         "-- @name CreateAccountsTable\n-- @returns :exec\nCREATE TABLE accounts (id bigint PRIMARY KEY, name text)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2776,19 +2622,17 @@ fn test_prefer_bigint_over_int_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateUsersTable\n-- @returns :exec\nCREATE TABLE users (id int PRIMARY KEY, name text)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for prefer_bigint_over_int_fires"
@@ -2814,19 +2658,17 @@ fn test_prefer_identity_over_serial_clean() {
 
     let query_sql =
         "-- @name CreateUserNameIndex\n-- @returns :exec\nCREATE INDEX CONCURRENTLY idx_users_name ON users (name)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2849,19 +2691,17 @@ fn test_prefer_identity_over_serial_fires() {
 
     let query_sql =
         "-- @name CreateOrdersTable\n-- @returns :exec\nCREATE TABLE orders (id serial PRIMARY KEY, total bigint)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for prefer_identity_over_serial_fires"
@@ -2887,19 +2727,17 @@ fn test_prefer_text_over_varchar_clean() {
 
     let query_sql =
         "-- @name CreateTagsTable\n-- @returns :exec\nCREATE TABLE tags (id bigint PRIMARY KEY, label text)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2921,19 +2759,17 @@ fn test_prefer_text_over_varchar_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateProductsTable\n-- @returns :exec\nCREATE TABLE products (id bigint PRIMARY KEY, name varchar(255))";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for prefer_text_over_varchar_fires"
@@ -2958,19 +2794,17 @@ fn test_prefer_timestamptz_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateSessionsTable\n-- @returns :exec\nCREATE TABLE sessions (id bigint PRIMARY KEY, started_at timestamptz)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -2992,19 +2826,17 @@ fn test_prefer_timestamptz_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateEventsTable\n-- @returns :exec\nCREATE TABLE events (id bigint PRIMARY KEY, occurred_at timestamp)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for prefer_timestamptz_fires"
@@ -3029,19 +2861,17 @@ fn test_renaming_column_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateUsernameColumn\n-- @returns :exec\nALTER TABLE users ADD COLUMN username text";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3064,19 +2894,17 @@ fn test_renaming_column_fires() {
 
     let query_sql =
         "-- @name UpdateUserNickToUsername\n-- @returns :exec\nALTER TABLE users RENAME COLUMN nick TO username";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for renaming_column_fires"
@@ -3101,19 +2929,17 @@ fn test_renaming_table_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateUsersEmailColumn\n-- @returns :exec\nALTER TABLE users ADD COLUMN email text";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3135,19 +2961,17 @@ fn test_renaming_table_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name UpdateUsersTableToAccounts\n-- @returns :exec\nALTER TABLE users RENAME TO accounts";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for renaming_table_fires"
@@ -3172,19 +2996,17 @@ fn test_require_concurrent_index_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateUserEmailIndexConcurrent\n-- @returns :exec\nCREATE INDEX CONCURRENTLY idx_users_email ON users (email)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3206,19 +3028,17 @@ fn test_require_concurrent_index_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateUserEmailIndex\n-- @returns :exec\nCREATE INDEX idx_users_email ON users (email)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for require_concurrent_index_fires"
@@ -3243,19 +3063,17 @@ fn test_security_definer_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateBumpAuditFnSafe\n-- @returns :exec\nCREATE FUNCTION bump_audit() RETURNS int AS $$ SELECT 1 $$ LANGUAGE SQL SECURITY DEFINER SET search_path = pg_catalog, public;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3277,19 +3095,17 @@ fn test_security_definer_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateBumpAuditFn\n-- @returns :exec\nCREATE FUNCTION bump_audit() RETURNS int AS $$ SELECT 1 $$ LANGUAGE SQL SECURITY DEFINER;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for security_definer_fires"
@@ -3314,19 +3130,17 @@ fn test_select_star_pii_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name ListProducts\n-- @returns :many\nSELECT id, name, price FROM products";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3349,19 +3163,17 @@ fn test_select_star_pii_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetAllUsers\n-- @returns :many\nSELECT * FROM users";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for select_star_pii_fires"
@@ -3386,19 +3198,17 @@ fn test_session_mutation_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name ListOrders\n-- @returns :many\nSELECT id, total FROM orders";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3420,19 +3230,17 @@ fn test_session_mutation_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name EscalateToAdmin\n-- @returns :exec\nSET ROLE admin";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for session_mutation_fires"
@@ -3457,19 +3265,17 @@ fn test_superuser_role_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateReadonlyRole\n-- @returns :exec\nCREATE ROLE readonly NOSUPERUSER LOGIN";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3491,19 +3297,17 @@ fn test_superuser_role_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CreateSuperRole\n-- @returns :exec\nCREATE ROLE dba SUPERUSER";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for superuser_role_fires"
@@ -3528,19 +3332,17 @@ fn test_unbounded_like_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name SearchUsersPrefix\n-- @returns :many\nSELECT id FROM users WHERE name LIKE 'alice%';";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3562,19 +3364,17 @@ fn test_unbounded_like_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name SearchUsersByName\n-- @returns :many\nSELECT id FROM users WHERE name LIKE '%alice%';";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for unbounded_like_fires"
@@ -3600,19 +3400,17 @@ fn test_unsupported_reg_types_clean() {
 
     let query_sql =
         "-- @name CreateMetaTable\n-- @returns :exec\nCREATE TABLE meta (id bigint PRIMARY KEY, rel regclass)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3635,19 +3433,17 @@ fn test_unsupported_reg_types_fires() {
 
     let query_sql =
         "-- @name CreateMetaTable\n-- @returns :exec\nCREATE TABLE meta (id bigint PRIMARY KEY, ns regnamespace)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for unsupported_reg_types_fires"
@@ -3673,19 +3469,17 @@ fn test_weak_hash_clean() {
 
     let query_sql =
         "-- @name GetDocumentHash\n-- @returns :one\nSELECT md5(content) AS content_hash FROM documents WHERE id = $1";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3708,19 +3502,17 @@ fn test_weak_hash_fires() {
 
     let query_sql =
         "-- @name CheckUserPassword\n-- @returns :one\nSELECT id FROM users WHERE password_hash = md5(password)";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(!_violations.is_empty(), "expected lint violations for weak_hash_fires");
     assert!(
         _violations.iter().any(|v| v.0.rule_id.contains("SC-SEC06")),
@@ -3742,19 +3534,17 @@ fn test_case_null_pattern_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUserStatus\n-- @returns :many\nSELECT id, CASE WHEN status IS NULL THEN 'unknown' ELSE status END AS display_status FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for case_null_pattern_fires"
@@ -3779,19 +3569,17 @@ fn test_coalesce_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUserStatus\n-- @returns :many\nSELECT id, COALESCE(status, 'unknown') AS display_status FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3813,19 +3601,17 @@ fn test_count_one_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CountUsers\n-- @returns :one\nSELECT COUNT(1) AS total FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(!_violations.is_empty(), "expected lint violations for count_one_fires");
     assert!(
         _violations.iter().any(|v| v.0.rule_id.contains("SC-T03")),
@@ -3847,19 +3633,17 @@ fn test_count_star_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name CountUsers\n-- @returns :one\nSELECT COUNT(*) AS total FROM users;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3884,19 +3668,17 @@ fn test_explicit_join_clean() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUserOrders\n-- @returns :many\nSELECT users.id, orders.total FROM users JOIN orders ON users.id = orders.user_id;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         _violations.is_empty(),
         "expected no lint violations but got {}",
@@ -3921,19 +3703,17 @@ fn test_implicit_join_fires() {
     _violations.extend(engine.check_catalog(&catalog));
 
     let query_sql = "-- @name GetUserOrders\n-- @returns :many\nSELECT users.id, orders.total FROM users, orders WHERE users.id = orders.user_id;";
-    if let Ok(query) = scythe_core::parser::parse_query(query_sql)
-        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query)
-    {
-        let ctx = scythe_lint::LintContext {
-            sql: &query.sql,
-            stmt: &query.stmt,
-            analyzed: &analyzed,
-            catalog: &catalog,
-            annotations: &query.annotations,
-            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
-        };
-        _violations.extend(engine.check_query(&ctx));
-    }
+    let query = scythe_core::parser::parse_query(query_sql).expect("fixture SQL must parse");
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect("fixture SQL must analyze");
+    let ctx = scythe_lint::LintContext {
+        sql: &query.sql,
+        stmt: &query.stmt,
+        analyzed: &analyzed,
+        catalog: &catalog,
+        annotations: &query.annotations,
+        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,
+    };
+    _violations.extend(engine.check_query(&ctx));
     assert!(
         !_violations.is_empty(),
         "expected lint violations for implicit_join_fires"

@@ -167,13 +167,19 @@ fn generate_catalog_test(fixture: &Fixture, file_path: &str) -> String {
 
     out.push_str(&format_schema_sql(&fixture.schema_sql));
 
-    if let Some(ref catalog) = fixture.expected.catalog
-        && (!catalog.tables.is_empty() || !catalog.enums.is_empty() || !catalog.composites.is_empty())
-    {
-        out.push_str("    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n\n");
+    // Always bind `catalog` (not `_catalog`) and always run
+    // `generate_catalog_assertions`, even when every expected map is empty:
+    // that path used to emit nothing but `Catalog::from_ddl(...).unwrap()`,
+    // so a fixture declaring zero tables/enums/composites asserted nothing
+    // about that -- a regression that spuriously created one would pass
+    // silently. `generate_catalog_assertions` now emits a total-count
+    // assertion unconditionally, which is a real (if trivially "== 0")
+    // assertion for the empty case and closes that gap. See #161.
+    out.push_str("    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n\n");
+    if let Some(ref catalog) = fixture.expected.catalog {
         out.push_str(&generate_catalog_assertions(catalog));
     } else {
-        out.push_str("    let _catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();\n\n");
+        out.push_str("    let _ = &catalog;\n");
     }
 
     out.push_str("}\n");
@@ -350,19 +356,29 @@ fn generate_lint_test(fixture: &Fixture, file_path: &str) -> String {
 
     if let Some(ref query_sql) = fixture.query_sql {
         let _ = writeln!(out, "    let query_sql = {:?};", query_sql);
-        out.push_str("    if let Ok(query) = scythe_core::parser::parse_query(query_sql)\n");
-        out.push_str("        && let Ok(analyzed) = scythe_core::analyzer::analyze(&catalog, &query) {\n");
-        out.push_str("        let ctx = scythe_lint::LintContext {\n");
-        out.push_str("            sql: &query.sql,\n");
-        out.push_str("            stmt: &query.stmt,\n");
-        out.push_str("            analyzed: &analyzed,\n");
-        out.push_str("            catalog: &catalog,\n");
-        out.push_str("            annotations: &query.annotations,\n");
-        out.push_str("            dialect: scythe_core::dialect::SqlDialect::PostgreSQL,\n");
-        out.push_str("        };\n");
-        out.push_str("        _violations.extend(engine.check_query(&ctx));\n");
-
-        out.push_str("    }\n");
+        // `.expect(...)`, not `if let Ok(...) = ... && let Ok(...) = ...`: the
+        // old pattern silently skipped `check_query` -- leaving `_violations`
+        // empty -- on a parse or analyze failure, which every `*_clean`
+        // fixture's `assert!(_violations.is_empty(), ...)` cannot distinguish
+        // from "the rule genuinely found nothing". A parser or analyzer
+        // regression that breaks a fixture's SQL would silently turn a real
+        // assertion into a no-op instead of failing the test that exists to
+        // catch it. See #161.
+        out.push_str(
+            "    let query = scythe_core::parser::parse_query(query_sql).expect(\"fixture SQL must parse\");\n",
+        );
+        out.push_str(
+            "    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).expect(\"fixture SQL must analyze\");\n",
+        );
+        out.push_str("    let ctx = scythe_lint::LintContext {\n");
+        out.push_str("        sql: &query.sql,\n");
+        out.push_str("        stmt: &query.stmt,\n");
+        out.push_str("        analyzed: &analyzed,\n");
+        out.push_str("        catalog: &catalog,\n");
+        out.push_str("        annotations: &query.annotations,\n");
+        out.push_str("        dialect: scythe_core::dialect::SqlDialect::PostgreSQL,\n");
+        out.push_str("    };\n");
+        out.push_str("    _violations.extend(engine.check_query(&ctx));\n");
     }
 
     if let Some(ref lint) = fixture.expected.lint {
@@ -446,6 +462,29 @@ fn generate_error_test(fixture: &Fixture, file_path: &str) -> String {
 
 fn generate_catalog_assertions(catalog: &ExpectedCatalog) -> String {
     let mut out = String::with_capacity(4096);
+
+    // Total-count assertions first, unconditionally -- including the `== 0`
+    // case, which used to emit no assertion at all (see `generate_catalog_test`).
+    // The per-item loops below only ever check that each *declared* table/
+    // enum/composite exists; they never notice an *extra*, undeclared one, so
+    // without this a regression that spuriously created (or failed to drop)
+    // a catalog entity was invisible to every catalog fixture. See #161.
+    let _ = writeln!(
+        out,
+        "    assert_eq!(catalog.tables_iter().count(), {}, \"total table count\");",
+        catalog.tables.len(),
+    );
+    let _ = writeln!(
+        out,
+        "    assert_eq!(catalog.enums_iter().count(), {}, \"total enum count\");",
+        catalog.enums.len(),
+    );
+    let _ = writeln!(
+        out,
+        "    assert_eq!(catalog.composites_iter().count(), {}, \"total composite count\");",
+        catalog.composites.len(),
+    );
+    out.push('\n');
 
     let mut tables: Vec<_> = catalog.tables.iter().collect();
     tables.sort_unstable_by_key(|(name, _)| name.as_str());

@@ -18,6 +18,13 @@
             { "name": "email", "sql_type": "text", "nullable": false },
             { "name": "is_active", "sql_type": "boolean", "nullable": false }
           ]
+        },
+        "active_users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false },
+            { "name": "email", "sql_type": "text", "nullable": false }
+          ]
         }
       },
       "enums": {},

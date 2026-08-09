@@ -17,6 +17,10 @@ fn test_alter_add_column() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: users
     let table_users = catalog.get_table("users").expect("table users should exist");
     assert_eq!(table_users.columns.len(), 3, "column count for table users");
@@ -42,6 +46,10 @@ fn test_alter_add_constraint() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 2, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: departments
     let table_departments = catalog
@@ -92,6 +100,10 @@ fn test_alter_column_type() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: users
     let table_users = catalog.get_table("users").expect("table users should exist");
     assert_eq!(table_users.columns.len(), 2, "column count for table users");
@@ -113,6 +125,10 @@ fn test_alter_drop_column() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: users
     let table_users = catalog.get_table("users").expect("table users should exist");
@@ -139,6 +155,10 @@ fn test_alter_drop_not_null() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: users
     let table_users = catalog.get_table("users").expect("table users should exist");
     assert_eq!(table_users.columns.len(), 2, "column count for table users");
@@ -160,6 +180,10 @@ fn test_alter_rename_column() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: users
     let table_users = catalog.get_table("users").expect("table users should exist");
@@ -183,6 +207,10 @@ fn test_alter_rename_table() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: people
     let table_people = catalog.get_table("people").expect("table people should exist");
     assert_eq!(table_people.columns.len(), 2, "column count for table people");
@@ -205,6 +233,10 @@ fn test_alter_set_not_null() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: users
     let table_users = catalog.get_table("users").expect("table users should exist");
     assert_eq!(table_users.columns.len(), 2, "column count for table users");
@@ -223,6 +255,10 @@ fn test_basic_composite() {
     let schema_sql = &["CREATE TYPE address AS (street text, city text, zip text)"];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 0, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 1, "total composite count");
 
     // Assert composite: address
     let comp_address = catalog
@@ -255,6 +291,10 @@ fn test_composite_with_types() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 0, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 1, "total composite count");
 
     // Assert composite: inventory_item
     let comp_inventory_item = catalog
@@ -301,7 +341,11 @@ fn test_basic_domain() {
     // "CREATE DOMAIN with CHECK constraint for positive integers"
     let schema_sql = &["CREATE DOMAIN positive_int AS integer CHECK (VALUE > 0)"];
 
-    let _catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 0, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 }
 
 #[test]
@@ -310,7 +354,11 @@ fn test_domain_not_null() {
     // "CREATE DOMAIN with NOT NULL constraint"
     let schema_sql = &["CREATE DOMAIN non_empty_text AS text NOT NULL"];
 
-    let _catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 0, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 }
 
 #[test]
@@ -323,6 +371,10 @@ fn test_alter_enum_add_value() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 0, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 1, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert enum: status
     let enum_status = catalog.get_enum("status").expect("enum status should exist");
@@ -344,6 +396,10 @@ fn test_alter_enum_rename_value() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 0, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 1, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert enum: status
     let enum_status = catalog.get_enum("status").expect("enum status should exist");
     assert_eq!(
@@ -360,6 +416,10 @@ fn test_basic_enum() {
     let schema_sql = &["CREATE TYPE status AS ENUM ('active', 'inactive', 'banned')"];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 0, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 1, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert enum: status
     let enum_status = catalog.get_enum("status").expect("enum status should exist");
@@ -381,6 +441,10 @@ fn test_multiple_enums() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 0, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 3, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert enum: priority
     let enum_priority = catalog.get_enum("priority").expect("enum priority should exist");
@@ -410,6 +474,10 @@ fn test_all_string_types() {
     let schema_sql = &["CREATE TABLE string_types (a text, b varchar(255), c char(10), d bytea)"];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: string_types
     let table_string_types = catalog
@@ -447,6 +515,10 @@ fn test_array_columns() {
     let schema_sql = &["CREATE TABLE arrays_example (id serial, int_list int[], tags text[], flags boolean[])"];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: arrays_example
     let table_arrays_example = catalog
@@ -491,6 +563,10 @@ fn test_basic_table() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: users
     let table_users = catalog.get_table("users").expect("table users should exist");
     assert_eq!(table_users.columns.len(), 3, "column count for table users");
@@ -515,6 +591,10 @@ fn test_boolean_and_uuid() {
     let schema_sql = &["CREATE TABLE flags (id uuid NOT NULL, is_active boolean NOT NULL, is_deleted boolean)"];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: flags
     let table_flags = catalog.get_table("flags").expect("table flags should exist");
@@ -545,6 +625,10 @@ fn test_catalog_all_numeric_types() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: numeric_types
     let table_numeric_types = catalog
@@ -610,6 +694,10 @@ fn test_catalog_network_types() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: network_info
     let table_network_info = catalog
         .get_table("network_info")
@@ -658,6 +746,10 @@ fn test_constraints_check() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: products
     let table_products = catalog.get_table("products").expect("table products should exist");
     assert_eq!(table_products.columns.len(), 4, "column count for table products");
@@ -690,6 +782,10 @@ fn test_constraints_default() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: posts
     let table_posts = catalog.get_table("posts").expect("table posts should exist");
@@ -728,6 +824,10 @@ fn test_constraints_foreign_key() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 2, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: authors
     let table_authors = catalog.get_table("authors").expect("table authors should exist");
     assert_eq!(table_authors.columns.len(), 2, "column count for table authors");
@@ -765,6 +865,10 @@ fn test_constraints_not_null() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: profiles
     let table_profiles = catalog.get_table("profiles").expect("table profiles should exist");
     assert_eq!(table_profiles.columns.len(), 5, "column count for table profiles");
@@ -801,6 +905,10 @@ fn test_constraints_primary_key() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 2, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: composite_pk
     let table_composite_pk = catalog
@@ -851,6 +959,10 @@ fn test_constraints_unique() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: accounts
     let table_accounts = catalog.get_table("accounts").expect("table accounts should exist");
     assert_eq!(table_accounts.columns.len(), 4, "column count for table accounts");
@@ -883,6 +995,10 @@ fn test_generated_columns() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: rectangles
     let table_rectangles = catalog.get_table("rectangles").expect("table rectangles should exist");
@@ -918,6 +1034,10 @@ fn test_json_types() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: documents
     let table_documents = catalog.get_table("documents").expect("table documents should exist");
     assert_eq!(table_documents.columns.len(), 3, "column count for table documents");
@@ -949,6 +1069,10 @@ fn test_multiple_tables() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 3, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: departments
     let table_departments = catalog
@@ -1020,6 +1144,10 @@ fn test_reserved_words() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: order
     let table_order = catalog.get_table("order").expect("table order should exist");
     assert_eq!(table_order.columns.len(), 4, "column count for table order");
@@ -1045,6 +1173,10 @@ fn test_serial_types() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
     // Assert table: serials
     let table_serials = catalog.get_table("serials").expect("table serials should exist");
     assert_eq!(table_serials.columns.len(), 3, "column count for table serials");
@@ -1067,6 +1199,10 @@ fn test_temporal_types() {
         &["CREATE TABLE temporal_types (a date, b time, c timetz, d timestamp, e timestamptz, f interval)"];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: temporal_types
     let table_temporal_types = catalog
@@ -1126,6 +1262,38 @@ fn test_basic_view() {
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
 
+    assert_eq!(catalog.tables_iter().count(), 2, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
+    // Assert table: active_users
+    let table_active_users = catalog
+        .get_table("active_users")
+        .expect("table active_users should exist");
+    assert_eq!(
+        table_active_users.columns.len(),
+        3,
+        "column count for table active_users"
+    );
+    assert_eq!(table_active_users.columns[0].name, "id", "column name");
+    assert_eq!(
+        table_active_users.columns[0].sql_type, "integer",
+        "column sql_type for id"
+    );
+    assert!(!table_active_users.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_active_users.columns[1].name, "name", "column name");
+    assert_eq!(
+        table_active_users.columns[1].sql_type, "text",
+        "column sql_type for name"
+    );
+    assert!(!table_active_users.columns[1].nullable, "column nullable for name");
+    assert_eq!(table_active_users.columns[2].name, "email", "column name");
+    assert_eq!(
+        table_active_users.columns[2].sql_type, "text",
+        "column sql_type for email"
+    );
+    assert!(!table_active_users.columns[2].nullable, "column nullable for email");
+
     // Assert table: users
     let table_users = catalog.get_table("users").expect("table users should exist");
     assert_eq!(table_users.columns.len(), 4, "column count for table users");
@@ -1149,13 +1317,54 @@ fn test_basic_view() {
 #[test]
 fn test_materialized_view() {
     // From: testing_data/catalog/create_view/02_materialized_view.json
-    // "CREATE MATERIALIZED VIEW with aggregation query"
+    // "CREATE MATERIALIZED VIEW with aggregation query. NOTE: total_spent pins the CURRENT, WRONG output of the view resolver -- sum(numeric(10,2)) is numeric in PostgreSQL, not bigint, and over a GROUP BY of NOT NULL values it is not nullable either. This is issue #182 (the view resolver hardcodes aggregate types); the values here are recorded so the defect is visible rather than unasserted, and must be corrected to numeric/not-null when #182 is fixed."
     let schema_sql = &[
         "CREATE TABLE orders (id serial PRIMARY KEY, customer_id integer NOT NULL, total numeric(10,2) NOT NULL, created_at date NOT NULL)",
         "CREATE MATERIALIZED VIEW order_summary AS SELECT customer_id, count(*) AS order_count, sum(total) AS total_spent FROM orders GROUP BY customer_id",
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 2, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
+
+    // Assert table: order_summary
+    let table_order_summary = catalog
+        .get_table("order_summary")
+        .expect("table order_summary should exist");
+    assert_eq!(
+        table_order_summary.columns.len(),
+        3,
+        "column count for table order_summary"
+    );
+    assert_eq!(table_order_summary.columns[0].name, "customer_id", "column name");
+    assert_eq!(
+        table_order_summary.columns[0].sql_type, "integer",
+        "column sql_type for customer_id"
+    );
+    assert!(
+        !table_order_summary.columns[0].nullable,
+        "column nullable for customer_id"
+    );
+    assert_eq!(table_order_summary.columns[1].name, "order_count", "column name");
+    assert_eq!(
+        table_order_summary.columns[1].sql_type, "bigint",
+        "column sql_type for order_count"
+    );
+    assert!(
+        !table_order_summary.columns[1].nullable,
+        "column nullable for order_count"
+    );
+    assert_eq!(table_order_summary.columns[2].name, "total_spent", "column name");
+    assert_eq!(
+        table_order_summary.columns[2].sql_type, "bigint",
+        "column sql_type for total_spent"
+    );
+    assert!(
+        table_order_summary.columns[2].nullable,
+        "column nullable for total_spent"
+    );
 
     // Assert table: orders
     let table_orders = catalog.get_table("orders").expect("table orders should exist");
@@ -1195,6 +1404,10 @@ fn test_cross_schema_reference() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 2, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: billing.invoices
     let table_billing_invoices = catalog
@@ -1254,6 +1467,10 @@ fn test_schema_qualified() {
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    assert_eq!(catalog.tables_iter().count(), 1, "total table count");
+    assert_eq!(catalog.enums_iter().count(), 0, "total enum count");
+    assert_eq!(catalog.composites_iter().count(), 0, "total composite count");
 
     // Assert table: app.users
     let table_app_users = catalog.get_table("app.users").expect("table app.users should exist");

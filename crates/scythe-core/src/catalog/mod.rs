@@ -185,6 +185,15 @@ impl Catalog {
         self.enums.iter()
     }
 
+    /// Iterate over all `(name, composite)` pairs in the catalog. Mirrors
+    /// [`Self::enums_iter`] -- added so callers (in particular the
+    /// fixture-generated catalog tests, see #161) can assert a *total*
+    /// composite count instead of only checking that specific composites
+    /// exist, which left extra, unexpected composites invisible.
+    pub fn composites_iter(&self) -> impl Iterator<Item = (&String, &CompositeType)> {
+        self.composites.iter()
+    }
+
     /// Look up a domain's resolved base type by name.
     pub fn get_domain_base_type(&self, name: &str) -> Option<&str> {
         let lower = name.to_lowercase();

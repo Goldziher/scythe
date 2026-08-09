@@ -1,6 +1,6 @@
 {
   "name": "materialized_view",
-  "description": "CREATE MATERIALIZED VIEW with aggregation query",
+  "description": "CREATE MATERIALIZED VIEW with aggregation query. NOTE: total_spent pins the CURRENT, WRONG output of the view resolver -- sum(numeric(10,2)) is numeric in PostgreSQL, not bigint, and over a GROUP BY of NOT NULL values it is not nullable either. This is issue #182 (the view resolver hardcodes aggregate types); the values here are recorded so the defect is visible rather than unasserted, and must be corrected to numeric/not-null when #182 is fixed.",
   "category": "catalog/create_view",
   "tags": ["view", "materialized"],
   "schema_sql": [
@@ -17,6 +17,13 @@
             { "name": "customer_id", "sql_type": "integer", "nullable": false },
             { "name": "total", "sql_type": "numeric(10,2)", "nullable": false },
             { "name": "created_at", "sql_type": "date", "nullable": false }
+          ]
+        },
+        "order_summary": {
+          "columns": [
+            { "name": "customer_id", "sql_type": "integer", "nullable": false },
+            { "name": "order_count", "sql_type": "bigint", "nullable": false },
+            { "name": "total_spent", "sql_type": "bigint", "nullable": true }
           ]
         }
       },
