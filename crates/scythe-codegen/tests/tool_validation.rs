@@ -1126,6 +1126,13 @@ fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
         "rust-tokio-postgres",
         "rust-tiberius",
         "rust-sibyl",
+        // Kotlin joined this set when the tool validation moved onto `poly`:
+        // poly delegates Kotlin to `ktlint` rather than bundling it, and a JVM
+        // plus a downloaded jar in CI is out of proportion to what linting
+        // generated Kotlin catches. `validate_structural` still covers it.
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "kotlin-exposed",
     ];
 
     for backend in NO_TOOL_VALIDATOR {
@@ -1144,7 +1151,6 @@ fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
         "go-pgx",
         "ruby-pg",
         "php-pdo",
-        "kotlin-jdbc",
     ];
 
     for backend in HAS_TOOL_VALIDATOR {

@@ -649,6 +649,9 @@ fn tool_present(tool: &str, probe_arg: &str) -> bool {
 enum Stream {
     Stdout,
     Stderr,
+    /// Both, concatenated. `poly` splits its report across the two, so
+    /// picking either one alone drops half the diagnostic.
+    Both,
 }
 
 /// Run `tool` with `args` and turn a non-zero exit into findings.
@@ -671,6 +674,11 @@ fn run_tool(tool: &'static str, args: &[&str], stream: Stream, max_lines: usize)
     let raw = match stream {
         Stream::Stdout => String::from_utf8_lossy(&output.stdout),
         Stream::Stderr => String::from_utf8_lossy(&output.stderr),
+        Stream::Both => std::borrow::Cow::Owned(format!(
+            "{}{}",
+            String::from_utf8_lossy(&output.stdout),
+            String::from_utf8_lossy(&output.stderr)
+        )),
     };
 
     Ok(raw
@@ -729,7 +737,11 @@ pub fn validate_with_tools(code: &str, backend_name: &str) -> ToolValidation {
         name if name.starts_with("go") => validate_go_tools(code),
         name if name.starts_with("ruby") => validate_ruby_tools(code),
         name if name.starts_with("php") => validate_php_tools(code),
-        name if name.starts_with("kotlin") => validate_kotlin_tools(code),
+        // Kotlin has no validator: `poly` delegates Kotlin to `ktlint` rather
+        // than bundling it, and standing up a JVM plus a downloaded jar in CI
+        // to lint generated Kotlin is out of proportion to what it catches.
+        // `validate_structural` still covers these backends, and the
+        // inventory test in `tests/tool_validation.rs` keeps the gap visible.
         _ => return ToolValidation::Unsupported,
     };
 
@@ -751,73 +763,73 @@ fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
     Some(path)
 }
 
-/// `python3 -m ast` for syntax, then `ruff` for imports and obvious defects.
+/// Run `poly` against a generated file.
 ///
-/// `ruff` is reported as its own outcome rather than folded into python's.
-/// Previously a missing `ruff` still produced `Some(errors)` from this
-/// function, so an absent linter was indistinguishable from a clean one --
-/// the single worst instance of the bug this type exists to prevent.
-fn validate_python_tools(code: &str) -> Vec<ToolOutcome> {
-    let syntax = check_with(
-        "python3",
+/// `poly` is this repository's linter and formatter, and it bundles the
+/// engines it needs in-process: `oxc` for JavaScript and TypeScript, `ruff`
+/// for Python, `mago` for PHP. One already-required binary therefore replaces
+/// three separately-installed ones -- `biome`, `ruff` and `php` -- and
+/// because it parses as well as lints, it also subsumes the `python3 -m ast`
+/// syntax pass.
+///
+/// `--no-workspace` is not optional. Without it `poly lint` also runs the
+/// whole-project tier -- `cargo clippy` over this very workspace -- once per
+/// generated file, turning a millisecond check into minutes.
+///
+/// `poly` exits non-zero only on error-severity findings, so warnings appear
+/// in the message without failing the check. That is the same threshold the
+/// repository's own `poly lint .` gate uses.
+fn poly_check(code: &str, ext: &str) -> ToolOutcome {
+    let config = generated_code_poly_config();
+    check_with(
+        "poly",
         "--version",
         code,
-        ".py",
+        ext,
         |path| {
-            vec![
-                "-c".to_string(),
-                format!("import ast; ast.parse(open({path:?}).read())"),
-            ]
-        },
-        Stream::Stderr,
-        1,
-    );
-
-    let lint = check_with(
-        "ruff",
-        "--version",
-        code,
-        ".py",
-        |path| {
-            ["check", "--select", "E,F,I", "--target-version", "py310", path]
+            ["lint", "--no-workspace", "--config", &config.to_string_lossy(), path]
                 .iter()
                 .map(|arg| (*arg).to_string())
                 .collect()
         },
-        Stream::Stdout,
-        3,
-    );
-
-    vec![syntax, lint]
+        Stream::Both,
+        6,
+    )
 }
 
-/// `biome lint`, deliberately not `biome check`.
+/// Path to the poly config used for generated code.
 ///
-/// `check` runs the linter *and* the formatter. Until #98 installed `biome`
-/// this function had never once executed, so that choice was never tested --
-/// and it is wrong: the formatter's only complaints about generated code are
-/// that scythe indents with spaces where biome would use tabs, and where it
-/// would break a line. Generated-code layout is the backends' contract, not
-/// biome's, and `scythe fmt` is what owns it. Running `check` would fail 8
-/// TypeScript backends purely on indentation.
+/// Passed explicitly rather than left to discovery: poly resolves config by
+/// walking up from the file it is given, and the file here is a temporary one
+/// outside the repository, so poly would find nothing and fall back to its
+/// built-in defaults. What CI enforced would then depend on where the system
+/// temp directory happens to sit. See the config file's own header for why it
+/// differs from the repository's `poly.toml`.
+fn generated_code_poly_config() -> std::path::PathBuf {
+    std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/generated-code-poly.toml")).to_path_buf()
+}
+
+/// `poly`'s bundled `ruff`, which reports syntax errors and the `E`/`F`/`I`
+/// rule families -- the same ground the previous `python3 -m ast` plus
+/// standalone `ruff` pair covered, in one tool that needs no install step.
+fn validate_python_tools(code: &str) -> Vec<ToolOutcome> {
+    vec![poly_check(code, ".py")]
+}
+
+/// `poly`'s bundled `oxc`.
 ///
-/// `lint` keeps what is actually worth knowing -- unused bindings, unsafe
-/// casts, `useLiteralKeys` and the rest of the correctness rules.
+/// This was `biome check` until #98 installed biome and discovered the choice
+/// had never been tested: `check` also runs the formatter, whose only
+/// complaints about generated code are that scythe indents with spaces where
+/// biome would use tabs, and where it would break a line. Generated-code
+/// layout is the backends' contract and `scythe fmt` owns it, so running the
+/// formatter here failed 8 TypeScript backends purely on indentation.
+///
+/// `poly` lints with `oxc` and does not impose a formatter, so it keeps what
+/// is worth knowing -- unused bindings, unsafe casts, `useLiteralKeys` and the
+/// rest of the correctness rules -- and drops a third-party install entirely.
 fn validate_typescript_tools(code: &str) -> Vec<ToolOutcome> {
-    vec![check_with(
-        "biome",
-        "--version",
-        code,
-        ".ts",
-        |path| {
-            ["lint", "--no-errors-on-unmatched", path]
-                .iter()
-                .map(|arg| (*arg).to_string())
-                .collect()
-        },
-        Stream::Stderr,
-        3,
-    )]
+    vec![poly_check(code, ".ts")]
 }
 
 /// Path to the hand-written ambient `.d.ts` stubs for the driver packages
@@ -924,33 +936,10 @@ fn validate_ruby_tools(code: &str) -> Vec<ToolOutcome> {
     )]
 }
 
+/// `poly`'s bundled `mago`, which parses PHP -- the same thing `php -l` did,
+/// without needing a PHP runtime installed.
 fn validate_php_tools(code: &str) -> Vec<ToolOutcome> {
-    vec![check_with(
-        "php",
-        "--version",
-        code,
-        ".php",
-        |path| ["-l", path].iter().map(|arg| (*arg).to_string()).collect(),
-        Stream::Stdout,
-        1,
-    )]
-}
-
-fn validate_kotlin_tools(code: &str) -> Vec<ToolOutcome> {
-    vec![check_with(
-        "ktlint",
-        "--version",
-        code,
-        ".kt",
-        |path| {
-            ["--log-level=error", path]
-                .iter()
-                .map(|arg| (*arg).to_string())
-                .collect()
-        },
-        Stream::Stdout,
-        3,
-    )]
+    vec![poly_check(code, ".php")]
 }
 
 #[cfg(test)]
@@ -1103,7 +1092,7 @@ function listUsers($pdo): array {
 
     #[test]
     fn strict_mode_turns_a_missing_tool_into_a_failure() {
-        let absent = ToolValidation::Attempted(vec![ToolOutcome::Missing { tool: "biome" }]);
+        let absent = ToolValidation::Attempted(vec![ToolOutcome::Missing { tool: "poly" }]);
 
         assert!(
             absent.clone().into_result_with_strictness(false).is_ok(),
@@ -1115,7 +1104,7 @@ function listUsers($pdo): array {
             .expect_err("strict mode must fail on a missing tool");
         assert_eq!(failures.len(), 1);
         assert!(
-            failures[0].contains("biome") && failures[0].contains("not installed"),
+            failures[0].contains("poly") && failures[0].contains("not installed"),
             "the failure must name the tool and say it never ran: {failures:?}"
         );
     }
@@ -1141,23 +1130,25 @@ function listUsers($pdo): array {
         assert!(partial.into_result_with_strictness(true).is_err());
     }
 
+    /// The languages `poly` bundles an engine for are checked by `poly` alone
+    /// -- one binary, no per-language install. A regression that reintroduced
+    /// a separate `ruff`/`biome`/`php` invocation would show up here as an
+    /// extra outcome.
     #[test]
-    fn python_reports_ruff_separately_from_the_syntax_check() {
-        // Whatever is or is not installed on this machine, the validator must
-        // account for both tools rather than silently folding one into the
-        // other.
-        let outcomes = validate_python_tools("x = 1\n");
-        assert_eq!(outcomes.len(), 2, "python3 and ruff each get an outcome");
-
-        let named: Vec<&str> = outcomes
-            .iter()
-            .map(|outcome| match outcome {
+    fn poly_backed_languages_report_exactly_one_tool() {
+        for (label, outcomes) in [
+            ("python", validate_python_tools("x = 1\n")),
+            ("typescript", validate_typescript_tools("export const x = 1;\n")),
+            ("php", validate_php_tools("<?php\ndeclare(strict_types=1);\n")),
+        ] {
+            assert_eq!(outcomes.len(), 1, "{label} must be checked by poly alone");
+            let tool = match &outcomes[0] {
                 ToolOutcome::Ran { tool, .. } | ToolOutcome::Missing { tool } | ToolOutcome::Failed { tool, .. } => {
                     *tool
                 }
-            })
-            .collect();
-        assert_eq!(named, vec!["python3", "ruff"]);
+            };
+            assert_eq!(tool, "poly", "{label} must go through poly");
+        }
     }
 
     /// A language with no validator must not masquerade as a clean pass

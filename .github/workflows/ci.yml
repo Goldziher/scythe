@@ -109,58 +109,42 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       # Every checker `validate_with_tools` (scythe-codegen/src/validation.rs)
-      # knows how to drive must be on PATH here, because the step below runs it
-      # in strict mode, where a missing tool is a failure rather than a skip.
+      # drives must be on PATH here, because the test step runs it in strict
+      # mode, where a missing tool fails instead of silently skipping.
       #
-      # Before #98 this job installed only node and tsc, and the validator
-      # returned a bare `None` for anything missing -- which every call site
-      # read as "no errors". Measured on a developer machine, that silently
-      # disarmed the tool check for 13 of the 76 backend tests (`biome` absent).
-      # The four interpreters below were worse: they were never installed here
-      # at all and worked purely because the ubuntu image happens to ship them,
-      # so an image change would have disarmed four more languages with no
-      # signal. `generated-freshness` already pins all four explicitly, for
-      # exactly this reason; these steps make the two jobs agree.
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.13"
+      # `poly` covers most of it. It bundles its engines in-process -- oxc for
+      # TypeScript, ruff for Python, mago for PHP -- so one binary replaces the
+      # separate `biome`, `ruff` and `php` installs this job used to carry, and
+      # it is already this repository's linter. That leaves only the checkers
+      # poly delegates rather than bundles.
+      - uses: Goldziher/poly@v0
+      # gofmt ships with the Go toolchain and `ruby -c` with Ruby, so these two
+      # setup actions cost nothing beyond what poly does not cover. Both were
+      # previously relied on implicitly from the runner image, which meant an
+      # image change could disarm them with no signal.
       - uses: actions/setup-go@v5
         with:
           go-version: "stable"
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.3"
-      - uses: shivammathur/setup-php@v2
-        with:
-          php-version: "8.4"
-      # ktlint is a JVM tool -- without a JDK it installs fine and then fails
-      # to run, which `check_with` reports as ToolOutcome::Failed rather than a
-      # skip, so this would fail the build rather than quietly pass.
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: "21"
+      # node and tsc are for the `javascript-*` JSDoc backends only: #81
+      # requires the output to parse under real `node` and to typecheck under
+      # `tsc --checkJs --strict`. poly's oxc lints JavaScript but does not
+      # typecheck JSDoc annotations, so tsc is not redundant with it.
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - name: Install generated-code checkers
-        run: |
-          set -euo pipefail
-          npm install -g typescript @biomejs/biome
-          python -m pip install --upgrade ruff
-          # Pinned to the version the generated Kotlin output was actually
-          # verified against; ktlint's default rule set shifts between minors.
-          curl -sSLO https://github.com/pinterest/ktlint/releases/download/1.8.0/ktlint
-          chmod +x ktlint
-          sudo mv ktlint /usr/local/bin/ktlint
+      - name: Install TypeScript
+        run: npm install -g typescript
       # Fail loudly here rather than inside a test, so a checker that did not
-      # install is diagnosed as an install problem instead of as 13 confusing
-      # backend failures.
+      # install is diagnosed as an install problem instead of as a dozen
+      # confusing backend failures.
       - name: Verify every checker is on PATH
         run: |
           set -euo pipefail
           missing=""
-          for tool in python3 ruff node tsc biome gofmt ruby php ktlint; do
+          for tool in poly node tsc gofmt ruby; do
             if command -v "$tool" >/dev/null 2>&1; then
               echo "ok      $tool"
             else

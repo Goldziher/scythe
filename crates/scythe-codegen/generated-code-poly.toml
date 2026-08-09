@@ -1,0 +1,27 @@
+# poly configuration for validating *generated* code.
+#
+# Deliberately separate from the repository's own poly.toml. That file governs
+# scythe's hand-written source; this one governs the output scythe emits, and
+# the two disagree on purpose:
+#
+#   * `target_version` is py310, not py312. Generated Python is documented as
+#     supporting 3.10+ (see the python-conventions rules and the `python3.10`
+#     floor in every python-* backend manifest), so linting it against 3.12
+#     would accept syntax the supported floor cannot run.
+#   * `line_length` is generous. Generated code is not written for humans to
+#     hand-edit; the provenance header alone exceeds ruff's 88-column default,
+#     which is why it carries `# noqa: E501`. Wrapping decisions belong to the
+#     backends and to `scythe fmt`, not to a linter run over their output.
+#
+# Passed explicitly via `--config` from `validation.rs::poly_check`. Without it
+# poly would resolve config by walking up from the temporary file it is handed,
+# find nothing outside the repository, and silently use its built-in defaults --
+# so what CI enforced would depend on where the temp directory happened to be.
+
+[defaults]
+line_length = 200
+line_ending = "lf"
+
+[lint.python.ruff]
+target_version = "py310"
+line_length = 200

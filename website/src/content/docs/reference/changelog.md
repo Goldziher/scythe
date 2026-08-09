@@ -217,10 +217,22 @@ artifact. See **Changed** for the full list.
   passing without any tool touching the generated code: 13 because `biome` was installed nowhere,
   and 18 because Java, C#, Elixir and Rust have no validator at all. `validate_python_tools` was the
   worst case, returning `Some([])` when `ruff` was absent. The return type is now `ToolValidation`,
-  reporting each checker separately as `Ran`/`Missing`/`Failed`, and CI installs every checker and
-  runs with `SCYTHE_VALIDATE_STRICT=1`, where a missing tool fails the build. TypeScript validation
-  moved from `biome check` to `biome lint`: `check` also runs the formatter, whose only complaints
-  about generated code are indentation and line breaks, which the backends own ([#98](https://github.com/Goldziher/scythe/issues/98))
+  reporting each checker separately as `Ran`/`Missing`/`Failed`, and CI runs with
+  `SCYTHE_VALIDATE_STRICT=1`, where a missing tool fails the build instead of being skipped
+  ([#98](https://github.com/Goldziher/scythe/issues/98))
+- **Generated code is checked by `poly`**, this repository's linter, rather than by a per-language
+  collection of separately-installed binaries. poly bundles its engines in-process -- `oxc` for
+  TypeScript, `ruff` for Python, `mago` for PHP -- so one already-required tool replaces `biome`,
+  standalone `ruff`, the `python3 -m ast` syntax pass and `php -l`, and CI drops four install steps
+  along with the Python, PHP and JDK toolchains it only needed in order to feed them. `node` and
+  `tsc --checkJs --strict` remain for the `javascript-*` JSDoc backends, since oxc lints JavaScript
+  but does not typecheck JSDoc annotations; `gofmt` and `ruby -c` remain because poly delegates those
+  languages rather than bundling them. Kotlin loses its tool validation: poly delegates to `ktlint`,
+  and standing up a JVM plus a downloaded jar to lint generated Kotlin is out of proportion to what
+  it catches -- `validate_structural` still covers those backends, and an inventory test keeps the
+  gap visible. Validation runs against a dedicated `generated-code-poly.toml` passed explicitly,
+  because poly resolves config by walking up from the file it is handed and a temporary file finds
+  nothing, so what CI enforced would otherwise depend on where the system temp directory sits
 - **Unknown `[[sql.gen]]` keys are rejected on every backend**, not just TypeScript. 24 of the 52
   backends had no `apply_options` at all and inherited a permissive default that accepted anything
   ([#103](https://github.com/Goldziher/scythe/issues/103))
