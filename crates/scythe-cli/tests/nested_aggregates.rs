@@ -242,12 +242,11 @@ SELECT id, data FROM events;
     );
 }
 
-/// The degradation guarantee: a backend that does not opt in must produce
-/// exactly what it produced before nested-aggregate inference existed. The
-/// baseline is a nullable plain-`json` column, which is exactly what the old
-/// `json_agg` arm inferred (`TypeInfo::new("json", true)`).
+/// The degradation guarantee for a typed SQL-array backend: an unsupported
+/// nested aggregate must stay on its compiling plain-JSON path rather than
+/// being mistaken for a PostgreSQL `json[]` column.
 #[test]
-fn unopted_backend_output_matches_a_plain_json_baseline() {
+fn typed_array_backend_output_matches_a_plain_json_baseline() {
     let baseline_schema = format!("{SCHEMA}CREATE TABLE blobs (id INTEGER NOT NULL, payload JSON);\n");
     let baseline_queries = "\
 -- @name GetUserOrders
@@ -259,8 +258,8 @@ SELECT u.id, b.payload AS orders FROM users u JOIN blobs b ON b.id = u.id;
 SELECT u.id, b.payload AS orders FROM users u JOIN blobs b ON b.id = u.id;
 ";
 
-    let nested = generate("java-jdbc", "java", SCHEMA, QUERIES).expect("generate");
-    let baseline = generate("java-jdbc", "java", &baseline_schema, baseline_queries).expect("generate");
+    let nested = generate("csharp-npgsql", "cs", SCHEMA, QUERIES).expect("generate");
+    let baseline = generate("csharp-npgsql", "cs", &baseline_schema, baseline_queries).expect("generate");
 
     // The SQL text embedded in each query function differs by construction,
     // and so does the provenance header: the two cases are generated from
@@ -270,7 +269,7 @@ SELECT u.id, b.payload AS orders FROM users u JOIN blobs b ON b.id = u.id;
     // enum block that must NOT appear -- has to match.
     let strip_incidental = |code: &str| {
         code.lines()
-            .filter(|line| !line.contains("prepareStatement(") && !line.contains("scythe:provenance"))
+            .filter(|line| !line.contains("new NpgsqlCommand(") && !line.contains("scythe:provenance"))
             .collect::<Vec<_>>()
             .join("\n")
     };
@@ -278,7 +277,7 @@ SELECT u.id, b.payload AS orders FROM users u JOIN blobs b ON b.id = u.id;
     assert_eq!(
         strip_incidental(&nested),
         strip_incidental(&baseline),
-        "java-jdbc does not opt into nested structs, so its output must be identical to the plain-json form"
+        "csharp-npgsql must preserve its compiling plain-JSON representation for unsupported nested structs"
     );
     assert!(
         !nested.contains("OrderStatus"),

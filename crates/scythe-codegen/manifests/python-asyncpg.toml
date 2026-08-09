@@ -23,6 +23,7 @@ datetime = "datetime.datetime"
 datetime_tz = "datetime.datetime"
 interval = "datetime.timedelta"
 json = "dict[str, Any]"
+json_array = "list[dict[str, Any]]"
 inet = "str"
 
 [types.containers]
