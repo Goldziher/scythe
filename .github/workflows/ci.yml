@@ -275,5 +275,13 @@ jobs:
         run: npm install -g typescript
       - name: Build snippet-runner
         run: cargo build -p snippet-runner --release
+      # README.md is in the reference set deliberately. It used to be in
+      # neither `-s` nor `-r`, so its ten hand-written generated-code samples
+      # were the one place in the repo where example code could rot with no
+      # signal -- and they had: the Go block still showed the pre-0.14.0 field
+      # casing and typed NUMERIC as *string, and four more blocks were wrong or
+      # would not compile as printed. The README now carries a single sample,
+      # copied verbatim from committed generated output, and this keeps it that
+      # way.
       - name: Validate documentation snippets
-        run: ./target/release/snippet-runner validate -s website/snippets -r website/src/content/docs -L syntax --timeout 120
+        run: ./target/release/snippet-runner validate -s website/src/content/docs README.md -L syntax --timeout 120

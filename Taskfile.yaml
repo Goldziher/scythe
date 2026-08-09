@@ -58,25 +58,25 @@ tasks:
     desc: List all documentation snippets
     deps: [snippets:build]
     cmds:
-      - ./target/release/snippet-runner list -s website/snippets -r website/src/content/docs
+      - ./target/release/snippet-runner list -s website/src/content/docs README.md
 
   snippets:validate:
     desc: Validate documentation snippets (syntax level)
     deps: [snippets:build]
     cmds:
-      - ./target/release/snippet-runner validate -s website/snippets -r website/src/content/docs -L syntax
+      - ./target/release/snippet-runner validate -s website/src/content/docs README.md -L syntax
 
   snippets:validate:compile:
     desc: Validate documentation snippets (compile level)
     deps: [snippets:build]
     cmds:
-      - ./target/release/snippet-runner validate -s website/snippets -r website/src/content/docs -L compile
+      - ./target/release/snippet-runner validate -s website/src/content/docs README.md -L compile
 
   snippets:validate:lang:
     desc: Validate specific language snippets
     deps: [snippets:build]
     cmds:
-      - ./target/release/snippet-runner validate -s website/snippets -r website/src/content/docs -L {{.LEVEL | default "syntax"}} -l {{.LANGUAGES}}
+      - ./target/release/snippet-runner validate -s website/src/content/docs README.md -L {{.LEVEL | default "syntax"}} -l {{.LANGUAGES}}
     requires:
       vars: [LANGUAGES]
 
@@ -163,7 +163,7 @@ tasks:
       # nobody remembered to add costs a release.
       - |
         files=$(grep -rlE 'scythe:provenance v=[0-9]+\.[0-9]+\.[0-9]+' \
-          website/src website/snippets README.md skills 2>/dev/null \
+          website/src README.md skills 2>/dev/null \
           | grep -v 'changelog\.md$' || true)
         if [ -n "$files" ]; then
           echo "$files" | while IFS= read -r f; do
