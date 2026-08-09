@@ -1,4 +1,4 @@
-// Hand-written ambient stubs for the driver packages the `javascript-*`
+// ~keep Hand-written ambient stubs for the driver packages the `javascript-*`
 // (JSDoc emit mode, #81) backends reference via `import("pkg").Type` JSDoc
 // annotations: `pg`, `postgres`, `mysql2/promise`, `better-sqlite3`.
 //

@@ -424,7 +424,7 @@ mod tests {
 
     #[test]
     fn load_fixtures_loads_normally_when_an_ancestor_of_dir_starts_with_underscore() {
-        // The exclusion check must only look at path components *below*
+        // ~keep The exclusion check must only look at path components *below*
         // `dir`. `dir.join("**/*.json")` glob results carry the full path,
         // ancestors included -- checking the whole path would silently
         // discard every fixture whenever the checkout sits under a

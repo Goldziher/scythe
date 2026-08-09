@@ -121,7 +121,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
     }
 
     fn file_header(&self) -> String {
-        // See `TypescriptPgBackend::file_header`: `.js` output needs no
+        // ~keep See `TypescriptPgBackend::file_header`: `.js` output needs no
         // import at all in JSDoc mode -- the driver type goes straight into
         // the `@param` tag as `import("mysql2/promise").Pool`, and Zod is
         // rejected in this mode.
@@ -594,7 +594,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
             self.manifest.naming.field_case = value.clone();
         }
 
-        // See `TypescriptPgBackend::apply_options` for why these three are
+        // ~keep See `TypescriptPgBackend::apply_options` for why these three are
         // rejected outright in JSDoc mode rather than silently ignored.
         if self.js_mode {
             if self.row_type == TsRowType::Zod {
@@ -722,7 +722,7 @@ impl TypescriptMysql2Backend {
                     &query_sig_params,
                     "Promise<number>",
                 );
-                // `pool.execute(...)` without a type argument returns
+                // ~keep `pool.execute(...)` without a type argument returns
                 // mysql2's `QueryResult` union, which is not guaranteed to
                 // be array-like (only some of its members are), so `tsc
                 // --strict` rejects the `[result] = ...` array destructure

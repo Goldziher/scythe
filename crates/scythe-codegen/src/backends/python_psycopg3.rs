@@ -44,7 +44,7 @@ fn field_assignment_expr(col: &ResolvedColumn, var: &str, index: usize) -> Strin
         return format!("{}={raw}", col.field_name);
     };
     let name = shape.name;
-    // `_from_json` rather than `Cls(**item)`: the JSON keys are the raw SQL
+    // ~keep `_from_json` rather than `Cls(**item)`: the JSON keys are the raw SQL
     // column names, which need not match the snake_case Python field names
     // (`"createdAt"` -> `created_at`), and `**` on a mismatched key raises
     // `TypeError: unexpected keyword argument`. The classmethod holds the
@@ -479,7 +479,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
             field_names.push(field_name);
         }
 
-        // The JSON keys json_agg/row_to_json produce are the raw SQL column
+        // ~keep The JSON keys json_agg/row_to_json produce are the raw SQL column
         // names, verbatim -- a quoted "createdAt" column is the key
         // "createdAt", which `Cls(**item)` would pass as an unexpected
         // keyword argument. Emitting the mapping as a classmethod keeps it

@@ -52,7 +52,7 @@ fn format_tds_param_args(params: &[ResolvedParam]) -> String {
             .iter()
             .enumerate()
             .map(|(i, p)| {
-                // tds's :boolean encoder (encode_binary_type) accepts integers or
+                // ~keep tds's :boolean encoder (encode_binary_type) accepts integers or
                 // bitstrings, not Elixir booleans, so coerce true/false to 1/0 on
                 // the wire while keeping the public API boolean()-typed. `nil` is
                 // falsy in Elixir too, so guard for it explicitly and pass it

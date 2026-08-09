@@ -135,7 +135,7 @@ fn sqlx_emits_a_nested_struct_per_query_with_json_key_renames() {
 fn sqlx_nested_struct_derives_both_serde_traits() {
     let code = generate("rust-sqlx", "rs", SCHEMA, QUERIES).expect("generate");
 
-    // Deserialize decodes the column; Serialize is required because
+    // ~keep Deserialize decodes the column; Serialize is required because
     // `sqlx::types::Json<T>: Serialize` is bounded on `T: Serialize` and a
     // row struct generated with `serde = true` derives Serialize.
     assert!(
@@ -196,7 +196,7 @@ fn nested_struct_definitions_precede_the_row_structs_that_use_them() {
 fn psycopg3_maps_json_keys_through_a_from_json_classmethod() {
     let code = generate("python-psycopg3", "py", SCHEMA, QUERIES).expect("generate");
 
-    // `Cls(**item)` would pass `createdAt` as an unexpected keyword
+    // ~keep `Cls(**item)` would pass `createdAt` as an unexpected keyword
     // argument, so the key mapping is spelled out once per class.
     assert!(code.contains("created_at=obj[\"createdAt\"],"), "got:\n{code}");
     assert!(

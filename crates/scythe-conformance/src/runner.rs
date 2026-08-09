@@ -555,7 +555,7 @@ async fn evaluate_fixture<E: Executor>(
     let engine = E::ENGINE;
     let err_ctx = || (fixture.name.clone(), engine);
 
-    // The analyzer must run under the dialect of the engine this leg is
+    // ~keep The analyzer must run under the dialect of the engine this leg is
     // about to query, not under the default (PostgreSQL). Every
     // dialect-aware inference rule in `scythe_core` keys off
     // `Catalog::dialect()`, so parsing every fixture as PostgreSQL would

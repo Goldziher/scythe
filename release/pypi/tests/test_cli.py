@@ -98,7 +98,7 @@ def test_main_on_windows_waits_for_the_child_and_returns_its_exit_code(
     # The child's status must come back verbatim -- 2, not 0 -- since a wrong
     # exit code here is the entire failure this test guards.
     assert cli.main() == 2
-    # `str(binary)` rather than a literal: patching os.name to "nt" makes pathlib
+    # ~keep `str(binary)` rather than a literal: patching os.name to "nt" makes pathlib
     # render this path with backslashes even on a POSIX host.
     assert calls == [[str(binary), "this-is-not-a-real-subcommand"]]
 

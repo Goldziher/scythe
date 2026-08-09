@@ -322,7 +322,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         } else {
             ""
         };
-        // Snowflake can't bridge `datetime_tz` via `getObject(col, OffsetDateTime::class.java)` —
+        // ~keep Snowflake can't bridge `datetime_tz` via `getObject(col, OffsetDateTime::class.java)` —
         // see `engine_needs_legacy_temporal_getter` — so reads go through `getTimestamp` +
         // `.toInstant().atOffset(ZoneOffset.UTC)` instead, which needs this import.
         let zone_offset_import = if engine_needs_legacy_temporal_getter(&self.engine) {

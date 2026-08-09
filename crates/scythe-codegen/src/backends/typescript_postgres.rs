@@ -114,7 +114,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
     }
 
     fn file_header(&self) -> String {
-        // See `TypescriptPgBackend::file_header` for why `.js` output needs
+        // ~keep See `TypescriptPgBackend::file_header` for why `.js` output needs
         // no import at all: the driver type goes straight into the JSDoc
         // `@param` tag as `import("postgres").Sql`, and Zod is rejected in
         // this mode.
@@ -545,7 +545,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
             self.manifest.naming.field_case = value.clone();
         }
 
-        // See `TypescriptPgBackend::apply_options` for why these three are
+        // ~keep See `TypescriptPgBackend::apply_options` for why these three are
         // rejected outright in JSDoc mode rather than silently ignored.
         if self.js_mode {
             if self.row_type == TsRowType::Zod {
@@ -628,7 +628,7 @@ impl TypescriptPostgresBackend {
                     &query_sig_params,
                     &format!("Promise<{} | null>", struct_name),
                 );
-                // postgres.js's `sql` tag defaults to its own untyped `Row`
+                // ~keep postgres.js's `sql` tag defaults to its own untyped `Row`
                 // shape without a type argument -- and unlike
                 // `client.query(...)` (pg) or `pool.execute(...)` (mysql2),
                 // that default is a *concrete* type, not `any`, so `rows[0]`

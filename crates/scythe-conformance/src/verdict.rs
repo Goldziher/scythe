@@ -363,7 +363,7 @@ mod tests {
 
     #[test]
     fn a1_fires_when_analyzer_and_codegen_disagree() {
-        // This input also fires A2: `generated_nullable == false` and the
+        // ~keep This input also fires A2: `generated_nullable == false` and the
         // column was observed NULL, which is a real soundness risk (see
         // `check_soundness`'s doc comment on why A2 keys on the generated
         // side, not the analyzed side) -- a fidelity mismatch that
@@ -438,7 +438,7 @@ row_suffix = "Row"
 
     #[test]
     fn from_analyzed_and_generated_catches_a_manifest_that_cannot_render_nullable() {
-        // A backend manifest whose "nullable" pattern is the identity
+        // ~keep A backend manifest whose "nullable" pattern is the identity
         // mapping can never render `Option<T>` -- this is the realistic A1
         // bug this crate exists to catch: the *manifest*, not the analyzer,
         // is broken. Before this fix, `generated_nullable` copied
@@ -486,8 +486,6 @@ row_suffix = "Row"
     fn facts_from(columns: Vec<ColumnFacts>, row_count: usize) -> FixtureEngineFacts {
         FixtureEngineFacts::new("live_test", Engine::Postgresql, columns, row_count).unwrap()
     }
-
-    // -- FixtureEngineFacts::new validation -------------------------------
 
     #[test]
     fn new_rejects_a_column_whose_observed_nulls_length_disagrees_with_row_count() {
@@ -651,7 +649,7 @@ row_suffix = "Row"
 
     #[test]
     fn a4_ignores_columns_that_were_already_nullable_before_the_join() {
-        // `nullable_before_join == true` columns aren't reliable
+        // ~keep `nullable_before_join == true` columns aren't reliable
         // discriminants, so a solo disagreement here must not fire A4.
         let v = evaluate(&facts(
             vec![

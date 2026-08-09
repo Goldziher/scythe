@@ -518,7 +518,7 @@ impl CodegenBackend for TokioPostgresBackend {
             return Ok(None);
         }
 
-        // Deliberately not self.struct_derives(): the `serde` option decides
+        // ~keep Deliberately not self.struct_derives(): the `serde` option decides
         // whether the *row* struct (built by from_row/row.get, never
         // JSON-decoded) opts into serde, which is a separate question from
         // this struct's own unconditional need for both serde traits --
@@ -529,7 +529,7 @@ impl CodegenBackend for TokioPostgresBackend {
     }
 
     fn generate_enum_def_for_nested(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
-        // enum_derives() adds serde only when the `serde` option is on, but
+        // ~keep enum_derives() adds serde only when the `serde` option is on, but
         // a nested struct needs its field types `Deserialize` regardless:
         // that struct is decoded from JSON, not off the wire.
         let base = self.generate_enum_def(enum_info)?;

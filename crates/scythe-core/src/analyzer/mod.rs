@@ -54,7 +54,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
-    // Phase 2 of nested-struct naming (see `types::PendingNestedStruct`):
+    // ~keep Phase 2 of nested-struct naming (see `types::PendingNestedStruct`):
     // columns now have their final names (aliases and overrides applied),
     // so each `__nested__{id}` placeholder pushed during expression
     // inference (phase 1) can be resolved to a real struct name.
@@ -124,7 +124,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
 
     let source_table = detect_select_star_source(&query.stmt);
 
-    // Every neutral type that a generated file must be able to name. Nested
+    // ~keep Every neutral type that a generated file must be able to name. Nested
     // struct fields belong here alongside the top-level columns and params:
     // a `json_agg(o.*)` over a table with an enum or composite column puts
     // that type in the *nested* struct's field list and nowhere else, so
@@ -738,7 +738,7 @@ SELECT name, age FROM users WHERE id = $1;",
     // -----------------------------------------------------------------
     // Phase-2 nested-struct naming (`resolve_nested_struct_names`).
     //
-    // `Analyzer::infer_nested_aggregate_type` (expressions.rs) is the real
+    // ~keep `Analyzer::infer_nested_aggregate_type` (expressions.rs) is the real
     // producer now, exercised end to end by the json_agg/row_to_json tests
     // further down. These tests instead exercise the resolver directly
     // with a hand-built `pending` list and column set, to pin name

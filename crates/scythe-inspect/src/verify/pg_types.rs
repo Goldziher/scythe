@@ -55,7 +55,7 @@ pub fn neutral_type_for(pg_type: &Type) -> Option<String> {
         Type::TIMESTAMPTZ => "datetime_tz",
         Type::INTERVAL => "interval",
         Type::JSON | Type::JSONB => "json",
-        // Mirrors `scythe_core::analyzer::type_conversion::sql_type_to_neutral`,
+        // ~keep Mirrors `scythe_core::analyzer::type_conversion::sql_type_to_neutral`,
         // which collapses `macaddr` into `inet` too. Kept consistent
         // deliberately rather than fixed here in isolation — see that
         // module for the same wart. `types_are_compatible` below does not
@@ -290,7 +290,7 @@ mod tests {
 
     #[test]
     fn domain_over_text_resolves_to_the_base_type() {
-        // `pg_type` domains are constructed from catalog metadata that isn't
+        // ~keep `pg_type` domains are constructed from catalog metadata that isn't
         // reachable without a live connection, so this exercises
         // `neutral_type_for`'s handling of `Kind::Domain` indirectly via the
         // documented contract: it must recurse into the base type rather

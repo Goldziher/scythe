@@ -21,7 +21,7 @@ pub(crate) fn normalize_data_type(
                 "smallserial" | "serial2" => return ("smallint".to_string(), true),
                 "timestamptz" => return ("timestamptz".to_string(), false),
                 "timetz" => return ("timetz".to_string(), false),
-                // Only a non-zero scale makes NUMBER a decimal. Rewriting
+                // ~keep Only a non-zero scale makes NUMBER a decimal. Rewriting
                 // NUMBER(p,0) to numeric(p,0) sent it to the decimal arm, so an
                 // explicit zero scale disagreed with both NUMBER(p) and bare
                 // NUMBER -- and NUMBER(38,0) is exactly how Snowflake's own
@@ -55,7 +55,7 @@ pub(crate) fn normalize_data_type(
                 ExactNumberInfo::Precision(_) | ExactNumberInfo::PrecisionAndScale(_, _) => {
                     ("double precision".to_string(), false)
                 }
-                // Bare `FLOAT` with no precision: MySQL's bare `FLOAT` is a genuine
+                // ~keep Bare `FLOAT` with no precision: MySQL's bare `FLOAT` is a genuine
                 // 4-byte single-precision type. Every other engine here (PostgreSQL,
                 // MSSQL, Oracle, SQLite, Snowflake) defaults bare `FLOAT` to 8-byte
                 // double precision (equivalent to `FLOAT(53)`).
@@ -86,7 +86,7 @@ pub(crate) fn normalize_data_type(
                 ExactNumberInfo::None => ("numeric".to_string(), false),
             }
         }
-        // MySQL UNSIGNED integer types. There is no dedicated "unsigned" neutral
+        // ~keep MySQL UNSIGNED integer types. There is no dedicated "unsigned" neutral
         // type, so these canonicalize to the same-width signed spelling; the
         // neutral-type mapping (`sql_type_to_neutral`) maps them to the same-width
         // signed integer and documents the resulting range caveat.
@@ -179,7 +179,7 @@ pub(crate) fn normalize_data_type(
             (format!("{}[]", short), false)
         }
 
-        // Preserve the declared width so downstream neutral-type resolution can
+        // ~keep Preserve the declared width so downstream neutral-type resolution can
         // distinguish a single-bit `BIT`/`BIT(1)` (boolean-ish) from a multi-bit
         // `BIT(n)` (a bitfield in MySQL, a true bit string in PostgreSQL). `BIT
         // VARYING`/`VARBIT` has no fixed width worth preserving here.

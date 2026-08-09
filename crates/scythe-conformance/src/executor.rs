@@ -127,7 +127,7 @@ mod tests {
 
     #[test]
     fn is_null_errors_on_a_column_the_driver_never_reported() {
-        // The Oracle-uppercasing scenario: the fixture expects "total" but
+        // ~keep The Oracle-uppercasing scenario: the fixture expects "total" but
         // the driver reported "TOTAL". This must be a hard error, not a
         // silent "false" (== "observed non-null").
         let row = ObservedRow::new([("TOTAL".to_string(), true)]);

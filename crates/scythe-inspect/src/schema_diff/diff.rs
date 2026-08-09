@@ -252,7 +252,7 @@ fn diff_column_type(
     ddl_column: &ColumnDescription,
     live_column: &ColumnDescription,
 ) {
-    // A type either side cannot express in scythe's neutral vocabulary is not
+    // ~keep A type either side cannot express in scythe's neutral vocabulary is not
     // evidence of drift — it is evidence that scythe has no opinion about the
     // type. Comparing anyway would report every `xml`, `point` or extension
     // column as a mismatch on a schema that is perfectly in sync.

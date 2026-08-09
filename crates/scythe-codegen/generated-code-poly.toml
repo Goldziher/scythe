@@ -1,4 +1,4 @@
-# poly configuration for validating *generated* code.
+# ~keep poly configuration for validating *generated* code.
 #
 # Deliberately separate from the repository's own poly.toml. That file governs
 # scythe's hand-written source; this one governs the output scythe emits, and

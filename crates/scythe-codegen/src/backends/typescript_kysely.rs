@@ -280,7 +280,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
         let exprs: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
         let sql_text = interpolate_kysely_params(&escaped, &exprs);
 
-        // Query/exec commands only ever call `.execute(db)` through the `sql`
+        // ~keep Query/exec commands only ever call `.execute(db)` through the `sql`
         // tag, which needs nothing more than `QueryExecutorProvider` (see
         // Kysely's `raw-builder.d.ts`): any object exposing `getExecutor()`
         // works, whether that's a `Kysely` instance, an open `Transaction`,
@@ -289,7 +289,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
         // signatures drop the `<DB = any>` generic entirely rather than
         // carry a type parameter that does nothing.
         //
-        // `:batch` is the one exception: it calls `db.transaction()` and
+        // ~keep `:batch` is the one exception: it calls `db.transaction()` and
         // reads `db.isTransaction`, both `Kysely`/`Transaction`-specific, so
         // it keeps the narrower `Kysely<DB>` parameter and `<DB = any>`.
         let write_fn_sig = |out: &mut String, name: &str, generic: &str, sig_params: &[(String, String)], ret: &str| {
@@ -482,7 +482,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
             .map(|p| format!("{}: {}", p.field_name, p.full_type))
             .collect::<Vec<_>>()
             .join(", ");
-        // Same rationale as `generate_query_fn`: grouped fetches only ever
+        // ~keep Same rationale as `generate_query_fn`: grouped fetches only ever
         // `.execute(db)` through the `sql` tag, so `db` takes the minimal
         // `QueryExecutorProvider` interface instead of `Kysely<DB>`, and the
         // now-unused `<DB = any>` generic is dropped.
@@ -523,7 +523,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
         // - Default (`Snake`): nothing has touched the result, so `flatRows`
         //   is keyed by the raw SQL column name, exactly as written in the
         //   SELECT. It must be read by `col.name`. `col.field_name` is
-        //   *not* a safe stand-in: it is `to_snake_case(name)`, which is
+        //   ~keep *not* a safe stand-in: it is `to_snake_case(name)`, which is
         //   only the identity for already-snake_case SQL. Kysely ships mssql
         //   and mysql manifests where PascalCase columns are idiomatic, so
         //   `SELECT o.OrderId` would be read as `row['order_id']` -- a key
@@ -1041,7 +1041,6 @@ mod tests {
     fn test_batch_reuses_existing_transaction_instead_of_nesting() {
         let backend = TypescriptKyselyBackend::new("postgresql").unwrap();
 
-        // Multi-param batch (params.len() > 1).
         let mut multi_query = make_one_query(
             "INSERT INTO users (name, email) VALUES ($1, $2)",
             vec![
@@ -1074,7 +1073,6 @@ mod tests {
             "must not unconditionally open a nested transaction; got:\n{multi_fn}"
         );
 
-        // Single-param batch (params.len() == 1).
         let mut single_query = make_one_query(
             "INSERT INTO users (name) VALUES ($1)",
             vec![AnalyzedParam {
@@ -1646,7 +1644,7 @@ mod tests {
             "row struct must still be emitted"
         );
 
-        // Neither file_header() nor file_header_for_results() must import
+        // ~keep Neither file_header() nor file_header_for_results() must import
         // anything from "kysely" once nothing in the file needs it.
         assert!(
             !backend.file_header().contains("kysely"),

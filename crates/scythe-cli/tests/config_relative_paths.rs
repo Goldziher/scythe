@@ -218,7 +218,7 @@ fn fmt_check_resolves_globs_relative_to_config_not_cwd() {
 
     let err = stderr(&output);
 
-    // Before the fix, `resolve_files_from_config`'s inline glob loop (a 5th,
+    // ~keep Before the fix, `resolve_files_from_config`'s inline glob loop (a 5th,
     // separate CWD-relative code path) found zero files against the wrong
     // CWD and printed "No SQL files found to format." with exit 0 — masking
     // the badly formatted query entirely.
@@ -305,7 +305,7 @@ fn absolute_output_is_unchanged() {
         abs_output.path().display()
     );
 
-    // `PathBuf::push`/`Path::join` already replace the buffer outright when
+    // ~keep `PathBuf::push`/`Path::join` already replace the buffer outright when
     // the pushed path is absolute, so an incorrect re-join would still
     // resolve to `abs_output` (the assertion above would still pass) rather
     // than surfacing as a broken path. What an incorrect implementation
@@ -394,7 +394,7 @@ output = "generated"
 "#;
     std::fs::write(project.path().join("scythe.toml"), config).unwrap();
 
-    // CWD == project dir, and `--config scythe.toml` is the bare default
+    // ~keep CWD == project dir, and `--config scythe.toml` is the bare default
     // spelling (`config_dir("scythe.toml")` is the empty path). This pins
     // the `rebase_pattern` identity branch: the reported path must be
     // `queries.sql`, not `./queries.sql`.

@@ -501,7 +501,7 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
                     .map_err(|e| format!("backend '{}' apply_options failed: {}", target.backend, e))?;
             }
 
-            // `output` is a path, not a glob pattern, so it is resolved via
+            // ~keep `output` is a path, not a glob pattern, so it is resolved via
             // plain `Path::join` (not `rebase_pattern`/`glob::Pattern::escape`)
             // — an output directory literally named `a[1]` must not be
             // mangled. `PathBuf::push` (which `join` uses internally) leaves
@@ -832,7 +832,7 @@ fn generate_for_backend(
         schema,
         queries,
     } = provenance;
-    // Nested struct names are deduplicated by (name, shape) only *within*
+    // ~keep Nested struct names are deduplicated by (name, shape) only *within*
     // one analyze() call, so two queries in the same file can each derive
     // the same name -- `to_snake_case` collapses `GetUserPosts` and
     // `GETUserPosts` onto one snake_case stem, and `@name` is free-form, so
@@ -1185,7 +1185,7 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
             analyzed_queries.push(analyzed);
         }
 
-        // Computed from every analyzed query in this block, exactly as
+        // ~keep Computed from every analyzed query in this block, exactly as
         // `run_generate` computes the same value -- see
         // `AnalyzedQuery::fingerprint_set` for what participates. Read
         // before the possible move into `VerifiableBlock` just below.
@@ -1817,7 +1817,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
         return violations;
     }
 
-    // Safe: `is_complete()` above just confirmed every field is `Some`.
+    // ~keep Safe: `is_complete()` above just confirmed every field is `Some`.
     let header_schema = header.schema.as_deref().unwrap();
     let header_version = header.version.as_deref().unwrap();
     let header_backend = header.backend.as_deref().unwrap();
@@ -1841,7 +1841,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
     // `.sql` query file without touching the schema is no longer invisible
     // to `scythe check`.
     //
-    // Deliberately gated on `header.queries` being present, unlike every
+    // ~keep Deliberately gated on `header.queries` being present, unlike every
     // other field compared here: those four are covered by
     // `header.is_complete()` returning early above, but `queries` is not
     // part of that four-field completeness contract (see
@@ -1866,7 +1866,7 @@ fn verify_artifact(artifact_path: &Path, expected: &ProvenanceExpectation<'_>) -
         });
     }
 
-    // Compared against `backend.name()` (the canonical form assembly
+    // ~keep Compared against `backend.name()` (the canonical form assembly
     // embeds), not the configured `backend = "..."` alias. `get_backend`
     // accepts several aliases per backend (e.g. `"sqlx"` or `"rb"`) and
     // every one of them constructs a backend whose `name()` returns the same
@@ -2333,7 +2333,7 @@ backend = \"rust-sqlx\"
     /// (an empty generated file reads as a build failure, not "no queries").
     #[test]
     fn assemble_body_falls_back_to_placeholder_when_results_are_empty() {
-        // A hand-rolled backend (rather than a real one from `get_backend`)
+        // ~keep A hand-rolled backend (rather than a real one from `get_backend`)
         // is required here: every shipping backend overrides at least one of
         // file_header/file_footer/post_footer/query_class_header with
         // non-empty content, so none of them can produce a genuinely empty
@@ -2415,7 +2415,7 @@ backend = \"rust-sqlx\"
     //
     // The comment-prefix table, the field sanitizer, and the
     // preamble/header/body ordering they feed are unit-tested in
-    // `scythe_codegen::provenance`, where they live. What is tested here is
+    // ~keep `scythe_codegen::provenance`, where they live. What is tested here is
     // this crate's use of them: that the embedded version is *this binary's*,
     // and that the round trip back through `parse_provenance_header` below
     // holds.
@@ -3582,7 +3582,7 @@ backend = \"rust-sqlx\"
             ),
         );
 
-        // Built the way `run_check` builds it: `provenance_registry()` plus
+        // ~keep Built the way `run_check` builds it: `provenance_registry()` plus
         // the user's `[lint]` table, the same table applied to the default
         // registry.
         let mut registry = scythe_lint::provenance_registry();

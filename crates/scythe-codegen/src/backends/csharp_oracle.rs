@@ -59,7 +59,7 @@ fn oracle_out_cast(neutral_type: &str, param_expr: &str) -> String {
             "((Oracle.ManagedDataAccess.Types.OracleDecimal){}).ToDouble()",
             param_expr
         ),
-        // OracleDecimal exposes the managed decimal through its `Value`
+        // ~keep OracleDecimal exposes the managed decimal through its `Value`
         // property; there is no ToDecimal(), unlike ToInt32/ToInt64/ToDouble.
         "decimal" => format!("((Oracle.ManagedDataAccess.Types.OracleDecimal){}).Value", param_expr),
         "bytes" => format!("((Oracle.ManagedDataAccess.Types.OracleBlob){}).Value", param_expr),

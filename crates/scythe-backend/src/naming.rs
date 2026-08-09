@@ -50,7 +50,7 @@ pub fn to_pascal_case(s: &str) -> Cow<'_, str> {
         let mut chars = part.chars();
         if let Some(first) = chars.next() {
             result.extend(first.to_uppercase());
-            // `snake` is already lowercased, so the tail needs no further
+            // ~keep `snake` is already lowercased, so the tail needs no further
             // case folding.
             result.push_str(chars.as_str());
         }

@@ -114,7 +114,7 @@ impl CodegenBackend for TypescriptPgBackend {
     }
 
     fn file_header(&self) -> String {
-        // JSDoc types are self-contained (`{import("pg").PoolClient}`
+        // ~keep JSDoc types are self-contained (`{import("pg").PoolClient}`
         // written directly in the `@param` tag -- see `generate_query_fn`),
         // so `.js` output never needs a driver import at all, typed or
         // otherwise; Zod is one of the options rejected in this mode (see

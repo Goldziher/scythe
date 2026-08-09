@@ -723,8 +723,6 @@ mod tests {
         )
     }
 
-    // -- SeedBlock::resolve ---------------------------------------------
-
     #[test]
     fn seed_resolve_prefers_engine_override_over_default() {
         let seed = SeedBlock {
@@ -769,8 +767,6 @@ mod tests {
             "an explicit empty override must not silently fall back"
         );
     }
-
-    // -- RowExpectation::declared_null ------------------------------------
 
     #[test]
     fn row_expectation_declared_null_distinguishes_null_non_null_and_unmentioned() {
@@ -845,7 +841,7 @@ mod tests {
 
     #[test]
     fn load_fixtures_rejects_an_order_by_that_only_appears_inside_a_window_function() {
-        // A substring match on "ORDER BY" would be satisfied by
+        // ~keep A substring match on "ORDER BY" would be satisfied by
         // `ROW_NUMBER() OVER (ORDER BY id)`, but that's not a top-level
         // ORDER BY -- row order (and therefore ordinal row matching) is
         // still undefined.
@@ -983,7 +979,7 @@ mod tests {
 
     #[test]
     fn load_fixtures_loads_normally_when_an_ancestor_of_fixtures_root_starts_with_underscore() {
-        // The exclusion check must only look at path components *below*
+        // ~keep The exclusion check must only look at path components *below*
         // fixtures_root. `dir.join("**/*.json")` glob results carry the
         // full path, ancestors included -- checking the whole path would
         // silently discard every fixture whenever the checkout sits under

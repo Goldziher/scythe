@@ -327,7 +327,7 @@ mod tests {
 
     #[test]
     fn test_column_nullability_change_produces_different_fingerprint() {
-        // Constructed directly rather than through real SQL analysis: this
+        // ~keep Constructed directly rather than through real SQL analysis: this
         // isolates the one field under test (`AnalyzedColumn::nullable`)
         // instead of depending on which SQL shapes the analyzer happens to
         // infer nullability changes from.

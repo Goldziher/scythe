@@ -588,7 +588,7 @@ impl CodegenBackend for SqlxBackend {
     }
 
     fn generate_enum_def_for_nested(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
-        // The plain form derives sqlx::Type only, which decodes an enum off
+        // ~keep The plain form derives sqlx::Type only, which decodes an enum off
         // the *wire*. Inside a json_agg result the value arrives as a JSON
         // string decoded by serde_json instead, so without Deserialize the
         // nested struct's own derive fails to satisfy its bound and the file

@@ -1,4 +1,4 @@
-# Registry of accepted analyzer/engine divergences for the live nullability
+# ~keep Registry of accepted analyzer/engine divergences for the live nullability
 # conformance suite.
 #
 # This is a narrow escape hatch for exactly one situation: the analyzer is
