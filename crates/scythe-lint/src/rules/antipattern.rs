@@ -71,7 +71,7 @@ impl LintRule for ImplicitTypeCoercion {
         Severity::Off
     }
     fn description(&self) -> &'static str {
-        "Implicit type coercion may cause unexpected behavior"
+        "Implicit type coercion may cause unexpected behavior (reserved id — not yet implemented, always off)"
     }
 }
 
@@ -97,7 +97,9 @@ impl LintRule for OrInJoinCondition {
     fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
         let mut violations = Vec::new();
         walk_join_conditions(ctx.stmt, &mut |expr| {
-            if has_top_level_or(expr) {
+            let mut ors = Vec::new();
+            collect_top_level_ors(expr, &mut ors);
+            for _ in ors {
                 violations.push(Violation {
                     rule_id: Cow::Borrowed("SC-A03"),
                     message: "OR in JOIN ON condition — consider restructuring".into(),
@@ -113,14 +115,31 @@ fn is_null_literal(expr: &Expr) -> bool {
     matches!(expr, Expr::Value(v) if v.value == Value::Null)
 }
 
-fn has_top_level_or(expr: &Expr) -> bool {
-    matches!(
-        expr,
+/// Collect one entry per top-level disjunction reachable from `expr` by
+/// unwrapping parentheses and descending through AND conjuncts.
+///
+/// `ON a OR b`, `ON (a OR b)` and `ON x AND (a OR b)` all push exactly one
+/// hit for their OR clause. A chain like `a OR b OR c` (parsed
+/// left-associatively as `((a OR b) OR c)`) also pushes exactly one hit:
+/// once a node is identified as an OR, its own subtree is not descended
+/// into for further hits, so a single disjunction is never counted once per
+/// operand.
+fn collect_top_level_ors<'a>(expr: &'a Expr, hits: &mut Vec<&'a Expr>) {
+    match expr {
+        Expr::Nested(inner) => collect_top_level_ors(inner, hits),
         Expr::BinaryOp {
-            op: BinaryOperator::Or,
-            ..
+            left,
+            op: BinaryOperator::And,
+            right,
+        } => {
+            collect_top_level_ors(left, hits);
+            collect_top_level_ors(right, hits);
         }
-    )
+        Expr::BinaryOp {
+            op: BinaryOperator::Or, ..
+        } => hits.push(expr),
+        _ => {}
+    }
 }
 
 fn walk_exprs(stmt: &Statement, visitor: &mut dyn FnMut(&Expr)) {
@@ -353,6 +372,22 @@ mod tests {
         assert!(v.is_empty());
     }
 
+    /// Regression for #137's "Related" note: `SC-A02` implements no
+    /// `check_query`/`check_catalog` and is off by default, so a user
+    /// enabling it via `[lint.rules]` gets silence forever. `--explain`
+    /// reads this description, so it must say so plainly rather than
+    /// reading like a rule that simply hasn't found anything yet.
+    #[test]
+    fn implicit_type_coercion_description_states_reserved_id() {
+        let rule = ImplicitTypeCoercion;
+        assert_eq!(rule.default_severity(), Severity::Off);
+        assert!(
+            rule.description().contains("reserved id"),
+            "SC-A02's description must disclose it is a reserved, unimplemented id: {:?}",
+            rule.description()
+        );
+    }
+
     #[test]
     fn implicit_type_coercion_returns_empty() {
         let cat = make_catalog();
@@ -384,6 +419,38 @@ mod tests {
         let ctx = make_ctx(&q, &a, &cat);
         let v = OrInJoinCondition.check_query(&ctx);
         assert!(v.is_empty());
+    }
+
+    /// Regression for #145: parenthesising an OR in an ON clause is common
+    /// style and must not hide the violation.
+    #[test]
+    fn or_in_join_parenthesised_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name ListJoined\n-- @returns :many\nSELECT u.id, p.title FROM users u JOIN posts p ON (u.id = p.user_id OR u.name = p.title);",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = OrInJoinCondition.check_query(&ctx);
+        assert_eq!(v.len(), 1);
+        assert_eq!(v[0].rule_id, "SC-A03");
+    }
+
+    /// Regression for #145: an OR nested under an AND conjunct in the ON
+    /// clause must still be caught, without double-counting the AND branch
+    /// that has no OR in it.
+    #[test]
+    fn or_nested_under_and_in_join_fires() {
+        let cat = make_catalog();
+        let q = parse_query(
+            "-- @name ListJoined\n-- @returns :many\nSELECT u.id, p.title FROM users u JOIN posts p ON u.id = p.user_id AND (p.id = 1 OR p.id = 2);",
+        )
+        .unwrap();
+        let a = analyzer::analyze(&cat, &q).unwrap();
+        let ctx = make_ctx(&q, &a, &cat);
+        let v = OrInJoinCondition.check_query(&ctx);
+        assert_eq!(v.len(), 1);
     }
 
     #[test]

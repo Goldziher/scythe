@@ -121,8 +121,20 @@ impl LintRule for MatcherRule {
         self.description_leaked
     }
 
+    fn cwe(&self) -> Vec<String> {
+        if !self.spec.cwe.is_empty() {
+            self.spec.cwe.clone()
+        } else {
+            crate::reporters::extract_cwe(&self.spec.description)
+        }
+    }
+
+    fn is_applicable_to(&self, dialect: scythe_core::dialect::SqlDialect) -> bool {
+        self.spec.dialects.is_empty() || self.spec.dialects.contains(&dialect)
+    }
+
     fn check_query(&self, ctx: &LintContext<'_>) -> Vec<Violation> {
-        if !self.spec.dialects.is_empty() && !self.spec.dialects.contains(&ctx.dialect) {
+        if !self.is_applicable_to(ctx.dialect) {
             return Vec::new();
         }
 
@@ -321,6 +333,79 @@ mod tests {
 
         let violations = rule.check_query(&ctx);
         assert!(violations.is_empty());
+    }
+
+    /// Regression for #140: a user-supplied rule that declares `cwe` in TOML
+    /// but whose description contains no `CWE-\d+` text must still expose
+    /// its declared CWEs through the `LintRule` trait -- the surface every
+    /// non-matcher-internal consumer (e.g. a SARIF reporter) actually uses.
+    #[test]
+    fn matcher_rule_cwe_prefers_declared_spec_cwe() {
+        let mut spec = minimal_spec("USER-001", "msg", Severity::Error);
+        spec.description = "no lo import allowed".to_string();
+        spec.cwe = vec!["CWE-89".to_string(), "CWE-22".to_string()];
+        let rule = MatcherRule::new(spec, never_fires);
+        assert_eq!(rule.cwe(), vec!["CWE-89".to_string(), "CWE-22".to_string()]);
+    }
+
+    /// A canonical rule with no declared `cwe` array (all of today's
+    /// built-ins) must still resolve a CWE by scanning its description, as
+    /// before.
+    #[test]
+    fn matcher_rule_cwe_falls_back_to_description_when_spec_cwe_empty() {
+        let mut spec = minimal_spec("SC-TEST05", "msg", Severity::Error);
+        spec.cwe = vec![];
+        spec.description = "call to dangerous fn (CWE-78)".to_string();
+        let rule = MatcherRule::new(spec, never_fires);
+        assert_eq!(rule.cwe(), vec!["CWE-78".to_string()]);
+    }
+
+    /// Declared `cwe` wins outright -- it is not merged with whatever the
+    /// description happens to mention.
+    #[test]
+    fn matcher_rule_cwe_declared_spec_cwe_not_merged_with_description() {
+        let mut spec = minimal_spec("USER-002", "msg", Severity::Error);
+        spec.description = "mentions CWE-79 in prose".to_string();
+        spec.cwe = vec!["CWE-89".to_string()];
+        let rule = MatcherRule::new(spec, never_fires);
+        assert_eq!(rule.cwe(), vec!["CWE-89".to_string()]);
+    }
+
+    /// Neither declared nor description-derived: an empty, well-formed list
+    /// rather than a panic or a placeholder.
+    #[test]
+    fn matcher_rule_cwe_empty_when_neither_source_has_one() {
+        let mut spec = minimal_spec("USER-003", "msg", Severity::Error);
+        spec.description = "no cwe mentioned anywhere".to_string();
+        spec.cwe = vec![];
+        let rule = MatcherRule::new(spec, never_fires);
+        assert!(rule.cwe().is_empty());
+    }
+
+    /// Regression for #167: a rule scoped to Postgres must expose that
+    /// through `is_applicable_to`, not only via a silent `check_query`
+    /// early-return, so a caller can count and report skipped rules per
+    /// engine instead of `scythe audit` on a non-Postgres engine claiming
+    /// "no findings" while most rules never ran.
+    #[test]
+    fn matcher_rule_is_applicable_to_honours_spec_dialects() {
+        let mut spec = minimal_spec("SC-TEST06", "msg", Severity::Error);
+        spec.dialects = vec![SqlDialect::PostgreSQL];
+        let rule = MatcherRule::new(spec, never_fires);
+
+        assert!(rule.is_applicable_to(SqlDialect::PostgreSQL));
+        assert!(!rule.is_applicable_to(SqlDialect::MySQL));
+    }
+
+    /// An empty `dialects` list means "every dialect", matching the existing
+    /// `check_query` gate semantics.
+    #[test]
+    fn matcher_rule_is_applicable_to_empty_dialects_means_every_dialect() {
+        let spec = minimal_spec("SC-TEST07", "msg", Severity::Error);
+        let rule = MatcherRule::new(spec, never_fires);
+
+        assert!(rule.is_applicable_to(SqlDialect::PostgreSQL));
+        assert!(rule.is_applicable_to(SqlDialect::MySQL));
     }
 
     #[test]

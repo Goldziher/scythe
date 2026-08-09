@@ -1,11 +1,15 @@
 //! Matcher `"policy_always_permissive"` — SC-RLS02.
 //!
 //! Takes no `matcher_args`. Fires on `CREATE POLICY` statements whose USING or
-//! WITH CHECK expression is a tautology (`true`, `1=1`, parenthesised variants,
-//! or `NULL`), making the policy unconditionally permissive. Restricted to
+//! WITH CHECK expression is a tautology (`true`, `1=1`, or parenthesised
+//! variants), making the policy unconditionally permissive. Restricted to
 //! permissive policies on write-side commands — SELECT policies with
 //! `USING (true)` are a common (and intentional) "everyone can read" pattern,
 //! so they are excluded.
+//!
+//! `NULL` is deliberately **not** treated as a tautology here (see
+//! `is_tautology`): an RLS clause admits a row only on TRUE, so `NULL`
+//! rejects every row rather than granting unconditional access.
 //!
 //! Detection inspired by supabase/splinter lint `0024_rls_policy_always_true`
 //! (see `ATTRIBUTIONS.md`). Splinter normalises the rendered policy
@@ -26,7 +30,17 @@ fn unwrap_nested(expr: &Expr) -> &Expr {
 
 fn is_tautology(expr: &Expr) -> bool {
     match unwrap_nested(expr) {
-        Expr::Value(v) => matches!(v.value, Value::Boolean(true) | Value::Null),
+        // Deliberately NOT `| Value::Null` here, unlike
+        // `check_constraint_always_true`'s copy of this helper. A CHECK
+        // *constraint* is satisfied on TRUE or NULL, so NULL is correctly a
+        // tautology there. An RLS `USING`/`WITH CHECK` clause admits a row
+        // only on TRUE — `NULL` evaluates falsy and rejects every row, i.e.
+        // it is a deny-all policy, the opposite of always-permissive. Folding
+        // NULL into this list previously reported the most restrictive
+        // policy possible as granting unconditional access (#139) and
+        // advised replacing it with "an actual predicate" — advice that
+        // would have loosened, not fixed, security.
+        Expr::Value(v) => matches!(v.value, Value::Boolean(true)),
         Expr::BinaryOp {
             left,
             op: sqlparser::ast::BinaryOperator::Eq,
@@ -207,5 +221,53 @@ mod tests {
         let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
         let hits = match_policy_always_permissive(&ctx, &toml::Table::new());
         assert!(hits.is_empty());
+    }
+
+    /// Regression for the SC-RLS02 inversion (#139): `WITH CHECK (NULL)`
+    /// rejects every row (NULL is not TRUE), so it is a deny-all policy, not
+    /// an always-permissive one. Firing here reported a maximally
+    /// restrictive policy as granting unconditional access and pushed users
+    /// toward loosening it -- worse than no rule at all.
+    #[test]
+    fn no_match_deny_all_with_check_null() {
+        let sql = "CREATE POLICY deny_all ON tenants FOR INSERT WITH CHECK (NULL);";
+        let (stmt, analyzed, catalog, annotations) = make_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        let hits = match_policy_always_permissive(&ctx, &toml::Table::new());
+        assert!(
+            hits.is_empty(),
+            "WITH CHECK (NULL) rejects every row and must not be reported as always-permissive"
+        );
+    }
+
+    /// Regression for the SC-RLS02 inversion (#139): `USING (NULL)` on a
+    /// write-side command likewise admits no row.
+    #[test]
+    fn no_match_deny_all_using_null() {
+        let sql = "CREATE POLICY deny_all ON tenants FOR UPDATE USING (NULL);";
+        let (stmt, analyzed, catalog, annotations) = make_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        let hits = match_policy_always_permissive(&ctx, &toml::Table::new());
+        assert!(
+            hits.is_empty(),
+            "USING (NULL) rejects every row and must not be reported as always-permissive"
+        );
+    }
+
+    /// The positive control paired with the two negative cases above: a
+    /// genuinely permissive policy (`USING (true)`) must still fire, so the
+    /// deny-all fix cannot have been achieved by disabling the rule outright.
+    #[test]
+    fn fires_on_genuinely_permissive_policy_not_deny_all() {
+        let sql = "CREATE POLICY allow_all ON tenants FOR UPDATE USING (true);";
+        let (stmt, analyzed, catalog, annotations) = make_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        let hits = match_policy_always_permissive(&ctx, &toml::Table::new());
+        assert_eq!(
+            hits.len(),
+            1,
+            "USING (true) is genuinely always-permissive and must fire"
+        );
+        assert_eq!(hits[0].bindings.get("policy").map(|s| s.as_str()), Some("allow_all"));
     }
 }

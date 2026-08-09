@@ -373,8 +373,18 @@ pub(crate) fn audit_explicit_files(
 ///
 /// # Suppression
 ///
-/// A `SuppressionSet` is built once from the full SQL string. Statement start
-/// lines are approximated by scanning the sqlparser token stream: for each
+/// A `SuppressionSet` is built once from the full SQL string and looked up by
+/// each statement's 0-based enumeration index (`idx`), matching how
+/// `SuppressionSet::parse` counts statements internally -- see its module
+/// docs. Looking it up by source line instead used to over-suppress: two
+/// statements sharing one physical line resolved to the same line-keyed
+/// entry, so a suppression meant only for the first silently covered the
+/// second too.
+///
+/// # Reported line numbers
+///
+/// Statement start lines (used for [`Finding::line`], *not* for suppression
+/// lookup) are approximated by scanning the sqlparser token stream: for each
 /// parsed statement we find the minimum source-location line number among its
 /// tokens. This avoids re-splitting on `;` (which is quote-unsafe) and gives
 /// accurate 1-based line numbers even for multi-line statements.
@@ -424,9 +434,14 @@ pub(crate) fn run_security_rules_over_sql(
                 continue;
             }
             for violation in rule.check_query(&ctx) {
+                // `SuppressionSet` is keyed by 0-based statement index, not
+                // by source line (scythe-lint #140: two statements sharing
+                // one physical line previously resolved to the same
+                // line-keyed entry and a suppression meant for the first
+                // silently covered the second too).
                 if !ignore_suppressions
                     && !suppressions.is_empty()
-                    && suppressions.is_suppressed(&violation.rule_id, stmt_line)
+                    && suppressions.is_suppressed(&violation.rule_id, idx)
                 {
                     continue;
                 }
@@ -439,7 +454,7 @@ pub(crate) fn run_security_rules_over_sql(
                     rule_description: Some(rule.description().to_string()),
                     severity: *severity,
                     message: violation.message,
-                    line: None,
+                    line: Some(stmt_line),
                     column: None,
                     cwe: extract_cwe(rule.description()),
                     source: Some("audit".to_string()),

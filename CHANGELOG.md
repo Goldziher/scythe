@@ -10,10 +10,61 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 **Upgrading**: three changes can turn a config that used to be accepted into an error. `[lint.sqruff]`
 is now actually read, so a table that was previously inert may now fail the run; keys in a `[[sql]]`
 block that scythe does not define are now rejected instead of ignored; and Ruby `.rbs` output changes,
-so committed signatures need regenerating. Details below.
+so committed signatures need regenerating. `scythe-codegen`'s public `generate_from_catalog` stub is
+also removed (#132) — a breaking change for any direct caller, though it had none in this repository.
+Two lint-crate suppression and audit APIs also changed shape (see **Fixed**): `SuppressionSet` is now
+keyed by statement index instead of source line, and `LintRule` gained `cwe()` / `is_applicable_to()`
+methods with safe defaults. Details below.
+
+### Security
+
+- **`SC-RLS02` (`policy-always-permissive`) reported a deny-all RLS policy as granting
+  unconditional access.** `WITH CHECK (NULL)` / `USING (NULL)` reject every row — NULL is not
+  TRUE — but the rule's tautology check folded `NULL` in alongside `true` and `1=1`, so the most
+  restrictive policy possible was flagged at `error` severity with remediation advice ("replace
+  the tautology with an actual predicate") that would have *loosened* security in response to a
+  security finding. `NULL` is no longer treated as a tautology by this rule; `SC-CHK01`
+  (`check-constraint-always-true`), where `NULL` genuinely does satisfy a CHECK constraint, is
+  unaffected. (#139)
 
 ### Fixed
 
+- `SC-SEC01` (`dangerous-function`) missed set-returning functions called in `FROM` position
+  (`FROM dblink(...)`, `FROM pg_ls_dir('/etc')`, `FROM openrowset(...)`) — the idiomatic way these
+  particular functions are written — because the matcher only inspected `Expr::Function` nodes and
+  `pre_visit_relation` was a no-op. It now also matches the relation name. (#138)
+- `SC-SEC06` (`weak-hash-in-auth`) missed salted and wrapped hash arguments: `md5(password || salt)`
+  and `md5(lower(password))` produced no finding, only the bare `md5(password)` form did.
+  `extract_sensitive_column` now recurses through `BinaryOp`, `Nested`, `Function` and `Cast`. (#138)
+- `SC-A03` (`or-in-join-condition`) only fired when the `OR` in a JOIN's `ON` clause was
+  unparenthesised, and only inspected the ON clause's root expression instead of descending it — so
+  `ON (a OR b)` and `ON x AND (a OR b)`, both real occurrences of the same antipattern, produced no
+  finding. It now unwraps parentheses and descends through `AND` conjuncts, counting each top-level
+  disjunction once. (#145)
+- `engine.rs`'s cross-query duplicate-name check (`SC-C03`) hardcoded `Severity::Error` regardless of
+  `[lint.rules]`, so `"SC-C03" = "warn"` had no effect, and it fired even when `DuplicateQueryNames`
+  was not registered in the calling registry at all. It now resolves severity through the registry,
+  same as every other rule, and produces no finding when the rule isn't active. (#137)
+- `SC-A02` (`implicit-type-coercion`) implements no check and is off by default with no way to ever
+  produce a finding if enabled; its description now says so explicitly, matching `SC-C01`. (#137)
+- Inline suppression comments (`-- scythe-audit: ignore[...]`) were keyed by source line, so two
+  statements sharing one physical line (`DROP TABLE a; DROP TABLE b;`) resolved to the same key and a
+  suppression meant only for the first silently covered the second too. `SuppressionSet` is now keyed
+  by 0-based statement index instead — **callers must pass a statement index, not a computed source
+  line**. The module doc's claim that a blank line between an annotation and its statement still
+  attaches was also wrong; the code discarded it then and still does, so the doc was corrected instead
+  of the (intentional) behavior. (#140)
+- A user-supplied `[[audit.rule]]`'s declared `cwe` array had no way to reach a caller through
+  `LintRule` — only `MatcherRule`'s private `RuleSpec` held it, so every consumer fell back to
+  scanning `description` for `CWE-\d+` text and a declared `cwe` with no such text in its description
+  was silently dropped. `LintRule` gained a `cwe()` method (default: empty; `MatcherRule` prefers the
+  declared `cwe`, falling back to the description scan only when it's empty). (#140)
+- `MatcherRule::check_query`'s dialect gate (`spec.dialects`) was invisible from outside — a rule
+  scoped to Postgres just silently returned nothing on every other engine, indistinguishable from a
+  rule that ran and found nothing. `LintRule` gained an `is_applicable_to(dialect)` method (default:
+  every dialect; `MatcherRule` exposes its `spec.dialects` gate) so a caller can count and report
+  skipped, not-applicable rules instead of an engine's `scythe audit` reading as a clean pass when
+  most rules never ran. (#167)
 - `[lint.sqruff] enabled` was declared and never read: `enabled = false` did not disable sqruff.
   It now does. Separately, `[lint.sqruff.rules]` wrote any non-`"off"` value into sqruff's `rules`
   key, which sqruff treats as an *allowlist* — so `"LT02" = "warn"` silently disabled every other
@@ -48,6 +99,12 @@ so committed signatures need regenerating. Details below.
 
 ### Removed
 
+- **Breaking (`scythe-codegen`)**: removed the public `generate_from_catalog` stub. It ignored its
+  argument and always returned `Ok(GeneratedCode::default())`, so a caller could not distinguish
+  "nothing to generate" from "this function does nothing" — reporting success while doing nothing is
+  worse than not existing. It had no caller besides its own tautological test, which asserted the
+  stub's behavior matched the stub's behavior and could never fail. If catalog-level codegen is
+  implemented later it should land as a real implementation, not a reserved name. (#132)
 - Four `r2dbc` manifests for engines the r2dbc backends never accepted. They were unreachable.
 
 ## [0.14.0] - 2026-08-09
