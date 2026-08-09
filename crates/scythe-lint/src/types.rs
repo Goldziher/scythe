@@ -101,12 +101,25 @@ pub struct LintContext<'a> {
     pub dialect: SqlDialect,
 }
 
-#[derive(Debug, Clone, Deserialize, Default)]
+#[derive(Debug, Clone, Deserialize)]
 pub struct SqruffConfig {
     #[serde(default = "default_true")]
     pub enabled: bool,
     #[serde(default)]
     pub rules: ahash::AHashMap<String, String>,
+}
+
+// Hand-written rather than derived: `#[serde(default = "default_true")]` only
+// applies when `enabled` is absent from TOML input, so a derived `Default`
+// would produce `enabled: false` -- the opposite of what an absent
+// `[lint.sqruff]` table means everywhere else in the codebase.
+impl Default for SqruffConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_true(),
+            rules: ahash::AHashMap::new(),
+        }
+    }
 }
 
 fn default_true() -> bool {

@@ -422,4 +422,14 @@ mod tests {
         assert!(lint_sql("SELECT 1\n", "ansi", Some(&cfg)).is_ok());
         assert!(validate_config("ansi", Some(&cfg)).is_ok());
     }
+    /// A derived `Default` would set `enabled: false`, because
+    /// `#[serde(default = "default_true")]` only applies to absent TOML
+    /// input. Everywhere else an absent `[lint.sqruff]` means enabled.
+    #[test]
+    fn default_config_is_enabled() {
+        assert!(
+            SqruffConfig::default().enabled,
+            "SqruffConfig::default() must be enabled"
+        );
+    }
 }
