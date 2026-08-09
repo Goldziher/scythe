@@ -19,6 +19,8 @@ toml = "1.1"
 
 [dev-dependencies]
 criterion = "0.8"
+scythe-lint = { path = "../scythe-lint", version = "0.14.0" }
+syn = { version = "3", features = ["full", "parsing"] }
 
 [[bench]]
 name = "analyze_codegen"

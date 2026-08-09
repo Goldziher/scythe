@@ -2254,6 +2254,8 @@ dependencies = [
  "criterion",
  "scythe-backend",
  "scythe-core",
+ "scythe-lint",
+ "syn 3.0.3",
  "toml 1.1.4+spec-1.1.0",
 ]
 
