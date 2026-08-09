@@ -1,0 +1,14 @@
+-- Isolates the non-ASCII-identifier case (issue #181) that does not fit in
+-- sql/torture/schema.sql: see that file's header for why. This schema exists
+-- to prove, with a two-line minimal repro, that scythe-core -- not a codegen
+-- backend -- fails to resolve a byte-identical quoted non-ASCII identifier
+-- between DDL and a query:
+--
+--   $ scythe generate
+--   error: UNKNOWN_COLUMN: column "café" does not exist
+--
+-- Both files are UTF-8 NFC ("café" = c-a-f-U+00E9) and byte-identical at the
+-- identifier, so this is not an encoding/normalization mismatch between the
+-- schema and query files -- scythe-core's own identifier matching does not
+-- round-trip a non-ASCII quoted identifier.
+CREATE TABLE torture_nonascii (id SERIAL PRIMARY KEY, "café" TEXT);

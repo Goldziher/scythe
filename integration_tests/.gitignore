@@ -10,4 +10,12 @@
 **/.venv/
 **/vendor/
 **/.bundle/
-**/Cargo.lock
+# Cargo.lock is NOT a build artifact for these binary crates -- it is meant
+# to be committed like every other lock file here (uv.lock, pnpm-lock.yaml,
+# go.sum, composer.lock, Gemfile.lock). This entry used to say otherwise,
+# which is almost certainly why 5 of 10 rust-* projects had no committed
+# Cargo.lock (a review found them, then a review found 2 more) with no
+# signal: `cargo generate-lockfile` produced a file `git add -A` would
+# silently skip. `cargo check --locked` now fails loudly instead -- see
+# check-generated-syntax.sh's Rust check and its "no committed Cargo.lock"
+# guard.

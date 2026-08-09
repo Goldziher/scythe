@@ -49,6 +49,22 @@ tasks:
       - task: lint
       - task: test
 
+  generated:check-syntax:
+    desc: "Compile/type-check every committed generated file under integration_tests/ (harnesses + query code)"
+    cmds:
+      - ./scripts/check-generated-syntax.sh
+
+  generated:check-syntax:harness:
+    desc: "Syntax-check only the hand-written harnesses under integration_tests/ (subset of generated:check-syntax)"
+    cmds:
+      - ./scripts/check-generated-syntax.sh --harness-only
+
+  generated:check-torture:
+    desc: "Regenerate every postgresql-engine backend against sql/torture/schema.sql and real-build-check it (issue #146)"
+    cmds:
+      - cargo build --release -p scythe-cli
+      - python3 scripts/check-generated-backends.py
+
   snippets:build:
     desc: Build the snippet-runner tool
     cmds:
@@ -177,7 +193,13 @@ tasks:
       # integration_tests/Taskfile.yaml's `build:scythe`), which does not
       # type-check crates that aren't in scythe-cli's dependency graph (e.g.
       # scythe-lint, tools/*). Keep both.
-      - cargo check --workspace 2>/dev/null || true
+      #
+      # No `2>/dev/null || true` here: that used to swallow both the output
+      # and the exit code, so a version bump that broke the build (a crate
+      # left off the substitution list above, say) would sail through this
+      # task, regenerate integration_tests/ from a workspace that does not
+      # compile, and report success. Let it fail loudly and stop the task.
+      - cargo check --workspace
       # Every generated artifact's first line embeds CARGO_PKG_VERSION (the
       # `v=` field of its `scythe:provenance` header), so the moment the
       # substitutions above land, every committed

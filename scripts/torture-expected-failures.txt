@@ -1,0 +1,56 @@
+# Expected-failure allowlist for scripts/check-generated-backends.py.
+#
+# Keyed by integration_tests/ project directory name (not backend name --
+# several projects share a backend, e.g. typescript-pg-structs-only and
+# typescript-pg both use backend "typescript-pg", and only one of them
+# fails against the torture schema, so backend name is not a unique key).
+#
+# The script fails the build in BOTH directions:
+#   - a project below fails that is NOT listed here -> regression, investigate
+#   - a project below is listed here but PASSES -> this list is stale, delete
+#     its line (the underlying defect was fixed)
+#
+# Format: "<project> : <one-line reason> (<issue ref>)". Blank lines and
+# lines starting with # are ignored. Reasons are grouped by root cause, not
+# alphabetically, so the three defect classes stay visible as classes.
+
+# --- Defect A: a quoted SQL identifier (e.g. "widgetId") is embedded
+# unescaped into a host-language string/byte literal that itself uses double
+# quotes as its delimiter, terminating the literal early and cascading into
+# unrelated-looking compiler errors. This is issue #179 (the open successor
+# to the closed #150) -- the torture schema's quoted mixed-case "widgetId"
+# primary key is simply the first fixture that reaches it. Every line below
+# should go stale together when the shared escaping layer lands.
+rust-sqlx : SQL string literal embeds unescaped "widgetId", breaks the Rust string/sqlx macro (#179)
+rust-sqlx-nested-json : same as rust-sqlx -- shares backend rust-sqlx (#179)
+rust-tokio-postgres : same defect, tokio-postgres query string (#179)
+csharp-npgsql : same defect, C# string literal (#179)
+go-pgx : same defect, Go string literal (#179)
+ruby-pg : same defect, Ruby string literal (#179)
+elixir-ecto : same defect, Elixir string literal passed to Postgrex/Ecto (#179)
+elixir-postgrex : same defect, Elixir string literal passed to Postgrex.query (#179)
+
+# --- Defect B: a word reserved in the target language (`class`, from
+# sql/torture/schema.sql's "class" column) is emitted unescaped as a field,
+# parameter, or local name. This is issue #180 (open successor to the closed
+# #151); the TypeScript entries are also issue #215, which covers column
+# names that are not valid JS identifiers across all 12 TS backends.
+java-jdbc : "class" column becomes an unescaped Java field/parameter name (#180)
+kotlin-jdbc : "class" column becomes an unescaped Kotlin `val class` (#180)
+kotlin-jdbc-ext : same as kotlin-jdbc -- shares backend kotlin-jdbc (#180)
+python-asyncpg : "class" column becomes an unescaped Python dataclass field (#180)
+python-psycopg3 : same as python-asyncpg -- shares backend python-psycopg3 (#180)
+python-psycopg3-msgspec : same as python-asyncpg -- shares backend python-psycopg3 (#180)
+python-psycopg3-pydantic : same as python-asyncpg -- shares backend python-psycopg3 (#180)
+typescript-postgres : "class" column becomes an unescaped TS function parameter name (#180, #215)
+typescript-pg : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
+typescript-pg-zod : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
+typescript-pg-zod-outer-join-unions : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
+typescript-pg-outer-join-unions : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
+typescript-kysely : same defect, Kysely query builder call parameter (#180, #215)
+
+# --- Defect C: `array<T>` (angle-bracket generic syntax) has no meaning in
+# PHP, which has no generic types -- matches issue #200 exactly.
+php-pdo : "tags TEXT[]" column emits invalid PHP `array<string>` property type (#200)
+php-pdo-namespace : same as php-pdo -- shares backend php-pdo (#200)
+php-amphp : same defect, php-amphp backend (#200)
