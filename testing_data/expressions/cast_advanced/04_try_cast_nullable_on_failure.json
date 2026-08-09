@@ -1,0 +1,28 @@
+{
+  "category": "expressions/cast_advanced",
+  "config": {
+    "engine": "snowflake"
+  },
+  "description": "TRY_CAST is nullable even over a NOT NULL operand, because it returns NULL on a conversion failure instead of erroring -- that is the entire point of the syntax",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "parsed",
+          "note": "raw_amount is NOT NULL, but TRY_CAST returns NULL when the text isn't a valid integer; Snowflake has no dedicated int32 storage, so INTEGER resolves to int64 there",
+          "nullable": true,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "GetParsedAmount",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "try_cast_nullable_on_failure",
+  "query_sql": "-- @name GetParsedAmount\n-- @returns :many\nSELECT TRY_CAST(raw_amount AS INTEGER) AS parsed FROM imports",
+  "schema_sql": ["CREATE TABLE imports (id INTEGER NOT NULL, raw_amount VARCHAR NOT NULL);"],
+  "source": "original",
+  "tags": ["cast", "try_cast", "nullability", "dialect"]
+}

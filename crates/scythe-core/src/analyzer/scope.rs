@@ -2,11 +2,37 @@ use sqlparser::ast::{self, JoinOperator, TableFactor};
 
 use crate::errors::ScytheError;
 
-use super::helpers::object_name_to_string;
+use super::helpers::{function_arg_exprs, object_name_to_string, widen_neutral_type};
 use super::type_conversion::sql_type_to_neutral;
 use super::types::*;
 
 impl<'a> Analyzer<'a> {
+    /// `generate_series` is polymorphic: `generate_series(int, int)` yields
+    /// `int`/`bigint`, `generate_series(numeric, numeric, numeric)` yields
+    /// `numeric`, and `generate_series(timestamptz, timestamptz, interval)`
+    /// yields `timestamptz` -- the result column always shares the widened
+    /// type of the `start`/`stop` arguments, not a hardcoded `int32` (#123).
+    ///
+    /// Only the first two arguments (`start`, `stop`) decide the type; the
+    /// optional third `step` argument is a different type on the temporal
+    /// overload (`interval`, not `timestamptz`) so it is deliberately not
+    /// folded in here. Falls back to `int32` -- the previous universal
+    /// answer -- when the arguments can't be resolved (no args, or every
+    /// arg types as `unknown`).
+    fn generate_series_result_type(&mut self, args: &[ast::FunctionArg], scope: &Scope) -> String {
+        let exprs = function_arg_exprs(args);
+        let mut result_type = "unknown".to_string();
+        for arg in exprs.iter().take(2) {
+            let ti = self.infer_expr_type(arg, scope);
+            result_type = widen_neutral_type(&result_type, &ti.neutral_type);
+        }
+        if result_type == "unknown" {
+            "int32".to_string()
+        } else {
+            result_type
+        }
+    }
+
     pub(super) fn build_scope_from_from(&mut self, from: &[ast::TableWithJoins]) -> Result<Scope, ScytheError> {
         let mut scope = Scope { sources: Vec::new() };
 
@@ -52,7 +78,7 @@ impl<'a> Analyzer<'a> {
         nullable_from_join: bool,
     ) -> Result<(), ScytheError> {
         match tf {
-            TableFactor::Table { name, alias, .. } => {
+            TableFactor::Table { name, alias, args, .. } => {
                 let table_name = object_name_to_string(name).to_lowercase();
                 let alias_name = alias.as_ref().map(|a| a.name.value.to_lowercase()).unwrap_or_else(|| {
                     table_name
@@ -97,6 +123,18 @@ impl<'a> Analyzer<'a> {
                     ];
                     if known_functions.contains(&table_name.as_str()) {
                         match table_name.as_str() {
+                            // Postgres/MSSQL table-valued function call
+                            // syntax (`FROM generate_series(1, 10)`, no
+                            // `LATERAL`) parses as `TableFactor::Table` with
+                            // `args: Some(...)`, not `TableFactor::Function`
+                            // -- this is the arm that actually runs for
+                            // ordinary `generate_series` calls (#123).
+                            "generate_series" => {
+                                let arg_exprs: &[ast::FunctionArg] =
+                                    args.as_ref().map(|a| a.args.as_slice()).unwrap_or(&[]);
+                                let result_type = self.generate_series_result_type(arg_exprs, &*scope);
+                                vec![ScopeColumn::new("generate_series", result_type, false)]
+                            }
                             "jsonb_array_elements" | "json_array_elements" => {
                                 vec![ScopeColumn::new("value", "json", true)]
                             }
@@ -207,7 +245,7 @@ impl<'a> Analyzer<'a> {
                     nullable_from_join,
                 });
             }
-            TableFactor::Function { alias, name, .. } => {
+            TableFactor::Function { alias, name, args, .. } => {
                 let alias_name = alias
                     .as_ref()
                     .map(|a| a.name.value.to_lowercase())
@@ -215,7 +253,10 @@ impl<'a> Analyzer<'a> {
 
                 let func_name = object_name_to_string(name).to_lowercase();
                 let cols = match func_name.as_str() {
-                    "generate_series" => vec![ScopeColumn::new("generate_series", "int32", false)],
+                    "generate_series" => {
+                        let result_type = self.generate_series_result_type(args, &*scope);
+                        vec![ScopeColumn::new("generate_series", result_type, false)]
+                    }
                     "unnest" => vec![ScopeColumn::new("unnest", "unknown", true)],
                     "jsonb_array_elements" | "json_array_elements" => vec![ScopeColumn::new("value", "json", true)],
                     "jsonb_each" | "json_each" => vec![

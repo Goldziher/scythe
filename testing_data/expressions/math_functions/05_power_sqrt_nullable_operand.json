@@ -1,0 +1,33 @@
+{
+  "category": "expressions/math_functions",
+  "description": "POWER and SQRT over a nullable operand are nullable -- the #163 gap: the existing math_power_sqrt fixture only used a NOT NULL operand, so it couldn't tell a sound implementation from an unsound one",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "squared",
+          "note": "value is nullable, so POWER(value, 2) is nullable",
+          "nullable": true,
+          "type": "float64"
+        },
+        {
+          "name": "root",
+          "note": "value is nullable, so SQRT(value) is nullable",
+          "nullable": true,
+          "type": "float64"
+        }
+      ],
+      "command": "many",
+      "name": "PowerSqrtNullable",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "math_power_sqrt_nullable_operand",
+  "query_sql": "-- @name PowerSqrtNullable\n-- @returns :many\nSELECT POWER(value, 2) AS squared, SQRT(value) AS root FROM measurements",
+  "schema_sql": [
+    "CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION);"
+  ],
+  "source": "original",
+  "tags": ["expression", "math", "power", "sqrt", "nullability"]
+}

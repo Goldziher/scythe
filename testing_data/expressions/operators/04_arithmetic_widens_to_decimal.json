@@ -1,0 +1,33 @@
+{
+  "category": "expressions/operators",
+  "description": "Arithmetic between an INTEGER and a NUMERIC column widens to decimal instead of taking the left operand's type",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "a",
+          "note": "price (int32) * msrp (decimal) widens to decimal, matching PostgreSQL's integer * numeric -> numeric",
+          "nullable": false,
+          "type": "decimal"
+        },
+        {
+          "name": "b",
+          "note": "operand order reversed: still decimal, proving this isn't 'left operand wins'",
+          "nullable": false,
+          "type": "decimal"
+        }
+      ],
+      "command": "many",
+      "name": "GetDiscountedPrice",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "arithmetic_widens_to_decimal",
+  "query_sql": "-- @name GetDiscountedPrice\n-- @returns :many\nSELECT price * msrp AS a, msrp * price AS b FROM order_items",
+  "schema_sql": [
+    "CREATE TABLE order_items (id SERIAL PRIMARY KEY, price INTEGER NOT NULL, msrp NUMERIC NOT NULL)"
+  ],
+  "source": "original",
+  "tags": ["expressions", "operators", "arithmetic", "widening"]
+}

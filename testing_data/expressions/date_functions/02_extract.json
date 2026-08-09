@@ -1,6 +1,6 @@
 {
   "category": "expressions/date_functions",
-  "description": "EXTRACT returns double precision (f64) for year and month parts",
+  "description": "EXTRACT returns numeric (decimal) on PostgreSQL 14+, not the double precision every version of date_part() returns",
   "expected": {
     "query": {
       "columns": [
@@ -11,15 +11,15 @@
         },
         {
           "name": "yr",
-          "note": "PostgreSQL EXTRACT returns double precision",
+          "note": "PostgreSQL 14+ EXTRACT returns numeric; see #123",
           "nullable": false,
-          "type": "float64"
+          "type": "decimal"
         },
         {
           "name": "mo",
-          "note": "PostgreSQL EXTRACT returns double precision",
+          "note": "PostgreSQL 14+ EXTRACT returns numeric; see #123",
           "nullable": false,
-          "type": "float64"
+          "type": "decimal"
         }
       ],
       "command": "many",

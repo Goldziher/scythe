@@ -1,0 +1,25 @@
+{
+  "category": "select/table_functions",
+  "description": "generate_series is polymorphic: bigint arguments produce a bigint column, not a hardcoded int32",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "generate_series",
+          "note": "generate_series(bigint, bigint) returns bigint in PostgreSQL",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "ListBigSeries",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "generate_series_bigint",
+  "query_sql": "-- @name ListBigSeries\n-- @returns :many\nSELECT * FROM generate_series(1::bigint, 10::bigint)",
+  "schema_sql": ["CREATE TABLE dummy (id SERIAL PRIMARY KEY)"],
+  "source": "original",
+  "tags": ["select", "table_function", "generate_series", "dialect"]
+}

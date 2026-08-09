@@ -1,0 +1,30 @@
+{
+  "category": "expressions/operators",
+  "description": "A comparison over a nullable column is itself nullable -- SQL is three-valued, a NULL operand yields NULL, not false",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "is_adult",
+          "note": "age is nullable, so age >= 18 is NULL (not false) when age IS NULL",
+          "nullable": true,
+          "type": "bool"
+        }
+      ],
+      "command": "many",
+      "name": "GetAdultFlags",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "comparison_nullable_operand",
+  "query_sql": "-- @name GetAdultFlags\n-- @returns :many\nSELECT id, age >= 18 AS is_adult FROM people",
+  "schema_sql": ["CREATE TABLE people (id SERIAL PRIMARY KEY, age INTEGER)"],
+  "source": "original",
+  "tags": ["expressions", "operators", "nullability", "three_valued_logic"]
+}

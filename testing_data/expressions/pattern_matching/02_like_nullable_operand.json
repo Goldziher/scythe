@@ -1,0 +1,30 @@
+{
+  "category": "expressions/pattern_matching",
+  "description": "LIKE over a nullable column is nullable -- the #163 gap: the existing like_returns_bool fixture only used a NOT NULL column, so it couldn't tell a sound implementation from an unsound one",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "starts_with_a",
+          "note": "bio is nullable, so bio LIKE 'A%' is NULL (not false) when bio IS NULL",
+          "nullable": true,
+          "type": "bool"
+        }
+      ],
+      "command": "many",
+      "name": "GetBioStartsWithA",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "like_nullable_operand",
+  "query_sql": "-- @name GetBioStartsWithA\n-- @returns :many\nSELECT id, bio LIKE 'A%' AS starts_with_a FROM users",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, bio TEXT)"],
+  "source": "original",
+  "tags": ["expressions", "pattern_matching", "like", "nullability"]
+}

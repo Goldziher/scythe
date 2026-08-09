@@ -206,19 +206,51 @@ impl<'a> Analyzer<'a> {
                 Ok(widened)
             }
             SetExpr::Values(values) => {
-                if let Some(first_row) = values.rows.first() {
-                    let cols: Vec<AnalyzedColumn> = first_row
-                        .iter()
-                        .enumerate()
-                        .map(|(i, expr)| {
-                            let ti = self.infer_expr_type(expr, &Scope { sources: Vec::new() });
-                            AnalyzedColumn::from_type_info(format!("column{}", i + 1), ti)
-                        })
-                        .collect();
-                    Ok(cols)
-                } else {
-                    Ok(Vec::new())
+                // Widen every row's type and OR its nullability into the
+                // running per-column result instead of reading only the
+                // first row -- a later row can both need a wider type
+                // (`(1), (2.5)` needs `decimal`, not `int64`) and introduce
+                // a NULL the first row didn't have (#121).
+                //
+                // Tracked as plain `String`/`bool` accumulators rather than
+                // folding with `widen_type_info`/`TypeInfo`: `TypeInfo`'s
+                // `unknown()` sentinel defaults `nullable: true`, which
+                // would OR every column to nullable from the very first
+                // fold step regardless of what the rows actually contain.
+                let Some(first_row) = values.rows.first() else {
+                    return Ok(Vec::new());
+                };
+                let ncols = first_row.len();
+                let mut result_types = vec!["unknown".to_string(); ncols];
+                let mut result_nullable = vec![false; ncols];
+                let empty_scope = Scope { sources: Vec::new() };
+                for row in &values.rows {
+                    for (i, expr) in row.iter().enumerate() {
+                        let Some(col_type) = result_types.get_mut(i) else {
+                            // A malformed VALUES list with a row longer than
+                            // the first is a SQL error the parser/engine
+                            // would already reject; skip rather than panic.
+                            continue;
+                        };
+                        let ti = self.infer_expr_type(expr, &empty_scope);
+                        *col_type = widen_neutral_type(col_type, &ti.neutral_type);
+                        if ti.nullable {
+                            result_nullable[i] = true;
+                        }
+                    }
                 }
+                let cols: Vec<AnalyzedColumn> = result_types
+                    .into_iter()
+                    .zip(result_nullable)
+                    .enumerate()
+                    .map(|(i, (neutral_type, nullable))| {
+                        AnalyzedColumn::from_type_info(
+                            format!("column{}", i + 1),
+                            TypeInfo::new(neutral_type, nullable),
+                        )
+                    })
+                    .collect();
+                Ok(cols)
             }
             _ => Ok(Vec::new()),
         }

@@ -1,0 +1,27 @@
+{
+  "category": "expressions/case",
+  "description": "CASE arms of different numeric widths widen to the wider type instead of taking the first arm's type",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "effective_price",
+          "note": "THEN arm is an int64 literal (0), ELSE arm is msrp (decimal); PostgreSQL resolves the CASE to numeric",
+          "nullable": false,
+          "type": "decimal"
+        }
+      ],
+      "command": "many",
+      "name": "GetEffectivePrice",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "case_widens_to_decimal",
+  "query_sql": "-- @name GetEffectivePrice\n-- @returns :many\nSELECT CASE WHEN on_sale THEN 0 ELSE msrp END AS effective_price FROM order_items",
+  "schema_sql": [
+    "CREATE TABLE order_items (id SERIAL PRIMARY KEY, msrp NUMERIC NOT NULL, on_sale BOOLEAN NOT NULL)"
+  ],
+  "source": "original",
+  "tags": ["expressions", "case", "type_inference", "widening"]
+}

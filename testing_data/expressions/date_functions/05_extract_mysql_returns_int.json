@@ -1,0 +1,33 @@
+{
+  "category": "expressions/date_functions",
+  "config": {
+    "engine": "mysql"
+  },
+  "description": "EXTRACT returns an integer on MySQL, unlike PostgreSQL's numeric -- the analyzer must not apply one dialect's answer to every engine",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "yr",
+          "note": "MySQL EXTRACT returns an integer (BIGINT)",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "ExtractDatePartsMysql",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "date_extract_mysql_returns_int",
+  "query_sql": "-- @name ExtractDatePartsMysql\n-- @returns :many\nSELECT id, EXTRACT(YEAR FROM occurred_at) AS yr FROM events",
+  "schema_sql": ["CREATE TABLE events (id INT AUTO_INCREMENT PRIMARY KEY, occurred_at TIMESTAMP NOT NULL);"],
+  "source": "original",
+  "tags": ["expression", "date", "extract", "mysql", "dialect"]
+}

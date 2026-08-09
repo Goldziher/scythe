@@ -1,0 +1,36 @@
+{
+  "category": "select/values",
+  "description": "A multi-row VALUES source widens its column types and nullability across every row, not just the first one",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "column1",
+          "note": "row 1 is int32 (1), row 2 is decimal (2.5); widens to decimal instead of staying int32 from row 1 alone",
+          "nullable": false,
+          "type": "decimal"
+        },
+        {
+          "name": "column2",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "column3",
+          "note": "row 1 is 10 (int32), row 2 is NULL; row 1 alone would infer NOT NULL",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "GetValueRows",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "values_multi_row_widening",
+  "query_sql": "-- @name GetValueRows\n-- @returns :many\nSELECT * FROM (VALUES (1, 'a', 10), (2.5, 'b', NULL)) AS t",
+  "schema_sql": ["CREATE TABLE dummy (id SERIAL PRIMARY KEY)"],
+  "source": "original",
+  "tags": ["select", "values", "widening", "nullability"]
+}

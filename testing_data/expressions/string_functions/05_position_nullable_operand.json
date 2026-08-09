@@ -1,0 +1,25 @@
+{
+  "category": "expressions/string_functions",
+  "description": "POSITION is nullable when either operand is nullable -- both operands were previously ignored entirely",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "pos",
+          "note": "bio is nullable, so POSITION('x' IN bio) is nullable",
+          "nullable": true,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "GetXPosition",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "position_nullable_operand",
+  "query_sql": "-- @name GetXPosition\n-- @returns :many\nSELECT POSITION('x' IN bio) AS pos FROM users",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, bio TEXT)"],
+  "source": "original",
+  "tags": ["expression", "string", "position", "nullability"]
+}

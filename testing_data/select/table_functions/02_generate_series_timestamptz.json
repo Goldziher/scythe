@@ -1,0 +1,25 @@
+{
+  "category": "select/table_functions",
+  "description": "generate_series over timestamptz arguments produces a timestamptz column, not a hardcoded int32",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "generate_series",
+          "note": "generate_series(timestamptz, timestamptz, interval) returns timestamptz in PostgreSQL",
+          "nullable": false,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "many",
+      "name": "ListDaySeries",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "generate_series_timestamptz",
+  "query_sql": "-- @name ListDaySeries\n-- @returns :many\nSELECT * FROM generate_series('2024-01-01'::timestamptz, '2024-02-01'::timestamptz, INTERVAL '1 day')",
+  "schema_sql": ["CREATE TABLE dummy (id SERIAL PRIMARY KEY)"],
+  "source": "original",
+  "tags": ["select", "table_function", "generate_series", "dialect"]
+}

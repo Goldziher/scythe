@@ -33,8 +33,12 @@ impl<'a> Analyzer<'a> {
             }
 
             Expr::Value(vws) => {
-                if value_is_number(vws) {
-                    TypeInfo::new("int64", false)
+                if let ast::Value::Number(text, _) = &vws.value {
+                    // A fractional or exponent literal is not an integer --
+                    // see #122. `literal_number_neutral_type` decides
+                    // between int64/decimal/float64 from the literal's raw
+                    // text.
+                    TypeInfo::new(literal_number_neutral_type(text), false)
                 } else if value_is_string(vws) {
                     // A string literal is non-nullable everywhere except
                     // Oracle's `''`, which the engine stores as NULL --
@@ -55,12 +59,23 @@ impl<'a> Analyzer<'a> {
             }
 
             Expr::Cast {
-                expr: inner, data_type, ..
+                expr: inner,
+                data_type,
+                kind,
+                ..
             } => {
                 let inner_ti = self.infer_expr_type(inner, scope);
                 let neutral = datatype_to_neutral(data_type, self.catalog);
                 self.collect_param_type_from_cast(inner, &neutral);
-                TypeInfo::new(neutral, inner_ti.nullable)
+                // TRY_CAST/SAFE_CAST return NULL on a conversion failure
+                // instead of erroring -- that is the entire point of the
+                // syntax -- so the result is nullable even when the
+                // operand is proven non-null (#120).
+                let nullable = match kind {
+                    ast::CastKind::TryCast | ast::CastKind::SafeCast => true,
+                    ast::CastKind::Cast | ast::CastKind::DoubleColon => inner_ti.nullable,
+                };
+                TypeInfo::new(neutral, nullable)
             }
 
             Expr::Function(func) => self.infer_function_type(func, scope),
@@ -76,12 +91,9 @@ impl<'a> Analyzer<'a> {
                     | BinaryOperator::Multiply
                     | BinaryOperator::Divide
                     | BinaryOperator::Modulo => {
-                        let result_type = if left_ti.neutral_type == "unknown" {
-                            right_ti.neutral_type.clone()
-                        } else {
-                            left_ti.neutral_type.clone()
-                        };
-                        TypeInfo::new(result_type, left_ti.nullable || right_ti.nullable)
+                        // Widen to the wider operand type instead of always
+                        // taking the left one -- see #121.
+                        widen_type_info(&left_ti, &right_ti)
                     }
                     BinaryOperator::Eq
                     | BinaryOperator::NotEq
@@ -90,7 +102,14 @@ impl<'a> Analyzer<'a> {
                     | BinaryOperator::Gt
                     | BinaryOperator::GtEq
                     | BinaryOperator::And
-                    | BinaryOperator::Or => TypeInfo::new("bool", false),
+                    | BinaryOperator::Or => {
+                        // SQL is three-valued: a comparison (or AND/OR) with
+                        // a NULL operand yields NULL, not `false` (#119).
+                        // `false AND NULL = false` is a stricter true
+                        // semantics this deliberately doesn't model -- see
+                        // the issue's "not worth the complexity" note.
+                        TypeInfo::new("bool", left_ti.nullable || right_ti.nullable)
+                    }
                     BinaryOperator::Arrow => TypeInfo::new("json", true),
                     BinaryOperator::LongArrow => TypeInfo::new("string", true),
                     BinaryOperator::HashArrow => TypeInfo::new("json", true),
@@ -132,10 +151,14 @@ impl<'a> Analyzer<'a> {
                         self.register_param(pos, Some(col_name), Some(col_ti.neutral_type.clone()), false);
                     }
                 }
-                TypeInfo::new("bool", false)
+                // `NULL IN (1, 2)` is NULL, not false (#119).
+                TypeInfo::new("bool", col_ti.nullable)
             }
 
-            Expr::InSubquery { .. } => TypeInfo::new("bool", false),
+            Expr::InSubquery { expr: col_expr, .. } => {
+                let col_ti = self.infer_expr_type(col_expr, scope);
+                TypeInfo::new("bool", col_ti.nullable)
+            }
 
             Expr::Between {
                 expr: col_expr,
@@ -147,7 +170,10 @@ impl<'a> Analyzer<'a> {
                 let _col_name = expr_to_name(col_expr);
                 self.collect_param_from_expr_with_type(low, &col_ti.neutral_type, "start");
                 self.collect_param_from_expr_with_type(high, &col_ti.neutral_type, "end");
-                TypeInfo::new("bool", false)
+                let low_ti = self.infer_expr_type(low, scope);
+                let high_ti = self.infer_expr_type(high, scope);
+                // `NULL BETWEEN 1 AND 5` is NULL, not false (#119).
+                TypeInfo::new("bool", col_ti.nullable || low_ti.nullable || high_ti.nullable)
             }
 
             Expr::Like {
@@ -160,17 +186,27 @@ impl<'a> Analyzer<'a> {
                 pattern,
                 ..
             } => {
-                let _col_ti = self.infer_expr_type(col_expr, scope);
+                let col_ti = self.infer_expr_type(col_expr, scope);
                 self.collect_param_from_expr_with_type(pattern, "string", &expr_to_name(col_expr));
-                TypeInfo::new("bool", false)
+                let pattern_ti = self.infer_expr_type(pattern, scope);
+                // `NULL LIKE 'A%'` is NULL, not false (#119, #163).
+                TypeInfo::new("bool", col_ti.nullable || pattern_ti.nullable)
             }
 
             Expr::Case {
-                operand: _,
+                operand,
                 conditions,
                 else_result,
                 ..
             } => {
+                // Simple CASE (`CASE operand WHEN x THEN ...`) puts the
+                // compared value in `condition`, not a boolean -- unlike
+                // searched CASE (`CASE WHEN cond THEN ...`), where
+                // `condition` really is boolean. A placeholder in
+                // `condition` must be typed against the operand, not `bool`
+                // (#125).
+                let operand_ti = operand.as_ref().map(|op| self.infer_expr_type(op, scope));
+
                 let mut result_type = "unknown".to_string();
                 let mut any_nullable = false;
 
@@ -180,14 +216,22 @@ impl<'a> Analyzer<'a> {
                         && let Some(p) = value_is_placeholder(vws)
                         && let Some(pos) = self.resolve_placeholder_position(p)
                     {
-                        self.register_param(pos, Some("flag".to_string()), Some("bool".to_string()), false);
+                        match &operand_ti {
+                            Some(op_ti) => {
+                                let name = operand.as_ref().map(|op| expr_to_name(op));
+                                self.register_param(pos, name, Some(op_ti.neutral_type.clone()), false);
+                            }
+                            None => {
+                                self.register_param(pos, Some("flag".to_string()), Some("bool".to_string()), false);
+                            }
+                        }
                     }
 
                     let ti = self.infer_expr_type(&case_when.result, scope);
-                    if result_type == "unknown" && ti.neutral_type != "unknown" {
-                        result_type = ti.neutral_type.clone();
-                    }
-                    let guarded = is_not_null_guard(&case_when.condition, &case_when.result);
+                    // Widen across every arm instead of keeping only the
+                    // first non-unknown one (#121).
+                    result_type = widen_neutral_type(&result_type, &ti.neutral_type);
+                    let guarded = is_not_null_guard(&case_when.condition, &case_when.result, scope);
                     if ti.nullable && !guarded {
                         any_nullable = true;
                     }
@@ -195,9 +239,7 @@ impl<'a> Analyzer<'a> {
 
                 if let Some(else_expr) = else_result {
                     let ti = self.infer_expr_type(else_expr, scope);
-                    if result_type == "unknown" && ti.neutral_type != "unknown" {
-                        result_type = ti.neutral_type.clone();
-                    }
+                    result_type = widen_neutral_type(&result_type, &ti.neutral_type);
                     if ti.nullable {
                         any_nullable = true;
                     }
@@ -267,16 +309,31 @@ impl<'a> Analyzer<'a> {
             }
 
             Expr::Tuple(exprs) => {
-                if let Some(first) = exprs.first() {
-                    self.infer_expr_type(first, scope)
-                } else {
-                    TypeInfo::unknown()
+                // A single-element tuple is just a parenthesized expression;
+                // its type is that element's type. A real row constructor
+                // (`ROW(a, b, ...)`, more than one element) has no single
+                // neutral type today -- taking the first field's type and
+                // silently dropping the rest produced a confidently wrong
+                // answer (e.g. `array_agg(ROW(o.id, o.total))` inferring
+                // `array<int32>`, see #117). `unknown` surfaces as an
+                // unresolved-type error at codegen instead.
+                match exprs.as_slice() {
+                    [] => TypeInfo::unknown(),
+                    [only] => self.infer_expr_type(only, scope),
+                    _ => {
+                        for e in exprs {
+                            let _ = self.infer_expr_type(e, scope);
+                        }
+                        TypeInfo::unknown()
+                    }
                 }
             }
 
             Expr::Extract { expr, .. } => {
                 let ti = self.infer_expr_type(expr, scope);
-                TypeInfo::new("float64", ti.nullable)
+                // Dialect-dependent: PostgreSQL 14+ returns `numeric`,
+                // MySQL returns an integer -- see #123.
+                TypeInfo::new(extract_result_type(self.catalog.dialect()), ti.nullable)
             }
 
             Expr::Substring { expr, .. } => {
@@ -289,7 +346,15 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new("string", ti.nullable)
             }
 
-            Expr::Position { .. } => TypeInfo::new("int32", false),
+            Expr::Position {
+                expr: needle,
+                r#in: haystack,
+            } => {
+                let needle_ti = self.infer_expr_type(needle, scope);
+                let haystack_ti = self.infer_expr_type(haystack, scope);
+                // Neither operand was inspected before -- see #120.
+                TypeInfo::new("int32", needle_ti.nullable || haystack_ti.nullable)
+            }
 
             Expr::AtTimeZone { timestamp, .. } => {
                 let ti = self.infer_expr_type(timestamp, scope);
@@ -450,9 +515,9 @@ impl<'a> Analyzer<'a> {
 
                 for arg in &args {
                     let ti = self.infer_expr_type(arg, scope);
-                    if result_type == "unknown" && ti.neutral_type != "unknown" {
-                        result_type = ti.neutral_type.clone();
-                    }
+                    // Widen across every argument instead of keeping only
+                    // the first non-unknown one (#121).
+                    result_type = widen_neutral_type(&result_type, &ti.neutral_type);
                     // `is_non_null_literal`, not `is_literal`: on Oracle a
                     // `''` fallback proves nothing, because the engine
                     // returns NULL for it.
@@ -491,12 +556,39 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(ti.neutral_type, true)
             }
 
+            // The explicit `ROW(a, b, ...)` row-constructor syntax parses as
+            // a plain function call named "row" (sqlparser has no dedicated
+            // AST node for it), not as `Expr::Tuple` -- so it needs the same
+            // "no single neutral type for more than one field" treatment
+            // `Expr::Tuple` gets, for the same reason (#117): silently
+            // collapsing to the first field's type produced a confidently
+            // wrong answer for e.g. `array_agg(ROW(o.id, o.total))`.
+            "row" => {
+                let args = self.get_function_args(func);
+                match args.as_slice() {
+                    [] => TypeInfo::unknown(),
+                    [only] => self.infer_expr_type(only, scope),
+                    _ => {
+                        for arg in &args {
+                            let _ = self.infer_expr_type(arg, scope);
+                        }
+                        TypeInfo::unknown()
+                    }
+                }
+            }
+
             "upper" | "lower" | "initcap" | "reverse" | "ltrim" | "rtrim" | "btrim" | "lpad" | "rpad" | "repeat"
             | "replace" | "translate" | "left" | "right" | "md5" | "encode" | "decode" | "chr" | "to_hex"
             | "quote_ident" | "quote_literal" | "format" | "regexp_replace" => {
                 TypeInfo::new("string", first_arg_nullable)
             }
-            "concat" | "concat_ws" => TypeInfo::new("string", false),
+            "concat" | "concat_ws" => {
+                // Dialect-blind before: true on PostgreSQL (`concat`
+                // ignores NULL arguments), false on MySQL (any NULL
+                // argument makes the whole result NULL) -- see #120.
+                let nullable = self.catalog.dialect() == SqlDialect::MySQL && self.any_arg_nullable(func, scope);
+                TypeInfo::new("string", nullable)
+            }
             "substring" | "substr" => TypeInfo::new("string", first_arg_nullable),
             "length" | "char_length" | "character_length" | "octet_length" | "bit_length" | "strpos" => {
                 TypeInfo::new("int32", first_arg_nullable)
@@ -507,20 +599,63 @@ impl<'a> Analyzer<'a> {
                 let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
                 TypeInfo::new(ti.neutral_type, ti.nullable)
             }
-            "round" | "trunc" => TypeInfo::new("decimal", first_arg_nullable),
-            "power" | "sqrt" | "cbrt" | "log" | "ln" | "exp" | "pi" | "sin" | "cos" | "tan" | "asin" | "acos"
-            | "atan" | "atan2" | "degrees" | "radians" | "random" => TypeInfo::new("float64", false),
+            "round" | "trunc" => {
+                // `ROUND(double precision)` returns `double precision`, not
+                // `numeric`, on PostgreSQL -- only the exact-numeric
+                // overload does (#123).
+                let input_type = first_arg_ti
+                    .as_ref()
+                    .map(|ti| ti.neutral_type.as_str())
+                    .unwrap_or("decimal");
+                TypeInfo::new(round_result_type(input_type), first_arg_nullable)
+            }
+            // `pi`/`random` take no operand that could be NULL; every other
+            // function here previously hardcoded non-null while ignoring
+            // `first_arg_nullable`, which was already computed and unused
+            // (#120).
+            "pi" | "random" => TypeInfo::new("float64", false),
+            "power" | "sqrt" | "cbrt" | "log" | "ln" | "exp" | "sin" | "cos" | "tan" | "asin" | "acos" | "atan"
+            | "atan2" | "degrees" | "radians" => TypeInfo::new("float64", first_arg_nullable),
             "mod" => first_arg_ti.unwrap_or_else(|| TypeInfo::new("int32", false)),
             "div" => TypeInfo::new("int64", first_arg_nullable),
             "greatest" | "least" => {
-                let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
-                TypeInfo::new(ti.neutral_type, ti.nullable)
+                let args = self.get_function_args(func);
+                let mut result_type = "unknown".to_string();
+                // Whether at least one argument is proven non-null. On
+                // every dialect except MySQL, GREATEST/LEAST ignore NULLs
+                // and only return NULL when *every* argument is NULL, so a
+                // single proven-non-null argument guarantees a non-null
+                // result -- the same reasoning as COALESCE.
+                let mut any_proven_non_null = false;
+                let mut any_nullable_arg = false;
+                for arg in &args {
+                    let ti = self.infer_expr_type(arg, scope);
+                    // Widen across every argument instead of taking only
+                    // the first one for both type and nullability (#121).
+                    result_type = widen_neutral_type(&result_type, &ti.neutral_type);
+                    if ti.nullable {
+                        any_nullable_arg = true;
+                    } else {
+                        any_proven_non_null = true;
+                    }
+                }
+                let nullable = if self.catalog.dialect() == SqlDialect::MySQL {
+                    // MySQL: NULL if any argument is NULL.
+                    any_nullable_arg
+                } else {
+                    !any_proven_non_null
+                };
+                TypeInfo::new(result_type, nullable)
             }
 
             "now" | "current_timestamp" | "statement_timestamp" | "transaction_timestamp" | "clock_timestamp" => {
                 TypeInfo::new("datetime_tz", false)
             }
-            "current_date" | "localdate" | "date" => TypeInfo::new("date", false),
+            // Unlike `current_date`/`localdate` (0-arg, genuinely never
+            // null), `date` is a conversion function over an argument that
+            // can itself be nullable (#120).
+            "current_date" | "localdate" => TypeInfo::new("date", false),
+            "date" => TypeInfo::new("date", first_arg_nullable),
             "current_time" | "localtime" => TypeInfo::new("time_tz", false),
             "date_trunc" => {
                 let args = self.get_function_args(func);
@@ -531,15 +666,26 @@ impl<'a> Analyzer<'a> {
                     TypeInfo::new("datetime_tz", first_arg_nullable)
                 }
             }
-            "date_part" | "extract" => TypeInfo::new("float64", first_arg_nullable),
-            "age" => TypeInfo::new("interval", false),
-            "make_date" => TypeInfo::new("date", false),
-            "make_time" => TypeInfo::new("time", false),
-            "make_timestamp" => TypeInfo::new("datetime", false),
-            "make_timestamptz" => TypeInfo::new("datetime_tz", false),
-            "make_interval" => TypeInfo::new("interval", false),
-            "to_timestamp" => TypeInfo::new("datetime_tz", false),
-            "to_date" => TypeInfo::new("date", false),
+            // `date_part(text, source)` (the PostgreSQL function, as opposed
+            // to the `EXTRACT(field FROM source)` syntax) always returns
+            // `double precision`, on every PostgreSQL version -- the
+            // PG14+ `numeric` change applies only to `EXTRACT`. A bare
+            // `extract(...)` function call (some dialects parse it that way
+            // instead of the dedicated `Expr::Extract` node) gets the same
+            // dialect-aware answer as the `EXTRACT` syntax (#123).
+            "date_part" => TypeInfo::new("float64", first_arg_nullable),
+            "extract" => TypeInfo::new(extract_result_type(self.catalog.dialect()), first_arg_nullable),
+            "age" => {
+                let nullable = self.any_arg_nullable(func, scope);
+                TypeInfo::new("interval", nullable)
+            }
+            "make_date" => TypeInfo::new("date", self.any_arg_nullable(func, scope)),
+            "make_time" => TypeInfo::new("time", self.any_arg_nullable(func, scope)),
+            "make_timestamp" => TypeInfo::new("datetime", self.any_arg_nullable(func, scope)),
+            "make_timestamptz" => TypeInfo::new("datetime_tz", self.any_arg_nullable(func, scope)),
+            "make_interval" => TypeInfo::new("interval", self.any_arg_nullable(func, scope)),
+            "to_timestamp" => TypeInfo::new("datetime_tz", first_arg_nullable),
+            "to_date" => TypeInfo::new("date", first_arg_nullable),
             "to_char" => TypeInfo::new("string", first_arg_nullable),
 
             "row_number" | "rank" | "dense_rank" | "cume_dist" | "ntile" | "percent_rank" => {
@@ -622,22 +768,20 @@ impl<'a> Analyzer<'a> {
         args.first().map(|arg| self.infer_expr_type(arg, scope))
     }
 
+    /// Whether any argument of `func` is nullable -- the nullability rule
+    /// for functions where any operand being NULL can make the whole call
+    /// NULL (date/time constructors like `make_date`, `age`; MySQL's
+    /// `CONCAT`), as opposed to the single-first-argument heuristic most
+    /// other arms in [`Analyzer::infer_function_type`] use (#120).
+    pub(super) fn any_arg_nullable(&mut self, func: &ast::Function, scope: &Scope) -> bool {
+        let args = self.get_function_args(func);
+        args.iter().any(|arg| self.infer_expr_type(arg, scope).nullable)
+    }
+
     pub(super) fn get_function_args(&self, func: &ast::Function) -> Vec<Expr> {
         match &func.args {
-            ast::FunctionArguments::None => Vec::new(),
-            ast::FunctionArguments::Subquery(_) => Vec::new(),
-            ast::FunctionArguments::List(arg_list) => arg_list
-                .args
-                .iter()
-                .filter_map(|arg| match arg {
-                    FunctionArg::Unnamed(FunctionArgExpr::Expr(e)) => Some(e.clone()),
-                    FunctionArg::Named {
-                        arg: FunctionArgExpr::Expr(e),
-                        ..
-                    } => Some(e.clone()),
-                    _ => None,
-                })
-                .collect(),
+            ast::FunctionArguments::List(arg_list) => function_arg_exprs(&arg_list.args),
+            _ => Vec::new(),
         }
     }
 
@@ -1017,6 +1161,46 @@ mod tests {
         Expr::Identifier(Ident::new(name))
     }
 
+    /// Regression for #117: a bare parenthesized tuple with more than one
+    /// element (`(a, b)`, e.g. `VALUES` or `x IN ((1, 2), (3, 4))`) has no
+    /// single neutral type. Taking the first element's type silently
+    /// dropped every other field; `unknown` surfaces the gap instead.
+    #[test]
+    fn test_tuple_multi_element_is_unknown() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let expr = Expr::Tuple(vec![int_literal(), string_literal("a")]);
+        let ti = analyzer.infer_expr_type(&expr, &scope);
+        assert_eq!(ti.neutral_type, "unknown");
+        assert!(ti.nullable);
+    }
+
+    /// A single-element "tuple" is just a parenthesized expression and
+    /// keeps that element's real type.
+    #[test]
+    fn test_tuple_single_element_keeps_element_type() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let expr = Expr::Tuple(vec![int_literal()]);
+        let ti = analyzer.infer_expr_type(&expr, &scope);
+        assert_eq!(ti.neutral_type, "int32");
+    }
+
+    /// Regression for #117: the explicit `ROW(...)` syntax parses as a
+    /// function call named "row", not `Expr::Tuple` -- it needs the same
+    /// treatment through a separate code path.
+    #[test]
+    fn test_row_function_multi_arg_is_unknown() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func("row", vec![int_literal(), string_literal("a")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "unknown");
+    }
+
     /// A single-source scope with one column `c` of the given neutral type,
     /// for exercising aggregate-function widening rules against every
     /// numeric neutral type (columns, unlike numeric literals, carry their
@@ -1062,9 +1246,12 @@ mod tests {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
         let scope = empty_scope();
+        // `int_literal()` is now `int32` (see #122's magnitude-aware literal
+        // typing), so `sum_result_type` widens it to `int64`, not `decimal`
+        // -- `sum(int64)` is the case that widens to `decimal`.
         let func = make_func("sum", vec![int_literal()]);
         let ti = analyzer.infer_function_type(&func, &scope);
-        assert_eq!(ti.neutral_type, "decimal");
+        assert_eq!(ti.neutral_type, "int64");
         assert!(ti.nullable, "sum (non-window) should be nullable");
     }
 
@@ -1075,7 +1262,7 @@ mod tests {
         let scope = empty_scope();
         let func = make_window_func("sum", vec![int_literal()]);
         let ti = analyzer.infer_function_type(&func, &scope);
-        assert_eq!(ti.neutral_type, "decimal");
+        assert_eq!(ti.neutral_type, "int64");
         assert!(!ti.nullable, "sum as window function should not be nullable");
     }
 
@@ -1241,7 +1428,11 @@ mod tests {
             let mut analyzer = make_analyzer(&catalog);
             let func = make_func(fname, vec![int_literal()]);
             let ti = analyzer.infer_function_type(&func, &scope);
-            assert_eq!(ti.neutral_type, "int64", "{} should return int64 for int input", fname);
+            assert_eq!(
+                ti.neutral_type, "int32",
+                "{} should return int32 for int32 literal input",
+                fname
+            );
         }
     }
 
@@ -1253,7 +1444,7 @@ mod tests {
             let mut analyzer = make_analyzer(&catalog);
             let func = make_func(fname, vec![int_literal()]);
             let ti = analyzer.infer_function_type(&func, &scope);
-            assert_eq!(ti.neutral_type, "int64", "{} preserves input type", fname);
+            assert_eq!(ti.neutral_type, "int32", "{} preserves input type", fname);
         }
     }
 
@@ -1303,11 +1494,37 @@ mod tests {
     }
 
     #[test]
-    fn test_extract_returns_float64() {
+    fn test_extract_function_name_form_postgresql_returns_decimal() {
+        // PostgreSQL 14+ types `EXTRACT` as `numeric` -- see #123. The
+        // function-call spelling gets the same dialect-aware answer as the
+        // `Expr::Extract` AST node.
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
         let scope = empty_scope();
         let func = make_func("extract", vec![string_literal("year")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "decimal");
+    }
+
+    #[test]
+    fn test_extract_function_name_form_mysql_returns_int64() {
+        let catalog = empty_catalog_with_dialect(crate::dialect::SqlDialect::MySQL);
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func("extract", vec![string_literal("year")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "int64");
+    }
+
+    #[test]
+    fn test_date_part_function_always_returns_float64() {
+        // `date_part(text, source)` is a distinct PostgreSQL function from
+        // `EXTRACT` and always returns `double precision`, on every version
+        // -- the PG14+ `numeric` change applies only to `EXTRACT` (#123).
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = empty_scope();
+        let func = make_func("date_part", vec![string_literal("year"), string_literal("2024-01-01")]);
         let ti = analyzer.infer_function_type(&func, &scope);
         assert_eq!(ti.neutral_type, "float64");
     }
@@ -1368,7 +1585,7 @@ mod tests {
             let mut analyzer = make_analyzer(&catalog);
             let func = make_func(fname, vec![int_literal()]);
             let ti = analyzer.infer_function_type(&func, &scope);
-            assert_eq!(ti.neutral_type, "int64", "{} should pass through input type", fname);
+            assert_eq!(ti.neutral_type, "int32", "{} should pass through input type", fname);
             assert!(ti.nullable, "{} should be nullable", fname);
         }
     }
@@ -1572,7 +1789,7 @@ mod tests {
         let scope = empty_scope();
         let func = make_func("nullif", vec![int_literal(), int_literal()]);
         let ti = analyzer.infer_function_type(&func, &scope);
-        assert_eq!(ti.neutral_type, "int64");
+        assert_eq!(ti.neutral_type, "int32");
         assert!(ti.nullable, "nullif should always be nullable");
     }
 
@@ -1584,7 +1801,7 @@ mod tests {
             let mut analyzer = make_analyzer(&catalog);
             let func = make_func(fname, vec![int_literal()]);
             let ti = analyzer.infer_function_type(&func, &scope);
-            assert_eq!(ti.neutral_type, "int64", "{} should preserve input type", fname);
+            assert_eq!(ti.neutral_type, "int32", "{} should preserve input type", fname);
             assert!(ti.nullable, "{} (non-window) should be nullable", fname);
         }
     }
