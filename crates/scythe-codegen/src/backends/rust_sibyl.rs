@@ -9,13 +9,23 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backends::typescript_common::parse_bool_option;
 use crate::singularize;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-sibyl.toml");
 
 pub struct RustSibylBackend {
     manifest: BackendManifest,
+    /// When true, every generated struct/enum derives `serde::Serialize` and
+    /// `serde::Deserialize` in addition to its base derives. Set via the
+    /// `serde` backend option -- see [`Self::apply_options`].
+    serde: bool,
+    /// Extra derive macros appended after the base derives (and after serde,
+    /// when enabled) on every generated struct/enum. Set via the `derive`
+    /// backend option -- see [`Self::apply_options`].
+    extra_derives: Vec<String>,
 }
 
 impl RustSibylBackend {
@@ -30,7 +40,39 @@ impl RustSibylBackend {
             }
         }
         let manifest = super::parse_manifest(DEFAULT_MANIFEST_TOML)?;
-        Ok(Self { manifest })
+        Ok(Self {
+            manifest,
+            serde: false,
+            extra_derives: Vec::new(),
+        })
+    }
+
+    /// Build the derive line for structs, incorporating serde and extra derives.
+    fn struct_derives(&self) -> String {
+        let mut derives = vec!["Debug", "Clone"];
+        if self.serde {
+            derives.push("serde::Serialize");
+            derives.push("serde::Deserialize");
+        }
+        for d in &self.extra_derives {
+            derives.push(d);
+        }
+        format!("#[derive({})]", derives.join(", "))
+    }
+
+    /// Build the derive line for enums. Unlike tokio-postgres/tiberius, the
+    /// base here is `PartialEq` only (no `Eq`) -- matching the pre-existing
+    /// non-configurable derive this replaces, which never had `Eq` either.
+    fn enum_derives(&self) -> String {
+        let mut derives = vec!["Debug", "Clone", "PartialEq"];
+        if self.serde {
+            derives.push("serde::Serialize");
+            derives.push("serde::Deserialize");
+        }
+        for d in &self.extra_derives {
+            derives.push(d);
+        }
+        format!("#[derive({})]", derives.join(", "))
     }
 
     /// Build the sibyl 0.7 `execute`/`query` args expression for IN params.
@@ -366,10 +408,22 @@ impl CodegenBackend for RustSibylBackend {
         "use sibyl::*;\n".to_string()
     }
 
+    fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(&["serde", "derive"], options)?;
+
+        if let Some(val) = options.get("serde") {
+            self.serde = parse_bool_option("serde", val)?;
+        }
+        if let Some(val) = options.get("derive") {
+            self.extra_derives = val.split(',').map(|s| s.trim().to_string()).collect();
+        }
+        Ok(())
+    }
+
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
-        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "{}", self.struct_derives());
         let _ = writeln!(out, "pub struct {} {{", struct_name);
         for col in columns {
             let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
@@ -567,7 +621,7 @@ impl CodegenBackend for RustSibylBackend {
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::new();
-        let _ = writeln!(out, "#[derive(Debug, Clone, PartialEq)]");
+        let _ = writeln!(out, "{}", self.enum_derives());
         let _ = writeln!(out, "pub enum {} {{", type_name);
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
@@ -598,7 +652,7 @@ impl CodegenBackend for RustSibylBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "{}", self.struct_derives());
         let _ = writeln!(out, "pub struct {} {{", child_struct_name);
         for col in child_columns {
             let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
@@ -607,7 +661,7 @@ impl CodegenBackend for RustSibylBackend {
 
         let _ = writeln!(out);
 
-        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "{}", self.struct_derives());
         let _ = writeln!(out, "pub struct {} {{", parent_struct_name);
         for col in parent_columns {
             let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
@@ -700,7 +754,7 @@ impl CodegenBackend for RustSibylBackend {
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let name = to_pascal_case(&composite.sql_name);
         let mut out = String::new();
-        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "{}", self.struct_derives());
         let _ = writeln!(out, "pub struct {} {{", name);
         for field in &composite.fields {
             let rust_type = resolve_type(&field.neutral_type, &self.manifest, false)
@@ -721,6 +775,7 @@ mod tests {
     use scythe_core::parser::QueryCommand;
 
     use super::RustSibylBackend;
+    use crate::backend_trait::CodegenBackend;
     use crate::generate_with_backend;
 
     fn make_grouped_query() -> AnalyzedQuery {
@@ -1115,24 +1170,99 @@ mod tests {
         );
     }
 
-    /// #103: rust-sibyl takes no `[[sql.gen]]` options at all and does not
-    /// override `apply_options`, so it exercises the `CodegenBackend` trait
-    /// default directly. Before this, that default was `Ok(())` for any map,
-    /// so any key -- typo or otherwise -- was silently discarded. The
-    /// default now rejects every key, which is the correct behavior for a
-    /// backend with nothing to configure.
+    /// #103: before rust-sibyl declared `apply_options` at all, it inherited
+    /// the `CodegenBackend` trait default, which used to be `Ok(())` for any
+    /// map -- so any key, typo or otherwise, was silently discarded. Now
+    /// that rust-sibyl accepts `serde`/`derive` (see
+    /// `serde_and_derive_options_apply_together` below), it must still
+    /// reject anything outside that pair -- `row_type` is not a rust-sibyl
+    /// option and never has been.
     #[test]
-    fn apply_options_rejects_any_key_via_the_trait_default() {
-        use crate::backend_trait::CodegenBackend;
-
+    fn apply_options_rejects_unknown_key() {
         let mut backend = RustSibylBackend::new("oracle").unwrap();
         let err = backend
             .apply_options(&std::collections::HashMap::from([(
                 "row_type".to_string(),
                 "pydantic".to_string(),
             )]))
-            .expect_err("rust-sibyl takes no options, so any key must be rejected");
+            .expect_err("row_type is not a known rust-sibyl option");
         assert_eq!(err.code, scythe_core::errors::ErrorCode::InvalidConfig);
         assert!(err.message.contains("row_type"), "{}", err.message);
+    }
+
+    /// Regression test for a release-blocking bug: `[sql.gen.rust] serde =
+    /// true` / `derive = [...]` are documented as target-independent options
+    /// under the legacy `[sql.gen.rust]` table, and the CLI's
+    /// `resolve_gen_targets` inserts them into the options map regardless of
+    /// which `target` the user picked (`sqlx`, `tokio-postgres`, `tiberius`,
+    /// or `sibyl`). rust-sibyl's row/enum/composite structs are all plain
+    /// Rust types with no macro-derived driver coupling, so there is no
+    /// technical reason serde support should be limited to
+    /// rust-tokio-postgres; before this, rust-sibyl declared no options at
+    /// all and this config hard-errored with "unknown option 'serde'".
+    #[test]
+    fn serde_and_derive_options_apply_together() {
+        let mut backend = RustSibylBackend::new("oracle").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("serde".to_string(), "true".to_string()),
+                ("derive".to_string(), "PartialEq, Eq".to_string()),
+            ]))
+            .unwrap();
+        assert!(backend.serde);
+        assert_eq!(backend.extra_derives, vec!["PartialEq".to_string(), "Eq".to_string()]);
+    }
+
+    /// An unrecognized value must be reported, not silently treated as
+    /// leaving `serde` disabled.
+    #[test]
+    fn serde_option_rejects_invalid_value() {
+        let mut backend = RustSibylBackend::new("oracle").unwrap();
+        let result = backend.apply_options(&std::collections::HashMap::from([(
+            "serde".to_string(),
+            "maybe".to_string(),
+        )]));
+        assert!(result.is_err(), "expected 'maybe' to be rejected");
+    }
+
+    /// The regression itself: applying `serde`/`derive` must not just avoid
+    /// erroring, the emitted row struct must actually carry the derives.
+    #[test]
+    fn serde_and_derive_options_generate_row_struct_with_serde_derive() {
+        let mut backend = RustSibylBackend::new("oracle").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("serde".to_string(), "true".to_string()),
+                ("derive".to_string(), "PartialEq".to_string()),
+            ]))
+            .unwrap();
+
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetUser".to_string();
+            aq.command = QueryCommand::Opt;
+            aq.sql = "SELECT id, name FROM users".to_string();
+            aq.columns = vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ];
+        });
+
+        let result = generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]"),
+            "row struct must carry the base derives plus serde and the extra derive; got:\n{row_struct}"
+        );
     }
 }

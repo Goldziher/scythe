@@ -9,13 +9,23 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+use crate::backends::typescript_common::parse_bool_option;
 use crate::singularize;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-tiberius.toml");
 
 pub struct RustTiberiusBackend {
     manifest: BackendManifest,
+    /// When true, every generated struct/enum derives `serde::Serialize` and
+    /// `serde::Deserialize` in addition to its base derives. Set via the
+    /// `serde` backend option -- see [`Self::apply_options`].
+    serde: bool,
+    /// Extra derive macros appended after the base derives (and after serde,
+    /// when enabled) on every generated struct/enum. Set via the `derive`
+    /// backend option -- see [`Self::apply_options`].
+    extra_derives: Vec<String>,
 }
 
 impl RustTiberiusBackend {
@@ -30,7 +40,37 @@ impl RustTiberiusBackend {
             }
         }
         let manifest = super::parse_manifest(DEFAULT_MANIFEST_TOML)?;
-        Ok(Self { manifest })
+        Ok(Self {
+            manifest,
+            serde: false,
+            extra_derives: Vec::new(),
+        })
+    }
+
+    /// Build the derive line for structs, incorporating serde and extra derives.
+    fn struct_derives(&self) -> String {
+        let mut derives = vec!["Debug", "Clone"];
+        if self.serde {
+            derives.push("serde::Serialize");
+            derives.push("serde::Deserialize");
+        }
+        for d in &self.extra_derives {
+            derives.push(d);
+        }
+        format!("#[derive({})]", derives.join(", "))
+    }
+
+    /// Build the derive line for enums (includes PartialEq, Eq, matching tokio-postgres).
+    fn enum_derives(&self) -> String {
+        let mut derives = vec!["Debug", "Clone", "PartialEq", "Eq"];
+        if self.serde {
+            derives.push("serde::Serialize");
+            derives.push("serde::Deserialize");
+        }
+        for d in &self.extra_derives {
+            derives.push(d);
+        }
+        format!("#[derive({})]", derives.join(", "))
     }
 
     /// Generate the struct-field initializer expression for a tiberius row column.
@@ -105,11 +145,23 @@ impl CodegenBackend for RustTiberiusBackend {
         "#![allow(dead_code, unused_imports, clippy::all)]".to_string()
     }
 
+    fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
+        reject_unknown_options(&["serde", "derive"], options)?;
+
+        if let Some(val) = options.get("serde") {
+            self.serde = parse_bool_option("serde", val)?;
+        }
+        if let Some(val) = options.get("derive") {
+            self.extra_derives = val.split(',').map(|s| s.trim().to_string()).collect();
+        }
+        Ok(())
+    }
+
     fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
 
-        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "{}", self.struct_derives());
         let _ = writeln!(out, "pub struct {} {{", struct_name);
         for col in columns {
             let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
@@ -192,7 +244,7 @@ impl CodegenBackend for RustTiberiusBackend {
             let batch_fn_name = format!("{}_batch", func_name);
             if params.len() > 1 {
                 let params_struct_name = format!("{}BatchParams", struct_name);
-                let _ = writeln!(out, "#[derive(Debug, Clone)]");
+                let _ = writeln!(out, "{}", self.struct_derives());
                 let _ = writeln!(out, "pub struct {} {{", params_struct_name);
                 for param in params {
                     let _ = writeln!(out, "    pub {}: {},", param.field_name, param.full_type);
@@ -332,7 +384,7 @@ impl CodegenBackend for RustTiberiusBackend {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         let mut out = String::with_capacity(512);
 
-        let _ = writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq)]");
+        let _ = writeln!(out, "{}", self.enum_derives());
         let _ = writeln!(out, "pub enum {} {{", type_name);
         for value in &enum_info.values {
             let variant = enum_variant_name(value, &self.manifest.naming);
@@ -386,7 +438,7 @@ impl CodegenBackend for RustTiberiusBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "{}", self.struct_derives());
         let _ = writeln!(out, "pub struct {} {{", child_struct_name);
         for col in child_columns {
             let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
@@ -408,7 +460,7 @@ impl CodegenBackend for RustTiberiusBackend {
 
         let _ = writeln!(out);
 
-        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "{}", self.struct_derives());
         let _ = writeln!(out, "pub struct {} {{", parent_struct_name);
         for col in parent_columns {
             let _ = writeln!(out, "    pub {}: {},", col.field_name, col.full_type);
@@ -528,7 +580,7 @@ impl CodegenBackend for RustTiberiusBackend {
         let struct_name = to_pascal_case(&composite.sql_name).into_owned();
         let mut out = String::new();
 
-        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "{}", self.struct_derives());
         let _ = writeln!(out, "pub struct {} {{", struct_name);
         for field in &composite.fields {
             let rust_type = resolve_type(&field.neutral_type, &self.manifest, false)
@@ -549,6 +601,7 @@ mod tests {
     use scythe_core::parser::QueryCommand;
 
     use super::RustTiberiusBackend;
+    use crate::backend_trait::CodegenBackend;
     use crate::generate_with_backend;
 
     fn make_grouped_query() -> AnalyzedQuery {
@@ -696,6 +749,99 @@ mod tests {
         assert!(
             query_fn.contains("Ok(result)"),
             "fn must return result; got:\n{query_fn}"
+        );
+    }
+
+    /// Regression test for a release-blocking bug: `[sql.gen.rust] serde =
+    /// true` / `derive = [...]` are documented as target-independent options
+    /// under the legacy `[sql.gen.rust]` table, and the CLI's
+    /// `resolve_gen_targets` inserts them into the options map regardless of
+    /// which `target` the user picked (`sqlx`, `tokio-postgres`, `tiberius`,
+    /// or `sibyl`). rust-tiberius's row/enum/composite structs are all plain
+    /// Rust types with no macro-derived driver coupling (unlike sqlx's
+    /// `sqlx::FromRow`/`sqlx::Type`), so there is no technical reason serde
+    /// support should be limited to rust-tokio-postgres; before this,
+    /// rust-tiberius had no `apply_options` override at all and inherited
+    /// the `CodegenBackend` trait default that rejects every key, so this
+    /// config hard-errored with "unknown option 'serde'".
+    #[test]
+    fn serde_and_derive_options_apply_together() {
+        let mut backend = RustTiberiusBackend::new("mssql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("serde".to_string(), "true".to_string()),
+                ("derive".to_string(), "PartialEq, Eq".to_string()),
+            ]))
+            .unwrap();
+        assert!(backend.serde);
+        assert_eq!(backend.extra_derives, vec!["PartialEq".to_string(), "Eq".to_string()]);
+    }
+
+    /// An unrecognized value must be reported, not silently treated as
+    /// leaving `serde` disabled.
+    #[test]
+    fn serde_option_rejects_invalid_value() {
+        let mut backend = RustTiberiusBackend::new("mssql").unwrap();
+        let result = backend.apply_options(&std::collections::HashMap::from([(
+            "serde".to_string(),
+            "maybe".to_string(),
+        )]));
+        assert!(result.is_err(), "expected 'maybe' to be rejected");
+    }
+
+    /// A key that is neither `serde` nor `derive` must still be rejected --
+    /// rust-tiberius takes exactly these two options, nothing else.
+    #[test]
+    fn apply_options_rejects_unknown_key() {
+        let mut backend = RustTiberiusBackend::new("mssql").unwrap();
+        let err = backend
+            .apply_options(&std::collections::HashMap::from([(
+                "structs_only".to_string(),
+                "true".to_string(),
+            )]))
+            .expect_err("structs_only is not a rust-tiberius option");
+        assert_eq!(err.code, scythe_core::errors::ErrorCode::InvalidConfig);
+        assert!(err.message.contains("structs_only"), "{}", err.message);
+    }
+
+    /// The regression itself: applying `serde`/`derive` must not just avoid
+    /// erroring, the emitted row struct must actually carry the derives.
+    #[test]
+    fn serde_and_derive_options_generate_row_struct_with_serde_derive() {
+        let mut backend = RustTiberiusBackend::new("mssql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("serde".to_string(), "true".to_string()),
+                ("derive".to_string(), "PartialEq".to_string()),
+            ]))
+            .unwrap();
+
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetUser".to_string();
+            aq.command = QueryCommand::Opt;
+            aq.sql = "SELECT id, name FROM users".to_string();
+            aq.columns = vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ];
+        });
+
+        let result = generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]"),
+            "row struct must carry the base derives plus serde and the extra derive; got:\n{row_struct}"
         );
     }
 }

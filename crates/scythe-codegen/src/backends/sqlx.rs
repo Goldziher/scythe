@@ -27,6 +27,14 @@ pub struct SqlxBackend {
     /// When true, only emit struct/enum definitions (no query functions).
     /// This avoids the `sqlx::query_as!()` macro which requires `DATABASE_URL` at compile time.
     structs_only: bool,
+    /// When true, every generated struct/enum derives `serde::Serialize` and
+    /// `serde::Deserialize` in addition to its base derives. Set via the
+    /// `serde` backend option -- see [`Self::apply_options`].
+    serde: bool,
+    /// Extra derive macros appended after the base derives (and after serde,
+    /// when enabled) on every generated struct/enum. Set via the `derive`
+    /// backend option -- see [`Self::apply_options`].
+    extra_derives: Vec<String>,
     /// Whether this engine's manifest declares the `json_nested` container
     /// and its server actually has `json_agg`. See
     /// [`crate::backends::engine_supports_nested_aggregates`].
@@ -55,6 +63,8 @@ impl SqlxBackend {
             manifest,
             engine: engine.to_string(),
             structs_only: false,
+            serde: false,
+            extra_derives: Vec::new(),
             nested_aggregates: super::engine_supports_nested_aggregates(engine),
         })
     }
@@ -106,6 +116,25 @@ impl SqlxBackend {
             _ => "sqlx::postgres::PgQueryResult",
         }
     }
+
+    /// Build a `#[derive(...)]` line from a fixed `base` list plus the
+    /// `serde`/`derive` backend options.
+    ///
+    /// Every struct/enum this backend emits derives a different fixed base
+    /// (`sqlx::FromRow` on row-shaped structs, `sqlx::Type` plus its
+    /// `#[sqlx(...)]` attribute on enums and composites, plain `Debug, Clone`
+    /// on structs sqlx never decodes a row into) but all four must layer the
+    /// same optional serde/extra derives on top, so the shared part lives
+    /// here instead of being copied at each call site.
+    fn derive_line(&self, base: &[&str]) -> String {
+        let mut derives: Vec<String> = base.iter().map(|s| s.to_string()).collect();
+        if self.serde {
+            derives.push("serde::Serialize".to_string());
+            derives.push("serde::Deserialize".to_string());
+        }
+        derives.extend(self.extra_derives.iter().cloned());
+        format!("#[derive({})]", derives.join(", "))
+    }
 }
 
 impl CodegenBackend for SqlxBackend {
@@ -130,10 +159,16 @@ impl CodegenBackend for SqlxBackend {
     }
 
     fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
-        reject_unknown_options(&["structs_only"], options)?;
+        reject_unknown_options(&["structs_only", "serde", "derive"], options)?;
 
         if let Some(value) = options.get("structs_only") {
             self.structs_only = parse_bool_option("structs_only", value)?;
+        }
+        if let Some(value) = options.get("serde") {
+            self.serde = parse_bool_option("serde", value)?;
+        }
+        if let Some(value) = options.get("derive") {
+            self.extra_derives = value.split(',').map(|s| s.trim().to_string()).collect();
         }
         Ok(())
     }
@@ -142,7 +177,7 @@ impl CodegenBackend for SqlxBackend {
         let struct_name = row_struct_name(query_name, &self.manifest.naming);
         let mut out = String::new();
 
-        let _ = writeln!(out, "#[derive(Debug, Clone, sqlx::FromRow)]");
+        let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone", "sqlx::FromRow"]));
         let _ = writeln!(out, "pub struct {} {{", struct_name);
 
         for col in columns {
@@ -159,7 +194,7 @@ impl CodegenBackend for SqlxBackend {
         let struct_name = to_pascal_case(&singular).into_owned();
         let mut out = String::new();
 
-        let _ = writeln!(out, "#[derive(Debug, Clone, sqlx::FromRow)]");
+        let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone", "sqlx::FromRow"]));
         let _ = writeln!(out, "pub struct {} {{", struct_name);
 
         for col in columns {
@@ -218,7 +253,7 @@ impl CodegenBackend for SqlxBackend {
 
             if params.len() > 1 {
                 let params_struct_name = format!("{}BatchParams", struct_name);
-                let _ = writeln!(out, "#[derive(Debug, Clone)]");
+                let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone"]));
                 let _ = writeln!(out, "pub struct {} {{", params_struct_name);
                 for param in params {
                     let _ = writeln!(out, "    pub {}: {},", param.field_name, param.full_type);
@@ -367,7 +402,11 @@ impl CodegenBackend for SqlxBackend {
         let mut out = String::with_capacity(256);
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
 
-        let _ = writeln!(out, "#[derive(Debug, Clone, PartialEq, Eq, sqlx::Type)]");
+        let _ = writeln!(
+            out,
+            "{}",
+            self.derive_line(&["Debug", "Clone", "PartialEq", "Eq", "sqlx::Type"])
+        );
         match self.engine.as_str() {
             "mysql" | "mariadb" | "sqlite" | "sqlite3" => {
                 let _ = writeln!(out, "#[sqlx(rename_all = \"snake_case\")]");
@@ -401,7 +440,7 @@ impl CodegenBackend for SqlxBackend {
     ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
-        let _ = writeln!(out, "#[derive(Debug, Clone, sqlx::FromRow)]");
+        let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone", "sqlx::FromRow"]));
         let _ = writeln!(out, "pub struct {child_struct_name} {{");
         for col in child_columns {
             let field_type = self.row_field_type(col);
@@ -411,7 +450,7 @@ impl CodegenBackend for SqlxBackend {
 
         let _ = writeln!(out);
 
-        let _ = writeln!(out, "#[derive(Debug, Clone)]");
+        let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone"]));
         let _ = writeln!(out, "pub struct {parent_struct_name} {{");
         for col in parent_columns {
             let field_type = self.row_field_type(col);
@@ -518,7 +557,7 @@ impl CodegenBackend for SqlxBackend {
         let struct_name = to_pascal_case(&composite.sql_name).into_owned();
         let mut out = String::new();
 
-        let _ = writeln!(out, "#[derive(Debug, Clone, sqlx::Type)]");
+        let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone", "sqlx::Type"]));
         let _ = writeln!(out, "#[sqlx(type_name = \"{}\")]", composite.sql_name);
         let _ = writeln!(out, "pub struct {} {{", struct_name);
         for field in &composite.fields {
@@ -783,6 +822,85 @@ mod option_tests {
             err.message.contains("structs_only"),
             "error should list the real option: {}",
             err.message
+        );
+    }
+
+    /// Regression test for a release-blocking bug: `[sql.gen.rust] serde =
+    /// true` / `derive = [...]` are documented as target-independent options
+    /// under the legacy `[sql.gen.rust]` table (see
+    /// `website/src/content/docs/guide/configuration.md`), and
+    /// `resolve_gen_targets` in the CLI inserts them into the options map
+    /// regardless of which `target` the user picked. rust-tokio-postgres
+    /// handled both, but rust-sqlx only ever declared `structs_only`, so any
+    /// `target = "sqlx"` config using `serde`/`derive` hard-errored with
+    /// "unknown option 'serde'". All three options must coexist.
+    #[test]
+    fn serde_and_derive_options_apply_together_with_structs_only() {
+        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("serde".to_string(), "true".to_string()),
+                ("derive".to_string(), "PartialEq, Eq".to_string()),
+                ("structs_only".to_string(), "true".to_string()),
+            ]))
+            .unwrap();
+        assert!(backend.serde);
+        assert_eq!(backend.extra_derives, vec!["PartialEq".to_string(), "Eq".to_string()]);
+        assert!(backend.structs_only);
+    }
+
+    /// An unrecognized value must be reported, not silently treated as
+    /// leaving `serde` disabled.
+    #[test]
+    fn serde_option_rejects_invalid_value() {
+        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        let result = backend.apply_options(&std::collections::HashMap::from([(
+            "serde".to_string(),
+            "maybe".to_string(),
+        )]));
+        assert!(result.is_err(), "expected 'maybe' to be rejected");
+    }
+
+    /// The regression itself: applying `serde`/`derive` must not just avoid
+    /// erroring, the emitted row struct must actually carry the serde and
+    /// extra derives alongside sqlx's own `sqlx::FromRow`.
+    #[test]
+    fn serde_and_derive_options_generate_row_struct_with_serde_derive() {
+        let mut backend = SqlxBackend::new("postgresql").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([
+                ("serde".to_string(), "true".to_string()),
+                ("derive".to_string(), "PartialEq".to_string()),
+            ]))
+            .unwrap();
+
+        let query = AnalyzedQuery::build(|aq| {
+            aq.name = "GetUser".to_string();
+            aq.command = QueryCommand::Opt;
+            aq.sql = "SELECT id, name FROM users".to_string();
+            aq.columns = vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ];
+        });
+
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct
+                .contains("#[derive(Debug, Clone, sqlx::FromRow, serde::Serialize, serde::Deserialize, PartialEq)]"),
+            "row struct must carry the base derives plus serde and the extra derive; got:\n{row_struct}"
         );
     }
 }
