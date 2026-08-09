@@ -1,6 +1,14 @@
 module scythe-integration/{{ backend_name }}
 
-go 1.24.0
+{# The floor is the highest `go` directive among the drivers below, not the
+   oldest Go we support: a module cannot compile against a dependency that
+   declares a newer language version than it does. `github.com/microsoft/go-mssqldb`
+   v1.10.0 requires 1.25.7 and `github.com/jackc/pgx/v5` v5.10.0 requires 1.25.0.
+   Until GOTOOLCHAIN went from `auto` to `local` in newer actions/setup-go, a
+   too-low value here was invisible -- Go silently downloaded whatever the
+   dependency graph demanded. It is not invisible any more. Raise this whenever a
+   driver bump raises its own floor. -#}
+go 1.25.7
 
 require (
 {%- if driver == "pgx" %}
