@@ -96,13 +96,25 @@ impl LintEngine {
             }
         }
 
-        for dup in &duplicate_names {
-            violations.push(QueryViolation {
-                query_name: dup.clone(),
-                rule_id: Cow::Borrowed("SC-C03"),
-                severity: Severity::Error,
-                message: format!("duplicate query name: \"{}\"", dup),
-            });
+        // Route through the registry's configured severity for SC-C03
+        // instead of hardcoding `Severity::Error`: a hardcoded severity
+        // ignores both `[lint.rules] "SC-C03" = "warn"` and a caller that
+        // never registered `DuplicateQueryNames` at all (in which case no
+        // duplicate violation should be reported, since nothing configured
+        // its severity).
+        let sc_c03_severity = active
+            .iter()
+            .find(|(rule, _)| rule.id() == "SC-C03")
+            .map(|(_, sev)| *sev);
+        if let Some(sev) = sc_c03_severity {
+            for dup in &duplicate_names {
+                violations.push(QueryViolation {
+                    query_name: dup.clone(),
+                    rule_id: Cow::Borrowed("SC-C03"),
+                    severity: sev,
+                    message: format!("duplicate query name: \"{}\"", dup),
+                });
+            }
         }
 
         for (rule, sev) in &active {
@@ -384,6 +396,7 @@ mod tests {
     fn build_report_duplicate_query_names() {
         let mut reg = RuleRegistry::new();
         reg.register(Box::new(SilentRule));
+        reg.register(Box::new(crate::rules::codegen::DuplicateQueryNames));
         let engine = LintEngine::new(reg);
 
         let sql = "SELECT 1";
@@ -411,6 +424,100 @@ mod tests {
         assert_eq!(dup_violations[0].query_name, "dup_name");
         assert_eq!(dup_violations[0].severity, Severity::Error);
         assert!(dup_violations[0].message.contains("duplicate query name"));
+    }
+
+    /// Regression for #137: `engine.rs` used to hardcode `Severity::Error`
+    /// for SC-C03 regardless of `[lint.rules]`, so
+    /// `"SC-C03" = "warn"` had no effect. The emitted violation's severity
+    /// must now track the rule's effective (configured) severity.
+    #[test]
+    fn build_report_duplicate_query_names_honours_severity_override() {
+        let mut reg = RuleRegistry::new();
+        reg.register(Box::new(crate::rules::codegen::DuplicateQueryNames));
+        let mut config = LintConfig::default();
+        config.rules.insert("SC-C03".to_string(), Severity::Warn);
+        reg.apply_config(&config);
+        let engine = LintEngine::new(reg);
+
+        let sql = "SELECT 1";
+        let stmt = parse_stmt(sql);
+        let catalog = empty_catalog();
+
+        let analyzed1 = dummy_analyzed("dup_name");
+        let annotations1 = dummy_annotations("dup_name");
+        let analyzed2 = dummy_analyzed("dup_name");
+        let annotations2 = dummy_annotations("dup_name");
+
+        let queries = vec![
+            make_ctx(sql, &stmt, &analyzed1, &catalog, &annotations1),
+            make_ctx(sql, &stmt, &analyzed2, &catalog, &annotations2),
+        ];
+
+        let report = engine.build_report(queries.into_iter(), &catalog);
+        let dup_violations: Vec<_> = report.violations.iter().filter(|v| v.rule_id == "SC-C03").collect();
+        assert_eq!(dup_violations.len(), 1);
+        assert_eq!(
+            dup_violations[0].severity,
+            Severity::Warn,
+            "SC-C03 severity override must be honoured, not hardcoded to Error"
+        );
+    }
+
+    /// Regression for #137: when `DuplicateQueryNames` is not registered at
+    /// all (nothing has configured a severity for SC-C03), build_report must
+    /// not synthesize an SC-C03 violation out of thin air.
+    #[test]
+    fn build_report_no_duplicate_violation_when_rule_not_registered() {
+        let reg = RuleRegistry::new();
+        let engine = LintEngine::new(reg);
+
+        let sql = "SELECT 1";
+        let stmt = parse_stmt(sql);
+        let catalog = empty_catalog();
+
+        let analyzed1 = dummy_analyzed("dup_name");
+        let annotations1 = dummy_annotations("dup_name");
+        let analyzed2 = dummy_analyzed("dup_name");
+        let annotations2 = dummy_annotations("dup_name");
+
+        let queries = vec![
+            make_ctx(sql, &stmt, &analyzed1, &catalog, &annotations1),
+            make_ctx(sql, &stmt, &analyzed2, &catalog, &annotations2),
+        ];
+
+        let report = engine.build_report(queries.into_iter(), &catalog);
+        let dup_violations: Vec<_> = report.violations.iter().filter(|v| v.rule_id == "SC-C03").collect();
+        assert!(dup_violations.is_empty());
+    }
+
+    /// Regression for #137: `[lint.rules] "SC-C03" = "off"` must silence the
+    /// duplicate-name check entirely, same as any other rule.
+    #[test]
+    fn build_report_duplicate_query_names_off_produces_no_violation() {
+        let mut reg = RuleRegistry::new();
+        reg.register(Box::new(crate::rules::codegen::DuplicateQueryNames));
+        let mut config = LintConfig::default();
+        config.rules.insert("SC-C03".to_string(), Severity::Off);
+        reg.apply_config(&config);
+        let engine = LintEngine::new(reg);
+
+        let sql = "SELECT 1";
+        let stmt = parse_stmt(sql);
+        let catalog = empty_catalog();
+
+        let analyzed1 = dummy_analyzed("dup_name");
+        let annotations1 = dummy_annotations("dup_name");
+        let analyzed2 = dummy_analyzed("dup_name");
+        let annotations2 = dummy_annotations("dup_name");
+
+        let queries = vec![
+            make_ctx(sql, &stmt, &analyzed1, &catalog, &annotations1),
+            make_ctx(sql, &stmt, &analyzed2, &catalog, &annotations2),
+        ];
+
+        let report = engine.build_report(queries.into_iter(), &catalog);
+        let dup_violations: Vec<_> = report.violations.iter().filter(|v| v.rule_id == "SC-C03").collect();
+        assert!(dup_violations.is_empty());
     }
 
     #[test]

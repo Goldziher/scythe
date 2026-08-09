@@ -5,6 +5,13 @@
 //! segment matches (case-insensitive) one of the configured names, emits a
 //! `MatcherHit` with binding `func -> <matched name>`.
 //!
+//! Set-returning functions written in `FROM` position (`FROM dblink(...)`,
+//! `FROM pg_ls_dir('/etc')`, `FROM openrowset(...)`) parse as a relation —
+//! sqlparser's `TableFactor::Table { name, .. }` for a table-valued function
+//! call — not as `Expr::Function`, so `pre_visit_relation` is checked against
+//! the same function list. `dblink`, `pg_ls_dir` and `openrowset` are
+//! essentially only ever written this way, so this is not a rare corner case.
+//!
 //! Ported 1:1 from `rules/security/dangerous_function.rs`.
 
 use std::ops::ControlFlow;
@@ -61,7 +68,12 @@ impl Visitor for Collector<'_> {
         ControlFlow::Continue(())
     }
 
-    fn pre_visit_relation(&mut self, _relation: &ObjectName) -> ControlFlow<Self::Break> {
+    fn pre_visit_relation(&mut self, relation: &ObjectName) -> ControlFlow<Self::Break> {
+        if let Some(last) = last_name_segment(relation)
+            && self.functions.iter().any(|d| d.eq_ignore_ascii_case(&last))
+        {
+            self.hits.push(last);
+        }
         ControlFlow::Continue(())
     }
 
@@ -166,6 +178,67 @@ mod tests {
         let args = make_args(&["pg_read_file"]);
         let hits = match_function_name_in_set(&ctx, &args);
         assert_eq!(hits.len(), 1);
+    }
+
+    /// Regression for #138: `dblink` written in `FROM` position — its
+    /// idiomatic form — must be caught, not just `dblink(...)` in the select
+    /// list.
+    #[test]
+    fn fires_on_function_in_from_position() {
+        let sql = "SELECT * FROM dblink('dbname=x','SELECT 1') AS t(a int)";
+        let (stmt, analyzed, catalog, annotations) = make_ctx(sql);
+        let ctx = LintContext {
+            sql,
+            stmt: &stmt,
+            analyzed: &analyzed,
+            catalog: &catalog,
+            annotations: &annotations,
+            dialect: SqlDialect::PostgreSQL,
+        };
+        let args = make_args(&["dblink"]);
+        let hits = match_function_name_in_set(&ctx, &args);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].bindings.get("func").map(|s| s.as_str()), Some("dblink"));
+    }
+
+    /// Regression for #138: `pg_ls_dir` is essentially only ever written in
+    /// `FROM` position.
+    #[test]
+    fn fires_on_pg_ls_dir_in_from_position() {
+        let sql = "SELECT * FROM pg_ls_dir('/etc')";
+        let (stmt, analyzed, catalog, annotations) = make_ctx(sql);
+        let ctx = LintContext {
+            sql,
+            stmt: &stmt,
+            analyzed: &analyzed,
+            catalog: &catalog,
+            annotations: &annotations,
+            dialect: SqlDialect::PostgreSQL,
+        };
+        let args = make_args(&["pg_ls_dir"]);
+        let hits = match_function_name_in_set(&ctx, &args);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].bindings.get("func").map(|s| s.as_str()), Some("pg_ls_dir"));
+    }
+
+    /// A `FROM`-position call to a function that is *not* in the configured
+    /// set must not fire — the positive control above must not be a
+    /// blanket "anything in FROM position" match.
+    #[test]
+    fn no_match_when_from_position_function_not_in_set() {
+        let sql = "SELECT * FROM generate_series(1, 10)";
+        let (stmt, analyzed, catalog, annotations) = make_ctx(sql);
+        let ctx = LintContext {
+            sql,
+            stmt: &stmt,
+            analyzed: &analyzed,
+            catalog: &catalog,
+            annotations: &annotations,
+            dialect: SqlDialect::PostgreSQL,
+        };
+        let args = make_args(&["dblink", "pg_ls_dir"]);
+        let hits = match_function_name_in_set(&ctx, &args);
+        assert!(hits.is_empty());
     }
 
     #[test]

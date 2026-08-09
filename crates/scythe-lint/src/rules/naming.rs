@@ -48,6 +48,16 @@ impl LintRule for PreferSnakeCaseColumns {
     }
 }
 
+/// # Known limitation (#145)
+///
+/// `Catalog::tables()` (via `type_normalizer::object_name_to_key`) lowercases
+/// every identifier part unconditionally, quoted or not, before this rule
+/// ever sees it — so `CREATE TABLE "UserProfile"`, the canonical violation
+/// this rule exists to catch, is invisible to it. Only doubled/leading/
+/// trailing underscores (which survive lowercasing) can still fire. Fixing
+/// this requires `scythe-core`'s `Table` to retain the original DDL spelling
+/// (a `raw_name` field) alongside its lowercased lookup key; that is outside
+/// this crate.
 pub struct PreferSnakeCaseTables;
 
 impl LintRule for PreferSnakeCaseTables {
@@ -335,13 +345,6 @@ mod tests {
     }
 
     #[test]
-    fn non_snake_case_table_fires() {
-        let cat = make_catalog();
-        let v = PreferSnakeCaseTables.check_catalog(&cat);
-        let _ = v;
-    }
-
-    #[test]
     fn bad_query_name_fires() {
         let cat = make_catalog();
         let q = parse_query("-- @name doStuff\n-- @returns :exec\nUPDATE users SET name = $1 WHERE id = $2;").unwrap();
@@ -424,6 +427,25 @@ mod tests {
         .unwrap();
         let v = PreferSnakeCaseTables.check_catalog(&cat);
         assert!(v.is_empty());
+    }
+
+    /// SC-N02 cannot see CamelCase today: `type_normalizer::object_name_to_key`
+    /// lowercases every table name unconditionally, quoted or not, and
+    /// `catalog::Table` keeps no copy of the original DDL spelling. This test
+    /// therefore asserts the CURRENT, WRONG result on purpose (#145).
+    ///
+    /// When `scythe-core`'s `Table` gains a `raw_name`, this test will start
+    /// failing -- that failure is the signal to invert the assertion and
+    /// delete this comment, not a regression.
+    #[test]
+    fn camel_case_table_name_is_not_yet_detected() {
+        let cat = Catalog::from_ddl(&["CREATE TABLE \"UserProfile\" (id SERIAL PRIMARY KEY);"]).unwrap();
+        let v = PreferSnakeCaseTables.check_catalog(&cat);
+        assert!(
+            v.is_empty(),
+            "known limitation (#145): CamelCase table names are lowercased before SC-N02 ever sees \
+             them, so this canonical violation is currently invisible"
+        );
     }
 
     #[test]

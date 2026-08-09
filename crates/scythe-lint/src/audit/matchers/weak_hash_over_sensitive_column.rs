@@ -99,6 +99,12 @@ impl Visitor for Collector<'_> {
     }
 }
 
+/// Find the first sensitive column identifier reachable from `expr`.
+///
+/// Recurses through the shapes real salted/wrapped hash calls take —
+/// `md5(password || salt)` (`BinaryOp`), `md5((password))` (`Nested`),
+/// `md5(lower(password))` (nested `Function`), and `md5(password::text)`
+/// (`Cast`) — rather than only matching a bare identifier one level down.
 fn extract_sensitive_column(expr: &Expr, patterns: &[String]) -> Option<String> {
     match expr {
         Expr::Identifier(ident) => {
@@ -115,6 +121,29 @@ fn extract_sensitive_column(expr: &Expr, patterns: &[String]) -> Option<String> 
                 if patterns.iter().any(|p| lower.contains(p.as_str())) {
                     let rendered = parts.iter().map(|i| i.value.as_str()).collect::<Vec<_>>().join(".");
                     return Some(rendered);
+                }
+            }
+            None
+        }
+        Expr::Nested(inner) => extract_sensitive_column(inner, patterns),
+        Expr::Cast { expr: inner, .. } => extract_sensitive_column(inner, patterns),
+        Expr::BinaryOp { left, right, .. } => {
+            extract_sensitive_column(left, patterns).or_else(|| extract_sensitive_column(right, patterns))
+        }
+        Expr::Function(func) => {
+            if let FunctionArguments::List(arg_list) = &func.args {
+                for arg in &arg_list.args {
+                    let inner = match arg {
+                        FunctionArg::Named {
+                            arg: FunctionArgExpr::Expr(e),
+                            ..
+                        } => Some(e),
+                        FunctionArg::Unnamed(FunctionArgExpr::Expr(e)) => Some(e),
+                        _ => None,
+                    };
+                    if let Some(found) = inner.and_then(|e| extract_sensitive_column(e, patterns)) {
+                        return Some(found);
+                    }
                 }
             }
             None
@@ -243,5 +272,46 @@ mod tests {
         let args = make_args(&["md5"], &["password"]);
         let hits = match_weak_hash_over_sensitive_column(&ctx, &args);
         assert_eq!(hits.len(), 1);
+    }
+
+    /// Regression for #138: `md5(password || salt)` is the shape real
+    /// salted-MD5 auth SQL takes. The naive `md5(password)` case (the
+    /// control above) already fired; the salted form must too.
+    #[test]
+    fn fires_on_md5_over_salted_password() {
+        let sql = "SELECT md5(password || salt) FROM users";
+        let (stmt, analyzed, catalog, annotations) = make_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        let args = make_args(&["md5", "sha1"], &["password", "passwd", "secret"]);
+        let hits = match_weak_hash_over_sensitive_column(&ctx, &args);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].bindings.get("func").map(|s| s.as_str()), Some("md5"));
+        assert_eq!(hits[0].bindings.get("column").map(|s| s.as_str()), Some("password"));
+    }
+
+    /// Regression for #138: `md5(lower(password))` wraps the sensitive
+    /// column in another function call before hashing.
+    #[test]
+    fn fires_on_md5_over_wrapped_password() {
+        let sql = "SELECT md5(lower(password)) FROM users";
+        let (stmt, analyzed, catalog, annotations) = make_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        let args = make_args(&["md5", "sha1"], &["password", "passwd", "secret"]);
+        let hits = match_weak_hash_over_sensitive_column(&ctx, &args);
+        assert_eq!(hits.len(), 1);
+        assert_eq!(hits[0].bindings.get("column").map(|s| s.as_str()), Some("password"));
+    }
+
+    /// A wrapped/salted call over a *non*-sensitive column must still not
+    /// fire — the recursive walk must not become a blanket "any argument
+    /// anywhere" match.
+    #[test]
+    fn no_match_md5_over_wrapped_non_sensitive_column() {
+        let sql = "SELECT md5(lower(username) || salt) FROM users";
+        let (stmt, analyzed, catalog, annotations) = make_parts(sql);
+        let ctx = make_ctx(sql, &stmt, &analyzed, &catalog, &annotations);
+        let args = make_args(&["md5", "sha1"], &["password", "passwd", "secret"]);
+        let hits = match_weak_hash_over_sensitive_column(&ctx, &args);
+        assert!(hits.is_empty());
     }
 }
