@@ -16,7 +16,7 @@ pub struct NamingConfig {
     /// TOML at all -- a `field_case` key under `[naming]` in a manifest is
     /// silently ignored by serde as an unknown field, exactly as before this
     /// field existed. A prior version of this option was a plain
-    /// deserialized field, declared in all 106 manifests and read by
+    /// deserialized field, declared in every manifest and read by
     /// nothing (see naming.rs history), so the dead knob was invisible.
     /// `serde(skip)` makes that trap structurally impossible to reintroduce:
     /// the only writer is a backend's `apply_options`, so a value can never
