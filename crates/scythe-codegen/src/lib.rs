@@ -16,7 +16,6 @@ use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{row_struct_name, to_pascal_case};
 
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, EnumInfo, NestedStructInfo};
-use scythe_core::catalog::Catalog;
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
@@ -545,11 +544,6 @@ pub fn generate(analyzed: &AnalyzedQuery) -> Result<GeneratedCode, ScytheError> 
     generate_with_backend(analyzed, &*backend)
 }
 
-/// Stub for catalog-level codegen. Returns default for now.
-pub fn generate_from_catalog(_catalog: &Catalog) -> Result<GeneratedCode, ScytheError> {
-    Ok(GeneratedCode::default())
-}
-
 /// Generate a single enum definition using a specific backend.
 ///
 /// `reachable_from_nested` selects [`CodegenBackend::generate_enum_def_for_nested`]
@@ -773,14 +767,6 @@ mod tests {
 
         let row_struct = result.row_struct.unwrap();
         assert!(row_struct.contains("pub status: UserStatus"));
-    }
-
-    #[test]
-    fn test_generate_from_catalog_returns_default() {
-        let catalog = Catalog::from_ddl(&["CREATE TABLE t (id INTEGER);"]).unwrap();
-        let result = generate_from_catalog(&catalog).unwrap();
-        assert!(result.query_fn.is_none());
-        assert!(result.row_struct.is_none());
     }
 
     #[test]
