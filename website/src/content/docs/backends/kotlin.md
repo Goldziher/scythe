@@ -1,0 +1,355 @@
+---
+title: Kotlin (JDBC, R2DBC, Exposed)
+description: The kotlin-jdbc, kotlin-r2dbc, and kotlin-exposed backends -- generated data classes, queries, and type mappings.
+---
+
+Backends: `kotlin-jdbc`, `kotlin-r2dbc`, `kotlin-exposed`
+
+`kotlin-jdbc` supports 9 engines (PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, MSSQL, Redshift,
+Snowflake, Oracle). `kotlin-r2dbc` supports PostgreSQL, MySQL, MariaDB, and SQLite. `kotlin-exposed`
+supports PostgreSQL only. The examples on this page use PostgreSQL.
+
+Generated files carry a provenance header as their first line, e.g.
+`// scythe:provenance v=0.14.0 backend=kotlin-jdbc engine=postgresql schema=sch1:... queries=q1:...`
+(`integration_tests/kotlin-jdbc/src/main/kotlin/generated/queries.kt:1`).
+
+## Field naming: `field_case`
+
+Generated data-class property names are `snake_case` by default, mirroring the SQL column name --
+**not** `camelCase` (`field_case` defaults to `snake_case`; `crates/scythe-backend/src/naming.rs`).
+`created_at` stays `created_at`, not `createdAt`.
+
+All three backends on this page accept a `field_case` option -- `snake_case` or `camelCase`, and
+nothing else -- to opt into `camelCase` fields. It is a `[[sql.gen]]` target key only; a manifest
+cannot set it, because `NamingConfig::field_case` carries `#[serde(skip)]`
+(`crates/scythe-backend/src/naming.rs`). A `field_case` key under a full manifest's `[naming]` table is
+ignored, and naming it in a partial manifest override is a parse error.
+
+```toml
+[[sql.gen]]
+backend = "kotlin-jdbc"
+output = "src/generated/kotlin"
+field_case = "camelCase"
+```
+
+`camelCase` renames data-class properties and query-function parameters -- `created_at` becomes
+`createdAt`. It does not change decoding: every backend on this page reads the `ResultSet`/`Row` by the
+raw SQL column name (`rs.getObject("created_at", ...)`, `row.get("created_at", ...)`), and only the
+declared field name changes (`crates/scythe-codegen/src/backends/kotlin_jdbc.rs`,
+`kotlin_r2dbc.rs`). Two SQL identifiers that collapse onto the same generated name are a hard error,
+not last-write-wins. See [`field_case`](/scythe/guide/configuration/#field_case) in the Configuration
+guide for the full option reference.
+
+## SQL input
+
+```sql
+-- @name GetUser
+-- @returns :one
+SELECT id, name, email, created_at FROM users WHERE id = $1;
+
+-- @name ListUsers
+-- @returns :many
+SELECT id, name FROM users ORDER BY name LIMIT $1;
+
+-- @name CreateUser
+-- @returns :exec
+INSERT INTO users (name, email) VALUES ($1, $2);
+```
+
+Schema:
+
+```sql
+CREATE TABLE users (
+    id SERIAL PRIMARY KEY,
+    name TEXT NOT NULL,
+    email TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+## JDBC
+
+`kotlin-jdbc` also accepts an `extension_functions` option (default `false`): when `true`, query
+functions are generated as `Connection.query(...)` extension functions instead of taking `conn` as a
+parameter.
+
+### Data class with `.use {}`
+
+```kotlin
+data class GetUserRow(
+    val id: Int,
+    val name: String,
+    val email: String?,
+    val created_at: java.time.OffsetDateTime,
+)
+```
+
+### `:one` -- returns `T?`, null on no rows
+
+```kotlin
+fun getUser(
+    conn: Connection,
+    id: Int,
+): GetUserRow? {
+    conn.prepareStatement("SELECT id, name, email, created_at FROM users WHERE id = ?").use { ps ->
+        ps.setInt(1, id)
+        ps.executeQuery().use { rs ->
+            return if (rs.next()) {
+                val emailValue = rs.getString("email")
+                val email = if (rs.wasNull()) null else emailValue
+                GetUserRow(
+                    id = rs.getInt("id"),
+                    name = rs.getString("name"),
+                    email = email,
+                    created_at = rs.getObject("created_at", OffsetDateTime::class.java),
+                )
+            } else {
+                null
+            }
+        }
+    }
+}
+```
+
+### `:many`
+
+```kotlin
+data class ListUsersRow(val id: Int, val name: String)
+
+fun listUsers(conn: Connection, limit: Long): List<ListUsersRow> {
+    conn.prepareStatement(
+        "SELECT id, name FROM users ORDER BY name LIMIT ?"
+    ).use { stmt ->
+        stmt.setLong(1, limit)
+        stmt.executeQuery().use { rs ->
+            val result = mutableListOf<ListUsersRow>()
+            while (rs.next()) {
+                result.add(ListUsersRow(id = rs.getInt("id"), name = rs.getString("name")))
+            }
+            return result
+        }
+    }
+}
+```
+
+### `:exec`
+
+```kotlin
+fun createUser(conn: Connection, name: String, email: String?) {
+    conn.prepareStatement(
+        "INSERT INTO users (name, email) VALUES (?, ?)"
+    ).use { stmt ->
+        stmt.setString(1, name)
+        stmt.setString(2, email)
+        stmt.executeUpdate()
+    }
+}
+```
+
+## R2DBC
+
+Backend: `kotlin-r2dbc` | Library: R2DBC with Kotlin coroutines | Engines: PostgreSQL, MySQL, MariaDB, SQLite
+
+Generates coroutine-based code using `suspend fun` for `:one` and `:exec` queries, and `Flow<T>` for
+`:many` queries, via `kotlinx-coroutines-reactor`'s `awaitFirst` / `awaitFirstOrNull` / `asFlow`. Like
+`java-r2dbc`, there is no separate row-mapping method and binds are zero-based positional integers.
+Acquiring the connection is `Mono.from(cf.create()).awaitFirst()` -- not `cf.create().awaitFirst()`,
+since `create()` returns a reactive-streams `Publisher`, not a `Mono` directly.
+
+An `extension_functions` option (default `false`) generates `Connection.query(...)` extension
+functions instead of top-level functions taking a `ConnectionFactory` parameter.
+
+### `:one`
+
+```kotlin
+suspend fun getUser(
+    cf: ConnectionFactory,
+    id: Int,
+): GetUserRow? {
+    val conn = Mono.from(cf.create()).awaitFirst()
+    try {
+        val stmt = conn.createStatement("SELECT id, name, email, created_at FROM users WHERE id = $1")
+        stmt.bind(0, id)
+        return Mono
+            .from(stmt.execute())
+            .flatMap { result ->
+                Mono.from(
+                    result.map { row, _ ->
+                        GetUserRow(
+                            id = row.get("id", Int::class.javaObjectType),
+                            name = row.get("name", String::class.java),
+                            email = row.get("email", String::class.java),
+                            created_at = row.get("created_at", java.time.OffsetDateTime::class.java),
+                        )
+                    },
+                )
+            }.awaitFirstOrNull()
+    } finally {
+        Mono.from(conn.close()).awaitFirstOrNull()
+    }
+}
+```
+
+### `:many`
+
+```kotlin
+fun listUsers(
+    cf: ConnectionFactory,
+    limit: Long,
+): Flow<ListUsersRow> =
+    Flux
+        .usingWhen(
+            cf.create(),
+            { conn ->
+                val stmt = conn.createStatement("SELECT id, name FROM users ORDER BY name LIMIT $1")
+                stmt.bind(0, limit)
+                Flux
+                    .from(stmt.execute())
+                    .flatMap { result ->
+                        result.map { row, _ ->
+                            ListUsersRow(
+                                id = row.get("id", Int::class.javaObjectType),
+                                name = row.get("name", String::class.java),
+                            )
+                        }
+                    }
+            },
+            { conn -> Mono.from(conn.close()) },
+        ).asFlow()
+```
+
+### `:exec`
+
+```kotlin
+suspend fun createUser(
+    cf: ConnectionFactory,
+    name: String,
+    email: String?,
+) {
+    val conn = Mono.from(cf.create()).awaitFirst()
+    try {
+        val stmt = conn.createStatement("INSERT INTO users (name, email) VALUES ($1, $2)")
+        stmt.bind(0, name)
+        stmt.bind(1, email)
+        Mono.from(stmt.execute()).flatMap { result -> Mono.from(result.rowsUpdated) }.awaitFirstOrNull()
+    } finally {
+        Mono.from(conn.close()).awaitFirstOrNull()
+    }
+}
+```
+
+## Exposed
+
+Backend: `kotlin-exposed` | Library: JetBrains Exposed | Engine: PostgreSQL
+
+`kotlin-exposed` does **not** generate Exposed's type-safe query DSL (`selectAll().where {}`,
+`insert {}`). Every query -- `:one`, `:many`, and `:exec` alike -- is emitted as raw SQL passed to
+`exec()` inside a `transaction {}` block, decoding rows with plain JDBC `ResultSet` getters
+(`crates/scythe-codegen/src/backends/kotlin_exposed.rs`). Table objects are still generated for
+table declarations (not queries), but as `IntIdTable`/`LongIdTable`/`UUIDTable` subclasses -- never a
+bare `Table` -- and without a `PrimaryKey` override, since the id table base class already declares one:
+
+### Table object
+
+```kotlin
+object UsersTable : IntIdTable("users") {
+    val id = integer("id")
+    val name = text("name")
+    val email = text("email").nullable()
+    val created_at = timestampWithTimeZone("created_at")
+}
+```
+
+### `:one` -- raw SQL via `exec()`, decoded manually
+
+```kotlin
+data class GetUserRow(
+    val id: Int,
+    val name: String,
+    val email: String?,
+    val created_at: java.time.OffsetDateTime,
+)
+
+fun getUser(id: Int): GetUserRow? =
+    transaction {
+        exec("SELECT id, name, email, created_at FROM users WHERE id = ?", listOf(IntegerColumnType() to id)) { rs ->
+            if (rs.next()) {
+                GetUserRow(
+                    id = rs.getInt("id"),
+                    name = rs.getString("name"),
+                    email = rs.getString("email"),
+                    created_at = rs.getObject("created_at"),
+                )
+            } else {
+                null
+            }
+        }
+    }
+```
+
+### `:many`
+
+```kotlin
+data class ListUsersRow(val id: Int, val name: String)
+
+fun listUsers(limit: Long): List<ListUsersRow> =
+    transaction {
+        val result = mutableListOf<ListUsersRow>()
+        exec("SELECT id, name FROM users ORDER BY name LIMIT ?", listOf(LongColumnType() to limit)) { rs ->
+            while (rs.next()) {
+                result.add(
+                    ListUsersRow(
+                        id = rs.getInt("id"),
+                        name = rs.getString("name"),
+                    ),
+                )
+            }
+        }
+        result
+    }
+```
+
+### `:exec`
+
+```kotlin
+fun createUser(
+    name: String,
+    email: String?,
+) = transaction {
+    exec(
+        "INSERT INTO users (name, email) VALUES (?, ?)",
+        listOf(TextColumnType() to name, TextColumnType() to email),
+    )
+}
+```
+
+## Enum generation
+
+```sql
+CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned');
+```
+
+```kotlin
+enum class UserStatus(val value: String) {
+    ACTIVE("active"),
+    INACTIVE("inactive"),
+    BANNED("banned"),
+}
+```
+
+## Type mappings
+
+| SQL Type | Neutral | Kotlin |
+|----------|---------|--------|
+| `INTEGER` | `int32` | `Int` |
+| `BIGINT` | `int64` | `Long` |
+| `TEXT` | `string` | `String` |
+| `BOOLEAN` | `bool` | `Boolean` |
+| `BYTEA` | `bytes` | `ByteArray` |
+| `UUID` | `uuid` | `java.util.UUID` |
+| `NUMERIC` | `decimal` | `java.math.BigDecimal` |
+| `DATE` | `date` | `java.time.LocalDate` |
+| `TIMESTAMPTZ` | `datetime_tz` | `java.time.OffsetDateTime` |
+| `JSON` | `json` | `String` |
+| `TEXT[]` | `array<string>` | `List<String>` |
+| nullable | `nullable` | `T?` |
