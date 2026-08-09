@@ -19,7 +19,7 @@ use crate::backend_trait::CodegenBackend;
 /// `manifest().backend.language`.
 ///
 /// `language` is a `String`, not a Rust enum, but exactly 10 distinct values
-/// are used across every one of the 106 shipped manifests, so this one match
+/// are used across every one of the 102 shipped manifests, so this one match
 /// table is the single place backends' comment syntax is derived from —
 /// no per-backend declaration, and no manifest schema change. Unrecognized
 /// values fall back to `//`: every backend shipped today matches one of the

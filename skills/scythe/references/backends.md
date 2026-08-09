@@ -26,9 +26,9 @@ engine requiring a per-backend `*.redshift.toml` manifest, which is why fewer
 backends offer it.
 
 R2DBC covers PostgreSQL, MySQL, MariaDB and SQLite only. It does *not* cover
-MSSQL or Oracle, despite `java-r2dbc.mssql.toml` and `java-r2dbc.oracle.toml`
-existing in the manifest directory -- those manifests are unreachable, because
-`supported_engines()` rejects the engine before a manifest is ever loaded.
+MSSQL or Oracle -- `supported_engines()` rejects both engines, and no
+MSSQL/Oracle manifests ship for `java-r2dbc` or `kotlin-r2dbc` (see
+[#105](https://github.com/Goldziher/scythe/issues/105)).
 
 `kysely` (backend `typescript-kysely`) is dialect-parameterised: it compiles to Kysely's `sql` tag, which renders whatever placeholder syntax the connected `Dialect` needs at runtime, so one generated call site runs against any Kysely dialect. Scythe pins and tests five dialects -- PostgreSQL, MySQL, SQLite, MSSQL, MariaDB -- plus a Redshift manifest that reuses the PostgreSQL dialect. Third-party dialects (libsql, PlanetScale, Cloudflare D1, Neon, PGlite, and `node:sqlite` / `@sqlite.org/sqlite-wasm` used as a Kysely dialect) are wire-compatible but not pinned or tested by scythe.
 

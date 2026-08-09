@@ -408,7 +408,7 @@ Map-valued tables merge one key at a time: a key you list replaces exactly that 
 :::caution[Breaking: acronym handling changed for `PascalCase` and `camelCase`]
 Every case conversion now normalizes a run of consecutive capitals (an acronym, or an
 `ID`/`URL`-style suffix) the same way: `to_pascal_case` — which backs `struct_case = "PascalCase"`,
-set by every one of scythe's 106 shipped manifests — previously returned a mixed-case input with no
+set by every one of scythe's 102 shipped manifests — previously returned a mixed-case input with no
 underscore unchanged, so `CreateAPIKey` produced the row type `CreateAPIKeyRow`, preserving the
 `APIKey` run. It now routes through the same snake_case normalization `to_camel_case` (`fn_case =
 "camelCase"`) uses, producing `CreateApiKeyRow`:
@@ -420,7 +420,7 @@ underscore unchanged, so `CreateAPIKey` produced the row type `CreateAPIKeyRow`,
 
 This is not limited to TypeScript: `struct_case = "PascalCase"` is universal across every backend,
 so every language's generated struct, row-type, and enum-type name changes for any query, table, or
-enum name with an acronym run. `to_camel_case` (`fn_case = "camelCase"`, set by 57 of the 106
+enum name with an acronym run. `to_camel_case` (`fn_case = "camelCase"`, set by 53 of the 102
 manifests) is now defined in terms of the fixed `to_pascal_case`, guaranteeing struct and function
 names derived from the same identifier agree — its own output for some inputs may shift too where
 the two previously disagreed. `fn_case = "snake_case"` is unaffected. Update call sites that

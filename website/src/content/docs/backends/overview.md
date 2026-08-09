@@ -184,8 +184,7 @@ per-backend `*.redshift.toml` manifest, which is why its column is narrower — 
 
 `java-r2dbc` and `kotlin-r2dbc` do not support MSSQL — their `new()` only accepts `postgresql`,
 `mysql`, `mariadb`, and `sqlite` (`crates/scythe-codegen/src/backends/java_r2dbc.rs:28-40`,
-`kotlin_r2dbc.rs:28-40`), even though orphaned `java-r2dbc.mssql.toml` / `kotlin-r2dbc.mssql.toml`
-manifests exist in the tree.
+`kotlin_r2dbc.rs:28-40`). No MSSQL manifest ships for either backend.
 
 ### Oracle
 
@@ -201,8 +200,8 @@ manifests exist in the tree.
 | `ruby-oci8` | Ruby | ruby-oci8 |
 | `elixir-jamdb` | Elixir | jamdb_oracle (alias: `jamdb`) |
 
-`java-r2dbc` and `kotlin-r2dbc` do not support Oracle, for the same reason as MSSQL above; orphaned
-`java-r2dbc.oracle.toml` / `kotlin-r2dbc.oracle.toml` manifests exist but are unreachable.
+`java-r2dbc` and `kotlin-r2dbc` do not support Oracle, for the same reason as MSSQL above. No Oracle
+manifest ships for either backend.
 `php-pdo`'s `supported_engines` has no `oracle` entry either — it hard-errors for this engine, despite
 a `php-pdo.oracle.toml` manifest shipping in the tree.
 

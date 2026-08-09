@@ -411,8 +411,8 @@ mod tests {
         assert_eq!(row_struct_name("ListUsers", &config), "ListUsersRow");
     }
 
-    /// This must fail before the fix: `fn_case = "camelCase"` (set by 57 of
-    /// the 106 manifests) renamed "CreateAPIKey" to "createApiKey" while
+    /// This must fail before the fix: `fn_case = "camelCase"` (set by 53 of
+    /// the 102 manifests) renamed "CreateAPIKey" to "createApiKey" while
     /// `struct_case = "PascalCase"` left the row type "CreateAPIKeyRow", so
     /// a generated function and the row type it returns disagreed about the
     /// stem of the very same query name. Both derive from the same
