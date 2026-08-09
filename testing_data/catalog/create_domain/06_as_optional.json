@@ -1,0 +1,20 @@
+{
+  "name": "domain_as_optional",
+  "description": "PostgreSQL's AS between a domain name and its base type is optional -- the previous hand-written parser required it and silently recorded nothing for the AS-less form, so a column using the domain later failed with a misdiagnosed INTERNAL_ERROR",
+  "category": "catalog/create_domain",
+  "tags": ["domain", "as_optional", "regression"],
+  "schema_sql": ["CREATE DOMAIN email_no_as text NOT NULL", "CREATE TABLE t (b email_no_as)"],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "t": {
+          "columns": [{ "name": "b", "sql_type": "text", "nullable": false }]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

@@ -1,0 +1,28 @@
+{
+  "name": "domain_schema_qualified_not_null",
+  "description": "A bare reference to a schema-qualified domain must resolve NOT NULL through the same qualifier-tolerant lookup as its type -- type resolution already tolerated the missing qualifier while NOT NULL resolution used a separate, stricter exact-match lookup and silently disagreed",
+  "category": "catalog/create_domain",
+  "tags": ["domain", "schema_qualified", "not_null"],
+  "schema_sql": [
+    "CREATE DOMAIN app.nn AS text NOT NULL",
+    "CREATE DOMAIN plain_nn AS text NOT NULL",
+    "CREATE TABLE t (a nn, b plain_nn, c app.nn)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "t": {
+          "columns": [
+            { "name": "a", "sql_type": "text", "nullable": false },
+            { "name": "b", "sql_type": "text", "nullable": false },
+            { "name": "c", "sql_type": "text", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

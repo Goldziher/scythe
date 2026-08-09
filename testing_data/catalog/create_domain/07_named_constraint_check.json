@@ -1,0 +1,23 @@
+{
+  "name": "domain_named_constraint_check",
+  "description": "CONSTRAINT <name> CHECK (...) must terminate the domain's base type just like NOT NULL/CHECK/DEFAULT do -- the previous parser folded the constraint name and keyword into the reported base type string",
+  "category": "catalog/create_domain",
+  "tags": ["domain", "constraint", "check", "regression"],
+  "schema_sql": [
+    "CREATE DOMAIN money_amount AS numeric(10,2) CONSTRAINT positive_amount CHECK (VALUE > 0)",
+    "CREATE TABLE t (amt money_amount)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "t": {
+          "columns": [{ "name": "amt", "sql_type": "numeric(10,2)", "nullable": true }]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

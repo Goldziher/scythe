@@ -1,8 +1,11 @@
 {
   "name": "materialized_view",
-  "description": "CREATE MATERIALIZED VIEW with aggregation query. NOTE: total_spent pins the CURRENT, WRONG output of the view resolver -- sum(numeric(10,2)) is numeric in PostgreSQL, not bigint, and over a GROUP BY of NOT NULL values it is not nullable either. This is issue #182 (the view resolver hardcodes aggregate types); the values here are recorded so the defect is visible rather than unasserted, and must be corrected to numeric/not-null when #182 is fixed.",
+  "description": "CREATE MATERIALIZED VIEW with an aggregation query; the view's own resolved columns are asserted too, via the same analyzer path an ordinary annotated query uses. sum(numeric(10,2)) resolves to numeric rather than a hardcoded bigint (#182). total_spent is still asserted nullable: PostgreSQL guarantees a GROUP BY group is non-empty, so sum() over a NOT NULL column cannot be NULL, but the analyzer does not yet know that -- the assertion records real behaviour, and tightening it belongs with the aggregate-nullability work in #120.",
   "category": "catalog/create_view",
-  "tags": ["view", "materialized"],
+  "tags": [
+    "view",
+    "materialized"
+  ],
   "schema_sql": [
     "CREATE TABLE orders (id serial PRIMARY KEY, customer_id integer NOT NULL, total numeric(10,2) NOT NULL, created_at date NOT NULL)",
     "CREATE MATERIALIZED VIEW order_summary AS SELECT customer_id, count(*) AS order_count, sum(total) AS total_spent FROM orders GROUP BY customer_id"
@@ -13,17 +16,45 @@
       "tables": {
         "orders": {
           "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "customer_id", "sql_type": "integer", "nullable": false },
-            { "name": "total", "sql_type": "numeric(10,2)", "nullable": false },
-            { "name": "created_at", "sql_type": "date", "nullable": false }
+            {
+              "name": "id",
+              "sql_type": "integer",
+              "nullable": false
+            },
+            {
+              "name": "customer_id",
+              "sql_type": "integer",
+              "nullable": false
+            },
+            {
+              "name": "total",
+              "sql_type": "numeric(10,2)",
+              "nullable": false
+            },
+            {
+              "name": "created_at",
+              "sql_type": "date",
+              "nullable": false
+            }
           ]
         },
         "order_summary": {
           "columns": [
-            { "name": "customer_id", "sql_type": "integer", "nullable": false },
-            { "name": "order_count", "sql_type": "bigint", "nullable": false },
-            { "name": "total_spent", "sql_type": "bigint", "nullable": true }
+            {
+              "name": "customer_id",
+              "sql_type": "integer",
+              "nullable": false
+            },
+            {
+              "name": "order_count",
+              "sql_type": "bigint",
+              "nullable": false
+            },
+            {
+              "name": "total_spent",
+              "sql_type": "numeric",
+              "nullable": true
+            }
           ]
         }
       },

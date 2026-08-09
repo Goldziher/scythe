@@ -1,0 +1,39 @@
+{
+  "name": "union_view",
+  "description": "A view whose body is a UNION ALL must resolve its output columns, not register a zero-column table -- the previous mini-resolver only handled SetExpr::Select and returned an empty column list for any other query shape",
+  "category": "catalog/create_view",
+  "tags": ["view", "union"],
+  "schema_sql": [
+    "CREATE TABLE a (id integer NOT NULL, v text NOT NULL)",
+    "CREATE TABLE b (id integer NOT NULL, v text NOT NULL)",
+    "CREATE VIEW ab_union AS SELECT id, v FROM a UNION ALL SELECT id, v FROM b"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "a": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "v", "sql_type": "text", "nullable": false }
+          ]
+        },
+        "b": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "v", "sql_type": "text", "nullable": false }
+          ]
+        },
+        "ab_union": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "v", "sql_type": "text", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

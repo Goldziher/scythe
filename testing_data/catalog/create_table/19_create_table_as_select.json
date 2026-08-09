@@ -1,0 +1,32 @@
+{
+  "name": "create_table_as_select",
+  "description": "CREATE TABLE ... AS SELECT must register the query's projected columns, not a zero-column table",
+  "category": "catalog/create_table",
+  "tags": ["ctas", "as_select"],
+  "schema_sql": [
+    "CREATE TABLE base (id integer NOT NULL, name text NOT NULL)",
+    "CREATE TABLE derived AS SELECT id, name FROM base"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "base": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false }
+          ]
+        },
+        "derived": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}
