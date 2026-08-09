@@ -737,11 +737,57 @@ pub fn validate_with_tools(code: &str, backend_name: &str) -> ToolValidation {
         name if name.starts_with("go") => validate_go_tools(code),
         name if name.starts_with("ruby") => validate_ruby_tools(code),
         name if name.starts_with("php") => validate_php_tools(code),
-        // Kotlin has no validator: `poly` delegates Kotlin to `ktlint` rather
-        // than bundling it, and standing up a JVM plus a downloaded jar in CI
-        // to lint generated Kotlin is out of proportion to what it catches.
-        // `validate_structural` still covers these backends, and the
-        // inventory test in `tests/tool_validation.rs` keeps the gap visible.
+        // Only the JDBC backend: `java-r2dbc` pulls in `io.r2dbc.spi`
+        // (`ConnectionFactory`, `Row`, `RowMetadata`) plus Reactor's `Mono`/
+        // `Flux`, chained through `.usingWhen`/`.flatMap`/`.then`/
+        // `.onErrorResume`/`.doFinally`. Faithfully stubbing that surface --
+        // unlike the two-interface JSR-305 stub `java-jdbc` needs, see
+        // `java_annotation_stub_paths` -- means reproducing real Reactor
+        // generic inference, which is its own project and easy to get subtly
+        // wrong in a direction that hides real bugs. `validate_structural`
+        // still covers it, and the inventory test in `tests/tool_validation.rs`
+        // keeps the gap visible.
+        "java-jdbc" => validate_java_tools(code),
+        // Only the JDBC backend: `kotlin-exposed` needs the Exposed DSL
+        // framework and `kotlin-r2dbc` needs `kotlinx.coroutines.flow.Flow`
+        // plus the same R2DBC SPI `java-r2dbc` cannot cheaply stub above.
+        // `kotlin-jdbc` itself touches nothing but `java.sql`/`java.math`/
+        // `java.time`, so `kotlinc` alone (no extra classpath) resolves it.
+        "kotlin-jdbc" => validate_kotlin_tools(code),
+        // Every `elixir-*` backend, not just one: unlike Java/Kotlin/C#,
+        // Elixir does not resolve a remote *function* call at compile time --
+        // `Postgrex.query/3` when `Postgrex` was never compiled is a
+        // *warning* ("module is not available or is yet to be defined"), not
+        // an error, and `elixirc` still exits 0. A struct reference is the
+        // exception (verified against real `elixirc` output, not assumed):
+        // `%Mod{...}` expands `__struct__/1` at compile time regardless, so
+        // the two backends that construct or match one against an external
+        // driver's struct (`elixir-myxql`, `elixir-tds`) need the small stubs
+        // in `tests/elixir_stubs/` -- see `validate_elixir_tools`.
+        name if name.starts_with("elixir") => validate_elixir_tools(code),
+        // C#: every `csharp-*` backend references a NuGet-only driver
+        // (Npgsql, MySqlConnector, Microsoft.Data.Sqlite, Microsoft.Data.
+        // SqlClient, Oracle.ManagedDataAccess.Core, Snowflake.Data.Client).
+        // `using Npgsql;` with no compiled `Npgsql.dll` on the reference path
+        // is a hard `CS0246`, unlike Elixir's soft warning above, so there is
+        // no stub-free path through `dotnet build`/`csc` here, and six
+        // different driver APIs is too much surface to hand-stub credibly
+        // (unlike the two-interface JSR-305 case above). `validate_structural`
+        // still covers these backends.
+        //
+        // Rust: `rust-sqlx` expands `sqlx::query_as!`/`sqlx::query!` at
+        // compile time, which needs either a live database connection or an
+        // `SQLX_OFFLINE` `.sqlx` query cache -- there is no way to satisfy
+        // that from a bare generated file. `rust-tokio-postgres`,
+        // `rust-tiberius` and `rust-sibyl` reference their driver crates by
+        // fully-qualified path (`tokio_postgres::Row`, etc.) with no `use`
+        // to stub around; making `rustc --emit=metadata` resolve them needs
+        // `--extern` pointing at real compiled `.rlib`s, i.e. standing up a
+        // full Cargo dependency graph per backend -- disproportionate to a
+        // single-file lightweight check when every one of these backends'
+        // generated code is already syntax-checked by `syn::parse_file` in
+        // `crates/scythe-cli/tests/compile_check.rs` and the generated test
+        // suite.
         _ => return ToolValidation::Unsupported,
     };
 
@@ -761,6 +807,90 @@ fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
     let trimmed = format!("{}\n", code.trim_end());
     std::fs::write(&path, trimmed).ok()?;
     Some(path)
+}
+
+/// A directory a checker writes build artifacts into, removed on drop.
+///
+/// `javac -d`, `kotlinc -d` and `elixirc -o` all require a writable output
+/// directory and happily leave `.class`/`.beam` files behind in it -- unlike
+/// `poly`, `gofmt`, `ruby -c` and `node --check`, none of which write
+/// anything to disk. Without this, running these checkers would litter
+/// whatever directory `cargo test` happens to run from. Mirrors
+/// [`TempSource`]'s cleanup guarantee, and is deliberately its own per-call
+/// directory (not a fixed shared path) so parallel test threads cannot race
+/// on each other's output.
+struct TempOutDir {
+    path: std::path::PathBuf,
+}
+
+impl TempOutDir {
+    fn new(tool: &'static str) -> Result<Self, ToolOutcome> {
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let path = std::env::temp_dir().join(format!("scythe_validate_out_{tool}_{n}"));
+        std::fs::create_dir_all(&path).map_err(|error| ToolOutcome::Failed {
+            tool,
+            reason: format!("{tool}: could not create output directory: {error}"),
+        })?;
+        Ok(Self { path })
+    }
+
+    fn arg(&self, tool: &'static str) -> Result<&str, ToolOutcome> {
+        self.path.to_str().ok_or_else(|| ToolOutcome::Failed {
+            tool,
+            reason: format!("{tool}: temporary output directory path is not valid UTF-8"),
+        })
+    }
+}
+
+impl Drop for TempOutDir {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.path);
+    }
+}
+
+/// Like [`check_with`], but for compilers that must be pointed at a writable
+/// output directory. See [`TempOutDir`] for why that can't just be `check_with`
+/// with an extra flag baked into `build_args`.
+fn check_with_output(
+    tool: &'static str,
+    probe_arg: &str,
+    code: &str,
+    ext: &str,
+    build_args: impl Fn(&str, &str) -> Vec<String>,
+    stream: Stream,
+    max_lines: usize,
+) -> ToolOutcome {
+    if !tool_present(tool, probe_arg) {
+        return ToolOutcome::Missing { tool };
+    }
+
+    let source = match TempSource::new(tool, code, ext) {
+        Ok(source) => source,
+        Err(outcome) => return outcome,
+    };
+    let source_path = match source.arg(tool) {
+        Ok(path) => path,
+        Err(outcome) => return outcome,
+    };
+
+    let out_dir = match TempOutDir::new(tool) {
+        Ok(dir) => dir,
+        Err(outcome) => return outcome,
+    };
+    let out_path = match out_dir.arg(tool) {
+        Ok(path) => path,
+        Err(outcome) => return outcome,
+    };
+
+    let args = build_args(source_path, out_path);
+    let args: Vec<&str> = args.iter().map(String::as_str).collect();
+
+    match run_tool(tool, &args, stream, max_lines) {
+        Ok(errors) => ToolOutcome::Ran { tool, errors },
+        Err(outcome) => outcome,
+    }
 }
 
 /// Run `poly` against a generated file.
@@ -940,6 +1070,213 @@ fn validate_ruby_tools(code: &str) -> Vec<ToolOutcome> {
 /// without needing a PHP runtime installed.
 fn validate_php_tools(code: &str) -> Vec<ToolOutcome> {
     vec![poly_check(code, ".php")]
+}
+
+/// Paths to the hand-written JSR-305 `@Nonnull`/`@Nullable` stub sources
+/// `javac` needs to resolve `java-jdbc`'s nullability annotations. See
+/// `tests/java_stubs/javax/annotation/Nonnull.java` for why these are
+/// hand-written stand-ins rather than the real `com.google.code.findbugs:
+/// jsr305` jar -- same reasoning as [`js_mode_driver_stub_path`], one
+/// directory over.
+fn java_annotation_stub_paths() -> Result<(String, String), ToolOutcome> {
+    const TOOL: &str = "javac";
+    let dir = std::path::Path::new(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/tests/java_stubs/javax/annotation"
+    ));
+    let nonnull = dir.join("Nonnull.java");
+    let nullable = dir.join("Nullable.java");
+    match (nonnull.to_str(), nullable.to_str()) {
+        (Some(a), Some(b)) => Ok((a.to_string(), b.to_string())),
+        _ => Err(ToolOutcome::Failed {
+            tool: TOOL,
+            reason: format!("{TOOL}: stub annotation path is not valid UTF-8"),
+        }),
+    }
+}
+
+/// A `java-jdbc` source file, written to `<unique dir>/Queries.java`.
+///
+/// `javac` rejects a `public class Queries { ... }` unless the file it lives
+/// in is literally named `Queries.java` -- and `java-jdbc`'s `file_header`
+/// (`src/backends/java_jdbc.rs`) always wraps its output in exactly that
+/// class, for every engine. The generic [`TempSource`]/`write_temp` naming
+/// (`scythe_validate_<n>.java`) would therefore always fail to compile
+/// regardless of what the generated code itself says, so this exists
+/// alongside it rather than reusing it. A unique per-call directory, not a
+/// fixed name in the shared system temp dir, is what keeps this collision-
+/// safe under parallel `cargo test` execution.
+struct JavaSource {
+    dir: std::path::PathBuf,
+}
+
+impl JavaSource {
+    fn new(code: &str) -> Result<Self, ToolOutcome> {
+        const TOOL: &str = "javac";
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        let dir = std::env::temp_dir().join(format!("scythe_validate_java_{n}"));
+        std::fs::create_dir_all(&dir).map_err(|error| ToolOutcome::Failed {
+            tool: TOOL,
+            reason: format!("{TOOL}: could not create source directory: {error}"),
+        })?;
+        let trimmed = format!("{}\n", code.trim_end());
+        std::fs::write(dir.join("Queries.java"), trimmed).map_err(|error| ToolOutcome::Failed {
+            tool: TOOL,
+            reason: format!("{TOOL}: could not write Queries.java: {error}"),
+        })?;
+        Ok(Self { dir })
+    }
+
+    fn source_arg(&self) -> Result<String, ToolOutcome> {
+        self.dir
+            .join("Queries.java")
+            .to_str()
+            .map(str::to_string)
+            .ok_or_else(|| ToolOutcome::Failed {
+                tool: "javac",
+                reason: "javac: temporary source path is not valid UTF-8".to_string(),
+            })
+    }
+}
+
+impl Drop for JavaSource {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
+}
+
+/// Validate generated `java-jdbc` code against the real `javac` compiler.
+///
+/// Only `java-jdbc`, not `java-r2dbc` -- see the comment on that match arm in
+/// [`validate_with_tools`] for why the latter is out of reach for a
+/// lightweight checker. `java-jdbc` itself needs nothing beyond the JDK
+/// standard library plus the two-annotation JSR-305 stub from
+/// [`java_annotation_stub_paths`], so this compiles real generated code with
+/// no network access and no extra classpath setup.
+fn validate_java_tools(code: &str) -> Vec<ToolOutcome> {
+    const TOOL: &str = "javac";
+
+    if !tool_present(TOOL, "-version") {
+        return vec![ToolOutcome::Missing { tool: TOOL }];
+    }
+
+    let source = match JavaSource::new(code) {
+        Ok(source) => source,
+        Err(outcome) => return vec![outcome],
+    };
+    let source_arg = match source.source_arg() {
+        Ok(path) => path,
+        Err(outcome) => return vec![outcome],
+    };
+    let (nonnull, nullable) = match java_annotation_stub_paths() {
+        Ok(paths) => paths,
+        Err(outcome) => return vec![outcome],
+    };
+    let out_dir = match TempOutDir::new(TOOL) {
+        Ok(dir) => dir,
+        Err(outcome) => return vec![outcome],
+    };
+    let out_arg = match out_dir.arg(TOOL) {
+        Ok(path) => path,
+        Err(outcome) => return vec![outcome],
+    };
+
+    let args = ["-d", out_arg, "-nowarn", &source_arg, &nonnull, &nullable];
+    vec![match run_tool(TOOL, &args, Stream::Both, 10) {
+        Ok(errors) => ToolOutcome::Ran { tool: TOOL, errors },
+        Err(outcome) => outcome,
+    }]
+}
+
+/// Validate generated `kotlin-jdbc` code against the real `kotlinc` compiler.
+///
+/// Only `kotlin-jdbc`, not `kotlin-exposed` or `kotlin-r2dbc` -- see the
+/// comment on that match arm in [`validate_with_tools`] for why those two
+/// need frameworks this checker cannot cheaply stand up. `kotlin-jdbc`
+/// touches only `java.sql`/`java.math`/`java.time`, all part of the JDK
+/// `kotlinc` already resolves against, so unlike those two this needs no
+/// extra classpath at all -- and unlike `java-jdbc`, Kotlin does not require
+/// the source file name to match a public class name, so this can reuse the
+/// generic [`check_with_output`] instead of [`JavaSource`]'s bespoke naming.
+fn validate_kotlin_tools(code: &str) -> Vec<ToolOutcome> {
+    vec![check_with_output(
+        "kotlinc",
+        "-version",
+        code,
+        ".kt",
+        |source, out| ["-d", out, source].iter().map(|arg| (*arg).to_string()).collect(),
+        Stream::Both,
+        10,
+    )]
+}
+
+/// Paths to the hand-written stub structs `elixirc` needs to resolve the two
+/// `elixir-*` backends that construct or pattern-match on an external
+/// driver's struct (`elixir-myxql`'s `%MyXQL.Result{...}`, `elixir-tds`'s
+/// `%Tds.Parameter{...}`). See `tests/elixir_stubs/myxql_result.ex` for why
+/// these two specifically need a stub when the other four `elixir-*`
+/// backends need none at all.
+fn elixir_stub_paths() -> Result<(String, String), ToolOutcome> {
+    const TOOL: &str = "elixirc";
+    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/elixir_stubs"));
+    let myxql = dir.join("myxql_result.ex");
+    let tds = dir.join("tds_parameter.ex");
+    match (myxql.to_str(), tds.to_str()) {
+        (Some(a), Some(b)) => Ok((a.to_string(), b.to_string())),
+        _ => Err(ToolOutcome::Failed {
+            tool: TOOL,
+            reason: format!("{TOOL}: stub struct path is not valid UTF-8"),
+        }),
+    }
+}
+
+/// Validate generated `elixir-*` code against the real `elixirc` compiler.
+///
+/// Covers every `elixir-*` backend (`elixir-postgrex`, `-ecto`, `-myxql`,
+/// `-exqlite`, `-tds`, `-jamdb`). Almost none of them need a stub, which is
+/// not laziness -- it is a real asymmetry with Java/Kotlin/C#/Rust. Elixir
+/// does not resolve a remote *function* call at compile time:
+/// `Postgrex.query/3` when `Postgrex` itself was never compiled is a
+/// *warning* ("module is not available or is yet to be defined"), not an
+/// error, and `elixirc` still exits `0`. `run_tool` only turns a checker's
+/// output into findings when the process itself failed
+/// (`output.status.success()` short-circuits otherwise), so these expected
+/// warnings about undefined driver modules are silently and correctly
+/// ignored -- while a genuine syntax error (verified against `elixirc`
+/// directly: a real `MismatchedDelimiterError` exits `1`) still surfaces
+/// normally.
+///
+/// A struct reference is the one place that asymmetry does not hold: `%Mod{
+/// ...}` -- construction or pattern match -- expands `Mod.__struct__/1` (or,
+/// under this Elixir's set-theoretic type checker, statically checks the
+/// pattern) at compile time, and both fail hard when `Mod` was never
+/// compiled. Verified directly against `elixirc`, not assumed: `elixir-myxql`
+/// and `elixir-tds` are the only two backends that reference an external
+/// struct at all (`%MyXQL.Result{...}`, `%Tds.Parameter{...}`), so
+/// [`elixir_stub_paths`] supplies both unconditionally -- an unused stub
+/// module compiles to a harmless, un-invoked `.beam` file for the other four
+/// backends.
+fn validate_elixir_tools(code: &str) -> Vec<ToolOutcome> {
+    let (myxql_stub, tds_stub) = match elixir_stub_paths() {
+        Ok(paths) => paths,
+        Err(outcome) => return vec![outcome],
+    };
+    vec![check_with_output(
+        "elixirc",
+        "--version",
+        code,
+        ".ex",
+        move |source, out| {
+            ["-o", out, source, &myxql_stub, &tds_stub]
+                .iter()
+                .map(|arg| (*arg).to_string())
+                .collect()
+        },
+        Stream::Both,
+        8,
+    )]
 }
 
 #[cfg(test)]
@@ -1153,10 +1490,12 @@ function listUsers($pdo): array {
 
     /// A language with no validator must not masquerade as a clean pass
     /// either -- `_ => None` previously made Java, C#, Elixir and Rust
-    /// unconditionally green.
+    /// unconditionally green. `java-jdbc`, `kotlin-jdbc` and every `elixir-*`
+    /// backend have real validators now (see `validate_with_tools`); `csharp-*`
+    /// is still in the gap this guards, so it is what this test exercises.
     #[test]
     fn a_backend_with_no_validator_is_unsupported_not_clean() {
-        let validation = validate_with_tools("public class Foo {}", "java-jdbc");
+        let validation = validate_with_tools("public class Foo {}", "csharp-npgsql");
 
         assert_eq!(validation, ToolValidation::Unsupported);
         assert!(validation.errors().is_empty());

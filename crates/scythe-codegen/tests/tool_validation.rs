@@ -2,7 +2,7 @@
 //! All tools are expected to be installed.
 
 use scythe_codegen::provenance;
-use scythe_codegen::validation::{ToolValidation, validate_structural, validate_with_tools};
+use scythe_codegen::validation::{ToolValidation, strict_mode_enabled, validate_structural, validate_with_tools};
 use scythe_codegen::{CodegenBackend, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
 use scythe_core::catalog::Catalog;
@@ -286,6 +286,39 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
     )
 }
 
+/// Guard against a validator that is wired up but checks nothing.
+///
+/// `validate_with_tools` returning `Attempted(vec![])` -- a match arm that
+/// builds an empty outcome list, e.g. a future backend added to an existing
+/// prefix match without adding its own checker call -- reports zero errors
+/// and zero missing tools. `into_result`, even in strict mode, therefore
+/// treats it exactly like a `Ran` outcome that found nothing: a clean pass.
+/// That is the same "ran vs. never ran" confusion `ToolValidation` exists to
+/// prevent in the first place (see `fully_checked`'s own doc comment),
+/// reached through a different bug -- and it is the reason `fully_checked`
+/// needs a caller here rather than staying something only its own unit tests
+/// exercise.
+///
+/// Gated on strict mode, same as `into_result`'s missing-tool handling:
+/// outside strict mode a validator that only ran a subset of its checkers
+/// (because one is not installed) is expected, so `fully_checked` legitimately
+/// returns `false` on every laptop that doesn't have every tool. `Unsupported`
+/// is exempt for the same reason `into_result_with_strictness` exempts it --
+/// tracked by the inventory test below instead of failing here with no fix
+/// available.
+fn assert_tool_validation_is_not_vacuous(validation: &ToolValidation, backend: &str, code: &str) {
+    if !strict_mode_enabled() {
+        return;
+    }
+    let unsupported = matches!(validation, ToolValidation::Unsupported);
+    assert!(
+        unsupported || validation.fully_checked(),
+        "{backend} tool validation ran but `fully_checked()` reports nothing actually checked \
+         the code -- a validator that dispatches to zero checkers passes vacuously.\n\n\
+         Generated code:\n{code}"
+    );
+}
+
 macro_rules! backend_test {
     ($name:ident, $backend:expr) => {
         #[test]
@@ -307,7 +340,9 @@ macro_rules! backend_test {
                 structural_errors
             );
 
-            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+            let validation = validate_with_tools(&code, $backend);
+            assert_tool_validation_is_not_vacuous(&validation, $backend, &code);
+            if let Err(tool_errors) = validation.into_result() {
                 panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
                     $backend, tool_errors, code
@@ -340,7 +375,9 @@ macro_rules! backend_test_with_options {
                 structural_errors
             );
 
-            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+            let validation = validate_with_tools(&code, $backend);
+            assert_tool_validation_is_not_vacuous(&validation, $backend, &code);
+            if let Err(tool_errors) = validation.into_result() {
                 panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
                     $backend, tool_errors, code
@@ -371,7 +408,9 @@ macro_rules! mysql_backend_test {
                 structural_errors
             );
 
-            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+            let validation = validate_with_tools(&code, $backend);
+            assert_tool_validation_is_not_vacuous(&validation, $backend, &code);
+            if let Err(tool_errors) = validation.into_result() {
                 panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
                     $backend, tool_errors, code
@@ -407,7 +446,9 @@ macro_rules! duckdb_backend_test {
                 structural_errors
             );
 
-            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+            let validation = validate_with_tools(&code, $backend);
+            assert_tool_validation_is_not_vacuous(&validation, $backend, &code);
+            if let Err(tool_errors) = validation.into_result() {
                 panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
                     $backend, tool_errors, code
@@ -438,7 +479,9 @@ macro_rules! sqlite_backend_test {
                 structural_errors
             );
 
-            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+            let validation = validate_with_tools(&code, $backend);
+            assert_tool_validation_is_not_vacuous(&validation, $backend, &code);
+            if let Err(tool_errors) = validation.into_result() {
                 panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
                     $backend, tool_errors, code
@@ -469,7 +512,9 @@ macro_rules! mssql_backend_test {
                 structural_errors
             );
 
-            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+            let validation = validate_with_tools(&code, $backend);
+            assert_tool_validation_is_not_vacuous(&validation, $backend, &code);
+            if let Err(tool_errors) = validation.into_result() {
                 panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
                     $backend, tool_errors, code
@@ -500,7 +545,9 @@ macro_rules! oracle_backend_test {
                 structural_errors
             );
 
-            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+            let validation = validate_with_tools(&code, $backend);
+            assert_tool_validation_is_not_vacuous(&validation, $backend, &code);
+            if let Err(tool_errors) = validation.into_result() {
                 panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
                     $backend, tool_errors, code
@@ -531,7 +578,9 @@ macro_rules! snowflake_backend_test {
                 structural_errors
             );
 
-            if let Err(tool_errors) = validate_with_tools(&code, $backend).into_result() {
+            let validation = validate_with_tools(&code, $backend);
+            assert_tool_validation_is_not_vacuous(&validation, $backend, &code);
+            if let Err(tool_errors) = validation.into_result() {
                 panic!(
                     "{} tool validation: {:?}\n\nGenerated code:\n{}",
                     $backend, tool_errors, code
@@ -1108,29 +1157,45 @@ fn test_kotlin_r2dbc_extension_functions_default_off() {
 #[test]
 fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
     const NO_TOOL_VALIDATOR: &[&str] = &[
-        "java-jdbc",
+        // `java-r2dbc` needs `io.r2dbc.spi` (`ConnectionFactory`/`Row`/
+        // `RowMetadata`) plus Reactor's `Mono`/`Flux` chained through
+        // `.usingWhen`/`.flatMap`/`.then`/`.onErrorResume`/`.doFinally` --
+        // unlike `java-jdbc`'s two-interface JSR-305 stub, faithfully
+        // stubbing that means reproducing real Reactor generic inference.
         "java-r2dbc",
+        // C#: every backend here references a NuGet-only driver (Npgsql,
+        // MySqlConnector, Microsoft.Data.Sqlite, Microsoft.Data.SqlClient,
+        // Oracle.ManagedDataAccess.Core, Snowflake.Data.Client). `using
+        // Npgsql;` with no compiled `Npgsql.dll` on the reference path is a
+        // hard `CS0246` -- unlike Elixir's soft "module not available"
+        // warning below -- so there is no stub-free path through `dotnet
+        // build`/`csc`, and six distinct driver APIs is too much surface to
+        // hand-stub credibly.
         "csharp-npgsql",
         "csharp-mysqlconnector",
         "csharp-microsoft-sqlite",
         "csharp-sqlclient",
         "csharp-oracle",
         "csharp-snowflake",
-        "elixir-postgrex",
-        "elixir-ecto",
-        "elixir-myxql",
-        "elixir-exqlite",
-        "elixir-tds",
-        "elixir-jamdb",
+        // Rust: `rust-sqlx` expands `sqlx::query_as!`/`sqlx::query!` at
+        // compile time, needing either a live database or an `SQLX_OFFLINE`
+        // `.sqlx` query cache. `rust-tokio-postgres`/`rust-tiberius`/
+        // `rust-sibyl` reference their driver crates by fully-qualified path
+        // with no `use` to stub around, so resolving them needs `--extern`
+        // pointing at real compiled `.rlib`s -- a full Cargo dependency graph
+        // per backend. All four are still syntax-checked by `syn::parse_file`
+        // elsewhere (`crates/scythe-cli/tests/compile_check.rs` and the
+        // generated test suite).
         "rust-sqlx",
         "rust-tokio-postgres",
         "rust-tiberius",
         "rust-sibyl",
-        // Kotlin joined this set when the tool validation moved onto `poly`:
-        // poly delegates Kotlin to `ktlint` rather than bundling it, and a JVM
-        // plus a downloaded jar in CI is out of proportion to what linting
-        // generated Kotlin catches. `validate_structural` still covers it.
-        "kotlin-jdbc",
+        // `kotlin-exposed` needs the Exposed DSL framework; `kotlin-r2dbc`
+        // needs `kotlinx.coroutines.flow.Flow` plus the same R2DBC SPI
+        // surface `java-r2dbc` cannot cheaply stub above. `kotlin-jdbc`
+        // itself has a real `kotlinc` validator now -- see
+        // `validate_kotlin_tools` -- because it touches nothing but
+        // `java.sql`/`java.math`/`java.time`.
         "kotlin-r2dbc",
         "kotlin-exposed",
     ];
@@ -1151,6 +1216,14 @@ fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
         "go-pgx",
         "ruby-pg",
         "php-pdo",
+        "java-jdbc",
+        "kotlin-jdbc",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "elixir-myxql",
+        "elixir-exqlite",
+        "elixir-tds",
+        "elixir-jamdb",
     ];
 
     for backend in HAS_TOOL_VALIDATOR {
