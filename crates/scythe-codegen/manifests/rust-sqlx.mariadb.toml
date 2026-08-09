@@ -35,6 +35,7 @@ struct_case = "PascalCase"
 fn_case = "snake_case"
 enum_variant_case = "PascalCase"
 row_suffix = "Row"
+reserved = ["as", "async", "await", "break", "const", "continue", "crate", "dyn", "else", "enum", "extern", "false", "fn", "for", "if", "impl", "in", "let", "loop", "match", "mod", "move", "mut", "pub", "ref", "return", "self", "static", "struct", "super", "trait", "true", "type", "unsafe", "use", "where", "while", "abstract", "become", "box", "do", "final", "macro", "override", "priv", "try", "typeof", "unsized", "virtual", "yield"]
 
 [imports.rules]
 "chrono::" = "use chrono;"

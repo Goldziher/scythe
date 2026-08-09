@@ -102,7 +102,11 @@ impl CodegenBackend for RubyMysql2Backend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::escape_ruby_double_quoted(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -243,7 +247,11 @@ impl CodegenBackend for RubyMysql2Backend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::escape_ruby_double_quoted(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         let param_list = params
             .iter()

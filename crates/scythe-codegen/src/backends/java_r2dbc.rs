@@ -225,10 +225,10 @@ impl CodegenBackend for JavaR2dbcBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = pg_to_r2dbc_params(
+        let sql = crate::sql_literal::escape_java_string(&pg_to_r2dbc_params(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             self.is_pg,
-        );
+        ));
 
         let param_list = params.iter().map(java_annotated_param).collect::<Vec<_>>().join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
@@ -541,10 +541,10 @@ impl CodegenBackend for JavaR2dbcBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = pg_to_r2dbc_params(
+        let sql = crate::sql_literal::escape_java_string(&pg_to_r2dbc_params(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             self.is_pg,
-        );
+        ));
 
         let param_list = params.iter().map(java_annotated_param).collect::<Vec<_>>().join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };

@@ -151,7 +151,11 @@ impl CodegenBackend for PythonAsyncpgBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::escape_python_triple_double(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
@@ -357,7 +361,11 @@ impl CodegenBackend for PythonAsyncpgBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::escape_python_triple_double(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         let _ = writeln!(
             out,

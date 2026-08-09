@@ -35,5 +35,6 @@ struct_case = "PascalCase"
 fn_case = "camelCase"
 enum_variant_case = "SCREAMING_SNAKE_CASE"
 row_suffix = "Row"
+reserved = ["as", "break", "class", "continue", "do", "else", "false", "for", "fun", "if", "in", "interface", "is", "null", "object", "package", "return", "super", "this", "throw", "true", "try", "typealias", "typeof", "val", "var", "when", "while"]
 
 [imports.rules]

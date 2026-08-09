@@ -109,7 +109,11 @@ impl CodegenBackend for GoPgxBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::escape_go_interpreted_string(&super::clean_sql_oneline_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         let param_list = params
             .iter()
@@ -327,7 +331,11 @@ impl CodegenBackend for GoPgxBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::escape_go_interpreted_string(&super::clean_sql_oneline_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         let param_list = params
             .iter()

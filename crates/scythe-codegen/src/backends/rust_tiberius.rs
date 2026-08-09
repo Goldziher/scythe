@@ -229,10 +229,10 @@ impl CodegenBackend for RustTiberiusBackend {
             let _ = writeln!(out, "#[deprecated(note = \"{}\")]", msg);
         }
 
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::rust_raw_string_literal(&super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
-        );
+        ));
 
         let mut param_parts: Vec<String> =
             vec!["client: &mut tiberius::Client<tokio_util::compat::Compat<tokio::net::TcpStream>>".to_string()];
@@ -263,7 +263,7 @@ impl CodegenBackend for RustTiberiusBackend {
                     .collect();
                 let _ = writeln!(
                     out,
-                    "        client.execute(r#\"{}\"#, &[{}]).await?;",
+                    "        client.execute({}, &[{}]).await?;",
                     sql,
                     bind_args.join(", ")
                 );
@@ -276,7 +276,7 @@ impl CodegenBackend for RustTiberiusBackend {
                     batch_fn_name, params[0].full_type
                 );
                 let _ = writeln!(out, "    for item in items {{");
-                let _ = writeln!(out, "        client.execute(r#\"{}\"#, &[item]).await?;", sql);
+                let _ = writeln!(out, "        client.execute({}, &[item]).await?;", sql);
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "    Ok(())");
             } else {
@@ -286,7 +286,7 @@ impl CodegenBackend for RustTiberiusBackend {
                     batch_fn_name
                 );
                 let _ = writeln!(out, "    for _ in 0..count {{");
-                let _ = writeln!(out, "        client.execute(r#\"{}\"#, &[]).await?;", sql);
+                let _ = writeln!(out, "        client.execute({}, &[]).await?;", sql);
                 let _ = writeln!(out, "    }}");
                 let _ = writeln!(out, "    Ok(())");
             }
@@ -338,11 +338,7 @@ impl CodegenBackend for RustTiberiusBackend {
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
-                let _ = writeln!(
-                    out,
-                    "    let stream = client.query(r#\"{}\"#, {}).await?;",
-                    sql, param_slice
-                );
+                let _ = writeln!(out, "    let stream = client.query({}, {}).await?;", sql, param_slice);
                 let _ = writeln!(
                     out,
                     "    let row = stream.into_row().await?.expect(\"expected one row\");"
@@ -350,24 +346,16 @@ impl CodegenBackend for RustTiberiusBackend {
                 let _ = writeln!(out, "    Ok({}::from_row(&row)?)", struct_name);
             }
             QueryCommand::Many => {
-                let _ = writeln!(
-                    out,
-                    "    let stream = client.query(r#\"{}\"#, {}).await?;",
-                    sql, param_slice
-                );
+                let _ = writeln!(out, "    let stream = client.query({}, {}).await?;", sql, param_slice);
                 let _ = writeln!(out, "    let rows = stream.into_first_result().await?;");
                 let _ = writeln!(out, "    rows.iter().map({}::from_row).collect()", struct_name);
             }
             QueryCommand::Exec => {
-                let _ = writeln!(out, "    client.execute(r#\"{}\"#, {}).await?;", sql, param_slice);
+                let _ = writeln!(out, "    client.execute({}, {}).await?;", sql, param_slice);
                 let _ = writeln!(out, "    Ok(())");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(
-                    out,
-                    "    let result = client.execute(r#\"{}\"#, {}).await?;",
-                    sql, param_slice
-                );
+                let _ = writeln!(out, "    let result = client.execute({}, {}).await?;", sql, param_slice);
                 let _ = writeln!(out, "    Ok(result.total())");
             }
             QueryCommand::Batch => unreachable!(),
@@ -496,10 +484,10 @@ impl CodegenBackend for RustTiberiusBackend {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
 
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::rust_raw_string_literal(&super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
-        );
+        ));
 
         let param_slice: String = if params.is_empty() {
             "&[]".to_string()
@@ -538,11 +526,7 @@ impl CodegenBackend for RustTiberiusBackend {
             parent_struct_name
         );
 
-        let _ = writeln!(
-            out,
-            "    let stream = client.query(r#\"{}\"#, {}).await?;",
-            sql, param_slice
-        );
+        let _ = writeln!(out, "    let stream = client.query({}, {}).await?;", sql, param_slice);
         let _ = writeln!(out, "    let rows = stream.into_first_result().await?;");
         let _ = writeln!(out, "    let mut result: Vec<{}> = Vec::new();", parent_struct_name);
         let _ = writeln!(out, "    for row in &rows {{");

@@ -146,6 +146,44 @@ pub fn escape_ts_double_quoted_literal(sql: &str) -> String {
     sql.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
+/// Render `name` as a TypeScript/JavaScript object or interface property
+/// key, quoting it when it is not a valid bare identifier.
+///
+/// `interface Foo { class: string }` is legal TS -- reserved words are fine
+/// unquoted as property keys, only *identifier shape* matters. A column
+/// named `with-dash`, `my col`, or `1st` is not a valid identifier, so
+/// emitting it bare (`with-dash: string;`) produces `TS1131`/`TS1351`
+/// (#215); quoting it (`"with-dash": string;`) is valid in every property-key
+/// position TypeScript has: interface members, type literal members, and
+/// object literals.
+///
+/// `__proto__` is deliberately *not* special-cased here: quoted or bare, an
+/// object literal key spelled exactly `__proto__` sets the prototype instead
+/// of defining an own property. That is a separate bug from #215's
+/// "not a valid identifier" class and is not something this function's
+/// contract (produce a syntactically valid property key) can fix by itself.
+pub fn ts_property_key(name: &str) -> String {
+    if is_ts_identifier(name) {
+        name.to_string()
+    } else {
+        format!("\"{}\"", escape_ts_double_quoted_literal(name))
+    }
+}
+
+/// Whether `name` is a valid TypeScript/JavaScript identifier: starts with
+/// a letter, `_`, or `$`, followed by letters, digits, `_`, or `$`. (Unicode
+/// identifier characters beyond ASCII are conservatively treated as
+/// requiring quoting -- rare in SQL column names, and quoting is always
+/// syntactically valid even when it was not strictly necessary.)
+fn is_ts_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' || c == '$' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
+}
+
 /// Map a neutral type to its Zod v4 schema expression.
 /// Note: This does not handle enums - use column_to_zod for full column handling.
 pub fn neutral_to_zod(neutral_type: &str, nullable: bool) -> String {
@@ -196,7 +234,7 @@ pub fn generate_ts_interface_row_struct_with_base(
         }
     }
     for col in columns {
-        let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
+        let _ = writeln!(out, "\t{}: {};", ts_property_key(&col.field_name), col.full_type);
     }
     let _ = write!(out, "}}");
     out
@@ -286,7 +324,7 @@ pub fn generate_ts_union_row_struct(
         .iter()
         .filter(|c| c.join_group.as_ref().is_none_or(|group| !groups.contains(group)))
     {
-        let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
+        let _ = writeln!(out, "\t{}: {};", ts_property_key(&col.field_name), col.full_type);
     }
     let _ = write!(out, "}}");
 
@@ -310,7 +348,7 @@ pub fn generate_ts_union_row_struct(
             } else {
                 col.lang_type.as_str()
             };
-            let _ = write!(out, "{}: {}", col.field_name, matched_type);
+            let _ = write!(out, "{}: {}", ts_property_key(&col.field_name), matched_type);
         }
         let _ = writeln!(out, " }}");
 
@@ -321,7 +359,7 @@ pub fn generate_ts_union_row_struct(
             if index > 0 {
                 let _ = write!(out, "; ");
             }
-            let _ = write!(out, "{}: null", col.field_name);
+            let _ = write!(out, "{}: null", ts_property_key(&col.field_name));
         }
         let _ = writeln!(out, " }}");
 
@@ -341,7 +379,7 @@ pub fn generate_zod_row_struct(struct_name: &str, query_name: &str, columns: &[R
     let _ = writeln!(out, "export const {} = z.object({{", schema_name);
     for col in columns {
         let zod_type = column_to_zod(col);
-        let _ = writeln!(out, "\t{}: {},", col.field_name, zod_type);
+        let _ = writeln!(out, "\t{}: {},", ts_property_key(&col.field_name), zod_type);
     }
     let _ = writeln!(out, "}});");
     let _ = writeln!(out);
@@ -422,7 +460,7 @@ pub fn generate_zod_union_row_struct(struct_name: &str, query_name: &str, column
         .filter(|c| c.join_group.as_ref().is_none_or(|group| !groups.contains(group)))
     {
         let zod_type = column_to_zod(col);
-        let _ = writeln!(out, "\t{}: {},", col.field_name, zod_type);
+        let _ = writeln!(out, "\t{}: {},", ts_property_key(&col.field_name), zod_type);
     }
     let _ = write!(out, "}})");
 
@@ -439,7 +477,7 @@ pub fn generate_zod_union_row_struct(struct_name: &str, query_name: &str, column
             .map(|col| {
                 format!(
                     "{}: {}",
-                    col.field_name,
+                    ts_property_key(&col.field_name),
                     column_to_zod_with_nullable(col, col.nullable_before_join)
                 )
             })
@@ -448,7 +486,7 @@ pub fn generate_zod_union_row_struct(struct_name: &str, query_name: &str, column
         // null together.
         let unmatched_fields: Vec<String> = members
             .iter()
-            .map(|col| format!("{}: z.null()", col.field_name))
+            .map(|col| format!("{}: z.null()", ts_property_key(&col.field_name)))
             .collect();
 
         let _ = write!(
@@ -478,14 +516,14 @@ pub fn generate_grouped_interface_structs(
     let _ = writeln!(out, "/** Child row type for grouped query. */");
     let _ = writeln!(out, "export interface {child_struct_name} {{");
     for col in child_columns {
-        let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
+        let _ = writeln!(out, "\t{}: {};", ts_property_key(&col.field_name), col.full_type);
     }
     let _ = writeln!(out, "}}");
     let _ = writeln!(out);
     let _ = writeln!(out, "/** Parent row type for grouped query. */");
     let _ = writeln!(out, "export interface {parent_struct_name} {{");
     for col in parent_columns {
-        let _ = writeln!(out, "\t{}: {};", col.field_name, col.full_type);
+        let _ = writeln!(out, "\t{}: {};", ts_property_key(&col.field_name), col.full_type);
     }
     let _ = writeln!(out, "\tchildren: {child_struct_name}[];");
     let _ = write!(out, "}}");
@@ -509,7 +547,7 @@ pub fn generate_zod_grouped_structs(
     let _ = writeln!(out, "export const {child_schema} = z.object({{");
     for col in child_columns {
         let zod = column_to_zod(col);
-        let _ = writeln!(out, "\t{}: {},", col.field_name, zod);
+        let _ = writeln!(out, "\t{}: {},", ts_property_key(&col.field_name), zod);
     }
     let _ = writeln!(out, "}});");
     let _ = writeln!(out);
@@ -519,7 +557,7 @@ pub fn generate_zod_grouped_structs(
     let _ = writeln!(out, "export const {parent_schema} = z.object({{");
     for col in parent_columns {
         let zod = column_to_zod(col);
-        let _ = writeln!(out, "\t{}: {},", col.field_name, zod);
+        let _ = writeln!(out, "\t{}: {},", ts_property_key(&col.field_name), zod);
     }
     let _ = writeln!(out, "\tchildren: z.array({child_schema}),");
     let _ = writeln!(out, "}});");
@@ -560,7 +598,7 @@ pub fn generate_ts_row_object_literal(
         let _ = writeln!(
             out,
             "{indent}{}: {},",
-            col.field_name,
+            ts_property_key(&col.field_name),
             row_access(&col.name, shape.cast_type(col))
         );
     }
@@ -847,6 +885,32 @@ pub fn generate_zod_enum(type_name: &str, values: &[String]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Regression coverage for #215: a column name that is not a valid TS
+    /// identifier must be quoted, not spliced bare into a property-key
+    /// position.
+    #[test]
+    fn ts_property_key_quotes_non_identifier_names() {
+        assert_eq!(ts_property_key("with-dash"), "\"with-dash\"");
+        assert_eq!(ts_property_key("my col"), "\"my col\"");
+        assert_eq!(ts_property_key("1st"), "\"1st\"");
+    }
+
+    /// A reserved word is a valid TS property key unquoted -- #215 is about
+    /// identifier *shape*, not keyword-ness (unlike #180/#151's field-name
+    /// mangling, which is the opposite: keyword-ness, not shape).
+    #[test]
+    fn ts_property_key_leaves_valid_identifiers_and_keywords_bare() {
+        assert_eq!(ts_property_key("user_id"), "user_id");
+        assert_eq!(ts_property_key("class"), "class");
+        assert_eq!(ts_property_key("_private"), "_private");
+        assert_eq!(ts_property_key("$special"), "$special");
+    }
+
+    #[test]
+    fn ts_property_key_escapes_a_quote_inside_the_name() {
+        assert_eq!(ts_property_key("weird\"name"), "\"weird\\\"name\"");
+    }
 
     fn column(
         name: &str,

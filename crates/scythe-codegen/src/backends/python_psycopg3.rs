@@ -209,9 +209,9 @@ impl CodegenBackend for PythonPsycopg3Backend {
             .iter()
             .map(|p| (p.position as u32, to_snake_case(&p.name).into_owned()))
             .collect();
-        let sql = super::rewrite_pg_placeholders(&sql_clean, |n| {
+        let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&sql_clean, |n| {
             format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))
-        });
+        }));
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
@@ -541,9 +541,9 @@ impl CodegenBackend for PythonPsycopg3Backend {
             .iter()
             .map(|p| (p.position as u32, to_snake_case(&p.name).into_owned()))
             .collect();
-        let sql = super::rewrite_pg_placeholders(&sql_clean, |n| {
+        let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&sql_clean, |n| {
             format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))
-        });
+        }));
 
         let sig =
             format!("async def {func_name}(conn: AsyncConnection{kw_sep}{param_list}) -> list[{parent_struct_name}]:");

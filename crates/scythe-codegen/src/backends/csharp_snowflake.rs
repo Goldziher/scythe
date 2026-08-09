@@ -133,10 +133,10 @@ impl CodegenBackend for CsharpSnowflakeBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_csharp_verbatim_string(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
-        );
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -187,7 +187,7 @@ impl CodegenBackend for CsharpSnowflakeBackend {
                 let _ = writeln!(out, "        foreach (var item in items) {{");
             }
             let _ = writeln!(out, "            await using var cmd = new SnowflakeDbCommand(conn);");
-            let _ = writeln!(out, "            cmd.CommandText = \"{}\";", sql);
+            let _ = writeln!(out, "            cmd.CommandText = @\"{}\";", sql);
             for (i, p) in params.iter().enumerate() {
                 let value_expr = if params.len() > 1 {
                     let field = to_pascal_case(&p.field_name);
@@ -239,7 +239,7 @@ impl CodegenBackend for CsharpSnowflakeBackend {
         );
 
         let _ = writeln!(out, "    await using var cmd = new SnowflakeDbCommand(conn);");
-        let _ = writeln!(out, "    cmd.CommandText = \"{}\";", sql);
+        let _ = writeln!(out, "    cmd.CommandText = @\"{}\";", sql);
         for (i, p) in params.iter().enumerate() {
             let _ = writeln!(
                 out,
@@ -341,10 +341,10 @@ impl CodegenBackend for CsharpSnowflakeBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_csharp_verbatim_string(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
-        );
+        ));
 
         let mut out = String::new();
 
@@ -367,7 +367,7 @@ impl CodegenBackend for CsharpSnowflakeBackend {
             "public static async Task<List<{parent_struct_name}>> {func_name}(SnowflakeDbConnection conn{sep}{param_list}) {{"
         );
         let _ = writeln!(out, "    await using var cmd = new SnowflakeDbCommand(conn);");
-        let _ = writeln!(out, "    cmd.CommandText = \"{sql}\";");
+        let _ = writeln!(out, "    cmd.CommandText = @\"{sql}\";");
         for (i, p) in params.iter().enumerate() {
             let _ = writeln!(
                 out,

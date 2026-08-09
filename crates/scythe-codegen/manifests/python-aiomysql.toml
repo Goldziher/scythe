@@ -36,6 +36,7 @@ struct_case = "PascalCase"
 fn_case = "snake_case"
 enum_variant_case = "SCREAMING_SNAKE_CASE"
 row_suffix = "Row"
+reserved = ["and", "as", "assert", "async", "await", "break", "class", "continue", "def", "del", "elif", "else", "except", "false", "finally", "for", "from", "global", "if", "import", "in", "is", "lambda", "none", "nonlocal", "not", "or", "pass", "raise", "return", "true", "try", "while", "with", "yield"]
 
 [imports.rules]
 "uuid." = "import uuid"

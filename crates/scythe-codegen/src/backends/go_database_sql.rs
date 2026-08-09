@@ -105,6 +105,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
         if self.engine == "mssql" {
             sql = super::rewrite_pg_placeholders(&sql, |n| format!("@p{n}"));
         }
+        let sql = crate::sql_literal::escape_go_interpreted_string(&sql);
 
         let param_list = params
             .iter()
@@ -330,6 +331,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
         if self.engine == "mssql" {
             sql = super::rewrite_pg_placeholders(&sql, |n| format!("@p{n}"));
         }
+        let sql = crate::sql_literal::escape_go_interpreted_string(&sql);
 
         let param_list = params
             .iter()

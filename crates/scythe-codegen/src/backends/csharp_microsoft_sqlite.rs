@@ -146,9 +146,11 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = rewrite_sqlite_placeholders(&super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
-            |n| format!("?{n}"),
+        let sql = crate::sql_literal::escape_csharp_verbatim_string(&rewrite_sqlite_placeholders(
+            &super::rewrite_pg_placeholders(
+                &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+                |n| format!("?{n}"),
+            ),
         ));
         let mut out = String::new();
 
@@ -198,7 +200,7 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
             }
             let _ = writeln!(
                 out,
-                "            await using var cmd = new SqliteCommand(\"{}\", conn, (SqliteTransaction)tx);",
+                "            await using var cmd = new SqliteCommand(@\"{}\", conn, (SqliteTransaction)tx);",
                 sql
             );
             for (i, p) in params.iter().enumerate() {
@@ -252,7 +254,7 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
             task_type, func_name, sep, param_list
         );
 
-        let _ = writeln!(out, "    await using var cmd = new SqliteCommand(\"{}\", conn);", sql);
+        let _ = writeln!(out, "    await using var cmd = new SqliteCommand(@\"{}\", conn);", sql);
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
                 format!("{}.ToString().ToLower()", p.field_name)
@@ -353,9 +355,11 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = rewrite_sqlite_placeholders(&super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
-            |n| format!("?{n}"),
+        let sql = crate::sql_literal::escape_csharp_verbatim_string(&rewrite_sqlite_placeholders(
+            &super::rewrite_pg_placeholders(
+                &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+                |n| format!("?{n}"),
+            ),
         ));
 
         let mut out = String::new();
@@ -378,7 +382,7 @@ impl CodegenBackend for CsharpMicrosoftSqliteBackend {
             out,
             "public static async Task<List<{parent_struct_name}>> {func_name}(SqliteConnection conn{sep}{param_list}) {{"
         );
-        let _ = writeln!(out, "    await using var cmd = new SqliteCommand(\"{sql}\", conn);");
+        let _ = writeln!(out, "    await using var cmd = new SqliteCommand(@\"{sql}\", conn);");
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
                 format!("{}.ToString().ToLower()", p.field_name)

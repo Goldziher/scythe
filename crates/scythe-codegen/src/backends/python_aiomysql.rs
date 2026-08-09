@@ -149,7 +149,9 @@ impl CodegenBackend for PythonAiomysqlBackend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         let cleaned = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql = super::rewrite_pg_placeholders(&cleaned, |_| "%s".to_string()).replace('?', "%s");
+        let sql = crate::sql_literal::escape_python_triple_double(
+            &super::rewrite_pg_placeholders(&cleaned, |_| "%s".to_string()).replace('?', "%s"),
+        );
 
         let args_tuple = if params.is_empty() {
             String::new()
@@ -382,7 +384,9 @@ impl CodegenBackend for PythonAiomysqlBackend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         let cleaned = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql = super::rewrite_pg_placeholders(&cleaned, |_| "%s".to_string()).replace('?', "%s");
+        let sql = crate::sql_literal::escape_python_triple_double(
+            &super::rewrite_pg_placeholders(&cleaned, |_| "%s".to_string()).replace('?', "%s"),
+        );
 
         let args_tuple = if params.is_empty() {
             None

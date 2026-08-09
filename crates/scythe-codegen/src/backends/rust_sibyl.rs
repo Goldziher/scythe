@@ -450,7 +450,7 @@ impl CodegenBackend for RustSibylBackend {
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
         );
-        let sql = Self::sql_with_named_params(&positional_sql, params);
+        let sql = crate::sql_literal::escape_rust_string(&Self::sql_with_named_params(&positional_sql, params));
 
         let param_list = params
             .iter()
@@ -692,7 +692,7 @@ impl CodegenBackend for RustSibylBackend {
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":{n}"),
         );
-        let sql = Self::sql_with_named_params(&positional_sql, params);
+        let sql = crate::sql_literal::escape_rust_string(&Self::sql_with_named_params(&positional_sql, params));
 
         let param_list = params
             .iter()

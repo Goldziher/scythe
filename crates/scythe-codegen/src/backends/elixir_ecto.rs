@@ -95,7 +95,11 @@ impl CodegenBackend for ElixirEctoBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::escape_elixir_double_quoted(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -390,7 +394,11 @@ impl CodegenBackend for ElixirEctoBackend {
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let key_field = to_snake_case(key_column);
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::escape_elixir_double_quoted(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
         let mut out = String::new();
 
         let param_list = params
