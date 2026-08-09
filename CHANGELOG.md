@@ -214,12 +214,13 @@ artifact. See **Changed** for the full list.
   now carries one Rust sample copied verbatim from committed generated output, and `README.md` is
   in `snippet-runner`'s reference set so CI compiles it. The feature list and the language/database
   matrix moved to the docs pages that own them.
-- **The documentation was audited against the source and corrected.** Eight claims contradicted the
+- **The documentation was audited against the source and corrected.** Seven claims contradicted the
   implementation: the unknown-option rule was described as TypeScript-only; `[lint.sqruff] enabled`
   was documented as a working toggle when nothing reads it; `[lint.sqruff.rules]` was documented as
   the opposite of the allowlist it actually builds; `--dialect` on `lint`/`fmt` was described as
-  unset; the crate table omitted `audit` and `inspect`; the `db_type` example could never match;
-  and `[sql.gen.python|typescript|go|kotlin]` were supported but undocumented. Per-language backend
+  unset; the crate table omitted `audit` and `inspect`; `scythe fmt` was described as running
+  sqruff's full default rule set, when `LT01` is excluded there too; and
+  `[sql.gen.python|typescript|go|kotlin]` were supported but undocumented. Per-language backend
   pages replace the combined Java/Kotlin page and the "Other" grab-bag, with the old URLs kept as
   stubs.
 - **`llms.txt` generation no longer destroys the code samples.** `minify.collapseCodeBlocks` was
