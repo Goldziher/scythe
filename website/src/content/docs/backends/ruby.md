@@ -1,13 +1,18 @@
 ---
 title: Ruby
-description: The ruby-pg and ruby-trilogy backends -- generated queries and type mappings.
+description: The six Ruby backends -- generated queries and type mappings.
 ---
 
-Backends: `ruby-pg`, `ruby-trilogy` | Library: [pg gem](https://github.com/ged/ruby-pg) /
-[Trilogy](https://github.com/trilogy-libraries/trilogy)
+Backends: `ruby-pg`, `ruby-trilogy`, `ruby-mysql2`, `ruby-sqlite3`, `ruby-tiny-tds`, `ruby-oci8` |
+Library: [pg gem](https://github.com/ged/ruby-pg) /
+[Trilogy](https://github.com/trilogy-libraries/trilogy) /
+[mysql2](https://github.com/brianmario/mysql2) / [sqlite3](https://github.com/sparklemotion/sqlite3-ruby)
+/ [tiny_tds](https://github.com/rails-sqlserver/tiny_tds) / [ruby-oci8](https://github.com/kubo/ruby-oci8)
 
-`ruby-pg` targets PostgreSQL through libpq bind parameters. `ruby-trilogy` targets MySQL through
-GitHub's Trilogy client, which has no bind-parameter API at all -- see [Trilogy](#trilogy) below.
+`ruby-pg` targets PostgreSQL and Redshift through libpq bind parameters. `ruby-trilogy` targets MySQL
+through GitHub's Trilogy client, which has no bind-parameter API at all -- see [Trilogy](#trilogy)
+below. `ruby-mysql2` targets MySQL and MariaDB, `ruby-sqlite3` targets SQLite, `ruby-tiny-tds` targets
+MSSQL, and `ruby-oci8` targets Oracle -- see their sections below.
 
 ## SQL input
 
@@ -140,4 +145,47 @@ end
 | `uuid` | `String` |
 | `decimal` | `BigDecimal` |
 | `json` | `Hash` |
+| `nullable` | `T` (no wrapper; Ruby is dynamically typed) |
+
+## mysql2
+
+Backend: `ruby-mysql2` | Library: [mysql2](https://github.com/brianmario/mysql2) | Engines: MySQL,
+MariaDB
+
+Everything sits inside a single `module Queries ... end`, matching `ruby-pg`
+(`integration_tests/ruby-mysql2/generated/queries.rb`). Unlike `ruby-trilogy`, `mysql2` has a real
+bind-parameter API: query functions call `client.prepare(sql)` then `stmt.execute(*args)` with
+positional `?` placeholders, not string interpolation
+(`crates/scythe-codegen/src/backends/ruby_mysql2.rs`).
+
+## sqlite3
+
+Backend: `ruby-sqlite3` | Library: [sqlite3](https://github.com/sparklemotion/sqlite3-ruby) | Engine:
+SQLite
+
+Same single-`module Queries` shape as `ruby-pg` and `ruby-mysql2`
+(`integration_tests/ruby-sqlite3/generated/queries.rb`). Query functions call `db.execute(sql, [...])`
+directly (`:many`) or `db.get_first_row(sql, [...])` (`:one`/`:opt`), with positional `?`
+placeholders (`crates/scythe-codegen/src/backends/ruby_sqlite3.rs`).
+
+## tiny_tds
+
+Backend: `ruby-tiny-tds` | Library: [tiny_tds](https://github.com/rails-sqlserver/tiny_tds) | Engine:
+MSSQL
+
+Like `ruby-trilogy`, TinyTDS has **no bind-parameter API**, so values are interpolated directly into
+the SQL string rather than passed to `client.execute`. Numeric and boolean params are interpolated
+bare (booleans as `1`/`0`); string params are escaped with `client.escape(...)` and quoted, with
+`NULL` substituted for nil values on nullable columns
+(`crates/scythe-codegen/src/backends/ruby_tiny_tds.rs`).
+
+## oci8
+
+Backend: `ruby-oci8` | Library: [ruby-oci8](https://github.com/kubo/ruby-oci8) | Engine: Oracle
+
+Everything sits inside a single `module Queries ... end`. Query functions call `conn.exec(sql, ...)`
+with genuine positional bind parameters, rewritten from `$1`, `$2`, ... to Oracle-style `:1`, `:2`,
+... placeholders. `RETURNING` clauses use an explicit `conn.parse` / `cursor.bind_param` /
+`cursor.exec` sequence with output binds instead of `conn.exec`
+(`crates/scythe-codegen/src/backends/ruby_oci8.rs`).
 | `nullable` | `T` (no wrapper; Ruby is dynamically typed) |

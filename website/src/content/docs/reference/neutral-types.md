@@ -76,7 +76,7 @@ Notes. Where no exception is listed, the mapping is the same across all dialects
 | SQL Type(s) | Neutral Type | Notes |
 |------------|-------------|-------|
 | `INTEGER`, `INT`, `INT4`, `SERIAL` | `int32` | `INTEGER`/`INT` are `int64` on SQLite and Snowflake -- neither has a narrower storage class. `INT4`/`SERIAL` are PostgreSQL-only spellings and always stay `int32` |
-| `SMALLINT`, `INT2`, `SMALLSERIAL` | `int16` | `int64` on Snowflake -- every integer type is `NUMBER(38,0)` there |
+| `SMALLINT`, `INT2`, `SMALLSERIAL` | `int16` | `SMALLINT` is `int64` on Snowflake -- every integer type is `NUMBER(38,0)` there. `INT2`/`SMALLSERIAL` are PostgreSQL-only spellings and always stay `int16` |
 | `BIGINT`, `INT8`, `BIGSERIAL` | `int64` | |
 | `HUGEINT`, `UHUGEINT` | `decimal` | DuckDB 128-bit integers; no neutral type is wide enough to hold them losslessly |
 | `REAL`, `FLOAT4` | `float32` | `float64` on SQLite and Snowflake |

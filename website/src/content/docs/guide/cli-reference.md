@@ -224,13 +224,13 @@ scythe lint [--config <path>] [--fix] [--dialect <dialect>] [files...]
 |------|---------|-------------|
 | `-c, --config` | `scythe.toml` | Path to config file |
 | `--fix` | false | Auto-fix violations where possible |
-| `--dialect` | (none) | SQL dialect for sqruff rules. If omitted, scythe falls back to the first `[[sql]].engine` in the config (mapped to its sqruff dialect), then to `ansi` if no config resolves one |
+| `--dialect` | (none) | SQL dialect for sqruff rules. If omitted: with a config file, each `[[sql]]` block uses its own `engine` (mapped to its sqruff dialect); with explicit files, scythe falls back to the first `[[sql]].engine` in the config. Falls back to `ansi` if no config resolves a dialect |
 | `files...` | (from config) | SQL files to lint directly |
 
 **Two modes:**
 
-- **With config:** Runs both scythe rules (schema-aware) and sqruff rules.
-- **With files:** Runs sqruff rules only (no schema context).
+- **With config:** Runs both scythe rules (schema-aware) and sqruff rules. Each `[[sql]]` block is linted with its own engine's sqruff dialect, unless `--dialect` overrides it for all blocks.
+- **With files:** Runs sqruff rules only (no schema context), using `--dialect` or the first `[[sql]].engine` in the config.
 
 ### fmt
 

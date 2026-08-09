@@ -1,15 +1,19 @@
 ---
 title: Elixir
-description: The elixir-postgrex and elixir-ecto backends -- generated modules, queries, and type mappings.
+description: The six Elixir backends -- generated modules, queries, and type mappings.
 ---
 
-Backends: `elixir-postgrex`, `elixir-ecto` | Library: [Postgrex](https://hexdocs.pm/postgrex) /
-[Ecto](https://hexdocs.pm/ecto)
+Backends: `elixir-postgrex`, `elixir-ecto`, `elixir-myxql`, `elixir-exqlite`, `elixir-tds`,
+`elixir-jamdb` | Library: [Postgrex](https://hexdocs.pm/postgrex) / [Ecto](https://hexdocs.pm/ecto) /
+[MyXQL](https://hexdocs.pm/myxql) / [Exqlite](https://hexdocs.pm/exqlite) /
+[tds](https://hexdocs.pm/tds) / [jamdb_oracle](https://hex.pm/packages/jamdb_oracle)
 
 `elixir-postgrex` supports PostgreSQL and Redshift. `elixir-ecto` supports PostgreSQL only, and
 despite its name does **not** use `Ecto.Repo` or `Ecto.Adapters.SQL.query` -- there is not a single
 reference to `Repo` or `Ecto.` anywhere in `elixir_ecto.rs`. It generates the same `Postgrex.query/3`
-pattern as `elixir-postgrex`, taking a raw `conn` (not a `repo`) parameter.
+pattern as `elixir-postgrex`, taking a raw `conn` (not a `repo`) parameter. `elixir-myxql` supports
+MySQL and MariaDB, `elixir-exqlite` supports SQLite only, `elixir-tds` supports MSSQL only, and
+`elixir-jamdb` supports Oracle only -- see their sections below.
 
 ## SQL input
 
@@ -205,3 +209,43 @@ end
 | `uuid` | `String.t()` |
 | `json` | `map()` |
 | `nullable` | `T \| nil` |
+
+## MyXQL
+
+Backend: `elixir-myxql` | Library: [MyXQL](https://hexdocs.pm/myxql) | Engines: MySQL, MariaDB
+
+Same layout as `elixir-postgrex`: row structs are top-level, unqualified modules; query functions live
+together in a separate `Scythe.Queries` module (`integration_tests/elixir-myxql/generated/queries.ex`).
+Query functions call `MyXQL.query/3` and match on `%MyXQL.Result{rows: ...}`, returning
+`{:ok, row} | {:error, :not_found} | {:error, term()}` for `:one`/`:opt` queries, the same tagged-tuple
+shape as `elixir-postgrex` (`crates/scythe-codegen/src/backends/elixir_myxql.rs`).
+
+## Exqlite
+
+Backend: `elixir-exqlite` | Library: [Exqlite](https://hexdocs.pm/exqlite) | Engine: SQLite
+
+Same top-level-modules-plus-`Scythe.Queries` layout as `elixir-postgrex` and `elixir-myxql`
+(`integration_tests/elixir-exqlite/generated/queries.ex`). Unlike those two, query functions do not
+call a single `query/3` -- Exqlite has no such call. Instead each function drives the low-level
+`Exqlite.Sqlite3` NIF API directly through an Elixir `with` chain: `prepare/2`, `bind/2`,
+`step/2`/`fetch_all/2`, then `release/2` (`crates/scythe-codegen/src/backends/elixir_exqlite.rs`).
+
+## TDS
+
+Backend: `elixir-tds` | Library: [tds](https://hexdocs.pm/tds) | Engine: MSSQL
+
+Query functions call `Tds.query/3`. Parameters are not passed as bare positional values but as
+`%Tds.Parameter{name: "@1", value: ..., type: :atom}` structs, with the type atom (`:integer`,
+`:string`, `:decimal`, `:datetime`, `:boolean`, ...) derived from the neutral type
+(`crates/scythe-codegen/src/backends/elixir_tds.rs`). Boolean params are coerced to `1`/`0` before
+encoding, since tds's `:boolean` encoder accepts only integers or bitstrings, not Elixir booleans --
+`nil` is passed through unchanged so a NULL boolean stays SQL `NULL` rather than becoming `false`.
+
+## Jamdb Oracle
+
+Backend: `elixir-jamdb` | Library: [jamdb_oracle](https://hex.pm/packages/jamdb_oracle) (alias:
+`jamdb`) | Engine: Oracle
+
+Query functions call `Jamdb.Oracle.query/3`. Placeholders are rewritten from `$1`, `$2`, ... to
+Oracle-style `:1`, `:2`, ... bind variables before the SQL string is emitted
+(`crates/scythe-codegen/src/backends/elixir_jamdb.rs`).

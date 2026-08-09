@@ -24,9 +24,10 @@ export default defineConfig({
         starlightLlmsTxt({
           description:
             "Scythe compiles annotated SQL into type-safe database access code for 10 languages " +
-            "(Rust, Python, TypeScript, JavaScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP) across " +
-            "10 databases (PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, MSSQL, Oracle, " +
-            "Redshift, Snowflake) via 56 backends, with built-in SQL linting, security auditing and " +
+            "(Rust, Python, TypeScript, Go, Java, Kotlin, C#, Elixir, Ruby, PHP — plus plain " +
+            "JavaScript, emitted by the TypeScript backends' JSDoc mode) across 10 databases " +
+            "(PostgreSQL, MySQL, MariaDB, SQLite, DuckDB, CockroachDB, MSSQL, Oracle, Redshift, " +
+            "Snowflake) via 56 backends, with built-in SQL linting, security auditing and " +
             "formatting.",
           // Facts a model cannot infer from the page bodies but will get wrong
           // without. The sqlc point is the most load-bearing: scythe's

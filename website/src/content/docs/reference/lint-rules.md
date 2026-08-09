@@ -178,7 +178,7 @@ Scythe integrates [sqruff](https://github.com/quarylabs/sqruff) for SQL formatti
 | `SQ-CP01` | Keyword capitalization | SQL keywords should be consistently capitalized |
 | `SQ-CP02` | Identifier capitalization | Identifiers should be consistently cased |
 | `SQ-CV02` | COALESCE vs IFNULL/NVL | Prefer COALESCE over vendor-specific functions |
-| `SQ-LT01` | Layout spacing | **Excluded by default** under `scythe lint` (upstream sqruff bug splits compound operators like `>=`); still runs under `scythe fmt`, which ignores rule exclusions |
+| `SQ-LT01` | Layout spacing | **Excluded under both `scythe lint` and `scythe fmt`** (upstream sqruff bug splits compound operators like `>=` and `<@`) -- the one rule exclusion `scythe fmt` does not ignore |
 | `SQ-LT02` | Indentation | Consistent indentation |
 | `SQ-LT04` | Comma position | Leading or trailing commas consistently |
 | `SQ-LT09` | SELECT targets | Each column on its own line |

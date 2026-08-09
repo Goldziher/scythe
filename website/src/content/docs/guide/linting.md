@@ -197,7 +197,8 @@ write.
 :::
 
 This config only affects `scythe lint` — `scythe fmt` ignores `[lint.sqruff]` entirely and always runs
-sqruff's full default rule set.
+sqruff's default rule set, with one exception: `LT01` is excluded under `scythe fmt` too (see below),
+so it is the one rule `[lint.sqruff]` cannot re-enable for `fmt`.
 
 ### sqruff Rule Categories
 
@@ -216,7 +217,7 @@ sqruff's full default rule set.
 
 | Code | Description |
 |------|-------------|
-| LT01 | Layout spacing around operators — **excluded by default** (upstream sqruff bug; not "trailing whitespace") |
+| LT01 | Layout spacing around operators — **excluded under both `scythe lint` and `scythe fmt`** (upstream sqruff bug; not "trailing whitespace") |
 | LT02 | Inconsistent indentation |
 | LT05 | Line too long |
 | LT12 | File must end with newline |

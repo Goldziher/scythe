@@ -5,12 +5,14 @@ description: The rust-sqlx backend -- generated code, enum generation, and type 
 
 Backend: `rust-sqlx` | Library: [sqlx](https://github.com/launchbadge/sqlx) | Engines: PostgreSQL, MySQL, MariaDB, SQLite, Redshift
 
-Accepts a `structs_only` option (`true`/`false`, default `false`): when `true`, only row/model structs
-and enums are emitted -- no query functions
-(`crates/scythe-codegen/src/backends/sqlx.rs`). The committed
-`integration_tests/rust-sqlx` fixture uses `structs_only = "true"`, so its generated `queries.rs`
-contains structs and enums only; the query functions shown below are reconstructed from the generator
-source (`sqlx.rs`) rather than copied from that fixture.
+Accepts three `[[sql.gen]]` options (`crates/scythe-codegen/src/backends/sqlx.rs`): `structs_only`
+(`true`/`false`, default `false`) emits only row/model structs and enums, no query functions;
+`serde` (`true`/`false`, default `false`) adds `serde::Serialize, serde::Deserialize` to every
+generated struct and enum derive list; `derive` (a comma-separated list, e.g. `derive = "PartialEq,
+Hash"`) appends arbitrary extra derives. The committed `integration_tests/rust-sqlx` fixture uses
+`structs_only = "true"`, so its generated `queries.rs` contains structs and enums only; the query
+functions shown below are reconstructed from the generator source (`sqlx.rs`) rather than copied from
+that fixture.
 
 ## SQL input
 

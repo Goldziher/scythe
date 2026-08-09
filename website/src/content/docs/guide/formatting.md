@@ -34,9 +34,11 @@ If `--dialect` is not given, scythe falls back to the first `[[sql]].engine` in 
 to its sqruff dialect); only when no config resolves a dialect either does it fall back to `ansi`. When
 using a config file, both query files and schema files are included.
 
-`scythe fmt` always runs sqruff's full default rule set and ignores `[lint.sqruff]` entirely -- a
-rule turned `"off"` there for `scythe lint` still runs (and can still rewrite files) under `scythe
-fmt`.
+`scythe fmt` always runs sqruff's default rule set and ignores `[lint.sqruff]` entirely -- a rule
+turned `"off"` there for `scythe lint` still runs (and can still rewrite files) under `scythe fmt`.
+The one exception is `LT01`, which is excluded under both `scythe lint` and `scythe fmt` -- it splits
+compound operators like `>=` and `<@` into separate tokens (an upstream sqruff bug), so scythe
+excludes it unconditionally rather than let it corrupt every formatted file.
 
 ## CI Integration
 

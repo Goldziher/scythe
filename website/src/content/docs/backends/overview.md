@@ -93,6 +93,7 @@ Scythe provides 56 selectable backend names across 10 languages (plus plain Java
 | `elixir-postgrex` | Elixir | Postgrex |
 | `ruby-pg` | Ruby | pg gem |
 | `php-pdo` | PHP | PDO |
+| `php-amphp` | PHP | AMPHP SQL |
 | `java-r2dbc` | Java | R2DBC (Project Reactor) |
 | `kotlin-r2dbc` | Kotlin | R2DBC (coroutines) |
 | `kotlin-exposed` | Kotlin | Exposed |
@@ -314,12 +315,16 @@ pub trait CodegenBackend: Send + Sync {
     fn generate_rbs_file(&self, context: &RbsGenerationContext) -> Option<String> { None }
     fn generate_grouped_structs(&self, parent_struct_name: &str, child_struct_name: &str, parent_columns: &[ResolvedColumn], child_columns: &[ResolvedColumn], key_column: &str) -> Result<String, ScytheError>;
     fn generate_grouped_query_fn(&self, request: &GroupedQueryFn<'_>) -> Result<String, ScytheError>;
-    fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> { Ok(()) }
+    fn apply_options(&mut self, options: &std::collections::HashMap<String, String>) -> Result<(), ScytheError> {
+        crate::backend_options::reject_unknown_options(&[], options)
+    }
     fn supported_engines(&self) -> &[&str] { &["postgresql"] }
 }
 ```
 
-`apply_options` is the entire `[[sql.gen]]` option surface (`row_type`, `field_case`, `namespace`,
+The default `apply_options` rejects every key (an empty known-key list) — the correct behavior for
+backends that take no options, and what a new backend gets for free if its author forgets to override
+it. `apply_options` is the entire `[[sql.gen]]` option surface (`row_type`, `field_case`, `namespace`,
 `structs_only`, `serde`, `derive`, `extension_functions`, and so on) — every backend that accepts
 options overrides it. Methods shown with a default body above are optional to override.
 `generate_grouped_structs` / `generate_grouped_query_fn` default to an error

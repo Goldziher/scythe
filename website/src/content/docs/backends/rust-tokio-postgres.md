@@ -5,10 +5,11 @@ description: The rust-tokio-postgres backend -- generated code, differences from
 
 Backend: `rust-tokio-postgres` | Library: [tokio-postgres](https://docs.rs/tokio-postgres) | Engines: PostgreSQL, Redshift
 
-Accepts two undocumented-elsewhere options: `serde` (`true`/`false`, default `false`) adds
-`serde::Serialize, serde::Deserialize` to every generated struct and enum derive list, and `derive`
-(a comma-separated list, e.g. `derive = "PartialEq, Hash"`) appends arbitrary extra derives
-(`crates/scythe-codegen/src/backends/tokio_postgres.rs`).
+Accepts two `[[sql.gen]]` options (`crates/scythe-codegen/src/backends/tokio_postgres.rs`): `serde`
+(`true`/`false`, default `false`) adds `serde::Serialize, serde::Deserialize` to every generated
+struct and enum derive list, and `derive` (a comma-separated list, e.g. `derive = "PartialEq, Hash"`)
+appends arbitrary extra derives. See [Configuration](/scythe/guide/configuration/) for the full
+`[[sql.gen]]` option table.
 
 ## SQL input
 

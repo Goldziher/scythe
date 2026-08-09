@@ -124,6 +124,8 @@ output = "src/generated/kotlin-exposed"
 | `field_case` | string | no | Case convention for generated column/param field names. TypeScript and Java/Kotlin backends. See below. |
 | `namespace` | string | no | PHP namespace for generated code. PHP backends only. See below. |
 | `extension_functions` | bool | no | Generate idiomatic Kotlin extension functions. Kotlin backends only. See below. |
+| `serde` | bool | no | Add `serde::Serialize, serde::Deserialize` to every generated struct and enum derive list. `rust-sqlx`, `rust-tokio-postgres`, `rust-tiberius`, `rust-sibyl` only. |
+| `derive` | string | no | Comma-separated list of additional derive macros to append (e.g. `derive = "PartialEq, Hash"`). `rust-sqlx`, `rust-tokio-postgres`, `rust-tiberius`, `rust-sibyl` only. |
 
 `row_type`, `outer_join_unions`, `structs_only`, and `field_case` are the only options every
 TypeScript backend accepts (`typescript-pg`, `typescript-postgres`, `typescript-kysely`,
@@ -503,7 +505,8 @@ See [Linting](/scythe/guide/linting/) for the full list of rules and categories.
 ### `[lint.sqruff]`
 
 Controls the sqruff style-rule integration used by `scythe lint` (not `scythe fmt`, which always runs
-sqruff's default rule set and ignores this table entirely).
+sqruff's default rule set and ignores this table entirely -- except for `LT01`, which is excluded
+under `scythe fmt` too; see [Formatting](/scythe/guide/formatting/)).
 
 ```toml
 [lint.sqruff]

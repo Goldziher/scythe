@@ -6,7 +6,13 @@ description: The php-pdo and php-amphp backends -- generated classes, queries, a
 Backends: `php-pdo`, `php-amphp` | Library: PDO / [AMPHP SQL](https://github.com/amphp/sql) (async)
 
 `php-pdo` is synchronous, built on PDO. `php-amphp` is structurally identical but async, built on
-`Amp\Sql\SqlConnectionPool` with AMPHP's event loop. Both share the same generated-code shape:
+`Amp\Sql\SqlConnectionPool` with AMPHP's event loop.
+
+`php-pdo` supports PostgreSQL, MySQL, MariaDB, SQLite, MSSQL, Redshift, and Snowflake (no Oracle,
+despite a `php-pdo.oracle.toml` manifest existing in the tree). `php-amphp` supports PostgreSQL,
+MySQL, and MariaDB only -- pick `php-pdo` for SQLite, MSSQL, Redshift, or Snowflake.
+
+Both share the same generated-code shape:
 `snake_case` properties by default (matching the SQL column name), query functions as `public static`
 methods on a single `final class Queries`, a generated `public static function fromRow(array $row): self`
 per row type, and a `namespace App\Generated;` default that both backends accept an undocumented
