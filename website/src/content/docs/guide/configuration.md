@@ -77,7 +77,7 @@ performance = "warn"
 | `engine` | string | yes | Database dialect: `postgresql`, `mysql`, `sqlite`, `duckdb`, `cockroachdb`, `mssql`, `oracle`, `mariadb`, `redshift`, `snowflake`. |
 | `schema` | string[] | yes | Glob patterns for schema DDL files. Relative patterns resolve against the config file's directory. |
 | `queries` | string[] | yes | Glob patterns for annotated query files. Relative patterns resolve against the config file's directory. |
-| `output` | string | no | Legacy output directory, used as the default when no `[[sql.gen]]` targets are specified. Defaults to `"generated"`. A relative path resolves against the config file's directory. |
+| `output` | string | no | **Legacy.** Output directory used only as the default for the legacy `[sql.gen.<lang>]` table form below. Ignored by the `[[sql.gen]]` array form -- each array target needs its own `output` key. Defaults to `"generated"` when `gen` is absent entirely. A relative path resolves against the config file's directory. |
 | `gen` | table | no | Code generation options per language. |
 | `type_overrides` | array | no | Type mapping overrides. |
 
@@ -112,6 +112,22 @@ output = "src/generated/java-r2dbc"
 backend = "kotlin-exposed"
 output = "src/generated/kotlin-exposed"
 ```
+
+:::caution[`[[sql]].output` does not apply to `[[sql.gen]]` targets]
+`output` on the enclosing `[[sql]]` block is legacy -- it is only used as the default output
+directory for the `[sql.gen.<lang>]` table form documented further down. Every `[[sql.gen]]` array
+entry needs its own `output` key, even if you also set `[[sql]].output`. Omitting it fails to parse
+and names the specific mistake:
+
+```text
+error: failed to parse config 'scythe.toml': TOML parse error at line 4, column 1
+[[sql.gen]] entry #1 (backend = "rust-sqlx") is missing `output`. This block sets
+`[[sql]].output = "src/generated"`, but that field is only used as a default for the legacy
+`[sql.gen.<lang>]` table form -- it is ignored for `[[sql.gen]]` array entries. Add
+`output = "..."` to this entry directly.
+```
+
+:::
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

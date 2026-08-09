@@ -34,29 +34,174 @@ struct ScytheMeta {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(try_from = "RawSqlConfig")]
 struct SqlConfig {
     name: String,
     engine: String,
     schema: Vec<String>,
     queries: Vec<String>,
-    /// Legacy: output directory (used as default when no gen targets specified)
-    #[serde(default)]
+    /// Legacy: output directory, used as the default when no `[[sql.gen]]`
+    /// array targets are configured (i.e. `gen` is absent, or is the legacy
+    /// `[sql.gen.<lang>]` table form). Ignored for `[[sql.gen]]` array
+    /// entries -- each of those needs its own `output` key. See
+    /// `website/src/content/docs/guide/configuration.md`, where this is
+    /// documented as legacy.
     output: Option<String>,
     /// Generation targets via [[sql.gen]] or [sql.gen.rust]
-    #[serde(default, rename = "gen")]
     gen_config: Option<GenTargets>,
+    type_overrides: Option<Vec<TypeOverrideConfig>>,
+}
+
+/// Deserialization target for a raw `[[sql]]` table, before [`GenTargets`]
+/// validation. `gen` is captured as an untyped [`toml::Value`] rather than
+/// deserialized directly into [`GenTargets`] so [`SqlConfig`]'s `TryFrom`
+/// impl can hand [`parse_gen_targets`] this block's `output` alongside it --
+/// needed to name the #116 mistake (`[[sql]].output` set alongside an
+/// array-form `[[sql.gen]]`, where it is silently ignored) directly instead
+/// of reporting only a generic missing-field error.
+///
+/// `#[serde(deny_unknown_fields)]` is safe here specifically because this
+/// struct's field list is already the complete, documented `[[sql]]` schema
+/// (see the Fields table for `[[sql]]` in `configuration.md`): `name`,
+/// `engine`, `schema`, `queries`, `output`, `gen`, `type_overrides`. It is
+/// deliberately *not* applied to `ScytheConfig` (the enclosing top-level
+/// struct) or to the separate, narrower `SqlConfig` copies in `audit.rs`,
+/// `lint_cmd.rs`, and `fmt.rs`: those are intentionally partial projections
+/// of the same `scythe.toml` (missing e.g. `output`/`gen`/`type_overrides`,
+/// or -- at the top level -- `[inspect]`/`[audit]`), so denying unknown
+/// fields there would reject configs that are valid for other commands
+/// reading the same file.
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawSqlConfig {
+    name: String,
+    engine: String,
+    schema: Vec<String>,
+    queries: Vec<String>,
+    #[serde(default)]
+    output: Option<String>,
+    #[serde(default, rename = "gen")]
+    gen_config: Option<toml::Value>,
     #[serde(default)]
     type_overrides: Option<Vec<TypeOverrideConfig>>,
 }
 
+impl TryFrom<RawSqlConfig> for SqlConfig {
+    type Error = String;
+
+    fn try_from(raw: RawSqlConfig) -> Result<Self, Self::Error> {
+        let gen_config = raw
+            .gen_config
+            .map(|value| parse_gen_targets(value, raw.output.as_deref(), &raw.name))
+            .transpose()?;
+
+        Ok(SqlConfig {
+            name: raw.name,
+            engine: raw.engine,
+            schema: raw.schema,
+            queries: raw.queries,
+            output: raw.output,
+            gen_config,
+            type_overrides: raw.type_overrides,
+        })
+    }
+}
+
 /// Supports both legacy `[sql.gen.rust]` and new `[[sql.gen]]` array formats.
-#[derive(Debug, Deserialize)]
-#[serde(untagged)]
+///
+/// Built by [`parse_gen_targets`] rather than derived `Deserialize`. TOML's
+/// `[[sql.gen]]` (array) vs `[sql.gen.<lang>]` (table) syntax already
+/// disambiguates the two shapes unambiguously, so dispatching on that shape
+/// directly preserves each variant's real deserialization error instead of
+/// discarding it. The `#[serde(untagged)]` enum this replaces buffered both
+/// variants' content and, on failure, reported only "data did not match any
+/// variant of untagged enum GenTargets" -- naming an internal type and
+/// pointing at the `[[sql.gen]]` section header rather than, e.g., the
+/// missing `output` key that actually caused the failure (#116).
+#[derive(Debug)]
 enum GenTargets {
     /// New format: `[[sql.gen]]` array of targets
     Array(Vec<GenTarget>),
     /// Legacy format: `[sql.gen.rust]` with a nested language key
     Legacy(LegacyGenConfig),
+}
+
+/// Parse the `gen` key of a `[[sql]]` block into [`GenTargets`].
+///
+/// `top_level_output` is this block's `[[sql]].output`, threaded through so
+/// a missing `output` on an array entry can name the specific mistake behind
+/// it (see [`RawSqlConfig`] and [`describe_gen_target_error`]) instead of a
+/// generic "missing field" error.
+///
+/// `block_name` is this block's `[[sql]].name`, and it carries the only
+/// reliable location information in the message. Errors raised here reach
+/// serde as `Error::custom`, which carries no span; the first frame that
+/// backfills one is the top-level `sql` key, so the rendered `TOML parse error
+/// at line N` points at the *first* `[[sql]]` block whichever block actually
+/// failed. Naming the block in the text is what disambiguates a multi-block
+/// config -- see `error_in_second_sql_block_names_that_block`.
+fn parse_gen_targets(
+    value: toml::Value,
+    top_level_output: Option<&str>,
+    block_name: &str,
+) -> Result<GenTargets, String> {
+    match value {
+        toml::Value::Array(items) => {
+            let mut targets = Vec::with_capacity(items.len());
+            for (idx, item) in items.into_iter().enumerate() {
+                let target: GenTarget = item
+                    .clone()
+                    .try_into()
+                    .map_err(|e| describe_gen_target_error(idx, &item, &e, top_level_output, block_name))?;
+                targets.push(target);
+            }
+            Ok(GenTargets::Array(targets))
+        }
+        toml::Value::Table(_) => value
+            .try_into::<LegacyGenConfig>()
+            .map(GenTargets::Legacy)
+            .map_err(|e| format!("[[sql]] block \"{block_name}\": invalid `[sql.gen.<lang>]` table: {e}")),
+        other => Err(format!(
+            "`gen` must be an array of `[[sql.gen]]` tables (new format, e.g. `[[sql.gen]]`) or a \
+             `[sql.gen.<lang>]` table (legacy format, e.g. `[sql.gen.rust]`), found {}",
+            other.type_str()
+        )),
+    }
+}
+
+/// Turn a single `[[sql.gen]]` entry's deserialization failure into an
+/// actionable message: which entry (by position and, when present, its
+/// `backend`), and -- for the #116 mistake specifically -- a pointer at the
+/// `[[sql]].output` the user likely meant to apply to every target.
+fn describe_gen_target_error(
+    idx: usize,
+    item: &toml::Value,
+    err: &toml::de::Error,
+    top_level_output: Option<&str>,
+    block_name: &str,
+) -> String {
+    let position = match item.get("backend").and_then(toml::Value::as_str) {
+        Some(backend) => format!(
+            "[[sql]] block \"{}\", [[sql.gen]] entry #{} (backend = \"{}\")",
+            block_name,
+            idx + 1,
+            backend
+        ),
+        None => format!("[[sql]] block \"{}\", [[sql.gen]] entry #{}", block_name, idx + 1),
+    };
+
+    if err.to_string().contains("missing field `output`") {
+        return match top_level_output {
+            Some(top) => format!(
+                "{position} is missing `output`. This block sets `[[sql]].output = \"{top}\"`, but that \
+                 field is only used as a default for the legacy `[sql.gen.<lang>]` table form -- it is \
+                 ignored for `[[sql.gen]]` array entries. Add `output = \"...\"` to this entry directly."
+            ),
+            None => format!("{position} is missing required field `output` (e.g. `output = \"src/generated\"`)."),
+        };
+    }
+
+    format!("{position}: {err}")
 }
 
 /// New format: each target specifies a backend and output directory.
@@ -1851,6 +1996,157 @@ SELECT * FROM users WHERE id = $1;
         let content = "-- just a comment\n";
         let blocks = split_query_file(content);
         assert_eq!(blocks.len(), 0);
+    }
+
+    /// Minimal `[[sql]]` preamble shared by the config-parsing tests below --
+    /// only `sql` varies between them.
+    fn sql_block(sql: &str) -> String {
+        format!(
+            "[scythe]\nversion = \"1\"\n\n[[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
+             schema = [\"sql/schema/*.sql\"]\nqueries = [\"sql/queries/*.sql\"]\n{sql}\n"
+        )
+    }
+
+    /// #116: omitting `output` from a `[[sql.gen]]` entry must report the
+    /// real cause -- the missing `output` field -- not serde's opaque
+    /// "data did not match any variant of untagged enum GenTargets".
+    #[test]
+    fn missing_output_on_array_gen_target_names_output_in_the_error() {
+        let toml = sql_block("[[sql.gen]]\nbackend = \"rust-sqlx\"\n");
+
+        let err = toml::from_str::<ScytheConfig>(&toml).expect_err("missing `output` must fail to parse");
+        let message = err.to_string();
+
+        assert!(
+            message.contains("output"),
+            "error must name the missing `output` field, got: {message}"
+        );
+        assert!(
+            !message.contains("GenTargets") && !message.contains("untagged enum"),
+            "error must not leak the internal `GenTargets` type name, got: {message}"
+        );
+    }
+
+    /// A multi-block config is the case where the rendered line number lies.
+    /// Errors from `TryFrom` reach serde as `Error::custom`, which carries no
+    /// span, and the first frame that backfills one is the top-level `sql` key
+    /// -- so `TOML parse error at line N` points at the *first* `[[sql]]` block
+    /// no matter which block failed. The block name in the message text is the
+    /// only thing that tells the user where to look, so pin it.
+    #[test]
+    fn error_in_second_sql_block_names_that_block() {
+        let toml = "\
+[scythe]
+version = \"1\"
+
+[[sql]]
+name = \"first\"
+engine = \"postgresql\"
+schema = [\"sql/schema.sql\"]
+queries = [\"sql/q.sql\"]
+
+[[sql.gen]]
+backend = \"python-psycopg3\"
+output = \"out1\"
+
+[[sql]]
+name = \"second\"
+engine = \"postgresql\"
+schema = [\"sql/schema.sql\"]
+queries = [\"sql/q.sql\"]
+
+[[sql.gen]]
+backend = \"rust-sqlx\"
+";
+
+        let err = toml::from_str::<ScytheConfig>(toml).expect_err("missing `output` must fail to parse");
+        let message = err.to_string();
+
+        assert!(
+            message.contains("second"),
+            "error must name the failing block, since the line number points at the first one, got: {message}"
+        );
+        assert!(
+            !message.contains("\"first\""),
+            "error must not name the block that parsed cleanly, got: {message}"
+        );
+    }
+
+    /// #116's actual root cause: a user sets `[[sql]].output` expecting it to
+    /// apply to every `[[sql.gen]]` array target, forgetting that field is
+    /// only honoured by the legacy `[sql.gen.<lang>]` table form. The error
+    /// must name that mistake directly instead of a bare "missing field".
+    #[test]
+    fn output_on_sql_block_plus_array_gen_missing_output_is_diagnosed_specifically() {
+        let toml = sql_block("output = \"src/generated\"\n\n[[sql.gen]]\nbackend = \"rust-sqlx\"\n");
+
+        let err = toml::from_str::<ScytheConfig>(&toml).expect_err("missing `output` must fail to parse");
+        let message = err.to_string();
+
+        assert!(
+            message.contains("[[sql]].output") && message.contains("src/generated"),
+            "error must point at the top-level `[[sql]].output` value that does not apply here, got: {message}"
+        );
+        assert!(
+            message.contains("legacy") && message.contains("[sql.gen.<lang>]"),
+            "error must explain that `output` is only used by the legacy table form, got: {message}"
+        );
+    }
+
+    /// Valid `[[sql.gen]]` array-form configs -- with and without a sibling
+    /// `[[sql]].output` -- must keep parsing.
+    #[test]
+    fn valid_array_gen_config_parses() {
+        let toml = sql_block("[[sql.gen]]\nbackend = \"rust-sqlx\"\noutput = \"src/generated\"\n");
+        let config: ScytheConfig = toml::from_str(&toml).expect("valid array-form config must parse");
+        match &config.sql[0].gen_config {
+            Some(GenTargets::Array(targets)) => {
+                assert_eq!(targets.len(), 1);
+                assert_eq!(targets[0].backend, "rust-sqlx");
+                assert_eq!(targets[0].output, "src/generated");
+            }
+            other => panic!("expected GenTargets::Array, got {other:?}"),
+        }
+    }
+
+    /// Valid legacy `[sql.gen.<lang>]` table-form configs must keep parsing,
+    /// including when paired with `[[sql]].output` -- the one combination
+    /// where that field is actually used.
+    #[test]
+    fn valid_legacy_gen_config_parses() {
+        let toml = sql_block("output = \"src/generated\"\n\n[sql.gen.rust]\ntarget = \"sqlx\"\n");
+        let config: ScytheConfig = toml::from_str(&toml).expect("valid legacy config must parse");
+        assert_eq!(config.sql[0].output.as_deref(), Some("src/generated"));
+        match &config.sql[0].gen_config {
+            Some(GenTargets::Legacy(legacy)) => {
+                assert_eq!(legacy.rust.as_ref().unwrap().target, "sqlx");
+            }
+            other => panic!("expected GenTargets::Legacy, got {other:?}"),
+        }
+    }
+
+    /// A `[[sql]]` block with no `gen` key at all (relying entirely on the
+    /// legacy `output` default) must still parse.
+    #[test]
+    fn config_with_no_gen_key_parses() {
+        let toml = sql_block("output = \"src/generated\"\n");
+        let config: ScytheConfig = toml::from_str(&toml).expect("config with no `gen` key must parse");
+        assert!(config.sql[0].gen_config.is_none());
+    }
+
+    /// `RawSqlConfig`'s `#[serde(deny_unknown_fields)]` must catch a typo'd
+    /// `[[sql]]` key -- this is the narrow, safe application of
+    /// `deny_unknown_fields` described on `RawSqlConfig`'s doc comment; it is
+    /// deliberately not applied to `ScytheConfig` or to the separate
+    /// `SqlConfig` copies in `audit.rs`/`lint_cmd.rs`/`fmt.rs`.
+    #[test]
+    fn unknown_field_on_sql_block_is_rejected() {
+        let toml = sql_block("outptu = \"src/generated\"\n");
+        let err = toml::from_str::<ScytheConfig>(&toml).expect_err("typo'd key must fail to parse");
+        assert!(
+            err.to_string().contains("unknown field"),
+            "expected an unknown-field error, got: {err}"
+        );
     }
 
     /// Without `--database-url`, `verify_against_database` never runs, so
