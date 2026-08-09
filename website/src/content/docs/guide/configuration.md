@@ -510,7 +510,7 @@ under `scythe fmt` too; see [Formatting](/scythe/guide/formatting/)).
 
 ```toml
 [lint.sqruff]
-enabled = true      # parsed but currently inert -- see below
+enabled = true      # set to false to skip sqruff entirely under `scythe lint`
 
 [lint.sqruff.rules]
 "LT01" = "off"      # bare sqruff codes, not the SQ- prefix scythe uses in output
@@ -518,8 +518,8 @@ enabled = true      # parsed but currently inert -- see below
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `enabled` | bool | no | Parsed but never read. Setting it `false` does not disable sqruff. |
-| `rules` | table | no | Per-rule status keyed by bare sqruff code (e.g. `"LT01"`). See below -- any non-`"off"` value has a much broader effect than a per-rule severity. |
+| `enabled` | bool | no | When `false`, `scythe lint` skips sqruff entirely (no sqruff findings). Does not affect `scythe fmt`, which never reads `[lint.sqruff]`. |
+| `rules` | table | no | Per-rule status keyed by bare sqruff code (e.g. `"LT01"`). Only `"off"` is supported -- sqruff has no per-rule severity, so any other value is rejected as a config error. See below. |
 
 See [Linting](/scythe/guide/linting/#sqruff-configuration) for details.
 

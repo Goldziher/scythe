@@ -167,7 +167,7 @@ under `[lint.sqruff.rules]` instead:
 
 ```toml
 [lint.sqruff]
-enabled = true          # parsed but never read -- has no effect either way
+enabled = true          # set to false to skip sqruff entirely
 
 [lint.sqruff.rules]
 "LT01" = "off"
@@ -175,25 +175,27 @@ enabled = true          # parsed but never read -- has no effect either way
 "CP01" = "off"
 ```
 
+Setting `enabled = false` makes `scythe lint` skip sqruff entirely — no sqruff findings are produced.
+It has no effect on `scythe fmt` (see below).
+
 `[lint.sqruff.rules]` recognizes only `"off"` as a value with defined meaning: it excludes that rule.
 
-:::caution[Any other value turns `rules` into an allowlist]
-A key whose value is not `"off"` is *not* treated as a per-rule severity. Every such key is collected
-into a sqruff `rules = <list>` setting, which sqruff treats as an allowlist — sqruff runs only the
-listed rules and silently disables every other rule, including ones you never mentioned. For example:
+:::caution[Only `"off"` is accepted -- sqruff has no per-rule severity]
+sqruff-lib has no notion of per-rule severity: every sqruff finding scythe reports is hardcoded to
+`Severity::Warn` regardless of any value written here, and sqruff's `rules` config key is an
+allowlist, not a severity table -- setting it to a non-`"off"` value would silently restrict sqruff to
+running only the listed rules and disable every other rule, including ones you never mentioned. To
+prevent that trap, `scythe lint` rejects any `[lint.sqruff.rules]` entry whose value is not `"off"`
+with a config error naming the offending key and value. For example:
 
 ```toml
 [lint.sqruff.rules]
 "LT02" = "warn"
 ```
 
-does not lower `LT02` to a warning; it restricts sqruff to `LT02` alone and turns off every other
-sqruff rule. To exclude specific rules while keeping the rest, only ever set `"off"` values in this
-table.
-
-Severity is also fixed independently of any value here: every sqruff finding scythe reports is mapped
-to `Severity::Warn`, so a per-rule severity never reaches scythe's lint output regardless of what you
-write.
+fails immediately with an error rather than being silently misinterpreted as an allowlist entry or a
+severity override. To exclude specific rules while keeping the rest, only ever set `"off"` values in
+this table.
 :::
 
 This config only affects `scythe lint` — `scythe fmt` ignores `[lint.sqruff]` entirely and always runs

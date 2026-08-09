@@ -69,7 +69,8 @@ fn lint_files(files: &[String], dialect: &str, fix: bool, config_path: &str) -> 
         let sql = std::fs::read_to_string(path).map_err(|e| format!("failed to read '{}': {}", path, e))?;
 
         if fix {
-            let (violations, fixed) = sqruff_adapter::lint_and_fix_sql(&sql, dialect, None);
+            let (violations, fixed) = sqruff_adapter::lint_and_fix_sql(&sql, dialect, None)
+                .map_err(|e| format!("sqruff config error on '{}': {}", path, e))?;
             for sv in &violations {
                 all_violations.push(FileViolation {
                     file: path.clone(),
@@ -87,7 +88,8 @@ fn lint_files(files: &[String], dialect: &str, fix: bool, config_path: &str) -> 
                 eprintln!("fixed {}", path);
             }
         } else {
-            let violations = sqruff_adapter::lint_sql(&sql, dialect, None);
+            let violations = sqruff_adapter::lint_sql(&sql, dialect, None)
+                .map_err(|e| format!("sqruff config error on '{}': {}", path, e))?;
             for sv in &violations {
                 all_violations.push(FileViolation {
                     file: path.clone(),
@@ -177,7 +179,8 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
                 .map_err(|e| format!("failed to read query file '{}': {}", query_file, e))?;
 
             if fix {
-                let (sq_violations, fixed) = sqruff_adapter::lint_and_fix_sql(&content, sqruff_dialect, sqruff_config);
+                let (sq_violations, fixed) = sqruff_adapter::lint_and_fix_sql(&content, sqruff_dialect, sqruff_config)
+                    .map_err(|e| format!("sqruff config error on '{}': {}", query_file, e))?;
                 for sv in &sq_violations {
                     all_violations.push(FileViolation {
                         file: query_file.clone(),
@@ -196,7 +199,8 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
                     eprintln!("fixed {}", query_file);
                 }
             } else {
-                let sq_violations = sqruff_adapter::lint_sql(&content, sqruff_dialect, sqruff_config);
+                let sq_violations = sqruff_adapter::lint_sql(&content, sqruff_dialect, sqruff_config)
+                    .map_err(|e| format!("sqruff config error on '{}': {}", query_file, e))?;
                 for sv in &sq_violations {
                     all_violations.push(FileViolation {
                         file: query_file.clone(),
