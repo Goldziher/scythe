@@ -51,7 +51,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run SQLite conformance leg
@@ -81,7 +81,7 @@ jobs:
       SCYTHE_CONFORMANCE_POSTGRES_URL: postgres://scythe:scythe@localhost:5432/scythe_test
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run PostgreSQL conformance leg
@@ -115,7 +115,7 @@ jobs:
       SCYTHE_CONFORMANCE_MYSQL_ADMIN_URL: mysql://root:scythe@127.0.0.1:3306/
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run MySQL conformance leg
@@ -146,7 +146,7 @@ jobs:
       SCYTHE_CONFORMANCE_MARIADB_ADMIN_URL: mysql://root:scythe@127.0.0.1:3306/
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run MariaDB conformance leg
@@ -179,7 +179,7 @@ jobs:
       SCYTHE_CONFORMANCE_MSSQL_ADMIN_URL: "sqlserver://sa:Scythe_Test1@localhost:1433?database=master"
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - name: Run SQL Server conformance leg
@@ -221,7 +221,7 @@ jobs:
       SCYTHE_CONFORMANCE_ORACLE_ADMIN_URL: oracle://system:scythe@localhost:1521/XEPDB1
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
 
       - name: Install Oracle Instant Client
         run: |
