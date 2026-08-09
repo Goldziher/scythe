@@ -1,0 +1,174 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "enabled": true,
+  "extends": ["config:recommended", ":semanticCommits", ":dependencyDashboard"],
+  "rebaseWhen": "behind-base-branch",
+  "labels": ["dependencies"],
+  "lockFileMaintenance": {
+    "enabled": false
+  },
+  "enabledManagers": ["custom.regex", "gradle", "composer"],
+  "gradle": {
+    "fileMatch": ["/^integration_tests/kotlin-jdbc-ext/build\\.gradle\\.kts$/"]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "description": "Go module requirements in the generated go.mod. The `v` is captured inside currentValue because the go datasource reports versions v-prefixed; leaving it outside the group makes the replacement render `vv5.11.0`. The `go 1.25.7` toolchain floor above is a hand-maintained tracking value (see the template comment), not a dependency pin -- it still never matches, because this pattern requires a literal `v` that only require(...) entries have.",
+      "fileMatch": ["/^tools/integration-test-generator/templates/go\\.mod\\.jinja$/"],
+      "matchStrings": ["\\n  (?<depName>[\\w./-]+) (?<currentValue>v[\\w.+-]+)"],
+      "datasourceTemplate": "go"
+    },
+    {
+      "customType": "regex",
+      "description": "Maven groupId/artifactId/version triples (dependencies and plugins) in the generated pom.xml",
+      "fileMatch": ["/^tools/integration-test-generator/templates/pom\\.xml\\.jinja$/"],
+      "matchStrings": [
+        "<groupId>(?<groupId>[\\w.-]+)</groupId>\\s*<artifactId>(?<artifactId>[\\w.-]+)</artifactId>\\s*<version>(?<currentValue>[^<]+)</version>"
+      ],
+      "datasourceTemplate": "maven",
+      "depNameTemplate": "{{{groupId}}}:{{{artifactId}}}",
+      "packageNameTemplate": "{{{groupId}}}:{{{artifactId}}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Gradle short-form dependency coordinates in the generated build.gradle.kts",
+      "fileMatch": ["/^tools/integration-test-generator/templates/build\\.gradle\\.kts\\.jinja$/"],
+      "matchStrings": ["implementation\\(\"(?<groupId>[\\w.-]+):(?<artifactId>[\\w.-]+):(?<currentValue>[^\"]+)\"\\)"],
+      "datasourceTemplate": "maven",
+      "depNameTemplate": "{{{groupId}}}:{{{artifactId}}}",
+      "packageNameTemplate": "{{{groupId}}}:{{{artifactId}}}"
+    },
+    {
+      "customType": "regex",
+      "description": "Kotlin Gradle plugin version in the generated build.gradle.kts. The hand-maintained integration_tests/kotlin-jdbc-ext/build.gradle.kts carries the same plugin block but is a real file, so the native gradle manager (scoped above) handles it instead of this regex.",
+      "fileMatch": ["/^tools/integration-test-generator/templates/build\\.gradle\\.kts\\.jinja$/"],
+      "matchStrings": ["kotlin\\(\"jvm\"\\) version \"(?<currentValue>[\\w.-]+)\""],
+      "datasourceTemplate": "maven",
+      "depNameTemplate": "org.jetbrains.kotlin.jvm",
+      "packageNameTemplate": "org.jetbrains.kotlin.jvm:org.jetbrains.kotlin.jvm.gradle.plugin"
+    },
+    {
+      "customType": "regex",
+      "description": "npm dependencies and devDependencies in the generated package.json",
+      "fileMatch": ["/^tools/integration-test-generator/templates/package\\.json\\.jinja$/"],
+      "matchStrings": ["\\n\\t\\t\"(?<depName>[\\w@/.-]+)\": ?\"(?<currentValue>[\\^~]?[0-9][^\"]*)\""],
+      "datasourceTemplate": "npm"
+    },
+    {
+      "customType": "regex",
+      "description": "PEP 508 >= pins in the generated pyproject.toml, including the two comma-separated deps on the snowflake line",
+      "fileMatch": ["/^tools/integration-test-generator/templates/pyproject\\.toml\\.jinja$/"],
+      "matchStrings": ["(?:\\n {2}|, )\"(?<depName>[A-Za-z0-9_.-]+)(?:\\[[^\\]]+\\])?>=(?<currentValue>[0-9][^\"]*)\""],
+      "datasourceTemplate": "pypi"
+    },
+    {
+      "customType": "regex",
+      "description": "Cargo table-form dependency pins ({ version = \"...\" }) in the generated integration Cargo.toml",
+      "fileMatch": ["/^tools/integration-test-generator/templates/Cargo\\.toml\\.integration\\.jinja$/"],
+      "matchStrings": ["(?<depName>[\\w-]+) = \\{ version = \"(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "crate",
+      "versioningTemplate": "cargo"
+    },
+    {
+      "customType": "regex",
+      "description": "Cargo bare-string dependency pins (`dep = \"version\"`, no feature table) in the generated integration Cargo.toml. Renovate's RE2 engine has no negative lookahead, so this whitelists the two deps that currently use this shape (`url`, `rust_decimal`) instead of excluding [package]'s name/version/edition, which share the same `key = \"value\"` syntax but are not dependencies. Add new bare-string deps to the alternation if the template grows one.",
+      "fileMatch": ["/^tools/integration-test-generator/templates/Cargo\\.toml\\.integration\\.jinja$/"],
+      "matchStrings": ["\\n(?<depName>url|rust_decimal) = \"(?<currentValue>[^\"]+)\""],
+      "datasourceTemplate": "crate",
+      "versioningTemplate": "cargo"
+    },
+    {
+      "customType": "regex",
+      "description": "Packagist require pins in the generated composer.json",
+      "fileMatch": ["/^tools/integration-test-generator/templates/composer\\.json\\.jinja$/"],
+      "matchStrings": [", \"(?<depName>[\\w./-]+)\": \"(?<currentValue>[\\^~]?[0-9][^\"]*)\""],
+      "datasourceTemplate": "packagist"
+    },
+    {
+      "customType": "regex",
+      "description": "NuGet PackageReference pins in the generated .csproj",
+      "fileMatch": ["/^tools/integration-test-generator/templates/csproj\\.jinja$/"],
+      "matchStrings": ["<PackageReference Include=\"(?<depName>[\\w.]+)\" Version=\"(?<currentValue>[^\"]+)\" />"],
+      "datasourceTemplate": "nuget"
+    },
+    {
+      "customType": "regex",
+      "description": "Hex (Elixir) `~>` pins in the generated mix.exs",
+      "fileMatch": ["/^tools/integration-test-generator/templates/mix\\.exs\\.jinja$/"],
+      "matchStrings": ["\\{:(?<depName>\\w+), \"~> (?<currentValue>[\\d.]+)\"\\}"],
+      "datasourceTemplate": "hex"
+    }
+  ],
+  "packageRules": [
+    {
+      "description": "Custom-manager pins carry an explicit range strategy so it never resolves to null",
+      "matchManagers": ["custom.regex"],
+      "rangeStrategy": "replace"
+    },
+    {
+      "description": "Group Go module pins emitted into the generated go.mod",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["go"],
+      "groupName": "generated go module pins"
+    },
+    {
+      "description": "Group Maven/Gradle (JVM) pins emitted into generated pom.xml and build.gradle.kts, and the hand-maintained kotlin-jdbc-ext build.gradle.kts",
+      "matchManagers": ["custom.regex", "gradle"],
+      "matchDatasources": ["maven"],
+      "groupName": "generated jvm tooling pins"
+    },
+    {
+      "description": "Gradle plugins resolve from the Gradle Plugin Portal, not Maven Central",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["maven"],
+      "matchPackageNames": ["org.jetbrains.kotlin.jvm:org.jetbrains.kotlin.jvm.gradle.plugin"],
+      "registryUrls": ["https://plugins.gradle.org/m2", "https://repo.maven.apache.org/maven2"]
+    },
+    {
+      "description": "Group npm pins emitted into the generated package.json",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["npm"],
+      "groupName": "generated npm tooling pins"
+    },
+    {
+      "description": "Group PyPI pins emitted into the generated pyproject.toml",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["pypi"],
+      "groupName": "generated python tooling pins"
+    },
+    {
+      "description": "Group crates.io pins emitted into the generated integration Cargo.toml",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["crate"],
+      "groupName": "generated rust crate pins"
+    },
+    {
+      "description": "Group Packagist pins emitted into the generated composer.json",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["packagist"],
+      "groupName": "generated php tooling pins"
+    },
+    {
+      "description": "Group NuGet pins emitted into the generated .csproj",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["nuget"],
+      "groupName": "generated csharp tooling pins"
+    },
+    {
+      "description": "Group Hex pins emitted into the generated mix.exs",
+      "matchManagers": ["custom.regex"],
+      "matchDatasources": ["hex"],
+      "groupName": "generated elixir tooling pins"
+    },
+    {
+      "description": "A major bump needs a human to read a changelog, so it is ungrouped and gets its own PR instead of riding along with unrelated minor/patch updates for six other drivers. Same rationale as the majors/minor split in .github/dependabot.yml. Must stay last -- it overrides the groupName set by the per-datasource rules above.",
+      "matchManagers": ["custom.regex", "gradle", "composer"],
+      "matchUpdateTypes": ["major"],
+      "groupName": null
+    }
+  ],
+  "composer": {
+    "fileMatch": ["/^integration_tests/php-pdo-namespace/composer\\.json$/"]
+  }
+}

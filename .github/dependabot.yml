@@ -16,18 +16,36 @@
 # into) integration_tests/ gets it opening PRs that edit generated files
 # directly. Those PRs cannot merge cleanly: the next `task generate:all` run
 # reverts them, and the `generated-freshness` CI job fails the diff in the
-# meantime. This is why maven and gradle are deliberately NOT configured as
-# ecosystems below -- their only manifests in this repo live under
-# integration_tests/, and Dependabot cannot be pointed at a jinja template
+# meantime. This is why go, maven, gradle, npm (for integration_tests/),
+# pip, bundler, and packagist/composer are deliberately NOT configured as
+# ecosystems below -- Dependabot cannot be pointed at a jinja template
 # instead of the file it renders. The cargo/npm/uv ecosystems below are safe
 # because their `directory` is scoped to real, hand-written manifests
 # ("/", "/release/npm", "/release/pypi") and none of them reach into
 # integration_tests/.
 #
+# Renovate (repo-root renovate.json) covers the gap instead: its
+# customManagers regex managers read the version pins directly out of
+# tools/integration-test-generator/templates/*.jinja (the source of truth),
+# so bumps land in the template and flow out through the next `task
+# generate:all`, exactly like a hand-edit would. It also runs two native
+# managers, each scoped to one hand-maintained real manifest outside the
+# generator: gradle for integration_tests/kotlin-jdbc-ext/build.gradle.kts,
+# and composer for integration_tests/php-pdo-namespace/composer.json. Both
+# scopes are anchored to that single path, so they cannot pick up the
+# generated manifests beside them -- which would reintroduce exactly the
+# problem this split exists to solve.
+# Renovate's enabledManagers is deliberately narrowed to ["custom.regex",
+# "gradle", "composer"] so it never touches the cargo/github-actions/npm/uv
+# ecosystems Dependabot already owns below -- no duplicate PRs from the two
+# bots. Major bumps are ungrouped so each gets its own PR, matching the
+# majors/minor split configured below for the same reason.
+#
 # To bump a dependency version used by generated integration tests (for
 # example a JDBC driver or a Go module), edit the corresponding template
 # under tools/integration-test-generator/templates/ and regenerate --
-# do not edit the file under integration_tests/ directly.
+# do not edit the file under integration_tests/ directly. Renovate PRs
+# against renovate.json's custom-manager targets do this automatically.
 version: 2
 
 updates:
