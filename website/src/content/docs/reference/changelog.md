@@ -293,6 +293,14 @@ artifact. See **Changed** for the full list.
   it**, because the RBS generator hardcoded the `json` type instead of following the manifest.
   Manifest scalars are Ruby *doc* names rather than RBS types, so this needed a translation table,
   not a passthrough ([#101](https://github.com/Goldziher/scythe/issues/101))
+- **`WITH t(a, b) AS (...)` ignored the column alias list.** A CTE's explicit column names were never
+  applied to the analyzed scope, so the outer query could not reference them: `WITH t(a, b) AS
+  (SELECT 1, 2) SELECT a, b FROM t` failed with "column a does not exist", because a body projection
+  carrying no names of its own labels its columns `unknown`. The alias list is now applied at all
+  three registration points -- the recursive anchor's seed, the widened recursive union shape, and
+  the plain fall-through path -- and an alias count that disagrees with the body's column count is
+  rejected the way PostgreSQL rejects it, rather than being matched positionally into mislabelled
+  columns. Contributed by **Znie** ([#107](https://github.com/Goldziher/scythe/pull/107))
 - **`LEAD`/`LAG` were always inferred nullable**, even when both the argument and the three-argument
   default are non-null. `IGNORE NULLS` bails out, since it can return NULL regardless ([#89](https://github.com/Goldziher/scythe/issues/89))
 - `typescript-kysely` output now carries a note recording that it requires `CamelCasePlugin`
