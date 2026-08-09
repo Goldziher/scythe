@@ -23,6 +23,17 @@ pub struct NamingConfig {
     /// reach here without something in Rust actually reading it back out.
     #[serde(skip, default = "default_field_case")]
     pub field_case: String,
+    /// Target-language keywords that are not valid (or not safe) bare
+    /// identifiers, consulted by [`field_name`].
+    ///
+    /// Driven entirely by the manifest -- there is deliberately no
+    /// hardcoded, cross-language table here. A hardcoded table that drifts
+    /// out of sync with what a manifest actually declares is its own bug
+    /// (#198); the fix is that this list has exactly one source; the
+    /// manifest's `[naming] reserved = [...]` array. Defaults to empty so a
+    /// manifest that has not opted in is unaffected.
+    #[serde(default)]
+    pub reserved: Vec<String>,
 }
 
 fn default_field_case() -> String {
@@ -179,8 +190,22 @@ pub fn enum_type_name(sql_name: &str, naming: &NamingConfig) -> String {
 ///
 /// E.g., sql name "user_id" with camelCase -> "userId". Defaults to
 /// `snake_case` -- see [`NamingConfig::field_case`].
+///
+/// When the case-converted name exactly matches one of the manifest's
+/// [`NamingConfig::reserved`] target-language keywords (e.g. SQL column
+/// `type` emitting as the Rust keyword `type`, or `class` as the Python
+/// keyword `class`), a trailing underscore is appended -- a suffix every
+/// target language in this crate accepts as an ordinary identifier
+/// character, so one mangling strategy works everywhere without a
+/// per-language special case. A manifest with an empty `reserved` list (the
+/// default) never mangles anything.
 pub fn field_name<'a>(sql_name: &'a str, naming: &NamingConfig) -> Cow<'a, str> {
-    apply_case(sql_name, &naming.field_case)
+    let cased = apply_case(sql_name, &naming.field_case);
+    if naming.reserved.iter().any(|kw| kw == cased.as_ref()) {
+        Cow::Owned(format!("{cased}_"))
+    } else {
+        cased
+    }
 }
 
 /// Sanitize a string to be a valid Rust identifier fragment.
@@ -222,6 +247,7 @@ mod tests {
             enum_variant_case: "PascalCase".to_string(),
             row_suffix: "Row".to_string(),
             field_case: "snake_case".to_string(),
+            reserved: Vec::new(),
         }
     }
 
@@ -463,6 +489,51 @@ mod tests {
         assert_eq!(&*field_name("user_id", &config), "userId");
     }
 
+    /// Regression coverage for #180/#151: a column whose SQL name is a
+    /// target-language keyword must not be emitted verbatim. This is the
+    /// exact shape those issues reported -- `SELECT type, class FROM t`
+    /// producing `pub type: String` / `String class` that fails to parse.
+    #[test]
+    fn test_field_name_mangles_a_reserved_word_with_a_trailing_underscore() {
+        let mut config = test_config();
+        config.reserved = vec!["type".to_string(), "class".to_string()];
+        assert_eq!(&*field_name("type", &config), "type_");
+        assert_eq!(&*field_name("class", &config), "class_");
+    }
+
+    /// A manifest that never declares `reserved` (the default, empty list)
+    /// must not mangle anything -- this is the behavior every manifest had
+    /// before #180/#151, and it must stay the default for a manifest that
+    /// has not opted in.
+    #[test]
+    fn test_field_name_does_not_mangle_when_reserved_list_is_empty() {
+        let config = test_config();
+        assert!(config.reserved.is_empty());
+        assert_eq!(&*field_name("type", &config), "type");
+    }
+
+    /// A word that is not in the manifest's reserved list -- however
+    /// keyword-like it looks -- must pass through unmangled. The reserved
+    /// list is the manifest's own vocabulary, not a guess.
+    #[test]
+    fn test_field_name_leaves_non_reserved_words_alone() {
+        let mut config = test_config();
+        config.reserved = vec!["type".to_string()];
+        assert_eq!(&*field_name("status", &config), "status");
+    }
+
+    /// The reserved check runs against the *case-converted* name, so a
+    /// keyword still collides under camelCase field naming (most keywords
+    /// are already single lowercase words, which camelCase and snake_case
+    /// both leave unchanged).
+    #[test]
+    fn test_field_name_mangles_reserved_word_under_camel_case() {
+        let mut config = test_config();
+        config.field_case = "camelCase".to_string();
+        config.reserved = vec!["class".to_string()];
+        assert_eq!(&*field_name("class", &config), "class_");
+    }
+
     #[test]
     fn test_enum_variant_name() {
         let config = test_config();
@@ -516,6 +587,7 @@ mod tests {
             enum_variant_case: "SCREAMING_SNAKE_CASE".to_string(),
             row_suffix: "Row".to_string(),
             field_case: "snake_case".to_string(),
+            reserved: Vec::new(),
         };
         assert_eq!(enum_variant_name("active", &config), "ACTIVE");
         assert_eq!(enum_variant_name("pending_review", &config), "PENDING_REVIEW");

@@ -118,10 +118,10 @@ impl CodegenBackend for CsharpMysqlConnectorBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_csharp_verbatim_string(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
-        );
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -170,7 +170,7 @@ impl CodegenBackend for CsharpMysqlConnectorBackend {
             }
             let _ = writeln!(
                 out,
-                "            await using var cmd = new MySqlCommand(\"{}\", conn, (MySqlTransaction)tx);",
+                "            await using var cmd = new MySqlCommand(@\"{}\", conn, (MySqlTransaction)tx);",
                 sql
             );
             for (i, p) in params.iter().enumerate() {
@@ -224,7 +224,7 @@ impl CodegenBackend for CsharpMysqlConnectorBackend {
             task_type, func_name, sep, param_list
         );
 
-        let _ = writeln!(out, "    await using var cmd = new MySqlCommand(\"{}\", conn);", sql);
+        let _ = writeln!(out, "    await using var cmd = new MySqlCommand(@\"{}\", conn);", sql);
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
                 format!("{}.ToString().ToLower()", p.field_name)
@@ -325,10 +325,10 @@ impl CodegenBackend for CsharpMysqlConnectorBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_csharp_verbatim_string(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
-        );
+        ));
 
         let mut out = String::new();
 
@@ -350,7 +350,7 @@ impl CodegenBackend for CsharpMysqlConnectorBackend {
             out,
             "public static async Task<List<{parent_struct_name}>> {func_name}(MySqlConnection conn{sep}{param_list}) {{"
         );
-        let _ = writeln!(out, "    await using var cmd = new MySqlCommand(\"{sql}\", conn);");
+        let _ = writeln!(out, "    await using var cmd = new MySqlCommand(@\"{sql}\", conn);");
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
                 format!("{}.ToString().ToLower()", p.field_name)

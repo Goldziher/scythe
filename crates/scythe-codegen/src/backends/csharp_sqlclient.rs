@@ -117,10 +117,10 @@ impl CodegenBackend for CsharpSqlClientBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_csharp_verbatim_string(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
-        );
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -172,7 +172,7 @@ impl CodegenBackend for CsharpSqlClientBackend {
             }
             let _ = writeln!(
                 out,
-                "            await using var cmd = new SqlCommand(\"{}\", conn, tx);",
+                "            await using var cmd = new SqlCommand(@\"{}\", conn, tx);",
                 sql
             );
             for (i, p) in params.iter().enumerate() {
@@ -224,7 +224,7 @@ impl CodegenBackend for CsharpSqlClientBackend {
             task_type, func_name, sep, param_list
         );
 
-        let _ = writeln!(out, "    await using var cmd = new SqlCommand(\"{}\", conn);", sql);
+        let _ = writeln!(out, "    await using var cmd = new SqlCommand(@\"{}\", conn);", sql);
         for (i, p) in params.iter().enumerate() {
             let _ = writeln!(
                 out,
@@ -325,10 +325,10 @@ impl CodegenBackend for CsharpSqlClientBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_csharp_verbatim_string(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
-        );
+        ));
 
         let mut out = String::new();
 
@@ -350,7 +350,7 @@ impl CodegenBackend for CsharpSqlClientBackend {
             out,
             "public static async Task<List<{parent_struct_name}>> {func_name}(SqlConnection conn{sep}{param_list}) {{"
         );
-        let _ = writeln!(out, "    await using var cmd = new SqlCommand(\"{sql}\", conn);");
+        let _ = writeln!(out, "    await using var cmd = new SqlCommand(@\"{sql}\", conn);");
         for (i, p) in params.iter().enumerate() {
             let _ = writeln!(
                 out,

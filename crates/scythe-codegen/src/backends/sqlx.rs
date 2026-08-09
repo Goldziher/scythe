@@ -231,7 +231,8 @@ impl CodegenBackend for SqlxBackend {
         }
 
         let sql_raw = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql = rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest);
+        let sql =
+            crate::sql_literal::escape_rust_string(&rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest));
 
         let bind_params: String = analyzed
             .params
@@ -493,7 +494,8 @@ impl CodegenBackend for SqlxBackend {
         }
 
         let sql_raw = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql = rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest);
+        let sql =
+            crate::sql_literal::escape_rust_string(&rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest));
 
         let bind_params: String = analyzed
             .params

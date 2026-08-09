@@ -133,10 +133,10 @@ impl CodegenBackend for PythonAiosqliteBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
-        );
+        ));
 
         let args_list = if params.is_empty() {
             String::new()
@@ -375,10 +375,10 @@ impl CodegenBackend for PythonAiosqliteBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
-        );
+        ));
 
         let args_tuple = if params.is_empty() {
             None

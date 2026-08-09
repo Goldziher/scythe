@@ -286,10 +286,10 @@ impl CodegenBackend for PhpAmphpBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_php_single_quoted(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
-        );
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -313,7 +313,7 @@ impl CodegenBackend for PhpAmphpBackend {
             );
             let _ = writeln!(out, "        $transaction = $pool->beginTransaction();");
             let _ = writeln!(out, "        try {{");
-            let _ = writeln!(out, "            $stmt = $transaction->prepare(\"{}\");", sql);
+            let _ = writeln!(out, "            $stmt = $transaction->prepare('{}');", sql);
             let _ = writeln!(out, "            foreach ($items as $item) {{");
             if params.is_empty() {
                 let _ = writeln!(out, "                $stmt->execute([]);");
@@ -374,7 +374,7 @@ impl CodegenBackend for PhpAmphpBackend {
 
         // NOTE: This prepares the statement on every call for simplicity.
         if params.is_empty() {
-            let _ = writeln!(out, "        $result = $pool->prepare(\"{}\")->execute([]);", sql);
+            let _ = writeln!(out, "        $result = $pool->prepare('{}')->execute([]);", sql);
         } else {
             let bindings = params
                 .iter()
@@ -389,7 +389,7 @@ impl CodegenBackend for PhpAmphpBackend {
                 .join(", ");
             let _ = writeln!(
                 out,
-                "        $result = $pool->prepare(\"{}\")->execute([{}]);",
+                "        $result = $pool->prepare('{}')->execute([{}]);",
                 sql, bindings
             );
         }
@@ -465,10 +465,10 @@ impl CodegenBackend for PhpAmphpBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_php_single_quoted(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
-        );
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -493,7 +493,7 @@ impl CodegenBackend for PhpAmphpBackend {
         );
 
         if params.is_empty() {
-            let _ = writeln!(out, "        $resultSet = $pool->prepare(\"{}\")->execute([]);", sql);
+            let _ = writeln!(out, "        $resultSet = $pool->prepare('{}')->execute([]);", sql);
         } else {
             let bindings = params
                 .iter()
@@ -508,7 +508,7 @@ impl CodegenBackend for PhpAmphpBackend {
                 .join(", ");
             let _ = writeln!(
                 out,
-                "        $resultSet = $pool->prepare(\"{}\")->execute([{}]);",
+                "        $resultSet = $pool->prepare('{}')->execute([{}]);",
                 sql, bindings
             );
         }

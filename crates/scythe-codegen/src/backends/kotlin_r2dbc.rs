@@ -179,6 +179,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
         } else {
             super::rewrite_pg_placeholders(&cleaned, |_| "?".to_string())
         };
+        let sql = crate::sql_literal::escape_kotlin_string(&sql);
 
         let use_multiline_params = !params.is_empty();
         let ext = self.extension_functions;
@@ -587,6 +588,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
         } else {
             super::rewrite_pg_placeholders(&cleaned, |_| "?".to_string())
         };
+        let sql = crate::sql_literal::escape_kotlin_string(&sql);
 
         let ext = self.extension_functions;
         let use_multiline_params = !params.is_empty();

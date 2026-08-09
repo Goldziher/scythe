@@ -211,10 +211,10 @@ impl CodegenBackend for PythonDuckdbBackend {
             .join(", ");
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
-        );
+        ));
 
         let args_list = if params.is_empty() {
             None
@@ -408,10 +408,10 @@ impl CodegenBackend for PythonDuckdbBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let mut out = String::new();
 
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |_| "?".to_string(),
-        );
+        ));
 
         let args_list = if params.is_empty() {
             None

@@ -152,10 +152,10 @@ impl CodegenBackend for RubyTinyTdsBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_ruby_double_quoted(&super::rewrite_pg_placeholders(
             &super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!("@p{n}"),
-        );
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -299,7 +299,11 @@ impl CodegenBackend for RubyTinyTdsBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::escape_ruby_double_quoted(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         let param_list = params
             .iter()

@@ -303,10 +303,10 @@ impl CodegenBackend for PhpPdoBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_php_single_quoted(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":p{n}"),
-        );
+        ));
         let mut out = String::new();
 
         if matches!(analyzed.command, QueryCommand::Batch) {
@@ -321,7 +321,7 @@ impl CodegenBackend for PhpPdoBackend {
                 "    public static function {}(\\PDO $pdo, array $items): void {{",
                 batch_fn_name
             );
-            let _ = writeln!(out, "        $stmt = $pdo->prepare(\"{}\");", sql);
+            let _ = writeln!(out, "        $stmt = $pdo->prepare('{}');", sql);
             let _ = writeln!(out, "        $pdo->beginTransaction();");
             let _ = writeln!(out, "        try {{");
             let _ = writeln!(out, "            foreach ($items as $item) {{");
@@ -400,7 +400,7 @@ impl CodegenBackend for PhpPdoBackend {
             func_name, sep, param_list, return_type
         );
 
-        let _ = writeln!(out, "        $stmt = $pdo->prepare(\"{}\");", sql);
+        let _ = writeln!(out, "        $stmt = $pdo->prepare('{}');", sql);
 
         if params.is_empty() {
             let _ = writeln!(out, "        $stmt->execute();");
@@ -495,10 +495,10 @@ impl CodegenBackend for PhpPdoBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = super::rewrite_pg_placeholders(
+        let sql = crate::sql_literal::escape_php_single_quoted(&super::rewrite_pg_placeholders(
             &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
             |n| format!(":p{n}"),
-        );
+        ));
         let mut out = String::new();
 
         let param_list = params
@@ -522,7 +522,7 @@ impl CodegenBackend for PhpPdoBackend {
             func_name, sep, param_list
         );
 
-        let _ = writeln!(out, "        $stmt = $pdo->prepare(\"{}\");", sql);
+        let _ = writeln!(out, "        $stmt = $pdo->prepare('{}');", sql);
 
         if params.is_empty() {
             let _ = writeln!(out, "        $stmt->execute();");

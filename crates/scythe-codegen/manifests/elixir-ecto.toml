@@ -36,5 +36,6 @@ struct_case = "PascalCase"
 fn_case = "snake_case"
 enum_variant_case = "snake_case"
 row_suffix = "Row"
+reserved = ["after", "and", "catch", "do", "else", "end", "false", "fn", "in", "nil", "not", "or", "rescue", "true", "when"]
 
 [imports.rules]

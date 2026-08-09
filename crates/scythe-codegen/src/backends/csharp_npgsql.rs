@@ -176,6 +176,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                 sql = sql.replace(&placeholder, &casted);
             }
         }
+        let sql = crate::sql_literal::escape_csharp_verbatim_string(&sql);
         let mut out = String::new();
 
         let param_list = params
@@ -224,7 +225,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             }
             let _ = writeln!(
                 out,
-                "            await using var cmd = new NpgsqlCommand(\"{}\", conn, tx);",
+                "            await using var cmd = new NpgsqlCommand(@\"{}\", conn, tx);",
                 sql
             );
             for (i, p) in params.iter().enumerate() {
@@ -282,7 +283,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             task_type, func_name, sep, param_list
         );
 
-        let _ = writeln!(out, "    await using var cmd = new NpgsqlCommand(\"{}\", conn);", sql);
+        let _ = writeln!(out, "    await using var cmd = new NpgsqlCommand(@\"{}\", conn);", sql);
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
                 format!("{}.ToDbValue()", p.field_name)
@@ -394,6 +395,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
                 sql = sql.replace(&placeholder, &casted);
             }
         }
+        let sql = crate::sql_literal::escape_csharp_verbatim_string(&sql);
 
         let mut out = String::new();
 
@@ -415,7 +417,7 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             out,
             "public static async Task<List<{parent_struct_name}>> {func_name}(NpgsqlConnection conn{sep}{param_list}) {{"
         );
-        let _ = writeln!(out, "    await using var cmd = new NpgsqlCommand(\"{sql}\", conn);");
+        let _ = writeln!(out, "    await using var cmd = new NpgsqlCommand(@\"{sql}\", conn);");
         for (i, p) in params.iter().enumerate() {
             let value_expr = if p.neutral_type.starts_with("enum::") {
                 format!("{}.ToDbValue()", p.field_name)

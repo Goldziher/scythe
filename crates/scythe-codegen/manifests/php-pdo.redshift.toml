@@ -38,5 +38,6 @@ struct_case = "PascalCase"
 fn_case = "camelCase"
 enum_variant_case = "SCREAMING_SNAKE_CASE"
 row_suffix = "Row"
+reserved = ["abstract", "and", "array", "as", "break", "callable", "case", "catch", "class", "clone", "const", "continue", "declare", "default", "die", "do", "echo", "else", "elseif", "empty", "enddeclare", "endfor", "endforeach", "endif", "endswitch", "endwhile", "eval", "exit", "extends", "final", "finally", "fn", "for", "foreach", "function", "global", "goto", "if", "implements", "include", "instanceof", "insteadof", "interface", "isset", "list", "match", "namespace", "new", "or", "print", "private", "protected", "public", "require", "return", "static", "switch", "throw", "trait", "try", "unset", "use", "var", "while", "xor", "yield", "int", "float", "bool", "string", "true", "false", "null", "void", "iterable", "object", "mixed", "never", "readonly"]
 
 [imports.rules]

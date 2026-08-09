@@ -146,7 +146,11 @@ impl CodegenBackend for TokioPostgresBackend {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
 
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::rust_raw_string_literal(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         if matches!(analyzed.command, QueryCommand::Batch) {
             let batch_fn_name = format!("{}_batch", func_name);
@@ -165,7 +169,7 @@ impl CodegenBackend for TokioPostgresBackend {
                     "pub async fn {}({}, items: &[{}]) -> Result<(), {}> {{",
                     batch_fn_name, CLIENT_PARAM, params_struct_name, ERROR_TYPE
                 );
-                let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
+                let _ = writeln!(out, "    let stmt = client.prepare({}).await?;", sql);
                 let _ = writeln!(out, "    for item in items {{");
                 let refs: Vec<String> = params
                     .iter()
@@ -187,7 +191,7 @@ impl CodegenBackend for TokioPostgresBackend {
                     "pub async fn {}({}, items: &[{}]) -> Result<(), {}> {{",
                     batch_fn_name, CLIENT_PARAM, param.full_type, ERROR_TYPE
                 );
-                let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
+                let _ = writeln!(out, "    let stmt = client.prepare({}).await?;", sql);
                 let _ = writeln!(out, "    for item in items {{");
                 let _ = writeln!(out, "        client.execute(&stmt, &[item]).await?;");
                 let _ = writeln!(out, "    }}");
@@ -198,7 +202,7 @@ impl CodegenBackend for TokioPostgresBackend {
                     "pub async fn {}({}, count: usize) -> Result<(), {}> {{",
                     batch_fn_name, CLIENT_PARAM, ERROR_TYPE
                 );
-                let _ = writeln!(out, "    let stmt = client.prepare(r#\"{}\"#).await?;", sql);
+                let _ = writeln!(out, "    let stmt = client.prepare({}).await?;", sql);
                 let _ = writeln!(out, "    for _ in 0..count {{");
                 let _ = writeln!(out, "        client.execute(&stmt, &[]).await?;");
                 let _ = writeln!(out, "    }}");
@@ -240,37 +244,25 @@ impl CodegenBackend for TokioPostgresBackend {
 
         match &analyzed.command {
             QueryCommand::One => {
-                let _ = writeln!(
-                    out,
-                    "    let row = client.query_one(r#\"{}\"#, {}).await?;",
-                    sql, param_refs
-                );
+                let _ = writeln!(out, "    let row = client.query_one({}, {}).await?;", sql, param_refs);
                 let _ = writeln!(out, "    Ok({}::from_row(&row))", struct_name);
             }
             QueryCommand::Opt => {
-                let _ = writeln!(
-                    out,
-                    "    let row = client.query_opt(r#\"{}\"#, {}).await?;",
-                    sql, param_refs
-                );
+                let _ = writeln!(out, "    let row = client.query_opt({}, {}).await?;", sql, param_refs);
                 let _ = writeln!(out, "    Ok(row.as_ref().map({}::from_row))", struct_name);
             }
             QueryCommand::Many => {
-                let _ = writeln!(
-                    out,
-                    "    let rows = client.query(r#\"{}\"#, {}).await?;",
-                    sql, param_refs
-                );
+                let _ = writeln!(out, "    let rows = client.query({}, {}).await?;", sql, param_refs);
                 let _ = writeln!(out, "    Ok(rows.iter().map({}::from_row).collect())", struct_name);
             }
             QueryCommand::Exec => {
-                let _ = writeln!(out, "    client.execute(r#\"{}\"#, {}).await?;", sql, param_refs);
+                let _ = writeln!(out, "    client.execute({}, {}).await?;", sql, param_refs);
                 let _ = writeln!(out, "    Ok(())");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 let _ = writeln!(
                     out,
-                    "    let rows_affected = client.execute(r#\"{}\"#, {}).await?;",
+                    "    let rows_affected = client.execute({}, {}).await?;",
                     sql, param_refs
                 );
                 let _ = writeln!(out, "    Ok(rows_affected)");
@@ -428,7 +420,11 @@ impl CodegenBackend for TokioPostgresBackend {
             param_parts.push(format!("{}: {}", param.field_name, param.borrowed_type));
         }
 
-        let sql = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        let sql = crate::sql_literal::rust_raw_string_literal(&super::clean_sql_with_optional(
+            &analyzed.sql,
+            &analyzed.optional_params,
+            &analyzed.params,
+        ));
 
         let param_refs: String = if params.is_empty() {
             "&[]".to_string()
@@ -452,11 +448,7 @@ impl CodegenBackend for TokioPostgresBackend {
             ERROR_TYPE
         );
 
-        let _ = writeln!(
-            out,
-            "    let rows = client.query(r#\"{}\"#, {}).await?;",
-            sql, param_refs
-        );
+        let _ = writeln!(out, "    let rows = client.query({}, {}).await?;", sql, param_refs);
         let _ = writeln!(out, "    let mut result: Vec<{}> = Vec::new();", parent_struct_name);
         let _ = writeln!(out, "    for row in &rows {{");
 

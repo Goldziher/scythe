@@ -245,6 +245,7 @@ mod tests {
                 enum_variant_case: "PascalCase".to_string(),
                 row_suffix: "Row".to_string(),
                 field_case: field_case.to_string(),
+                reserved: Vec::new(),
             },
             imports: None,
         }

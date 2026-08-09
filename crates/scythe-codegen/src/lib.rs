@@ -4,6 +4,7 @@ pub mod backends;
 pub mod overrides;
 pub mod provenance;
 pub mod resolve;
+pub mod sql_literal;
 pub mod validation;
 
 pub use backend_trait::{

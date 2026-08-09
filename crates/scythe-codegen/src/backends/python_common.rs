@@ -117,6 +117,7 @@ pub fn type_support_imports(manifest: &BackendManifest) -> (bool, bool) {
 /// paren, e.g. `"cur.execute"` or `"await cur.executemany"`. `args`, when present, is the
 /// second positional argument passed to `execute` (the bound parameters).
 pub fn write_execute_call(out: &mut String, indent: &str, call_expr: &str, sql: &str, args: Option<&str>) {
+    let sql = crate::sql_literal::escape_python_triple_double(sql);
     let oneliner = match args {
         Some(args) => format!("{indent}{call_expr}(\"\"\"{sql}\"\"\", {args})"),
         None => format!("{indent}{call_expr}(\"\"\"{sql}\"\"\")"),
