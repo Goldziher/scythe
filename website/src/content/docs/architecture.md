@@ -36,7 +36,7 @@ SQL Schema + Annotated Queries
 | `scythe-lint` | 23 lint rules + 35 audit rules (58 in `default_registry()`), plus 8 `SC-PRV*` and 7 `SC-DRF*` check-time rules in their own registries, sqruff integration, and the lint engine |
 | `scythe-backend` | Type resolution, naming conventions, MiniJinja rendering |
 | `scythe-inspect` | Live-database health checks behind `scythe inspect`, and DDL-vs-catalog drift comparison for `scythe check --database-url` |
-| `scythe-cli` | CLI binary with generate, check, lint, fmt, migrate commands |
+| `scythe-cli` | CLI binary with generate, check, lint, fmt, migrate, audit, inspect commands |
 | `scythe-conformance` | Dev-only: runs inferred nullability against live database engines (not published, no CLI surface) |
 
 ## Language-Neutral Type System
@@ -47,7 +47,7 @@ The analyzer outputs a neutral type vocabulary. Each backend maps these to concr
 |---|---|---|---|---|
 | `int32` | `i32` | `int` | `number` | `int32` |
 | `string` | `String` | `str` | `string` | `string` |
-| `datetime_tz` | `chrono::DateTime<Utc>` | `datetime.datetime` | `Date` | `time.Time` |
+| `datetime_tz` | `chrono::DateTime<chrono::Utc>` | `datetime.datetime` | `Date` | `time.Time` |
 | `uuid` | `uuid::Uuid` | `uuid.UUID` | `string` | `uuid.UUID` |
 | nullable | `Option<T>` | `T \| None` | `T \| null` | `*T` |
 

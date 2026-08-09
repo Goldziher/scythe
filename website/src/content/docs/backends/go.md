@@ -46,7 +46,7 @@ package queries
 
 The connection type is `*pgxpool.Pool`, not `*pgx.Conn`. Generated function parameters use the
 column's `PascalCase` field name directly (`to_pascal_case(&p.field_name)`,
-`crates/scythe-codegen/src/backends/go_pgx.rs:90`) -- not idiomatic Go's lowerCamelCase, and not the
+`crates/scythe-codegen/src/backends/go_pgx.rs`) -- not idiomatic Go's lowerCamelCase, and not the
 `ID` initialism convention: `id` becomes `Id`, matching the struct field name exactly
 (`integration_tests/go-pgx/generated/queries.go:33`).
 

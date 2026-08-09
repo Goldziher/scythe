@@ -7,10 +7,10 @@ Backend: `rust-sqlx` | Library: [sqlx](https://github.com/launchbadge/sqlx) | En
 
 Accepts a `structs_only` option (`true`/`false`, default `false`): when `true`, only row/model structs
 and enums are emitted -- no query functions
-(`crates/scythe-codegen/src/backends/sqlx.rs:126-131,173-175`). The committed
+(`crates/scythe-codegen/src/backends/sqlx.rs`). The committed
 `integration_tests/rust-sqlx` fixture uses `structs_only = "true"`, so its generated `queries.rs`
 contains structs and enums only; the query functions shown below are reconstructed from the generator
-source (`sqlx.rs:283-355`) rather than copied from that fixture.
+source (`sqlx.rs`) rather than copied from that fixture.
 
 ## SQL input
 

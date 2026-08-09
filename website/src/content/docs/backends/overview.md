@@ -155,10 +155,15 @@ There is no `rust-duckdb` backend.
 ### CockroachDB
 
 CockroachDB is wire-compatible with PostgreSQL. Every backend listed in the [PostgreSQL](#postgresql)
-table above supports CockroachDB: `get_backend` normalizes `engine = "cockroachdb"` (and `crdb`) to
-`postgresql` before selecting and constructing the backend
-(`crates/scythe-codegen/src/backends/mod.rs:474`), so backend construction and manifest resolution are
-identical to the PostgreSQL path.
+table above supports CockroachDB: `normalize_engine` folds `engine = "cockroachdb"` (and `crdb`) into
+`postgresql` before a backend's engine support is ever consulted
+(`crates/scythe-codegen/src/backends/mod.rs`), so backend construction and manifest resolution are
+identical to the PostgreSQL path. The CockroachDB column is therefore identical to the PostgreSQL
+column by construction, not by coincidence.
+
+Redshift does not fold that way. It stays its own engine and each backend that supports it needs a
+per-backend `*.redshift.toml` manifest, which is why its column is narrower — see
+[Redshift](/scythe/databases/redshift/).
 
 ### MSSQL
 

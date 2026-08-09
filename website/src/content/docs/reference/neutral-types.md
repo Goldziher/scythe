@@ -34,7 +34,7 @@ Neutral types are scythe's intermediate representation between SQL types and lan
 |----------------|------------|--------|-----------|-----|------|--------|-----|--------|------|
 | `array<T>` | `Vec<T>` | `list[T]` | `T[]` | `[]T` | `java.util.List<T>` | `List<T>` | `List<T>` | `list(T)` | `Array<T>` |
 | `nullable` | `Option<T>` | `T \| None` | `T \| null` | `*T` | `@Nullable T` | `T?` | `T?` | `T \| nil` | `T` |
-| `range<T>` | `PgRange<T>` | `tuple[T, T]` | `string` | `string` | `String` | `String` | `string` | `string()` | `String` |
+| `range<T>` | `sqlx::postgres::types::PgRange<T>` | `tuple[T, T]` | `string` | `string` | `String` | `String` | `string` | `string()` | `String` |
 | `json_typed<T>` | `sqlx::types::Json<T>` | `T` | `T` | `T` | `T` | `T` | `T` | `T` | `T` |
 | `json_nested<T>` | `sqlx::types::Json<T>` | `T` | -- | `T` | -- | -- | -- | -- | -- |
 
@@ -75,7 +75,7 @@ Notes. Where no exception is listed, the mapping is the same across all dialects
 
 | SQL Type(s) | Neutral Type | Notes |
 |------------|-------------|-------|
-| `INTEGER`, `INT`, `INT4`, `SERIAL` | `int32` | `int64` on SQLite and Snowflake -- neither has a narrower storage class |
+| `INTEGER`, `INT`, `INT4`, `SERIAL` | `int32` | `INTEGER`/`INT` are `int64` on SQLite and Snowflake -- neither has a narrower storage class. `INT4`/`SERIAL` are PostgreSQL-only spellings and always stay `int32` |
 | `SMALLINT`, `INT2`, `SMALLSERIAL` | `int16` | `int64` on Snowflake -- every integer type is `NUMBER(38,0)` there |
 | `BIGINT`, `INT8`, `BIGSERIAL` | `int64` | |
 | `HUGEINT`, `UHUGEINT` | `decimal` | DuckDB 128-bit integers; no neutral type is wide enough to hold them losslessly |

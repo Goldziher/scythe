@@ -167,7 +167,7 @@ under `[lint.sqruff.rules]` instead:
 
 ```toml
 [lint.sqruff]
-enabled = true          # default; set false to disable sqruff entirely
+enabled = true          # parsed but never read -- has no effect either way
 
 [lint.sqruff.rules]
 "LT01" = "off"
@@ -175,9 +175,29 @@ enabled = true          # default; set false to disable sqruff entirely
 "CP01" = "off"
 ```
 
-`[lint.sqruff.rules]` only recognizes `"off"` to disable a rule; any other value leaves the rule at
-its sqruff-assigned severity. This config only affects `scythe lint` — `scythe fmt` ignores
-`[lint.sqruff]` entirely and always runs sqruff's full default rule set.
+`[lint.sqruff.rules]` recognizes only `"off"` as a value with defined meaning: it excludes that rule.
+
+:::caution[Any other value turns `rules` into an allowlist]
+A key whose value is not `"off"` is *not* treated as a per-rule severity. Every such key is collected
+into a sqruff `rules = <list>` setting, which sqruff treats as an allowlist — sqruff runs only the
+listed rules and silently disables every other rule, including ones you never mentioned. For example:
+
+```toml
+[lint.sqruff.rules]
+"LT02" = "warn"
+```
+
+does not lower `LT02` to a warning; it restricts sqruff to `LT02` alone and turns off every other
+sqruff rule. To exclude specific rules while keeping the rest, only ever set `"off"` values in this
+table.
+
+Severity is also fixed independently of any value here: every sqruff finding scythe reports is mapped
+to `Severity::Warn`, so a per-rule severity never reaches scythe's lint output regardless of what you
+write.
+:::
+
+This config only affects `scythe lint` — `scythe fmt` ignores `[lint.sqruff]` entirely and always runs
+sqruff's full default rule set.
 
 ### sqruff Rule Categories
 

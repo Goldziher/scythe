@@ -8,7 +8,7 @@ Backend: `rust-tokio-postgres` | Library: [tokio-postgres](https://docs.rs/tokio
 Accepts two undocumented-elsewhere options: `serde` (`true`/`false`, default `false`) adds
 `serde::Serialize, serde::Deserialize` to every generated struct and enum derive list, and `derive`
 (a comma-separated list, e.g. `derive = "PartialEq, Hash"`) appends arbitrary extra derives
-(`crates/scythe-codegen/src/backends/tokio_postgres.rs:22-24,51-74,101-109`).
+(`crates/scythe-codegen/src/backends/tokio_postgres.rs`).
 
 ## SQL input
 
@@ -51,7 +51,7 @@ Every generated file starts with a provenance header, then the same
 ### Row struct with manual `from_row()`
 
 Rows derive `Debug, Clone` (not bare `Debug`), and `from_row` is a **public** associated function, not
-private (`crates/scythe-codegen/src/backends/tokio_postgres.rs:51-61,111-120`):
+private (`crates/scythe-codegen/src/backends/tokio_postgres.rs`):
 
 ```rust
 #[derive(Debug, Clone)]
@@ -78,7 +78,7 @@ impl GetUserRow {
 
 The client parameter is `&(impl tokio_postgres::GenericClient + Sync)`, not `&tokio_postgres::Client`
 -- this lets callers pass either a bare `Client` or a `Transaction`
-(`crates/scythe-codegen/src/backends/tokio_postgres.rs:77`):
+(`crates/scythe-codegen/src/backends/tokio_postgres.rs`):
 
 ```rust
 pub async fn get_user(

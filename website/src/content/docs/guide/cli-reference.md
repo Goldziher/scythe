@@ -224,7 +224,7 @@ scythe lint [--config <path>] [--fix] [--dialect <dialect>] [files...]
 |------|---------|-------------|
 | `-c, --config` | `scythe.toml` | Path to config file |
 | `--fix` | false | Auto-fix violations where possible |
-| `--dialect` | (none) | SQL dialect for sqruff rules. No default is declared on the flag; sqruff resolves it |
+| `--dialect` | (none) | SQL dialect for sqruff rules. If omitted, scythe falls back to the first `[[sql]].engine` in the config (mapped to its sqruff dialect), then to `ansi` if no config resolves one |
 | `files...` | (from config) | SQL files to lint directly |
 
 **Two modes:**
@@ -245,7 +245,7 @@ scythe fmt [--config <path>] [--check] [--diff] [--dialect <dialect>] [files...]
 | `-c, --config` | `scythe.toml` | Path to config file |
 | `--check` | false | Report files needing formatting; exit 1 if any |
 | `--diff` | false | Show unified diff of changes |
-| `--dialect` | (none) | SQL dialect for formatting rules. No default is declared on the flag; sqruff resolves it |
+| `--dialect` | (none) | SQL dialect for formatting rules. If omitted, scythe falls back to the first `[[sql]].engine` in the config (mapped to its sqruff dialect), then to `ansi` if no config resolves one |
 | `files...` | (from config) | SQL files to format directly |
 
 ### migrate

@@ -42,7 +42,7 @@ column = "users.metadata"              # Specific column to override
 type = "json"                          # Neutral type to use
 
 [[sql.type_overrides]]
-db_type = "citext"                     # Override all columns of this DB type
+db_type = "uuid"                       # Override all columns whose *neutral* type is this
 type = "string"                        # Neutral type to map to
 
 # Optional: lint configuration
@@ -139,25 +139,22 @@ TypeScript-only syntax a plain `.js` file cannot carry, so generation aborts wit
 TypeScript backend to use instead. See
 [JavaScript output (JSDoc)](/scythe/backends/typescript/#javascript-output-jsdoc).
 
-:::caution[Breaking: unrecognized options are now a hard error]
+:::caution[Unrecognized options are a hard error on every backend]
 `[[sql.gen]]` uses `#[serde(flatten)]`, so every key besides `backend`, `output`, and `manifest` is
-handed to the target backend's `apply_options`. TypeScript backends now reject any key they don't
-recognize instead of silently ignoring it. A typo like `row_typ = "zod"` — or any forward-compat key
-you were carrying for a future scythe version — now aborts `scythe generate` instead of doing
-nothing:
+handed to the target backend's `apply_options`. Every backend rejects any key it doesn't recognize
+instead of silently ignoring it — the `CodegenBackend::apply_options` trait default rejects all
+options unless a backend explicitly declares a known-key list. A typo like `row_typ = "zod"` — or any
+forward-compat key you were carrying for a future scythe version — aborts `scythe generate` instead
+of doing nothing:
 
 ```text
 error: backend 'typescript-pg' apply_options failed: unknown option 'row_typ' (did you mean 'row_type'?):
-  valid options are field_case, outer_join_unions, row_type, structs_only
+  valid options are row_type, outer_join_unions, structs_only, field_case
 ```
 
 If you hit this after upgrading, remove the offending key or fix the typo the error suggests. This
-applies to every TypeScript backend (`typescript-pg`, `typescript-postgres`, `typescript-kysely`,
-`typescript-mysql2`, `typescript-mssql`, `typescript-oracledb`, `typescript-snowflake`,
-`typescript-duckdb`, `typescript-better-sqlite3`, `typescript-node-sqlite`,
-`typescript-wasm-sqlite`) — the only ones with the change today. Every other backend still ignores
-unrecognized keys silently, so `field_casing = "camelCase"` on a `java-jdbc` target is accepted with
-no diagnostic and no effect.
+applies to every backend, not just TypeScript — for example, `field_casing = "camelCase"` (meant to be
+`field_case`) on a `java-jdbc` target is also a hard error, not a silent no-op.
 :::
 
 ### `row_type`
@@ -289,7 +286,8 @@ the function body from a blind cast of the driver's row to a field-by-field reco
 still type-check under `tsc` but every field would read back `undefined` at runtime. The Java/Kotlin
 backends need no such remap — each column is read by an explicit getter keyed by the raw SQL column
 name, so only the declared field name changes. See
-[Java + Kotlin](/scythe/backends/java-kotlin/#field-naming-field_case).
+[Java](/scythe/backends/java/#field-naming-field_case) and
+[Kotlin](/scythe/backends/kotlin/#field-naming-field_case).
 
 :::caution[`typescript-kysely` requires `CamelCasePlugin`]
 `typescript-kysely` is the exception, and it is the one case where the option alone is not enough.
@@ -450,15 +448,45 @@ error: backend 'rust-sqlx': failed to read manifest override '/repo/manifests/no
   No such file or directory (os error 2)
 ```
 
-### `[sql.gen.rust]` (legacy)
+### `[sql.gen.rust]`, `[sql.gen.python]`, `[sql.gen.typescript]`, `[sql.gen.go]`, `[sql.gen.kotlin]` (legacy)
 
-The legacy syntax is still supported but limited to a single backend per language:
+The legacy syntax is still supported but limited to a single backend per language. Each table takes a
+`target` string that resolves to a full backend name; `[sql.gen.rust]` additionally accepts `derive`
+and `serde`.
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `target` | string | yes | Backend name (e.g. `sqlx`, `tokio-postgres`). |
-| `derive` | string[] | no | Additional derive macros for generated structs. |
-| `serde` | bool | no | Add serde Serialize/Deserialize derives. |
+```toml
+[sql.gen.rust]
+target = "sqlx"                        # -> rust-sqlx
+derive = ["Debug", "Clone", "serde::Serialize"]
+serde = true
+
+[sql.gen.python]
+target = "psycopg3"                    # -> python-psycopg3
+
+[sql.gen.typescript]
+target = "pg"                          # -> typescript-pg
+
+[sql.gen.go]
+target = "pgx"                         # -> go-pgx
+
+[sql.gen.kotlin]
+target = "jdbc"                        # -> kotlin-jdbc
+```
+
+| Table | Field | Type | Required | Accepted `target` values |
+|-------|-------|------|----------|---------------------------|
+| `[sql.gen.rust]` | `target` | string | yes | `sqlx`, `tokio-postgres`, `tiberius`, `sibyl` |
+| `[sql.gen.rust]` | `derive` | string[] | no | Additional derive macros for generated structs. |
+| `[sql.gen.rust]` | `serde` | bool | no | Add serde Serialize/Deserialize derives. |
+| `[sql.gen.python]` | `target` | string | yes | `psycopg3`, `asyncpg`, `aiomysql`, `aiosqlite`, `duckdb`, `pyodbc`, `oracledb`, `snowflake` |
+| `[sql.gen.typescript]` | `target` | string | yes | `pg`, `postgres`, `mysql2`, `better-sqlite3`, `node-sqlite`, `duckdb`, `wasm-sqlite`, `kysely`, `mssql`, `oracledb`, `snowflake` |
+| `[sql.gen.go]` | `target` | string | yes | `pgx`, `database-sql`, `godror`, `gosnowflake` |
+| `[sql.gen.kotlin]` | `target` | string | yes | `jdbc`, `exposed`, `r2dbc` |
+
+`target` resolves to a backend name by prefixing the language (e.g. `[sql.gen.python] target =
+"psycopg3"` resolves to the `python-psycopg3` backend). `derive` and `serde` are Rust-only; the other
+four tables accept only `target`. Anything beyond a single backend per language, or backend options
+like `row_type` and `field_case`, requires the `[[sql.gen]]` array form above.
 
 ### `[[sql.type_overrides]]`
 
@@ -479,7 +507,7 @@ sqruff's default rule set and ignores this table entirely).
 
 ```toml
 [lint.sqruff]
-enabled = true      # default; set false to disable sqruff rules under scythe lint
+enabled = true      # parsed but currently inert -- see below
 
 [lint.sqruff.rules]
 "LT01" = "off"      # bare sqruff codes, not the SQ- prefix scythe uses in output
@@ -487,8 +515,8 @@ enabled = true      # default; set false to disable sqruff rules under scythe li
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `enabled` | bool | no | Whether sqruff rules run at all. Default `true`. |
-| `rules` | table | no | Per-rule status keyed by bare sqruff code (e.g. `"LT01"`). Only `"off"` has an effect; any other value leaves the rule at its default severity. |
+| `enabled` | bool | no | Parsed but never read. Setting it `false` does not disable sqruff. |
+| `rules` | table | no | Per-rule status keyed by bare sqruff code (e.g. `"LT01"`). See below -- any non-`"off"` value has a much broader effect than a per-rule severity. |
 
 See [Linting](/scythe/guide/linting/#sqruff-configuration) for details.
 

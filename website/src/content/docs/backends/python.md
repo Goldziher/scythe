@@ -7,8 +7,8 @@ Backends: `python-psycopg3`, `python-asyncpg` | Engines: PostgreSQL, Redshift
 
 Both backends share the same type mappings and row-type generation. They differ only in query
 execution and imports. All parameters on generated functions are **keyword-only** -- every call site
-after `conn` requires `*,` in the signature (`crates/scythe-codegen/src/backends/python_psycopg3.rs:151`,
-`python_asyncpg.rs:149`). A positional call like `get_user(conn, 1)` raises `TypeError` at runtime; the
+after `conn` requires `*,` in the signature (`crates/scythe-codegen/src/backends/python_psycopg3.rs`,
+`python_asyncpg.rs`). A positional call like `get_user(conn, 1)` raises `TypeError` at runtime; the
 correct call is `get_user(conn, id=1)`.
 
 ## SQL input
@@ -74,7 +74,7 @@ class ListUsersRow:
 ```
 
 `row_type` also accepts `pydantic` (`class GetUserRow(BaseModel):`) and `msgspec`
-(`class GetUserRow(msgspec.Struct):`) -- see `crates/scythe-codegen/src/backends/python_common.rs:12-45`.
+(`class GetUserRow(msgspec.Struct):`) -- see `crates/scythe-codegen/src/backends/python_common.rs`.
 
 ## psycopg3
 
