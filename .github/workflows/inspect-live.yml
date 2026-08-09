@@ -8,11 +8,25 @@ on:
       # Drift-rule default severities live here, and the live drift suite
       # asserts them.
       - "crates/scythe-lint/src/rules/drift.rs"
+      # `scythe lint`/`scythe check`'s own wiring of `[inspect]` -- config
+      # parsing, `DATABASE_URL` fallback, mixed-engine block skipping -- lives
+      # here and is exercised by the `live-cli` job below, not by anything in
+      # `crates/scythe-inspect/`.
+      - "crates/scythe-cli/src/commands/lint_cmd.rs"
+      - "crates/scythe-cli/src/commands/generate.rs"
+      - "crates/scythe-cli/src/commands/inspect.rs"
+      - "crates/scythe-cli/tests/lint_live.rs"
+      - "crates/scythe-cli/tests/check_mixed_engine_integration.rs"
       - ".github/workflows/inspect-live.yml"
   pull_request:
     paths:
       - "crates/scythe-inspect/**"
       - "crates/scythe-lint/src/rules/drift.rs"
+      - "crates/scythe-cli/src/commands/lint_cmd.rs"
+      - "crates/scythe-cli/src/commands/generate.rs"
+      - "crates/scythe-cli/src/commands/inspect.rs"
+      - "crates/scythe-cli/tests/lint_live.rs"
+      - "crates/scythe-cli/tests/check_mixed_engine_integration.rs"
       - ".github/workflows/inspect-live.yml"
   workflow_dispatch:
 
@@ -67,3 +81,54 @@ jobs:
         env:
           SCYTHE_TEST_DATABASE_URL: postgres://scythe:scythe@localhost:5432/scythe_inspect_test
         run: cargo test -p scythe-inspect --features live-tests -- --test-threads=1
+
+  # Separate job from `live-pg` above: this exercises `scythe-cli`'s own
+  # wiring of the `[inspect]` feature (config parsing, `DATABASE_URL`
+  # fallback, mixed-engine block skipping in `scythe check`), not
+  # `scythe-inspect`'s library API. Before #162 these four tests were gated
+  # behind `$SCYTHE_TEST_DATABASE_URL` alone with no job anywhere setting it
+  # for `scythe-cli`, so they reported `ok` in every CI run while never
+  # actually running. One postgres version is enough here -- unlike `live-pg`,
+  # nothing under test is PG-version-sensitive SQL, only whether the CLI
+  # threads a URL through correctly.
+  live-cli:
+    name: live-cli
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: scythe
+          POSTGRES_PASSWORD: scythe
+          POSTGRES_DB: scythe_cli_live_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: . -> target
+          cache-on-failure: true
+
+      # Runs lint_live.rs (the three `[inspect]`-wiring scenarios split out of
+      # lint_integration.rs by #162) and check_mixed_engine_integration.rs's
+      # single live test. Both gate on the `live-tests` feature plus
+      # $SCYTHE_TEST_DATABASE_URL, so they compile away entirely wherever no
+      # postgres service exists -- see `lint_integration.rs`'s
+      # `lint_without_db_url_emits_zero_inspect_findings` for the DB-free
+      # coverage that already ran without this job.
+      - name: Run scythe-cli live tests
+        env:
+          SCYTHE_TEST_DATABASE_URL: postgres://scythe:scythe@localhost:5432/scythe_cli_live_test
+        run: cargo test -p scythe-cli --features live-tests --test lint_live --test check_mixed_engine_integration -- --test-threads=1

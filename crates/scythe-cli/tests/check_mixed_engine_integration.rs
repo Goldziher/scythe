@@ -11,19 +11,34 @@
 //! through `tokio-postgres::prepare`, while the postgres block still gets
 //! verified normally.
 //!
-//! Skips silently when `SCYTHE_TEST_DATABASE_URL` is not set, matching the
-//! gating pattern used by `lint_integration.rs` and
-//! `scythe-inspect/tests/verify_live.rs`.
+//! Gated behind the `live-tests` feature plus `$SCYTHE_TEST_DATABASE_URL`,
+//! matching `scythe-inspect`'s `pg_live.rs`/`verify_live.rs`/
+//! `schema_diff_live.rs` and `tests/lint_live.rs` in this crate (#162). Before
+//! #162 this checked the env var alone and returned early when it was unset,
+//! printing `ok` regardless -- and no CI job ever set that env var for
+//! `scythe-cli`, so this test ran zero times while reporting success in every
+//! run. With the feature gate, a default `cargo test -p scythe-cli` doesn't
+//! even compile it; with the feature enabled, a missing env var is a loud
+//! `.expect()` panic instead of a silent `return`.
 //!
 //! The database-free half of this regression — proving the block-filtering
 //! logic itself is correct — lives in
 //! `crates/scythe-cli/src/commands/generate.rs` as
 //! `partition_verifiable_blocks_*` unit tests.
 
+#![cfg(feature = "live-tests")]
+
 use std::fs;
 
 use assert_cmd::Command;
 use tempfile::TempDir;
+
+fn url() -> String {
+    std::env::var("SCYTHE_TEST_DATABASE_URL").expect(
+        "SCYTHE_TEST_DATABASE_URL must be set for live-tests (e.g. \
+         postgres://postgres:postgres@localhost/postgres)",
+    )
+}
 
 /// Write a `scythe.toml` with one `postgresql` block (pointed at a real
 /// table, `table_name`, that the caller must create in the live database
@@ -65,19 +80,9 @@ queries = ["mysql_queries.sql"]
 /// End-to-end: a mixed-engine config with `--database-url` must verify only
 /// the postgres block, skip the mysql block with a named warning, produce no
 /// findings attributable to the mysql block, and exit 0.
-///
-/// Skips silently when `SCYTHE_TEST_DATABASE_URL` is not set.
 #[test]
 fn check_with_mixed_engine_config_skips_non_postgres_block() {
-    let url = match std::env::var("SCYTHE_TEST_DATABASE_URL").ok() {
-        Some(u) => u,
-        None => {
-            eprintln!(
-                "check_with_mixed_engine_config_skips_non_postgres_block: skipping (SCYTHE_TEST_DATABASE_URL not set)"
-            );
-            return;
-        }
-    };
+    let url = url();
 
     let table_name = "check_mixed_engine_users";
     let rt = tokio::runtime::Builder::new_current_thread()

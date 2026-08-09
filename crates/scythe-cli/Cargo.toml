@@ -24,6 +24,18 @@ bin-dir = "{ bin }{ binary-ext }"
 name = "scythe"
 path = "src/main.rs"
 
+# Gates the live-PostgreSQL integration tests in `tests/lint_live.rs` and
+# `tests/check_mixed_engine_integration.rs` -- see #162. Without this feature
+# those tests do not exist as far as `cargo test` is concerned (the files
+# start with `#![cfg(feature = "live-tests")]`), which is different from, and
+# safer than, the env-var-only skip they used before: that skip printed `ok`
+# regardless of whether a database was ever reachable, and no CI job set the
+# env var it checked, so all four ran zero times while reporting success in
+# every run. Matches `scythe-inspect` and `scythe-conformance`'s own
+# `live-tests` feature.
+[features]
+live-tests = []
+
 [dependencies]
 ahash = { version = "0.8", features = ["serde"] }
 clap = { version = "4", features = ["derive"] }
