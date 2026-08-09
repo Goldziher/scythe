@@ -79,6 +79,37 @@ fn make_linter(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<Li
     Linter::new(config, None, None, false).map_err(SqruffConfigError::Linter)
 }
 
+/// Check that `[lint.sqruff]` assembles into a usable sqruff configuration,
+/// without linting any SQL.
+///
+/// `scythe lint` calls this once per `[[sql]]` block *before* it reads any
+/// query file. Without it, an invalid `[lint.sqruff.rules]` entry surfaces
+/// as an error against whichever query file happened to be read first, and
+/// that error aborts the whole run — discarding every scythe-native finding
+/// the run would otherwise have reported, including the security rules.
+/// Validating up front keeps a configuration mistake reported as one.
+///
+/// Returns `Ok(())` without checking anything when `enabled = false`, since
+/// [`lint_sql`] and [`lint_and_fix_sql`] never reach sqruff in that case.
+///
+/// Note this lints a trivial statement rather than only constructing the
+/// linter: sqruff validates rule codes when a string is linted, not in
+/// `Linter::new`, so building the linter alone would let a typo'd rule code
+/// through and defeat the point of validating early.
+pub fn validate_config(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<(), SqruffConfigError> {
+    if sqruff_config.is_some_and(|cfg| !cfg.enabled) {
+        return Ok(());
+    }
+
+    let linter = make_linter(dialect, sqruff_config)?;
+
+    linter
+        .lint_string("SELECT 1\n", None, false)
+        .map_err(|e| SqruffConfigError::Linter(e.value))?;
+
+    Ok(())
+}
+
 fn to_sqruff_violations(result: &sqruff_lib::core::linter::linted_file::LintedFile) -> Vec<SqruffViolation> {
     result
         .violations()
@@ -154,8 +185,10 @@ pub fn lint_and_fix_sql(
 ///
 /// Note: `[lint.sqruff].enabled` is intentionally NOT consulted here —
 /// `scythe fmt` always formats regardless of whether sqruff-based linting
-/// is disabled. `[lint.sqruff.rules]` validation still applies, since
-/// `make_config`/`make_linter` are shared with [`lint_sql`].
+/// is disabled. `[lint.sqruff.rules]` validation still applies when a config
+/// is passed, since `make_config`/`make_linter` are shared with [`lint_sql`]
+/// — but note `scythe fmt`'s only call site passes `None`, so in that path
+/// `[lint.sqruff.rules]` is never read.
 pub fn format_sql(sql: &str, dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<String, String> {
     let linter = make_linter(dialect, sqruff_config).map_err(|e| e.to_string())?;
 
@@ -334,5 +367,59 @@ mod tests {
 
         let result = lint_and_fix_sql(sql, "ansi", Some(&cfg));
         assert!(result.is_err());
+    }
+
+    #[test]
+    fn validate_config_accepts_a_usable_configuration() {
+        let mut rules = ahash::AHashMap::new();
+        rules.insert("LT02".to_string(), "off".to_string());
+        let cfg = SqruffConfig { enabled: true, rules };
+
+        assert!(validate_config("ansi", Some(&cfg)).is_ok());
+        assert!(validate_config("ansi", None).is_ok());
+    }
+
+    /// `validate_config` must reject exactly what `lint_sql` rejects, so
+    /// hoisting the check ahead of the per-file loop cannot let a bad
+    /// configuration through.
+    #[test]
+    fn validate_config_rejects_what_lint_sql_rejects() {
+        let sql = "SELECT 1\n";
+
+        let mut bad_value = ahash::AHashMap::new();
+        bad_value.insert("LT02".to_string(), "warn".to_string());
+        let cfg = SqruffConfig {
+            enabled: true,
+            rules: bad_value,
+        };
+        assert!(lint_sql(sql, "ansi", Some(&cfg)).is_err());
+        assert!(matches!(
+            validate_config("ansi", Some(&cfg)),
+            Err(SqruffConfigError::UnsupportedRuleValue { .. })
+        ));
+
+        let mut unknown_rule = ahash::AHashMap::new();
+        unknown_rule.insert("ZZ99-NOT-A-REAL-RULE".to_string(), "off".to_string());
+        let cfg = SqruffConfig {
+            enabled: true,
+            rules: unknown_rule,
+        };
+        assert!(lint_sql(sql, "ansi", Some(&cfg)).is_err());
+        assert!(matches!(
+            validate_config("ansi", Some(&cfg)),
+            Err(SqruffConfigError::Linter(_))
+        ));
+    }
+
+    /// `enabled = false` short-circuits sqruff entirely in `lint_sql`, so
+    /// validation must not reject a config those paths never look at.
+    #[test]
+    fn validate_config_skips_validation_when_disabled() {
+        let mut rules = ahash::AHashMap::new();
+        rules.insert("ZZ99-NOT-A-REAL-RULE".to_string(), "off".to_string());
+        let cfg = SqruffConfig { enabled: false, rules };
+
+        assert!(lint_sql("SELECT 1\n", "ansi", Some(&cfg)).is_ok());
+        assert!(validate_config("ansi", Some(&cfg)).is_ok());
     }
 }

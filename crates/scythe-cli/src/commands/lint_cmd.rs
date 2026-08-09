@@ -162,6 +162,14 @@ fn lint_from_config(config_path: &str, cli_dialect: Option<&str>, fix: bool) -> 
 
         let sqruff_dialect = cli_dialect.unwrap_or_else(|| engine_to_sqruff_dialect(&sql_config.engine));
 
+        // Validate [lint.sqruff] before reading any query file. The per-file
+        // calls below return Err on a bad config, and that Err aborts the whole
+        // run -- including every scythe-native finding already collected. Failing
+        // here reports a config mistake as a config mistake, not as an error
+        // against an arbitrary query file.
+        sqruff_adapter::validate_config(sqruff_dialect, sqruff_config)
+            .map_err(|e| format!("[{}] invalid [lint.sqruff] configuration: {}", sql_config.name, e))?;
+
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
         let schema_contents: Vec<String> = schema_files
             .iter()

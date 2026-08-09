@@ -196,6 +196,13 @@ with a config error naming the offending key and value. For example:
 fails immediately with an error rather than being silently misinterpreted as an allowlist entry or a
 severity override. To exclude specific rules while keeping the rest, only ever set `"off"` values in
 this table.
+
+The same applies to a rule code sqruff does not recognize — a typo such as `"LT0" = "off"` is
+reported rather than ignored.
+
+A rejected `[lint.sqruff]` table fails the whole `scythe lint` run, including scythe's own rules, and
+is reported before any query file is read. Fix the config to get lint output back; setting
+`enabled = false` makes the table inert if you want to keep it around while sqruff is off.
 :::
 
 This config only affects `scythe lint` — `scythe fmt` ignores `[lint.sqruff]` entirely and always runs

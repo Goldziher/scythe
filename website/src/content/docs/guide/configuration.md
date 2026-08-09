@@ -535,7 +535,7 @@ enabled = true      # set to false to skip sqruff entirely under `scythe lint`
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
 | `enabled` | bool | no | When `false`, `scythe lint` skips sqruff entirely (no sqruff findings). Does not affect `scythe fmt`, which never reads `[lint.sqruff]`. |
-| `rules` | table | no | Per-rule status keyed by bare sqruff code (e.g. `"LT01"`). Only `"off"` is supported -- sqruff has no per-rule severity, so any other value is rejected as a config error. See below. |
+| `rules` | table | no | Per-rule status keyed by bare sqruff code (e.g. `"LT01"`). Only `"off"` is supported -- sqruff has no per-rule severity, so any other value is rejected as a config error, as is an unrecognized rule code. A rejected table fails the entire `scythe lint` run, scythe's own rules included. Inert when `enabled = false`. See below. |
 
 See [Linting](/scythe/guide/linting/#sqruff-configuration) for details.
 
