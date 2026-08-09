@@ -1,0 +1,28 @@
+{
+  "name": "domain_check_body_not_null_substring",
+  "description": "A CHECK body that merely contains the string NOT NULL (e.g. comparing against the literal text) must not be mistaken for the NOT NULL constraint keyword -- the previous detection scanned the whole remainder text with a plain substring search",
+  "category": "catalog/create_domain",
+  "tags": ["domain", "check", "not_null", "regression"],
+  "schema_sql": [
+    "CREATE DOMAIN nickname AS text CHECK (VALUE <> 'NOT NULL')",
+    "CREATE DOMAIN plainname AS text CHECK (VALUE <> 'x')",
+    "CREATE TABLE users (id integer NOT NULL, nick nickname, plain plainname)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "nick", "sql_type": "text", "nullable": true },
+            { "name": "plain", "sql_type": "text", "nullable": true }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

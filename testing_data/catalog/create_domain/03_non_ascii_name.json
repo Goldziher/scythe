@@ -1,0 +1,20 @@
+{
+  "name": "domain_non_ascii_name",
+  "description": "A CREATE DOMAIN name whose uppercase form has a different byte length than its original (e.g. U+FB01 the ligature fi becomes the two-byte-longer FI) must not panic -- a byte offset computed on the uppercased copy was previously sliced directly against the original string",
+  "category": "catalog/create_domain",
+  "tags": ["domain", "non_ascii", "regression"],
+  "schema_sql": ["CREATE DOMAIN ﬁﬁ AS text NOT NULL", "CREATE TABLE t (id integer NOT NULL)"],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "t": {
+          "columns": [{ "name": "id", "sql_type": "integer", "nullable": false }]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

@@ -1,0 +1,33 @@
+{
+  "name": "quoted_primary_key",
+  "description": "A quoted PRIMARY KEY column name (inline, and via the pg_dump ALTER TABLE ADD CONSTRAINT form) must still match its column and apply NOT NULL -- comparing the constraint's quoted expr.to_string() against the unquoted registered name never matched",
+  "category": "catalog/create_table",
+  "tags": ["constraints", "primary_key", "quoted_identifier"],
+  "schema_sql": [
+    "CREATE TABLE t (\"Id\" integer, note text, PRIMARY KEY (\"Id\"))",
+    "CREATE TABLE t2 (\"UserId\" integer, note text)",
+    "ALTER TABLE t2 ADD CONSTRAINT t2_pkey PRIMARY KEY (\"UserId\")"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "t": {
+          "columns": [
+            { "name": "Id", "sql_type": "integer", "nullable": false },
+            { "name": "note", "sql_type": "text", "nullable": true }
+          ]
+        },
+        "t2": {
+          "columns": [
+            { "name": "UserId", "sql_type": "integer", "nullable": false },
+            { "name": "note", "sql_type": "text", "nullable": true }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

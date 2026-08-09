@@ -34,7 +34,13 @@ pub(crate) fn normalize_data_type(
                 "number" if tokens.len() >= 2 => return ("number".to_string(), false),
                 _ => {}
             }
-            if let Some(domain) = domains.get(&raw) {
+            // Qualifier-tolerant, same as `Catalog::get_domain_base_type`:
+            // a bare reference (`nn`) must resolve a domain registered
+            // under a schema qualifier (`app.nn`) exactly the same way
+            // `get_domain_base_type` does, so a column's resolved type and
+            // its `NOT NULL`-ness never take two different lookup paths
+            // that can disagree. See issue #184 (item 3).
+            if let Some(domain) = super::lookup_qualified(domains, &raw) {
                 return (domain.base_type.clone(), domain.not_null);
             }
             (raw, false)

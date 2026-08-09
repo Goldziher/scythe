@@ -1,0 +1,41 @@
+{
+  "name": "left_join_nullability",
+  "description": "A view over a LEFT JOIN must widen the outer side's columns to nullable, exactly as a direct query does -- the previous mini-resolver cloned base-table nullability verbatim and never inspected join kind",
+  "category": "catalog/create_view",
+  "tags": ["view", "join", "nullability"],
+  "schema_sql": [
+    "CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL)",
+    "CREATE TABLE profiles (id serial PRIMARY KEY, user_id integer NOT NULL, bio text NOT NULL)",
+    "CREATE VIEW user_bios AS SELECT u.id, u.name, p.bio FROM users u LEFT JOIN profiles p ON u.id = p.user_id"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "users": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false }
+          ]
+        },
+        "profiles": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "user_id", "sql_type": "integer", "nullable": false },
+            { "name": "bio", "sql_type": "text", "nullable": false }
+          ]
+        },
+        "user_bios": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "name", "sql_type": "text", "nullable": false },
+            { "name": "bio", "sql_type": "text", "nullable": true }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}

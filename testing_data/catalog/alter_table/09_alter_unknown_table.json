@@ -1,0 +1,15 @@
+{
+  "name": "alter_unknown_table",
+  "description": "ALTER TABLE against a table that was never registered (a typo'd migration) must error, not silently no-op",
+  "category": "catalog/alter_table",
+  "tags": ["alter_table", "error", "unknown_table"],
+  "schema_sql": ["CREATE TABLE users (id integer NOT NULL)", "ALTER TABLE userz ADD COLUMN email text NOT NULL"],
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "UNKNOWN_TABLE",
+      "message_contains": "\"userz\""
+    }
+  },
+  "source": "original"
+}

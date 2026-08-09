@@ -1,6 +1,6 @@
 {
   "name": "materialized_view",
-  "description": "CREATE MATERIALIZED VIEW with aggregation query",
+  "description": "CREATE MATERIALIZED VIEW with an aggregation query; the view's own resolved columns are asserted too, via the same analyzer path an ordinary annotated query uses -- sum(numeric(10,2)) resolves to numeric (not a hardcoded bigint), and count(*)/sum(total) over a NOT NULL column are not nullable",
   "category": "catalog/create_view",
   "tags": ["view", "materialized"],
   "schema_sql": [
@@ -17,6 +17,13 @@
             { "name": "customer_id", "sql_type": "integer", "nullable": false },
             { "name": "total", "sql_type": "numeric(10,2)", "nullable": false },
             { "name": "created_at", "sql_type": "date", "nullable": false }
+          ]
+        },
+        "order_summary": {
+          "columns": [
+            { "name": "customer_id", "sql_type": "integer", "nullable": false },
+            { "name": "order_count", "sql_type": "bigint", "nullable": false },
+            { "name": "total_spent", "sql_type": "numeric", "nullable": true }
           ]
         }
       },

@@ -217,6 +217,33 @@ fn test_alter_set_not_null() {
 }
 
 #[test]
+fn test_alter_unknown_table() {
+    // From: testing_data/catalog/alter_table/09_alter_unknown_table.json
+    // "ALTER TABLE against a table that was never registered (a typo'd migration) must error, not silently no-op"
+    let schema_sql = &[
+        "CREATE TABLE users (id integer NOT NULL)",
+        "ALTER TABLE userz ADD COLUMN email text NOT NULL",
+    ];
+
+    let result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
+    assert!(result.is_err(), "expected DDL processing to fail");
+    let err = result.unwrap_err();
+    let err_msg = err.to_string();
+    assert!(
+        err_msg.contains("UNKNOWN_TABLE"),
+        "error should contain code {:?}, got: {}",
+        "UNKNOWN_TABLE",
+        err_msg
+    );
+    assert!(
+        err_msg.contains("\"userz\""),
+        "error should contain {:?}, got: {}",
+        "\"userz\"",
+        err_msg
+    );
+}
+
+#[test]
 fn test_basic_composite() {
     // From: testing_data/catalog/create_composite/01_basic_composite.json
     // "CREATE TYPE AS composite with text fields for an address"
@@ -305,12 +332,121 @@ fn test_basic_domain() {
 }
 
 #[test]
+fn test_domain_as_optional() {
+    // From: testing_data/catalog/create_domain/06_as_optional.json
+    // "PostgreSQL's AS between a domain name and its base type is optional -- the previous hand-written parser required it and silently recorded nothing for the AS-less form, so a column using the domain later failed with a misdiagnosed INTERNAL_ERROR"
+    let schema_sql = &[
+        "CREATE DOMAIN email_no_as text NOT NULL",
+        "CREATE TABLE t (b email_no_as)",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: t
+    let table_t = catalog.get_table("t").expect("table t should exist");
+    assert_eq!(table_t.columns.len(), 1, "column count for table t");
+    assert_eq!(table_t.columns[0].name, "b", "column name");
+    assert_eq!(table_t.columns[0].sql_type, "text", "column sql_type for b");
+    assert!(!table_t.columns[0].nullable, "column nullable for b");
+}
+
+#[test]
+fn test_domain_check_body_not_null_substring() {
+    // From: testing_data/catalog/create_domain/05_check_body_not_null_substring.json
+    // "A CHECK body that merely contains the string NOT NULL (e.g. comparing against the literal text) must not be mistaken for the NOT NULL constraint keyword -- the previous detection scanned the whole remainder text with a plain substring search"
+    let schema_sql = &[
+        "CREATE DOMAIN nickname AS text CHECK (VALUE <> 'NOT NULL')",
+        "CREATE DOMAIN plainname AS text CHECK (VALUE <> 'x')",
+        "CREATE TABLE users (id integer NOT NULL, nick nickname, plain plainname)",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: users
+    let table_users = catalog.get_table("users").expect("table users should exist");
+    assert_eq!(table_users.columns.len(), 3, "column count for table users");
+    assert_eq!(table_users.columns[0].name, "id", "column name");
+    assert_eq!(table_users.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_users.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_users.columns[1].name, "nick", "column name");
+    assert_eq!(table_users.columns[1].sql_type, "text", "column sql_type for nick");
+    assert!(table_users.columns[1].nullable, "column nullable for nick");
+    assert_eq!(table_users.columns[2].name, "plain", "column name");
+    assert_eq!(table_users.columns[2].sql_type, "text", "column sql_type for plain");
+    assert!(table_users.columns[2].nullable, "column nullable for plain");
+}
+
+#[test]
+fn test_domain_named_constraint_check() {
+    // From: testing_data/catalog/create_domain/07_named_constraint_check.json
+    // "CONSTRAINT <name> CHECK (...) must terminate the domain's base type just like NOT NULL/CHECK/DEFAULT do -- the previous parser folded the constraint name and keyword into the reported base type string"
+    let schema_sql = &[
+        "CREATE DOMAIN money_amount AS numeric(10,2) CONSTRAINT positive_amount CHECK (VALUE > 0)",
+        "CREATE TABLE t (amt money_amount)",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: t
+    let table_t = catalog.get_table("t").expect("table t should exist");
+    assert_eq!(table_t.columns.len(), 1, "column count for table t");
+    assert_eq!(table_t.columns[0].name, "amt", "column name");
+    assert_eq!(table_t.columns[0].sql_type, "numeric(10,2)", "column sql_type for amt");
+    assert!(table_t.columns[0].nullable, "column nullable for amt");
+}
+
+#[test]
+fn test_domain_non_ascii_name() {
+    // From: testing_data/catalog/create_domain/03_non_ascii_name.json
+    // "A CREATE DOMAIN name whose uppercase form has a different byte length than its original (e.g. U+FB01 the ligature fi becomes the two-byte-longer FI) must not panic -- a byte offset computed on the uppercased copy was previously sliced directly against the original string"
+    let schema_sql = &[
+        "CREATE DOMAIN ﬁﬁ AS text NOT NULL",
+        "CREATE TABLE t (id integer NOT NULL)",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: t
+    let table_t = catalog.get_table("t").expect("table t should exist");
+    assert_eq!(table_t.columns.len(), 1, "column count for table t");
+    assert_eq!(table_t.columns[0].name, "id", "column name");
+    assert_eq!(table_t.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_t.columns[0].nullable, "column nullable for id");
+}
+
+#[test]
 fn test_domain_not_null() {
     // From: testing_data/catalog/create_domain/02_domain_not_null.json
     // "CREATE DOMAIN with NOT NULL constraint"
     let schema_sql = &["CREATE DOMAIN non_empty_text AS text NOT NULL"];
 
     let _catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+}
+
+#[test]
+fn test_domain_schema_qualified_not_null() {
+    // From: testing_data/catalog/create_domain/04_schema_qualified_not_null.json
+    // "A bare reference to a schema-qualified domain must resolve NOT NULL through the same qualifier-tolerant lookup as its type -- type resolution already tolerated the missing qualifier while NOT NULL resolution used a separate, stricter exact-match lookup and silently disagreed"
+    let schema_sql = &[
+        "CREATE DOMAIN app.nn AS text NOT NULL",
+        "CREATE DOMAIN plain_nn AS text NOT NULL",
+        "CREATE TABLE t (a nn, b plain_nn, c app.nn)",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: t
+    let table_t = catalog.get_table("t").expect("table t should exist");
+    assert_eq!(table_t.columns.len(), 3, "column count for table t");
+    assert_eq!(table_t.columns[0].name, "a", "column name");
+    assert_eq!(table_t.columns[0].sql_type, "text", "column sql_type for a");
+    assert!(!table_t.columns[0].nullable, "column nullable for a");
+    assert_eq!(table_t.columns[1].name, "b", "column name");
+    assert_eq!(table_t.columns[1].sql_type, "text", "column sql_type for b");
+    assert!(!table_t.columns[1].nullable, "column nullable for b");
+    assert_eq!(table_t.columns[2].name, "c", "column name");
+    assert_eq!(table_t.columns[2].sql_type, "text", "column sql_type for c");
+    assert!(!table_t.columns[2].nullable, "column nullable for c");
 }
 
 #[test]
@@ -875,6 +1011,38 @@ fn test_constraints_unique() {
 }
 
 #[test]
+fn test_create_table_as_select() {
+    // From: testing_data/catalog/create_table/19_create_table_as_select.json
+    // "CREATE TABLE ... AS SELECT must register the query's projected columns, not a zero-column table"
+    let schema_sql = &[
+        "CREATE TABLE base (id integer NOT NULL, name text NOT NULL)",
+        "CREATE TABLE derived AS SELECT id, name FROM base",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: base
+    let table_base = catalog.get_table("base").expect("table base should exist");
+    assert_eq!(table_base.columns.len(), 2, "column count for table base");
+    assert_eq!(table_base.columns[0].name, "id", "column name");
+    assert_eq!(table_base.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_base.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_base.columns[1].name, "name", "column name");
+    assert_eq!(table_base.columns[1].sql_type, "text", "column sql_type for name");
+    assert!(!table_base.columns[1].nullable, "column nullable for name");
+
+    // Assert table: derived
+    let table_derived = catalog.get_table("derived").expect("table derived should exist");
+    assert_eq!(table_derived.columns.len(), 2, "column count for table derived");
+    assert_eq!(table_derived.columns[0].name, "id", "column name");
+    assert_eq!(table_derived.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_derived.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_derived.columns[1].name, "name", "column name");
+    assert_eq!(table_derived.columns[1].sql_type, "text", "column sql_type for name");
+    assert!(!table_derived.columns[1].nullable, "column nullable for name");
+}
+
+#[test]
 fn test_generated_columns() {
     // From: testing_data/catalog/create_table/16_generated_columns.json
     // "GENERATED ALWAYS AS stored columns"
@@ -908,6 +1076,28 @@ fn test_generated_columns() {
     assert_eq!(table_rectangles.columns[3].name, "area", "column name");
     assert_eq!(table_rectangles.columns[3].sql_type, "real", "column sql_type for area");
     assert!(table_rectangles.columns[3].nullable, "column nullable for area");
+}
+
+#[test]
+fn test_if_not_exists_preserves_existing() {
+    // From: testing_data/catalog/create_table/20_if_not_exists_preserves_existing.json
+    // "CREATE TABLE IF NOT EXISTS on an already-registered table is a no-op, matching PostgreSQL -- it must not silently replace the existing definition, which is exactly the idiom used in idempotent migration files"
+    let schema_sql = &[
+        "CREATE TABLE u (id integer NOT NULL, a text NOT NULL)",
+        "CREATE TABLE IF NOT EXISTS u (id integer NOT NULL)",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: u
+    let table_u = catalog.get_table("u").expect("table u should exist");
+    assert_eq!(table_u.columns.len(), 2, "column count for table u");
+    assert_eq!(table_u.columns[0].name, "id", "column name");
+    assert_eq!(table_u.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_u.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_u.columns[1].name, "a", "column name");
+    assert_eq!(table_u.columns[1].sql_type, "text", "column sql_type for a");
+    assert!(!table_u.columns[1].nullable, "column nullable for a");
 }
 
 #[test]
@@ -1008,6 +1198,39 @@ fn test_multiple_tables() {
         "column sql_type for department_id"
     );
     assert!(!table_projects.columns[3].nullable, "column nullable for department_id");
+}
+
+#[test]
+fn test_quoted_primary_key() {
+    // From: testing_data/catalog/create_table/21_quoted_primary_key.json
+    // "A quoted PRIMARY KEY column name (inline, and via the pg_dump ALTER TABLE ADD CONSTRAINT form) must still match its column and apply NOT NULL -- comparing the constraint's quoted expr.to_string() against the unquoted registered name never matched"
+    let schema_sql = &[
+        "CREATE TABLE t (\"Id\" integer, note text, PRIMARY KEY (\"Id\"))",
+        "CREATE TABLE t2 (\"UserId\" integer, note text)",
+        "ALTER TABLE t2 ADD CONSTRAINT t2_pkey PRIMARY KEY (\"UserId\")",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: t
+    let table_t = catalog.get_table("t").expect("table t should exist");
+    assert_eq!(table_t.columns.len(), 2, "column count for table t");
+    assert_eq!(table_t.columns[0].name, "Id", "column name");
+    assert_eq!(table_t.columns[0].sql_type, "integer", "column sql_type for Id");
+    assert!(!table_t.columns[0].nullable, "column nullable for Id");
+    assert_eq!(table_t.columns[1].name, "note", "column name");
+    assert_eq!(table_t.columns[1].sql_type, "text", "column sql_type for note");
+    assert!(table_t.columns[1].nullable, "column nullable for note");
+
+    // Assert table: t2
+    let table_t2 = catalog.get_table("t2").expect("table t2 should exist");
+    assert_eq!(table_t2.columns.len(), 2, "column count for table t2");
+    assert_eq!(table_t2.columns[0].name, "UserId", "column name");
+    assert_eq!(table_t2.columns[0].sql_type, "integer", "column sql_type for UserId");
+    assert!(!table_t2.columns[0].nullable, "column nullable for UserId");
+    assert_eq!(table_t2.columns[1].name, "note", "column name");
+    assert_eq!(table_t2.columns[1].sql_type, "text", "column sql_type for note");
+    assert!(table_t2.columns[1].nullable, "column nullable for note");
 }
 
 #[test]
@@ -1147,15 +1370,104 @@ fn test_basic_view() {
 }
 
 #[test]
+fn test_left_join_nullability() {
+    // From: testing_data/catalog/create_view/03_left_join_nullability.json
+    // "A view over a LEFT JOIN must widen the outer side's columns to nullable, exactly as a direct query does -- the previous mini-resolver cloned base-table nullability verbatim and never inspected join kind"
+    let schema_sql = &[
+        "CREATE TABLE users (id serial PRIMARY KEY, name text NOT NULL)",
+        "CREATE TABLE profiles (id serial PRIMARY KEY, user_id integer NOT NULL, bio text NOT NULL)",
+        "CREATE VIEW user_bios AS SELECT u.id, u.name, p.bio FROM users u LEFT JOIN profiles p ON u.id = p.user_id",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: profiles
+    let table_profiles = catalog.get_table("profiles").expect("table profiles should exist");
+    assert_eq!(table_profiles.columns.len(), 3, "column count for table profiles");
+    assert_eq!(table_profiles.columns[0].name, "id", "column name");
+    assert_eq!(table_profiles.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_profiles.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_profiles.columns[1].name, "user_id", "column name");
+    assert_eq!(
+        table_profiles.columns[1].sql_type, "integer",
+        "column sql_type for user_id"
+    );
+    assert!(!table_profiles.columns[1].nullable, "column nullable for user_id");
+    assert_eq!(table_profiles.columns[2].name, "bio", "column name");
+    assert_eq!(table_profiles.columns[2].sql_type, "text", "column sql_type for bio");
+    assert!(!table_profiles.columns[2].nullable, "column nullable for bio");
+
+    // Assert table: user_bios
+    let table_user_bios = catalog.get_table("user_bios").expect("table user_bios should exist");
+    assert_eq!(table_user_bios.columns.len(), 3, "column count for table user_bios");
+    assert_eq!(table_user_bios.columns[0].name, "id", "column name");
+    assert_eq!(table_user_bios.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_user_bios.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_user_bios.columns[1].name, "name", "column name");
+    assert_eq!(table_user_bios.columns[1].sql_type, "text", "column sql_type for name");
+    assert!(!table_user_bios.columns[1].nullable, "column nullable for name");
+    assert_eq!(table_user_bios.columns[2].name, "bio", "column name");
+    assert_eq!(table_user_bios.columns[2].sql_type, "text", "column sql_type for bio");
+    assert!(table_user_bios.columns[2].nullable, "column nullable for bio");
+
+    // Assert table: users
+    let table_users = catalog.get_table("users").expect("table users should exist");
+    assert_eq!(table_users.columns.len(), 2, "column count for table users");
+    assert_eq!(table_users.columns[0].name, "id", "column name");
+    assert_eq!(table_users.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_users.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_users.columns[1].name, "name", "column name");
+    assert_eq!(table_users.columns[1].sql_type, "text", "column sql_type for name");
+    assert!(!table_users.columns[1].nullable, "column nullable for name");
+}
+
+#[test]
 fn test_materialized_view() {
     // From: testing_data/catalog/create_view/02_materialized_view.json
-    // "CREATE MATERIALIZED VIEW with aggregation query"
+    // "CREATE MATERIALIZED VIEW with an aggregation query; the view's own resolved columns are asserted too, via the same analyzer path an ordinary annotated query uses -- sum(numeric(10,2)) resolves to numeric (not a hardcoded bigint), and count(*)/sum(total) over a NOT NULL column are not nullable"
     let schema_sql = &[
         "CREATE TABLE orders (id serial PRIMARY KEY, customer_id integer NOT NULL, total numeric(10,2) NOT NULL, created_at date NOT NULL)",
         "CREATE MATERIALIZED VIEW order_summary AS SELECT customer_id, count(*) AS order_count, sum(total) AS total_spent FROM orders GROUP BY customer_id",
     ];
 
     let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: order_summary
+    let table_order_summary = catalog
+        .get_table("order_summary")
+        .expect("table order_summary should exist");
+    assert_eq!(
+        table_order_summary.columns.len(),
+        3,
+        "column count for table order_summary"
+    );
+    assert_eq!(table_order_summary.columns[0].name, "customer_id", "column name");
+    assert_eq!(
+        table_order_summary.columns[0].sql_type, "integer",
+        "column sql_type for customer_id"
+    );
+    assert!(
+        !table_order_summary.columns[0].nullable,
+        "column nullable for customer_id"
+    );
+    assert_eq!(table_order_summary.columns[1].name, "order_count", "column name");
+    assert_eq!(
+        table_order_summary.columns[1].sql_type, "bigint",
+        "column sql_type for order_count"
+    );
+    assert!(
+        !table_order_summary.columns[1].nullable,
+        "column nullable for order_count"
+    );
+    assert_eq!(table_order_summary.columns[2].name, "total_spent", "column name");
+    assert_eq!(
+        table_order_summary.columns[2].sql_type, "numeric",
+        "column sql_type for total_spent"
+    );
+    assert!(
+        table_order_summary.columns[2].nullable,
+        "column nullable for total_spent"
+    );
 
     // Assert table: orders
     let table_orders = catalog.get_table("orders").expect("table orders should exist");
@@ -1181,6 +1493,49 @@ fn test_materialized_view() {
         "column sql_type for created_at"
     );
     assert!(!table_orders.columns[3].nullable, "column nullable for created_at");
+}
+
+#[test]
+fn test_union_view() {
+    // From: testing_data/catalog/create_view/04_union_view.json
+    // "A view whose body is a UNION ALL must resolve its output columns, not register a zero-column table -- the previous mini-resolver only handled SetExpr::Select and returned an empty column list for any other query shape"
+    let schema_sql = &[
+        "CREATE TABLE a (id integer NOT NULL, v text NOT NULL)",
+        "CREATE TABLE b (id integer NOT NULL, v text NOT NULL)",
+        "CREATE VIEW ab_union AS SELECT id, v FROM a UNION ALL SELECT id, v FROM b",
+    ];
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+
+    // Assert table: a
+    let table_a = catalog.get_table("a").expect("table a should exist");
+    assert_eq!(table_a.columns.len(), 2, "column count for table a");
+    assert_eq!(table_a.columns[0].name, "id", "column name");
+    assert_eq!(table_a.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_a.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_a.columns[1].name, "v", "column name");
+    assert_eq!(table_a.columns[1].sql_type, "text", "column sql_type for v");
+    assert!(!table_a.columns[1].nullable, "column nullable for v");
+
+    // Assert table: ab_union
+    let table_ab_union = catalog.get_table("ab_union").expect("table ab_union should exist");
+    assert_eq!(table_ab_union.columns.len(), 2, "column count for table ab_union");
+    assert_eq!(table_ab_union.columns[0].name, "id", "column name");
+    assert_eq!(table_ab_union.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_ab_union.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_ab_union.columns[1].name, "v", "column name");
+    assert_eq!(table_ab_union.columns[1].sql_type, "text", "column sql_type for v");
+    assert!(!table_ab_union.columns[1].nullable, "column nullable for v");
+
+    // Assert table: b
+    let table_b = catalog.get_table("b").expect("table b should exist");
+    assert_eq!(table_b.columns.len(), 2, "column count for table b");
+    assert_eq!(table_b.columns[0].name, "id", "column name");
+    assert_eq!(table_b.columns[0].sql_type, "integer", "column sql_type for id");
+    assert!(!table_b.columns[0].nullable, "column nullable for id");
+    assert_eq!(table_b.columns[1].name, "v", "column name");
+    assert_eq!(table_b.columns[1].sql_type, "text", "column sql_type for v");
+    assert!(!table_b.columns[1].nullable, "column nullable for v");
 }
 
 #[test]

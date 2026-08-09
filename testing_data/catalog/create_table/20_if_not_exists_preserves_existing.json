@@ -1,0 +1,26 @@
+{
+  "name": "if_not_exists_preserves_existing",
+  "description": "CREATE TABLE IF NOT EXISTS on an already-registered table is a no-op, matching PostgreSQL -- it must not silently replace the existing definition, which is exactly the idiom used in idempotent migration files",
+  "category": "catalog/create_table",
+  "tags": ["if_not_exists", "idempotent"],
+  "schema_sql": [
+    "CREATE TABLE u (id integer NOT NULL, a text NOT NULL)",
+    "CREATE TABLE IF NOT EXISTS u (id integer NOT NULL)"
+  ],
+  "expected": {
+    "success": true,
+    "catalog": {
+      "tables": {
+        "u": {
+          "columns": [
+            { "name": "id", "sql_type": "integer", "nullable": false },
+            { "name": "a", "sql_type": "text", "nullable": false }
+          ]
+        }
+      },
+      "enums": {},
+      "composites": {}
+    }
+  },
+  "source": "original"
+}
