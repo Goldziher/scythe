@@ -22,8 +22,6 @@ use scythe_lint::{
 };
 
 fn run_rules(path: &str, sql: &str, dialect: &SqlDialect, catalog: &Catalog, registry: &RuleRegistry) -> Vec<Finding> {
-    use sqlparser::tokenizer::{Token, Tokenizer};
-
     let rules = registry.active_rules();
     let suppressions = SuppressionSet::parse(sql);
 
@@ -33,39 +31,11 @@ fn run_rules(path: &str, sql: &str, dialect: &SqlDialect, catalog: &Catalog, reg
         Err(_) => return Vec::new(),
     };
 
-    let n = statements.len();
-    let mut start_lines = vec![1usize; n];
-    if let Ok(tokens) = Tokenizer::new(parser_dialect.as_ref(), sql).tokenize_with_location() {
-        let mut idx = 0usize;
-        let mut recorded = false;
-        for t in &tokens {
-            let line = t.span.start.line as usize;
-            match &t.token {
-                Token::Whitespace(_) => continue,
-                Token::SemiColon => {
-                    idx += 1;
-                    recorded = false;
-                    if idx >= n {
-                        break;
-                    }
-                    continue;
-                }
-                _ => {
-                    if !recorded {
-                        start_lines[idx] = line;
-                        recorded = true;
-                    }
-                }
-            }
-        }
-    }
-
     let empty_annotations = Annotations::default();
     let empty_analyzed = AnalyzedQuery::default();
     let mut findings = Vec::new();
 
     for (stmt_idx, stmt) in statements.iter().enumerate() {
-        let stmt_line = start_lines[stmt_idx];
         let ctx = LintContext {
             sql,
             stmt,
@@ -79,7 +49,9 @@ fn run_rules(path: &str, sql: &str, dialect: &SqlDialect, catalog: &Catalog, reg
                 continue;
             }
             for violation in rule.check_query(&ctx) {
-                if !suppressions.is_empty() && suppressions.is_suppressed(&violation.rule_id, stmt_line) {
+                // `SuppressionSet` is keyed by 0-based statement index, not
+                // by source line (scythe-lint #140).
+                if !suppressions.is_empty() && suppressions.is_suppressed(&violation.rule_id, stmt_idx) {
                     continue;
                 }
                 findings.push(Finding {
