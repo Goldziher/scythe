@@ -7,7 +7,7 @@ Scythe follows [Keep a Changelog](https://keepachangelog.com/) and [Semantic Ver
 
 For the latest changes, see the [CHANGELOG.md](https://github.com/Goldziher/scythe/blob/main/CHANGELOG.md) in the repository root.
 
-## [0.14.0] - 2026-08-08
+## [0.14.0] - 2026-08-09
 
 This release checks scythe's output against something other than scythe. Nullability inference is
 measured against what live database engines actually return across all six of them. Generated files
@@ -210,6 +210,26 @@ artifact. See **Changed** for the full list.
 
 ### Changed
 
+- **The README is a front page again, and its code is checked.** It was 412 lines, 227 of them ten
+  hand-written samples of "generated" code that no tool validated — and five of the ten were wrong,
+  including a Go block still showing pre-0.14.0 field casing and typing `NUMERIC` as `*string`. It
+  now carries one Rust sample copied verbatim from committed generated output, and `README.md` is
+  in `snippet-runner`'s reference set so CI compiles it. The feature list and the language/database
+  matrix moved to the docs pages that own them.
+- **The documentation was audited against the source and corrected.** Eight claims contradicted the
+  implementation: the unknown-option rule was described as TypeScript-only; `[lint.sqruff] enabled`
+  was documented as a working toggle when nothing reads it; `[lint.sqruff.rules]` was documented as
+  the opposite of the allowlist it actually builds; `--dialect` on `lint`/`fmt` was described as
+  unset; the crate table omitted `audit` and `inspect`; the `db_type` example could never match;
+  and `[sql.gen.python|typescript|go|kotlin]` were supported but undocumented. Per-language backend
+  pages replace the combined Java/Kotlin page and the "Other" grab-bag, with the old URLs kept as
+  stubs.
+- **`llms.txt` generation no longer destroys the code samples.** `minify.collapseCodeBlocks` was
+  enabled, which collapses whitespace inside code fences as well as prose — so the abridged file
+  rendered the whole site as 258 lines with every sample unparseable. It is off; the changelog and
+  Starlight's anchor markup (22% of the corpus between them) are excluded; and `llms.txt` now
+  carries the facts a model gets wrong by default, above all that the annotation syntax is not
+  sqlc's. Backends, databases and guide are addressable as separate sets.
 - **Generated-code tool validation reports a skipped checker as a skip, not a pass.**
   `validate_with_tools` returned `Option<Vec<String>>`, where `None` meant "tool not installed" and
   every call site spelled `if let Some(errors)` — so a checker that was never installed was
@@ -271,6 +291,18 @@ artifact. See **Changed** for the full list.
 
 ### Fixed
 
+- **`[sql.gen.rust] serde` and `derive` failed on three of the four Rust backends.** Both keys are
+  documented on the legacy table independently of `target`, and the CLI puts them into the options
+  map whichever backend was selected — but only `rust-tokio-postgres` recognized them.
+  `rust-sqlx` accepted `structs_only` alone, and `rust-tiberius` and `rust-sibyl` declared no
+  options at all, so the reject-by-default trait default turned the documented config into
+  `unknown option 'serde'`. All four now accept both keys. Emitted output is unchanged when neither
+  is set.
+- **`scythe audit --list-rules` under-reported the rule set by two.** It printed 56 rules against a
+  registry of 58, and `--explain SC-A02` reported no such rule. Both built their catalog from the
+  active-rule set, which drops anything resolving to `off` — correct for deciding what runs, wrong
+  for a catalog. `SC-A02` and `SC-C01` are off by default but are registered rules a user can
+  enable, and they now appear with their `off` severity. What actually fires is unchanged.
 - **The schema fingerprint could report drift that was not real, and miss a change that was.**
   Schema-qualifier stripping was gated on PostgreSQL although `Catalog::get_table` is dialect-blind,
   and it stripped only `public.` where `get_table` strips any prefix, so `myschema.users` and
