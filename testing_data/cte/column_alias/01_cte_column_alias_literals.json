@@ -1,0 +1,29 @@
+{
+  "category": "cte/column_alias",
+  "description": "CTE with an explicit column alias list over a literal-only projection: the aliases must name the columns instead of the body's placeholder 'unknown' names",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "a",
+          "nullable": false,
+          "type": "int64"
+        },
+        {
+          "name": "b",
+          "nullable": false,
+          "type": "int64"
+        }
+      ],
+      "command": "many",
+      "name": "GetPair",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "cte_column_alias_literals",
+  "query_sql": "-- @name GetPair\n-- @returns :many\nWITH t(a, b) AS (SELECT 1, 2) SELECT * FROM t",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL)"],
+  "source": "original",
+  "tags": ["cte", "column_alias", "regression"]
+}

@@ -1333,4 +1333,86 @@ SELECT json_agg(p.*) AS posts FROM posts p;",
 
         assert_eq!(result.nested_structs.len(), 1);
     }
+
+    /// The explicit column alias list on a CTE (`WITH t(a, b) AS ...`) must
+    /// name the CTE's columns even when the body projection carries no names
+    /// of its own — `SELECT 1` otherwise labels its column "unknown" and the
+    /// outer query's `SELECT a, b` fails with "column a does not exist".
+    #[test]
+    fn test_cte_column_alias_list_names_literal_columns() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetPair
+-- @returns :many
+WITH t(a, b) AS (SELECT 1, 2) SELECT a, b FROM t;",
+        )
+        .unwrap();
+
+        let result = analyze(&catalog, &query).unwrap();
+
+        let names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["a", "b"]);
+        assert!(result.columns.iter().all(|c| c.neutral_type == "int64"));
+    }
+
+    /// `SELECT *` over a CTE with an explicit column alias list expands to the
+    /// aliased names, not the body's inferred ones.
+    #[test]
+    fn test_cte_column_alias_list_consumed_by_select_star() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetPairStar
+-- @returns :many
+WITH t(a, b) AS (SELECT 1, 2) SELECT * FROM t;",
+        )
+        .unwrap();
+
+        let result = analyze(&catalog, &query).unwrap();
+
+        let names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["a", "b"]);
+    }
+
+    /// A CTE column alias list whose entry count disagrees with the body's
+    /// column count is a hard error (PostgreSQL rejects it too), not a
+    /// positional guess.
+    #[test]
+    fn test_cte_column_alias_count_mismatch_is_rejected() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetMismatch
+-- @returns :many
+WITH t(a) AS (SELECT 1, 2) SELECT * FROM t;",
+        )
+        .unwrap();
+
+        let err = analyze(&catalog, &query).unwrap_err();
+
+        assert!(
+            err.message
+                .contains("CTE column alias list has 1 entries but the CTE body produces 2 columns"),
+            "expected a column-alias-count diagnostic, got: {}",
+            err.message
+        );
+    }
+
+    /// Recursive CTEs resolve column references by name, so the alias list
+    /// must also apply to the anchor's seeded scope — `t(n)` must make `n`
+    /// referenceable inside the recursive term and in the outer query.
+    #[test]
+    fn test_recursive_cte_with_column_alias_list_names_columns() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name CountDown
+-- @returns :many
+WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 10) SELECT n FROM t;",
+        )
+        .unwrap();
+
+        let result = analyze(&catalog, &query).unwrap();
+
+        let names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
+        assert_eq!(names, ["n"]);
+        assert_eq!(result.columns[0].neutral_type, "int64");
+    }
 }

@@ -6,6 +6,30 @@ use crate::errors::ScytheError;
 use super::helpers::*;
 use super::types::*;
 
+/// Overwrite a CTE body's inferred output column names with the CTE's explicit
+/// column alias list (`WITH t(a, b) AS ...`). A body projection that carries
+/// no names of its own — e.g. `SELECT 1` — otherwise names its columns
+/// "unknown". PostgreSQL requires the alias count to match the body's column
+/// count, so a mismatch is a hard error rather than a positional guess.
+fn apply_cte_alias_columns(
+    cte_alias: &ast::TableAlias,
+    mut cols: Vec<AnalyzedColumn>,
+) -> Result<Vec<AnalyzedColumn>, ScytheError> {
+    if cte_alias.columns.is_empty() {
+        return Ok(cols);
+    }
+    if cte_alias.columns.len() != cols.len() {
+        return Err(ScytheError::cte_column_alias_mismatch(
+            cte_alias.columns.len(),
+            cols.len(),
+        ));
+    }
+    for (col, alias) in cols.iter_mut().zip(&cte_alias.columns) {
+        col.name = alias.name.value.to_lowercase();
+    }
+    Ok(cols)
+}
+
 impl<'a> Analyzer<'a> {
     pub(super) fn analyze_statement(
         &mut self,
@@ -53,6 +77,10 @@ impl<'a> Analyzer<'a> {
                             // analyzed: seed `self.ctes` with the anchor-only shape
                             // first.
                             let base_cols = self.analyze_set_expr(left)?;
+                            // The alias list names the CTE's columns, and the
+                            // recursive term references them by name — apply it
+                            // before seeding the scope.
+                            let base_cols = apply_cte_alias_columns(&cte.alias, base_cols)?;
                             let scope_cols: Vec<ScopeColumn> = base_cols
                                 .iter()
                                 .map(|c| {
@@ -77,6 +105,10 @@ impl<'a> Analyzer<'a> {
                             // explicit NULL literal in a position the anchor fills
                             // with a NOT NULL column.
                             let full_cols = self.analyze_query(&cte.query)?;
+                            // The widened union shape takes its names from the left
+                            // arm; re-apply the alias list so the registered CTE
+                            // columns keep the declared names.
+                            let full_cols = apply_cte_alias_columns(&cte.alias, full_cols)?;
                             let widened_scope_cols: Vec<ScopeColumn> = full_cols
                                 .iter()
                                 .map(|c| {
@@ -94,6 +126,7 @@ impl<'a> Analyzer<'a> {
                     }
                 }
                 let cte_cols = self.analyze_query(&cte.query)?;
+                let cte_cols = apply_cte_alias_columns(&cte.alias, cte_cols)?;
                 let scope_cols: Vec<ScopeColumn> = cte_cols
                     .iter()
                     .map(|c| {
@@ -358,6 +391,14 @@ impl<'a> Analyzer<'a> {
 
         let mut seen_names: AHashSet<String> = AHashSet::new();
         for col in &columns {
+            // "unknown" is the placeholder name given to unaliased columns
+            // (e.g. `SELECT 1, 2` yields two of them), so several in one
+            // projection are normal rather than a genuine duplicate. A CTE
+            // column alias list replaces them when one exists; otherwise the
+            // name is left as-is. Only real, user-visible duplicates error.
+            if col.name == "unknown" {
+                continue;
+            }
             if !seen_names.insert(col.name.clone()) {
                 return Err(ScytheError::duplicate_alias(&col.name));
             }

@@ -279,6 +279,330 @@ fn test_simple_cte() {
 }
 
 #[test]
+fn test_cte_column_alias_count_mismatch() {
+    // From: testing_data/cte/column_alias/03_cte_column_alias_count_mismatch.json
+    // "CTE column alias list whose entry count disagrees with the body's column count must be rejected, matching PostgreSQL"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL)"];
+
+    let query_sql = "-- @name GetMismatch\n-- @returns :many\nWITH t(a) AS (SELECT 1, 2) SELECT * FROM t";
+
+    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
+    if let Ok(catalog) = catalog_result {
+        let query_result = scythe_core::parser::parse_query(query_sql);
+        if let Ok(query) = query_result {
+            let result = scythe_core::analyzer::analyze(&catalog, &query);
+            assert!(result.is_err(), "expected analysis to fail");
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("COLUMN_COUNT_MISMATCH"),
+                "error should contain code {:?}, got: {}",
+                "COLUMN_COUNT_MISMATCH",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("CTE column alias list has 1 entries but the CTE body produces 2 columns"),
+                "error should contain {:?}, got: {}",
+                "CTE column alias list has 1 entries but the CTE body produces 2 columns",
+                err_msg
+            );
+        } else {
+            // Parse failed -- that counts as expected failure.
+            let err = query_result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("COLUMN_COUNT_MISMATCH"),
+                "error should contain code {:?}, got: {}",
+                "COLUMN_COUNT_MISMATCH",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("CTE column alias list has 1 entries but the CTE body produces 2 columns"),
+                "error should contain {:?}, got: {}",
+                "CTE column alias list has 1 entries but the CTE body produces 2 columns",
+                err_msg
+            );
+        }
+    } else {
+        // DDL processing failed -- that counts as expected failure.
+        let err = catalog_result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("COLUMN_COUNT_MISMATCH"),
+            "error should contain code {:?}, got: {}",
+            "COLUMN_COUNT_MISMATCH",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("CTE column alias list has 1 entries but the CTE body produces 2 columns"),
+            "error should contain {:?}, got: {}",
+            "CTE column alias list has 1 entries but the CTE body produces 2 columns",
+            err_msg
+        );
+    }
+}
+
+#[test]
+fn test_cte_column_alias_literals() {
+    // From: testing_data/cte/column_alias/01_cte_column_alias_literals.json
+    // "CTE with an explicit column alias list over a literal-only projection: the aliases must name the columns instead of the body's placeholder 'unknown' names"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL)"];
+
+    let query_sql = "-- @name GetPair\n-- @returns :many\nWITH t(a, b) AS (SELECT 1, 2) SELECT * FROM t";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetPair", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 2, "column count");
+    assert_eq!(analyzed.columns[0].name, "a", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "int64", "column neutral_type for a");
+    assert!(!analyzed.columns[0].nullable, "column nullable for a");
+    assert_eq!(analyzed.columns[1].name, "b", "column name");
+    assert_eq!(analyzed.columns[1].neutral_type, "int64", "column neutral_type for b");
+    assert!(!analyzed.columns[1].nullable, "column nullable for b");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
+            let header = backend.file_header();
+            let mut body = String::new();
+            if header.is_empty() {
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
+            } else {
+                body.push_str(&header);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.enum_def {
+                body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                body.push_str(s);
+                body.push('\n');
+            }
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "cte_column_alias_literals"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "cte_column_alias_literals",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "cte_column_alias_literals"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "cte_column_alias_literals"
+            );
+        }
+    }
+}
+
+#[test]
+fn test_cte_column_alias_renames_table_columns() {
+    // From: testing_data/cte/column_alias/02_cte_column_alias_renames_table_columns.json
+    // "CTE column alias list that renames the body's inferred columns: the outer query must see the aliased names"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL)"];
+
+    let query_sql = "-- @name GetRenamedColumns\n-- @returns :many\nWITH t(user_id, full_name) AS (SELECT id, name FROM users) SELECT user_id, full_name FROM t";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetRenamedColumns", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.columns.len(), 2, "column count");
+    assert_eq!(analyzed.columns[0].name, "user_id", "column name");
+    assert_eq!(
+        analyzed.columns[0].neutral_type, "int32",
+        "column neutral_type for user_id"
+    );
+    assert!(!analyzed.columns[0].nullable, "column nullable for user_id");
+    assert_eq!(analyzed.columns[1].name, "full_name", "column name");
+    assert_eq!(
+        analyzed.columns[1].neutral_type, "string",
+        "column neutral_type for full_name"
+    );
+    assert!(!analyzed.columns[1].nullable, "column nullable for full_name");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
+            let header = backend.file_header();
+            let mut body = String::new();
+            if header.is_empty() {
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
+            } else {
+                body.push_str(&header);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.enum_def {
+                body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                body.push_str(s);
+                body.push('\n');
+            }
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "cte_column_alias_renames_table_columns"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "cte_column_alias_renames_table_columns",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "cte_column_alias_renames_table_columns"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "cte_column_alias_renames_table_columns"
+            );
+        }
+    }
+}
+
+#[test]
 fn test_cte_delete() {
     // From: testing_data/cte/cte_in_dml/03_cte_delete.json
     // "CTE used with DELETE ... USING for targeted deletes"
