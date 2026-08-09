@@ -122,12 +122,187 @@ pub(crate) fn engine_supports_nested_aggregates(engine: &str) -> bool {
     matches!(engine, "postgresql" | "postgres" | "pg")
 }
 
+/// A classified span of SQL text produced by [`tokenize_sql`].
+///
+/// One lexer pass drives both comment-stripping (`clean_sql`,
+/// `clean_sql_oneline`) and placeholder-rewriting (`rewrite_pg_placeholders`)
+/// -- see #186 and #148, where two independent character scanners each got
+/// string/comment handling wrong in a different way. `Code` spans are the
+/// only spans either consumer may rewrite; every other span is opaque SQL
+/// text that must be reproduced byte-for-byte (module the caller's own
+/// whitespace joining).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum SqlSpanKind {
+    /// Ordinary SQL: identifiers, keywords, operators, placeholders.
+    Code,
+    /// A `'...'` string literal, with `''` as the escape for an embedded quote.
+    SingleQuoted,
+    /// A `"..."` quoted identifier, with `""` as the escape for an embedded quote.
+    DoubleQuoted,
+    /// A PostgreSQL `$$...$$` or `$tag$...$tag$` dollar-quoted string.
+    DollarQuoted,
+    /// A `-- ...` comment, running to end of line (the newline itself is not
+    /// part of the span).
+    LineComment,
+    /// A `/* ... */` comment. PostgreSQL nests these, so this tracks nesting
+    /// depth; an unterminated comment consumes to end of input.
+    BlockComment,
+}
+
+/// Tokenize `sql` into a sequence of classified spans whose text
+/// concatenates back to exactly `sql`.
+///
+/// This is the single source of truth for "is this character part of a
+/// string/identifier/comment, or is it live SQL". Dialect-specific lexical
+/// forms that would require knowing the target engine (MySQL backtick
+/// identifiers and `#` comments, MSSQL `[bracketed]` identifiers) are
+/// deliberately not handled here: none of these functions are told which
+/// engine produced the SQL, and guessing from the text alone is unsafe --
+/// `#` in particular collides with PostgreSQL's `#>`/`#>>` JSON operators.
+/// Handling those dialects needs the caller to pass an explicit engine/
+/// dialect value through to this module; until that plumbing exists, this
+/// lexer only recognizes the ANSI-ish subset (`'...'`, `"..."`, `$$...$$`,
+/// `--`, `/* */`) that is safe across every engine this crate targets.
+fn tokenize_sql(sql: &str) -> Vec<(SqlSpanKind, String)> {
+    let chars: Vec<char> = sql.chars().collect();
+    let len = chars.len();
+    let mut spans: Vec<(SqlSpanKind, String)> = Vec::new();
+    let mut code_buf = String::new();
+    let mut i = 0;
+
+    while i < len {
+        let c = chars[i];
+
+        if c == '-' && i + 1 < len && chars[i + 1] == '-' {
+            flush_code_buf(&mut code_buf, &mut spans);
+            let start = i;
+            i += 2;
+            while i < len && chars[i] != '\n' {
+                i += 1;
+            }
+            spans.push((SqlSpanKind::LineComment, chars[start..i].iter().collect()));
+            continue;
+        }
+
+        if c == '/' && i + 1 < len && chars[i + 1] == '*' {
+            flush_code_buf(&mut code_buf, &mut spans);
+            let start = i;
+            i += 2;
+            let mut depth = 1u32;
+            while i < len && depth > 0 {
+                if chars[i] == '/' && i + 1 < len && chars[i + 1] == '*' {
+                    depth += 1;
+                    i += 2;
+                } else if chars[i] == '*' && i + 1 < len && chars[i + 1] == '/' {
+                    depth -= 1;
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+            }
+            spans.push((SqlSpanKind::BlockComment, chars[start..i].iter().collect()));
+            continue;
+        }
+
+        if c == '\'' {
+            flush_code_buf(&mut code_buf, &mut spans);
+            let start = i;
+            i += 1;
+            while i < len {
+                if chars[i] == '\'' {
+                    if i + 1 < len && chars[i + 1] == '\'' {
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            spans.push((SqlSpanKind::SingleQuoted, chars[start..i].iter().collect()));
+            continue;
+        }
+
+        if c == '"' {
+            flush_code_buf(&mut code_buf, &mut spans);
+            let start = i;
+            i += 1;
+            while i < len {
+                if chars[i] == '"' {
+                    if i + 1 < len && chars[i + 1] == '"' {
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            spans.push((SqlSpanKind::DoubleQuoted, chars[start..i].iter().collect()));
+            continue;
+        }
+
+        if c == '$'
+            && let Some(open_end) = match_dollar_quote_open(&chars, i)
+        {
+            flush_code_buf(&mut code_buf, &mut spans);
+            let start = i;
+            let delim: Vec<char> = chars[i..open_end].to_vec();
+            let mut j = open_end;
+            let mut found = false;
+            while j < len {
+                if chars[j] == '$' && j + delim.len() <= len && chars[j..j + delim.len()] == delim[..] {
+                    j += delim.len();
+                    found = true;
+                    break;
+                }
+                j += 1;
+            }
+            if !found {
+                j = len;
+            }
+            spans.push((SqlSpanKind::DollarQuoted, chars[start..j].iter().collect()));
+            i = j;
+            continue;
+        }
+
+        code_buf.push(c);
+        i += 1;
+    }
+
+    flush_code_buf(&mut code_buf, &mut spans);
+    spans
+}
+
+fn flush_code_buf(code_buf: &mut String, spans: &mut Vec<(SqlSpanKind, String)>) {
+    if !code_buf.is_empty() {
+        spans.push((SqlSpanKind::Code, std::mem::take(code_buf)));
+    }
+}
+
+/// If `chars[i]` (a `$`) opens a dollar-quote delimiter (`$$` or `$tag$`),
+/// return the index just past the opening delimiter. A tag follows SQL
+/// identifier rules (must not start with a digit), which is exactly what
+/// keeps this from misfiring on a `$1`-style placeholder.
+fn match_dollar_quote_open(chars: &[char], i: usize) -> Option<usize> {
+    let mut j = i + 1;
+    if j < chars.len() && chars[j] == '$' {
+        return Some(j + 1);
+    }
+    let tag_start = j;
+    while j < chars.len() && (chars[j].is_alphanumeric() || chars[j] == '_') {
+        j += 1;
+    }
+    if j > tag_start && j < chars.len() && chars[j] == '$' && !chars[tag_start].is_ascii_digit() {
+        return Some(j + 1);
+    }
+    None
+}
+
 /// Strip SQL comments, trailing semicolons, and excess whitespace.
 /// Preserves newlines between lines.
 pub(crate) fn clean_sql(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
+    clean_sql_lines(sql)
         .join("\n")
         .trim()
         .trim_end_matches(';')
@@ -137,14 +312,55 @@ pub(crate) fn clean_sql(sql: &str) -> String {
 
 /// Like clean_sql but joins lines with spaces (for languages that embed SQL inline).
 pub(crate) fn clean_sql_oneline(sql: &str) -> String {
-    sql.lines()
-        .filter(|line| !line.trim_start().starts_with("--"))
-        .collect::<Vec<_>>()
+    clean_sql_lines(sql)
         .join(" ")
         .trim()
         .trim_end_matches(';')
         .trim()
         .to_string()
+}
+
+/// Split `sql` into lines with every comment (`--` and `/* */`, string- and
+/// dollar-quote-aware) removed, dropping any line whose content was entirely
+/// a comment.
+///
+/// A line is dropped only when a comment is what emptied it -- a line that
+/// was already blank in the source (no comment token touched it) is kept,
+/// matching the previous behaviour of the naive `starts_with("--")` filter
+/// for every case that filter got right. This is what lets a mid-line
+/// trailing comment (#148) be stripped without deleting the rest of the
+/// query, while a `-- @name Foo` header line still disappears instead of
+/// leaving a blank line behind (every generated fixture depends on that).
+fn clean_sql_lines(sql: &str) -> Vec<String> {
+    let normalized = sql.replace("\r\n", "\n");
+    let spans = tokenize_sql(&normalized);
+
+    let mut lines: Vec<String> = vec![String::new()];
+    let mut touched_by_comment: Vec<bool> = vec![false];
+
+    for (kind, text) in &spans {
+        let is_comment = matches!(kind, SqlSpanKind::LineComment | SqlSpanKind::BlockComment);
+        for ch in text.chars() {
+            if ch == '\n' {
+                if is_comment {
+                    *touched_by_comment.last_mut().expect("at least one line") = true;
+                }
+                lines.push(String::new());
+                touched_by_comment.push(false);
+            } else if is_comment {
+                *touched_by_comment.last_mut().expect("at least one line") = true;
+            } else {
+                lines.last_mut().expect("at least one line").push(ch);
+            }
+        }
+    }
+
+    lines
+        .into_iter()
+        .zip(touched_by_comment)
+        .filter(|(kept, touched)| !(*touched && kept.trim().is_empty()))
+        .map(|(kept, _)| kept)
+        .collect()
 }
 
 /// Rewrite SQL for optional parameters.
@@ -167,7 +383,23 @@ pub(crate) fn rewrite_optional_params(sql: &str, optional_params: &[String], par
         };
         let placeholder = format!("${}", param.position);
 
-        for op in &[">=", "<=", "<>", "!=", ">", "<", "=", "ILIKE", "ilike", "LIKE", "like"] {
+        for op in &[
+            ">=",
+            "<=",
+            "<>",
+            "!=",
+            ">",
+            "<",
+            "=",
+            "NOT ILIKE",
+            "not ilike",
+            "NOT LIKE",
+            "not like",
+            "ILIKE",
+            "ilike",
+            "LIKE",
+            "like",
+        ] {
             result = rewrite_comparison(&result, &placeholder, op);
         }
     }
@@ -203,6 +435,50 @@ fn rewrite_comparison(sql: &str, placeholder: &str, op: &str) -> String {
     result
 }
 
+/// Keywords that `is_ident_char` would happily scan as a column name but
+/// that can never actually be one in this position. Without this check, a
+/// compound operator like `NOT LIKE` gets misread: the scanner captures
+/// `NOT` as "the column" and matches `LIKE` as "the operator", producing
+/// `col NOT ($N IS NULL OR LIKE $N)` -- invalid SQL that silently drops the
+/// real column (#186 item 3). This also guards against a second rewrite
+/// pass (e.g. plain `LIKE` running after `NOT LIKE` already matched) seeing
+/// the literal word `NOT` it just emitted and matching on that.
+fn is_reserved_non_column_keyword(ident: &str) -> bool {
+    matches!(
+        ident.to_ascii_uppercase().as_str(),
+        "NOT" | "AND" | "OR" | "IS" | "NULL"
+    )
+}
+
+/// Match `op`, split on whitespace, against `chars` starting at `j`,
+/// tolerating any amount of whitespace between words of a compound operator
+/// (`NOT LIKE`, `NOT ILIKE`). Single-word operators degenerate to an exact
+/// literal match, same as before. Returns the index just past the match.
+fn match_op_tokens(chars: &[char], mut j: usize, op: &str) -> Option<usize> {
+    for (idx, word) in op.split_whitespace().enumerate() {
+        if idx > 0 {
+            let ws_start = j;
+            while j < chars.len() && chars[j].is_whitespace() {
+                j += 1;
+            }
+            if j == ws_start {
+                return None;
+            }
+        }
+        let word_chars: Vec<char> = word.chars().collect();
+        if j + word_chars.len() > chars.len() {
+            return None;
+        }
+        for (k, wc) in word_chars.iter().enumerate() {
+            if chars[j + k] != *wc {
+                return None;
+            }
+        }
+        j += word_chars.len();
+    }
+    Some(j)
+}
+
 /// Try to match `identifier <ws>* <op> <ws>* placeholder` starting at position `i`.
 /// Returns `(match_start, column_name, match_end)` if found.
 fn try_match_col_op_ph(chars: &[char], i: usize, op: &str, placeholder: &str) -> Option<(usize, String, usize)> {
@@ -219,21 +495,15 @@ fn try_match_col_op_ph(chars: &[char], i: usize, op: &str, placeholder: &str) ->
         j += 1;
     }
     let ident: String = chars[ident_start..j].iter().collect();
+    if is_reserved_non_column_keyword(&ident) {
+        return None;
+    }
 
     while j < chars.len() && chars[j].is_whitespace() {
         j += 1;
     }
 
-    let op_chars: Vec<char> = op.chars().collect();
-    if j + op_chars.len() > chars.len() {
-        return None;
-    }
-    for (k, oc) in op_chars.iter().enumerate() {
-        if chars[j + k] != *oc {
-            return None;
-        }
-    }
-    j += op_chars.len();
+    j = match_op_tokens(chars, j, op)?;
 
     while j < chars.len() && chars[j].is_whitespace() {
         j += 1;
@@ -284,16 +554,7 @@ fn try_match_ph_op_col(chars: &[char], i: usize, op: &str, placeholder: &str) ->
         j += 1;
     }
 
-    let op_chars: Vec<char> = op.chars().collect();
-    if j + op_chars.len() > chars.len() {
-        return None;
-    }
-    for (k, oc) in op_chars.iter().enumerate() {
-        if chars[j + k] != *oc {
-            return None;
-        }
-    }
-    j += op_chars.len();
+    j = match_op_tokens(chars, j, op)?;
 
     while j < chars.len() && chars[j].is_whitespace() {
         j += 1;
@@ -308,7 +569,7 @@ fn try_match_ph_op_col(chars: &[char], i: usize, op: &str, placeholder: &str) ->
     }
     let ident: String = chars[ident_start..j].iter().collect();
 
-    if ident == "NULL" {
+    if is_reserved_non_column_keyword(&ident) {
         return None;
     }
 
@@ -335,47 +596,129 @@ fn is_ident_char(c: char) -> bool {
     c.is_alphanumeric() || c == '_' || c == '.'
 }
 
-/// Rewrite PostgreSQL `$1, $2, ...` positional placeholders to a target format.
 /// Rewrite SQL placeholders (`$N` or `?`) to a target format.
-/// Skips placeholders inside single-quoted SQL string literals.
-/// The `formatter` closure receives the parameter number (1-based) and returns the replacement.
-/// Handles both PostgreSQL `$N` and positional `?` placeholders.
+///
+/// Skips placeholders inside single-/double-quoted and dollar-quoted spans,
+/// and inside comments (see [`tokenize_sql`]). The `formatter` closure
+/// receives the parameter number (1-based) and returns the replacement.
+///
+/// A query uses exactly one placeholder style: PostgreSQL/Redshift/
+/// CockroachDB SQL always uses `$N` (the core parser normalizes MySQL's
+/// bare `?`, and rewrites Oracle `:N`/MSSQL `@pN` to bare `?`, before this
+/// function ever sees the SQL). Whether the *current* query is `$N`-style is
+/// therefore determined by scanning the code spans for a `$`-followed-by-
+/// digit occurrence: if one exists, a bare `?` is left untouched, because on
+/// a `$N`-style (PostgreSQL-family) query a bare `?` can only be the JSONB
+/// `?` key-existence operator, never a placeholder (#186). Otherwise a bare
+/// `?` not immediately followed by a digit is treated as a sequential
+/// positional placeholder, matching every non-PostgreSQL caller's existing
+/// behaviour.
+///
+/// `?|`, `?&`, `?-`, `?-|`, `?||`, and `@?` are multi-character PostgreSQL
+/// operators (JSONB key/path existence, geometric comparisons) that are
+/// **never** valid placeholder syntax in any dialect this crate targets, so
+/// [`rewrite_code_span_placeholders`] recognizes and skips them unconditionally
+/// -- independent of the `$N` heuristic above, and correct even for a
+/// zero-placeholder query that has no `$N` to anchor that heuristic on.
 pub(crate) fn rewrite_pg_placeholders(sql: &str, formatter: impl Fn(u32) -> String) -> String {
+    let spans = tokenize_sql(sql);
+    let uses_dollar_placeholders = spans
+        .iter()
+        .any(|(kind, text)| *kind == SqlSpanKind::Code && code_span_has_dollar_number(text));
+
     let mut result = String::with_capacity(sql.len());
-    let mut chars = sql.chars().peekable();
     let mut positional_counter: u32 = 0;
-    while let Some(ch) = chars.next() {
-        if ch == '\'' {
-            result.push(ch);
-            while let Some(inner) = chars.next() {
-                result.push(inner);
-                if inner == '\'' {
-                    if chars.peek() == Some(&'\'') {
-                        result.push(chars.next().unwrap());
-                    } else {
-                        break;
-                    }
-                }
-            }
-        } else if ch == '$' {
-            if chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                let mut num_str = String::new();
-                while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    num_str.push(chars.next().unwrap());
-                }
-                let num: u32 = num_str.parse().unwrap_or(0);
-                result.push_str(&formatter(num));
-            } else {
-                result.push(ch);
-            }
-        } else if ch == '?' && !chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-            positional_counter += 1;
-            result.push_str(&formatter(positional_counter));
+    for (kind, text) in &spans {
+        if *kind == SqlSpanKind::Code {
+            rewrite_code_span_placeholders(
+                text,
+                uses_dollar_placeholders,
+                &formatter,
+                &mut positional_counter,
+                &mut result,
+            );
         } else {
-            result.push(ch);
+            result.push_str(text);
         }
     }
     result
+}
+
+/// Whether `text` (a `Code`-span substring, guaranteed free of strings and
+/// comments) contains a `$` immediately followed by an ASCII digit.
+fn code_span_has_dollar_number(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    (0..chars.len()).any(|i| chars[i] == '$' && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit()))
+}
+
+/// Multi-character PostgreSQL operators built on `?` or `@?` that are never
+/// placeholder syntax in any dialect this crate targets -- JSONB key-array
+/// existence (`?|`, `?&`) and jsonpath existence (`@?`), plus the geometric
+/// comparison operators (`?-`, `?-|`, `?||`). Longer operators are listed
+/// before the shorter operators they prefix (`?-|` before `?-`, `?||` before
+/// `?|`) so the greedy match in [`match_unambiguous_operator`] picks the
+/// longest one, not "the first two characters".
+const UNAMBIGUOUS_OPERATORS: [&str; 6] = ["?-|", "?||", "?|", "?&", "?-", "@?"];
+
+/// If `chars[i..]` starts with one of [`UNAMBIGUOUS_OPERATORS`], return its
+/// length so the caller can copy it through untouched.
+fn match_unambiguous_operator(chars: &[char], i: usize) -> Option<usize> {
+    UNAMBIGUOUS_OPERATORS.iter().find_map(|op| {
+        let op_chars: Vec<char> = op.chars().collect();
+        let end = i + op_chars.len();
+        (end <= chars.len() && chars[i..end] == op_chars[..]).then_some(op_chars.len())
+    })
+}
+
+/// Rewrite `$N` and (when `uses_dollar_placeholders` is false) bare `?`
+/// placeholders within a single `Code` span, appending the result to `out`
+/// and advancing `counter` for each `?` consumed.
+///
+/// A lone `?` between two expressions is genuinely ambiguous without dialect
+/// information -- it is a positional placeholder on `?`-style engines and
+/// PostgreSQL's JSONB key-existence operator on `$N`-style engines -- so it
+/// stays governed by the `uses_dollar_placeholders` heuristic and can still
+/// misfire on a zero-placeholder PostgreSQL query that uses bare `?` (no
+/// `$N` present to detect the dialect from). The multi-character operators
+/// in [`UNAMBIGUOUS_OPERATORS`] have no such ambiguity and are always passed
+/// through, regardless of that heuristic.
+fn rewrite_code_span_placeholders(
+    text: &str,
+    uses_dollar_placeholders: bool,
+    formatter: &impl Fn(u32) -> String,
+    counter: &mut u32,
+    out: &mut String,
+) {
+    let chars: Vec<char> = text.chars().collect();
+    let len = chars.len();
+    let mut i = 0;
+    while i < len {
+        if let Some(op_len) = match_unambiguous_operator(&chars, i) {
+            out.extend(&chars[i..i + op_len]);
+            i += op_len;
+            continue;
+        }
+
+        let ch = chars[i];
+        if ch == '$' && chars.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
+            let mut j = i + 1;
+            let mut num_str = String::new();
+            while j < len && chars[j].is_ascii_digit() {
+                num_str.push(chars[j]);
+                j += 1;
+            }
+            let num: u32 = num_str.parse().unwrap_or(0);
+            out.push_str(&formatter(num));
+            i = j;
+        } else if ch == '?' && !uses_dollar_placeholders && !chars.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
+            *counter += 1;
+            out.push_str(&formatter(*counter));
+            i += 1;
+        } else {
+            out.push(ch);
+            i += 1;
+        }
+    }
 }
 
 /// Get a backend by name and database engine.
@@ -807,5 +1150,191 @@ mod tests {
                 result.err()
             );
         }
+    }
+
+    // -----------------------------------------------------------------
+    // SQL lexer / rewriting tests (#148, #186, #149-adjacent).
+    //
+    // These pin down the behaviour of `clean_sql`, `clean_sql_oneline`, and
+    // `rewrite_pg_placeholders` against a real SQL lexer instead of the
+    // character-scanning implementation these functions previously had.
+    // Written before the lexer existed, to prove each defect is real.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn test_clean_sql_oneline_strips_mid_line_comment_but_keeps_rest_of_query() {
+        let sql = "SELECT id, name\nFROM users\nWHERE id > $1 -- skip low ids\n  AND name IS NOT NULL;";
+        let result = clean_sql_oneline(sql);
+        assert!(
+            result.contains("AND name IS NOT NULL"),
+            "mid-line comment must not swallow the rest of the query, got: {result:?}"
+        );
+        assert!(
+            !result.contains("--"),
+            "comment marker must be stripped, got: {result:?}"
+        );
+    }
+
+    #[test]
+    fn test_clean_sql_strips_mid_line_comment_but_keeps_rest_of_query() {
+        let sql = "SELECT id\nFROM users\nWHERE id > $1 -- skip low ids\nAND active = true;";
+        let result = clean_sql(sql);
+        assert!(result.contains("AND active = true"), "got: {result:?}");
+        assert!(!result.contains("--"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_clean_sql_preserves_double_dash_inside_single_quoted_string() {
+        let sql = "SELECT * FROM t WHERE label = 'a -- not a comment' AND id = $1;";
+        let result = clean_sql_oneline(sql);
+        assert!(result.contains("'a -- not a comment'"), "got: {result:?}");
+        assert!(result.contains("id = $1"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_clean_sql_preserves_double_dash_inside_double_quoted_identifier() {
+        let sql = "SELECT \"weird--col\" FROM t WHERE id = $1;";
+        let result = clean_sql_oneline(sql);
+        assert!(result.contains("\"weird--col\""), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_clean_sql_preserves_double_dash_inside_dollar_quoted_string() {
+        let sql = "SELECT $$has -- inside$$ AS x FROM t WHERE id = $1;";
+        let result = clean_sql_oneline(sql);
+        assert!(result.contains("$$has -- inside$$"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_clean_sql_strips_nested_block_comments() {
+        let sql = "SELECT id /* outer /* inner */ still outer */ FROM t WHERE id = $1;";
+        let result = clean_sql_oneline(sql);
+        assert!(!result.contains("outer"), "got: {result:?}");
+        assert!(!result.contains("inner"), "got: {result:?}");
+        assert!(result.contains("SELECT id"), "got: {result:?}");
+        assert!(result.contains("FROM t WHERE id = $1"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_clean_sql_unterminated_block_comment_consumes_to_end_without_panicking() {
+        let sql = "SELECT id FROM t /* oops forgot to close";
+        let result = clean_sql_oneline(sql);
+        assert_eq!(result, "SELECT id FROM t");
+    }
+
+    #[test]
+    fn test_clean_sql_drops_lines_that_are_only_a_header_comment() {
+        // Regression guard: header comment lines (`-- @name ...`) must be
+        // deleted entirely, not replaced by a blank line -- every generated
+        // fixture depends on this.
+        let sql = "-- @name Foo\n-- @returns :many\nSELECT id FROM t WHERE id = $1;";
+        let result = clean_sql(sql);
+        assert_eq!(result, "SELECT id FROM t WHERE id = $1");
+    }
+
+    #[test]
+    fn test_rewrite_pg_placeholders_preserves_dollar_quoted_body() {
+        let sql =
+            "SELECT id FROM t WHERE body = $$literal -- not comment, ' quote, $1 not a placeholder$$ AND id = $2;";
+        let result = rewrite_pg_placeholders(sql, |n| format!("@p{n}"));
+        assert!(
+            result.contains("$$literal -- not comment, ' quote, $1 not a placeholder$$"),
+            "dollar-quoted body must survive untouched, got: {result:?}"
+        );
+        assert!(result.contains("id = @p2"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_rewrite_pg_placeholders_handles_escaped_single_quotes() {
+        let sql = "SELECT id FROM t WHERE label = 'it''s $1 not a placeholder' AND id = $2;";
+        let result = rewrite_pg_placeholders(sql, |n| format!("@p{n}"));
+        assert!(result.contains("'it''s $1 not a placeholder'"), "got: {result:?}");
+        assert!(result.contains("id = @p2"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_rewrite_pg_placeholders_preserves_jsonb_operators() {
+        let sql = "SELECT id FROM docs WHERE data ? 'mykey' AND tags ?| array['a','b'] AND tags ?& array['a','b'] AND id = $1;";
+        let result = rewrite_pg_placeholders(sql, |n| format!("@p{n}"));
+        assert!(result.contains("data ? 'mykey'"), "got: {result:?}");
+        assert!(result.contains("tags ?| array"), "got: {result:?}");
+        assert!(result.contains("tags ?& array"), "got: {result:?}");
+        assert!(result.contains("id = @p1"), "got: {result:?}");
+    }
+
+    /// Coordinator repro: a JSONB query with *zero* `$N` placeholders, so the
+    /// `uses_dollar_placeholders` heuristic has nothing to anchor on. `?|`
+    /// and `?&` are unambiguous -- never placeholder syntax in any dialect
+    /// this crate targets -- so they must survive regardless of that
+    /// heuristic. The bare `?` (`data ? 'active'`) is genuinely ambiguous
+    /// without dialect information and is intentionally still rewritten
+    /// here; see the residual-limitation comment on
+    /// `rewrite_code_span_placeholders`.
+    #[test]
+    fn test_rewrite_pg_placeholders_preserves_jsonb_multi_char_operators_with_zero_dollar_placeholders() {
+        let sql = "SELECT * FROM docs WHERE data ? 'active' AND tags ?| ARRAY['a'] AND meta ?& ARRAY['b']";
+        let result = rewrite_pg_placeholders(sql, |n| format!("${n}"));
+        assert!(result.contains("tags ?| ARRAY['a']"), "got: {result:?}");
+        assert!(result.contains("meta ?& ARRAY['b']"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_rewrite_pg_placeholders_preserves_geometry_operators() {
+        let sql = "SELECT id FROM shapes WHERE line1 ?- line2 AND line1 ?-| line2 AND line1 ?|| line2 AND id = $1;";
+        let result = rewrite_pg_placeholders(sql, |n| format!("@p{n}"));
+        assert!(result.contains("line1 ?- line2"), "got: {result:?}");
+        assert!(result.contains("line1 ?-| line2"), "got: {result:?}");
+        assert!(result.contains("line1 ?|| line2"), "got: {result:?}");
+        assert!(result.contains("id = @p1"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_rewrite_pg_placeholders_preserves_operators_mixed_with_dollar_placeholder() {
+        let sql = "SELECT id FROM docs WHERE tags ?| ARRAY['a'] AND doc @? '$.a' AND id = $1;";
+        let result = rewrite_pg_placeholders(sql, |n| format!("@p{n}"));
+        assert!(result.contains("tags ?| ARRAY['a']"), "got: {result:?}");
+        assert!(result.contains("doc @? '$.a'"), "got: {result:?}");
+        assert!(result.contains("id = @p1"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_rewrite_pg_placeholders_number_boundary() {
+        let sql = "SELECT $1, $10, $1x";
+        let result = rewrite_pg_placeholders(sql, |n| format!("P{n}"));
+        assert_eq!(result, "SELECT P1, P10, P1x");
+    }
+
+    #[test]
+    fn test_rewrite_pg_placeholders_ignores_question_mark_inside_string_literal() {
+        let sql = "SELECT id FROM t WHERE note = 'is this a question?' AND age > ?;";
+        let result = rewrite_pg_placeholders(sql, |n| format!("${n}"));
+        assert!(result.contains("'is this a question?'"), "got: {result:?}");
+        assert!(result.contains("age > $1"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_clean_sql_handles_non_ascii_in_comment_and_string() {
+        let sql = "SELECT name -- 名前を取得 comment\nFROM t WHERE label = 'héllo wörld' AND id = $1;";
+        let result = clean_sql_oneline(sql);
+        assert!(!result.contains('名'), "got: {result:?}");
+        assert!(result.contains("'héllo wörld'"), "got: {result:?}");
+        assert!(result.contains("id = $1"), "got: {result:?}");
+    }
+
+    #[test]
+    fn test_clean_sql_handles_crlf_line_endings() {
+        let sql = "SELECT id\r\nFROM users\r\n-- a comment\r\nWHERE id = $1;";
+        let result = clean_sql(sql);
+        assert!(!result.contains('\r'), "got: {result:?}");
+        assert!(!result.contains("-- a comment"), "got: {result:?}");
+        assert_eq!(result, "SELECT id\nFROM users\nWHERE id = $1");
+    }
+
+    #[test]
+    fn test_rewrite_optional_params_handles_not_like() {
+        let sql = "SELECT id FROM t WHERE name NOT LIKE $1";
+        let params = vec![param("name", 1)];
+        let result = rewrite_optional_params(sql, &["name".to_string()], &params);
+        assert_eq!(result, "SELECT id FROM t WHERE ($1 IS NULL OR name NOT LIKE $1)");
     }
 }
