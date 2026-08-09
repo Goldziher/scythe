@@ -5,6 +5,51 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+**Upgrading**: three changes can turn a config that used to be accepted into an error. `[lint.sqruff]`
+is now actually read, so a table that was previously inert may now fail the run; keys in a `[[sql]]`
+block that scythe does not define are now rejected instead of ignored; and Ruby `.rbs` output changes,
+so committed signatures need regenerating. Details below.
+
+### Fixed
+
+- `[lint.sqruff] enabled` was declared and never read: `enabled = false` did not disable sqruff.
+  It now does. Separately, `[lint.sqruff.rules]` wrote any non-`"off"` value into sqruff's `rules`
+  key, which sqruff treats as an *allowlist* — so `"LT02" = "warn"` silently disabled every other
+  sqruff rule, the opposite of what it reads like and of what the docs claimed. sqruff has no
+  per-rule severity at all, so only `"off"` can be honoured and any other value is now rejected with
+  a message naming the offending key. An unknown rule code, previously swallowed, is also reported.
+  (#113, #114)
+- A rejected `[lint.sqruff]` table aborted the entire lint run and discarded every scythe-native
+  finding along with it, because the sqruff call sits ahead of the rule engine in the per-file loop.
+  A single typo could silently switch off the security rules, `SC-SEC07` PII detection included. The
+  configuration is now validated once per `[[sql]]` block before any query file is read, so a config
+  mistake is reported as one and the blast radius is visible rather than silent. Note validation
+  lints a trivial statement: sqruff checks rule codes when a string is linted, not when the linter is
+  built.
+- `SqruffConfig::default()` returned `enabled: false`, the opposite of an absent `[lint.sqruff]`
+  table, because `#[serde(default)]` only applies to absent TOML input and not to a derived `Default`.
+  No call site hit it, but `enabled` only recently became load-bearing.
+- Ruby `.rbs` signatures were emitted from a hardcoded scalar table rather than the backend manifest,
+  so they could disagree with the `.rb` code generated beside them. `ruby-oci8` declared
+  `created_at: Date` while the query bound a `Time`. Every RBS scalar now comes from the manifest.
+  Regenerate to pick this up. (#106)
+- A `[[sql.gen]]` entry missing its required `output` key produced a generic untagged-enum
+  deserialization error that named neither the field nor the block. The error now names both, and
+  unknown keys in a `[[sql]]` block are rejected rather than silently ignored. (#116)
+
+### Changed
+
+- Dependency pins for `integration_tests/**` are managed by Renovate against the jinja templates in
+  `tools/integration-test-generator/templates/`, which is where they actually live. Dependabot cannot
+  target generated files, so its PRs against them were dead on arrival. (#115)
+- `snowflake-jdbc` is unified on 4.0.2 across both JVM templates, which previously disagreed.
+
+### Removed
+
+- Four `r2dbc` manifests for engines the r2dbc backends never accepted. They were unreachable.
+
 ## [0.14.0] - 2026-08-09
 
 This release checks scythe's output against something other than scythe. Nullability inference is
