@@ -31,6 +31,16 @@ struct GenerationResult {
     combined: String,
     /// Individual code fragments for per-item validation.
     fragments: Vec<CodeFragment>,
+    /// Every query block that failed to parse, analyze, or generate code,
+    /// each recorded as `"<file>: <stage> error: <message>"`.
+    ///
+    /// A block landing here used to be silently dropped: the old code
+    /// `eprintln!`'d the error and `continue`'d, so it contributed to
+    /// neither the numerator nor the denominator of `validate_fragments`'s
+    /// percentage. That let up to every query in a schema fail codegen
+    /// outright while `valid_pct` still read 100% on whatever handful of
+    /// fragments survived -- see #161. Callers must assert this is empty.
+    pipeline_failures: Vec<String>,
 }
 
 /// Helper: given a schema dir with scythe.toml, parse schemas and queries
@@ -81,6 +91,7 @@ fn generate_for_schema(relative_path: &str) -> GenerationResult {
     );
 
     let mut fragments = Vec::new();
+    let mut pipeline_failures = Vec::new();
     let mut seen_enums = HashSet::new();
     let manifest = scythe_codegen::load_or_default_manifest().unwrap();
 
@@ -91,14 +102,14 @@ fn generate_for_schema(relative_path: &str) -> GenerationResult {
             let parsed = match scythe_core::parser::parse_query(block) {
                 Ok(p) => p,
                 Err(e) => {
-                    eprintln!("parse error in {}: {}", qf, e);
+                    pipeline_failures.push(format!("{qf}: parse error: {e}"));
                     continue;
                 }
             };
             let analyzed = match scythe_core::analyzer::analyze(&catalog, &parsed) {
                 Ok(a) => a,
                 Err(e) => {
-                    eprintln!("analyze error in {}: {}", qf, e);
+                    pipeline_failures.push(format!("{qf}: analyze error: {e}"));
                     continue;
                 }
             };
@@ -162,13 +173,17 @@ fn generate_for_schema(relative_path: &str) -> GenerationResult {
                     }
                 }
                 Err(e) => {
-                    eprintln!("codegen error in {}: {}", qf, e);
+                    pipeline_failures.push(format!("{qf}: codegen error: {e}"));
                 }
             }
         }
     }
 
-    GenerationResult { combined, fragments }
+    GenerationResult {
+        combined,
+        fragments,
+        pipeline_failures,
+    }
 }
 
 /// Split a SQL file into individual query blocks (same logic as commands/shared.rs).
@@ -198,95 +213,126 @@ fn split_query_blocks(content: &str) -> Vec<String> {
     blocks
 }
 
-/// Validate each code fragment individually with syn, returning (valid_count, invalid details).
-fn validate_fragments(fragments: &[CodeFragment]) -> (usize, Vec<String>) {
-    let mut valid = 0;
+/// Validate each code fragment individually with syn, returning the
+/// fragments that failed to parse.
+///
+/// No percentage, no floor: a fragment that fails to parse as Rust is a
+/// defect regardless of how many others succeeded, so the caller asserts
+/// this is empty rather than tolerating a fraction of it. See #161 -- the
+/// previous `valid_pct >= 90.0` accepted up to 10% syntactically broken
+/// output, and the drops handled in `generate_for_schema` (now surfaced via
+/// `pipeline_failures`) meant the *denominator* itself could shrink without
+/// bound, so a backend regression that broke almost everything could still
+/// read as "100% of the survivors were valid".
+fn validate_fragments(fragments: &[CodeFragment]) -> Vec<String> {
     let mut invalid = Vec::new();
     let header = "#![allow(dead_code, unused_imports, clippy::all)]\n";
 
     for frag in fragments {
         let test_code = format!("{}{}", header, frag.code);
-        match syn::parse_file(&test_code) {
-            Ok(_) => valid += 1,
-            Err(e) => {
-                invalid.push(format!(
-                    "[{}:{}] {}: {}",
-                    frag.query_name,
-                    frag.kind,
-                    e,
-                    frag.code.lines().next().unwrap_or("")
-                ));
-            }
+        if let Err(e) = syn::parse_file(&test_code) {
+            invalid.push(format!(
+                "[{}:{}] {}: {}",
+                frag.query_name,
+                frag.kind,
+                e,
+                frag.code.lines().next().unwrap_or("")
+            ));
         }
     }
 
-    (valid, invalid)
+    invalid
 }
+
+/// `simple/basemind`'s fixed number of generated fragments (enums, structs
+/// and query functions combined) for its current schema and queries. Pinned
+/// exactly, not as a floor: `generate_for_schema` no longer silently drops a
+/// query block that fails to parse/analyze/generate (see
+/// `pipeline_failures`), so if this count ever changes it means the fixture
+/// itself changed and this constant must be updated alongside it -- not that
+/// some queries quietly stopped producing fragments.
+const BASEMIND_EXPECTED_FRAGMENTS: usize = 129;
+
+/// `medium/pagila`'s fixed fragment count. See `BASEMIND_EXPECTED_FRAGMENTS`.
+const PAGILA_EXPECTED_FRAGMENTS: usize = 36;
 
 #[test]
 fn test_basemind_generates_valid_rust() {
     let result = generate_for_schema("simple/basemind");
-    assert!(!result.fragments.is_empty(), "should generate code fragments");
+    assert!(
+        result.pipeline_failures.is_empty(),
+        "every query block must parse, analyze, and generate code; failures:\n{}",
+        result.pipeline_failures.join("\n")
+    );
+    assert_eq!(
+        result.fragments.len(),
+        BASEMIND_EXPECTED_FRAGMENTS,
+        "fragment count drifted from the pinned expectation -- update \
+         BASEMIND_EXPECTED_FRAGMENTS only if the basemind fixture itself changed"
+    );
 
-    let (valid, invalid) = validate_fragments(&result.fragments);
-    let total = result.fragments.len();
-
+    let invalid = validate_fragments(&result.fragments);
     for msg in &invalid {
         eprintln!("INVALID: {}", msg);
     }
-
-    let valid_pct = (valid as f64 / total as f64) * 100.0;
     assert!(
-        valid_pct >= 90.0,
-        "at least 90% of generated code should be valid Rust, got {:.1}% ({}/{} valid)",
-        valid_pct,
-        valid,
-        total
+        invalid.is_empty(),
+        "all {} generated fragments must be valid Rust, {} were not:\n{}",
+        result.fragments.len(),
+        invalid.len(),
+        invalid.join("\n")
     );
-
-    assert!(valid > 10, "should have many valid items, got {}", valid);
 }
 
 #[test]
 fn test_pagila_generates_valid_rust() {
     let result = generate_for_schema("medium/pagila");
-    assert!(!result.fragments.is_empty(), "should generate code fragments");
+    assert!(
+        result.pipeline_failures.is_empty(),
+        "every query block must parse, analyze, and generate code; failures:\n{}",
+        result.pipeline_failures.join("\n")
+    );
+    assert_eq!(
+        result.fragments.len(),
+        PAGILA_EXPECTED_FRAGMENTS,
+        "fragment count drifted from the pinned expectation -- update \
+         PAGILA_EXPECTED_FRAGMENTS only if the pagila fixture itself changed"
+    );
 
-    let (valid, invalid) = validate_fragments(&result.fragments);
-    let total = result.fragments.len();
-
+    let invalid = validate_fragments(&result.fragments);
     for msg in &invalid {
         eprintln!("INVALID: {}", msg);
     }
-
-    let valid_pct = (valid as f64 / total as f64) * 100.0;
     assert!(
-        valid_pct >= 90.0,
-        "at least 90% of generated code should be valid Rust, got {:.1}% ({}/{} valid)",
-        valid_pct,
-        valid,
-        total
+        invalid.is_empty(),
+        "all {} generated fragments must be valid Rust, {} were not:\n{}",
+        result.fragments.len(),
+        invalid.len(),
+        invalid.join("\n")
     );
-
-    assert!(valid > 10, "should have many valid items, got {}", valid);
 }
 
 #[test]
 fn test_generated_code_contains_expected_structs() {
     let result = generate_for_schema("simple/basemind");
 
+    // Each assertion checks for the query *function* itself, not just a
+    // struct or the SQL-side query name that happens to share a substring
+    // with it. The two used to also accept `contains("CreateUserAccount")`/
+    // `contains("RetrieveUserAccountById")` -- the query name, which
+    // `pub struct CreateUserAccountRow` alone satisfies with no `fn` ever
+    // generated. See #161.
     assert!(
-        result.combined.contains("fn create_user_account") || result.combined.contains("CreateUserAccount"),
-        "should generate code for CreateUserAccount query"
+        result.combined.contains("fn create_user_account"),
+        "should generate a function for the CreateUserAccount query"
     );
     assert!(
         result.combined.contains("fn delete_user_account"),
         "should generate function for DeleteUserAccount :exec query"
     );
     assert!(
-        result.combined.contains("fn retrieve_user_account_by_id")
-            || result.combined.contains("RetrieveUserAccountById"),
-        "should generate code for RetrieveUserAccountByID query"
+        result.combined.contains("fn retrieve_user_account_by_id"),
+        "should generate a function for the RetrieveUserAccountByID query"
     );
 }
 
@@ -294,8 +340,14 @@ fn test_generated_code_contains_expected_structs() {
 fn test_pagila_generated_code_contains_enums() {
     let result = generate_for_schema("medium/pagila");
 
+    // The exact declaration line `generate_single_enum_def` emits (see
+    // `scythe_codegen::lib::generate_single_enum_def`), not just a substring
+    // match. The old check also accepted `contains("mpaa_rating")`, which the
+    // `#[sqlx(type_name = "mpaa_rating", ...)]` attribute alone satisfies
+    // with no `pub enum MpaaRating` ever generated -- the same disjunct
+    // problem as the query-name checks above. See #161.
     assert!(
-        result.combined.contains("MpaaRating") || result.combined.contains("mpaa_rating"),
-        "should generate enum for mpaa_rating type"
+        result.combined.contains("pub enum MpaaRating {"),
+        "should generate a Rust enum for the mpaa_rating type"
     );
 }
