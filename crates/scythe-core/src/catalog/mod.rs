@@ -384,8 +384,10 @@ impl Catalog {
                             i = j + 1;
                         }
                     } else {
-                        result.push_str("IDENTITY");
-                        i = j;
+                        for &(_, keyword_ch) in &chars[i..i + 8] {
+                            result.push(keyword_ch);
+                        }
+                        i += 8;
                     }
                     continue;
                 }
@@ -1573,6 +1575,43 @@ mod tests {
         let table = catalog.get_table("test").unwrap();
         assert_eq!(table.columns.len(), 1);
         assert_eq!(table.columns[0].name, "id");
+    }
+
+    #[test]
+    fn test_postgresql_generated_identity_is_preserved() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE test (
+                id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+                name TEXT NOT NULL
+            );"],
+            &crate::dialect::SqlDialect::PostgreSQL,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("test").unwrap();
+        assert_eq!(table.columns.len(), 2);
+        assert_eq!(table.columns[0].name, "id");
+        assert_eq!(table.columns[0].sql_type, "bigint");
+        assert!(table.columns[0].primary_key);
+    }
+
+    #[test]
+    fn test_identity_column_name_is_preserved() {
+        let catalog = Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE test (
+                id BIGINT PRIMARY KEY,
+                identity TEXT NOT NULL,
+                other INTEGER
+            );"],
+            &crate::dialect::SqlDialect::PostgreSQL,
+        )
+        .unwrap();
+
+        let table = catalog.get_table("test").unwrap();
+        assert_eq!(table.columns.len(), 3);
+        assert_eq!(table.columns[1].name, "identity");
+        assert_eq!(table.columns[1].sql_type, "text");
+        assert!(!table.columns[1].nullable);
     }
 
     #[test]
