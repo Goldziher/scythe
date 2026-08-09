@@ -1,0 +1,25 @@
+{
+  "category": "expressions/coalesce",
+  "description": "COALESCE widens across its arguments' types instead of taking only the first non-unknown argument's type",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "d",
+          "note": "the literal 0 (int64) widens against discount (decimal); PostgreSQL resolves COALESCE(0, discount) to numeric",
+          "nullable": false,
+          "type": "decimal"
+        }
+      ],
+      "command": "many",
+      "name": "GetEffectiveDiscount",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "coalesce_widens_to_decimal",
+  "query_sql": "-- @name GetEffectiveDiscount\n-- @returns :many\nSELECT COALESCE(0, discount) AS d FROM order_items",
+  "schema_sql": ["CREATE TABLE order_items (id SERIAL PRIMARY KEY, discount NUMERIC)"],
+  "source": "original",
+  "tags": ["expressions", "coalesce", "type_inference", "widening"]
+}

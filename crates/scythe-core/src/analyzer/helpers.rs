@@ -4,6 +4,8 @@ use sqlparser::ast::{
 
 use crate::dialect::SqlDialect;
 
+use super::types::{Scope, TypeInfo};
+
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
 
@@ -12,10 +14,6 @@ pub(super) fn value_is_placeholder(vws: &ast::ValueWithSpan) -> Option<&str> {
         Value::Placeholder(s) => Some(s.as_str()),
         _ => None,
     }
-}
-
-pub(super) fn value_is_number(vws: &ast::ValueWithSpan) -> bool {
-    matches!(&vws.value, Value::Number(_, _))
 }
 
 pub(super) fn value_is_string(vws: &ast::ValueWithSpan) -> bool {
@@ -159,10 +157,50 @@ pub(super) fn derive_param_name_from_comparison(
 
 /// Check if a CASE WHEN condition guards the result from being null.
 /// e.g., `WHEN bio IS NOT NULL THEN bio` - the IS NOT NULL condition guarantees bio is non-null.
-pub(super) fn is_not_null_guard(condition: &Expr, result: &Expr) -> bool {
+///
+/// Compares *qualified* column identity (table alias/name + column), not the
+/// bare column name: `WHEN u.deleted_at IS NOT NULL THEN o.deleted_at` must
+/// not be treated as a guard just because both sides end in `deleted_at`
+/// (see #124). An unqualified identifier on either side only counts as a
+/// match when `scope` has a single source in play, since that is the only
+/// case where "the column named X" is unambiguous.
+pub(super) fn is_not_null_guard(condition: &Expr, result: &Expr, scope: &Scope) -> bool {
     match condition {
-        Expr::IsNotNull(inner) => expr_to_name(inner) == expr_to_name(result),
+        Expr::IsNotNull(inner) => same_column_identity(inner, result, scope),
         _ => false,
+    }
+}
+
+/// Split an expression into `(qualifier, bare_name)` for column-identity
+/// comparison: `u.deleted_at` -> `(Some("u"), "deleted_at")`, `deleted_at` ->
+/// `(None, "deleted_at")`. Anything else falls back to [`expr_to_name`] with
+/// no qualifier, matching its existing "best-effort name" behaviour.
+fn expr_to_qualified_name(expr: &Expr) -> (Option<String>, String) {
+    match expr {
+        Expr::CompoundIdentifier(parts) if parts.len() >= 2 => {
+            let qualifier = parts[parts.len() - 2].value.to_lowercase();
+            let name = parts[parts.len() - 1].value.to_lowercase();
+            (Some(qualifier), name)
+        }
+        _ => (None, expr_to_name(expr)),
+    }
+}
+
+/// Whether `a` and `b` name the same column, per [`is_not_null_guard`]'s
+/// qualified-identity rule.
+fn same_column_identity(a: &Expr, b: &Expr, scope: &Scope) -> bool {
+    let (qual_a, name_a) = expr_to_qualified_name(a);
+    let (qual_b, name_b) = expr_to_qualified_name(b);
+    if name_a != name_b {
+        return false;
+    }
+    match (qual_a, qual_b) {
+        (Some(qa), Some(qb)) => qa == qb,
+        // At least one side is unqualified: only safe to treat this as the
+        // same column when the query has a single table in scope, so the
+        // bare name cannot mean a different table's column of the same
+        // name.
+        _ => scope.sources.len() <= 1,
     }
 }
 
@@ -447,7 +485,18 @@ pub(super) fn find_nested_placeholder_id(neutral_type: &str) -> Option<u32> {
     neutral_type[digits_start..digits_end].parse::<u32>().ok()
 }
 
-/// Widen two numeric types to the wider one for UNION type widening
+/// Widen two numeric types to the wider one, for UNION type widening and
+/// every other place two SQL types meet (arithmetic, `CASE`, `COALESCE`,
+/// `GREATEST`/`LEAST`, multi-row `VALUES`) -- see [`widen_neutral_type`] and
+/// [`widen_type_info`], the thin wrappers those call sites actually use.
+///
+/// `int16 < int32 < int64 < decimal < float32 < float64` for same-family or
+/// adjacent-family pairs; an exact numeric (`int*`/`decimal`) mixed with any
+/// approximate float always promotes straight to `float64`, mirroring
+/// PostgreSQL's implicit `numeric`/`integer` -> `float8` cast when the two
+/// meet in one expression (`1::numeric + 1.0::float4` is `float8`, not
+/// `float4`). Two genuinely incompatible types (`string` vs `int32`) fall
+/// through to the left argument, unchanged from the original behaviour.
 pub(super) fn widen_type(a: &str, b: &str) -> String {
     if a == b {
         return a.to_string();
@@ -460,9 +509,6 @@ pub(super) fn widen_type(a: &str, b: &str) -> String {
             _ => None,
         }
     };
-    if let (Some(ra), Some(rb)) = (int_rank(a), int_rank(b)) {
-        return if ra >= rb { a.to_string() } else { b.to_string() };
-    }
     let float_rank = |t: &str| -> Option<u8> {
         match t {
             "float32" => Some(0),
@@ -470,23 +516,193 @@ pub(super) fn widen_type(a: &str, b: &str) -> String {
             _ => None,
         }
     };
+    let is_decimal = |t: &str| t == "decimal";
+
+    if let (Some(ra), Some(rb)) = (int_rank(a), int_rank(b)) {
+        return if ra >= rb { a.to_string() } else { b.to_string() };
+    }
     if let (Some(ra), Some(rb)) = (float_rank(a), float_rank(b)) {
         return if ra >= rb { a.to_string() } else { b.to_string() };
     }
-    if int_rank(a).is_some() && float_rank(b).is_some() {
+    // decimal (exact, arbitrary precision) vs. an integer type: decimal
+    // wins, matching PostgreSQL's `integer * numeric -> numeric`. Without
+    // this, `int64` vs. `decimal` fell through to the final `a.to_string()`
+    // fallback below and silently picked whichever operand was on the left
+    // (see #121).
+    if (is_decimal(a) && int_rank(b).is_some()) || (int_rank(a).is_some() && is_decimal(b)) {
+        return "decimal".to_string();
+    }
+    // Mixing any approximate float with any exact numeric (int or decimal)
+    // always promotes to the widest float.
+    if (int_rank(a).is_some() || is_decimal(a)) && float_rank(b).is_some() {
         return "float64".to_string();
     }
-    if float_rank(a).is_some() && int_rank(b).is_some() {
+    if float_rank(a).is_some() && (int_rank(b).is_some() || is_decimal(b)) {
         return "float64".to_string();
     }
     a.to_string()
 }
 
+/// [`widen_type`] plus the "an `unknown` operand contributes nothing"
+/// absorption rule that every fold-over-arguments call site (`CASE`,
+/// `COALESCE`, `GREATEST`/`LEAST`, `generate_series`) needs: the running
+/// accumulator starts as `"unknown"` and must not out-rank a real type once
+/// one is seen, and a genuinely unresolved argument must not downgrade an
+/// already-resolved accumulator back to `"unknown"`.
+///
+/// This is the single type-resolution rule every widening call site in the
+/// analyzer is meant to route through, per #121 -- do not reintroduce a
+/// second "take the first non-unknown" or "take the left operand" idiom
+/// alongside it.
+pub(super) fn widen_neutral_type(a: &str, b: &str) -> String {
+    if a == "unknown" {
+        return b.to_string();
+    }
+    if b == "unknown" {
+        return a.to_string();
+    }
+    widen_type(a, b)
+}
+
+/// [`widen_neutral_type`] lifted to [`TypeInfo`], for call sites where the
+/// combined nullability is simply "nullable if either side is" (binary
+/// arithmetic, multi-row `VALUES`). Call sites with a more specific
+/// nullability rule (`CASE`'s not-null-guard exception, `COALESCE`'s
+/// any-non-null-arg exception) compute nullability themselves and use
+/// [`widen_neutral_type`] directly for the type half only.
+pub(super) fn widen_type_info(a: &TypeInfo, b: &TypeInfo) -> TypeInfo {
+    TypeInfo::new(
+        widen_neutral_type(&a.neutral_type, &b.neutral_type),
+        a.nullable || b.nullable,
+    )
+}
+
+/// Neutral type for a SQL numeric literal's raw text (`Value::Number`'s
+/// first field), e.g. `"1"`, `"1.5"`, `"1e10"`.
+///
+/// A `.` means the literal is exact-but-inexact -- PostgreSQL types `0.5` as
+/// `numeric` -- and exponent notation (`e`/`E`) means PostgreSQL parses it
+/// as `double precision`. See #122: every numeric literal used to be typed
+/// `int64` regardless of its text, so `1.5` was silently an integer.
+///
+/// A plain integer literal is typed by magnitude, matching PostgreSQL's own
+/// literal typing (`SELECT pg_typeof(1)` is `integer`, not `bigint`): `int32`
+/// when it fits, `int64` when it needs the extra range, and `decimal` (an
+/// arbitrary-precision numeric) past `i64::MAX`. Widening (#121) makes this
+/// matter beyond the literal's own column: universally typing every integer
+/// literal `int64` used to be masked by arithmetic's "left operand wins"
+/// bug, which happened to keep `age + 1` (an `int32` column) at `int32`
+/// only because the literal's true type was never consulted. Once widening
+/// is fixed, an over-wide literal type would widen `age + 1` to `int64` --
+/// a regression, not a fix -- so the literal itself has to be right first.
+pub(super) fn literal_number_neutral_type(text: &str) -> &'static str {
+    if text.contains(['e', 'E']) {
+        return "float64";
+    }
+    if text.contains('.') {
+        return "decimal";
+    }
+    match text.parse::<i64>() {
+        Ok(v) if (i32::MIN as i64..=i32::MAX as i64).contains(&v) => "int32",
+        Ok(_) => "int64",
+        // Overflows i64: PostgreSQL types a literal this large `numeric`.
+        Err(_) => "decimal",
+    }
+}
+
+/// `EXTRACT(field FROM source)` result type, which PostgreSQL and MySQL
+/// disagree on (see #123):
+///
+/// - MySQL's `EXTRACT` returns an integer (`BIGINT`).
+/// - PostgreSQL 14+ (and the engines that parse as `SqlDialect::PostgreSQL`:
+///   CockroachDB, Redshift, DuckDB), Oracle, and Snowflake all return an
+///   exact numeric type (`numeric` / `NUMBER`).
+/// - SQLite has no native `EXTRACT`, and MsSql spells this `DATEPART`
+///   (returning `int`) rather than supporting the `EXTRACT` syntax at all --
+///   for both, there is no real engine answer to model, so this keeps the
+///   historical `float64` default rather than inventing one.
+pub(super) fn extract_result_type(dialect: SqlDialect) -> &'static str {
+    match dialect {
+        SqlDialect::MySQL => "int64",
+        SqlDialect::PostgreSQL | SqlDialect::Oracle | SqlDialect::Snowflake => "decimal",
+        SqlDialect::SQLite | SqlDialect::MsSql => "float64",
+    }
+}
+
+/// `ROUND`/`TRUNC` result type: PostgreSQL's `round(double precision)`
+/// returns `double precision`, not `numeric` -- only the `numeric` overload
+/// (int/decimal input) returns `numeric` (see #123). A float input type is
+/// preserved as-is; anything else (int, decimal, or an unresolved column)
+/// widens to `decimal`, matching the previous universal behaviour for those
+/// inputs.
+pub(super) fn round_result_type(input_neutral_type: &str) -> String {
+    if is_float_type(input_neutral_type) {
+        input_neutral_type.to_string()
+    } else {
+        "decimal".to_string()
+    }
+}
+
+/// Extract the plain expressions from a function argument list, dropping
+/// named-argument names and any `FunctionArg` shape this doesn't recognize
+/// (wildcards -- see [`super::expressions::FuncArgShape`] for the caller
+/// that needs those preserved). Shared by
+/// [`super::Analyzer::get_function_args`] (`ast::Function`'s argument list)
+/// and table-function argument lists like `generate_series(...)`'s, so the
+/// two don't carry two separate copies of the same `filter_map`.
+pub(super) fn function_arg_exprs(args: &[ast::FunctionArg]) -> Vec<Expr> {
+    args.iter()
+        .filter_map(|arg| match arg {
+            ast::FunctionArg::Unnamed(ast::FunctionArgExpr::Expr(e))
+            | ast::FunctionArg::Named {
+                arg: ast::FunctionArgExpr::Expr(e),
+                ..
+            } => Some(e.clone()),
+            _ => None,
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
+    use super::super::types::{ScopeColumn, ScopeSource};
     use super::*;
     use sqlparser::ast::{Ident, ObjectNamePart, ValueWithSpan};
     use sqlparser::tokenizer::Span;
+
+    fn single_source_scope() -> Scope {
+        Scope {
+            sources: vec![ScopeSource {
+                alias: "t".to_string(),
+                table_name: "t".to_string(),
+                columns: vec![ScopeColumn::new("bio", "string", true)],
+                nullable_from_join: false,
+            }],
+        }
+    }
+
+    fn two_source_scope() -> Scope {
+        Scope {
+            sources: vec![
+                ScopeSource {
+                    alias: "u".to_string(),
+                    table_name: "users".to_string(),
+                    columns: vec![ScopeColumn::new("deleted_at", "datetime_tz", true)],
+                    nullable_from_join: false,
+                },
+                ScopeSource {
+                    alias: "o".to_string(),
+                    table_name: "orders".to_string(),
+                    columns: vec![ScopeColumn::new("deleted_at", "datetime_tz", true)],
+                    nullable_from_join: false,
+                },
+            ],
+        }
+    }
+
+    fn compound(qualifier: &str, name: &str) -> Expr {
+        Expr::CompoundIdentifier(vec![Ident::new(qualifier), Ident::new(name)])
+    }
 
     #[test]
     fn test_widen_type_same() {
@@ -522,6 +738,107 @@ mod tests {
     fn test_widen_type_default_fallback() {
         assert_eq!(widen_type("string", "int32"), "string");
         assert_eq!(widen_type("bool", "string"), "bool");
+    }
+
+    /// Regression for #121: `decimal` used to be in neither `int_rank` nor
+    /// `float_rank`, so int-vs-decimal fell through to the "left wins"
+    /// fallback instead of widening.
+    #[test]
+    fn test_widen_type_decimal_vs_int_widens_to_decimal() {
+        assert_eq!(widen_type("int64", "decimal"), "decimal");
+        assert_eq!(widen_type("decimal", "int64"), "decimal");
+        assert_eq!(widen_type("int16", "decimal"), "decimal");
+        assert_eq!(widen_type("decimal", "int32"), "decimal");
+    }
+
+    #[test]
+    fn test_widen_type_decimal_vs_float_widens_to_float64() {
+        assert_eq!(widen_type("decimal", "float64"), "float64");
+        assert_eq!(widen_type("float64", "decimal"), "float64");
+        assert_eq!(widen_type("decimal", "float32"), "float64");
+        assert_eq!(widen_type("float32", "decimal"), "float64");
+    }
+
+    #[test]
+    fn test_widen_neutral_type_unknown_absorbed() {
+        assert_eq!(widen_neutral_type("unknown", "int32"), "int32");
+        assert_eq!(widen_neutral_type("int32", "unknown"), "int32");
+        assert_eq!(widen_neutral_type("unknown", "unknown"), "unknown");
+    }
+
+    #[test]
+    fn test_widen_neutral_type_delegates_to_widen_type() {
+        assert_eq!(widen_neutral_type("int32", "decimal"), "decimal");
+        assert_eq!(widen_neutral_type("string", "string"), "string");
+    }
+
+    #[test]
+    fn test_widen_type_info_ors_nullability() {
+        let a = TypeInfo::new("int32", false);
+        let b = TypeInfo::new("decimal", true);
+        let widened = widen_type_info(&a, &b);
+        assert_eq!(widened.neutral_type, "decimal");
+        assert!(widened.nullable);
+    }
+
+    #[test]
+    fn test_literal_number_neutral_type_small_integer_is_int32() {
+        // Matches PostgreSQL: `SELECT pg_typeof(1)` is `integer`, not `bigint`.
+        assert_eq!(literal_number_neutral_type("1"), "int32");
+        assert_eq!(literal_number_neutral_type("42"), "int32");
+        assert_eq!(literal_number_neutral_type("-2147483648"), "int32");
+        assert_eq!(literal_number_neutral_type("2147483647"), "int32");
+    }
+
+    #[test]
+    fn test_literal_number_neutral_type_large_integer_is_int64() {
+        assert_eq!(literal_number_neutral_type("2147483648"), "int64");
+        assert_eq!(literal_number_neutral_type("9223372036854775807"), "int64");
+    }
+
+    #[test]
+    fn test_literal_number_neutral_type_overflowing_i64_is_decimal() {
+        assert_eq!(literal_number_neutral_type("99999999999999999999999999999"), "decimal");
+    }
+
+    #[test]
+    fn test_literal_number_neutral_type_decimal() {
+        assert_eq!(literal_number_neutral_type("0.5"), "decimal");
+        assert_eq!(literal_number_neutral_type("1.0"), "decimal");
+    }
+
+    #[test]
+    fn test_literal_number_neutral_type_exponent() {
+        assert_eq!(literal_number_neutral_type("1e10"), "float64");
+        assert_eq!(literal_number_neutral_type("1.5E-3"), "float64");
+    }
+
+    #[test]
+    fn test_extract_result_type_postgresql_is_decimal() {
+        assert_eq!(extract_result_type(SqlDialect::PostgreSQL), "decimal");
+    }
+
+    #[test]
+    fn test_extract_result_type_mysql_is_int64() {
+        assert_eq!(extract_result_type(SqlDialect::MySQL), "int64");
+    }
+
+    #[test]
+    fn test_extract_result_type_sqlite_and_mssql_keep_float64_default() {
+        assert_eq!(extract_result_type(SqlDialect::SQLite), "float64");
+        assert_eq!(extract_result_type(SqlDialect::MsSql), "float64");
+    }
+
+    #[test]
+    fn test_round_result_type_preserves_float() {
+        assert_eq!(round_result_type("float64"), "float64");
+        assert_eq!(round_result_type("float32"), "float32");
+    }
+
+    #[test]
+    fn test_round_result_type_int_and_decimal_widen_to_decimal() {
+        assert_eq!(round_result_type("int32"), "decimal");
+        assert_eq!(round_result_type("decimal"), "decimal");
     }
 
     #[test]
@@ -791,7 +1108,7 @@ mod tests {
         let inner = Expr::Identifier(Ident::new("bio"));
         let condition = Expr::IsNotNull(Box::new(inner));
         let result = Expr::Identifier(Ident::new("bio"));
-        assert!(is_not_null_guard(&condition, &result));
+        assert!(is_not_null_guard(&condition, &result, &single_source_scope()));
     }
 
     #[test]
@@ -799,14 +1116,46 @@ mod tests {
         let inner = Expr::Identifier(Ident::new("bio"));
         let condition = Expr::IsNotNull(Box::new(inner));
         let result = Expr::Identifier(Ident::new("name"));
-        assert!(!is_not_null_guard(&condition, &result));
+        assert!(!is_not_null_guard(&condition, &result, &single_source_scope()));
     }
 
     #[test]
     fn test_is_not_null_guard_not_is_not_null() {
         let condition = Expr::Identifier(Ident::new("bio"));
         let result = Expr::Identifier(Ident::new("bio"));
-        assert!(!is_not_null_guard(&condition, &result));
+        assert!(!is_not_null_guard(&condition, &result, &single_source_scope()));
+    }
+
+    /// Regression for #124: `WHEN u.deleted_at IS NOT NULL THEN o.deleted_at`
+    /// must NOT be treated as a guard -- the two sides are different
+    /// columns on different tables that only share a bare name.
+    #[test]
+    fn test_is_not_null_guard_different_tables_same_bare_name_is_not_a_guard() {
+        let inner = compound("u", "deleted_at");
+        let condition = Expr::IsNotNull(Box::new(inner));
+        let result = compound("o", "deleted_at");
+        assert!(!is_not_null_guard(&condition, &result, &two_source_scope()));
+    }
+
+    /// The same qualified column on both sides of a multi-table query is
+    /// still a real guard.
+    #[test]
+    fn test_is_not_null_guard_same_qualified_column_is_a_guard() {
+        let inner = compound("u", "deleted_at");
+        let condition = Expr::IsNotNull(Box::new(inner));
+        let result = compound("u", "deleted_at");
+        assert!(is_not_null_guard(&condition, &result, &two_source_scope()));
+    }
+
+    /// An unqualified reference in a multi-table scope can't be proven to
+    /// mean the same column as a qualified one on the other side, even when
+    /// the bare names match -- ambiguous, so no guard.
+    #[test]
+    fn test_is_not_null_guard_unqualified_in_multi_table_scope_is_not_a_guard() {
+        let inner = Expr::Identifier(Ident::new("deleted_at"));
+        let condition = Expr::IsNotNull(Box::new(inner));
+        let result = compound("o", "deleted_at");
+        assert!(!is_not_null_guard(&condition, &result, &two_source_scope()));
     }
 
     #[test]
@@ -852,20 +1201,6 @@ mod tests {
             ObjectNamePart::Identifier(Ident::new("users")),
         ]);
         assert_eq!(object_name_to_string(&name), "public.users");
-    }
-
-    #[test]
-    fn test_value_is_number() {
-        let vws = ValueWithSpan {
-            value: Value::Number("42".to_string(), false),
-            span: Span::empty(),
-        };
-        assert!(value_is_number(&vws));
-        let vws2 = ValueWithSpan {
-            value: Value::SingleQuotedString("42".to_string()),
-            span: Span::empty(),
-        };
-        assert!(!value_is_number(&vws2));
     }
 
     #[test]

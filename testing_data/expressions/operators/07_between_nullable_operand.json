@@ -1,0 +1,30 @@
+{
+  "category": "expressions/operators",
+  "description": "BETWEEN over a nullable column is nullable -- NULL BETWEEN 1 AND 10 is NULL, not false",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "in_range",
+          "note": "score is nullable, so score BETWEEN 1 AND 10 is NULL when score IS NULL",
+          "nullable": true,
+          "type": "bool"
+        }
+      ],
+      "command": "many",
+      "name": "GetScoreRange",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "between_nullable_operand",
+  "query_sql": "-- @name GetScoreRange\n-- @returns :many\nSELECT id, score BETWEEN 1 AND 10 AS in_range FROM entries",
+  "schema_sql": ["CREATE TABLE entries (id SERIAL PRIMARY KEY, score INTEGER)"],
+  "source": "original",
+  "tags": ["expressions", "operators", "nullability", "between"]
+}

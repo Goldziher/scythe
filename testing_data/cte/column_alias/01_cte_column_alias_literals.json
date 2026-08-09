@@ -7,12 +7,12 @@
         {
           "name": "a",
           "nullable": false,
-          "type": "int64"
+          "type": "int32"
         },
         {
           "name": "b",
           "nullable": false,
-          "type": "int64"
+          "type": "int32"
         }
       ],
       "command": "many",

@@ -1,0 +1,37 @@
+{
+  "category": "expressions/literals",
+  "description": "Numeric literals are typed from their text: a fractional literal is decimal, an exponent literal is float64, and a small plain integer literal is int32, matching PostgreSQL's own literal typing",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "whole",
+          "note": "a small integer literal is int32 in PostgreSQL (pg_typeof(1) is integer, not bigint)",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "half",
+          "note": "a fractional literal is decimal in PostgreSQL, not int32/int64",
+          "nullable": false,
+          "type": "decimal"
+        },
+        {
+          "name": "huge",
+          "note": "exponent notation is double precision in PostgreSQL",
+          "nullable": false,
+          "type": "float64"
+        }
+      ],
+      "command": "many",
+      "name": "GetLiteralTypes",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "fractional_and_exponent_literals",
+  "query_sql": "-- @name GetLiteralTypes\n-- @returns :many\nSELECT 1 AS whole, 0.5 AS half, 1e10 AS huge FROM dummy",
+  "schema_sql": ["CREATE TABLE dummy (id SERIAL PRIMARY KEY)"],
+  "source": "original",
+  "tags": ["expressions", "literals", "type_inference"]
+}

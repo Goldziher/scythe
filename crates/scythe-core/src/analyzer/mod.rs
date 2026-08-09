@@ -1353,7 +1353,9 @@ WITH t(a, b) AS (SELECT 1, 2) SELECT a, b FROM t;",
 
         let names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["a", "b"]);
-        assert!(result.columns.iter().all(|c| c.neutral_type == "int64"));
+        // `1` and `2` are small integer literals, typed `int32` to match
+        // PostgreSQL (see #122).
+        assert!(result.columns.iter().all(|c| c.neutral_type == "int32"));
     }
 
     /// `SELECT *` over a CTE with an explicit column alias list expands to the
@@ -1414,6 +1416,9 @@ WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 10) SEL
 
         let names: Vec<&str> = result.columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["n"]);
-        assert_eq!(result.columns[0].neutral_type, "int64");
+        // `1` and `n + 1` are both `int32` (small integer literal, and the
+        // anchor-typed `n` widened against another `int32` literal); see
+        // #122.
+        assert_eq!(result.columns[0].neutral_type, "int32");
     }
 }

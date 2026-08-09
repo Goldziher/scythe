@@ -1,0 +1,27 @@
+{
+  "category": "aggregates/nested_json",
+  "config": { "engine": "postgresql" },
+  "description": "array_agg of a multi-field ROW() constructor must not silently collapse to the first field's type -- it has no single neutral type today, so it must surface as an unresolved element type instead of a confidently wrong scalar one",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "rows",
+          "note": "ROW(...) parses as a function call, not a tuple; before the fix this inferred array<__unknown_func__:row>, an opaque type name codegen cannot resolve, instead of a clean array<unknown>",
+          "nullable": true,
+          "type": "array<unknown>"
+        }
+      ],
+      "command": "one",
+      "name": "GetOrderRows",
+      "nested_structs": [],
+      "params": []
+    },
+    "success": true
+  },
+  "name": "array_agg_row_constructor_is_unknown",
+  "query_sql": "-- @name GetOrderRows\n-- @returns :one\nSELECT array_agg(ROW(o.id, o.total)) AS rows FROM orders o;",
+  "schema_sql": ["CREATE TABLE orders (id SERIAL PRIMARY KEY, total NUMERIC NOT NULL);"],
+  "source": "original",
+  "tags": ["aggregate", "array_agg", "tuple", "regression"]
+}

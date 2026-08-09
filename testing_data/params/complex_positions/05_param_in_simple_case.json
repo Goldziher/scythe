@@ -1,0 +1,32 @@
+{
+  "category": "params/complex_positions",
+  "description": "A placeholder in a simple-CASE branch is typed against the operand, not hardcoded to bool -- simple CASE (CASE operand WHEN x THEN ...) compares a value, unlike searched CASE (CASE WHEN cond THEN ...) where the condition really is boolean",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "m",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetUserStatusLabel",
+      "params": [
+        {
+          "name": "status",
+          "note": "typed against the CASE operand's column (status, a string), not bool",
+          "nullable": false,
+          "position": 1,
+          "type": "string"
+        }
+      ]
+    },
+    "success": true
+  },
+  "name": "param_in_simple_case",
+  "query_sql": "-- @name GetUserStatusLabel\n-- @returns :many\nSELECT CASE status WHEN $1 THEN 'match' ELSE 'other' END AS m FROM users",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, status TEXT NOT NULL)"],
+  "source": "original",
+  "tags": ["param", "case", "simple_case"]
+}

@@ -1,0 +1,25 @@
+{
+  "category": "expressions/date_functions",
+  "description": "AGE over a nullable operand is nullable -- the #163 gap: the existing date_age_interval fixture only used NOT NULL arguments, so it couldn't tell a sound implementation from an unsound one",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "elapsed",
+          "note": "deleted_at is nullable, so AGE(NOW(), deleted_at) is nullable",
+          "nullable": true,
+          "type": "interval"
+        }
+      ],
+      "command": "many",
+      "name": "GetTimeSinceDeletion",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "age_nullable_operand",
+  "query_sql": "-- @name GetTimeSinceDeletion\n-- @returns :many\nSELECT AGE(NOW(), deleted_at) AS elapsed FROM accounts",
+  "schema_sql": ["CREATE TABLE accounts (id SERIAL PRIMARY KEY, deleted_at TIMESTAMPTZ)"],
+  "source": "original",
+  "tags": ["expression", "date", "age", "nullability"]
+}

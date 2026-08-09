@@ -1,0 +1,28 @@
+{
+  "category": "nullability/case_nullability",
+  "description": "A NOT NULL guard on one table's column must not narrow a different table's column of the same bare name",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "d",
+          "note": "u.deleted_at IS NOT NULL proves nothing about o.deleted_at -- they are different columns that only share a bare name",
+          "nullable": true,
+          "type": "datetime_tz"
+        }
+      ],
+      "command": "many",
+      "name": "GetOrderDeletion",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "case_guard_wrong_table_not_narrowed",
+  "query_sql": "-- @name GetOrderDeletion\n-- @returns :many\nSELECT CASE WHEN u.deleted_at IS NOT NULL THEN o.deleted_at ELSE '1970-01-01' END AS d FROM users u JOIN orders o ON o.user_id = u.id",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, deleted_at TIMESTAMPTZ)",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, deleted_at TIMESTAMPTZ)"
+  ],
+  "source": "original",
+  "tags": ["nullability", "case", "join", "regression"]
+}

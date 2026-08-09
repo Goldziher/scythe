@@ -1,0 +1,32 @@
+{
+  "category": "expressions/math_functions",
+  "description": "GREATEST and LEAST widen across every argument's type instead of taking only the first argument's type",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "g",
+          "note": "price (int32) vs msrp (decimal) widens to decimal; both operands are NOT NULL so the result is non-null",
+          "nullable": false,
+          "type": "decimal"
+        },
+        {
+          "name": "l",
+          "nullable": false,
+          "type": "decimal"
+        }
+      ],
+      "command": "many",
+      "name": "GetPriceBounds",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "greatest_least_widen",
+  "query_sql": "-- @name GetPriceBounds\n-- @returns :many\nSELECT GREATEST(price, msrp) AS g, LEAST(price, msrp) AS l FROM order_items",
+  "schema_sql": [
+    "CREATE TABLE order_items (id SERIAL PRIMARY KEY, price INTEGER NOT NULL, msrp NUMERIC NOT NULL)"
+  ],
+  "source": "original",
+  "tags": ["expression", "math", "greatest", "least", "widening"]
+}

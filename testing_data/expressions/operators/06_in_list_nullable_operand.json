@@ -1,0 +1,30 @@
+{
+  "category": "expressions/operators",
+  "description": "IN-list over a nullable column is nullable -- NULL IN (1, 2) is NULL, not false",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "matched",
+          "note": "category is nullable, so category IN ('a', 'b') is NULL when category IS NULL",
+          "nullable": true,
+          "type": "bool"
+        }
+      ],
+      "command": "many",
+      "name": "GetCategoryMatches",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "in_list_nullable_operand",
+  "query_sql": "-- @name GetCategoryMatches\n-- @returns :many\nSELECT id, category IN ('a', 'b') AS matched FROM items",
+  "schema_sql": ["CREATE TABLE items (id SERIAL PRIMARY KEY, category TEXT)"],
+  "source": "original",
+  "tags": ["expressions", "operators", "nullability", "in_list"]
+}

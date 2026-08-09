@@ -1,0 +1,25 @@
+{
+  "category": "expressions/date_functions",
+  "description": "TO_DATE over a nullable operand is nullable -- the operand was previously ignored entirely",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "parsed",
+          "note": "raw_date is nullable, so TO_DATE(raw_date, ...) is nullable",
+          "nullable": true,
+          "type": "date"
+        }
+      ],
+      "command": "many",
+      "name": "GetParsedDate",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "to_date_nullable_operand",
+  "query_sql": "-- @name GetParsedDate\n-- @returns :many\nSELECT TO_DATE(raw_date, 'YYYY-MM-DD') AS parsed FROM imports",
+  "schema_sql": ["CREATE TABLE imports (id SERIAL PRIMARY KEY, raw_date TEXT)"],
+  "source": "original",
+  "tags": ["expression", "date", "to_date", "nullability"]
+}
