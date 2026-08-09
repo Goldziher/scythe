@@ -113,7 +113,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
     }
 
     fn file_header(&self) -> String {
-        // See `TypescriptPgBackend::file_header`: `.js` output needs no
+        // ~keep See `TypescriptPgBackend::file_header`: `.js` output needs no
         // import at all in JSDoc mode -- the driver type goes straight into
         // the `@param` tag as `import("better-sqlite3").Database`, and Zod
         // is rejected in this mode.
@@ -540,7 +540,7 @@ impl CodegenBackend for TypescriptBetterSqlite3Backend {
             self.manifest.naming.field_case = value.clone();
         }
 
-        // See `TypescriptPgBackend::apply_options` for why these three are
+        // ~keep See `TypescriptPgBackend::apply_options` for why these three are
         // rejected outright in JSDoc mode rather than silently ignored.
         if self.js_mode {
             if self.row_type == TsRowType::Zod {
@@ -831,7 +831,7 @@ impl TypescriptBetterSqlite3Backend {
         let _ = writeln!(out, "{}", js_fn_signature_line(false, &func_name, &sig_params));
 
         let _ = writeln!(out, "\tconst stmt = db.prepare(`{sql}`);");
-        // better-sqlite3's `.all()` returns `unknown[]` (it cannot know the
+        // ~keep better-sqlite3's `.all()` returns `unknown[]` (it cannot know the
         // row shape without a type argument, which JS mode has no syntax
         // for) -- the TS path casts this `as Record<string, unknown>[]`;
         // the JSDoc inline cast is the equivalent here.

@@ -766,7 +766,7 @@ impl<'a> Analyzer<'a> {
             return None;
         }
 
-        // Nested-of-nested: `alias` is a CTE or derived-subquery column
+        // ~keep Nested-of-nested: `alias` is a CTE or derived-subquery column
         // whose own neutral_type is itself an unresolved `__nested__{id}`
         // placeholder (e.g. an outer json_agg(oi.*) over a CTE column that
         // is itself the result of an inner json_agg). Phase 2 naming
@@ -796,7 +796,7 @@ impl<'a> Analyzer<'a> {
         let id = self.push_pending_nested(fields);
         let placeholder = format!("__nested__{id}");
 
-        // Element nullability, not field nullability, is the axis an outer
+        // ~keep Element nullability, not field nullability, is the axis an outer
         // join moves. For a LEFT JOIN row with no match PostgreSQL makes the
         // whole-row variable itself NULL — not a row of NULLs — so
         // `json_agg(o.*)` aggregates one NULL and the column's value is the
@@ -821,7 +821,7 @@ impl<'a> Analyzer<'a> {
         };
         let neutral_type = match wrap {
             WrapArray::Yes => format!("json_nested<array<{element}>>"),
-            // `row_to_json(o.*)` over a null-extended row returns SQL NULL,
+            // ~keep `row_to_json(o.*)` over a null-extended row returns SQL NULL,
             // not a JSON null, so the *column* is nullable (it always is
             // here) and there is no element to wrap.
             WrapArray::No => format!("json_nested<{placeholder}>"),

@@ -411,7 +411,7 @@ mod tests {
 
     #[test]
     fn test_mysql_and_mariadb_alias_share_one_dialect_variant() {
-        // `mariadb` is not a distinct `SqlDialect` variant; `from_str` folds
+        // ~keep `mariadb` is not a distinct `SqlDialect` variant; `from_str` folds
         // it into `SqlDialect::MySQL`, so there is nothing further for the
         // fingerprint to distinguish -- this test documents that guarantee
         // at the alias-resolution boundary the fingerprint depends on.
@@ -461,7 +461,7 @@ mod tests {
 
     #[test]
     fn test_schema_qualifier_stripped_on_non_postgresql_dialect() {
-        // `get_table` (catalog/mod.rs) never checks `self.dialect` before
+        // ~keep `get_table` (catalog/mod.rs) never checks `self.dialect` before
         // splitting on `.` -- MSSQL's `dbo.` prefix resolves to the bare
         // table exactly like PostgreSQL's `public.` does. Gating the strip
         // on `dialect == SqlDialect::PostgreSQL` (the pre-fix behavior)
@@ -534,7 +534,7 @@ mod tests {
 
     #[test]
     fn test_enum_pipe_value_does_not_collide_with_split_values() {
-        // Pre-fix, `values.join("|")` rendered a single value `"a|b"` and
+        // ~keep Pre-fix, `values.join("|")` rendered a single value `"a|b"` and
         // two values `"a"`, `"b"` as the byte-identical string `a|b` -- a
         // real drift (one value became two, or vice versa) that produced no
         // change in the fingerprint at all. This is the collision the issue

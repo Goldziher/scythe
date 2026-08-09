@@ -326,7 +326,7 @@ mod tests {
 
     #[test]
     fn test_parse_rendered_nullable_catches_an_identity_nullable_pattern() {
-        // A manifest whose "nullable" pattern doesn't actually wrap
+        // ~keep A manifest whose "nullable" pattern doesn't actually wrap
         // anything can never render an optional type -- full_type always
         // equals lang_type regardless of what the caller intended, so this
         // must come back `Ok(false)` (never `Ok(true)`) and let the caller's

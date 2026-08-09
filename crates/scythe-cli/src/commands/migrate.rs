@@ -293,7 +293,7 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
                 .unwrap_or_default();
             let output = pkg.path.clone().unwrap_or_else(|| "generated".to_string());
 
-            // sqlc's v1 `packages` config predates the multi-language `gen:`
+            // ~keep sqlc's v1 `packages` config predates the multi-language `gen:`
             // block and only ever generated Go code, so the equivalent
             // scythe target is always Go -- emitting no gen block here would
             // leave `scythe generate` to silently fall back to its own

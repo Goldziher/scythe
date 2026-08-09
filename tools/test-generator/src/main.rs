@@ -246,7 +246,7 @@ fn generate_query_test(fixture: &Fixture, file_path: &str) -> String {
     out.push_str("            Err(_) => continue, // skip unregistered backends\n");
     out.push_str("        };\n");
     out.push_str("        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {\n");
-    // Assembled through `provenance::assemble_file`, exactly as `scythe
+    // ~keep Assembled through `provenance::assemble_file`, exactly as `scythe
     // generate` assembles a real file: preamble, then the provenance header
     // line, then the body. Concatenating preamble + header directly (as this
     // generator used to) produced a file no user ever gets, so the `syn` and

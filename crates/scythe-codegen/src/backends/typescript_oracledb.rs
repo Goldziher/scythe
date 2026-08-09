@@ -168,7 +168,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
 
         let has_returning = sql.to_uppercase().contains("RETURNING");
 
-        // Every read path below reconstructs the row field by field rather
+        // ~keep Every read path below reconstructs the row field by field rather
         // than blind-casting the driver's row, so each cast has to agree
         // with what `generate_row_struct` declared for that column -- and
         // `outer_join_unions` changes that for a join discriminant. See

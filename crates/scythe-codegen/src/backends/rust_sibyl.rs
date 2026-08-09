@@ -276,7 +276,7 @@ impl RustSibylBackend {
         let unit = kind.unit();
 
         if col.nullable {
-            // Inside the `Some(lob) => { ... }` arm, the locator is always bound to `lob`.
+            // ~keep Inside the `Some(lob) => { ... }` arm, the locator is always bound to `lob`.
             let open_line = if kind.needs_open() {
                 format!("{indent}        lob.open_file().await?;\n")
             } else {

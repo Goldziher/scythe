@@ -411,7 +411,7 @@ pub(super) fn is_single_row_aggregate_query(query: &Query) -> bool {
         _ => return false,
     };
     match unwrap_nested(expr) {
-        // A windowed aggregate is not an aggregate query: `COUNT(*) OVER ()`
+        // ~keep A windowed aggregate is not an aggregate query: `COUNT(*) OVER ()`
         // produces one row per input row, so zero input rows means zero
         // result rows and the scalar subquery is NULL. `infer_function_type`
         // types windowed aggregates as non-nullable (correctly, since within

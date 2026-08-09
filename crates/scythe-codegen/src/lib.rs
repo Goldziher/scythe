@@ -138,7 +138,7 @@ pub fn generate_with_backend_and_overrides(
     let manifest = backend.manifest();
     let source_table = analyzed.source_table.as_deref().unwrap_or("");
 
-    // Degradation pass: must run before any resolve_columns call. A backend
+    // ~keep Degradation pass: must run before any resolve_columns call. A backend
     // that doesn't opt into a nested struct (generate_nested_struct_def
     // returns Ok(None)) never sees json_nested<...> referencing it -- the
     // column is rewritten to plain json first, matching this backend's

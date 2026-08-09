@@ -270,7 +270,7 @@ pub fn generate_ts_union_row_struct(
         }
     }
 
-    // Not just `join_group.is_none()`: a column belonging to a join group
+    // ~keep Not just `join_group.is_none()`: a column belonging to a join group
     // that `discriminated_join_groups` dropped -- one where every projected
     // column was already nullable in the schema -- has no union variant to
     // live in, so filtering on `is_none()` alone omitted it from the row
@@ -412,7 +412,7 @@ pub fn generate_zod_union_row_struct(struct_name: &str, query_name: &str, column
     let mut out = String::new();
     let _ = writeln!(out, "/** Row type for {} queries. */", query_name);
     let _ = writeln!(out, "export const {} = z.object({{", schema_name);
-    // Not just `join_group.is_none()`, for the same reason as the interface
+    // ~keep Not just `join_group.is_none()`, for the same reason as the interface
     // path above: a column in a group `discriminated_join_groups` dropped --
     // one where every projected column was already nullable in the schema --
     // gets no union variant, so filtering on `is_none()` alone left it out of

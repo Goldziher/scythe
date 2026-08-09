@@ -214,7 +214,7 @@ impl Executor for OracleExecutor {
                 .iter()
                 .map(|(_, folded)| folded)
                 .enumerate()
-                // `Row::is_null` answers `true` for an out-of-range index,
+                // ~keep `Row::is_null` answers `true` for an out-of-range index,
                 // which would be fail-open; `position` here is always a
                 // real index because it came from `column_count`.
                 .map(|(position, name)| (name.clone(), row.is_null(position)))

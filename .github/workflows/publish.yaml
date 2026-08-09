@@ -12,7 +12,7 @@ on:
         type: string
 
 concurrency:
-  # Key on the resolved tag, not github.ref. A tag push and a workflow_dispatch
+  # ~keep Key on the resolved tag, not github.ref. A tag push and a workflow_dispatch
   # re-run for the SAME tag carry different refs and would otherwise race, while
   # two unrelated dispatches both sit on refs/heads/main and would cancel each
   # other.
@@ -282,7 +282,7 @@ jobs:
   smoke_wrappers:
     name: Smoke test npm/PyPI wrappers
     needs: [meta, release_assets]
-    # Must run *before* publishing: a smoke test that runs after publish tells you about a
+    # ~keep Must run *before* publishing: a smoke test that runs after publish tells you about a
     # package you can no longer unpublish. Gate on release_assets not having failed (same
     # idempotent-rerun reasoning as verify-binstall above), not on a plain `needs:`.
     #
@@ -433,7 +433,7 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
-      # OIDC trusted publishing needs npm >= 11.5.1, and Node 22 still bundles
+      # ~keep OIDC trusted publishing needs npm >= 11.5.1, and Node 22 still bundles
       # npm 10. `npm@latest` is npm 12, whose engines are
       # `^22.22.2 || ^24.15.0 || >=26.0.0` -- satisfied only by the newest Node
       # 22 patches, so it turns an unrelated setup-node resolution into an

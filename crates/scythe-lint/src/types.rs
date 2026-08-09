@@ -43,7 +43,7 @@ pub enum RuleCategory {
     Security,
     /// Schema-migration safety: irreversible or lock-prone DDL operations.
     Migration,
-    // The two categories below are the check-time ones: neither can be
+    // ~keep The two categories below are the check-time ones: neither can be
     // produced by `scythe lint` or `scythe audit`, and their rules live in
     // their own registries rather than `default_registry()`. Both are
     // appended after the existing variants on purpose — `scythe audit

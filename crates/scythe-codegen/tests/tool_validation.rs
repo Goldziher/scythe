@@ -148,7 +148,7 @@ fn generate_full_file_snowflake(backend_name: &str) -> String {
 }
 
 fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBackend, dialect: &SqlDialect) -> String {
-    // The engine alias is carried alongside the fixtures purely so the
+    // ~keep The engine alias is carried alongside the fixtures purely so the
     // provenance header this harness emits below says something truthful;
     // nothing about the languages' acceptance of that line depends on it.
     let (schema, queries, engine) = match dialect {
@@ -197,7 +197,7 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
         }
     }
 
-    // Only the *body* is accumulated here. The preamble and the provenance
+    // ~keep Only the *body* is accumulated here. The preamble and the provenance
     // header line are added by `provenance::assemble_file` at the bottom of
     // this function, in the one place that owns their ordering — the same
     // call `scythe-cli`'s `assemble_output` makes.
@@ -258,7 +258,7 @@ fn generate_full_file_from_backend(backend_name: &str, backend: &dyn CodegenBack
         }
     }
 
-    // The point of this harness is that `php -l`, `ruby -c`, `gofmt`,
+    // ~keep The point of this harness is that `php -l`, `ruby -c`, `gofmt`,
     // `python -m py_compile`, `tsc`, and `kotlinc` below are handed the bytes
     // a real `scythe generate` writes — provenance header included. Without
     // it, nothing anywhere proves that the header sits in a position each

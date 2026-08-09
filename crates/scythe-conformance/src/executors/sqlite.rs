@@ -48,7 +48,7 @@ impl Executor for SqliteExecutor {
 
     async fn query_nullness(&mut self, query_sql: &str) -> Result<Vec<ObservedRow>, Self::Error> {
         let mut statement = self.connection.prepare(query_sql)?;
-        // Column names must be read before `.query()` borrows `statement`
+        // ~keep Column names must be read before `.query()` borrows `statement`
         // mutably for the lifetime of the row iterator.
         let column_names: Vec<String> = statement.column_names().into_iter().map(str::to_string).collect();
 

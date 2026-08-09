@@ -230,7 +230,7 @@ impl CodegenBackend for GoGodrorBackend {
                         }
                         match kind.null_accessor() {
                             None => {
-                                // String-like: godror has no NULL-aware bind for
+                                // ~keep String-like: godror has no NULL-aware bind for
                                 // strings, so out{Field} is always a plain string;
                                 // its address always satisfies the *string field.
                                 return_fields.push(format!("{}: &out{}", field, field));
@@ -673,7 +673,6 @@ mod tests {
             "row struct must use the derived pointer; got:\n{query_fn}"
         );
 
-        // Nullable decimal (-> float64): bind as sql.NullFloat64.
         assert!(
             query_fn.contains("var outBalance sql.NullFloat64"),
             "nullable decimal OUT var must use sql.NullFloat64; got:\n{query_fn}"

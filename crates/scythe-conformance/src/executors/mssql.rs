@@ -68,7 +68,7 @@ impl MssqlExecutor {
         let url = url::Url::parse(admin_url).map_err(MssqlError::Url)?;
         let namespace = super::unique_namespace();
 
-        // `DROP ... IF EXISTS` before `CREATE`, even though the namespace is
+        // ~keep `DROP ... IF EXISTS` before `CREATE`, even though the namespace is
         // unique per connection: a previous run that crashed mid-leg can
         // leave a database behind whose name this process would reuse only
         // if the OS recycled its pid, and failing on that would be an
