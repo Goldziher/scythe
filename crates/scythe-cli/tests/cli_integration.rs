@@ -383,6 +383,57 @@ fn test_audit_list_rules_exits_zero_and_shows_sec01() {
     );
 }
 
+/// Regression test: SC-A02 and SC-C01 are registered lint rules that default
+/// to `Off` severity. `--list-rules` used to build its catalog from
+/// `active_rules`, which filters `Off` rules out, so both silently vanished
+/// from the printed catalog even though the lint registry holds 23 rules
+/// (not 21). See `RuleRegistry::all_rules`.
+#[test]
+fn test_audit_list_rules_includes_off_by_default_rules() {
+    let output = scythe_bin()
+        .args(["audit", "--list-rules"])
+        .output()
+        .expect("failed to run scythe audit --list-rules");
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    assert!(
+        output.status.success(),
+        "audit --list-rules should exit 0; stdout: {stdout}"
+    );
+    assert!(
+        stdout.contains("SC-A02"),
+        "rule catalog must include off-by-default rule SC-A02; got: {stdout}"
+    );
+    assert!(
+        stdout.contains("SC-C01"),
+        "rule catalog must include off-by-default rule SC-C01; got: {stdout}"
+    );
+}
+
+/// Same hole as `test_audit_list_rules_includes_off_by_default_rules`, but
+/// for `--explain`: it looked rules up in `active_rules` too, so explaining
+/// an off-by-default rule id failed as if the id didn't exist at all.
+#[test]
+fn test_audit_explain_off_by_default_rule_succeeds() {
+    for id in ["SC-A02", "SC-C01"] {
+        let output = scythe_bin()
+            .args(["audit", "--explain", id])
+            .output()
+            .unwrap_or_else(|e| panic!("failed to run scythe audit --explain {id}: {e}"));
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            output.status.success(),
+            "audit --explain {id} should exit 0; stdout: {stdout} stderr: {stderr}"
+        );
+        assert!(
+            stdout.contains(id),
+            "explanation for {id} must name the rule; got: {stdout}"
+        );
+    }
+}
+
 #[test]
 fn test_audit_explain_unknown_rule_returns_error() {
     let output = scythe_bin()

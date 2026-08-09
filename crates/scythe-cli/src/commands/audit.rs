@@ -156,7 +156,11 @@ pub(crate) fn print_rule_catalog(
     registry: &RuleRegistry,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut rows: Vec<(&dyn LintRule, Severity)> = registry.active_rules();
+    // `all_rules`, not `active_rules`: this is a catalog listing, not the set
+    // of rules that will fire. SC-A02 and SC-C01 are `Off` by default but are
+    // still real, registered rules — omitting them from `--list-rules` would
+    // undercount the documented rule set (see `RuleRegistry::all_rules`).
+    let mut rows: Vec<(&dyn LintRule, Severity)> = registry.all_rules();
     rows.sort_by_key(|(r, _)| (r.category() as u8, r.id()));
 
     let id_w = rows.iter().map(|(r, _)| r.id().len()).max().unwrap_or(2).max(2);
@@ -192,7 +196,10 @@ pub(crate) fn print_rule_explanation(
     rule_id: &str,
     out: &mut dyn Write,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let rules = registry.active_rules();
+    // Same reasoning as `print_rule_catalog`: `--explain` must be able to
+    // explain an off-by-default rule like SC-A02 or SC-C01, not just the
+    // ones that would currently fire.
+    let rules = registry.all_rules();
     let Some((rule, sev)) = rules.iter().find(|(r, _)| r.id() == rule_id) else {
         return Err(format!("no rule with id '{}' — try `scythe audit --list-rules`", rule_id).into());
     };

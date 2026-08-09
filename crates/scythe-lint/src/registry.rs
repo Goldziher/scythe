@@ -69,6 +69,25 @@ impl RuleRegistry {
             })
             .collect()
     }
+
+    /// Return every registered rule together with its effective severity,
+    /// **including** rules whose effective severity is `Off`.
+    ///
+    /// [`active_rules`](Self::active_rules) answers "what will actually run"
+    /// and drops `Off` rules — correct for `scythe lint` / `scythe audit`'s
+    /// execution path, wrong for discovery commands. `SC-A02`
+    /// (`ImplicitTypeCoercion`) and `SC-C01` (`MissingReturnsAnnotation`) are
+    /// `Off` by default but are still real, registered rules a user can turn
+    /// on; `scythe audit --list-rules` and `--explain` used to build on
+    /// `active_rules` and silently omitted both, undercounting the
+    /// documented "23 lint rules" figure by two. Use this method wherever the
+    /// full catalog — not the active subset — is what's being reported.
+    pub fn all_rules(&self) -> Vec<(&dyn LintRule, Severity)> {
+        self.rules
+            .iter()
+            .map(|r| (r.as_ref(), self.effective_severity(r.as_ref())))
+            .collect()
+    }
 }
 
 pub fn default_registry() -> RuleRegistry {
@@ -236,6 +255,55 @@ mod tests {
     fn default_registry_has_58_rules() {
         let reg = default_registry();
         assert_eq!(reg.rules.len(), 58);
+    }
+
+    /// `all_rules` is the source `scythe audit --list-rules` and `--explain`
+    /// build their catalog from. It must enumerate every rule `register`
+    /// actually added — same count, same id set — with none dropped for
+    /// defaulting to `Severity::Off`. This is the regression test for the
+    /// bug where `--list-rules` reused `active_rules` (which filters `Off`
+    /// out) and silently under-reported SC-A02 and SC-C01, two registered,
+    /// off-by-default rules.
+    #[test]
+    fn all_rules_matches_every_registered_rule_exactly() {
+        let reg = default_registry();
+
+        let mut all_ids: Vec<&str> = reg.all_rules().iter().map(|(r, _)| r.id()).collect();
+        let mut registered_ids: Vec<&str> = reg.rules.iter().map(|r| r.id()).collect();
+        assert_eq!(
+            all_ids.len(),
+            registered_ids.len(),
+            "all_rules must not filter any registered rule out"
+        );
+        all_ids.sort_unstable();
+        registered_ids.sort_unstable();
+        assert_eq!(
+            all_ids, registered_ids,
+            "all_rules and the registry's rule list must agree on the exact id set"
+        );
+        assert_eq!(
+            all_ids.len(),
+            58,
+            "the default registry still holds the documented 58 built-in rules"
+        );
+    }
+
+    /// SC-A02 (`ImplicitTypeCoercion`) and SC-C01 (`MissingReturnsAnnotation`)
+    /// default to `Severity::Off` but are still registered, documented rules
+    /// — a user can turn either on via `[lint.rules]`. The catalog must list
+    /// them (as "off") rather than pretend they don't exist.
+    #[test]
+    fn all_rules_includes_off_by_default_rules() {
+        let reg = default_registry();
+        let ids: Vec<&str> = reg.all_rules().iter().map(|(r, _)| r.id()).collect();
+        assert!(
+            ids.contains(&"SC-A02"),
+            "SC-A02 is off by default but must still appear in the catalog"
+        );
+        assert!(
+            ids.contains(&"SC-C01"),
+            "SC-C01 is off by default but must still appear in the catalog"
+        );
     }
 
     /// The `SC-PRV*` rules live in [`provenance_registry`], not here. Every
