@@ -33,74 +33,68 @@ pub(crate) fn generate_grouped_structs_ruby(
     out
 }
 
-/// Translate the manifest's `json` scalar (a Ruby documentation name, e.g. `"Hash"` or
-/// `"String"`) into a valid RBS type.
+/// Translate a manifest scalar's Ruby documentation name (e.g. `"Hash"`, `"Boolean"`,
+/// `"Time"`) into a valid RBS type.
 ///
-/// Manifest scalars name the Ruby type shown in docs/generated code, not an RBS type —
-/// `Hash` alone is not valid RBS (it needs type arguments) so it cannot be read verbatim
-/// into a signature. This is a small translation table, not a passthrough. Backends whose
-/// runtime actually returns a decoded object (`ruby-pg`, `ruby-mysql2`, `ruby-oci8`,
-/// `ruby-pg.redshift`, `ruby-trilogy`) declare `json = "Hash"` and get `Hash[String,
-/// untyped]`; backends that hand back the raw driver string (`ruby-sqlite3`,
-/// `ruby-tiny-tds`) declare `json = "String"` and get `String`, matching the
-/// `.rb` code emitted alongside this `.rbs`.
-fn json_manifest_type_to_rbs(manifest_value: &str) -> &'static str {
+/// Manifest scalars name the Ruby type shown in docs/generated code, not an RBS type, so
+/// they cannot all be read verbatim into a signature: `Hash` alone is not valid RBS (it
+/// needs type arguments), and `Boolean` is not an RBS type at all (RBS spells it `bool`).
+/// This table covers every distinct value that appears across `crates/scythe-codegen/manifests/ruby-*.toml`
+/// `[types.scalars]`: `Boolean`, `Integer`, `Float`, `String`, `BigDecimal`, `Date`,
+/// `Time`, `Hash`. Values that are already valid RBS (`Integer`, `Float`, `String`,
+/// `BigDecimal`, `Date`, `Time`) pass through unchanged; `Boolean` and `Hash` are rewritten.
+fn manifest_type_to_rbs(manifest_value: &str) -> String {
     match manifest_value {
-        "Hash" => "Hash[String, untyped]",
-        "String" => "String",
-        _ => "untyped",
+        "Hash" => "Hash[String, untyped]".to_string(),
+        "Boolean" => "bool".to_string(),
+        other => other.to_string(),
     }
 }
 
 /// Map a neutral type to an RBS type string.
 ///
-/// `manifest` supplies the backend-specific Ruby documentation name for `json` (see
-/// [`json_manifest_type_to_rbs`]). Every other neutral type maps through the fixed table
-/// below.
+/// Every scalar is looked up in `manifest.types.scalars` and translated through
+/// [`manifest_type_to_rbs`] — there is no fixed per-backend table. Scalar values differ by
+/// backend for more than just `json`: `ruby-sqlite3` declares `decimal = "Float"` and all
+/// five date/time scalars as `"String"` (SQLite has no native type for either, so the
+/// driver returns the raw string), and `ruby-oci8` declares `date = "Time"` (OCI8 returns
+/// `Time` for `DATE` columns, not `Date`). Reading straight from the manifest keeps this
+/// function correct for all backends instead of re-diverging as new ones are added.
 ///
-/// That fixed table is **known to be wrong for two backends**, and deliberately left that
-/// way for now — see #106. `json` is not the only scalar whose manifest value differs by
-/// backend: `ruby-sqlite3` declares `decimal = "Float"` and all five date/time scalars as
-/// `"String"` (SQLite has no native type for either, so the driver returns the raw
-/// string), and `ruby-oci8` declares `date = "Time"`. Seven `(backend, scalar)` pairs in
-/// total disagree with what this function emits, so those signatures contradict the `.rb`
-/// generated beside them.
+/// `enum::*` types are not manifest scalars (SQL enums aren't a scalar kind — they always
+/// map to `String`). `array<T>` recurses into the inner type via the `manifest` lookup
+/// above.
 ///
-/// It is latent rather than live: the SQLite integration schemas use `TEXT` and `REAL`,
-/// which resolve to the neutral `string` and `float64` types and never reach the
-/// `decimal`/`date`/`time` arms. Generalizing the translation table to every scalar is
-/// tracked in #106 rather than done here, because it needs a fixture that declares
-/// `DECIMAL` and `DATE` on SQLite to assert the fix, and that is a wider change than the
-/// `json` correction this function was opened for.
+/// Note the two spellings differ: enums are `enum::name` but arrays are `array<inner>`,
+/// matching what `type_conversion.rs` actually emits. This function used to strip an
+/// `array::` prefix, which no neutral type has ever carried, so every array column fell
+/// through to the scalar lookup, missed, and became `untyped`.
 fn neutral_to_rbs(neutral_type: &str, nullable: bool, manifest: &BackendManifest) -> String {
-    let base = match neutral_type {
-        "int16" | "int32" | "int64" => "Integer".to_string(),
-        "float32" | "float64" => "Float".to_string(),
-        "decimal" => "BigDecimal".to_string(),
-        "string" => "String".to_string(),
-        "bool" => "bool".to_string(),
-        "bytes" => "String".to_string(),
-        "uuid" => "String".to_string(),
-        "date" => "Date".to_string(),
-        "time" | "time_tz" | "datetime" | "datetime_tz" => "Time".to_string(),
-        "interval" => "String".to_string(),
-        "json" => {
-            let manifest_value = manifest.types.scalars.get("json").map(String::as_str).unwrap_or("Hash");
-            json_manifest_type_to_rbs(manifest_value).to_string()
-        }
-        "inet" => "String".to_string(),
-        t if t.starts_with("enum::") => "String".to_string(),
-        t if t.starts_with("array::") => {
-            let inner = &t["array::".len()..];
-            let inner_rbs = neutral_to_rbs(inner, false, manifest);
-            return if nullable {
-                format!("Array[{}]?", inner_rbs)
-            } else {
-                format!("Array[{}]", inner_rbs)
-            };
-        }
-        _ => "untyped".to_string(),
-    };
+    if let Some(inner) = neutral_type
+        .strip_prefix("array<")
+        .and_then(|rest| rest.strip_suffix('>'))
+    {
+        let inner_rbs = neutral_to_rbs(inner, false, manifest);
+        return if nullable {
+            format!("Array[{}]?", inner_rbs)
+        } else {
+            format!("Array[{}]", inner_rbs)
+        };
+    }
+    if neutral_type.starts_with("enum::") {
+        return if nullable {
+            "String?".to_string()
+        } else {
+            "String".to_string()
+        };
+    }
+
+    let base = manifest
+        .types
+        .scalars
+        .get(neutral_type)
+        .map(|manifest_value| manifest_type_to_rbs(manifest_value))
+        .unwrap_or_else(|| "untyped".to_string());
     if nullable { format!("{}?", base) } else { base }
 }
 
@@ -113,8 +107,8 @@ fn param_neutral_to_rbs(neutral_type: &str, nullable: bool, manifest: &BackendMa
 /// Generate a complete RBS file from the given context and connection type.
 /// `connection_type` is the RBS class name for the database connection
 /// (e.g., "PG::Connection", "Mysql2::Client", "SQLite3::Database", "Trilogy").
-/// `manifest` is the calling backend's own manifest, used to resolve backend-specific
-/// scalar types (currently only `json`; see [`json_manifest_type_to_rbs`]).
+/// `manifest` is the calling backend's own manifest, used to resolve every backend-specific
+/// scalar type (see [`neutral_to_rbs`]).
 pub fn generate_rbs_content(
     context: &RbsGenerationContext,
     connection_type: &str,
@@ -245,6 +239,29 @@ mod tests {
         super::super::parse_manifest(include_str!("../../manifests/ruby-sqlite3.toml")).unwrap()
     }
 
+    fn oci8_manifest() -> BackendManifest {
+        super::super::parse_manifest(include_str!("../../manifests/ruby-oci8.toml")).unwrap()
+    }
+
+    fn mysql2_manifest() -> BackendManifest {
+        super::super::parse_manifest(include_str!("../../manifests/ruby-mysql2.toml")).unwrap()
+    }
+
+    fn trilogy_manifest() -> BackendManifest {
+        super::super::parse_manifest(include_str!("../../manifests/ruby-trilogy.toml")).unwrap()
+    }
+
+    fn tiny_tds_manifest() -> BackendManifest {
+        super::super::parse_manifest(include_str!("../../manifests/ruby-tiny-tds.toml")).unwrap()
+    }
+
+    /// A separate manifest consumed by the same `RubyPgBackend`, so it needs its
+    /// own output-neutrality coverage -- its scalars match `ruby-pg` today, but
+    /// nothing enforced that.
+    fn pg_redshift_manifest() -> BackendManifest {
+        super::super::parse_manifest(include_str!("../../manifests/ruby-pg.redshift.toml")).unwrap()
+    }
+
     fn col(name: &str, neutral_type: &str, nullable: bool) -> ResolvedColumn {
         ResolvedColumn {
             name: name.to_string(),
@@ -304,6 +321,112 @@ mod tests {
         assert_eq!(neutral_to_rbs("json", false, &m), "Hash[String, untyped]");
     }
 
+    /// Regression test for #106: `ruby-sqlite3` declares six scalars that disagree with the
+    /// old hardcoded table (`decimal`, `date`, `time`, `time_tz`, `datetime`,
+    /// `datetime_tz`), because SQLite has no native decimal or date/time storage class — the
+    /// driver hands back a `Float` for `decimal` and raw `String`s for everything else. The
+    /// `.rbs` must match what the `.rb` code emitted alongside it actually returns.
+    #[test]
+    fn test_neutral_to_rbs_sqlite3_scalars_match_manifest() {
+        let m = sqlite3_manifest();
+        assert_eq!(neutral_to_rbs("decimal", false, &m), "Float");
+        assert_eq!(neutral_to_rbs("date", false, &m), "String");
+        assert_eq!(neutral_to_rbs("time", false, &m), "String");
+        assert_eq!(neutral_to_rbs("time_tz", false, &m), "String");
+        assert_eq!(neutral_to_rbs("datetime", false, &m), "String");
+        assert_eq!(neutral_to_rbs("datetime_tz", false, &m), "String");
+    }
+
+    /// Regression test for #106: `ruby-oci8` declares `date = "Time"` because OCI8 returns
+    /// a `Time` object for Oracle `DATE` columns (Oracle's `DATE` always carries a
+    /// time-of-day component), not the `Date` the old hardcoded table emitted. Unlike the
+    /// sqlite3 pairs, this one was already live: the committed
+    /// `integration_tests/ruby-oci8-oracle` fixtures use a `DATE` column, so the old code
+    /// emitted a `.rbs` that contradicted the `.rb` generated beside it.
+    #[test]
+    fn test_neutral_to_rbs_oci8_date_matches_manifest() {
+        let m = oci8_manifest();
+        assert_eq!(neutral_to_rbs("date", false, &m), "Time");
+    }
+
+    /// `ruby-sqlite3`'s scalar divergence must also surface through `generate_rbs_content`,
+    /// not just the unit-level `neutral_to_rbs` helper.
+    #[test]
+    fn test_generate_rbs_sqlite3_date_time_decimal_columns() {
+        let context = RbsGenerationContext {
+            queries: vec![RbsQueryInfo {
+                func_name: "get_event".to_string(),
+                struct_name: Some("GetEventRow".to_string()),
+                columns: vec![
+                    col("amount", "decimal", false),
+                    col("event_date", "date", false),
+                    col("event_time", "time", false),
+                    col("created_at", "datetime", false),
+                ],
+                params: vec![],
+                command: QueryCommand::One,
+            }],
+            enums: vec![],
+        };
+
+        let rbs = generate_rbs_content(&context, "SQLite3::Database", &sqlite3_manifest());
+        assert!(rbs.contains("attr_reader amount: Float"), "got:\n{rbs}");
+        assert!(rbs.contains("attr_reader event_date: String"), "got:\n{rbs}");
+        assert!(rbs.contains("attr_reader event_time: String"), "got:\n{rbs}");
+        assert!(rbs.contains("attr_reader created_at: String"), "got:\n{rbs}");
+    }
+
+    /// `ruby-oci8`'s `date` divergence must also surface through `generate_rbs_content`.
+    #[test]
+    fn test_generate_rbs_oci8_date_column() {
+        let context = RbsGenerationContext {
+            queries: vec![RbsQueryInfo {
+                func_name: "get_event".to_string(),
+                struct_name: Some("GetEventRow".to_string()),
+                columns: vec![col("created_at", "date", false)],
+                params: vec![],
+                command: QueryCommand::One,
+            }],
+            enums: vec![],
+        };
+
+        let rbs = generate_rbs_content(&context, "OCI8", &oci8_manifest());
+        assert!(rbs.contains("attr_reader created_at: Time"), "got:\n{rbs}");
+    }
+
+    /// The four backends whose manifests already agreed with the old hardcoded table
+    /// (`ruby-pg`, `ruby-mysql2`, `ruby-trilogy`, `ruby-tiny-tds`) must keep emitting
+    /// exactly what they emitted before this change — driving the lookup from the manifest
+    /// must be output-neutral for them.
+    #[test]
+    fn test_neutral_to_rbs_agreeing_backends_unchanged() {
+        for m in [
+            manifest(),
+            pg_redshift_manifest(),
+            mysql2_manifest(),
+            trilogy_manifest(),
+            tiny_tds_manifest(),
+        ] {
+            assert_eq!(neutral_to_rbs("int16", false, &m), "Integer");
+            assert_eq!(neutral_to_rbs("int32", false, &m), "Integer");
+            assert_eq!(neutral_to_rbs("int64", false, &m), "Integer");
+            assert_eq!(neutral_to_rbs("float32", false, &m), "Float");
+            assert_eq!(neutral_to_rbs("float64", false, &m), "Float");
+            assert_eq!(neutral_to_rbs("decimal", false, &m), "BigDecimal");
+            assert_eq!(neutral_to_rbs("string", false, &m), "String");
+            assert_eq!(neutral_to_rbs("bool", false, &m), "bool");
+            assert_eq!(neutral_to_rbs("bytes", false, &m), "String");
+            assert_eq!(neutral_to_rbs("uuid", false, &m), "String");
+            assert_eq!(neutral_to_rbs("date", false, &m), "Date");
+            assert_eq!(neutral_to_rbs("time", false, &m), "Time");
+            assert_eq!(neutral_to_rbs("time_tz", false, &m), "Time");
+            assert_eq!(neutral_to_rbs("datetime", false, &m), "Time");
+            assert_eq!(neutral_to_rbs("datetime_tz", false, &m), "Time");
+            assert_eq!(neutral_to_rbs("interval", false, &m), "String");
+            assert_eq!(neutral_to_rbs("inet", false, &m), "String");
+        }
+    }
+
     #[test]
     fn test_neutral_to_rbs_nullable() {
         let m = manifest();
@@ -315,8 +438,24 @@ mod tests {
     #[test]
     fn test_neutral_to_rbs_array() {
         let m = manifest();
-        assert_eq!(neutral_to_rbs("array::int32", false, &m), "Array[Integer]");
-        assert_eq!(neutral_to_rbs("array::string", true, &m), "Array[String]?");
+        assert_eq!(neutral_to_rbs("array<int32>", false, &m), "Array[Integer]");
+        assert_eq!(neutral_to_rbs("array<string>", true, &m), "Array[String]?");
+    }
+
+    /// `array<...>` is the spelling `type_conversion.rs` emits for every array
+    /// column (`"integer[]" => "array<int32>"`). The `array::` form this function
+    /// used to strip does not occur, so asserting on it proved nothing while
+    /// looking like array coverage -- a real `integer[]` column silently became
+    /// `untyped`. Pin the real spelling, and pin that the dead one is not special.
+    #[test]
+    fn test_neutral_to_rbs_array_uses_the_spelling_the_analyzer_emits() {
+        let m = manifest();
+        assert_eq!(neutral_to_rbs("array<int64>", false, &m), "Array[Integer]");
+        assert_eq!(
+            neutral_to_rbs("array<array<int32>>", false, &m),
+            "Array[Array[Integer]]"
+        );
+        assert_eq!(neutral_to_rbs("array::int32", false, &m), "untyped");
     }
 
     #[test]
