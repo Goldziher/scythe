@@ -12,7 +12,7 @@ repositories {
 
 dependencies {
 {%- if engine == "postgresql" %}
-    implementation("org.postgresql:postgresql:42.7.4")
+    implementation("org.postgresql:postgresql:42.7.12")
 {%- elif engine == "mysql" or engine == "mariadb" %}
     implementation("com.mysql:mysql-connector-j:9.0.0")
 {%- elif engine == "sqlite" %}
@@ -24,7 +24,7 @@ dependencies {
 {%- elif engine == "snowflake" %}
     implementation("net.snowflake:snowflake-jdbc:3.16.1")
 {%- elif engine == "redshift" %}
-    implementation("org.postgresql:postgresql:42.7.4")
+    implementation("org.postgresql:postgresql:42.7.12")
 {%- endif %}
 }
 

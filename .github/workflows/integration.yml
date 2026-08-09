@@ -83,9 +83,19 @@ jobs:
             integration_tests/rust-sqlx -> target
             integration_tests/rust-sqlx-nested-json -> target
             integration_tests/rust-tokio-postgres -> target
+      # go-version-file (not a literal pin) for every generated Go project
+      # in this workflow: those go.mod files are rendered from
+      # tools/integration-test-generator/templates/go.mod.jinja and can
+      # require a newer Go than any literal pinned here. This used to
+      # succeed anyway because actions/setup-go left GOTOOLCHAIN=auto, so a
+      # stale literal pin silently downloaded the toolchain go.mod actually
+      # required. Newer setup-go versions default GOTOOLCHAIN=local, turning
+      # that mismatch into a hard failure ("go.mod requires go >= X (running
+      # go Y; GOTOOLCHAIN=local)"). Pointing at the job's own generated
+      # go.mod keeps the two from drifting again — do not re-pin a literal.
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: integration_tests/go-pgx/go.mod
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -293,7 +303,7 @@ jobs:
             integration_tests/rust-sqlx-mysql -> target
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: integration_tests/go-database-sql-mysql/go.mod
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -426,7 +436,7 @@ jobs:
             integration_tests/rust-sqlx-mariadb -> target
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: integration_tests/go-database-sql-mariadb/go.mod
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -575,7 +585,7 @@ jobs:
           node-version: "22"
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: integration_tests/go-godror-oracle/go.mod
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -680,7 +690,7 @@ jobs:
             integration_tests/rust-tiberius-mssql -> target
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: integration_tests/go-database-sql-mssql/go.mod
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -795,7 +805,7 @@ jobs:
             integration_tests/rust-sqlx-sqlite -> target
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: integration_tests/go-database-sql-sqlite/go.mod
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -935,7 +945,7 @@ jobs:
             integration_tests/rust-tokio-postgres-redshift -> target
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
+          go-version-file: integration_tests/go-pgx-redshift/go.mod
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
