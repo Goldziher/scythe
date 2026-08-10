@@ -11,7 +11,8 @@ Scythe's primary and most complete dialect. All features are supported.
 - **Composite types** -- `CREATE TYPE ... AS (...)` mapped to `composite::name`
 - **Arrays** -- `TEXT[]`, `INTEGER[]`, etc. mapped to `array<T>`
 - **JSONB / JSON** -- mapped to `json`; typed JSON via `@json` annotation
-- **Nested aggregates** -- `json_agg(alias.*)` and `row_to_json(alias.*)` mapped to `json_nested<T>`
+- **Nested aggregates** -- `json_agg`/`jsonb_agg` and `row_to_json`/`to_json`/`to_jsonb` over
+  `alias.*` mapped to `json_nested<T>`
 - **Views** -- resolved through underlying table definitions
 - **Domains** -- `CREATE DOMAIN` resolved to base type with NOT NULL propagation
 - **Range types** -- `int4range`, `tstzrange`, etc. mapped to `range<T>`
@@ -68,8 +69,9 @@ SELECT id, name, email FROM users WHERE id = $1;
 
 ## Nested aggregates
 
-`json_agg(alias.*)` and `row_to_json(alias.*)` over a relation resolve to a struct scythe synthesizes
-from that relation's columns, rather than to an opaque `json` scalar:
+`json_agg(alias.*)`, `jsonb_agg(alias.*)`, `row_to_json(alias.*)`, `to_json(alias.*)` and
+`to_jsonb(alias.*)` over a relation resolve to a struct scythe synthesizes from that relation's
+columns, rather than to an opaque `json` scalar:
 
 ```sql
 -- @name GetUsersWithOrders

@@ -142,14 +142,18 @@ Aggregates can widen the argument's neutral type, not just its nullability:
 
 ## Nested aggregates
 
-On PostgreSQL, `json_agg(alias.*)` and `row_to_json(alias.*)` resolve to a struct scythe synthesizes
-from the aggregated relation, not to an opaque `json` scalar. The neutral type is `json_nested<T>`:
+On PostgreSQL, `json_agg(alias.*)`, `jsonb_agg(alias.*)`, `row_to_json(alias.*)`,
+`to_json(alias.*)` and `to_jsonb(alias.*)` resolve to a struct scythe synthesizes from the
+aggregated relation, not to an opaque `json` scalar. The neutral type is `json_nested<T>`:
 
 | Expression | Join | Neutral type |
 |---|---|---|
-| `json_agg(o.*)` | inner | `json_nested<array<GetUserOrdersRowOrders>>` |
-| `json_agg(o.*)` | outer | `json_nested<array<nullable<GetUserOrdersOuterRowOrders>>>` |
-| `row_to_json(o.*)` | -- | `json_nested<GetOrderPayloadRowPayload>` |
+| `json_agg(o.*)`, `jsonb_agg(o.*)` | inner | `json_nested<array<GetUserOrdersRowOrders>>` |
+| `json_agg(o.*)`, `jsonb_agg(o.*)` | outer | `json_nested<array<nullable<GetUserOrdersOuterRowOrders>>>` |
+| `row_to_json(o.*)`, `to_json(o.*)`, `to_jsonb(o.*)` | -- | `json_nested<GetOrderPayloadRowPayload>` |
+
+`jsonb_agg` differs from `json_agg` only in storage type, and `to_json`/`to_jsonb` over a whole-row
+reference return the same document `row_to_json` does, so each pair infers the same shape.
 
 The struct name is the query name, then `Row`, then the output column name: query `GetUserOrders` with
 an `AS orders` column produces `GetUserOrdersRowOrders`. A name that collides with a composite or enum
@@ -204,8 +208,8 @@ pub struct GetUserAsJsonRow {
 
 ### Nullability of the aggregate
 
-The column is always nullable: `json_agg` returns NULL for an empty group, and `row_to_json` over a
-null-extended row returns SQL NULL.
+The column is always nullable: `json_agg`/`jsonb_agg` return NULL for an empty group, and
+`row_to_json`/`to_json`/`to_jsonb` over a null-extended row return SQL NULL.
 
 An outer join widens the array *element*, not the fields. For a non-matching row PostgreSQL makes the
 whole-row variable itself NULL, so `json_agg(o.*)` aggregates one JSON `null` and the column's value
@@ -269,8 +273,16 @@ the PostgreSQL dialect but have no `json_agg`.
 
 These are not covered:
 
-- `jsonb_agg`, `json_object_agg` and `jsonb_object_agg` -- plain `json`.
-- `json_agg` over a scalar expression, or over a bare `*` -- plain `json`.
+- `json_object_agg` and `jsonb_object_agg` -- plain `json`. They build an object keyed by the
+  runtime values of their first argument (`json_object_agg(o.id, o.status)` yields
+  `{"1": "shipped"}`), so there is no fixed field set to synthesize a struct from.
+- `json_agg`/`jsonb_agg` over a scalar expression, or over a bare `*` -- plain `json`.
+- `to_json`/`to_jsonb` over a scalar expression -- plain `json`, nullable exactly when the argument
+  is (both are strict: `to_json(NULL)` is SQL NULL, not the JSON document `null`).
+- `json_build_object`, `json_build_array` and their `jsonb` spellings -- plain, non-nullable `json`.
+  They are not strict, so a NULL argument becomes a JSON `null` inside a non-NULL document.
+- `json_strip_nulls`/`jsonb_strip_nulls` -- plain `json`, nullable exactly when the argument is.
+  They are strict, unlike the `json_build_*` family they sit next to.
 - `array_agg` and `string_agg` -- unaffected, still `array<T>` and `string`.
 - A nested aggregate over a nested aggregate -- rejected with an error. Wrap one level per query.
 - `@json` annotations, which produce `json_typed<T>` -- untouched.

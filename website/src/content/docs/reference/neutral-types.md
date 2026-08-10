@@ -48,9 +48,9 @@ a limitation, not a design choice; typed array readers are tracked separately.
 `json_typed<T>` is what your own `@json` annotation produces: `T` is a type you
 declared and scythe knows nothing about its shape.
 
-`json_nested<T>` is what `json_agg(alias.*)` and `row_to_json(alias.*)` produce on
-PostgreSQL: `T` is a struct scythe synthesizes from the aggregated relation, field
-by field.
+`json_nested<T>` is what `json_agg`/`jsonb_agg` and `row_to_json`/`to_json`/`to_jsonb`
+produce over an `alias.*` argument on PostgreSQL: `T` is a struct scythe synthesizes
+from the aggregated relation, field by field.
 
 Four backends decode it -- `rust-sqlx` (`sqlx::types::Json<T>`),
 `rust-tokio-postgres` (`postgres_types::Json<T>`), `go-pgx` (`T`) and
@@ -59,7 +59,7 @@ so its output is byte-identical to what it produced before this existed. Redshif
 is excluded even on those four: it maps to the PostgreSQL dialect but has no
 `json_agg`.
 
-`json_agg` over an outer join yields `json_nested<array<nullable<T>>>`, because
+`json_agg`/`jsonb_agg` over an outer join yield `json_nested<array<nullable<T>>>`, because
 PostgreSQL makes the whole-row variable NULL for a non-matching row and the
 aggregate is then the JSON array `[null]`.
 

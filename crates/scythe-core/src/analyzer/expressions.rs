@@ -499,10 +499,31 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(base_type, true)
             }
             "bool_and" | "bool_or" | "every" => TypeInfo::new("bool", true),
-            "json_agg" => self
+            // ~keep `jsonb_agg` is `json_agg` with a different storage type, not a
+            // different shape: both aggregate one JSON object per row into a
+            // JSON array, and `sql_type_to_neutral` already collapses
+            // `json`/`jsonb` onto the same neutral `json`. Splitting them here
+            // would mean `jsonb_agg(o.*)` — the form most PostgreSQL code
+            // actually writes — silently losing the nested struct that
+            // `json_agg(o.*)` gets.
+            "json_agg" | "jsonb_agg" => self
                 .infer_nested_aggregate_type(func, scope, WrapArray::Yes)
                 .unwrap_or_else(|| TypeInfo::new("json", true)),
-            "jsonb_agg" | "json_object_agg" | "jsonb_object_agg" => TypeInfo::new("json", true),
+            // ~keep `json_object_agg(k, v)` deliberately does NOT get nested-struct
+            // inference, unlike its `json_agg` neighbour above. It builds a
+            // JSON *object keyed by the runtime values of its first argument*
+            // (`json_object_agg(o.id, o.status)` over one row yields
+            // `{"1": "shipped"}`), so the result has no fixed field set to
+            // synthesize a struct from — the keys are data, not schema. The
+            // `json_nested<...>` container can only express "array of T" or
+            // "single T" anyway (see `nested_struct_shape` in scythe-codegen),
+            // and there is no map shape to put a row type into. A flat `json`
+            // is the honest answer.
+            //
+            // Nullability is `true` for all four: an aggregate over zero rows
+            // returns SQL NULL, not `[]`/`{}` (verified against PostgreSQL 16;
+            // only `count` is exempt — see `is_aggregate_function_name`).
+            "json_object_agg" | "jsonb_object_agg" => TypeInfo::new("json", true),
             "row_to_json" => self
                 .infer_nested_aggregate_type(func, scope, WrapArray::No)
                 .unwrap_or_else(|| TypeInfo::new(format!("{UNKNOWN_FUNCTION_MARKER}{func_name}"), first_arg_nullable)),
@@ -721,8 +742,41 @@ impl<'a> Analyzer<'a> {
                 TypeInfo::new(ti.neutral_type, true)
             }
 
-            "json_build_object" | "jsonb_build_object" | "json_build_array" | "jsonb_build_array" | "to_json"
-            | "to_jsonb" | "json_strip_nulls" | "jsonb_strip_nulls" => TypeInfo::new("json", false),
+            // ~keep The `json_build_*` family is `proisstrict = f` in `pg_proc`:
+            // `json_build_object('a', NULL)` yields `{"a": null}`, a JSON null
+            // *inside* a non-NULL document, so the column itself never goes
+            // SQL NULL. That is why these stay unconditionally non-nullable
+            // and must not be folded into the `to_json` arm below.
+            "json_build_object" | "jsonb_build_object" | "json_build_array" | "jsonb_build_array" => {
+                TypeInfo::new("json", false)
+            }
+            // ~keep `to_json(o.*)` / `to_jsonb(o)` over a whole-row reference is
+            // `row_to_json` spelled differently — PostgreSQL 16 returns the
+            // identical document for all three — so it gets the same
+            // `WrapArray::No` nested single-object inference. `to_json` is not
+            // an aggregate, so there is no array to wrap.
+            //
+            // The fallback is the scalar case (`to_json(o.notes)`), which
+            // `row_to_json` cannot express and which is why this arm does not
+            // simply share `row_to_json`'s `UNKNOWN_FUNCTION_MARKER` fallback:
+            // a scalar conversion really is a plain `json`.
+            //
+            // Nullability follows the argument rather than being hardcoded
+            // `false`: all three are `proisstrict = t` in `pg_proc`, so
+            // `to_json(NULL::text)` is SQL NULL, not the JSON document `null`
+            // (verified against PostgreSQL 16). The nested path is nullable
+            // for the same reason `row_to_json`'s is: on a null-extended row
+            // from an outer join the whole-row variable is itself NULL.
+            "to_json" | "to_jsonb" => self
+                .infer_nested_aggregate_type(func, scope, WrapArray::No)
+                .unwrap_or_else(|| TypeInfo::new("json", first_arg_nullable)),
+            // ~keep Strict too (`proisstrict = t`), so it belongs with `to_json`
+            // rather than with the `json_build_*` family it used to share an
+            // arm with: `json_strip_nulls(NULL::json)` is SQL NULL, not the
+            // document `null`. It gets no nested inference because it takes a
+            // JSON document, not a whole-row reference -- the shape it strips
+            // from is whatever its argument already was.
+            "json_strip_nulls" | "jsonb_strip_nulls" => TypeInfo::new("json", first_arg_nullable),
             "json_typeof" | "jsonb_typeof" => TypeInfo::new("string", true),
             "json_extract_path_text" | "jsonb_extract_path_text" => TypeInfo::new("string", true),
             "json_extract_path" | "jsonb_extract_path" => TypeInfo::new("json", true),
@@ -874,14 +928,15 @@ impl<'a> Analyzer<'a> {
             .map(|s| s.alias.clone())
     }
 
-    /// PostgreSQL-only nested-struct type inference for `json_agg(relation.*)`
-    /// (or the bare-identifier form `json_agg(relation)`) and
-    /// `row_to_json(relation.*)`.
+    /// PostgreSQL-only nested-struct type inference for
+    /// `json_agg`/`jsonb_agg` over a relation wildcard (or the
+    /// bare-identifier form `json_agg(relation)`) and for
+    /// `row_to_json`/`to_json`/`to_jsonb` over one.
     ///
-    /// `WrapArray::Yes` wraps the placeholder in `array<>` for `json_agg`
-    /// (one JSON array element per row aggregated); `WrapArray::No` leaves it
-    /// bare for `row_to_json` (one JSON object per output row, not an
-    /// aggregate).
+    /// `WrapArray::Yes` wraps the placeholder in `array<>` for the two
+    /// aggregates (one JSON array element per row aggregated);
+    /// `WrapArray::No` leaves it bare for the three row-to-document
+    /// conversions (one JSON object per output row, not an aggregate).
     ///
     /// Returns `None` whenever the nested shape can't be established — wrong
     /// dialect or engine, zero or more than one argument, or an argument that
@@ -1021,8 +1076,9 @@ fn catalog_has_nested_aggregates(catalog: &crate::catalog::Catalog) -> bool {
 }
 
 /// Whether [`Analyzer::infer_nested_aggregate_type`] wraps its placeholder in
-/// `array<>` (`json_agg`, one element per aggregated row) or leaves it bare
-/// (`row_to_json`, one object per output row).
+/// `array<>` (`json_agg`/`jsonb_agg`, one element per aggregated row) or
+/// leaves it bare (`row_to_json`/`to_json`/`to_jsonb`, one object per output
+/// row).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum WrapArray {
     Yes,
@@ -1974,6 +2030,119 @@ mod tests {
         let shapes = analyzer.get_function_arg_shapes(&func, &scope);
         assert_eq!(shapes.len(), 1);
         assert!(matches!(&shapes[0], FuncArgShape::Expr(e) if matches!(e.as_ref(), Expr::Value(_))));
+    }
+
+    /// `jsonb_agg` must take the same nested-aggregate path as `json_agg`:
+    /// same `array<>` wrapper, same nullable column.
+    #[test]
+    fn test_jsonb_agg_relation_arg_infers_nested_array() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        let scope = scope_with_source_alias("o", "orders");
+        let func = make_func_with_arg_exprs("jsonb_agg", vec![qualified_wildcard("o")]);
+        let ti = analyzer.infer_function_type(&func, &scope);
+        assert_eq!(ti.neutral_type, "json_nested<array<__nested__0>>");
+        assert!(ti.nullable, "an aggregate over zero rows is SQL NULL");
+    }
+
+    /// `to_json`/`to_jsonb` over a whole-row reference are `row_to_json`
+    /// spelled differently: one nested object, no array wrapper.
+    #[test]
+    fn test_to_json_relation_arg_infers_nested_object() {
+        let catalog = empty_catalog();
+        let scope = scope_with_source_alias("o", "orders");
+        for fname in ["to_json", "to_jsonb"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func_with_arg_exprs(fname, vec![qualified_wildcard("o")]);
+            let ti = analyzer.infer_function_type(&func, &scope);
+            assert_eq!(
+                ti.neutral_type, "json_nested<__nested__0>",
+                "{fname} must not wrap in array<>"
+            );
+            assert!(ti.nullable, "{fname} of a null-extended whole-row variable is SQL NULL");
+        }
+    }
+
+    /// `to_json`/`to_jsonb` are strict, so a scalar conversion is nullable
+    /// exactly when its argument is.
+    #[test]
+    fn test_to_json_scalar_arg_follows_argument_nullability() {
+        let catalog = empty_catalog();
+        for fname in ["to_json", "to_jsonb"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let nullable_scope = scope_with_nullable_column("string");
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &nullable_scope);
+            assert_eq!(ti.neutral_type, "json");
+            assert!(ti.nullable, "{fname} is strict, so a nullable argument yields SQL NULL");
+
+            let mut analyzer = make_analyzer(&catalog);
+            let non_null_scope = scope_with_column("string");
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &non_null_scope);
+            assert!(!ti.nullable, "{fname} of a NOT NULL argument can never be SQL NULL");
+        }
+    }
+
+    /// Guardrail for the deliberate non-change: `json_object_agg` builds a
+    /// map keyed by its first argument's runtime values, so it has no fixed
+    /// row shape to infer and stays a flat nullable `json` even when handed
+    /// a relation-shaped argument.
+    #[test]
+    fn test_json_object_agg_relation_arg_stays_plain_json() {
+        let catalog = empty_catalog();
+        let scope = scope_with_source_alias("o", "orders");
+        for fname in ["json_object_agg", "jsonb_object_agg"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func_with_arg_exprs(fname, vec![qualified_wildcard("o")]);
+            let ti = analyzer.infer_function_type(&func, &scope);
+            assert_eq!(
+                ti.neutral_type, "json",
+                "{fname} has no fixed field set to synthesize a struct from"
+            );
+            assert!(ti.nullable, "{fname} over zero rows is SQL NULL");
+        }
+    }
+
+    /// The `json_build_*` family is not strict — it embeds a JSON `null`
+    /// rather than returning SQL NULL — so splitting it out of the `to_json`
+    /// arm must leave it unconditionally non-nullable.
+    #[test]
+    fn test_json_build_family_stays_non_nullable() {
+        let catalog = empty_catalog();
+        let scope = scope_with_nullable_column("string");
+        for fname in [
+            "json_build_object",
+            "jsonb_build_object",
+            "json_build_array",
+            "jsonb_build_array",
+        ] {
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &scope);
+            assert_eq!(ti.neutral_type, "json");
+            assert!(!ti.nullable, "{fname} never returns SQL NULL for a NULL argument");
+        }
+    }
+
+    /// The other half of that split: `json_strip_nulls` shared the
+    /// `json_build_*` arm but is strict, so a nullable argument yields SQL
+    /// NULL and the column must be nullable.
+    #[test]
+    fn test_json_strip_nulls_follows_argument_nullability() {
+        let catalog = empty_catalog();
+        for fname in ["json_strip_nulls", "jsonb_strip_nulls"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &scope_with_nullable_column("string"));
+            assert_eq!(ti.neutral_type, "json");
+            assert!(ti.nullable, "{fname} is strict, so a nullable argument yields SQL NULL");
+
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &scope_with_column("string"));
+            assert!(!ti.nullable, "{fname} of a NOT NULL argument can never be SQL NULL");
+        }
     }
 
     fn scope_with_source_alias(alias: &str, table_name: &str) -> Scope {

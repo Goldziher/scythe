@@ -1134,10 +1134,11 @@ SELECT string_agg(u.name, ',') AS names FROM users u;",
         assert!(result.nested_structs.is_empty());
     }
 
-    /// Guardrail: `jsonb_agg` is explicitly out of scope for this batch and
-    /// must keep today's plain-json behaviour even for a relation shape.
+    /// `jsonb_agg` differs from `json_agg` only in storage type — both
+    /// aggregate one JSON object per row into a JSON array — so it must get
+    /// the identical nested struct, array wrapper included.
     #[test]
-    fn test_jsonb_agg_wildcard_stays_plain_json() {
+    fn test_jsonb_agg_wildcard_produces_nested_struct() {
         let catalog = make_catalog();
         let query = parse_query(
             "-- @name GetUserPostsB
@@ -1147,8 +1148,143 @@ SELECT jsonb_agg(p.*) AS posts FROM posts p;",
         .unwrap();
         let result = analyze(&catalog, &query).unwrap();
 
+        assert_eq!(result.nested_structs.len(), 1);
+        assert_eq!(
+            result.columns[0].neutral_type,
+            "json_nested<array<GetUserPostsBRowPosts>>"
+        );
+        assert!(result.columns[0].nullable, "an aggregate over zero rows is SQL NULL");
+
+        let field_names: Vec<&str> = result.nested_structs[0]
+            .fields
+            .iter()
+            .map(|f| f.name.as_str())
+            .collect();
+        assert_eq!(
+            field_names,
+            ["id", "user_id", "title", "body", "published", "created_at"]
+        );
+    }
+
+    /// The LEFT JOIN element-nullability rule is a property of the aggregate,
+    /// not of the spelling: `jsonb_agg` over a null-extended row yields
+    /// `[null]` exactly as `json_agg` does.
+    #[test]
+    fn test_jsonb_agg_left_join_makes_array_elements_nullable() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetUserPostsBOuter
+-- @returns :many
+SELECT u.id, jsonb_agg(p.*) AS posts FROM users u LEFT JOIN posts p ON u.id = p.user_id GROUP BY u.id;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(
+            result.columns[1].neutral_type,
+            "json_nested<array<nullable<GetUserPostsBOuterRowPosts>>>"
+        );
+    }
+
+    /// `to_json(p.*)` is `row_to_json(p.*)` spelled differently — PostgreSQL
+    /// returns the identical document — so it must produce the same single
+    /// nested object, with no array wrapper.
+    #[test]
+    fn test_to_json_wildcard_produces_nested_struct_without_array() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetPostAsJson2
+-- @returns :many
+SELECT to_json(p.*) AS post FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.nested_structs.len(), 1);
+        assert_eq!(result.columns[0].neutral_type, "json_nested<GetPostAsJson2RowPost>");
+    }
+
+    #[test]
+    fn test_to_jsonb_wildcard_produces_nested_struct_without_array() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetPostAsJsonb
+-- @returns :many
+SELECT to_jsonb(p.*) AS post FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.nested_structs.len(), 1);
+        assert_eq!(result.columns[0].neutral_type, "json_nested<GetPostAsJsonbRowPost>");
+    }
+
+    /// `to_json` is `proisstrict = t`: `to_json(NULL)` is SQL NULL, not the
+    /// JSON document `null`, so a scalar conversion inherits its argument's
+    /// nullability instead of being unconditionally non-null.
+    #[test]
+    fn test_to_json_scalar_follows_argument_nullability() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetPostBodyJson
+-- @returns :many
+SELECT to_json(p.body) AS body_json, to_json(p.title) AS title_json FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
         assert_eq!(result.columns[0].neutral_type, "json");
+        assert!(
+            result.columns[0].nullable,
+            "posts.body is nullable and to_json is strict"
+        );
+        assert_eq!(result.columns[1].neutral_type, "json");
+        assert!(!result.columns[1].nullable, "posts.title is NOT NULL");
         assert!(result.nested_structs.is_empty());
+    }
+
+    /// Guardrail for the deliberate non-change: `json_object_agg(k, v)`
+    /// builds a JSON object keyed by the *runtime values* of `k`, so it has
+    /// no fixed field set and must stay a flat, nullable `json` even though
+    /// its `json_agg` neighbour now infers a struct.
+    #[test]
+    fn test_json_object_agg_stays_plain_nullable_json() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name GetPostTitles
+-- @returns :one
+SELECT json_object_agg(p.id, p.title) AS titles, jsonb_object_agg(p.id, p.title) AS titles_b FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns[0].neutral_type, "json");
+        assert!(result.columns[0].nullable, "an aggregate over zero rows is SQL NULL");
+        assert_eq!(result.columns[1].neutral_type, "json");
+        assert!(result.columns[1].nullable);
+        assert!(result.nested_structs.is_empty());
+    }
+
+    /// Guardrail for the other half of the split arm: the `json_build_*`
+    /// family is `proisstrict = f` — `json_build_object('a', NULL)` is
+    /// `{"a": null}`, a non-NULL document — so it stays non-nullable even
+    /// with a nullable argument.
+    #[test]
+    fn test_json_build_object_stays_non_nullable_with_nullable_argument() {
+        let catalog = make_catalog();
+        let query = parse_query(
+            "-- @name BuildPostJson
+-- @returns :many
+SELECT json_build_object('body', p.body) AS built FROM posts p;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert_eq!(result.columns[0].neutral_type, "json");
+        assert!(
+            !result.columns[0].nullable,
+            "json_build_object embeds a JSON null rather than returning SQL NULL"
+        );
     }
 
     /// Nested-of-nested: an outer `json_agg` over a CTE column that is
