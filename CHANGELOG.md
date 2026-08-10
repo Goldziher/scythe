@@ -14,7 +14,8 @@ so committed signatures need regenerating. `scythe-codegen`'s public `generate_f
 also removed (#132) — a breaking change for any direct caller, though it had none in this repository.
 Two lint-crate suppression and audit APIs also changed shape (see **Fixed**): `SuppressionSet` is now
 keyed by statement index instead of source line, and `LintRule` gained `cwe()` / `is_applicable_to()`
-methods with safe defaults. Details below.
+methods with safe defaults. `scythe-lint` also drops four `sqruff_adapter` free functions in favour of
+building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Security
 
@@ -175,6 +176,16 @@ methods with safe defaults. Details below.
   stub's behavior matched the stub's behavior and could never fail. If catalog-level codegen is
   implemented later it should land as a real implementation, not a reserved name. (#132)
 - Four `r2dbc` manifests for engines the r2dbc backends never accepted. They were unreachable.
+- **Breaking (`scythe-lint`)**: removed the free functions `sqruff_adapter::validate_config`,
+  `lint_sql`, `lint_and_fix_sql` and `format_sql`. Each built a `SqruffLinter` per call, and building
+  one compiles the dialect's lexer — the cost that dominated `scythe lint` until #130 hoisted
+  construction out of the per-file loop. Leaving them in left a second way to do the same thing where
+  the obvious use (a loop over files) silently reintroduced that cost. Use `SqruffLinter::for_linting`
+  (returns `None` for `[lint.sqruff] enabled = false`) with `lint` / `lint_and_fix`, or
+  `SqruffLinter::new` with `format`, building one linter per run instead of per file;
+  `validate_config` is `for_linting` with the linter discarded, so keep the linter. None were
+  re-exported from the crate root, so only a caller naming `scythe_lint::sqruff_adapter::` directly is
+  affected. (#130)
 
 ## [0.14.0] - 2026-08-09
 

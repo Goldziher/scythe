@@ -167,28 +167,6 @@ impl SqruffLinter {
     }
 }
 
-/// Check that `[lint.sqruff]` assembles into a usable sqruff configuration,
-/// without linting any of the caller's SQL.
-///
-/// `scythe lint` calls this once per `[[sql]]` block *before* it reads any
-/// query file. Without it, an invalid `[lint.sqruff.rules]` entry surfaces
-/// as an error against whichever query file happened to be read first, and
-/// that error aborts the whole run — discarding every scythe-native finding
-/// the run would otherwise have reported, including the security rules.
-/// Validating up front keeps a configuration mistake reported as one.
-///
-/// Returns `Ok(())` without checking anything when `enabled = false`, since
-/// [`lint_sql`] and [`lint_and_fix_sql`] never reach sqruff in that case.
-///
-/// This is [`SqruffLinter::for_linting`] with the linter thrown away, and is
-/// deliberately nothing more than that: "is this configuration usable?" and
-/// "build the thing that uses it" must not be two separate derivations that
-/// can disagree. A caller that intends to lint should keep the linter
-/// instead of calling this and then building another one.
-pub fn validate_config(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<(), SqruffConfigError> {
-    SqruffLinter::for_linting(dialect, sqruff_config).map(|_| ())
-}
-
 fn to_sqruff_violations(result: &sqruff_lib::core::linter::linted_file::LintedFile) -> Vec<SqruffViolation> {
     result
         .violations()
@@ -209,63 +187,6 @@ fn to_sqruff_violations(result: &sqruff_lib::core::linter::linted_file::LintedFi
         .collect()
 }
 
-/// Run sqruff's rules on SQL and return scythe Violations with position info.
-///
-/// Returns an empty result without running sqruff when `sqruff_config` is
-/// present and `enabled = false`. Returns [`SqruffConfigError`] if the
-/// configuration is invalid or sqruff itself rejects it (e.g. an unknown
-/// rule code in `[lint.sqruff.rules]`) rather than silently reporting no
-/// violations.
-///
-/// Builds a [`SqruffLinter`] per call, which is the expensive part (#130).
-/// Callers linting more than one file should build one [`SqruffLinter`] and
-/// call [`SqruffLinter::lint`] on it instead.
-pub fn lint_sql(
-    sql: &str,
-    dialect: &str,
-    sqruff_config: Option<&SqruffConfig>,
-) -> Result<Vec<SqruffViolation>, SqruffConfigError> {
-    match SqruffLinter::for_linting(dialect, sqruff_config)? {
-        Some(linter) => linter.lint(sql),
-        None => Ok(Vec::new()),
-    }
-}
-
-/// Run sqruff lint with auto-fix enabled, returning violations and the fixed SQL.
-///
-/// Returns the input SQL unchanged with no violations, without running
-/// sqruff, when `sqruff_config` is present and `enabled = false`. Returns
-/// [`SqruffConfigError`] if the configuration is invalid or sqruff itself
-/// rejects it, rather than silently reporting no violations.
-///
-/// Builds a [`SqruffLinter`] per call — see [`lint_sql`] for why a
-/// multi-file caller should not.
-pub fn lint_and_fix_sql(
-    sql: &str,
-    dialect: &str,
-    sqruff_config: Option<&SqruffConfig>,
-) -> Result<(Vec<SqruffViolation>, String), SqruffConfigError> {
-    match SqruffLinter::for_linting(dialect, sqruff_config)? {
-        Some(linter) => linter.lint_and_fix(sql),
-        None => Ok((Vec::new(), sql.to_string())),
-    }
-}
-
-/// Format SQL using sqruff (lint with fix, return the fixed string).
-///
-/// Note: `[lint.sqruff].enabled` is intentionally NOT consulted here —
-/// `scythe fmt` always formats regardless of whether sqruff-based linting
-/// is disabled. `[lint.sqruff.rules]` validation still applies when a config
-/// is passed, since [`SqruffLinter::new`] is shared with [`lint_sql`]'s
-/// construction path.
-///
-/// Builds a [`SqruffLinter`] per call — see [`lint_sql`] for why a
-/// multi-file caller should not.
-pub fn format_sql(sql: &str, dialect: &str, sqruff_config: Option<&SqruffConfig>) -> Result<String, String> {
-    let linter = SqruffLinter::new(dialect, sqruff_config).map_err(|e| e.to_string())?;
-    linter.format(sql)
-}
-
 /// Rejoin compound operators that sqruff incorrectly splits with whitespace.
 fn rejoin_split_operators(sql: &str) -> String {
     sql.replace("> =", ">=")
@@ -278,25 +199,44 @@ fn rejoin_split_operators(sql: &str) -> String {
 mod tests {
     use super::*;
 
-    #[test]
-    fn lint_simple_sql() {
-        let sql = "SELECT  id,  name  FROM  users  WHERE  id = 1\n";
-        let violations = lint_sql(sql, "ansi", None);
-        assert!(violations.is_ok());
+    /// Build the linter the `scythe lint` path builds, asserting the config
+    /// is one it accepts. `for_linting` returns `None` for `enabled = false`;
+    /// every caller of this helper is testing the enabled case.
+    fn enabled_linter(dialect: &str, sqruff_config: Option<&SqruffConfig>) -> SqruffLinter {
+        SqruffLinter::for_linting(dialect, sqruff_config)
+            .expect("configuration should be accepted")
+            .expect("an enabled configuration must build a linter")
     }
 
     #[test]
+    fn lint_simple_sql() {
+        let sql = "SELECT  id,  name  FROM  users  WHERE  id = 1\n";
+        let linter = SqruffLinter::new("ansi", None).expect("linter should build");
+        assert!(linter.lint(sql).is_ok());
+    }
+
+    /// SQL the fix path actually rewrites, and the result it must produce.
+    ///
+    /// Picked deliberately: most of the obvious "badly written" SQL is left
+    /// untouched here, because `LT01` — the layout rule behind nearly every
+    /// whitespace fix — is in [`DEFAULT_EXCLUDED_RULES`]. A fix-path test
+    /// built on SQL sqruff does not change asserts nothing.
+    const FIXABLE_SQL: &str = "SELECT a\nFROM b\nwhere a = 1\n";
+    const FIXED_SQL: &str = "SELECT a\nFROM b\nWHERE a = 1\n";
+
+    #[test]
     fn format_simple_sql() {
-        let sql = "select  id,name from users\n";
-        let result = format_sql(sql, "ansi", None);
-        assert!(result.is_ok());
+        let linter = SqruffLinter::new("ansi", None).expect("linter should build");
+        let formatted = linter.format(FIXABLE_SQL).expect("format should succeed");
+        assert_eq!(formatted, FIXED_SQL);
     }
 
     #[test]
     fn lint_and_fix_returns_fixed_sql() {
-        let sql = "select  id,name from users\n";
-        let (_, fixed) = lint_and_fix_sql(sql, "ansi", None).expect("lint_and_fix_sql should succeed");
-        assert!(!fixed.is_empty());
+        let linter = SqruffLinter::new("ansi", None).expect("linter should build");
+        let (violations, fixed) = linter.lint_and_fix(FIXABLE_SQL).expect("lint_and_fix should succeed");
+        assert!(!violations.is_empty(), "expected the fixable SQL to violate a rule");
+        assert_eq!(fixed, FIXED_SQL);
     }
 
     #[test]
@@ -306,13 +246,12 @@ mod tests {
             enabled: true,
             rules: ahash::AHashMap::new(),
         };
-        let violations = lint_sql(sql, "ansi", Some(&cfg));
-        assert!(violations.is_ok());
+        assert!(enabled_linter("ansi", Some(&cfg)).lint(sql).is_ok());
     }
 
-    /// #113: `enabled = false` must fully disable sqruff for `lint_sql`,
-    /// producing no findings even for SQL that would otherwise violate
-    /// rules.
+    /// #113: `enabled = false` must fully disable sqruff on the lint path.
+    /// `for_linting` builds nothing, and `scythe lint` reports nothing for
+    /// that `None` — even for SQL that would otherwise violate rules.
     #[test]
     fn disabled_config_produces_no_lint_findings() {
         let sql = "select id FROM users where id = 1\n";
@@ -322,26 +261,42 @@ mod tests {
         };
 
         // Sanity check: this SQL does produce a violation when enabled.
-        let baseline = lint_sql(sql, "ansi", None).expect("baseline lint should succeed");
+        let baseline = enabled_linter("ansi", None)
+            .lint(sql)
+            .expect("baseline lint should succeed");
         assert!(!baseline.is_empty(), "expected baseline SQL to have violations");
 
-        let violations = lint_sql(sql, "ansi", Some(&cfg)).expect("disabled config should not error");
-        assert!(violations.is_empty(), "enabled = false must suppress all findings");
+        let built = SqruffLinter::for_linting("ansi", Some(&cfg)).expect("disabled config should not error");
+        assert!(
+            built.is_none(),
+            "enabled = false must build no linter, leaving the lint path nothing to report"
+        );
     }
 
-    /// #113: `enabled = false` must fully disable sqruff for
-    /// `lint_and_fix_sql`, returning the SQL unmodified.
+    /// #113: `enabled = false` must fully disable sqruff on the fix path
+    /// too, leaving the SQL unmodified. Same `None`, and `scythe lint --fix`
+    /// writes nothing for it.
     #[test]
     fn disabled_config_leaves_sql_unmodified_by_fix() {
-        let sql = "select  id,name from users\n";
         let cfg = SqruffConfig {
             enabled: false,
             rules: ahash::AHashMap::new(),
         };
 
-        let (violations, fixed) = lint_and_fix_sql(sql, "ansi", Some(&cfg)).expect("disabled config should not error");
-        assert!(violations.is_empty());
-        assert_eq!(fixed, sql, "disabled sqruff must not modify the SQL");
+        // Sanity check: the fix path does rewrite this SQL when enabled.
+        let (_, fixed) = enabled_linter("ansi", None)
+            .lint_and_fix(FIXABLE_SQL)
+            .expect("baseline fix should succeed");
+        assert_ne!(
+            fixed, FIXABLE_SQL,
+            "expected baseline SQL to be rewritten by the fix path"
+        );
+
+        let built = SqruffLinter::for_linting("ansi", Some(&cfg)).expect("disabled config should not error");
+        assert!(
+            built.is_none(),
+            "enabled = false must build no linter, so the fix path leaves the SQL untouched"
+        );
     }
 
     /// #114: a non-`"off"` value in `[lint.sqruff.rules]` must be rejected
@@ -349,12 +304,13 @@ mod tests {
     /// treated as an allowlist entry.
     #[test]
     fn non_off_rule_value_is_rejected() {
-        let sql = "SELECT 1\n";
         let mut rules = ahash::AHashMap::new();
         rules.insert("LT02".to_string(), "warn".to_string());
         let cfg = SqruffConfig { enabled: true, rules };
 
-        let err = lint_sql(sql, "ansi", Some(&cfg)).expect_err("non-off rule value must be rejected");
+        let err = SqruffLinter::for_linting("ansi", Some(&cfg))
+            .err()
+            .expect("non-off rule value must be rejected");
         match &err {
             SqruffConfigError::UnsupportedRuleValue { rule, value } => {
                 assert_eq!(rule, "LT02");
@@ -371,21 +327,6 @@ mod tests {
         );
     }
 
-    /// #114: `format_sql` shares `make_config`/`make_linter` with the lint
-    /// path, so it must reject non-`"off"` values too.
-    #[test]
-    fn format_sql_also_rejects_non_off_rule_value() {
-        let sql = "SELECT 1\n";
-        let mut rules = ahash::AHashMap::new();
-        rules.insert("LT02".to_string(), "error".to_string());
-        let cfg = SqruffConfig { enabled: true, rules };
-
-        let result = format_sql(sql, "ansi", Some(&cfg));
-        assert!(result.is_err());
-        let message = result.unwrap_err();
-        assert!(message.contains("LT02"));
-    }
-
     /// #114: `"off"` must still exclude the named rule, same as before.
     #[test]
     fn off_rule_value_still_excludes_rule() {
@@ -396,8 +337,10 @@ mod tests {
 
         // LT01 is already excluded by default; this must not error and
         // must behave identically to the default-excluded case.
-        let violations = lint_sql(sql, "ansi", Some(&cfg)).expect("off value should be accepted");
-        let baseline = lint_sql(sql, "ansi", None).expect("baseline should succeed");
+        let violations = enabled_linter("ansi", Some(&cfg))
+            .lint(sql)
+            .expect("off value should be accepted");
+        let baseline = enabled_linter("ansi", None).lint(sql).expect("baseline should succeed");
         assert_eq!(violations.len(), baseline.len());
     }
 
@@ -413,137 +356,33 @@ mod tests {
         let cfg = SqruffConfig { enabled: true, rules };
 
         // Sanity check: this SQL does produce a violation under default config.
-        let baseline = lint_sql(sql, "ansi", None).expect("baseline lint should succeed");
+        let baseline = enabled_linter("ansi", None)
+            .lint(sql)
+            .expect("baseline lint should succeed");
         assert!(!baseline.is_empty(), "expected baseline SQL to have violations");
 
-        let result = lint_sql(sql, "ansi", Some(&cfg));
-        assert!(
-            result.is_err(),
-            "an unknown rule code must be diagnosed, not silently swallowed"
-        );
-        assert!(matches!(result.unwrap_err(), SqruffConfigError::Linter(_)));
-    }
-
-    /// Same silent-swallow regression, but for the fix path.
-    #[test]
-    fn unknown_rule_code_is_diagnosed_not_swallowed_on_fix() {
-        let sql = "select  id,name from users\n";
-        let mut rules = ahash::AHashMap::new();
-        rules.insert("ZZ99-NOT-A-REAL-RULE".to_string(), "off".to_string());
-        let cfg = SqruffConfig { enabled: true, rules };
-
-        let result = lint_and_fix_sql(sql, "ansi", Some(&cfg));
-        assert!(result.is_err());
+        let err = SqruffLinter::for_linting("ansi", Some(&cfg))
+            .err()
+            .expect("an unknown rule code must be diagnosed, not silently swallowed");
+        assert!(matches!(err, SqruffConfigError::Linter(_)));
     }
 
     #[test]
-    fn validate_config_accepts_a_usable_configuration() {
+    fn for_linting_accepts_a_usable_configuration() {
         let mut rules = ahash::AHashMap::new();
         rules.insert("LT02".to_string(), "off".to_string());
         let cfg = SqruffConfig { enabled: true, rules };
 
-        assert!(validate_config("ansi", Some(&cfg)).is_ok());
-        assert!(validate_config("ansi", None).is_ok());
-    }
-
-    /// `validate_config` must reject exactly what `lint_sql` rejects, so
-    /// hoisting the check ahead of the per-file loop cannot let a bad
-    /// configuration through.
-    #[test]
-    fn validate_config_rejects_what_lint_sql_rejects() {
-        let sql = "SELECT 1\n";
-
-        let mut bad_value = ahash::AHashMap::new();
-        bad_value.insert("LT02".to_string(), "warn".to_string());
-        let cfg = SqruffConfig {
-            enabled: true,
-            rules: bad_value,
-        };
-        assert!(lint_sql(sql, "ansi", Some(&cfg)).is_err());
-        assert!(matches!(
-            validate_config("ansi", Some(&cfg)),
-            Err(SqruffConfigError::UnsupportedRuleValue { .. })
-        ));
-
-        let mut unknown_rule = ahash::AHashMap::new();
-        unknown_rule.insert("ZZ99-NOT-A-REAL-RULE".to_string(), "off".to_string());
-        let cfg = SqruffConfig {
-            enabled: true,
-            rules: unknown_rule,
-        };
-        assert!(lint_sql(sql, "ansi", Some(&cfg)).is_err());
-        assert!(matches!(
-            validate_config("ansi", Some(&cfg)),
-            Err(SqruffConfigError::Linter(_))
-        ));
-    }
-
-    /// `enabled = false` short-circuits sqruff entirely in `lint_sql`, so
-    /// validation must not reject a config those paths never look at.
-    #[test]
-    fn validate_config_skips_validation_when_disabled() {
-        let mut rules = ahash::AHashMap::new();
-        rules.insert("ZZ99-NOT-A-REAL-RULE".to_string(), "off".to_string());
-        let cfg = SqruffConfig { enabled: false, rules };
-
-        assert!(lint_sql("SELECT 1\n", "ansi", Some(&cfg)).is_ok());
-        assert!(validate_config("ansi", Some(&cfg)).is_ok());
-    }
-    /// #130: one linter must serve many files. A caller hoisting
-    /// construction out of its per-file loop has to get exactly what the
-    /// per-call helper would have produced for each of those files — same
-    /// rule ids, same line, same column — or the perf fix would be a
-    /// behaviour change.
-    #[test]
-    fn reused_linter_produces_identical_findings_to_per_call_lint_sql() {
-        let files = [
-            "select id FROM users where id = 1\n",
-            "SELECT  a,  b  FROM  t\n",
-            "SELECT 1\n",
-            "select x from y join z on y.id=z.id\n",
-        ];
-
-        // Deliberately not `mut`: `lint` taking `&self` is the property that
-        // makes hoisting possible at all.
-        let linter = SqruffLinter::new("ansi", None).expect("linter should build");
-
-        for sql in files {
-            let hoisted = linter.lint(sql).expect("hoisted lint should succeed");
-            let per_call = lint_sql(sql, "ansi", None).expect("per-call lint should succeed");
-
-            let hoisted_keys: Vec<(String, usize, usize)> = hoisted
-                .iter()
-                .map(|v| (v.violation.rule_id.to_string(), v.line_no, v.line_pos))
-                .collect();
-            let per_call_keys: Vec<(String, usize, usize)> = per_call
-                .iter()
-                .map(|v| (v.violation.rule_id.to_string(), v.line_no, v.line_pos))
-                .collect();
-
-            assert_eq!(hoisted_keys, per_call_keys, "findings diverged for {sql:?}");
-        }
-    }
-
-    /// #130: the same identity requirement for the fix path.
-    #[test]
-    fn reused_linter_fixes_identically_to_per_call_lint_and_fix_sql() {
-        let sql = "select  id,name from users\n";
-        let linter = SqruffLinter::new("ansi", None).expect("linter should build");
-
-        let (_, hoisted_fixed) = linter.lint_and_fix(sql).expect("hoisted fix should succeed");
-        let (_, per_call_fixed) = lint_and_fix_sql(sql, "ansi", None).expect("per-call fix should succeed");
-        assert_eq!(hoisted_fixed, per_call_fixed);
-    }
-
-    /// #130: and for the format path, across several inputs on one linter.
-    #[test]
-    fn reused_linter_formats_identically_to_per_call_format_sql() {
-        let linter = SqruffLinter::new("ansi", None).expect("linter should build");
-        for sql in ["select  id,name from users\n", "SELECT a FROM b WHERE a >= 1\n"] {
-            let hoisted = linter.format(sql).expect("hoisted format should succeed");
-            let per_call = format_sql(sql, "ansi", None).expect("per-call format should succeed");
-            assert_eq!(hoisted, per_call, "formatting diverged for {sql:?}");
-        }
+        assert!(
+            SqruffLinter::for_linting("ansi", Some(&cfg))
+                .expect("a usable configuration must be accepted")
+                .is_some()
+        );
+        assert!(
+            SqruffLinter::for_linting("ansi", None)
+                .expect("an absent configuration must be accepted")
+                .is_some()
+        );
     }
 
     /// #130: hoisting must not weaken diagnostics. An unusable
@@ -584,8 +423,8 @@ mod tests {
     }
 
     /// `enabled = false` short-circuits the lint path, so `for_linting`
-    /// builds nothing — and therefore validates nothing, exactly as the old
-    /// per-call `lint_sql` did.
+    /// builds nothing — and therefore validates nothing. A rules table the
+    /// run will never read must not fail the run.
     #[test]
     fn for_linting_returns_none_when_disabled_and_skips_validation() {
         let mut rules = ahash::AHashMap::new();
@@ -620,39 +459,23 @@ mod tests {
             enabled: true,
             rules: ahash::AHashMap::new(),
         };
-        let sql = "select  id,name from users\n";
+        let disabled_output = SqruffLinter::new("ansi", Some(&cfg))
+            .expect("fmt's constructor must build a linter even when linting is disabled")
+            .format(FIXABLE_SQL)
+            .expect("fmt must format with linting disabled");
+        let enabled_output = SqruffLinter::new("ansi", Some(&enabled))
+            .expect("linter should build")
+            .format(FIXABLE_SQL)
+            .expect("fmt must format with linting enabled");
+
+        assert_ne!(
+            disabled_output, FIXABLE_SQL,
+            "fmt must actually reformat the SQL, or comparing the two outputs proves nothing"
+        );
         assert_eq!(
-            format_sql(sql, "ansi", Some(&cfg)).expect("fmt must format with linting disabled"),
-            format_sql(sql, "ansi", Some(&enabled)).expect("fmt must format with linting enabled"),
+            disabled_output, enabled_output,
             "enabled = false must not change what fmt produces"
         );
-    }
-
-    /// `validate_config` and the linter the caller goes on to build must be
-    /// one derivation, not two that can drift apart: whatever construction
-    /// rejects, validation rejects, with the same error.
-    #[test]
-    fn validate_config_and_linter_construction_agree() {
-        let cases: [(&str, &str); 2] = [("LT02", "warn"), ("ZZ99-NOT-A-REAL-RULE", "off")];
-
-        for (rule, value) in cases {
-            let mut rules = ahash::AHashMap::new();
-            rules.insert(rule.to_string(), value.to_string());
-            let cfg = SqruffConfig { enabled: true, rules };
-
-            let validated = validate_config("ansi", Some(&cfg));
-            let constructed = SqruffLinter::for_linting("ansi", Some(&cfg));
-            assert_eq!(
-                validated.is_err(),
-                constructed.is_err(),
-                "validate_config and construction disagreed on {rule} = {value}"
-            );
-            assert_eq!(
-                validated.unwrap_err().to_string(),
-                constructed.err().expect("construction must fail too").to_string(),
-                "validate_config and construction gave different messages for {rule} = {value}"
-            );
-        }
     }
 
     /// A derived `Default` would set `enabled: false`, because
