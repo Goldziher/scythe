@@ -16,7 +16,7 @@ use std::io::Write;
 use std::path::Path;
 
 use scythe_inspect::{
-    CheckRegistry, DbDriver, InspectConfig, InspectError, MysqlDriver, PostgresDriver, SuppressionEngine,
+    CheckRegistry, DbDriver, InspectConfig, InspectError, PostgresDriver, SuppressionEngine, UnsupportedDriver,
     parse_inspect_section,
 };
 use scythe_lint::reporters::{Finding, Format};
@@ -166,7 +166,13 @@ pub(crate) fn build_driver_with_config(
 
             Box::new(driver)
         }
-        _ => Box::new(MysqlDriver::new()),
+        // Every other engine — MySQL, MariaDB, or a URL scheme that got this
+        // far — has no `scythe inspect` implementation. It used to fall through
+        // to a MySQL stub, so a SQLite user was told `engine "mysql" is not
+        // supported`: an engine they never mentioned, which reads as a scythe
+        // bug rather than an unsupported-engine notice. `UnsupportedDriver`
+        // carries the engine that was actually requested.
+        other => Box::new(UnsupportedDriver::new(other)),
     }
 }
 

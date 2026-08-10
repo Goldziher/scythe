@@ -23,7 +23,12 @@ pub fn error_chain(error: &dyn std::error::Error) -> String {
 #[derive(Debug, Error)]
 pub enum InspectError {
     /// Connection setup failed (TLS handshake, auth, network, etc.).
-    #[error("connection to {engine} failed: {source}")]
+    ///
+    /// Rendered through [`error_chain`] rather than `{source}`: a
+    /// `tokio_postgres::Error` displays as a bare `"db error"`, which makes a
+    /// wrong password, a missing database and a missing role indistinguishable.
+    /// The server's `FATAL: ...` text lives one level further down the chain.
+    #[error("connection to {engine} failed: {}", error_chain(&**source))]
     Connect {
         /// Engine that was being connected to (e.g. `"postgres"`).
         engine: &'static str,
@@ -33,7 +38,11 @@ pub enum InspectError {
     },
 
     /// A catalog query failed at execution time.
-    #[error("{engine} catalog query {check_id} failed: {source}")]
+    ///
+    /// Rendered through [`error_chain`] for the same reason as
+    /// [`InspectError::Connect`]: the SQLSTATE and the server's message are
+    /// not in the top-level `Display`.
+    #[error("{engine} catalog query {check_id} failed: {}", error_chain(&**source))]
     Query {
         /// Engine that ran the query.
         engine: &'static str,
@@ -44,9 +53,72 @@ pub enum InspectError {
         source: Box<dyn std::error::Error + Send + Sync>,
     },
 
-    /// The requested engine has no implementation yet (e.g. MySQL at Phase 0).
-    #[error("engine {0:?} is not yet supported by scythe-inspect")]
-    Unsupported(&'static str),
+    /// The requested engine has no `scythe inspect` implementation.
+    ///
+    /// Carries the engine the *user* asked for, not the engine of whichever
+    /// driver happened to be constructed. Naming the wrong engine here reads
+    /// as a scythe bug rather than an unsupported-engine notice, and sends the
+    /// reader looking for a defect that is not there.
+    #[error(
+        "engine `{engine}` is not supported by `scythe inspect` — live inspection, \
+         schema drift and the SC-INS checks are implemented for PostgreSQL only \
+         (`postgres`, `postgresql`)"
+    )]
+    Unsupported {
+        /// The engine name as the user spelled it (URL scheme or `--dialect`).
+        engine: String,
+    },
+
+    /// A message placeholder resolved to a column whose PostgreSQL type this
+    /// runner cannot render as text.
+    ///
+    /// Reported rather than rendered as an empty string: a blank in the middle
+    /// of a finding message is indistinguishable from a genuinely empty value,
+    /// and a check that reports `ratio= ts=` has told the reader nothing while
+    /// looking like it worked.
+    #[error(
+        "check {check_id}: message placeholder '{{{binding}}}' is bound to column `{binding}` of \
+         PostgreSQL type `{pg_type}`, which cannot be rendered as text — cast it in the check's \
+         SQL, e.g. `{binding}::text AS {binding}`"
+    )]
+    UnrenderableBinding {
+        /// ID of the check whose message could not be rendered.
+        check_id: String,
+        /// The `{var}` name, which is also the projected column name.
+        binding: String,
+        /// The PostgreSQL type name the server reported for that column.
+        pg_type: String,
+    },
+
+    /// [`drift_findings`](crate::drift_findings) was called with nothing to
+    /// compare.
+    ///
+    /// An empty candidate set is not a clean schema — it is a check that never
+    /// ran. Returning "no findings" for it would report success for work that
+    /// was never done, which is exactly what a drift gate exists to prevent.
+    #[error(
+        "schema drift has nothing to compare: no schema description was supplied — \
+         a `[[sql]]` block whose schema glob matched no file cannot be checked for drift"
+    )]
+    NoSchemasToCompare,
+
+    /// Every schema the drift check would read is missing from the database.
+    ///
+    /// `current_schemas(false)` skips search-path entries that do not exist, so
+    /// a `search_path` naming only absent schemas resolves to nothing. Reading
+    /// nothing and comparing it against nothing is a silent all-clear on a
+    /// database the check never actually looked at.
+    #[error(
+        "schema drift found no schema to read: neither the connection's search_path ({search_path:?}) \
+         nor the schemas the committed DDL qualifies ({declared:?}) name a schema that exists in \
+         this database"
+    )]
+    EmptySchemaScope {
+        /// The search path as `current_schemas(false)` reported it.
+        search_path: Vec<String>,
+        /// Schema qualifiers taken from the DDL's own object names.
+        declared: Vec<String>,
+    },
 
     /// No connection URL could be resolved from CLI, env, or config.
     #[error("no database URL provided — pass a positional URL, set DATABASE_URL, or set SCYTHE_DATABASE_URL")]
@@ -99,4 +171,101 @@ pub enum InspectError {
         /// The lexicographically second colliding name, as the DDL wrote it.
         second: String,
     },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A driver error whose own `Display` says nothing, with the useful text
+    /// one level down — the exact shape `tokio_postgres::Error` has.
+    #[derive(Debug)]
+    struct OpaqueDriverError {
+        cause: ServerMessage,
+    }
+
+    #[derive(Debug)]
+    struct ServerMessage(&'static str);
+
+    impl std::fmt::Display for OpaqueDriverError {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str("db error")
+        }
+    }
+
+    impl std::fmt::Display for ServerMessage {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.write_str(self.0)
+        }
+    }
+
+    impl std::error::Error for OpaqueDriverError {
+        fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+            Some(&self.cause)
+        }
+    }
+
+    impl std::error::Error for ServerMessage {}
+
+    fn opaque(message: &'static str) -> Box<dyn std::error::Error + Send + Sync> {
+        Box::new(OpaqueDriverError {
+            cause: ServerMessage(message),
+        })
+    }
+
+    /// The whole point of the variant: a connection failure must say *why*.
+    /// Before this, a wrong password, a missing database and a missing role all
+    /// rendered as the same four characters.
+    #[test]
+    fn should_render_the_server_message_when_a_connection_fails() {
+        let error = InspectError::Connect {
+            engine: "postgres",
+            source: opaque("FATAL: database \"does_not_exist\" does not exist"),
+        };
+        assert_eq!(
+            error.to_string(),
+            "connection to postgres failed: db error: FATAL: database \"does_not_exist\" does not exist"
+        );
+    }
+
+    #[test]
+    fn should_render_the_server_message_when_a_catalog_query_fails() {
+        let error = InspectError::Query {
+            engine: "postgres",
+            check_id: "SC-INS01".to_string(),
+            source: opaque("ERROR: permission denied for table pg_constraint"),
+        };
+        assert_eq!(
+            error.to_string(),
+            "postgres catalog query SC-INS01 failed: db error: \
+             ERROR: permission denied for table pg_constraint"
+        );
+    }
+
+    /// The unsupported-engine message must name the engine the user asked for.
+    /// Naming a different one sends the reader hunting for a scythe bug.
+    #[test]
+    fn should_name_the_requested_engine_when_it_is_unsupported() {
+        let error = InspectError::Unsupported {
+            engine: "sqlite".to_string(),
+        };
+        let rendered = error.to_string();
+        assert!(rendered.starts_with("engine `sqlite` is not supported"), "{rendered}");
+        assert!(!rendered.contains("mysql"), "{rendered}");
+    }
+
+    #[test]
+    fn should_name_the_column_and_type_when_a_binding_cannot_be_rendered() {
+        let error = InspectError::UnrenderableBinding {
+            check_id: "USER-INS-001".to_string(),
+            binding: "ratio".to_string(),
+            pg_type: "numeric".to_string(),
+        };
+        assert_eq!(
+            error.to_string(),
+            "check USER-INS-001: message placeholder '{ratio}' is bound to column `ratio` of \
+             PostgreSQL type `numeric`, which cannot be rendered as text — cast it in the check's \
+             SQL, e.g. `ratio::text AS ratio`"
+        );
+    }
 }

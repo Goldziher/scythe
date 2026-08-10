@@ -133,7 +133,14 @@ impl PostgresDriver {
     }
 
     /// Set the suppression engine.  Call before `connect()` / `run_all()`.
-    pub fn set_suppression(&mut self, engine: SuppressionEngine) {
+    ///
+    /// The engine is bound to this driver's registry here, which is what tells
+    /// it *which* result column `[[inspect.suppression]] object = "…"` and
+    /// `schema = "…"` compare against. Without that binding it falls back to
+    /// searching the row, and searching the row is what made suppression depend
+    /// on hash-map iteration order.
+    pub fn set_suppression(&mut self, mut engine: SuppressionEngine) {
+        engine.bind_to_registry(&self.registry);
         self.suppression = Some(engine);
     }
 
@@ -157,7 +164,7 @@ impl Default for PostgresDriver {
 
 #[async_trait]
 impl DbDriver for PostgresDriver {
-    fn engine(&self) -> &'static str {
+    fn engine(&self) -> &str {
         "postgres"
     }
 
@@ -232,11 +239,12 @@ impl DbDriver for PostgresDriver {
             };
 
             for (finding, bindings) in pairs {
+                // The schema column comes from the check's own declaration, not
+                // from a substring search over a randomly-ordered map — the
+                // same defect that made suppression non-deterministic.
                 if finding.rule_id == SC_INS10_ID
-                    && let Some(schema) = bindings
-                        .iter()
-                        .find(|(k, _)| k.contains("schema"))
-                        .map(|(_, v)| v.as_str())
+                    && let Some(column) = spec.schema_binding.as_deref()
+                    && let Some(schema) = bindings.get(column).map(String::as_str)
                     && !effective_api_schemas.contains(&schema)
                 {
                     continue;

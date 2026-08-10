@@ -32,7 +32,12 @@ pub struct CheckCatalogEntry {
 pub trait DbDriver: Send + Sync {
     /// Stable engine identifier — e.g. `"postgres"`, `"mysql"`. Must be the
     /// same string [`scythe_core::dialect::SqlDialect::from_str`] accepts.
-    fn engine(&self) -> &'static str;
+    ///
+    /// Borrowed rather than `&'static str` so
+    /// [`UnsupportedDriver`](crate::UnsupportedDriver) can report the engine
+    /// the user actually named — a runtime string — instead of a hard-coded
+    /// one that would be wrong for every engine but the one it was written for.
+    fn engine(&self) -> &str;
 
     /// Open a connection to the given URL and store the client on `self`.
     ///
