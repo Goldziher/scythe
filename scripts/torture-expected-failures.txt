@@ -12,53 +12,93 @@
 #
 # Format: "<project> : <one-line reason> (<issue ref>)". Blank lines and
 # lines starting with # are ignored. Reasons are grouped by root cause, not
-# alphabetically, so the three defect classes stay visible as classes.
-
-# --- Defect A: a quoted SQL identifier (e.g. "widgetId") is embedded
-# unescaped into a host-language string/byte literal that itself uses double
-# quotes as its delimiter, terminating the literal early and cascading into
-# unrelated-looking compiler errors. This is issue #179 (the open successor
-# to the closed #150) -- the torture schema's quoted mixed-case "widgetId"
-# primary key is simply the first fixture that reaches it. The escaping layer
-# is landing per language rather than all at once, so these go stale a few at
-# a time -- elixir-ecto, elixir-postgrex and csharp-npgsql already have.
-rust-sqlx : SQL string literal embeds unescaped "widgetId", breaks the Rust string/sqlx macro (#179)
-rust-sqlx-nested-json : same as rust-sqlx -- shares backend rust-sqlx (#179)
-rust-tokio-postgres : same defect, tokio-postgres query string (#179)
-go-pgx : same defect, Go string literal (#179)
-ruby-pg : same defect, Ruby string literal (#179)
-
-# --- Defect B: a word reserved in the target language (`class`, from
-# sql/torture/schema.sql's "class" column) is emitted unescaped as a field,
-# parameter, or local name. This is issue #180 (open successor to the closed
-# #151); the TypeScript entries are also issue #215, which covers column
-# names that are not valid JS identifiers across all 12 TS backends.
+# alphabetically, so the defect classes stay visible as classes.
 #
-# The three JVM entries that used to sit here (java-jdbc, kotlin-jdbc,
-# kotlin-jdbc-ext) are gone, and their reason was misattributed while they
-# lived here: `class` is in both JVM manifests' `reserved` list and was always
-# escaped. What actually failed was the reader defect behind #191/#213/#214 --
-# the torture schema's composite `home_address` and uuid `external_id` columns
-# were read through the untyped `getObject`, whose Object/Any static type is
-# assignable to nothing. Fixing that made all three build.
-typescript-postgres : "class" column becomes an unescaped TS function parameter name (#180, #215)
-typescript-pg : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
-typescript-pg-zod : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
-typescript-pg-zod-outer-join-unions : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
-typescript-pg-outer-join-unions : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
-typescript-kysely : same defect, Kysely query builder call parameter (#180, #215)
+# EVERY reason below was derived by running the script with --keep and reading
+# the compiler's actual output. The previous revision of this file grouped all
+# five non-TypeScript entries under "unescaped quoted identifier (#179)", which
+# was written mid-rollout and was wrong for every one of them by the time
+# 740cc99 completed the escaping layer. A reason nobody re-derives decays into
+# fiction while the gate stays green, because the gate only checks pass/fail --
+# it cannot check *why*. Re-derive before editing.
 
-# Defect C (#200) -- `array<T>` emitted into a PHP native type position, which
-# has no generic syntax -- is fixed. The three php entries that lived here are
-# deleted rather than kept "just in case": this file is a gate in both
-# directions, and a listed project that passes fails the run.
+# --- Class 1: the harness project does not declare a dependency the torture
+# schema's column types require. The generated code is correct; the project
+# it is generated into cannot build it. integration_tests/rust-*/Cargo.toml
+# is scaffolding produced by tools/integration-test-generator, so the fix is
+# a generator change, not a hand-edit -- and it is genuinely a harness gap,
+# not a scythe defect, which is why these are grouped away from Class 3.
+# Marked "unfiled" deliberately: no open issue covers it, and an invented
+# issue reference is worse than an honest blank.
+#
+#   error[E0433]: cannot find module or crate `serde_json`
+#     --> src/queries.rs:36:26  |  pub metadata: Option<serde_json::Value>,
+#   error[E0433]: cannot find module or crate `uuid`
+#     --> src/queries.rs:37:22  |  pub external_id: uuid::Uuid,
+#
+# The torture schema adds json and uuid columns that these projects' own
+# queries never used, so their Cargo.toml never needed either crate.
+rust-sqlx : Cargo.toml declares neither serde_json nor uuid, which the torture schema's json/uuid columns require (unfiled)
+rust-sqlx-nested-json : same as rust-sqlx -- shares the scaffolding and the missing deps (unfiled)
+rust-tokio-postgres : same defect, tokio-postgres project scaffolding (unfiled)
 
-# Defect D -- every non-scalar column read through the untyped
-# `GetValue` accessor, which returns `object` and binds to none of the types
-# the csharp manifests declare -- is fixed, so csharp-npgsql now builds clean
-# against the torture schema and its entry is gone from Defect A above. Note
-# that it never actually failed for Defect A's escaping reason: the C# escaping
-# layer was already in place, but check-generated-backends.py's HARNESS_STUBS
-# gave the project a Program.cs with no `Main`, so `dotnet build` failed with
-# CS5001 whatever the generated code did. That masked both the real defect and
-# the real fix; the stub has an entry point now.
+# --- Class 2: a real generated-code defect, but not the one previously
+# recorded here. go-pgx emits a static import block that omits the imports
+# the emitted types need:
+#
+#   generated/queries.go:38:12: undefined: json    (from *json.RawMessage)
+#   generated/queries.go:39:13: undefined: uuid    (from uuid.UUID)
+#
+# The generated header even concedes it -- "Run `goimports -w .` to fix
+# imports". #100 fixed the opposite direction (an import emitted but unused);
+# this is the same static block failing when an import is *needed*.
+go-pgx : import block omits encoding/json and google/uuid while the emitted types reference both (#198)
+
+# --- Class 3: target-language reserved words reaching a binding position.
+# All six TypeScript projects fail identically on sql/torture/schema.sql's
+# "class" column:
+#
+#   generated/queries.ts(82,2): error TS1390: 'class' is not allowed as a
+#                               parameter name.
+#
+# All 17 TypeScript manifests are the ones that declare no `[naming] reserved`
+# list, so naming.rs:202 field_name() never mangles for them. Populating that
+# list is necessary but not sufficient: typescript_common.rs deliberately
+# fixes identifier *shape* only (see its doc at :152-157), and ts_property_key
+# / ts_member_access / ts_index_access all quote rather than mangle -- correct
+# for a property key, useless for a parameter name. A ts_binding_name helper
+# is the missing piece.
+typescript-postgres : "class" column becomes an unescaped TS function parameter name (#180)
+typescript-pg : same as typescript-postgres -- shares backend typescript-pg (#180)
+typescript-pg-zod : same as typescript-postgres -- shares backend typescript-pg (#180)
+typescript-pg-zod-outer-join-unions : same as typescript-postgres -- shares backend typescript-pg (#180)
+typescript-pg-outer-join-unions : same as typescript-postgres -- shares backend typescript-pg (#180)
+typescript-kysely : same defect, Kysely query builder call parameter (#180)
+
+# --- Resolved, kept as a record of what this list is for.
+#
+# ruby-pg was listed under the escaping reason and never failed for it. The
+# script globs every file in the output directory and dispatched the syntax
+# checker on the *backend*, so it ran `ruby -c` over queries.rbs -- a
+# signature language, not Ruby -- and failed on `ACTIVE: String`. `ruby -c`
+# on queries.rb is Syntax OK and `rbs parse` on queries.rbs is clean; no
+# change to the generated code could ever have cleared it. Fixed by
+# SYNTAX_BY_EXTENSION in check-generated-backends.py.
+#
+# The three php entries (Defect C, #200 -- `array<T>` in a PHP native type
+# position) and csharp-npgsql (Defect D -- every non-scalar column read
+# through the untyped GetValue accessor) are both fixed and deleted rather
+# than kept "just in case": this file is a gate in both directions, and a
+# listed project that passes fails the run. csharp-npgsql is also worth
+# remembering as the reason the disclaimer at the top of this file exists --
+# it was listed under the escaping reason too, but the C# escaping layer was
+# already in place; HARNESS_STUBS had given the project a Program.cs with no
+# `Main`, so `dotnet build` failed with CS5001 whatever the generated code
+# did, and the entry was unfalsifiable for its whole life.
+#
+# The three JVM entries (java-jdbc, kotlin-jdbc, kotlin-jdbc-ext) were also
+# misattributed while they lived here: `class` is in both JVM manifests'
+# `reserved` list and was always escaped. What actually failed was the reader
+# defect behind #191 -- the torture schema's composite home_address and uuid
+# external_id columns were read through the untyped getObject, whose
+# Object/Any static type is assignable to nothing.

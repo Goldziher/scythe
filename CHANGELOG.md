@@ -30,6 +30,22 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- `scripts/check-generated-backends.py` ran `ruby -c` over `queries.rbs`. The script globs every file
+  in a backend's output directory and picked the syntax checker by *backend*, but RBS is a signature
+  language, not Ruby, so it choked on `ACTIVE: String` and reported a `ruby-pg` failure that no change
+  to the generated code could ever have cleared. The entry sat in
+  `scripts/torture-expected-failures.txt` blamed on unescaped SQL, which it never had anything to do
+  with. Syntax checkers are now selected by file extension first, since a file's language is a property
+  of the file and not of the backend that emitted it — the distinction
+  `scripts/check-generated-syntax.sh` already made, now with one derivation instead of two. `ruby-pg`
+  builds clean against the torture schema and is out of the allowlist.
+- Every remaining reason in `scripts/torture-expected-failures.txt` was re-derived from the compiler's
+  actual output rather than carried forward. All five non-TypeScript entries had been grouped under
+  "unescaped quoted identifier (#179)", written mid-rollout and wrong for every one of them by the time
+  740cc99 finished the escaping layer: the three Rust projects fail because their scaffolding declares
+  neither `serde_json` nor `uuid`, `go-pgx` fails on a static import block that omits what its own
+  emitted types reference (#198), and `ruby-pg` was the harness bug above. A gate that checks only
+  pass/fail cannot check *why*, so the file now carries an instruction to re-derive before editing.
 - `SC-SEC01` (`dangerous-function`) missed set-returning functions called in `FROM` position
   (`FROM dblink(...)`, `FROM pg_ls_dir('/etc')`, `FROM openrowset(...)`) — the idiomatic way these
   particular functions are written — because the matcher only inspected `Expr::Function` nodes and

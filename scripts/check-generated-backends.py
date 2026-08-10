@@ -119,6 +119,19 @@ SYNTAX_ONLY: dict[str, list[str]] = {
     "kotlin-jdbc": ["kotlinc_check"],  # dispatched specially, see run_syntax_check
 }
 
+# The checker is decided by the file's language, not by the backend that wrote
+# it: one output directory can hold more than one language. ruby-pg emits both
+# `queries.rb` and `queries.rbs`, and RBS is a signature language, not Ruby --
+# `ruby -c` cannot parse `ACTIVE: String`. Dispatching on the backend alone ran
+# `ruby -c` over the type signatures and produced a failure that no change to
+# the generated code could ever clear, which is precisely the class of vacuous
+# result this script exists to eliminate. check-generated-syntax.sh:219-222
+# already made this distinction; this map stops that fact having two
+# derivations that can disagree.
+SYNTAX_BY_EXTENSION: dict[str, list[str]] = {
+    ".rbs": ["rbs", "parse"],
+}
+
 # The hand-written test harness in each project calls generated functions by
 # name against sql/pg/schema.sql's shape (CreateOrder, GetUserById, ...).
 # sql/torture/schema.sql defines none of those, so an unmodified harness
@@ -207,9 +220,16 @@ def run(cmd: list[str], cwd: str, timeout: int = 300) -> tuple[bool, str]:
 
 
 def run_syntax_check(backend: str, file_path: str, cwd: str) -> tuple[bool, str]:
-    """Dispatch SYNTAX_ONLY[backend], with kotlinc's `-d <scratch jar>` special-cased
-    the same way check-generated-syntax.sh's kotlinc_check is (no third-party
-    classpath needed -- see the BUILD_COMMANDS comment on "kotlin-jdbc")."""
+    """Dispatch SYNTAX_BY_EXTENSION first, then SYNTAX_ONLY[backend], with kotlinc's
+    `-d <scratch jar>` special-cased the same way check-generated-syntax.sh's
+    kotlinc_check is (no third-party classpath needed -- see the BUILD_COMMANDS
+    comment on "kotlin-jdbc").
+
+    The extension map wins because a file's language is a property of the file,
+    not of the backend that emitted it."""
+    ext_cmd = SYNTAX_BY_EXTENSION.get(os.path.splitext(file_path)[1])
+    if ext_cmd is not None:
+        return run([*ext_cmd, file_path], cwd=cwd, timeout=30)
     if backend == "kotlin-jdbc":
         with tempfile.TemporaryDirectory() as tmp:
             return run(["kotlinc", "-d", os.path.join(tmp, "out.jar"), file_path], cwd=cwd, timeout=120)
