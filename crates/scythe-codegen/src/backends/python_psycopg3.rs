@@ -199,10 +199,20 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        // Keyed off the *resolved* param, not a second snake_case of the raw
+        // SQL name: the dict handed to `execute` below is keyed by
+        // `field_name`, and `%(...)s` names have to match it exactly or
+        // psycopg raises "query parameter missing" at execute time. The two
+        // spellings agreed only for as long as nothing else touched
+        // `field_name` -- `[naming] reserved` mangling a param called `class`
+        // to `class_` was enough to split them, and neither the type checker
+        // nor a syntax check can see it. `zip` is sound because
+        // `resolve_params` maps `analyzed.params` one-to-one in order.
         let name_map: std::collections::HashMap<u32, String> = analyzed
             .params
             .iter()
-            .map(|p| (p.position as u32, to_snake_case(&p.name).into_owned()))
+            .zip(params.iter())
+            .map(|(ap, rp)| (ap.position as u32, rp.field_name.clone()))
             .collect();
         let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&sql_clean, |n| {
             format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))
@@ -531,10 +541,20 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
+        // Keyed off the *resolved* param, not a second snake_case of the raw
+        // SQL name: the dict handed to `execute` below is keyed by
+        // `field_name`, and `%(...)s` names have to match it exactly or
+        // psycopg raises "query parameter missing" at execute time. The two
+        // spellings agreed only for as long as nothing else touched
+        // `field_name` -- `[naming] reserved` mangling a param called `class`
+        // to `class_` was enough to split them, and neither the type checker
+        // nor a syntax check can see it. `zip` is sound because
+        // `resolve_params` maps `analyzed.params` one-to-one in order.
         let name_map: std::collections::HashMap<u32, String> = analyzed
             .params
             .iter()
-            .map(|p| (p.position as u32, to_snake_case(&p.name).into_owned()))
+            .zip(params.iter())
+            .map(|(ap, rp)| (ap.position as u32, rp.field_name.clone()))
             .collect();
         let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&sql_clean, |n| {
             format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))

@@ -30,6 +30,16 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **`python-psycopg3` bound a reserved-word parameter to a name it never passed.** It is the one
+  backend that binds by name rather than position, and it derived the two halves of that contract
+  separately — the `execute` dict from the resolved param's `field_name`, the `%(...)s` placeholder
+  from a second `to_snake_case` of the raw SQL name. The spellings matched until anything else touched
+  `field_name`: a param named `class` became `class_` in the signature and the dict while the SQL still
+  asked for `%(class)s`, so every call raised `query parameter missing: class` at execute time. Nothing
+  earlier could catch it — the module imports, type-checks and passes the generated-code gate, which
+  compiles generated code and never runs it. Both halves now come from the resolved param, the way
+  `typescript-postgres` already did it. `crates/scythe-codegen/tests/python_named_placeholder_regression.rs`
+  asserts the invariant (every placeholder is a dict key) rather than the single keyword that exposed it.
 - **A column named after a TypeScript keyword produced a file that would not parse.** Every generated
   TypeScript query function takes its parameter names from the columns they are compared against, so a
   `class` column emitted `export async function q(client: PoolClient, class: string)` — `TS1390`, and
