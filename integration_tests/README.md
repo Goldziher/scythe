@@ -21,6 +21,53 @@ Both are generated output. Never hand-edit files under a backend's `generated/` 
 `scythe.toml`/dependency manifests for a backend that `build_backends()` owns — fix the
 generator or the jinja templates instead, then run `task generate:all` and commit the result.
 
+## Coverage completeness is enforced, not audited
+
+`tools/integration-test-generator/tests/coverage_completeness.rs` (run by
+`cargo test --workspace`) cross-checks three lists that used to be maintained independently:
+
+1. every backend manifest under `crates/scythe-codegen/manifests/` resolves to an integration
+   project here;
+2. every integration project has a `test:<project>` target in `Taskfile.yaml`;
+3. every integration project is run by a step in `.github/workflows/integration.yml`.
+
+A project's `(backend, engine)` is mapped onto the manifest it selects by calling the real
+resolver, not by re-deriving the engine-fallback table — `csharp-mysqlconnector` on `mariadb`
+resolves to the `mysql` manifest, and a second copy of that rule would just be another thing to
+drift.
+
+Gaps live in `tools/integration-test-generator/coverage-exemptions.txt`, one line per gap with a
+written reason. The list ratchets both ways: an uncovered entry that is not listed fails the
+build, and a listed entry that has since been covered also fails the build as stale. There is no
+percentage and no tolerance, so it can only shrink. Adding a backend manifest without an
+integration project now fails on the commit that adds the manifest.
+
+## Redshift and Snowflake are substitutes, not the engines they are named for
+
+Two engines have no runnable local or CI target and are exercised against stand-ins. Both are
+defensible, but the job names and the backend matrix read as real coverage, so state it here:
+
+- **Redshift runs on stock PostgreSQL 16.** CI's `integration-redshift` job and the local
+  `redshift-pg-compat` compose service both apply `sql/redshift/schema_pg_compat.sql`, in which
+  `IDENTITY` became `SERIAL` and `GETDATE()` became `NOW()`. The real `sql/redshift/schema.sql` —
+  what codegen is pointed at in a deployment — runs nowhere. Redshift forked PostgreSQL 8.0, so
+  this leg cannot show: `SERIAL`/`IDENTITY` differences on `RETURNING`; `JSONB` and array types
+  (Redshift has neither); `CREATE TYPE ... AS ENUM` (Redshift has none — the PG schema uses a
+  `user_status` enum where the Redshift schema uses `VARCHAR(50)`); `ON CONFLICT`; CTE
+  materialization; or the `information_schema` column-type OIDs introspection reads to pick host
+  types. 13 projects.
+- **Snowflake runs on fakesnow**, which is DuckDB behind a Snowflake REST facade. The harnesses do
+  load the *real* `sql/snowflake/schema.sql`, so `VARIANT`, `NUMBER(10,2)`, `TIMESTAMP_NTZ`,
+  `TIMESTAMP_TZ` and `AUTOINCREMENT` are genuinely exercised. Being DuckDB, it still cannot show:
+  unquoted identifiers normalizing to UPPERCASE; `NUMBER(38,0)` default precision exceeding
+  `i64`; or `TIMESTAMP_LTZ` session-timezone resolution. Two wire formats (Arrow for JDBC, JSON
+  for the rest) are hand-implemented in the emulator, so divergence between that encoder and
+  Snowflake's own is invisible by construction. 7 projects.
+
+`sql/snowflake/schema_emu.sql` was deleted: nothing referenced it, and it substituted
+`NUMBER(10,2)` → `FLOAT` and `VARIANT` → `VARCHAR`, so re-pointing a harness at it would have
+silently deleted the decimal-precision assertion.
+
 ## Directories outside the generator
 
 Eight directories are not produced by `tools/integration-test-generator` and are intentionally

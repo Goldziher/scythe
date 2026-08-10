@@ -42,6 +42,47 @@ services:
       timeout: 5s
       retries: 20
 
+  # Redshift has no local image and no emulator. CI runs the Redshift leg
+  # against stock PostgreSQL with a substituted schema (see
+  # sql/redshift/schema_pg_compat.sql and its header), so this service is the
+  # same substitution, on its own port and database so a Redshift run never
+  # shares state with the PostgreSQL run. It is NOT Redshift: see the
+  # "Redshift and Snowflake are substitutes" section of README.md for the
+  # divergences this cannot show.
+  redshift-pg-compat:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: scythe
+      POSTGRES_PASSWORD: scythe
+      POSTGRES_DB: scythe_redshift_test
+    ports:
+      - "5434:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U scythe"]
+      interval: 2s
+      timeout: 5s
+      retries: 10
+
+  # The Taskfile has referenced MSSQL_URL since the mssql projects were added,
+  # but no service ever backed it locally -- `task test:elixir-tds-mssql` could
+  # only ever have worked against a hand-started container.
+  mssql:
+    image: mcr.microsoft.com/mssql/server:2022-latest
+    environment:
+      ACCEPT_EULA: "Y"
+      MSSQL_SA_PASSWORD: Scythe_Test1
+    ports:
+      - "1433:1433"
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "/opt/mssql-tools18/bin/sqlcmd -S localhost -U sa -P Scythe_Test1 -C -Q 'SELECT 1' || exit 1",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
   mariadb:
     image: mariadb:11
     environment:

@@ -11,3 +11,10 @@ authors = ["Na'aman Hirschfeld"]
 clap = { version = "4", features = ["derive"] }
 minijinja = { version = "2", features = ["loader"] }
 serde = { version = "1", features = ["derive"] }
+
+# Test-only. The coverage completeness check resolves each project's
+# (backend, engine) through the real generator rather than re-deriving the
+# engine-fallback table, so it depends on scythe-codegen.
+[dev-dependencies]
+scythe-codegen = { path = "../../crates/scythe-codegen" }
+toml = "1.1"
