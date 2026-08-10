@@ -777,10 +777,83 @@ impl<'a> Analyzer<'a> {
             // JSON document, not a whole-row reference -- the shape it strips
             // from is whatever its argument already was.
             "json_strip_nulls" | "jsonb_strip_nulls" => TypeInfo::new("json", first_arg_nullable),
-            "json_typeof" | "jsonb_typeof" => TypeInfo::new("string", true),
+            // ~keep `array_to_json` is `proisstrict = t`, so the column is SQL NULL
+            // exactly when an argument is -- including the common
+            // `array_to_json(array_agg(x))` shape, where the inner aggregate
+            // over zero rows is already NULL and carries that through.
+            // Nothing else makes it NULL: an empty array converts to the
+            // document `[]` and a NULL *element* becomes a JSON `null`
+            // inside a non-NULL document (`array_to_json(ARRAY[1,NULL,3])`
+            // is `[1,null,3]`).
+            //
+            // `any_arg_nullable`, not `first_arg_nullable`, because the
+            // two-argument `array_to_json(anyarray, boolean)` pretty-print
+            // form is strict in the flag too.
+            //
+            // No nested-struct inference: the argument is an array
+            // expression, not the whole-row reference
+            // `infer_nested_aggregate_type` needs.
+            "array_to_json" => {
+                let nullable = self.any_arg_nullable(func, scope);
+                TypeInfo::new("json", nullable)
+            }
+            // ~keep `json_object(text[])` and `json_object(text[], text[])` are both
+            // strict, and neither has a second NULL source: an empty array
+            // yields the document `{}` and an odd-length one raises
+            // `array must have even number of elements` rather than
+            // returning NULL.
+            "json_object" | "jsonb_object" => {
+                let nullable = self.any_arg_nullable(func, scope);
+                TypeInfo::new("json", nullable)
+            }
+            // ~keep Both are strict in *every* argument, not just the document:
+            // `jsonb_set('{"a":1}', '{a}', NULL)` and
+            // `jsonb_set('{"a":1}', NULL, '1')` are each SQL NULL, so a
+            // nullable replacement value or path makes the column nullable.
+            "jsonb_set" | "jsonb_insert" => {
+                let nullable = self.any_arg_nullable(func, scope);
+                TypeInfo::new("json", nullable)
+            }
+            // ~keep The one JSON function where `proisstrict` is not the whole
+            // story in the *other* direction. `jsonb_set_lax` is
+            // `proisstrict = f`, yet a NULL target or a NULL path still
+            // yields SQL NULL -- only the third argument, the replacement,
+            // gets the lenient treatment `null_value_treatment` selects
+            // (`use_json_null` embeds `null`, `return_target` returns the
+            // document unchanged, `delete_key` drops the key; none of them
+            // returns SQL NULL). So nullability comes from the first two
+            // arguments alone, and a nullable replacement -- the whole point
+            // of reaching for `_lax` over `jsonb_set` -- must not be allowed
+            // to infect the column.
+            "jsonb_set_lax" => {
+                let args = self.get_function_args(func);
+                // Fewer than the three mandatory arguments means a malformed
+                // call; stay conservative rather than claim non-null.
+                let nullable =
+                    args.len() < 3 || args.iter().take(2).any(|arg| self.infer_expr_type(arg, scope).nullable);
+                TypeInfo::new("json", nullable)
+            }
+            // ~keep Strict, and no second NULL source: every JSON value has a type
+            // name, and the JSON `null` document reports the *string*
+            // `'null'`, not SQL NULL. So the column is nullable exactly when
+            // the argument is, rather than unconditionally.
+            "json_typeof" | "jsonb_typeof" => TypeInfo::new("string", first_arg_nullable),
+            // ~keep Strict *and* unconditionally nullable, which is not a
+            // contradiction and is why these do not follow the
+            // `json_typeof` rule above: a path that does not exist in a
+            // perfectly non-NULL document returns SQL NULL
+            // (`json_extract_path('{"a":1}', 'b')` is NULL). Path presence
+            // is data, not schema, so scythe cannot prove the lookup hits.
             "json_extract_path_text" | "jsonb_extract_path_text" => TypeInfo::new("string", true),
             "json_extract_path" | "jsonb_extract_path" => TypeInfo::new("json", true),
-            "json_array_length" | "jsonb_array_length" => TypeInfo::new("int32", true),
+            // ~keep Strict, and a non-NULL argument can only produce a number or
+            // an error (`json_array_length('{"a":1}')` raises "cannot get
+            // array length of a non-array"), never SQL NULL -- an empty
+            // array is `0`. Nullability therefore follows the argument.
+            "json_array_length" | "jsonb_array_length" => TypeInfo::new("int32", first_arg_nullable),
+            // ~keep Strict, returns `text`; the pretty-printed rendering of a
+            // non-NULL document is never SQL NULL.
+            "jsonb_pretty" => TypeInfo::new("string", first_arg_nullable),
             "json_each" | "jsonb_each" | "json_each_text" | "jsonb_each_text" => TypeInfo::new("string", true),
             "json_object_keys" | "jsonb_object_keys" => TypeInfo::new("string", false),
             "json_populate_record"
@@ -2142,6 +2215,220 @@ mod tests {
             let func = make_func(fname, vec![col_expr("c")]);
             let ti = analyzer.infer_function_type(&func, &scope_with_column("string"));
             assert!(!ti.nullable, "{fname} of a NOT NULL argument can never be SQL NULL");
+        }
+    }
+
+    /// `array_to_json` had no arm at all, so it fell through to the
+    /// catch-all and became `__unknown_func__:array_to_json` -- a marker
+    /// `reject_unresolved_columns` turns into an `unknown function` error,
+    /// making a perfectly ordinary PostgreSQL query uncompilable. It is
+    /// `proisstrict = t` and returns `json`.
+    #[test]
+    fn test_array_to_json_follows_argument_nullability() {
+        let catalog = empty_catalog();
+
+        let mut analyzer = make_analyzer(&catalog);
+        let func = make_func("array_to_json", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope_with_nullable_column("array<int32>"));
+        assert_eq!(ti.neutral_type, "json");
+        assert!(
+            ti.nullable,
+            "array_to_json is strict, so a nullable array yields SQL NULL"
+        );
+
+        let mut analyzer = make_analyzer(&catalog);
+        let func = make_func("array_to_json", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope_with_column("array<int32>"));
+        assert_eq!(ti.neutral_type, "json");
+        assert!(
+            !ti.nullable,
+            "an empty array converts to `[]` and a NULL element to a JSON `null`, \
+             so a NOT NULL array can never yield SQL NULL"
+        );
+    }
+
+    /// The pretty-print flag of the two-argument
+    /// `array_to_json(anyarray, boolean)` is strict too, so the arm must use
+    /// `any_arg_nullable` rather than looking only at the array.
+    #[test]
+    fn test_array_to_json_second_argument_is_strict_too() {
+        let catalog = empty_catalog();
+
+        let mut analyzer = make_analyzer(&catalog);
+        let func = make_func("array_to_json", vec![col_expr("c"), null_literal()]);
+        let ti = analyzer.infer_function_type(&func, &scope_with_column("array<int32>"));
+        assert!(ti.nullable, "a NULL pretty-print flag makes the whole call SQL NULL");
+
+        let mut analyzer = make_analyzer(&catalog);
+        let func = make_func("array_to_json", vec![col_expr("c"), string_literal("t")]);
+        let ti = analyzer.infer_function_type(&func, &scope_with_column("array<int32>"));
+        assert!(!ti.nullable, "a non-NULL flag leaves the array's nullability alone");
+    }
+
+    /// `json_object`/`jsonb_object` had no arm either. Both are strict, and
+    /// an empty key array yields the document `{}` while an odd-length one
+    /// raises an error -- neither is a second source of SQL NULL.
+    #[test]
+    fn test_json_object_follows_argument_nullability() {
+        let catalog = empty_catalog();
+        for fname in ["json_object", "jsonb_object"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &scope_with_nullable_column("array<string>"));
+            assert_eq!(ti.neutral_type, "json");
+            assert!(ti.nullable, "{fname} is strict, so a nullable array yields SQL NULL");
+
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &scope_with_column("array<string>"));
+            assert!(!ti.nullable, "{fname} of a NOT NULL array can never be SQL NULL");
+        }
+    }
+
+    /// `jsonb_set`/`jsonb_insert` are strict in *every* argument, so a
+    /// nullable replacement value is enough to make the column nullable even
+    /// when the document is NOT NULL.
+    #[test]
+    fn test_jsonb_set_is_strict_in_every_argument() {
+        let catalog = empty_catalog();
+        for fname in ["jsonb_set", "jsonb_insert"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(
+                fname,
+                vec![string_literal("{\"a\":1}"), string_literal("{a}"), col_expr("c")],
+            );
+            let ti = analyzer.infer_function_type(&func, &scope_with_nullable_column("json"));
+            assert_eq!(ti.neutral_type, "json");
+            assert!(ti.nullable, "{fname} with a nullable replacement yields SQL NULL");
+
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(
+                fname,
+                vec![string_literal("{\"a\":1}"), string_literal("{a}"), col_expr("c")],
+            );
+            let ti = analyzer.infer_function_type(&func, &scope_with_column("json"));
+            assert!(
+                !ti.nullable,
+                "{fname} with all arguments NOT NULL can never be SQL NULL"
+            );
+        }
+    }
+
+    /// `jsonb_set_lax` is the counter-example to reading `proisstrict`
+    /// alone: it is `proisstrict = f`, yet a NULL target or path still gives
+    /// SQL NULL. Only the replacement gets lenient treatment, so a nullable
+    /// third argument -- the entire reason to use `_lax` -- must leave the
+    /// column non-nullable.
+    #[test]
+    fn test_jsonb_set_lax_ignores_replacement_nullability() {
+        let catalog = empty_catalog();
+
+        let mut analyzer = make_analyzer(&catalog);
+        let func = make_func(
+            "jsonb_set_lax",
+            vec![string_literal("{\"a\":1}"), string_literal("{a}"), col_expr("c")],
+        );
+        let ti = analyzer.infer_function_type(&func, &scope_with_nullable_column("json"));
+        assert_eq!(ti.neutral_type, "json");
+        assert!(
+            !ti.nullable,
+            "a NULL replacement is embedded as a JSON null (or drops the key), never SQL NULL"
+        );
+
+        let mut analyzer = make_analyzer(&catalog);
+        let func = make_func(
+            "jsonb_set_lax",
+            vec![col_expr("c"), string_literal("{a}"), string_literal("1")],
+        );
+        let ti = analyzer.infer_function_type(&func, &scope_with_nullable_column("json"));
+        assert!(ti.nullable, "a NULL target document still yields SQL NULL");
+    }
+
+    /// `json_typeof` was unconditionally nullable. It is strict and every
+    /// JSON value has a type name -- the JSON `null` document reports the
+    /// string `'null'`, not SQL NULL -- so nullability follows the argument.
+    #[test]
+    fn test_json_typeof_follows_argument_nullability() {
+        let catalog = empty_catalog();
+        for fname in ["json_typeof", "jsonb_typeof"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &scope_with_column("json"));
+            assert_eq!(ti.neutral_type, "string");
+            assert!(
+                !ti.nullable,
+                "{fname} of a NOT NULL document always names a type, so it is never SQL NULL"
+            );
+
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &scope_with_nullable_column("json"));
+            assert!(ti.nullable, "{fname} is strict, so a nullable document yields SQL NULL");
+        }
+    }
+
+    /// Same fix for `json_array_length`: strict, and a non-NULL argument
+    /// either produces a number (`0` for `[]`) or raises -- never SQL NULL.
+    #[test]
+    fn test_json_array_length_follows_argument_nullability() {
+        let catalog = empty_catalog();
+        for fname in ["json_array_length", "jsonb_array_length"] {
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &scope_with_column("json"));
+            assert_eq!(ti.neutral_type, "int32");
+            assert!(!ti.nullable, "{fname} of a NOT NULL array document is never SQL NULL");
+
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(fname, vec![col_expr("c")]);
+            let ti = analyzer.infer_function_type(&func, &scope_with_nullable_column("json"));
+            assert!(ti.nullable, "{fname} is strict, so a nullable document yields SQL NULL");
+        }
+    }
+
+    /// `jsonb_pretty` had no arm and became an `unknown function` error. It
+    /// is strict and returns `text`.
+    #[test]
+    fn test_jsonb_pretty_returns_string_following_argument_nullability() {
+        let catalog = empty_catalog();
+
+        let mut analyzer = make_analyzer(&catalog);
+        let func = make_func("jsonb_pretty", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope_with_column("json"));
+        assert_eq!(ti.neutral_type, "string", "jsonb_pretty returns text, not json");
+        assert!(!ti.nullable, "the rendering of a NOT NULL document is never SQL NULL");
+
+        let mut analyzer = make_analyzer(&catalog);
+        let func = make_func("jsonb_pretty", vec![col_expr("c")]);
+        let ti = analyzer.infer_function_type(&func, &scope_with_nullable_column("json"));
+        assert!(
+            ti.nullable,
+            "jsonb_pretty is strict, so a nullable document yields SQL NULL"
+        );
+    }
+
+    /// Guardrail for the deliberate non-change next door: `json_extract_path`
+    /// and its `_text` variant are strict *and* unconditionally nullable,
+    /// because a path that does not exist in a non-NULL document returns SQL
+    /// NULL. They must not be "fixed" to follow their argument the way
+    /// `json_typeof` now does.
+    #[test]
+    fn test_json_extract_path_stays_unconditionally_nullable() {
+        let catalog = empty_catalog();
+        for (fname, expected) in [
+            ("json_extract_path", "json"),
+            ("jsonb_extract_path", "json"),
+            ("json_extract_path_text", "string"),
+            ("jsonb_extract_path_text", "string"),
+        ] {
+            let mut analyzer = make_analyzer(&catalog);
+            let func = make_func(fname, vec![col_expr("c"), string_literal("a")]);
+            let ti = analyzer.infer_function_type(&func, &scope_with_column("json"));
+            assert_eq!(ti.neutral_type, expected, "{fname} return type");
+            assert!(
+                ti.nullable,
+                "{fname} returns SQL NULL for a missing path even on a NOT NULL document"
+            );
         }
     }
 
