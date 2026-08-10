@@ -170,9 +170,16 @@ output = "{output}"
 
     // `current_dir` is set to an unrelated temp dir (not `dir`, where the
     // schema/queries actually live) to prove resolution no longer depends on
-    // the process's CWD.
+    // the process's CWD. `output` above is an absolute path, which #207
+    // rejects by default as escaping the project root; `--allow-output-escape`
+    // opts back in since this test's absolute `output` is deliberate.
     let output = scythe_bin()
-        .args(["generate", "--config", config_path.to_str().unwrap()])
+        .args([
+            "generate",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--allow-output-escape",
+        ])
         .current_dir(temp.path())
         .output()
         .expect("failed to run scythe generate");
@@ -232,8 +239,15 @@ output = "{output}"
     let config_path = temp.path().join("scythe.toml");
     std::fs::write(&config_path, &config_content).unwrap();
 
+    // `output` above is an absolute path, which #207 rejects by default as
+    // escaping the project root; `--allow-output-escape` opts back in.
     let output = scythe_bin()
-        .args(["generate", "--config", config_path.to_str().unwrap()])
+        .args([
+            "generate",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--allow-output-escape",
+        ])
         .current_dir(temp.path())
         .output()
         .expect("failed to run scythe generate");
@@ -648,8 +662,15 @@ output = "{output}"
     let config_path = temp.path().join("scythe.toml");
     std::fs::write(&config_path, &config).unwrap();
 
+    // `output` above is an absolute path, which #207 rejects by default as
+    // escaping the project root; `--allow-output-escape` opts back in.
     let output = scythe_bin()
-        .args(["generate", "--config", config_path.to_str().unwrap()])
+        .args([
+            "generate",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--allow-output-escape",
+        ])
         .output()
         .expect("generate run");
     assert!(

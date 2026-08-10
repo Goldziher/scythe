@@ -287,8 +287,18 @@ fn absolute_output_is_unchanged() {
 
     let config_path = write_project(project.path(), VALID_QUERY_SQL, &toml_path(abs_output.path()));
 
+    // #207: an `output` outside the project root is rejected by default
+    // (the CI-against-a-PR-modified-config threat that fix closes) unless
+    // the caller opts in. This test's whole premise is a deliberately
+    // absolute `output`, so it is exactly the "genuinely wanted" case the
+    // flag exists for.
     let output = scythe_bin()
-        .args(["generate", "--config", config_path.to_str().unwrap()])
+        .args([
+            "generate",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--allow-output-escape",
+        ])
         .current_dir(run_from.path())
         .output()
         .expect("run scythe generate");
@@ -359,8 +369,15 @@ output = "{output}"
     let config_path = config_dir.path().join("scythe.toml");
     std::fs::write(&config_path, config).unwrap();
 
+    // `output` here is also an absolute path (see `output_dir` above), so
+    // this needs the same #207 opt-out as `absolute_output_is_unchanged`.
     let output = scythe_bin()
-        .args(["generate", "--config", config_path.to_str().unwrap()])
+        .args([
+            "generate",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--allow-output-escape",
+        ])
         .current_dir(run_from.path())
         .output()
         .expect("run scythe generate");
