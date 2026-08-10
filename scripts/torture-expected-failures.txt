@@ -44,8 +44,7 @@ typescript-pg-zod-outer-join-unions : same as typescript-postgres -- shares back
 typescript-pg-outer-join-unions : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
 typescript-kysely : same defect, Kysely query builder call parameter (#180, #215)
 
-# --- Defect C: `array<T>` (angle-bracket generic syntax) has no meaning in
-# PHP, which has no generic types -- matches issue #200 exactly.
-php-pdo : "tags TEXT[]" column emits invalid PHP `array<string>` property type (#200)
-php-pdo-namespace : same as php-pdo -- shares backend php-pdo (#200)
-php-amphp : same defect, php-amphp backend (#200)
+# Defect C (#200) -- `array<T>` emitted into a PHP native type position, which
+# has no generic syntax -- is fixed. The three php entries that lived here are
+# deleted rather than kept "just in case": this file is a gate in both
+# directions, and a listed project that passes fails the run.

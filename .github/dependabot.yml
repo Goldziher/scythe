@@ -80,27 +80,33 @@ updates:
   # cargo project with its own Cargo.lock, outside the root workspace, so the
   # `/` entry's ignore list never reaches it.
   #
-  # The result is a job that has failed every week since the advisory landed,
-  # and always will: the alert is on rustls-webpki, not on tiberius, so the
-  # tiberius rule above does not match it. tiberius 0.12 pins the rustls 0.21
-  # line, which pins rustls-webpki 0.101.7; the earliest non-vulnerable release
-  # is 0.103.13. Dependabot reports `security_update_not_possible` -- there is
-  # no lockfile edit that resolves this, only moving off tiberius, which is
-  # tracked separately.
+  # The result is a job that has failed every week since the advisory landed:
+  # the alert is on rustls-webpki, not on tiberius, so the tiberius rule above
+  # does not match it. tiberius 0.12 pins the rustls 0.21 line, which pins
+  # rustls-webpki 0.101.7; the earliest non-vulnerable release is 0.103.13.
+  # Dependabot reports `security_update_not_possible` -- there is no lockfile
+  # edit that resolves this, only moving off tiberius, which is tracked
+  # separately.
   #
-  # Nothing published carries the vulnerable path: this project is generated
-  # test-harness code that never ships. `open-pull-requests-limit: 0` keeps
-  # ordinary version updates off a generated manifest (see the header), while
-  # the ignore suppresses the unfixable security PR. Drop this entry when the
-  # move off tiberius lands -- if it is still here, the advisory is still real.
+  # An `ignore: rustls-webpki` entry here does NOT silence it, and was removed
+  # after being tried: Dependabot applies the rule (`Ignored versions: >= 0 -
+  # from .github/dependabot.yml`) and then fails the job with
+  # `all_versions_ignored`. That trades one red run for another, and the
+  # replacement error names the config instead of the advisory. The only thing
+  # that actually stops the weekly failure is dismissing the alert in the
+  # repository's Dependabot alerts view, which is a maintainer decision, not a
+  # config change -- nothing published carries the vulnerable path, since this
+  # project is generated test-harness code that never ships.
+  #
+  # `open-pull-requests-limit: 0` still earns its place: it keeps ordinary
+  # version updates off a generated manifest (see the header). Drop this entry
+  # when the move off tiberius lands.
   - package-ecosystem: cargo
     directory: "/integration_tests/rust-tiberius-mssql"
     schedule:
       interval: weekly
       day: monday
     open-pull-requests-limit: 0
-    ignore:
-      - dependency-name: rustls-webpki
 
   - package-ecosystem: github-actions
     directory: "/"
