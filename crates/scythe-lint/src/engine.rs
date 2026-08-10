@@ -1,10 +1,13 @@
 use std::borrow::Cow;
 
-use ahash::AHashSet;
+use ahash::AHashMap;
 
 use super::registry::RuleRegistry;
+use super::rule::LintRule;
+use super::rules::codegen::DuplicateQueryNames;
 use super::types::{LintContext, Severity, Violation};
 use scythe_core::catalog::Catalog;
+use scythe_core::dialect::SqlDialect;
 
 // ---------------------------------------------------------------------------
 
@@ -64,6 +67,82 @@ impl LintEngine {
         results
     }
 
+    /// Rules registered here that cannot run against `dialect`, by id.
+    ///
+    /// A dialect-gated rule contributes nothing to a run and says nothing
+    /// about why. `scythe audit` on a MySQL project reports "No findings"
+    /// while 28 of its 35 canonical rules are gated to `postgres` and never
+    /// executed (#167) — a caller that wants to say "N rule(s) skipped: not
+    /// applicable to engine '<e>'" needs the gate to be answerable *before*
+    /// the run, which is what this is for.
+    ///
+    /// Only rules that would otherwise have run are listed: a rule switched
+    /// off through `[lint.rules]` is not "skipped for the engine", it is off,
+    /// and reporting it here would double-count the two reasons a rule
+    /// produced nothing.
+    pub fn rules_inapplicable_to(&self, dialect: SqlDialect) -> Vec<&'static str> {
+        self.registry.rules_inapplicable_to(dialect)
+    }
+
+    /// The cross-query duplicate-`@name` check (`SC-C03`).
+    ///
+    /// Separate from [`check_query`](Self::check_query) because it is not a
+    /// per-query question: `DuplicateQueryNames` implements no `check_query`
+    /// and never can, since a `LintContext` describes one query and cannot
+    /// see the others. That left `SC-C03` advertised at `error` severity by
+    /// `scythe audit --list-rules` while being unable to produce a finding
+    /// from any command (#137).
+    ///
+    /// This is the one implementation of the check; [`build_report`] calls
+    /// it, and a caller that drives `check_query` itself must call it too, or
+    /// duplicate `@name`s go unreported and `scythe generate` emits two
+    /// functions with the same name.
+    ///
+    /// Returns nothing when `DuplicateQueryNames` is not registered or is
+    /// configured `off` — its severity comes from the registry, so
+    /// `[lint.rules] "SC-C03" = "warn"` is honoured rather than overridden by
+    /// a hardcoded `Severity::Error`. Each duplicated name is reported once,
+    /// however many times it occurs, with the occurrence count in the
+    /// message.
+    pub fn check_duplicate_query_names<'n>(&self, names: impl IntoIterator<Item = &'n str>) -> Vec<QueryViolation> {
+        // The id comes from the rule itself rather than a `"SC-C03"` literal:
+        // the rule struct and the finding it produces must not be two
+        // derivations of one id that can drift apart.
+        let wanted_id = DuplicateQueryNames.id();
+        let Some(severity) = self
+            .registry
+            .active_rules()
+            .iter()
+            .find(|(rule, _)| rule.id() == wanted_id)
+            .map(|(_, sev)| *sev)
+        else {
+            return Vec::new();
+        };
+
+        let mut counts: AHashMap<&str, usize> = AHashMap::new();
+        let mut first_seen: Vec<&str> = Vec::new();
+        for name in names {
+            let count = counts.entry(name).or_insert(0);
+            *count += 1;
+            if *count == 1 {
+                first_seen.push(name);
+            }
+        }
+
+        first_seen
+            .into_iter()
+            .filter_map(|name| {
+                let count = counts[name];
+                (count > 1).then(|| QueryViolation {
+                    query_name: name.to_string(),
+                    rule_id: Cow::Borrowed(wanted_id),
+                    severity,
+                    message: format!("duplicate query name: \"{}\" ({} occurrences)", name, count),
+                })
+            })
+            .collect()
+    }
+
     /// Run all checks over a set of queries and produce a report.
     ///
     /// `queries` is an iterator of `LintContext` for each query.
@@ -73,16 +152,11 @@ impl LintEngine {
         let rules_active = active.len();
         let mut violations = Vec::new();
         let mut queries_checked: usize = 0;
-        let mut seen_names: AHashSet<String> = AHashSet::new();
-        let mut duplicate_names: Vec<String> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
 
         for ctx in queries {
             queries_checked += 1;
-
-            let qname = ctx.analyzed.name.clone();
-            if !seen_names.insert(qname.clone()) {
-                duplicate_names.push(qname.clone());
-            }
+            names.push(ctx.analyzed.name.clone());
 
             for (rule, sev) in &active {
                 for v in rule.check_query(&ctx) {
@@ -96,26 +170,7 @@ impl LintEngine {
             }
         }
 
-        // Route through the registry's configured severity for SC-C03
-        // instead of hardcoding `Severity::Error`: a hardcoded severity
-        // ignores both `[lint.rules] "SC-C03" = "warn"` and a caller that
-        // never registered `DuplicateQueryNames` at all (in which case no
-        // duplicate violation should be reported, since nothing configured
-        // its severity).
-        let sc_c03_severity = active
-            .iter()
-            .find(|(rule, _)| rule.id() == "SC-C03")
-            .map(|(_, sev)| *sev);
-        if let Some(sev) = sc_c03_severity {
-            for dup in &duplicate_names {
-                violations.push(QueryViolation {
-                    query_name: dup.clone(),
-                    rule_id: Cow::Borrowed("SC-C03"),
-                    severity: sev,
-                    message: format!("duplicate query name: \"{}\"", dup),
-                });
-            }
-        }
+        violations.extend(self.check_duplicate_query_names(names.iter().map(String::as_str)));
 
         for (rule, sev) in &active {
             for v in rule.check_catalog(catalog) {
@@ -578,5 +633,146 @@ mod tests {
         };
         assert!(!report.has_errors());
         assert!(!report.has_warnings());
+    }
+
+    /// #137: the duplicate-name check must be reachable *without* going
+    /// through `build_report`. `scythe lint` drives `check_query` /
+    /// `check_catalog` directly and never calls `build_report`, which is
+    /// exactly why SC-C03 could not fire from any command. A caller in that
+    /// shape needs one call it can make with the names it already has.
+    #[test]
+    fn check_duplicate_query_names_reports_duplicates_without_build_report() {
+        let mut reg = RuleRegistry::new();
+        reg.register(Box::new(crate::rules::codegen::DuplicateQueryNames));
+        let engine = LintEngine::new(reg);
+
+        let violations = engine.check_duplicate_query_names(["GetUser", "ListUsers", "GetUser"]);
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(violations[0].rule_id, "SC-C03");
+        assert_eq!(violations[0].query_name, "GetUser");
+        assert_eq!(violations[0].severity, Severity::Error);
+        assert_eq!(
+            violations[0].message,
+            "duplicate query name: \"GetUser\" (2 occurrences)"
+        );
+    }
+
+    /// #137: a name repeated three times is one problem, not two. The old
+    /// code pushed a violation per *extra* occurrence, so three `GetUser`
+    /// queries produced two identical findings.
+    #[test]
+    fn check_duplicate_query_names_reports_each_name_once_with_its_count() {
+        let mut reg = RuleRegistry::new();
+        reg.register(Box::new(crate::rules::codegen::DuplicateQueryNames));
+        let engine = LintEngine::new(reg);
+
+        let violations = engine.check_duplicate_query_names(["GetUser", "GetUser", "GetUser", "Other"]);
+
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].message,
+            "duplicate query name: \"GetUser\" (3 occurrences)"
+        );
+    }
+
+    /// #137: unique names must produce nothing at all — the check must not
+    /// be able to fire vacuously on a healthy project.
+    #[test]
+    fn check_duplicate_query_names_is_silent_when_every_name_is_unique() {
+        let mut reg = RuleRegistry::new();
+        reg.register(Box::new(crate::rules::codegen::DuplicateQueryNames));
+        let engine = LintEngine::new(reg);
+
+        assert!(engine.check_duplicate_query_names(["A", "B", "C"]).is_empty());
+        assert!(engine.check_duplicate_query_names([]).is_empty());
+    }
+
+    /// #137: the id on the finding must come from the rule, so the rule the
+    /// registry advertises and the finding a run emits cannot drift apart.
+    #[test]
+    fn check_duplicate_query_names_uses_the_rules_own_id() {
+        use crate::rule::LintRule;
+
+        let mut reg = RuleRegistry::new();
+        reg.register(Box::new(crate::rules::codegen::DuplicateQueryNames));
+        let engine = LintEngine::new(reg);
+
+        let violations = engine.check_duplicate_query_names(["dup", "dup"]);
+        assert_eq!(violations.len(), 1);
+        assert_eq!(
+            violations[0].rule_id,
+            crate::rules::codegen::DuplicateQueryNames.id(),
+            "the finding's id must be the registered rule's id"
+        );
+    }
+
+    /// #137: `build_report` and the standalone check must be the same
+    /// derivation — a caller must not get a different verdict depending on
+    /// which entry point it used.
+    #[test]
+    fn build_report_and_check_duplicate_query_names_agree() {
+        let mut reg = RuleRegistry::new();
+        reg.register(Box::new(crate::rules::codegen::DuplicateQueryNames));
+        let engine = LintEngine::new(reg);
+
+        let sql = "SELECT 1";
+        let stmt = parse_stmt(sql);
+        let catalog = empty_catalog();
+
+        let names = ["dup", "dup", "dup", "solo"];
+        let analyzed: Vec<_> = names.iter().map(|n| dummy_analyzed(n)).collect();
+        let annotations: Vec<_> = names.iter().map(|n| dummy_annotations(n)).collect();
+        let queries: Vec<_> = analyzed
+            .iter()
+            .zip(annotations.iter())
+            .map(|(a, ann)| make_ctx(sql, &stmt, a, &catalog, ann))
+            .collect();
+
+        let report = engine.build_report(queries.into_iter(), &catalog);
+        let from_report: Vec<(&str, &str)> = report
+            .violations
+            .iter()
+            .filter(|v| v.rule_id == "SC-C03")
+            .map(|v| (v.query_name.as_str(), v.message.as_str()))
+            .collect();
+
+        let standalone = engine.check_duplicate_query_names(names);
+        let from_standalone: Vec<(&str, &str)> = standalone
+            .iter()
+            .map(|v| (v.query_name.as_str(), v.message.as_str()))
+            .collect();
+
+        assert_eq!(from_report, from_standalone);
+        assert_eq!(from_report.len(), 1);
+    }
+
+    /// #167: a dialect-gated rule that cannot run must be countable up
+    /// front, not merely invisible. The engine's answer must match the
+    /// registry's, since a caller reaches it through either.
+    #[test]
+    fn rules_inapplicable_to_reports_dialect_gated_rules() {
+        use crate::audit::{MatcherRegistry, MatcherRule, canonical_specs};
+
+        let mut reg = RuleRegistry::new();
+        let matchers = MatcherRegistry::canonical();
+        for spec in canonical_specs() {
+            let matcher_fn = matchers.get(&spec.matcher).expect("canonical matcher must exist");
+            reg.register(Box::new(MatcherRule::new(spec, matcher_fn)));
+        }
+        let engine = LintEngine::new(reg);
+
+        let skipped_for_mysql = engine.rules_inapplicable_to(SqlDialect::MySQL);
+        assert_eq!(
+            skipped_for_mysql.len(),
+            28,
+            "28 canonical audit rules declare dialects = [\"postgres\"]; \
+             if this number moves, `scythe audit`'s skipped-rule summary moves with it"
+        );
+
+        assert!(
+            engine.rules_inapplicable_to(SqlDialect::PostgreSQL).is_empty(),
+            "no canonical rule is gated away from PostgreSQL"
+        );
     }
 }

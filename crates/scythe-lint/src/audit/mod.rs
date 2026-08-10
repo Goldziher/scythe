@@ -7,12 +7,14 @@
 //! - [`canonical_specs`] — loads the six built-in SC-SEC* rules from the
 //!   embedded `rules/security.toml`.
 
+pub mod matcher_args;
 pub mod matcher_rule;
 pub mod matchers;
 pub mod registry;
 pub mod spec;
 pub mod suppression;
 
+pub use matcher_args::{MatcherArgsError, validate_matcher_args};
 pub use matcher_rule::{MatcherRule, render_template};
 pub use registry::{MatcherFn, MatcherHit, MatcherRegistry};
 pub use spec::{
@@ -32,6 +34,10 @@ pub use suppression::SuppressionSet;
 ///   [`CANONICAL_RULE_IDS`].
 /// - The rule's `matcher` field must resolve to a known entry in
 ///   `matcher_registry`.
+/// - The rule's `[rule.matcher_args]` must be able to drive that matcher to a
+///   finding ([`validate_matcher_args`]). A misspelled, mistyped, empty or
+///   unrecognised argument otherwise registers a rule that is counted as
+///   active and can never fire (#165).
 pub fn register_user_rules(
     registry: &mut crate::registry::RuleRegistry,
     matcher_registry: &MatcherRegistry,
@@ -51,6 +57,12 @@ pub fn register_user_rules(
                 rule_id: spec.id.clone(),
                 reason: format!("unknown matcher '{}'", spec.matcher),
             })?;
+
+        validate_matcher_args(&spec.matcher, &spec.matcher_args).map_err(|e| AuditConfigError::InvalidRule {
+            path: source.clone(),
+            rule_id: spec.id.clone(),
+            reason: e.to_string(),
+        })?;
 
         registry.register(Box::new(MatcherRule::new(spec.clone(), matcher_fn)));
     }

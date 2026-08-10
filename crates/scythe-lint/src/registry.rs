@@ -4,6 +4,7 @@ use super::audit;
 use super::rule::LintRule;
 use super::rules;
 use super::types::{LintConfig, RuleCategory, Severity};
+use scythe_core::dialect::SqlDialect;
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
@@ -70,6 +71,28 @@ impl RuleRegistry {
             .collect()
     }
 
+    /// Ids of rules that would have run but cannot, because they do not
+    /// apply to `dialect`.
+    ///
+    /// This is the count `scythe audit` needs to stop reporting a clean bill
+    /// of health it did not earn (#167): 28 of the 35 canonical audit rules
+    /// declare `dialects = ["postgres"]`, so an audit of a MySQL project runs
+    /// 7 rules, finds nothing, and prints "No findings" — indistinguishable,
+    /// to the reader, from 35 rules running and finding nothing.
+    ///
+    /// Derived from [`LintRule::is_applicable_to`], the same predicate the
+    /// rules gate themselves on, so what is counted here and what is skipped
+    /// during the run cannot disagree. Rules whose effective severity is
+    /// `Off` are excluded: those did not run for a different reason, and
+    /// attributing them to the engine would misreport why.
+    pub fn rules_inapplicable_to(&self, dialect: SqlDialect) -> Vec<&'static str> {
+        self.active_rules()
+            .iter()
+            .filter(|(rule, _)| !rule.is_applicable_to(dialect))
+            .map(|(rule, _)| rule.id())
+            .collect()
+    }
+
     /// Return every registered rule together with its effective severity,
     /// **including** rules whose effective severity is `Off`.
     ///
@@ -127,6 +150,14 @@ pub fn default_registry() -> RuleRegistry {
         let matcher_fn = matcher_reg
             .get(&spec.matcher)
             .unwrap_or_else(|| panic!("canonical rule {} references unknown matcher {}", spec.id, spec.matcher));
+        // Same standard as the unknown-matcher panic above: the canonical
+        // rule TOML is a compiled-in build asset, so a rule that ships with
+        // arguments its matcher cannot act on is a developer error, not a
+        // runtime condition -- and shipping it silently would mean shipping a
+        // rule that is advertised, counted as active, and inert (#165).
+        if let Err(e) = audit::validate_matcher_args(&spec.matcher, &spec.matcher_args) {
+            panic!("canonical rule {}: {}", spec.id, e);
+        }
         reg.register(Box::new(audit::MatcherRule::new(spec, matcher_fn)));
     }
 
@@ -530,6 +561,116 @@ mod tests {
         assert_eq!(active.len(), 1);
         assert_eq!(active[0].0.id(), "TR-01");
         assert_eq!(active[0].1, Severity::Error);
+    }
+
+    /// #167: `scythe audit` on a non-PostgreSQL engine runs a small fraction
+    /// of its rule set and reports "No findings" all the same. The count of
+    /// rules that could not run has to be answerable from the registry, and
+    /// it has to be derived from the same predicate the rules gate
+    /// themselves on.
+    #[test]
+    fn rules_inapplicable_to_lists_dialect_gated_rules_by_id() {
+        struct PostgresOnlyRule;
+
+        impl LintRule for PostgresOnlyRule {
+            fn id(&self) -> &'static str {
+                "TR-PG"
+            }
+            fn name(&self) -> &'static str {
+                "postgres-only"
+            }
+            fn category(&self) -> RuleCategory {
+                RuleCategory::Security
+            }
+            fn default_severity(&self) -> Severity {
+                Severity::Error
+            }
+            fn description(&self) -> &'static str {
+                "only meaningful on PostgreSQL"
+            }
+            fn is_applicable_to(&self, dialect: SqlDialect) -> bool {
+                dialect == SqlDialect::PostgreSQL
+            }
+        }
+
+        let mut reg = RuleRegistry::new();
+        reg.register(Box::new(PostgresOnlyRule));
+        reg.register(Box::new(TestRule::new("TR-ANY", RuleCategory::Safety, Severity::Warn)));
+
+        assert_eq!(reg.rules_inapplicable_to(SqlDialect::MySQL), vec!["TR-PG"]);
+        assert!(reg.rules_inapplicable_to(SqlDialect::PostgreSQL).is_empty());
+    }
+
+    /// #167: "skipped because the engine does not support it" and "switched
+    /// off in config" are different reasons a rule produced nothing.
+    /// Counting an `Off` rule as engine-skipped would misreport why the run
+    /// was quiet.
+    #[test]
+    fn rules_inapplicable_to_excludes_rules_that_are_switched_off() {
+        struct PostgresOnlyRule;
+
+        impl LintRule for PostgresOnlyRule {
+            fn id(&self) -> &'static str {
+                "TR-PG"
+            }
+            fn name(&self) -> &'static str {
+                "postgres-only"
+            }
+            fn category(&self) -> RuleCategory {
+                RuleCategory::Security
+            }
+            fn default_severity(&self) -> Severity {
+                Severity::Error
+            }
+            fn description(&self) -> &'static str {
+                "only meaningful on PostgreSQL"
+            }
+            fn is_applicable_to(&self, dialect: SqlDialect) -> bool {
+                dialect == SqlDialect::PostgreSQL
+            }
+        }
+
+        let mut reg = RuleRegistry::new();
+        reg.register(Box::new(PostgresOnlyRule));
+
+        let mut config = LintConfig::default();
+        config.rules.insert("TR-PG".to_string(), Severity::Off);
+        reg.apply_config(&config);
+
+        assert!(
+            reg.rules_inapplicable_to(SqlDialect::MySQL).is_empty(),
+            "a rule that is off did not run because it is off, not because of the engine"
+        );
+    }
+
+    /// #167, pinned: the canonical audit rule set is overwhelmingly
+    /// PostgreSQL-gated, and the exact split is what any "N rule(s) skipped"
+    /// summary reports. Both numbers move together or this fails — a rule
+    /// gaining or losing a `dialects` restriction must be a deliberate,
+    /// visible change.
+    #[test]
+    fn canonical_rules_gated_to_postgres_is_28_of_58() {
+        let reg = default_registry();
+
+        let skipped_on_mysql = reg.rules_inapplicable_to(SqlDialect::MySQL);
+        assert_eq!(
+            skipped_on_mysql.len(),
+            28,
+            "28 canonical audit rules declare dialects = [\"postgres\"]"
+        );
+        assert!(
+            reg.rules_inapplicable_to(SqlDialect::PostgreSQL).is_empty(),
+            "no rule is gated away from PostgreSQL"
+        );
+
+        // 58 registered, of which 56 are on by default (SC-A02 and SC-C01
+        // default to `Off`), of which 28 are PostgreSQL-gated.
+        assert_eq!(reg.active_rules().len(), 56);
+        let active_on_mysql = reg.active_rules().len() - skipped_on_mysql.len();
+        assert_eq!(
+            active_on_mysql, 28,
+            "a MySQL audit runs 28 of the 56 on-by-default rules; that gap is what the summary must disclose"
+        );
     }
 
     #[test]
