@@ -130,6 +130,46 @@ pub struct Query {
     pub annotations: Annotations,
 }
 
+/// Reject an `@name` value that cannot become an identifier in generated
+/// code.
+///
+/// Every backend uses this value verbatim (after case conversion) as the
+/// generated function's name and as the stem of its row type, so anything
+/// that is not an identifier produces a file that does not compile -- and
+/// says so nowhere. `-- @name` with no value was accepted outright until
+/// #174: it emitted `async def (conn):` in Python and collapsed the row type
+/// to a bare `Row` that collides with every other unnamed query in the file,
+/// at exit code 0.
+///
+/// The accepted set is deliberately the intersection every target language
+/// can spell: an ASCII letter or `_` followed by ASCII letters, digits and
+/// `_`. A dot, dash, space or quote in the value is a mistake in every one of
+/// them.
+fn validate_query_name(name: &str) -> Result<(), ScytheError> {
+    if name.is_empty() {
+        return Err(ScytheError::invalid_annotation(
+            "@name requires a value (e.g. `-- @name GetUser`)",
+        ));
+    }
+
+    let mut chars = name.chars();
+    let first = chars.next().expect("name is non-empty");
+    if !first.is_ascii_alphabetic() && first != '_' {
+        return Err(ScytheError::invalid_annotation(format!(
+            "@name \"{name}\" must start with an ASCII letter or underscore to be a valid \
+             identifier in generated code"
+        )));
+    }
+    if let Some(invalid) = chars.find(|c| !c.is_ascii_alphanumeric() && *c != '_') {
+        return Err(ScytheError::invalid_annotation(format!(
+            "@name \"{name}\" contains '{invalid}'; only ASCII letters, digits and underscores \
+             are valid in generated code"
+        )));
+    }
+
+    Ok(())
+}
+
 /// Parse a single annotated SQL query into a `Query` using the PostgreSQL dialect.
 pub fn parse_query(query_sql: &str) -> Result<Query, ScytheError> {
     parse_query_with_dialect(query_sql, &SqlDialect::PostgreSQL)
@@ -271,6 +311,7 @@ pub fn parse_query_with_dialect(query_sql: &str, dialect: &SqlDialect) -> Result
     }
 
     let name = name.ok_or_else(|| ScytheError::missing_annotation("name"))?;
+    validate_query_name(&name)?;
     let command = command.ok_or_else(|| ScytheError::missing_annotation("returns"))?;
 
     if command == QueryCommand::Grouped && group_by.is_none() {
@@ -758,11 +799,41 @@ mod tests {
         assert_eq!(err.code, ErrorCode::InvalidAnnotation);
     }
 
+    /// Inverted with #174: this used to assert that `-- @name` with no value
+    /// parses to an empty name, which generated `async def (conn):` and a
+    /// bare `Row` type at exit 0.
     #[test]
-    fn test_empty_name_value() {
+    fn test_empty_name_value_is_rejected() {
         let input = "-- @name\n-- @returns :one\nSELECT 1";
-        let q = parse(input).unwrap();
-        assert_eq!(q.name, "");
+        let err = parse(input).unwrap_err();
+        assert_eq!(err.code, ErrorCode::InvalidAnnotation);
+        assert!(
+            err.message.contains("@name requires a value"),
+            "message must say what is missing; got: {}",
+            err.message
+        );
+    }
+
+    #[test]
+    fn test_name_value_that_is_not_an_identifier_is_rejected() {
+        for bad in ["Get User", "get-user", "users.get", "2fast", "\"GetUser\""] {
+            let input = format!("-- @name {bad}\n-- @returns :one\nSELECT 1");
+            let err = parse(&input).unwrap_err();
+            assert_eq!(
+                err.code,
+                ErrorCode::InvalidAnnotation,
+                "@name \"{bad}\" must be rejected"
+            );
+        }
+    }
+
+    #[test]
+    fn test_identifier_name_values_are_accepted() {
+        for good in ["GetUser", "get_user", "_private", "Query2"] {
+            let input = format!("-- @name {good}\n-- @returns :one\nSELECT 1");
+            let query = parse(&input).unwrap_or_else(|e| panic!("@name \"{good}\" must parse; got: {e}"));
+            assert_eq!(query.name, good);
+        }
     }
 
     #[test]

@@ -1,0 +1,22 @@
+{
+  "name": "returning_unknown_column",
+  "description": "A nonexistent column in RETURNING is a user error, not an internal one",
+  "category": "errors/unknown_column",
+  "tags": ["error", "unknown_column", "returning", "insert"],
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"],
+  "query_sql": "-- @name InsertUserReturningUnknown\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING nosuchcol;",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "UNKNOWN_COLUMN",
+      "message_contains": "column \"nosuchcol\" does not exist"
+    }
+  },
+  "source": "original"
+}

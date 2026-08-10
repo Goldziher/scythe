@@ -1,4 +1,3 @@
-use ahash::AHashSet;
 use sqlparser::ast::{self, Expr, SelectItem, SetExpr, Statement};
 
 use crate::errors::ScytheError;
@@ -409,32 +408,20 @@ impl<'a> Analyzer<'a> {
             }
         }
 
-        for col in &columns {
-            if let Some(name) = col.neutral_type.strip_prefix("__ambiguous__:") {
-                return Err(ScytheError::ambiguous_column(name));
-            }
-            if let Some(name) = col.neutral_type.strip_prefix("__unknown_col__:") {
-                return Err(ScytheError::unknown_column(name));
-            }
-            if let Some(name) = col.neutral_type.strip_prefix("__unknown_func__:") {
-                return Err(ScytheError::unknown_function(name));
-            }
-        }
+        reject_unresolved_columns(&columns)?;
 
-        let mut seen_names: AHashSet<String> = AHashSet::new();
-        for col in &columns {
-            // "unknown" is the placeholder name given to unaliased columns
-            // (e.g. `SELECT 1, 2` yields two of them), so several in one
-            // projection are normal rather than a genuine duplicate. A CTE
-            // column alias list replaces them when one exists; otherwise the
-            // name is left as-is. Only real, user-visible duplicates error.
-            if col.name == "unknown" {
-                continue;
-            }
-            if !seen_names.insert(col.name.clone()) {
-                return Err(ScytheError::duplicate_alias(&col.name));
-            }
-        }
+        // `SELECT u.id, p.id FROM users u JOIN posts p ...` is an ordinary
+        // join projection, not a user error: both columns are renamed
+        // (`id_1`, `id_2`) by the same rule the parameter path applies to
+        // `WHERE id = $1 OR id = $2` (#175). Unnamed columns are excluded --
+        // a projection of bare literals yields several of them by design, and
+        // a CTE alias list replaces them later when one exists.
+        disambiguate_duplicate_names(
+            columns
+                .iter_mut()
+                .filter(|col| col.name != UNNAMED_COLUMN)
+                .map(|col| &mut col.name),
+        );
 
         Ok(columns)
     }
@@ -682,6 +669,20 @@ impl<'a> Analyzer<'a> {
                 }
             }
         }
+
+        // The same two passes `analyze_select` runs, for the same reasons: a
+        // typo in `RETURNING` is a user error (`UNKNOWN_COLUMN`), not an
+        // internal one, and `RETURNING u.id, p.id` collides exactly the way a
+        // projection does. Running only one of the two paths through these is
+        // how RETURNING came to report `INTERNAL_ERROR` for a misspelled
+        // column (#173).
+        reject_unresolved_columns(&columns)?;
+        disambiguate_duplicate_names(
+            columns
+                .iter_mut()
+                .filter(|col| col.name != UNNAMED_COLUMN)
+                .map(|col| &mut col.name),
+        );
 
         Ok(columns)
     }

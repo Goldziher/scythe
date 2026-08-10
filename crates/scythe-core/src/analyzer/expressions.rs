@@ -424,7 +424,7 @@ impl<'a> Analyzer<'a> {
                         source.nullable_from_join,
                     );
                     if found.is_some() {
-                        return TypeInfo::new(format!("__ambiguous__:{}", col_name), false);
+                        return TypeInfo::new(format!("{AMBIGUOUS_COLUMN_MARKER}{col_name}"), false);
                     }
                     found = Some(ti);
                 }
@@ -436,7 +436,7 @@ impl<'a> Analyzer<'a> {
 
         let has_sources = scope.sources.iter().any(|s| !s.columns.is_empty());
         if has_sources {
-            return TypeInfo::new(format!("__unknown_col__:{}", col_name), true);
+            return TypeInfo::new(format!("{UNKNOWN_COLUMN_MARKER}{col_name}"), true);
         }
 
         TypeInfo::unknown()
@@ -505,7 +505,7 @@ impl<'a> Analyzer<'a> {
             "jsonb_agg" | "json_object_agg" | "jsonb_object_agg" => TypeInfo::new("json", true),
             "row_to_json" => self
                 .infer_nested_aggregate_type(func, scope, WrapArray::No)
-                .unwrap_or_else(|| TypeInfo::new(format!("__unknown_func__:{func_name}"), first_arg_nullable)),
+                .unwrap_or_else(|| TypeInfo::new(format!("{UNKNOWN_FUNCTION_MARKER}{func_name}"), first_arg_nullable)),
 
             "coalesce" => {
                 let args = self.get_function_args(func);
@@ -758,7 +758,7 @@ impl<'a> Analyzer<'a> {
 
             _ => {
                 let ti = first_arg_ti.unwrap_or_else(TypeInfo::unknown);
-                TypeInfo::new(format!("__unknown_func__:{}", func_name), ti.nullable)
+                TypeInfo::new(format!("{UNKNOWN_FUNCTION_MARKER}{func_name}"), ti.nullable)
             }
         }
     }

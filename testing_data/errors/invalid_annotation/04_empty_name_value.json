@@ -1,0 +1,22 @@
+{
+  "name": "empty_name_value",
+  "description": "An @name annotation with no value is rejected instead of generating a nameless function",
+  "category": "errors/invalid_annotation",
+  "tags": ["error", "annotation", "name"],
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"],
+  "query_sql": "-- @name\n-- @returns :many\nSELECT id, name FROM users;",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "INVALID_ANNOTATION",
+      "message_contains": "@name requires a value"
+    }
+  },
+  "source": "original"
+}

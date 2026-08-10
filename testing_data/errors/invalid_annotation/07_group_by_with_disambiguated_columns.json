@@ -1,0 +1,22 @@
+{
+  "name": "group_by_with_disambiguated_columns",
+  "description": "A :grouped query whose parent and child columns collide is reported, not split into an empty parent struct once the names are disambiguated",
+  "category": "errors/invalid_annotation",
+  "tags": ["error", "annotation", "grouped", "group_by", "duplicate"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);"
+  ],
+  "query_sql": "-- @name GetUsersWithOrderIds\n-- @returns :grouped\n-- @group_by users.id\nSELECT u.id, o.id\nFROM users u\nJOIN orders o ON o.user_id = u.id;",
+  "config": {
+    "engine": "postgresql"
+  },
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "INVALID_ANNOTATION",
+      "message_contains": "matched none of the query's result columns"
+    }
+  },
+  "source": "original"
+}

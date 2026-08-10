@@ -1,0 +1,22 @@
+{
+  "name": "group_by_uses_a_query_alias",
+  "description": "@group_by naming a query alias rather than the table matches no column and is reported instead of emitting an empty parent row type",
+  "category": "errors/invalid_annotation",
+  "tags": ["error", "annotation", "grouped", "group_by"],
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+    "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);"
+  ],
+  "query_sql": "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by u.id\nSELECT u.id, u.name, o.id AS order_id, o.total\nFROM users u\nJOIN orders o ON o.user_id = u.id;",
+  "config": {
+    "engine": "postgresql"
+  },
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "INVALID_ANNOTATION",
+      "message_contains": "matched none of the query's result columns"
+    }
+  },
+  "source": "original"
+}

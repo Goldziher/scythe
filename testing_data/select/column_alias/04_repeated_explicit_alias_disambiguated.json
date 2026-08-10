@@ -1,0 +1,31 @@
+{
+  "category": "select/column_alias",
+  "description": "The same explicit alias used twice is auto-disambiguated rather than reported as DUPLICATE_ALIAS",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "x_1",
+          "note": "id AS x",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "x_2",
+          "note": "name AS x",
+          "nullable": false,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "DuplicateAlias",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "repeated_explicit_alias_disambiguated",
+  "query_sql": "-- @name DuplicateAlias\n-- @returns :many\nSELECT id AS x, name AS x FROM users",
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"],
+  "source": "original",
+  "tags": ["select", "alias", "duplicate"]
+}

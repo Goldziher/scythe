@@ -31,13 +31,21 @@
 
 use sha2::{Digest, Sha256};
 
-use super::types::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery};
+use super::types::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, NestedFieldInfo, NestedStructInfo};
 
 /// Version tag for the query fingerprint algorithm itself, mirroring
 /// `FINGERPRINT_ALGORITHM_TAG`'s role for the schema fingerprint in
 /// `catalog::fingerprint`. Bump this if the canonical form or hash
-/// truncation ever changes, so old and new fingerprints are never mistaken
-/// for one another.
+/// truncation ever changes in a way that can make a *new* fingerprint equal
+/// an *old* one for a different shape -- which is the only confusion the tag
+/// exists to prevent.
+///
+/// Adding the nested-struct lines (#172) deliberately did not bump it: those
+/// lines are emitted only when `nested_structs` is non-empty, so every query
+/// without a nested aggregate hashes byte-identically to before, and every
+/// query with one hashes differently -- reported as drift once, which is the
+/// correct signal for a shape whose fingerprint was previously wrong. Bumping
+/// would instead have reported spurious drift on every existing artifact.
 const QUERY_FINGERPRINT_ALGORITHM_TAG: &str = "q1";
 
 /// Number of leading hash bytes kept (rendered as `2 * TRUNCATED_BYTES` hex
@@ -87,6 +95,17 @@ impl AnalyzedQuery {
     /// - Each result column's name, resolved (`neutral_type`) type, and
     ///   nullability, **in positional (declared) order** -- likewise never
     ///   sorted.
+    /// - Each nested-aggregate struct (`json_agg(o.*)`, `row_to_json(u.*)`)
+    ///   this query synthesizes: its name *and its full field list* -- each
+    ///   field's name, resolved type and nullability, in declared order.
+    ///   The field list is the load-bearing part. A nested struct's name is
+    ///   derived from the query name plus the output column name, so
+    ///   `SELECT json_agg(p.*) AS x FROM posts p` and
+    ///   `SELECT json_agg(u.*) AS x FROM users u` produce the same name for
+    ///   two completely different row types; the owning column's
+    ///   `neutral_type` carries only that name, so before the field list
+    ///   participated the two hashed identically and every drift check
+    ///   reported the generated row type as current (#172).
     ///
     /// [`QueryCommand`]: crate::parser::QueryCommand
     ///
@@ -100,10 +119,10 @@ impl AnalyzedQuery {
     ///   `v=` field in the provenance header, not folded into this hash.
     /// - Metadata unrelated to the generated signature or row type
     ///   (`deprecated`, `source_table`, `composites`, `enums`,
-    ///   `optional_params`, `group_by`, `custom`, `nested_structs`): none of
-    ///   these change the *shape* of the generated query function's
-    ///   signature or row type in a way not already captured by the
-    ///   parameter and column lists above.
+    ///   `optional_params`, `group_by`, `custom`): none of these change the
+    ///   *shape* of the generated query function's signature or row type in
+    ///   a way not already captured by the parameter, column and
+    ///   nested-struct lists above.
     ///
     ///   Parameter *names* are deliberately **not** in this list -- see
     ///   [`param_line`] for why excluding them is a false negative.
@@ -151,6 +170,17 @@ where
         for (idx, column) in query.columns.iter().enumerate() {
             lines.push(column_line(&name, idx, column));
         }
+
+        // Emitted only when there is something to emit, so a query with no
+        // nested aggregate -- the overwhelming majority -- keeps the exact
+        // canonical form it had before these lines existed. See
+        // `QUERY_FINGERPRINT_ALGORITHM_TAG` for why that matters.
+        for (idx, nested) in query.nested_structs.iter().enumerate() {
+            lines.push(nested_struct_line(&name, idx, nested));
+            for (field_idx, field) in nested.fields.iter().enumerate() {
+                lines.push(nested_field_line(&name, idx, field_idx, field));
+            }
+        }
     }
 
     lines.join("\n")
@@ -182,6 +212,40 @@ fn column_line(escaped_query_name: &str, idx: usize, column: &AnalyzedColumn) ->
         escape_field(&column.name),
         escape_field(&column.neutral_type),
         column.nullable
+    )
+}
+
+/// One `nested` line: query name (already escaped by the caller), positional
+/// index within `nested_structs`, the struct's snake_case name, and its field
+/// count.
+///
+/// The field count is what keeps the encoding injective across two adjacent
+/// structs: without it, moving a field from one struct to the next would
+/// leave the `nfield` lines in the same order and hash the same. (The
+/// per-line struct index makes that particular case visible too; the count is
+/// the belt to that suspenders, and matches the `query` line's own
+/// param/column counts.)
+fn nested_struct_line(escaped_query_name: &str, idx: usize, nested: &NestedStructInfo) -> String {
+    format!(
+        "nested\t{escaped_query_name}\t{idx}\t{}\t{}",
+        escape_field(&nested.name),
+        nested.fields.len()
+    )
+}
+
+/// One `nfield` line: query name (already escaped by the caller), the owning
+/// struct's index, the field's positional index, and the field's name,
+/// resolved type and nullability.
+///
+/// The type is the full neutral type, so a field that is an array
+/// (`array<int32>` vs `int32`) or itself nested is distinguished here rather
+/// than needing a separate arrayness flag.
+fn nested_field_line(escaped_query_name: &str, struct_idx: usize, field_idx: usize, field: &NestedFieldInfo) -> String {
+    format!(
+        "nfield\t{escaped_query_name}\t{struct_idx}\t{field_idx}\t{}\t{}\t{}",
+        escape_field(&field.name),
+        escape_field(&field.neutral_type),
+        field.nullable
     )
 }
 
@@ -409,6 +473,111 @@ mod tests {
             AnalyzedQuery::fingerprint_set([&real_one]),
             "a name containing raw delimiters must not be able to forge extra fingerprint lines"
         );
+    }
+
+    /// The exact reproduction from #172: same query name, same output column
+    /// name, two structurally different nested row types. The struct name is
+    /// derived from query name + column name, so it is identical in both
+    /// cases and the column's `neutral_type` cannot tell them apart -- only
+    /// the field list can.
+    #[test]
+    fn test_nested_aggregate_over_a_different_table_produces_different_fingerprint() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT);",
+            "CREATE TABLE posts (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, title TEXT NOT NULL, body TEXT);",
+        ])
+        .unwrap();
+        let analyze_with = |sql: &str| {
+            let query = parse_query(sql).unwrap();
+            analyze(&catalog, &query).unwrap()
+        };
+
+        let over_posts = analyze_with("-- @name Q\n-- @returns :many\nSELECT json_agg(p.*) AS x FROM posts p;");
+        let over_users = analyze_with("-- @name Q\n-- @returns :many\nSELECT json_agg(u.*) AS x FROM users u;");
+
+        assert_eq!(
+            over_posts.columns[0].neutral_type, over_users.columns[0].neutral_type,
+            "guard: this test is only meaningful while the owning column's neutral type is identical -- \
+             that identity is what made the two fingerprints collide"
+        );
+        assert_ne!(
+            over_posts.nested_structs[0].fields, over_users.nested_structs[0].fields,
+            "guard: the two nested row shapes must actually differ"
+        );
+
+        assert_ne!(
+            AnalyzedQuery::fingerprint_set([&over_posts]),
+            AnalyzedQuery::fingerprint_set([&over_users]),
+            "a nested-aggregate row shape must participate: the generated row type changed completely"
+        );
+    }
+
+    /// Isolates one field at a time, which real SQL cannot: renaming a nested
+    /// field, retyping it, or flipping its nullability each rewrites the
+    /// generated struct and must each move the fingerprint.
+    #[test]
+    fn test_each_nested_field_attribute_participates() {
+        let with_fields = |fields: Vec<crate::analyzer::NestedFieldInfo>| {
+            AnalyzedQuery::build(|q| {
+                q.name = "Q".to_string();
+                q.command = crate::parser::QueryCommand::Many;
+                q.columns = vec![crate::analyzer::AnalyzedColumn {
+                    name: "x".to_string(),
+                    neutral_type: "json_nested<array<QRowX>>".to_string(),
+                    nullable: true,
+                    ..Default::default()
+                }];
+                q.nested_structs = vec![crate::analyzer::NestedStructInfo {
+                    name: "q_row_x".to_string(),
+                    fields,
+                }];
+            })
+        };
+        let field = |name: &str, neutral_type: &str, nullable: bool| crate::analyzer::NestedFieldInfo {
+            name: name.to_string(),
+            neutral_type: neutral_type.to_string(),
+            nullable,
+        };
+
+        let baseline = with_fields(vec![field("id", "int32", false)]);
+        let renamed = with_fields(vec![field("ident", "int32", false)]);
+        let retyped = with_fields(vec![field("id", "int64", false)]);
+        let arrayed = with_fields(vec![field("id", "array<int32>", false)]);
+        let nulled = with_fields(vec![field("id", "int32", true)]);
+        let extra = with_fields(vec![field("id", "int32", false), field("title", "string", false)]);
+
+        let baseline_fingerprint = AnalyzedQuery::fingerprint_set([&baseline]);
+        for (label, other) in [
+            ("a renamed field", &renamed),
+            ("a retyped field", &retyped),
+            ("a field wrapped in an array", &arrayed),
+            ("a field whose nullability flipped", &nulled),
+            ("an added field", &extra),
+        ] {
+            assert_ne!(
+                baseline_fingerprint,
+                AnalyzedQuery::fingerprint_set([other]),
+                "{label} must change the fingerprint"
+            );
+        }
+    }
+
+    /// The nested lines are emitted only when there are nested structs, so a
+    /// query without one hashes exactly as it did before they existed, and
+    /// the `q1` tag stays honest (see `QUERY_FINGERPRINT_ALGORITHM_TAG`).
+    ///
+    /// The tag is pinned as a literal rather than recomputed: this is the one
+    /// property a test that hashes both sides itself cannot check, because it
+    /// would agree with any encoding. This exact value is also what the
+    /// committed provenance headers across the generated artifacts carry, so
+    /// a canonical-form change that silently perturbed non-nested queries
+    /// fails here first.
+    #[test]
+    fn test_query_without_nested_structs_keeps_its_pre_existing_fingerprint() {
+        let query = analyzed("-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;");
+
+        assert!(query.nested_structs.is_empty(), "guard: no nested structs here");
+        assert_eq!(AnalyzedQuery::fingerprint_set([&query]), "q1:b3ea4a697b34db86");
     }
 
     #[test]
