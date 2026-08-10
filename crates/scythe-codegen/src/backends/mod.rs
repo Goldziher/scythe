@@ -856,6 +856,13 @@ pub fn normalize_engine(engine: &str) -> &str {
     }
 }
 
+/// Exact-value characterization tests for `clean_sql`, `clean_sql_oneline`,
+/// and `rewrite_pg_placeholders`, kept in their own file so the pinned
+/// behaviour is readable as a specification for the planned dialect-aware
+/// tokenizer.
+#[cfg(test)]
+mod sql_text_characterization_tests;
+
 #[cfg(test)]
 mod tests {
     use super::*;
