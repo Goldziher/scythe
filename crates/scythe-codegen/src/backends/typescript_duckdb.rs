@@ -13,10 +13,46 @@ use crate::backends::typescript_common::{
     TsFieldCase, TsRowShape, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
-    generate_zod_union_row_struct, parse_bool_option,
+    generate_zod_union_row_struct, parse_bool_option, ts_index_access, ts_member_access, ts_property_key,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-duckdb.toml");
+
+/// The `@duckdb/node-api` type of a connection handle.
+///
+/// The package exports no type called `Connection` at all -- the class is
+/// `DuckDBConnection` -- so `import type { Connection } from
+/// "@duckdb/node-api"` was `TS2614` on the second line of every file this
+/// backend has ever produced (#217). Verified against the published
+/// `@duckdb/node-api` `.d.ts`, not assumed.
+const CONNECTION_TYPE: &str = "DuckDBConnection";
+
+/// Bind `params` onto a prepared statement, then run it.
+///
+/// `DuckDBPreparedStatement.run()` takes **zero** arguments (again, checked
+/// against the published `.d.ts`); values go on beforehand through `bind`.
+/// Passing them to `run` was `TS2554: Expected 0 arguments, but got N` on
+/// every query with a parameter (#217).
+///
+/// The `as DuckDBValue[]` assertion is the driver's own boundary type:
+/// `DuckDBValue` covers `null`/`boolean`/`number`/`bigint`/`string` plus the
+/// driver's wrapper classes, but not `Uint8Array` or `Record<string,
+/// unknown>`, which this manifest maps `bytes` and `json` to. Without it a
+/// binary or JSON parameter would not type-check even though the driver
+/// accepts it at runtime.
+fn write_bind_and_run(out: &mut String, indent: &str, args: &[String], result_binding: Option<&str>) {
+    if !args.is_empty() {
+        let _ = writeln!(out, "{indent}stmt.bind([{}] as DuckDBValue[]);", args.join(", "));
+    }
+    match result_binding {
+        Some(name) => {
+            let _ = writeln!(out, "{indent}const {name} = await stmt.run();");
+        }
+        None => {
+            let _ = writeln!(out, "{indent}await stmt.run();");
+        }
+    }
+}
 
 pub struct TypescriptDuckdbBackend {
     manifest: BackendManifest,
@@ -39,6 +75,35 @@ pub struct TypescriptDuckdbBackend {
 }
 
 impl TypescriptDuckdbBackend {
+    /// The file header, with the `DuckDBValue` import included only when
+    /// `needs_value_type` says the file will reference it.
+    fn file_header_with_value_type(&self, needs_value_type: bool) -> String {
+        if self.structs_only {
+            if self.row_type == TsRowType::Zod {
+                return "import { z } from \"zod\";\n".to_string();
+            }
+            return String::new();
+        }
+        let imported = if needs_value_type {
+            format!("{CONNECTION_TYPE}, DuckDBValue")
+        } else {
+            CONNECTION_TYPE.to_string()
+        };
+        let mut header = format!("import type {{ {imported} }} from \"@duckdb/node-api\";\n");
+        if self.row_type == TsRowType::Zod {
+            header.push_str("import { z } from \"zod\";\n");
+        }
+        header.push_str(
+            "\nfunction firstRow<T>(rows: readonly unknown[]): T | null {\n\
+             \treturn rows.length === 0 ? null : (rows[0] as T);\n\
+             }\n\n\
+             function allRows<T>(rows: readonly unknown[]): T[] {\n\
+             \treturn rows as T[];\n\
+             }\n",
+        );
+        header
+    }
+
     pub fn new(engine: &str) -> Result<Self, ScytheError> {
         match engine {
             "duckdb" => {}
@@ -77,26 +142,30 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         &["duckdb"]
     }
 
+    /// Without the generated queries in hand there is no way to know whether
+    /// any of them binds, so this keeps the `DuckDBValue` import -- an extra
+    /// import is a lint warning, a missing one is a compile error. Every
+    /// caller inside this crate goes through
+    /// [`CodegenBackend::file_header_for_results`], which does know.
     fn file_header(&self) -> String {
-        if self.structs_only {
-            if self.row_type == TsRowType::Zod {
-                return "import { z } from \"zod\";\n".to_string();
-            }
-            return String::new();
-        }
-        let mut header = "import type { Connection } from \"@duckdb/node-api\";\n".to_string();
-        if self.row_type == TsRowType::Zod {
-            header.push_str("import { z } from \"zod\";\n");
-        }
-        header.push_str(
-            "\nfunction firstRow<T>(rows: readonly unknown[]): T | null {\n\
-             \treturn rows.length === 0 ? null : (rows[0] as T);\n\
-             }\n\n\
-             function allRows<T>(rows: readonly unknown[]): T[] {\n\
-             \treturn rows as T[];\n\
-             }\n",
-        );
-        header
+        self.file_header_with_value_type(true)
+    }
+
+    /// Drop the `DuckDBValue` import when nothing in the file binds a
+    /// parameter.
+    ///
+    /// `DuckDBValue` only appears in the `stmt.bind([...] as DuckDBValue[])`
+    /// assertion (see [`write_bind_and_run`]), so a file whose every query
+    /// is parameterless never mentions it -- and an unused `import type` is
+    /// a lint finding on output that is supposed to be clean. `file_header`
+    /// alone cannot tell: it is asked for the header without being shown the
+    /// queries.
+    fn file_header_for_results(&self, generated: &[crate::GeneratedCode]) -> String {
+        let binds = generated
+            .iter()
+            .filter_map(|code| code.query_fn.as_deref())
+            .any(|body| body.contains("DuckDBValue"));
+        self.file_header_with_value_type(binds)
     }
 
     fn generate_struct_decl(
@@ -155,9 +224,10 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             }
         };
 
-        let query_sig_params: Vec<(String, String)> = std::iter::once(("conn".to_string(), "Connection".to_string()))
-            .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
-            .collect();
+        let query_sig_params: Vec<(String, String)> =
+            std::iter::once(("conn".to_string(), CONNECTION_TYPE.to_string()))
+                .chain(params.iter().map(|p| (p.field_name.clone(), p.full_type.clone())))
+                .collect();
 
         let write_prepare = |out: &mut String, sql: &str| {
             let oneliner = format!("\tconst stmt = await conn.prepare(`{}`);", sql);
@@ -168,12 +238,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             }
         };
 
-        let param_args = if params.is_empty() {
-            String::new()
-        } else {
-            let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
-            args.join(", ")
-        };
+        let param_args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
@@ -181,11 +246,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 let ret = format!("{} | null", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
                 write_prepare(&mut out, &sql);
-                if params.is_empty() {
-                    let _ = writeln!(out, "\tconst result = await stmt.run();");
-                } else {
-                    let _ = writeln!(out, "\tconst result = await stmt.run({});", param_args);
-                }
+                write_bind_and_run(&mut out, "\t", &param_args, Some("result"));
                 let _ = writeln!(out, "\tconst rows = await result.getRowObjects();");
                 match self.field_case {
                     TsFieldCase::Snake => {
@@ -197,7 +258,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                         out.push_str(&generate_ts_one_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            |name, ty| format!("row['{name}'] as {ty}"),
+                            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
                         ));
                     }
                 }
@@ -210,44 +271,44 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                     let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
                     let _ = writeln!(out, "export interface {} {{", params_type_name);
                     for p in params {
-                        let _ = writeln!(out, "\t{}: {};", p.field_name, p.full_type);
+                        let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.full_type);
                     }
                     let _ = writeln!(out, "}}");
                     let _ = writeln!(out);
                     let _ = writeln!(out, "/** Execute {} for each item in the batch. */", analyzed.name);
                     let batch_sig_params = vec![
-                        ("conn".to_string(), "Connection".to_string()),
+                        ("conn".to_string(), CONNECTION_TYPE.to_string()),
                         ("items".to_string(), format!("{}[]", params_type_name)),
                     ];
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "void");
                     write_prepare(&mut out, &sql);
                     let _ = writeln!(out, "\tfor (const item of items) {{");
-                    let args: Vec<String> = params.iter().map(|p| format!("item.{}", p.field_name)).collect();
-                    let _ = writeln!(out, "\t\tawait stmt.run({});", args.join(", "));
+                    let args: Vec<String> = params.iter().map(|p| ts_member_access("item", &p.field_name)).collect();
+                    write_bind_and_run(&mut out, "\t\t", &args, None);
                     let _ = writeln!(out, "\t}}");
                     let _ = write!(out, "}}");
                 } else if params.len() == 1 {
                     let _ = writeln!(out, "/** Execute {} for each item in the batch. */", analyzed.name);
                     let batch_sig_params = vec![
-                        ("conn".to_string(), "Connection".to_string()),
+                        ("conn".to_string(), CONNECTION_TYPE.to_string()),
                         ("items".to_string(), format!("{}[]", params[0].full_type)),
                     ];
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "void");
                     write_prepare(&mut out, &sql);
                     let _ = writeln!(out, "\tfor (const item of items) {{");
-                    let _ = writeln!(out, "\t\tawait stmt.run(item);");
+                    write_bind_and_run(&mut out, "\t\t", &["item".to_string()], None);
                     let _ = writeln!(out, "\t}}");
                     let _ = write!(out, "}}");
                 } else {
                     let _ = writeln!(out, "/** Execute {} for each item in the batch. */", analyzed.name);
                     let batch_sig_params = vec![
-                        ("conn".to_string(), "Connection".to_string()),
+                        ("conn".to_string(), CONNECTION_TYPE.to_string()),
                         ("count".to_string(), "number".to_string()),
                     ];
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "void");
                     write_prepare(&mut out, &sql);
                     let _ = writeln!(out, "\tfor (let i = 0; i < count; i++) {{");
-                    let _ = writeln!(out, "\t\tawait stmt.run();");
+                    write_bind_and_run(&mut out, "\t\t", &[], None);
                     let _ = writeln!(out, "\t}}");
                     let _ = write!(out, "}}");
                 }
@@ -257,11 +318,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 let ret = format!("{}[]", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
                 write_prepare(&mut out, &sql);
-                if params.is_empty() {
-                    let _ = writeln!(out, "\tconst result = await stmt.run();");
-                } else {
-                    let _ = writeln!(out, "\tconst result = await stmt.run({});", param_args);
-                }
+                write_bind_and_run(&mut out, "\t", &param_args, Some("result"));
                 match self.field_case {
                     TsFieldCase::Snake => {
                         let _ = writeln!(out, "\treturn allRows<{}>(await result.getRowObjects());", struct_name);
@@ -274,7 +331,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                         out.push_str(&generate_ts_many_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            |name, ty| format!("row['{name}'] as {ty}"),
+                            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
                         ));
                     }
                 }
@@ -284,11 +341,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 let _ = writeln!(out, "/** Execute a query returning no rows. */");
                 write_fn_sig(&mut out, &func_name, &query_sig_params, "void");
                 write_prepare(&mut out, &sql);
-                if params.is_empty() {
-                    let _ = writeln!(out, "\tawait stmt.run();");
-                } else {
-                    let _ = writeln!(out, "\tawait stmt.run({});", param_args);
-                }
+                write_bind_and_run(&mut out, "\t", &param_args, None);
                 let _ = write!(out, "}}");
             }
             QueryCommand::Grouped => {
@@ -298,11 +351,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 let _ = writeln!(out, "/** Execute a query and return the number of affected rows. */");
                 write_fn_sig(&mut out, &func_name, &query_sig_params, "number");
                 write_prepare(&mut out, &sql);
-                if params.is_empty() {
-                    let _ = writeln!(out, "\tconst result = await stmt.run();");
-                } else {
-                    let _ = writeln!(out, "\tconst result = await stmt.run({});", param_args);
-                }
+                write_bind_and_run(&mut out, "\t", &param_args, Some("result"));
                 let _ = writeln!(out, "\treturn result.rowsChanged;");
                 let _ = write!(out, "}}");
             }
@@ -361,9 +410,9 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             .collect::<Vec<_>>()
             .join(", ");
         let inline_params = if params.is_empty() {
-            "conn: Connection".to_string()
+            format!("conn: {CONNECTION_TYPE}")
         } else {
-            format!("conn: Connection, {}", param_list)
+            format!("conn: {CONNECTION_TYPE}, {}", param_list)
         };
         let ret = format!("Promise<{parent_struct_name}[]>");
 
@@ -375,7 +424,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         } else {
             let _ = writeln!(out, "/** Fetch grouped {} rows. */", analyzed.name);
             let _ = writeln!(out, "export async function {func_name}(");
-            let _ = writeln!(out, "\tconn: Connection,");
+            let _ = writeln!(out, "\tconn: {CONNECTION_TYPE},");
             for p in params {
                 let _ = writeln!(out, "\t{}: {},", p.field_name, p.full_type);
             }
@@ -383,12 +432,8 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         }
 
         let _ = writeln!(out, "\tconst stmt = await conn.prepare(`{sql}`);");
-        if params.is_empty() {
-            let _ = writeln!(out, "\tconst _result = await stmt.run();");
-        } else {
-            let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
-            let _ = writeln!(out, "\tconst _result = await stmt.run({});", args.join(", "));
-        }
+        let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+        write_bind_and_run(&mut out, "\t", &args, Some("_result"));
         let _ = writeln!(
             out,
             "\tconst flatRows = allRows<Record<string, unknown>>(await _result.getRowObjects());"
@@ -401,7 +446,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             child_columns,
             key_column,
             false,
-            |name, ty| format!("row['{name}'] as {ty}"),
+            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");
@@ -414,6 +459,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
             return Ok(super::typescript_common::generate_zod_enum(
                 &type_name,
                 &enum_info.values,
+                &self.manifest.naming,
             ));
         }
         let mut out = String::new();
@@ -433,7 +479,7 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                 .map_err(|e| {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
-            let _ = writeln!(out, "\t{}: {};", to_camel_case(&field.name), ts_type);
+            let _ = writeln!(out, "\t{}: {};", ts_property_key(&to_camel_case(&field.name)), ts_type);
         }
         let _ = write!(out, "}}");
         Ok(out)

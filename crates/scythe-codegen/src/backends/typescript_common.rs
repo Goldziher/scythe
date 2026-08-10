@@ -170,6 +170,51 @@ pub fn ts_property_key(name: &str) -> String {
     }
 }
 
+/// Render a property *read* of `name` off `object`, using dot access when
+/// `name` is a valid bare identifier and bracket access otherwise.
+///
+/// The read counterpart of [`ts_property_key`], and the other half of #215:
+/// quoting the declared key is not enough if the generated code then reads
+/// it back with `row.first name` or `item.2fa`, neither of which parses.
+/// `row["first name"]` and `item["2fa"]` are valid in every position a dot
+/// access is.
+///
+/// A reserved word stays on the dot form deliberately: `row.class` is legal
+/// property access in ES5+ (only *bindings* may not be keywords), so #215's
+/// rule here is identifier shape, exactly as it is for the key position.
+pub fn ts_member_access(object: &str, name: &str) -> String {
+    if is_ts_identifier(name) {
+        format!("{object}.{name}")
+    } else {
+        format!("{object}[\"{}\"]", escape_ts_double_quoted_literal(name))
+    }
+}
+
+/// Render a bracket property read `object['name']` with `name` escaped for
+/// the single-quoted JS string literal it is spliced into.
+///
+/// The backends whose driver hands back an untyped row read every column
+/// this way, because the key is the raw SQL column name and bracket access
+/// works for any of them. Splicing the name in unescaped is still wrong for
+/// one shape #215 covers: a column named `it's` produced `row['it's']`,
+/// which closes the string after `it` and does not parse.
+///
+/// Deliberately always brackets rather than reusing [`ts_member_access`]:
+/// these call sites are reading a raw driver row, and switching the
+/// overwhelmingly common identifier case to dot access would rewrite every
+/// generated file in the repository to say the same thing a second way.
+pub fn ts_index_access(object: &str, name: &str) -> String {
+    format!("{object}['{}']", escape_ts_single_quoted_literal(name))
+}
+
+/// Escape a string for splicing into a single-quoted JS string literal.
+///
+/// The single-quote counterpart of [`escape_ts_double_quoted_literal`], with
+/// backslash escaped first for the same reason.
+fn escape_ts_single_quoted_literal(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
 /// Whether `name` is a valid TypeScript/JavaScript identifier: starts with
 /// a letter, `_`, or `$`, followed by letters, digits, `_`, or `$`. (Unicode
 /// identifier characters beyond ASCII are conservatively treated as
@@ -184,27 +229,48 @@ fn is_ts_identifier(name: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$')
 }
 
-/// Map a neutral type to its Zod v4 schema expression.
-/// Note: This does not handle enums - use column_to_zod for full column handling.
-pub fn neutral_to_zod(neutral_type: &str, nullable: bool) -> String {
-    let base = match neutral_type {
-        "int16" | "int32" | "int64" => "z.number()",
-        "float32" | "float64" => "z.number()",
-        "string" | "text" | "inet" | "interval" | "time" | "time_tz" => "z.string()",
-        "bool" => "z.boolean()",
-        "datetime" | "datetime_tz" => "z.date()",
-        "date" => "z.string()",
-        "uuid" => "z.string().uuid()",
-        "json" => "z.unknown()",
-        "decimal" => "z.string()",
-        "bytes" => "z.instanceof(Buffer)",
-        t if t.starts_with("enum::") => "z.string()",
-        _ => "z.unknown()",
-    };
-    if nullable {
-        format!("{base}.nullable()")
-    } else {
-        base.to_string()
+/// Map an already-resolved TypeScript type expression to the Zod schema
+/// whose `z.infer` is exactly that type.
+///
+/// This is keyed on the *TypeScript* type, not on the neutral SQL type,
+/// which is the whole point (#216). `row_type = "zod"` used to consult a
+/// hardcoded neutral-type table while `row_type = "interface"` resolved the
+/// very same column through the backend manifest's `[types.scalars]`, so the
+/// two modes disagreed wherever a manifest departed from that table's
+/// assumptions -- and every TypeScript manifest departs from it somewhere.
+/// On `typescript-node-sqlite`, for one file: `bool` is `number` in the
+/// manifest and `z.boolean()` in the table, `decimal` is `number` versus
+/// `z.string()`, `datetime` is `string` versus `z.date()`, `json` is
+/// `Record<string, unknown>` versus `z.unknown()`. Four of six columns
+/// declared one type under `interface` and a different one under `zod`, on
+/// the same backend and the same query. Deriving the schema from the type
+/// the manifest already produced makes that disagreement unrepresentable.
+///
+/// The fallback is `z.custom<T>()` rather than `z.unknown()`: `z.custom`
+/// infers exactly `T` for any `T`, so an unrecognised manifest type (a
+/// hand-written `[types.scalars]` override naming a project's own type)
+/// still yields a schema whose inferred type matches the interface. It
+/// performs no runtime check without a validator, which is the honest
+/// outcome -- scythe has no way to know how to validate a type it has never
+/// seen -- whereas `z.unknown()` would have silently widened the field.
+pub fn ts_type_to_zod(ts_type: &str) -> String {
+    let ts_type = ts_type.trim();
+    if let Some(element) = ts_type.strip_suffix("[]") {
+        return format!("z.array({})", ts_type_to_zod(element));
+    }
+    match ts_type {
+        "boolean" => "z.boolean()".to_string(),
+        "number" => "z.number()".to_string(),
+        "bigint" => "z.bigint()".to_string(),
+        "string" => "z.string()".to_string(),
+        "Date" => "z.date()".to_string(),
+        "unknown" => "z.unknown()".to_string(),
+        // The two binary runtimes any TypeScript manifest maps `bytes` to.
+        // Both are real constructors, so `z.instanceof` resolves as a value
+        // and infers the class type back.
+        "Buffer" | "Uint8Array" => format!("z.instanceof({ts_type})"),
+        "Record<string, unknown>" => "z.record(z.string(), z.unknown())".to_string(),
+        _ => format!("z.custom<{ts_type}>()"),
     }
 }
 
@@ -416,16 +482,19 @@ fn column_to_zod_with_nullable(col: &ResolvedColumn, nullable: bool) -> String {
         } else {
             schema_name
         }
-    } else if col.neutral_type == "bytes" {
-        // The runtime type of a binary column is backend-specific: `Buffer` for
-        // the Node driver backends, `Uint8Array` for node:sqlite and
-        // sqlite-wasm. Hardcoding `Buffer` mis-validates on those two and is
-        // unresolvable in a browser, where `Buffer` does not exist at all.
-        // `lang_type` already carries the manifest's mapping, so use it.
-        let base = format!("z.instanceof({})", col.lang_type);
-        if nullable { format!("{base}.nullable()") } else { base }
     } else {
-        neutral_to_zod(&col.neutral_type, nullable)
+        // Everything else is decided by the type the manifest already
+        // resolved for this column, so `zod` and `interface` mode cannot
+        // disagree -- see [`ts_type_to_zod`]. The one refinement layered on
+        // top is `uuid`: `z.string().uuid()` still infers `string`, so it
+        // agrees with the manifest while validating more than a bare
+        // `z.string()` would.
+        let base = if col.neutral_type == "uuid" && col.lang_type == "string" {
+            "z.string().uuid()".to_string()
+        } else {
+            ts_type_to_zod(&col.lang_type)
+        };
+        if nullable { format!("{base}.nullable()") } else { base }
     }
 }
 
@@ -864,10 +933,27 @@ pub fn js_fn_signature_line(is_async: bool, name: &str, sig_params: &[(String, S
 }
 
 /// Generate a Zod enum schema from enum values.
-pub fn generate_zod_enum(type_name: &str, values: &[String]) -> String {
+///
+/// `naming` is the backend manifest's [`NamingConfig`], and is what makes
+/// the variant keys here identical to the ones the `interface` path emits
+/// through [`scythe_backend::naming::enum_variant_name`] (#216). Calling
+/// `to_pascal_case` directly instead -- which is what this did -- skips that
+/// function's identifier sanitisation, so a SQL enum value that is not
+/// already identifier-shaped came out differently in the two modes: the
+/// value `in-active` became `InActive` under `interface` and `In-active`
+/// under `zod`, and the latter is not a valid object key at all.
+///
+/// Both the `z.enum([...])` members and the const's values are string
+/// literals holding a value that came from user DDL, so both go through
+/// [`escape_ts_double_quoted_literal`]; an enum value containing a `"` or a
+/// `\` would otherwise terminate or corrupt the literal.
+pub fn generate_zod_enum(type_name: &str, values: &[String], naming: &scythe_backend::naming::NamingConfig) -> String {
     let schema_name = format!("{type_name}Schema");
     let mut out = String::new();
-    let variants: Vec<String> = values.iter().map(|v| format!("\"{}\"", v)).collect();
+    let variants: Vec<String> = values
+        .iter()
+        .map(|v| format!("\"{}\"", escape_ts_double_quoted_literal(v)))
+        .collect();
     let _ = writeln!(out, "export const {} = z.enum([{}]);", schema_name, variants.join(", "));
     let _ = writeln!(out);
     let _ = write!(out, "export type {} = z.infer<typeof {}>;", type_name, schema_name);
@@ -875,8 +961,13 @@ pub fn generate_zod_enum(type_name: &str, values: &[String]) -> String {
     let _ = writeln!(out);
     let _ = writeln!(out, "export const {} = {{", type_name);
     for value in values {
-        let key = scythe_backend::naming::to_pascal_case(value);
-        let _ = writeln!(out, "\t{}: \"{}\",", key, value);
+        let key = scythe_backend::naming::enum_variant_name(value, naming);
+        let _ = writeln!(
+            out,
+            "\t{}: \"{}\",",
+            ts_property_key(&key),
+            escape_ts_double_quoted_literal(value)
+        );
     }
     let _ = write!(out, "}} as const;");
     out

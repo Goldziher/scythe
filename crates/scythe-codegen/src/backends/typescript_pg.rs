@@ -15,7 +15,8 @@ use crate::backends::typescript_common::{
     generate_js_grouped_typedef_structs, generate_js_typedef, generate_js_typedef_row_struct, generate_jsdoc_fn_header,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
-    generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line, parse_bool_option,
+    generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line, parse_bool_option, ts_member_access,
+    ts_property_key,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-pg.toml");
@@ -255,7 +256,7 @@ impl CodegenBackend for TypescriptPgBackend {
                         out.push_str(&generate_ts_one_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            |name, ty| format!("row.{name} as {ty}"),
+                            |name, ty| format!("{} as {ty}", ts_member_access("row", name)),
                         ));
                     }
                 }
@@ -281,7 +282,7 @@ impl CodegenBackend for TypescriptPgBackend {
                         out.push_str(&generate_ts_many_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            |name, ty| format!("row.{name} as {ty}"),
+                            |name, ty| format!("{} as {ty}", ts_member_access("row", name)),
                         ));
                     }
                 }
@@ -294,7 +295,7 @@ impl CodegenBackend for TypescriptPgBackend {
                     let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
                     let _ = writeln!(out, "export interface {} {{", params_type_name);
                     for p in params {
-                        let _ = writeln!(out, "\t{}: {};", p.field_name, p.full_type);
+                        let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.full_type);
                     }
                     let _ = writeln!(out, "}}");
                     let _ = writeln!(out);
@@ -313,7 +314,7 @@ impl CodegenBackend for TypescriptPgBackend {
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
                     let _ = writeln!(out, "\t\t\tawait client.query(");
                     let _ = writeln!(out, "\t\t\t\t`{}`,", sql);
-                    let args: Vec<String> = params.iter().map(|p| format!("item.{}", p.field_name)).collect();
+                    let args: Vec<String> = params.iter().map(|p| ts_member_access("item", &p.field_name)).collect();
                     let _ = writeln!(out, "\t\t\t\t[{}],", args.join(", "));
                     let _ = writeln!(out, "\t\t\t);");
                     let _ = writeln!(out, "\t\t}}");
@@ -487,7 +488,7 @@ impl CodegenBackend for TypescriptPgBackend {
             child_columns,
             key_column,
             false,
-            |name, ty| format!("row.{name} as {ty}"),
+            |name, ty| format!("{} as {ty}", ts_member_access("row", name)),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");
@@ -500,7 +501,7 @@ impl CodegenBackend for TypescriptPgBackend {
         }
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
-            return Ok(generate_zod_enum(&type_name, &enum_info.values));
+            return Ok(generate_zod_enum(&type_name, &enum_info.values, &self.manifest.naming));
         }
         let mut out = String::new();
         let values_name = format!("{}Values", type_name);
@@ -535,7 +536,7 @@ impl CodegenBackend for TypescriptPgBackend {
                     .map_err(|e| {
                         ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                     })?;
-                let _ = writeln!(out, "\t{}: {};", to_camel_case(&field.name), ts_type);
+                let _ = writeln!(out, "\t{}: {};", ts_property_key(&to_camel_case(&field.name)), ts_type);
             }
         }
         let _ = write!(out, "}}");
@@ -719,7 +720,7 @@ impl TypescriptPgBackend {
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
                     let _ = writeln!(out, "\t\t\tawait client.query(");
                     let _ = writeln!(out, "\t\t\t\t`{}`,", sql);
-                    let args: Vec<String> = params.iter().map(|p| format!("item.{}", p.field_name)).collect();
+                    let args: Vec<String> = params.iter().map(|p| ts_member_access("item", &p.field_name)).collect();
                     let _ = writeln!(out, "\t\t\t\t[{}],", args.join(", "));
                     let _ = writeln!(out, "\t\t\t);");
                     let _ = writeln!(out, "\t\t}}");
@@ -864,7 +865,7 @@ impl TypescriptPgBackend {
             child_columns,
             key_column,
             true,
-            |name, _ty| format!("row.{name}"),
+            |name, _ty| ts_member_access("row", name),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");

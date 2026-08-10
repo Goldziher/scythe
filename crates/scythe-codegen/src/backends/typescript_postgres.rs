@@ -16,10 +16,35 @@ use crate::backends::typescript_common::{
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
     generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line, js_type_cast, parse_bool_option,
+    ts_index_access, ts_member_access, ts_property_key,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-postgres.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/typescript-postgres.redshift.toml");
+
+/// Rewrite the `$N` placeholders of an escaped `:batch` statement into
+/// postgres.js `${item.field}` interpolations.
+///
+/// `sql` must already have been through [`escape_ts_template_literal`], and
+/// `name_map` maps a 1-based placeholder position to the batch item's field
+/// name.
+///
+/// This exists so the `:batch` path goes through the same literal-aware
+/// [`super::rewrite_pg_placeholders`] the `:one`/`:many`/`:exec` paths use
+/// (#219). It previously ran `sql.replace("$1", "${item.a}")` over the raw
+/// text, which does not know what a SQL string literal is: given
+/// `VALUES ($1, 'lit $1 end')` it rewrote *both* occurrences, so the inert
+/// text inside the literal became a second live postgres.js binding. That
+/// silently changes what the statement inserts -- and, unlike a syntax
+/// error, nothing downstream notices.
+fn batch_item_sql(sql: &str, name_map: &std::collections::HashMap<u32, String>) -> String {
+    super::rewrite_pg_placeholders(sql, |n| {
+        let accessor = name_map
+            .get(&n)
+            .map_or_else(|| "?".to_string(), |field| ts_member_access("item", field));
+        format!("${{{accessor}}}")
+    })
+}
 
 pub struct TypescriptPostgresBackend {
     manifest: BackendManifest,
@@ -229,7 +254,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                         out.push_str(&generate_ts_one_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            |name, ty| format!("row['{name}'] as {ty}"),
+                            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
                         ));
                     }
                 }
@@ -242,7 +267,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
                     let _ = writeln!(out, "export interface {} {{", params_type_name);
                     for p in params {
-                        let _ = writeln!(out, "\t{}: {};", p.field_name, p.full_type);
+                        let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.full_type);
                     }
                     let _ = writeln!(out, "}}");
                     let _ = writeln!(out);
@@ -258,22 +283,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "Promise<void>");
                     let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let batch_sql = {
-                        let mut s = sql_clean.clone();
-                        let mut indexed: Vec<(i64, &str)> = analyzed
-                            .params
-                            .iter()
-                            .zip(params.iter())
-                            .map(|(ap, rp)| (ap.position, rp.field_name.as_str()))
-                            .collect();
-                        indexed.sort_by_key(|b| std::cmp::Reverse(b.0));
-                        for (pos, field_name) in indexed {
-                            let placeholder = format!("${}", pos);
-                            let replacement = format!("${{item.{}}}", field_name);
-                            s = s.replace(&placeholder, &replacement);
-                        }
-                        s
-                    };
+                    let batch_sql = batch_item_sql(&sql_clean, &name_map);
                     let _ = writeln!(out, "\t\t\tawait tx`");
                     let _ = writeln!(out, "    {}", batch_sql);
                     let _ = writeln!(out, "  `;");
@@ -339,7 +349,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                         out.push_str(&generate_ts_many_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            |name, ty| format!("row['{name}'] as {ty}"),
+                            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
                         ));
                     }
                 }
@@ -469,7 +479,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
             child_columns,
             key_column,
             false,
-            |name, ty| format!("row['{name}'] as {ty}"),
+            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");
@@ -482,7 +492,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
         }
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
-            return Ok(generate_zod_enum(&type_name, &enum_info.values));
+            return Ok(generate_zod_enum(&type_name, &enum_info.values, &self.manifest.naming));
         }
         let mut out = String::new();
         let _ = writeln!(out, "export enum {} {{", type_name);
@@ -510,7 +520,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     .map_err(|e| {
                         ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                     })?;
-                let _ = writeln!(out, "\t{}: {};", to_camel_case(&field.name), ts_type);
+                let _ = writeln!(out, "\t{}: {};", ts_property_key(&to_camel_case(&field.name)), ts_type);
             }
         }
         let _ = write!(out, "}}");
@@ -712,22 +722,7 @@ impl TypescriptPostgresBackend {
                     let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
                     let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let batch_sql = {
-                        let mut s = sql_clean.clone();
-                        let mut indexed: Vec<(i64, &str)> = analyzed
-                            .params
-                            .iter()
-                            .zip(params.iter())
-                            .map(|(ap, rp)| (ap.position, rp.field_name.as_str()))
-                            .collect();
-                        indexed.sort_by_key(|b| std::cmp::Reverse(b.0));
-                        for (pos, field_name) in indexed {
-                            let placeholder = format!("${}", pos);
-                            let replacement = format!("${{item.{}}}", field_name);
-                            s = s.replace(&placeholder, &replacement);
-                        }
-                        s
-                    };
+                    let batch_sql = batch_item_sql(&sql_clean, &name_map);
                     let _ = writeln!(out, "\t\t\tawait tx`");
                     let _ = writeln!(out, "    {}", batch_sql);
                     let _ = writeln!(out, "  `;");
@@ -845,7 +840,7 @@ impl TypescriptPostgresBackend {
             child_columns,
             key_column,
             true,
-            |name, _ty| format!("row['{name}']"),
+            |name, _ty| ts_index_access("row", name),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");

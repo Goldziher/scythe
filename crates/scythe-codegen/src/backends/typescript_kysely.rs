@@ -15,6 +15,7 @@ use crate::backends::typescript_common::{
     TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_enum,
     generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
+    ts_index_access, ts_member_access, ts_property_key,
 };
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/typescript-kysely.toml");
@@ -339,13 +340,14 @@ impl CodegenBackend for TypescriptKyselyBackend {
                 let batch_fn_name = format!("{}Batch", func_name);
                 if params.len() > 1 {
                     let params_type_name = format!("{}BatchParams", struct_name);
-                    let item_exprs: Vec<String> = params.iter().map(|p| format!("item.{}", p.field_name)).collect();
+                    let item_exprs: Vec<String> =
+                        params.iter().map(|p| ts_member_access("item", &p.field_name)).collect();
                     let batch_sql = interpolate_kysely_params(&escaped, &item_exprs);
 
                     let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
                     let _ = writeln!(out, "export interface {} {{", params_type_name);
                     for p in params {
-                        let _ = writeln!(out, "\t{}: {};", p.field_name, p.full_type);
+                        let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.full_type);
                     }
                     let _ = writeln!(out, "}}");
                     let _ = writeln!(out);
@@ -550,7 +552,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
             child_columns,
             key_column,
             false,
-            |name, ty| format!("row['{}'] as {}", driver_key_for(name), ty),
+            |name, ty| format!("{} as {}", ts_index_access("row", &driver_key_for(name)), ty),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");
@@ -560,7 +562,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
         if self.row_type == TsRowType::Zod {
-            return Ok(generate_zod_enum(&type_name, &enum_info.values));
+            return Ok(generate_zod_enum(&type_name, &enum_info.values, &self.manifest.naming));
         }
         let mut out = String::new();
         let values_name = format!("{}Values", type_name);
@@ -590,7 +592,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
                 .map_err(|e| {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
-            let _ = writeln!(out, "\t{}: {};", to_camel_case(&field.name), ts_type);
+            let _ = writeln!(out, "\t{}: {};", ts_property_key(&to_camel_case(&field.name)), ts_type);
         }
         let _ = write!(out, "}}");
         Ok(out)

@@ -13,7 +13,7 @@ use crate::backends::typescript_common::{
     TsFieldCase, TsRowShape, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
-    generate_zod_union_row_struct, parse_bool_option,
+    generate_zod_union_row_struct, parse_bool_option, ts_index_access, ts_member_access, ts_property_key,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-snowflake.toml");
@@ -191,7 +191,7 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                         out.push_str(&generate_ts_one_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            |name, ty| format!("row['{name}'] as {ty}"),
+                            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
                         ));
                     }
                 }
@@ -204,7 +204,7 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                     let _ = writeln!(out, "/** Params for {} batch operation. */", struct_name);
                     let _ = writeln!(out, "export interface {} {{", params_type_name);
                     for p in params {
-                        let _ = writeln!(out, "\t{}: {};", p.field_name, p.full_type);
+                        let _ = writeln!(out, "\t{}: {};", ts_property_key(&p.field_name), p.full_type);
                     }
                     let _ = writeln!(out, "}}");
                     let _ = writeln!(out);
@@ -216,7 +216,7 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "void");
                     let _ = writeln!(out, "\tfor (const item of items) {{");
                     let _ = writeln!(out, "\t\tawait new Promise<void>((resolve, reject) => {{");
-                    let args: Vec<String> = params.iter().map(|p| format!("item.{}", p.field_name)).collect();
+                    let args: Vec<String> = params.iter().map(|p| ts_member_access("item", &p.field_name)).collect();
                     let _ = writeln!(
                         out,
                         "\t\t\tconn.execute({{ sqlText: `{}`, binds: [{}] as unknown as Binds, complete: (err) => err ? reject(err) : resolve() }});",
@@ -277,7 +277,7 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                         out.push_str(&generate_ts_many_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            |name, ty| format!("row['{name}'] as {ty}"),
+                            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
                         ));
                     }
                 }
@@ -418,7 +418,7 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
             child_columns,
             key_column,
             false,
-            |name, ty| format!("row['{name}'] as {ty}"),
+            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");
@@ -431,6 +431,7 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
             return Ok(super::typescript_common::generate_zod_enum(
                 &type_name,
                 &enum_info.values,
+                &self.manifest.naming,
             ));
         }
         let mut out = String::new();
@@ -450,7 +451,7 @@ impl CodegenBackend for TypescriptSnowflakeBackend {
                 .map_err(|e| {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
-            let _ = writeln!(out, "\t{}: {};", to_camel_case(&field.name), ts_type);
+            let _ = writeln!(out, "\t{}: {};", ts_property_key(&to_camel_case(&field.name)), ts_type);
         }
         let _ = write!(out, "}}");
         Ok(out)

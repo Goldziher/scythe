@@ -13,10 +13,47 @@ use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, Resol
 use crate::backends::typescript_common::{
     TsFieldCase, TsRowShape, TsRowType, escape_ts_double_quoted_literal, escape_ts_template_literal,
     generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
-    generate_ts_union_row_struct, parse_bool_option,
+    generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct,
+    parse_bool_option, ts_index_access, ts_property_key,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-oracledb.toml");
+
+/// The key Oracle's driver hands back for the result column named `column`
+/// under `OUT_FORMAT_OBJECT`.
+///
+/// Oracle case-folds an *unquoted* identifier to upper case, so `SELECT id`
+/// comes back as `ID` -- which is why every read path in this backend
+/// uppercases. It does **not** fold a quoted one: `SELECT "first name"`
+/// comes back as `first name`, exactly as written. Uppercasing
+/// unconditionally therefore invented a key the row never has, and every
+/// such column silently read back `undefined` (#218).
+///
+/// scythe does not carry "was this identifier quoted in the DDL" through the
+/// analyzer, so this decides on the one thing that is decidable from the
+/// name alone: a name that is not a legal *unquoted* Oracle identifier could
+/// only ever have been written quoted, so its spelling is already the key.
+/// Anything that could have been written unquoted keeps the existing
+/// uppercase behaviour -- which is right for every such column that actually
+/// was, and unchanged for the ones that were not.
+fn oracle_row_key(column: &str) -> String {
+    if is_unquoted_oracle_identifier(column) {
+        column.to_uppercase()
+    } else {
+        column.to_string()
+    }
+}
+
+/// Whether `name` could have been written without double quotes in Oracle
+/// SQL: a letter followed by letters, digits, `_`, `$` or `#`.
+fn is_unquoted_oracle_identifier(name: &str) -> bool {
+    let mut chars = name.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '$' || c == '#')
+}
 
 pub struct TypescriptOracledbBackend {
     manifest: BackendManifest,
@@ -106,10 +143,14 @@ impl CodegenBackend for TypescriptOracledbBackend {
     }
 
     fn file_header(&self) -> String {
-        if self.structs_only {
-            return String::new();
+        let mut header = String::new();
+        if !self.structs_only {
+            header.push_str("import oracledb from 'oracledb';\n");
         }
-        "import oracledb from 'oracledb';\n".to_string()
+        if self.row_type == TsRowType::Zod {
+            header.push_str("import { z } from \"zod\";\n");
+        }
+        header
     }
 
     fn generate_struct_decl(
@@ -118,6 +159,12 @@ impl CodegenBackend for TypescriptOracledbBackend {
         query_name: &str,
         columns: &[ResolvedColumn],
     ) -> Result<String, ScytheError> {
+        if self.row_type == TsRowType::Zod {
+            if self.outer_join_unions {
+                return Ok(generate_zod_union_row_struct(struct_name, query_name, columns));
+            }
+            return Ok(generate_zod_row_struct(struct_name, query_name, columns));
+        }
         if self.outer_join_unions {
             return Ok(generate_ts_union_row_struct(struct_name, query_name, columns, None));
         }
@@ -222,7 +269,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
                         let _ = writeln!(
                             out,
                             "\t\t{}: (outBinds[{}] ?? [])[0] as {},",
-                            col.field_name,
+                            ts_property_key(&col.field_name),
                             i,
                             row_shape.cast_type(col)
                         );
@@ -244,8 +291,8 @@ impl CodegenBackend for TypescriptOracledbBackend {
                         let _ = writeln!(
                             out,
                             "\t\t{}: row[\"{}\"] as {},",
-                            col.field_name,
-                            col.name.to_uppercase(),
+                            ts_property_key(&col.field_name),
+                            oracle_row_key(&col.name),
                             row_shape.cast_type(col)
                         );
                     }
@@ -274,8 +321,8 @@ impl CodegenBackend for TypescriptOracledbBackend {
                     let _ = writeln!(
                         out,
                         "\t\t\t{}: row[\"{}\"] as {},",
-                        col.field_name,
-                        col.name.to_uppercase(),
+                        ts_property_key(&col.field_name),
+                        oracle_row_key(&col.name),
                         row_shape.cast_type(col)
                     );
                 }
@@ -346,6 +393,14 @@ impl CodegenBackend for TypescriptOracledbBackend {
         child_columns: &[ResolvedColumn],
         _key_column: &str,
     ) -> Result<String, ScytheError> {
+        if self.row_type == TsRowType::Zod {
+            return Ok(generate_zod_grouped_structs(
+                child_struct_name,
+                parent_struct_name,
+                parent_columns,
+                child_columns,
+            ));
+        }
         Ok(generate_grouped_interface_structs(
             child_struct_name,
             parent_struct_name,
@@ -402,13 +457,19 @@ impl CodegenBackend for TypescriptOracledbBackend {
             let _ = writeln!(out, "): {ret} {{");
         }
 
+        // ~keep `queryResult`, not `result`: `generate_ts_grouped_fold_body`
+        // declares its accumulator as `const result: ParentRow[] = []`, so
+        // binding the driver's result to `result` here put two `const`s of
+        // the same name in one function body -- TS2451, in every `:grouped`
+        // function this backend has ever emitted (#218). The sibling duckdb
+        // backend avoided it by naming its own `_result`.
         if params.is_empty() {
-            let _ = writeln!(out, "\tconst result = await conn.execute(");
+            let _ = writeln!(out, "\tconst queryResult = await conn.execute(");
             let _ = writeln!(out, "\t\t`{sql}`,");
             let _ = writeln!(out, "\t\t[],");
         } else {
             let args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
-            let _ = writeln!(out, "\tconst result = await conn.execute(");
+            let _ = writeln!(out, "\tconst queryResult = await conn.execute(");
             let _ = writeln!(out, "\t\t`{sql}`,");
             let _ = writeln!(out, "\t\t[{}],", args.join(", "));
         }
@@ -416,7 +477,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
         let _ = writeln!(out, "\t);");
         let _ = writeln!(
             out,
-            "\tconst flatRows = (result.rows ?? []) as unknown as Record<string, unknown>[];"
+            "\tconst flatRows = (queryResult.rows ?? []) as unknown as Record<string, unknown>[];"
         );
 
         let fold = generate_ts_grouped_fold_body(
@@ -426,7 +487,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
             child_columns,
             key_column,
             false,
-            |name, ty| format!("row['{}'] as {ty}", name.to_uppercase()),
+            |name, ty| format!("{} as {ty}", ts_index_access("row", &oracle_row_key(name))),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");
@@ -435,8 +496,19 @@ impl CodegenBackend for TypescriptOracledbBackend {
 
     fn generate_enum_def(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
+        if self.row_type == TsRowType::Zod {
+            return Ok(super::typescript_common::generate_zod_enum(
+                &type_name,
+                &enum_info.values,
+                &self.manifest.naming,
+            ));
+        }
         let mut out = String::new();
-        let values: Vec<String> = enum_info.values.iter().map(|v| format!("\"{}\"", v)).collect();
+        let values: Vec<String> = enum_info
+            .values
+            .iter()
+            .map(|v| format!("\"{}\"", escape_ts_double_quoted_literal(v)))
+            .collect();
         let _ = writeln!(out, "export type {} = {};", type_name, values.join(" | "));
         Ok(out)
     }
@@ -451,7 +523,7 @@ impl CodegenBackend for TypescriptOracledbBackend {
                 .map_err(|e| {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
-            let _ = writeln!(out, "\t{}: {};", to_camel_case(&field.name), ts_type);
+            let _ = writeln!(out, "\t{}: {};", ts_property_key(&to_camel_case(&field.name)), ts_type);
         }
         let _ = write!(out, "}}");
         Ok(out)
@@ -703,16 +775,15 @@ mod tests {
         assert!(result.is_err(), "expected 'maybe' to be rejected");
     }
 
-    /// Unlike the other eight TypeScript backends, typescript-oracledb does
-    /// not implement Zod row types at all — `generate_row_struct` never
-    /// branches on `row_type` (a pre-existing gap, not something this
-    /// `structs_only` change introduces or fixes). Setting `row_type =
-    /// "zod"` is accepted by `apply_options` (it's a generic parse) but has
-    /// no effect: the row struct is always a plain `interface`. This test
-    /// documents that combined behavior rather than asserting a `z.object`
-    /// schema that this backend cannot produce.
+    /// This must fail before the fix: `apply_options` accepted `row_type =
+    /// "zod"` (it is a generic parse) and `generate_struct_decl` then never
+    /// looked at it, so the setting was a certified no-op -- the row struct
+    /// came out as a plain `interface` and the `zod` import was never
+    /// emitted, with no diagnostic anywhere (#218). Combined here with
+    /// `structs_only` because the two interact on the file header: the
+    /// driver import goes, the `zod` import must stay.
     #[test]
-    fn test_structs_only_combined_with_zod_row_type_option_has_no_zod_effect_on_this_backend() {
+    fn test_structs_only_combined_with_zod_row_type_emits_a_zod_schema() {
         let mut backend = TypescriptOracledbBackend::new("oracle").unwrap();
         backend
             .apply_options(&std::collections::HashMap::from([
@@ -725,13 +796,18 @@ mod tests {
         let result = crate::generate_with_backend(&query, &backend).unwrap();
 
         assert_eq!(result.query_fn.as_deref(), Some(""));
+        let row_struct = result.row_struct.as_deref().unwrap();
         assert!(
-            result
-                .row_struct
-                .as_deref()
-                .unwrap()
-                .contains("interface GetUserByIdRow"),
-            "oracledb has no Zod row type support; the plain interface is still emitted"
+            row_struct.contains("export const GetUserByIdRowSchema = z.object({"),
+            "row_type = \"zod\" must produce a Zod schema; got:\n{row_struct}"
+        );
+        assert!(
+            row_struct.contains("export type GetUserByIdRow = z.infer<typeof GetUserByIdRowSchema>;"),
+            "the inferred row type must be exported; got:\n{row_struct}"
+        );
+        assert!(
+            !row_struct.contains("interface GetUserByIdRow"),
+            "the plain interface must not also be emitted; got:\n{row_struct}"
         );
 
         let header = backend.file_header();
@@ -739,6 +815,54 @@ mod tests {
             !header.contains("oracledb"),
             "the unused oracledb driver import must still be dropped; got:\n{header}"
         );
+        assert!(
+            header.contains("import { z } from \"zod\";"),
+            "a Zod schema needs the zod import; got:\n{header}"
+        );
+    }
+
+    /// The `zod` import is needed whenever `row_type = "zod"`, not only
+    /// under `structs_only` -- the schema references `z` either way.
+    #[test]
+    fn test_zod_row_type_imports_zod_alongside_the_driver() {
+        let mut backend = TypescriptOracledbBackend::new("oracle").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "row_type".to_string(),
+                "zod".to_string(),
+            )]))
+            .unwrap();
+
+        let header = backend.file_header();
+        assert!(header.contains("import oracledb from 'oracledb';"), "{header}");
+        assert!(header.contains("import { z } from \"zod\";"), "{header}");
+    }
+
+    /// The Zod counterpart of `test_grouped_typescript_oracledb_structs`:
+    /// `generate_grouped_structs` ignored `row_type` too, so a `:grouped`
+    /// query under `row_type = "zod"` emitted plain interfaces into a file
+    /// whose other rows were schemas.
+    #[test]
+    fn test_grouped_structs_follow_the_zod_row_type() {
+        let mut backend = TypescriptOracledbBackend::new("oracle").unwrap();
+        backend
+            .apply_options(&std::collections::HashMap::from([(
+                "row_type".to_string(),
+                "zod".to_string(),
+            )]))
+            .unwrap();
+        let result = crate::generate_with_backend(&make_grouped_query(), &backend).unwrap();
+        let row_struct = result.row_struct.as_deref().unwrap();
+
+        assert!(
+            row_struct.contains("export const GetUsersWithOrdersChildRowSchema = z.object({"),
+            "{row_struct}"
+        );
+        assert!(
+            row_struct.contains("children: z.array(GetUsersWithOrdersChildRowSchema),"),
+            "{row_struct}"
+        );
+        assert!(!row_struct.contains("interface "), "{row_struct}");
     }
 
     fn make_one_query_with_nullable_column() -> AnalyzedQuery {
