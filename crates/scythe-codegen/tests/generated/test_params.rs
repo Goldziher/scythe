@@ -868,6 +868,139 @@ fn test_param_in_interval_arithmetic() {
 }
 
 #[test]
+fn test_param_in_simple_case() {
+    // From: testing_data/params/complex_positions/05_param_in_simple_case.json
+    // "A placeholder in a simple-CASE branch is typed against the operand, not hardcoded to bool -- simple CASE (CASE operand WHEN x THEN ...) compares a value, unlike searched CASE (CASE WHEN cond THEN ...) where the condition really is boolean"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, status TEXT NOT NULL)"];
+
+    let query_sql = "-- @name GetUserStatusLabel\n-- @returns :many\nSELECT CASE status WHEN $1 THEN 'match' ELSE 'other' END AS m FROM users";
+
+    let catalog = scythe_core::catalog::Catalog::from_ddl(schema_sql).unwrap();
+    let query = scythe_core::parser::parse_query(query_sql).unwrap();
+    let analyzed = scythe_core::analyzer::analyze(&catalog, &query).unwrap();
+
+    assert_eq!(analyzed.name, "GetUserStatusLabel", "query name");
+    assert_eq!(analyzed.command.to_string(), "many", "query command");
+    assert_eq!(analyzed.params.len(), 1, "param count");
+    assert_eq!(analyzed.params[0].name, "status", "param name");
+    assert_eq!(
+        analyzed.params[0].neutral_type, "string",
+        "param neutral_type for status"
+    );
+    assert!(!analyzed.params[0].nullable, "param nullable for status");
+    assert_eq!(analyzed.params[0].position, 1, "param position for status");
+    assert_eq!(analyzed.columns.len(), 1, "column count");
+    assert_eq!(analyzed.columns[0].name, "m", "column name");
+    assert_eq!(analyzed.columns[0].neutral_type, "string", "column neutral_type for m");
+    assert!(!analyzed.columns[0].nullable, "column nullable for m");
+
+    // Codegen verification: all backends should produce valid output
+    let all_backends = [
+        "rust-sqlx",
+        "rust-tokio-postgres",
+        "python-psycopg3",
+        "python-asyncpg",
+        "typescript-postgres",
+        "typescript-pg",
+        "typescript-kysely",
+        "go-pgx",
+        "java-jdbc",
+        "java-r2dbc",
+        "kotlin-exposed",
+        "kotlin-jdbc",
+        "kotlin-r2dbc",
+        "csharp-npgsql",
+        "elixir-postgrex",
+        "elixir-ecto",
+        "ruby-pg",
+        "ruby-trilogy",
+        "php-pdo",
+        "php-amphp",
+    ];
+    for backend_name in &all_backends {
+        let backend = match scythe_codegen::get_backend(backend_name, "postgresql") {
+            Ok(b) => b,
+            Err(_) => continue, // skip unregistered backends
+        };
+        if let Ok(generated) = scythe_codegen::generate_with_backend(&analyzed, &*backend) {
+            let preamble = backend.file_preamble();
+            let header = backend.file_header();
+            let mut body = String::new();
+            if header.is_empty() {
+                body.push_str("#![allow(dead_code, unused_imports)]\n");
+            } else {
+                body.push_str(&header);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.enum_def {
+                body.push_str(s);
+                body.push('\n');
+            }
+            for def in &generated.nested_struct_defs {
+                body.push_str(&def.code);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.model_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.row_struct {
+                body.push_str(s);
+                body.push('\n');
+            }
+            if let Some(ref s) = generated.query_fn {
+                body.push_str(s);
+                body.push('\n');
+            }
+            let code = scythe_codegen::provenance::assemble_file(
+                &preamble,
+                &scythe_codegen::provenance::header_line(
+                    &*backend,
+                    env!("CARGO_PKG_VERSION"),
+                    "postgresql",
+                    "sch1:0123456789abcdef",
+                    "q1:fedcba9876543210",
+                ),
+                &body,
+            );
+            if body.lines().count() > 1 {
+                // Only validate Rust syntax with syn for Rust backends
+                if *backend_name == "rust-sqlx" || *backend_name == "rust-tokio-postgres" {
+                    assert!(
+                        syn::parse_file(&code).is_ok(),
+                        "backend {} generated invalid Rust for {}",
+                        backend_name,
+                        "param_in_simple_case"
+                    );
+                } else {
+                    // Structural validation for non-Rust backends
+                    let errors = scythe_codegen::validation::validate_structural(&code, backend_name);
+                    assert!(
+                        errors.is_empty(),
+                        "backend {} structural validation failed for {}: {:?}",
+                        backend_name,
+                        "param_in_simple_case",
+                        errors
+                    );
+                }
+            }
+            assert!(
+                generated.row_struct.is_some() || generated.model_struct.is_some(),
+                "backend {} should produce a struct for {}",
+                backend_name,
+                "param_in_simple_case"
+            );
+            assert!(
+                generated.query_fn.is_some(),
+                "backend {} should produce query_fn for {}",
+                backend_name,
+                "param_in_simple_case"
+            );
+        }
+    }
+}
+
+#[test]
 fn test_cast_to_int() {
     // From: testing_data/params/explicit_cast/02_cast_to_int.json
     // "Explicit cast $1::integer determines parameter type as i32"

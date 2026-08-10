@@ -1081,18 +1081,30 @@ fn test_constraints_primary_key() {
         "column sql_type for tenant_id"
     );
     assert!(!table_composite_pk.columns[0].nullable, "column nullable for tenant_id");
+    assert!(
+        table_composite_pk.columns[0].primary_key,
+        "column primary_key for tenant_id"
+    );
     assert_eq!(table_composite_pk.columns[1].name, "user_id", "column name");
     assert_eq!(
         table_composite_pk.columns[1].sql_type, "integer",
         "column sql_type for user_id"
     );
     assert!(!table_composite_pk.columns[1].nullable, "column nullable for user_id");
+    assert!(
+        table_composite_pk.columns[1].primary_key,
+        "column primary_key for user_id"
+    );
     assert_eq!(table_composite_pk.columns[2].name, "data", "column name");
     assert_eq!(
         table_composite_pk.columns[2].sql_type, "text",
         "column sql_type for data"
     );
     assert!(table_composite_pk.columns[2].nullable, "column nullable for data");
+    assert!(
+        !table_composite_pk.columns[2].primary_key,
+        "column primary_key for data"
+    );
 
     // Assert table: single_pk
     let table_single_pk = catalog.get_table("single_pk").expect("table single_pk should exist");
@@ -1100,9 +1112,11 @@ fn test_constraints_primary_key() {
     assert_eq!(table_single_pk.columns[0].name, "id", "column name");
     assert_eq!(table_single_pk.columns[0].sql_type, "integer", "column sql_type for id");
     assert!(!table_single_pk.columns[0].nullable, "column nullable for id");
+    assert!(table_single_pk.columns[0].primary_key, "column primary_key for id");
     assert_eq!(table_single_pk.columns[1].name, "name", "column name");
     assert_eq!(table_single_pk.columns[1].sql_type, "text", "column sql_type for name");
     assert!(table_single_pk.columns[1].nullable, "column nullable for name");
+    assert!(!table_single_pk.columns[1].primary_key, "column primary_key for name");
 }
 
 #[test]
@@ -1374,9 +1388,11 @@ fn test_quoted_primary_key() {
     assert_eq!(table_t.columns[0].name, "Id", "column name");
     assert_eq!(table_t.columns[0].sql_type, "integer", "column sql_type for Id");
     assert!(!table_t.columns[0].nullable, "column nullable for Id");
+    assert!(table_t.columns[0].primary_key, "column primary_key for Id");
     assert_eq!(table_t.columns[1].name, "note", "column name");
     assert_eq!(table_t.columns[1].sql_type, "text", "column sql_type for note");
     assert!(table_t.columns[1].nullable, "column nullable for note");
+    assert!(!table_t.columns[1].primary_key, "column primary_key for note");
 
     // Assert table: t2
     let table_t2 = catalog.get_table("t2").expect("table t2 should exist");
@@ -1384,9 +1400,11 @@ fn test_quoted_primary_key() {
     assert_eq!(table_t2.columns[0].name, "UserId", "column name");
     assert_eq!(table_t2.columns[0].sql_type, "integer", "column sql_type for UserId");
     assert!(!table_t2.columns[0].nullable, "column nullable for UserId");
+    assert!(table_t2.columns[0].primary_key, "column primary_key for UserId");
     assert_eq!(table_t2.columns[1].name, "note", "column name");
     assert_eq!(table_t2.columns[1].sql_type, "text", "column sql_type for note");
     assert!(table_t2.columns[1].nullable, "column nullable for note");
+    assert!(!table_t2.columns[1].primary_key, "column primary_key for note");
 }
 
 #[test]

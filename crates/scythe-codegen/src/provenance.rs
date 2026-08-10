@@ -10,10 +10,29 @@
 //! the preamble/header/body ordering, kept privately in the test harness,
 //! would drift from the real one silently — and it would drift precisely in
 //! the case the harness exists to catch.
+//!
+//! The same argument is why the *reader* half — [`sanitize_field`]'s
+//! inverse [`decode_field`], and the [`parse_header_fields`] tokenizer that
+//! applies it — sits here beside [`header_line`] rather than beside the
+//! verifier that consumes it. A writer and a reader of one format are two
+//! derivations of the same fact; kept apart, each can only be tested
+//! against a hand-written expected string, and both tests keep passing
+//! while the pair drifts. Kept together, one test asserts the round trip.
 
 use std::borrow::Cow;
+use std::fmt::Write as _;
 
 use crate::backend_trait::CodegenBackend;
+
+/// The token every provenance header line is built around, and the anchor a
+/// reader locates the `key=value` tail from.
+///
+/// Deliberately comment-syntax-agnostic: the header sits behind whatever
+/// comment token the target language uses (`//`, `#`, `--`, a block
+/// comment, ...), so a reader finds this substring and treats everything
+/// after it on that line as the field list, instead of needing a
+/// per-language rule for stripping each comment syntax.
+pub const HEADER_SENTINEL: &str = "scythe:provenance";
 
 /// Line-comment token to embed the provenance header behind, derived from
 /// `manifest().backend.language`.
@@ -47,12 +66,13 @@ pub fn comment_prefix(language: &str) -> &'static str {
 /// two-spaces-before-`#` spelling, that scythe's Python backends already use
 /// for the `# noqa: F401` on their conditionally-emitted imports.
 ///
-/// The suffix is invisible to the verifier: `parse_provenance_header`
-/// tokenizes the text after the sentinel on whitespace and skips any token
-/// without an `=`, so `#`, `noqa:`, and `E501` are all ignored and the four
+/// The suffix is invisible to a reader: [`parse_header_fields`] tokenizes
+/// the text after the sentinel on whitespace and skips any token without an
+/// `=`, so `#`, `noqa:`, and `E501` are all ignored and the five
 /// `key=value` fields still parse. Pinned by
+/// `parse_header_fields_skips_the_python_noqa_suffix` below, and by
 /// `assemble_output_python_header_carries_noqa_and_still_round_trips` in
-/// `scythe-cli`, where the parser lives.
+/// `scythe-cli`.
 ///
 /// Shortening the header instead was not an option: the width is driven by
 /// the backend name, the engine alias, and a 16-hex-digit fingerprint, none
@@ -71,37 +91,162 @@ fn header_suffix(language: &str) -> &'static str {
     }
 }
 
-/// Strip `\n` and `\r` from a provenance field value before it is embedded
-/// in the header line.
+/// True for the characters [`sanitize_field`] must escape: the escape
+/// introducer itself, plus everything that would break the two structural
+/// guarantees the header format rests on.
 ///
-/// Only [`header_line`]'s `engine` argument needs this: `version` is the
-/// caller's own package version, `backend.name()` is a hardcoded per-backend
-/// literal, and `schema` is always `sch1:` plus 16 lowercase hex characters
-/// — none of those three can contain a line terminator. `engine` is the
-/// `[[sql]]` `engine = "..."` value, deserialized verbatim from the user's
-/// `scythe.toml` with no validation upstream (`normalize_engine` only
-/// consults it to pick a dialect; the raw string is what a caller passes
-/// through to here). A value containing `\n` or a lone `\r` would terminate
-/// the comment early — everything after it would land on its own physical
-/// line with no comment prefix, becoming live, uncommented content in the
-/// generated file. That breaks the exact guarantee this module is built on:
-/// the header always reads as an ordinary comment, never as code.
-/// Sanitizing at the point of embedding (rather than at config parse time)
-/// means the guarantee holds regardless of how `engine` arrives — this call
-/// site today, or any future one — not just for callers that happen to
-/// validate it first.
+/// - **Whitespace** would break field framing. The header tail is a
+///   whitespace-separated list of `key=value` tokens, so a raw space inside
+///   a value splits that value into a token with no `=` — which a reader
+///   drops on the floor, silently truncating the field (#133). `is_control`
+///   and `is_whitespace` together cover more than ASCII space: `\n` and `\r`
+///   would terminate the comment outright (below), `\t`/`\x0b`/`\x0c` split
+///   under `split_ascii_whitespace`, and a *Unicode* space such as U+00A0
+///   at the very end of the last value is eaten by the `str::trim` a reader
+///   applies to the tail. All of them are escaped so no reader has to care
+///   which class a given character falls in.
+/// - **Line terminators** would break the "the header is always a comment"
+///   guarantee. A value containing `\n` or a lone `\r` ends the comment
+///   early: everything after it lands on its own physical line with no
+///   comment prefix, becoming live, uncommented content in the generated
+///   file.
+fn needs_escape(character: char) -> bool {
+    character == '\\' || character.is_whitespace() || character.is_control()
+}
+
+/// Encode a provenance field value so it can be embedded in the header line
+/// and read back byte-for-byte. The exact inverse of [`decode_field`].
 ///
-/// The verifier (`scythe check`) must sanitize its configured engine the
-/// same way before comparing it against the parsed header's `engine` field:
-/// the header always holds the sanitized value, so comparing it against a
-/// raw, unsanitized value would permanently false-flag SC-PRV04 for any
-/// config whose engine string needed sanitizing.
+/// Escapes with a backslash: `\` becomes `\\`, and any character
+/// [`needs_escape`] flags becomes `\u{<hex>}` (e.g. a space becomes
+/// `\u{20}`). The result therefore contains no whitespace and no control
+/// characters at all, which is what makes the header a well-framed,
+/// single-line, always-a-comment token list regardless of what a caller
+/// passes in.
+///
+/// In practice this is the identity function. Every value that reaches
+/// [`header_line`] today — a semver `version`, a hardcoded `backend.name()`
+/// literal, an `engine` alias, `sch1:` + 16 hex, `q1:` + 16 hex — contains
+/// none of the escaped characters, so no shipped header's bytes change and
+/// no `Cow` is ever allocated. The escaping exists for the one field that
+/// is *not* constrained: `engine` is the `[[sql]]` `engine = "..."` value,
+/// deserialized verbatim from the user's `scythe.toml` with no validation
+/// upstream (`normalize_engine` only consults it to pick a dialect; the raw
+/// string is what a caller passes through to here). Encoding at the point
+/// of embedding, rather than at config parse time, means the guarantee
+/// holds regardless of how a value arrives — this call site today, or any
+/// future one — not just for callers that happen to validate first.
+///
+/// The verifier (`scythe check`) must encode its configured engine the same
+/// way before comparing it against the header's `engine` field: the header
+/// always holds the encoded value, so comparing it against a raw one would
+/// permanently false-flag SC-PRV04 for any config whose engine string
+/// needed escaping. Comparing encoded-to-encoded is equivalent to comparing
+/// decoded-to-decoded, because the encoding is injective.
 pub fn sanitize_field(value: &str) -> Cow<'_, str> {
-    if value.contains(['\n', '\r']) {
-        Cow::Owned(value.replace(['\n', '\r'], ""))
-    } else {
-        Cow::Borrowed(value)
+    if !value.contains(needs_escape) {
+        return Cow::Borrowed(value);
     }
+
+    let mut encoded = String::with_capacity(value.len());
+    for character in value.chars() {
+        match character {
+            '\\' => encoded.push_str(r"\\"),
+            character if needs_escape(character) => {
+                write!(encoded, "\\u{{{:x}}}", character as u32).expect("writing to a String cannot fail");
+            }
+            character => encoded.push(character),
+        }
+    }
+    Cow::Owned(encoded)
+}
+
+/// Decode a `u{<hex>}` escape body sitting immediately after a backslash,
+/// returning the character it denotes and the input remaining after the
+/// closing brace. `None` if `after_backslash` does not open a well-formed,
+/// in-range escape.
+fn decode_unicode_escape(after_backslash: &str) -> Option<(char, &str)> {
+    let body = after_backslash.strip_prefix("u{")?;
+    let close = body.find('}')?;
+    let code_point = u32::from_str_radix(&body[..close], 16).ok()?;
+    Some((char::from_u32(code_point)?, &body[close + 1..]))
+}
+
+/// Recover the original field value from what [`sanitize_field`] embedded.
+/// The exact inverse of that function — the round trip is pinned by
+/// `header_line_round_trips_adversarial_field_values` below.
+///
+/// Lenient by design, which is what keeps every header committed before
+/// this encoding existed readable: a backslash that does not introduce a
+/// recognized escape decodes to a literal backslash rather than an error.
+/// Old-format headers are unaffected in a stronger sense than "tolerated" —
+/// their values (semver, backend literal, engine alias, `sch1:`/`q1:` plus
+/// hex) contain no backslash at all, so decoding them is bit-for-bit the
+/// identity. Rejecting a lone backslash instead would buy nothing: there is
+/// no format-version field to switch on, so a stricter reader could only
+/// turn an old file into a hard error where today it reads correctly.
+pub fn decode_field(value: &str) -> Cow<'_, str> {
+    if !value.contains('\\') {
+        return Cow::Borrowed(value);
+    }
+
+    let mut decoded = String::with_capacity(value.len());
+    let mut rest = value;
+    while let Some(backslash) = rest.find('\\') {
+        decoded.push_str(&rest[..backslash]);
+        let after_backslash = &rest[backslash + 1..];
+
+        if let Some(tail) = after_backslash.strip_prefix('\\') {
+            decoded.push('\\');
+            rest = tail;
+        } else if let Some((character, tail)) = decode_unicode_escape(after_backslash) {
+            decoded.push(character);
+            rest = tail;
+        } else {
+            decoded.push('\\');
+            rest = after_backslash;
+        }
+    }
+    decoded.push_str(rest);
+    Cow::Owned(decoded)
+}
+
+/// Read back the `key=value` fields [`header_line`] wrote, decoded.
+///
+/// This is the parsing half of the header format, and it lives here rather
+/// than beside its caller for the same reason the rest of this module does:
+/// the emitted line and the reader that consumes it are two derivations of
+/// one fact, and a private second copy of the tokenizer would drift from
+/// the writer silently — in exactly the case that matters. Keeping the pair
+/// adjacent is what lets one test assert the round trip
+/// (`header_line_round_trips_adversarial_field_values`) instead of two
+/// tests each asserting half of it against a hand-written string.
+///
+/// `scythe check` still reads headers through its own private tokenizer in
+/// `scythe-cli`, which does not decode. That stays correct rather than
+/// merely tolerable: it compares the field it read against the *encoded*
+/// configured value (it runs that value through [`sanitize_field`] first),
+/// and comparing encoded-to-encoded is equivalent to comparing the decoded
+/// values because the encoding is injective. Adopting this function there
+/// buys better wording in a drift message, not different verdicts.
+///
+/// Returns `None` when `line` carries no [`HEADER_SENTINEL`] at all. Keys
+/// are returned in the order they appear, borrowed from `line`; values are
+/// [`decode_field`]-decoded. Tokens with no `=` are skipped, which is what
+/// makes the per-language [`header_suffix`] (Python's `# noqa: E501`)
+/// invisible to a reader. Unknown keys are returned rather than rejected:
+/// deciding which keys matter belongs to the caller, so the header format
+/// and any given verifier can grow independently.
+pub fn parse_header_fields(line: &str) -> Option<Vec<(&str, String)>> {
+    let sentinel_start = line.find(HEADER_SENTINEL)?;
+    let tail = line[sentinel_start + HEADER_SENTINEL.len()..].trim();
+
+    Some(
+        tail.split_ascii_whitespace()
+            .filter_map(|token| token.split_once('='))
+            .map(|(key, value)| (key, decode_field(value).into_owned()))
+            .collect(),
+    )
 }
 
 /// Build the provenance header line that [`assemble_file`] prepends to every
@@ -125,18 +270,21 @@ pub fn sanitize_field(value: &str) -> Cow<'_, str> {
 /// share the workspace version today, but baking its own constant in here
 /// would silently embed the wrong one the moment the two diverge.
 ///
-/// `engine` is sanitized via [`sanitize_field`] before embedding — see that
-/// function's doc comment for why only `engine` needs it.
-///
 /// `queries` is the `q1:<16 hex>` fingerprint of the analyzed query set that
 /// produced this file (see `AnalyzedQuery::fingerprint_set` in
 /// `scythe-core`), the `queries=` counterpart to `schema`'s `sch1:<16 hex>`
 /// — added in #94 so that editing a `.sql` query file without touching the
-/// schema is no longer invisible to `scythe check`. It is a plain `&str`,
-/// not sanitized like `engine`: unlike `engine` (a free-form config value),
-/// it is always produced by `fingerprint_set`, which can only ever return
-/// the fixed `q1:` tag plus lowercase hex — there is no path by which it
-/// could contain a line terminator.
+/// schema is no longer invisible to `scythe check`.
+///
+/// *Every* field is passed through [`sanitize_field`] before embedding, not
+/// just the free-form `engine` one. Four of the five cannot contain an
+/// escapable character today, so encoding them is provably a no-op and the
+/// emitted bytes are unchanged — but "cannot" is a property of the current
+/// callers, not of this function's signature, which accepts an arbitrary
+/// `&str` for each. Encoding uniformly means [`parse_header_fields`] is the
+/// exact inverse of this function for *any* input, which is what the
+/// round-trip test can assert; encoding selectively would make the inverse
+/// hold only for the argument positions someone remembered to cover.
 ///
 /// A per-language [`header_suffix`] may be appended after the last field —
 /// today only Python's `# noqa: E501`, without which the line trips ruff's
@@ -145,10 +293,14 @@ pub fn header_line(backend: &dyn CodegenBackend, version: &str, engine: &str, sc
     let language = &backend.manifest().backend.language;
     let comment = comment_prefix(language);
     let suffix = header_suffix(language);
+    let version = sanitize_field(version);
+    let name = sanitize_field(backend.name());
     let engine = sanitize_field(engine);
+    let schema = sanitize_field(schema);
+    let queries = sanitize_field(queries);
     format!(
-        "{comment} scythe:provenance v={version} backend={} engine={engine} schema={schema} queries={queries}{suffix}\n",
-        backend.name()
+        "{comment} {HEADER_SENTINEL} v={version} backend={name} engine={engine} schema={schema} \
+         queries={queries}{suffix}\n"
     )
 }
 
@@ -304,11 +456,249 @@ mod tests {
     }
 
     #[test]
-    fn sanitize_field_strips_newline_and_carriage_return() {
-        assert_eq!(sanitize_field("postgresql\nfn evil() {}"), "postgresqlfn evil() {}");
-        assert_eq!(sanitize_field("postgresql\r\nfn evil() {}"), "postgresqlfn evil() {}");
-        assert_eq!(sanitize_field("postgresql\rfn evil() {}"), "postgresqlfn evil() {}");
+    fn sanitize_field_escapes_newline_carriage_return_and_space() {
+        assert_eq!(
+            sanitize_field("postgresql\nfn evil() {}"),
+            r"postgresql\u{a}fn\u{20}evil()\u{20}{}"
+        );
+        assert_eq!(
+            sanitize_field("postgresql\r\nfn evil() {}"),
+            r"postgresql\u{d}\u{a}fn\u{20}evil()\u{20}{}"
+        );
+        assert_eq!(
+            sanitize_field("postgresql\rfn evil() {}"),
+            r"postgresql\u{d}fn\u{20}evil()\u{20}{}"
+        );
         assert_eq!(sanitize_field("clean"), "clean");
+    }
+
+    /// The encoded form must contain nothing that can split a token or end
+    /// the comment — that is the entire structural contract the header
+    /// format rests on, and it has to hold for characters no test thought
+    /// to enumerate, not just for `\n`, `\r`, and space.
+    #[test]
+    fn sanitize_field_output_never_contains_whitespace_or_control_characters() {
+        for value in ADVERSARIAL_FIELD_VALUES {
+            let encoded = sanitize_field(value);
+            assert!(
+                !encoded.contains(|c: char| c.is_whitespace() || c.is_control()),
+                "encoding {value:?} left whitespace or a control character in {encoded:?}"
+            );
+        }
+    }
+
+    /// A backslash is the escape introducer, so it must itself be escaped —
+    /// otherwise a value ending in `\` would swallow the `u{...}` of a
+    /// following escape and decode to something else entirely.
+    #[test]
+    fn sanitize_field_escapes_the_escape_introducer() {
+        assert_eq!(sanitize_field(r"c:\tmp"), r"c:\\tmp");
+        assert_eq!(sanitize_field(r"\u{20}"), r"\\u{20}");
+        assert_eq!(decode_field(&sanitize_field(r"\u{20}")), r"\u{20}");
+    }
+
+    /// Headers committed before this encoding existed carry raw values, and
+    /// they must keep reading exactly as they always did. They do so for a
+    /// stronger reason than tolerance: no legal old value contains a
+    /// backslash, so decoding is bit-for-bit the identity. Pinned with the
+    /// real shapes — semver, canonical backend name, engine alias, and the
+    /// two fingerprints.
+    #[test]
+    fn decode_field_is_the_identity_for_old_format_header_values() {
+        for value in [
+            "0.13.0",
+            "0.15.0-rc.1",
+            "rust-sqlx",
+            "python-psycopg3",
+            "postgresql",
+            "mariadb",
+            "sch1:0123456789abcdef",
+            "q1:fedcba9876543210",
+        ] {
+            assert_eq!(decode_field(value).as_ref(), value);
+            assert!(matches!(decode_field(value), Cow::Borrowed(_)), "{value:?} reallocated");
+        }
+    }
+
+    /// A backslash that opens no recognized escape decodes to a literal
+    /// backslash rather than an error or a dropped character — the leniency
+    /// that keeps an unknown or hand-edited header readable.
+    #[test]
+    fn decode_field_treats_an_unrecognized_escape_as_a_literal_backslash() {
+        assert_eq!(decode_field(r"c:\tmp"), r"c:\tmp");
+        assert_eq!(decode_field(r"trailing\"), "trailing\\");
+        assert_eq!(decode_field(r"\u{}"), r"\u{}");
+        assert_eq!(decode_field(r"\u{zz}"), r"\u{zz}");
+        assert_eq!(decode_field(r"\u{d800}"), r"\u{d800}", "lone surrogate is not a char");
+        assert_eq!(decode_field(r"\u{20"), r"\u{20", "unterminated escape");
+    }
+
+    /// Field values chosen to break the header format in every way it can
+    /// be broken: token framing (space, tab, the Unicode space a `trim`
+    /// eats), the "always a comment" guarantee (`\n`, `\r`), the `key=value`
+    /// split (`=`), the escape scheme itself (backslashes, a literal
+    /// `\u{...}`), the sentinel search, and the degenerate empty value.
+    const ADVERSARIAL_FIELD_VALUES: &[&str] = &[
+        "",
+        "postgresql",
+        "sql/my schema.sql",
+        "a b c",
+        " leading",
+        "trailing ",
+        "\ttab\t",
+        "line\nbreak",
+        "carriage\rreturn",
+        "crlf\r\nboth",
+        "nbsp\u{a0}space",
+        "vertical\u{b}tab",
+        "key=value=pairs",
+        "=starts-with-equals",
+        "no-equals-at-all",
+        r"back\slash",
+        r"\\double",
+        r"\u{20}literal-escape",
+        "\"quoted\"",
+        "'single'",
+        "scythe:provenance v=9.9.9",
+        "// scythe:provenance",
+        "# noqa: E501",
+        "ünïcödé-ロケール",
+        "emoji-🎉-field",
+        "\u{0}nul",
+        "brace}close",
+    ];
+
+    /// The invariant this module exists to hold: whatever a caller puts in,
+    /// a reader gets back, byte for byte, for every field. [`header_line`]
+    /// and [`parse_header_fields`] are two derivations of one format, and
+    /// this is the only test that can catch them disagreeing — a test that
+    /// checked either half against a hand-written expected string would
+    /// pass happily while the pair drifted.
+    ///
+    /// Also asserts the two structural guarantees a caller cannot recover
+    /// from if they are lost: the header stays exactly one line, and it
+    /// stays behind a comment token.
+    #[test]
+    fn header_line_round_trips_adversarial_field_values() {
+        // Two backends, because the emitted line differs by language:
+        // `python-psycopg3` appends `# noqa: E501` after the last field,
+        // which the reader must skip rather than read as a field.
+        for backend_name in ["rust-sqlx", "python-psycopg3"] {
+            let backend = crate::get_backend(backend_name, "postgresql")
+                .unwrap_or_else(|e| panic!("{backend_name} with postgresql: {e}"));
+            let comment = comment_prefix(&backend.manifest().backend.language);
+
+            for version in ADVERSARIAL_FIELD_VALUES {
+                for other in ADVERSARIAL_FIELD_VALUES {
+                    let line = header_line(backend.as_ref(), version, other, version, other);
+
+                    assert_eq!(
+                        line.lines().count(),
+                        1,
+                        "{backend_name}: header must stay one line for {version:?}/{other:?}, got {line:?}"
+                    );
+                    assert!(
+                        line.starts_with(comment),
+                        "{backend_name}: header must stay a comment, got {line:?}"
+                    );
+
+                    let fields =
+                        parse_header_fields(&line).unwrap_or_else(|| panic!("{backend_name}: no sentinel in {line:?}"));
+                    let read = |key: &str| {
+                        fields
+                            .iter()
+                            .find(|(k, _)| *k == key)
+                            .map(|(_, v)| v.as_str())
+                            .unwrap_or_else(|| panic!("{backend_name}: no {key}= in {line:?}"))
+                    };
+
+                    assert_eq!(read("v"), *version, "version round trip, line: {line:?}");
+                    assert_eq!(read("backend"), backend.name(), "backend round trip, line: {line:?}");
+                    assert_eq!(read("engine"), *other, "engine round trip, line: {line:?}");
+                    assert_eq!(read("schema"), *version, "schema round trip, line: {line:?}");
+                    assert_eq!(read("queries"), *other, "queries round trip, line: {line:?}");
+                }
+            }
+        }
+    }
+
+    /// The round trip must also survive assembly, where the header is one
+    /// line among many rather than the whole string — the shape a verifier
+    /// actually reads off disk.
+    #[test]
+    fn assembled_file_round_trips_a_space_bearing_field_value() {
+        let backend = crate::get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
+        let engine = "postgresql\nfn evil() {}";
+
+        let file = assemble_file(
+            "",
+            &header_line(
+                backend.as_ref(),
+                "0.15.0",
+                engine,
+                "sch1:0123456789abcdef",
+                "q1:fedcba9876543210",
+            ),
+            "pub fn generated() {}\n",
+        );
+
+        assert!(
+            !file.lines().any(|line| line.trim_start().starts_with("fn evil()")),
+            "injected content must never appear as its own uncommented line:\n{file}"
+        );
+
+        let header = file
+            .lines()
+            .find(|line| line.contains(HEADER_SENTINEL))
+            .expect("assembled file must carry a header line");
+        let fields = parse_header_fields(header).expect("header line must parse");
+        let parsed_engine = fields
+            .iter()
+            .find(|(key, _)| *key == "engine")
+            .map(|(_, value)| value.as_str());
+
+        assert_eq!(parsed_engine, Some(engine), "header: {header:?}");
+    }
+
+    /// Tokens with no `=` must be skipped, or Python's `# noqa: E501`
+    /// suffix would be read as fields. Asserted on the real emitted line
+    /// rather than a hand-written one.
+    #[test]
+    fn parse_header_fields_skips_the_python_noqa_suffix() {
+        let backend =
+            crate::get_backend("python-psycopg3", "postgresql").expect("python-psycopg3 should support postgresql");
+        let line = header_line(
+            backend.as_ref(),
+            "0.15.0",
+            "postgresql",
+            "sch1:0123456789abcdef",
+            "q1:fedcba9876543210",
+        );
+
+        let keys: Vec<&str> = parse_header_fields(&line)
+            .expect("header line must parse")
+            .into_iter()
+            .map(|(key, _)| key)
+            .collect();
+
+        assert_eq!(keys, vec!["v", "backend", "engine", "schema", "queries"]);
+    }
+
+    #[test]
+    fn parse_header_fields_returns_none_without_the_sentinel() {
+        assert!(parse_header_fields("// just a comment v=1.2.3").is_none());
+    }
+
+    /// Unknown keys are returned, not dropped: the header format and any
+    /// given reader have to be able to grow independently.
+    #[test]
+    fn parse_header_fields_preserves_unknown_keys() {
+        let fields =
+            parse_header_fields("// scythe:provenance v=0.15.0 future_field=xyz").expect("header line must parse");
+        assert_eq!(
+            fields,
+            vec![("v", "0.15.0".to_string()), ("future_field", "xyz".to_string())]
+        );
     }
 
     /// Documents why the verifier's sanitized-vs-sanitized SC-PRV04

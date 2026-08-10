@@ -2727,14 +2727,17 @@ backend = \"rust-sqlx\"
         assert!(line.starts_with("# scythe:provenance "), "got: {line:?}");
     }
 
-    /// Regression test for the header-injection defect: an `engine` value
-    /// containing a newline must not survive into the embedded header, or
-    /// it would terminate the comment early and turn everything after it
-    /// into live, uncommented content in the generated file. Asserts on the
-    /// *line count* of the produced header, not a substring -- a substring
-    /// check (e.g. `!line.contains("evil")`) would still pass on the
-    /// broken, unsanitized version, since the injected text is still
-    /// present, just on its own line.
+    /// Regression test for the header-injection defect: a raw newline in an
+    /// `engine` value must never reach the embedded header, or it would
+    /// terminate the comment early and turn everything after it into live,
+    /// uncommented content in the generated file. It reaches the header
+    /// escaped instead (`\u{a}`), along with the spaces that would
+    /// otherwise split the field -- see
+    /// `scythe_codegen::provenance::sanitize_field`. Asserts on the *line
+    /// count* of the produced header, not a substring -- a substring check
+    /// (e.g. `!line.contains("evil")`) would still pass on the broken,
+    /// unescaped version, since the injected text is still present, just on
+    /// its own line.
     #[test]
     fn provenance_header_line_sanitizes_newline_in_engine() {
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
@@ -2750,7 +2753,8 @@ backend = \"rust-sqlx\"
         assert_eq!(
             line,
             format!(
-                "// scythe:provenance v={} backend=rust-sqlx engine=postgresqlfn evil() {{}} schema=sch1:ffff \
+                "// scythe:provenance v={} backend=rust-sqlx \
+                 engine=postgresql\\u{{a}}fn\\u{{20}}evil()\\u{{20}}{{}} schema=sch1:ffff \
                  queries=q1:fedcba9876543210\n",
                 env!("CARGO_PKG_VERSION")
             )
@@ -2797,9 +2801,8 @@ backend = \"rust-sqlx\"
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
         // No embedded space, unlike the injection-defect example elsewhere
         // in this file: this test isolates round-trip fidelity of the `\n`
-        // strip itself. A space-containing value is a distinct, separately
-        // documented limitation -- see
-        // `parse_provenance_header_truncates_engine_values_containing_spaces`.
+        // escape itself. The space-bearing case is covered separately by
+        // `parse_provenance_header_round_trips_engine_values_containing_spaces`.
         let malicious_engine = "postgresql\ndroptable";
 
         let output = assemble_output(
@@ -2815,29 +2818,26 @@ backend = \"rust-sqlx\"
         assert_eq!(header.engine.as_deref(), Some(expected.as_ref()));
     }
 
-    /// **Known limitation, not fixed here, reported per the coordinator's
-    /// own request to check round-trip fidelity.**
-    /// `scythe_codegen::provenance::sanitize_field`
-    /// only strips `\n`/`\r` (the characters that would break the "header
-    /// is always a comment" guarantee); it does not touch spaces. But
-    /// `parse_provenance_header`'s tail is tokenized with
-    /// `split_ascii_whitespace()`, so an `engine` value that still contains
-    /// an internal space -- e.g. the coordinator's own injection example,
-    /// `"postgresql\nfn evil() {}"`, which sanitizes to
-    /// `"postgresqlfn evil() {}"` -- does NOT round-trip: everything from
-    /// the first space onward has no `=`, fails `split_once('=')`, and is
-    /// silently dropped. `header.engine` ends up truncated to
-    /// `"postgresqlfn"`, not the full sanitized value.
+    /// Regression test for #133. `parse_provenance_header` tokenizes the
+    /// header tail with `split_ascii_whitespace()`, so an `engine` value
+    /// carrying an internal space used to be silently truncated: everything
+    /// from the first space onward had no `=`, failed `split_once('=')`,
+    /// and was dropped, leaving `header.engine` as the bare prefix
+    /// `"postgresqlfn"`. That is not a comment-injection risk (the line
+    /// stayed one line, stayed a comment) but it is a correctness gap --
+    /// `verify_provenance`'s SC-PRV04 check compares `header.engine`
+    /// against the configured engine, and a truncated value could
+    /// spuriously match or spuriously fail depending on what the surviving
+    /// prefix collided with.
     ///
-    /// This is not a comment-injection risk (the line stays one line,
-    /// stays a comment) -- it is a *correctness* gap: a truncated
-    /// `header.engine` could, in principle, spuriously match or fail to
-    /// match `sql_config.engine` in `verify_provenance`'s SC-PRV04 check
-    /// depending on what the truncated prefix happens to collide with.
-    /// Pinned here as documented, current behavior rather than silently
-    /// leaving it unasserted.
+    /// `scythe_codegen::provenance::sanitize_field` now escapes whitespace
+    /// rather than only stripping `\n`/`\r`, so the embedded value carries
+    /// no token separator and the field survives the tokenizer whole.
+    /// SC-PRV04 compares encoded-to-encoded (`verify_provenance` runs the
+    /// configured engine through the same function), which is equivalent to
+    /// comparing the decoded values because the encoding is injective.
     #[test]
-    fn parse_provenance_header_truncates_engine_values_containing_spaces() {
+    fn parse_provenance_header_round_trips_engine_values_containing_spaces() {
         let backend = get_backend("rust-sqlx", "postgresql").expect("rust-sqlx should support postgresql");
         let malicious_engine = "postgresql\nfn evil() {}";
 
@@ -2850,17 +2850,12 @@ backend = \"rust-sqlx\"
         );
         let header = parse_provenance_header(&output).expect("assembled output must carry a parseable header");
 
-        let fully_sanitized = scythe_codegen::provenance::sanitize_field(malicious_engine);
-        assert_eq!(fully_sanitized.as_ref(), "postgresqlfn evil() {}");
-
-        // What actually comes back is truncated at the first space -- not
-        // the full sanitized value asserted above.
+        let encoded = scythe_codegen::provenance::sanitize_field(malicious_engine);
+        assert_eq!(header.engine.as_deref(), Some(encoded.as_ref()), "no truncation");
         assert_eq!(
-            header.engine.as_deref(),
-            Some("postgresqlfn"),
-            "if this fails, either the truncation was fixed (update this test) \
-             or the tokenizer changed in some other way -- either way, re-verify \
-             SC-PRV04 behavior for engine values containing spaces"
+            scythe_codegen::provenance::decode_field(header.engine.as_deref().expect("engine field is present")),
+            malicious_engine,
+            "the decoded field must equal what the caller passed in"
         );
     }
 

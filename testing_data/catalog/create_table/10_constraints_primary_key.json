@@ -13,15 +13,15 @@
       "tables": {
         "single_pk": {
           "columns": [
-            { "name": "id", "sql_type": "integer", "nullable": false },
-            { "name": "name", "sql_type": "text", "nullable": true }
+            { "name": "id", "sql_type": "integer", "nullable": false, "primary_key": true },
+            { "name": "name", "sql_type": "text", "nullable": true, "primary_key": false }
           ]
         },
         "composite_pk": {
           "columns": [
-            { "name": "tenant_id", "sql_type": "integer", "nullable": false },
-            { "name": "user_id", "sql_type": "integer", "nullable": false },
-            { "name": "data", "sql_type": "text", "nullable": true }
+            { "name": "tenant_id", "sql_type": "integer", "nullable": false, "primary_key": true },
+            { "name": "user_id", "sql_type": "integer", "nullable": false, "primary_key": true },
+            { "name": "data", "sql_type": "text", "nullable": true, "primary_key": false }
           ]
         }
       },
