@@ -93,7 +93,7 @@ pub fn resolve_params(
             let borrowed_type = param_type_to_borrowed(&full_type);
             Ok(ResolvedParam {
                 name: param.name.clone(),
-                field_name: param_name(&param.name, &manifest.naming).into_owned(),
+                field_name: param_name(&param.name, &manifest.naming),
                 lang_type,
                 full_type,
                 borrowed_type,

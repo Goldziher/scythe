@@ -11,10 +11,11 @@
 //!    and `item.2fa` do not parse either, and `row['it's']` closes its own
 //!    string literal;
 //! 3. a function parameter binding -- `function f(my col: string)`. This one
-//!    has no quoted form and is **not** fixed here; see
-//!    `a_scalar_parameter_named_after_a_non_identifier_column_is_still_broken`
-//!    at the bottom of this file, which pins the gap so it cannot be
-//!    mistaken for coverage.
+//!    has no quoted form, so the name is mangled instead (`my_col`) by
+//!    `scythe_backend::naming::param_name`, which is cross-language and not
+//!    a TypeScript decision. Closed by #168; see
+//!    `a_scalar_parameter_named_after_a_non_identifier_column_is_mangled` at
+//!    the bottom of this file.
 //!
 //! Exercised through the real parse -> analyze -> codegen pipeline. String
 //! assertions are unconditional; the external checkers (`poly` via
@@ -92,10 +93,14 @@ fn fixture(dialect: &SqlDialect) -> (&'static str, [&'static str; 3]) {
 /// generated file: quoted.
 const QUOTED_KEYS: [&str; 3] = ["\"with-dash\"", "\"my col\"", "\"2fa\""];
 
-/// The same three, spelled as a bare identifier -- what #215 emitted. Each
-/// is checked with a trailing `:` so the search cannot match the quoted form
-/// or an occurrence inside the SQL text.
-const BARE_KEYS: [&str; 3] = ["with-dash:", "my col:", "2fa:"];
+/// The same three, spelled as a bare identifier -- what #215 emitted.
+///
+/// Anchored to the tab that opens a declaration line as well as the trailing
+/// `:`, so the search matches a *key* position and not the same characters
+/// inside a quoted key, inside the SQL text, or at the tail of a mangled
+/// param binding: `2fa:` alone also matches the `_2fa:` that `param_name`
+/// now emits, which is the fix and not the defect.
+const BARE_KEYS: [&str; 3] = ["\twith-dash:", "\tmy col:", "\t2fa:"];
 
 fn generate_all(backend: &dyn CodegenBackend, dialect: &SqlDialect) -> Vec<GeneratedCode> {
     let (schema, queries) = fixture(dialect);
@@ -214,10 +219,20 @@ fn camel_case_remaps_read_non_identifier_columns_by_bracket_access() {
                 "{backend_name}: `{bare}` is not a valid property read (#215) in:\n{file}"
             );
         }
-        assert!(
-            file.contains("[\"my col\"]") || file.contains("['my col']"),
-            "{backend_name}: the raw key must still be read, by bracket access:\n{file}"
-        );
+        // Kysely is exempt because it does not remap rows at all: its row
+        // types keep the driver's raw quoted keys and the generated header
+        // tells the caller to register `CamelCasePlugin` instead. There is
+        // therefore no raw-key read in its output to find. Until params
+        // started being mangled (#168) this assertion passed for kysely
+        // anyway -- on `item["my col"]` in the *batch params* interface,
+        // which is a read of the caller's own object and never of a driver
+        // row. It was accidental coverage, not coverage.
+        if backend_name != "typescript-kysely" {
+            assert!(
+                file.contains("[\"my col\"]") || file.contains("['my col']"),
+                "{backend_name}: the raw key must still be read, by bracket access:\n{file}"
+            );
+        }
 
         tool_check(backend_name, &file);
     }
@@ -307,21 +322,19 @@ fn tsc_accepts_the_quoted_declarations_and_reads() {
     );
 }
 
-/// **Known gap, deliberately pinned rather than fixed.**
+/// The third position, and the one this file used to pin as unfixed.
 ///
 /// A scalar query parameter takes its name from the column it is compared
-/// against, and that name lands in a *binding* position --
-/// `function findByFirstName(client: PoolClient, my col: string)`. Quoting
-/// is not available there; the only fix is to mangle the identifier, and
-/// `field_name` (`scythe_backend::naming`) is the one place that could do it
-/// -- shared by all ten target languages and by every committed generated
-/// file. That is a cross-language naming decision, not a TypeScript bug fix,
-/// so #215's quoting fix stops at the key and read positions.
-///
-/// This test asserts the *current* behaviour so the gap is visible and so
-/// whoever closes it has to come here and say so.
+/// against, and lands in a *binding* --
+/// `function findWeird(client: PoolClient, my col: string)`. Quoting has no
+/// form there, in any of the ten target languages, so the name is mangled
+/// instead: `scythe_backend::naming::param_name` replaces the characters an
+/// identifier cannot hold. The column keeps its raw spelling everywhere it
+/// is a contract with something outside the generated file -- the row type's
+/// key and the SQL text -- which is what the two negative assertions below
+/// hold in place.
 #[test]
-fn a_scalar_parameter_named_after_a_non_identifier_column_is_still_broken() {
+fn a_scalar_parameter_named_after_a_non_identifier_column_is_mangled() {
     const SCHEMA: &str = "CREATE TABLE weird (id INT PRIMARY KEY, \"my col\" TEXT NOT NULL);";
     const QUERY: &str = "-- @name FindWeird\n-- @returns :one\nSELECT id FROM weird WHERE \"my col\" = $1;";
 
@@ -333,8 +346,19 @@ fn a_scalar_parameter_named_after_a_non_identifier_column_is_still_broken() {
     let query_fn = code.query_fn.expect("expected a query fn");
 
     assert!(
-        query_fn.contains("my col: string"),
-        "if this now emits a mangled identifier the gap is closed -- update the \
-         doc comment above and delete this test:\n{query_fn}"
+        !query_fn.contains("my col: string"),
+        "`my col` is not a valid parameter name:\n{query_fn}"
+    );
+    assert!(
+        query_fn.contains("my_col: string"),
+        "expected the mangled binding `my_col`:\n{query_fn}"
+    );
+    assert!(
+        query_fn.contains("[my_col]"),
+        "the value handed to the driver must be the binding, not the raw name:\n{query_fn}"
+    );
+    assert!(
+        query_fn.contains("\"my col\" = $1"),
+        "the SQL must still name the column the way the database spells it:\n{query_fn}"
     );
 }

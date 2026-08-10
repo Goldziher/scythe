@@ -235,26 +235,47 @@ pub fn field_name<'a>(sql_name: &'a str, naming: &NamingConfig) -> Cow<'a, str> 
 /// where a target-language keyword cannot be quoted out of trouble the way
 /// a property key can.
 ///
+/// Also the one place identifier *shape* is repaired: a param named after a
+/// column called `my col`, `with-dash` or `2fa` binds as `my_col`,
+/// `with_dash` and `_2fa`. Quoting is what saves the other positions -- a
+/// property key can be `"my col"`, a read can be `row["my col"]` -- and a
+/// binding is the position with no quoted form, in any of the ten target
+/// languages.
+///
 /// Mangling is safe here in a way it is not for a column: a param name is
 /// generated code's own vocabulary -- bound into the SQL positionally, read
 /// back by nobody -- whereas a column's field name is a contract with
-/// whatever the driver hands back. Any collision the extra suffix
-/// introduces is caught by `resolve::check_field_name_collisions`, which
-/// runs over the names this returns.
-pub fn param_name<'a>(sql_name: &'a str, naming: &NamingConfig) -> Cow<'a, str> {
-    let name = field_name(sql_name, naming);
-    if naming.reserved_bindings.iter().any(|kw| kw == name.as_ref()) {
-        Cow::Owned(format!("{name}_"))
-    } else {
-        name
+/// whatever the driver hands back. Any collision the extra suffix or the
+/// character replacement introduces is caught by
+/// `resolve::check_field_name_collisions`, which runs over the names this
+/// returns, so `my col` colliding with a real `my_col` is an error and not a
+/// silent overwrite.
+///
+/// Order is load-bearing. The characters are replaced *before*
+/// [`field_name`] applies the case convention, so `_` is already the word
+/// separator the converters understand (`with-dash` -> `withDash` under
+/// camelCase, not `with-dash`). The leading-digit prefix goes on *after*,
+/// because every case converter treats a leading `_` as an empty first word
+/// and drops it, which would hand back the leading digit it was added to
+/// remove.
+pub fn param_name(sql_name: &str, naming: &NamingConfig) -> String {
+    let mut name = field_name(&replace_non_identifier_chars(sql_name), naming).into_owned();
+    if name.starts_with(|c: char| c.is_ascii_digit()) {
+        name.insert(0, '_');
     }
+    if naming.reserved_bindings.contains(&name) {
+        name.push('_');
+    }
+    name
 }
 
-/// Sanitize a string to be a valid Rust identifier fragment.
+/// Replace every character that cannot appear in an identifier with `_`.
 ///
-/// Replaces hyphens, dots, and other non-alphanumeric/non-underscore characters
-/// with underscores, and prefixes with `V` if the result starts with a digit.
-fn sanitize_for_identifier(s: &str) -> String {
+/// Shared by [`param_name`] and [`sanitize_for_identifier`] so the rule for
+/// what counts as an identifier character has one derivation. What each does
+/// about a *leading digit* is deliberately not shared: an enum variant is
+/// PascalCase and takes a `V` prefix, a param binding takes `_`.
+fn replace_non_identifier_chars(s: &str) -> String {
     let mut result = String::with_capacity(s.len());
     for ch in s.chars() {
         if ch.is_alphanumeric() || ch == '_' {
@@ -263,6 +284,15 @@ fn sanitize_for_identifier(s: &str) -> String {
             result.push('_');
         }
     }
+    result
+}
+
+/// Sanitize a string to be a valid Rust identifier fragment.
+///
+/// Replaces hyphens, dots, and other non-alphanumeric/non-underscore characters
+/// with underscores, and prefixes with `V` if the result starts with a digit.
+fn sanitize_for_identifier(s: &str) -> String {
+    let mut result = replace_non_identifier_chars(s);
     if result.starts_with(|c: char| c.is_ascii_digit()) {
         result.insert(0, 'V');
     }
@@ -575,6 +605,56 @@ mod tests {
         config.field_case = "camelCase".to_string();
         config.reserved = vec!["class".to_string()];
         assert_eq!(&*field_name("class", &config), "class_");
+    }
+
+    #[test]
+    fn test_param_name_is_field_name_when_the_sql_name_is_already_an_identifier() {
+        let config = test_config();
+        assert_eq!(param_name("user_id", &config), field_name("user_id", &config));
+    }
+
+    #[test]
+    fn test_param_name_replaces_characters_an_identifier_cannot_hold() {
+        let config = test_config();
+        assert_eq!(param_name("my col", &config), "my_col");
+        assert_eq!(param_name("with-dash", &config), "with_dash");
+        assert_eq!(param_name("it's", &config), "it_s");
+    }
+
+    /// The replacement runs before the case conversion, so `_` is already the
+    /// word separator the converters split on. Running it after would leave
+    /// `with-dash` unchanged under camelCase, because `to_snake_case` sees no
+    /// boundary in it.
+    #[test]
+    fn test_param_name_replaces_characters_before_applying_the_case() {
+        let mut config = test_config();
+        config.field_case = "camelCase".to_string();
+        assert_eq!(param_name("with-dash", &config), "withDash");
+        assert_eq!(param_name("my col", &config), "myCol");
+    }
+
+    /// The leading-digit prefix runs after, for the mirror-image reason:
+    /// every case converter treats a leading `_` as an empty first word and
+    /// drops it, which would hand back the digit it was added to hide.
+    #[test]
+    fn test_param_name_prefixes_a_leading_digit_under_every_case() {
+        let mut config = test_config();
+        assert_eq!(param_name("2fa", &config), "_2fa");
+        config.field_case = "camelCase".to_string();
+        assert_eq!(param_name("2fa", &config), "_2fa");
+    }
+
+    #[test]
+    fn test_param_name_honours_both_reserved_lists() {
+        let mut config = test_config();
+        config.reserved = vec!["type".to_string()];
+        config.reserved_bindings = vec!["class".to_string()];
+        assert_eq!(param_name("type", &config), "type_");
+        assert_eq!(param_name("class", &config), "class_");
+        // The binding list is deliberately *not* consulted for a field: a
+        // TypeScript row key named `class` is legal and must stay as the
+        // driver spells it.
+        assert_eq!(&*field_name("class", &config), "class");
     }
 
     #[test]

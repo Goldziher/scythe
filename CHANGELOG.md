@@ -30,6 +30,16 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **A parameter named after a column like `my col`, `with-dash` or `2fa` was emitted verbatim into a
+  binding.** `export async function findWeird(client: PoolClient, my col: string)` does not parse, and
+  neither does its equivalent in the other nine target languages. #215 fixed the two positions that
+  have a quoted form — the declared property key and the property read — and left this one pinned as a
+  known gap, because a binding has no quoted form anywhere and mangling is a cross-language naming
+  decision. `scythe_backend::naming::param_name` now makes it: characters an identifier cannot hold
+  become `_`, and a leading digit takes a `_` prefix. Only parameters are mangled. A column's field
+  name is a contract with whatever the driver returns, so it keeps its raw spelling and its quoting;
+  the SQL text is untouched, and any collision the mangling introduces (`my col` against a real
+  `my_col`) is reported by the existing duplicate-field check rather than silently resolved. (#215)
 - **`python-psycopg3` bound a reserved-word parameter to a name it never passed.** It is the one
   backend that binds by name rather than position, and it derived the two halves of that contract
   separately — the `execute` dict from the resolved param's `field_name`, the `%(...)s` placeholder
