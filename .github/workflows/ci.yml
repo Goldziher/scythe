@@ -193,14 +193,25 @@ jobs:
           node-version: "22"
       - name: Install TypeScript
         run: npm install -g typescript
+      # `elixirc` compiles the six `elixir-*` backends. Without it this job ran
+      # in strict mode while every one of them reported "no checker ran" -- the
+      # exact silent-coverage-loss strict mode exists to prevent.
+      - uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.17"
+          otp-version: "27"
       # Fail loudly here rather than inside a test, so a checker that did not
       # install is diagnosed as an install problem instead of as a dozen
       # confusing backend failures.
+      #
+      # `javac` and `kotlinc` come from the runner image rather than a setup
+      # step. They are listed anyway: an image that stops shipping either one
+      # should fail here by name, not as a pile of per-backend assertions.
       - name: Verify every checker is on PATH
         run: |
           set -euo pipefail
           missing=""
-          for tool in poly node tsc gofmt ruby; do
+          for tool in poly node tsc gofmt ruby elixirc javac kotlinc; do
             if command -v "$tool" >/dev/null 2>&1; then
               echo "ok      $tool"
             else
