@@ -14,14 +14,14 @@
       "tables": {
         "t": {
           "columns": [
-            { "name": "Id", "sql_type": "integer", "nullable": false },
-            { "name": "note", "sql_type": "text", "nullable": true }
+            { "name": "Id", "sql_type": "integer", "nullable": false, "primary_key": true },
+            { "name": "note", "sql_type": "text", "nullable": true, "primary_key": false }
           ]
         },
         "t2": {
           "columns": [
-            { "name": "UserId", "sql_type": "integer", "nullable": false },
-            { "name": "note", "sql_type": "text", "nullable": true }
+            { "name": "UserId", "sql_type": "integer", "nullable": false, "primary_key": true },
+            { "name": "note", "sql_type": "text", "nullable": true, "primary_key": false }
           ]
         }
       },

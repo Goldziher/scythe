@@ -538,13 +538,15 @@ fn generate_catalog_assertions(catalog: &ExpectedCatalog) -> String {
                 );
             }
 
+            // `Column::primary_key` is a plain `bool`, so the assertion
+            // asserts on it directly. The fixture field is the `Option`, and
+            // it stays one: `None` means "this fixture says nothing about
+            // primary keys" and emits no assertion at all, which is what
+            // lets the field be added to one fixture without silently
+            // asserting `primary_key == false` across every other.
             if let Some(pk) = col.primary_key {
                 out.push_str(&bool_assert(
-                    &format!(
-                        "table_{tvar}.columns[{i}].primary_key.unwrap_or(false)",
-                        tvar = tvar,
-                        i = i
-                    ),
+                    &format!("table_{tvar}.columns[{i}].primary_key", tvar = tvar, i = i),
                     pk,
                     &format!("column primary_key for {}", col.name),
                 ));
