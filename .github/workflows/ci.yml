@@ -356,9 +356,23 @@ jobs:
       - uses: shivammathur/setup-php@v2
         with:
           php-version: "8.4"
-      - uses: pnpm/action-setup@v4
+      # pnpm 9 rejects the generated `pnpm-workspace.yaml`: it carries only
+      # `allowBuilds` settings and no `packages:` key, which pnpm 9 treats as a
+      # fatal "packages field missing or empty" while pnpm 10+ accepts it as a
+      # settings-only workspace file. Pinned at 9, this job failed all 21
+      # typescript projects before reading a single generated file.
+      #
+      # `install: false` because there is no package.json at the repository
+      # root -- every project under integration_tests/ runs its own
+      # `pnpm install --frozen-lockfile`, and the cache key is keyed off those
+      # per-project lockfiles rather than a root one that does not exist.
+      - uses: pnpm/setup@v2
         with:
-          version: "9"
+          version: "11"
+          runtime: node@22
+          install: false
+          cache: true
+          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
       - name: Install Kotlin
         run: |
           curl -sL https://github.com/JetBrains/kotlin/releases/download/v2.1.20/kotlin-compiler-2.1.20.zip -o kotlin.zip

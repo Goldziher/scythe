@@ -127,7 +127,17 @@ jobs:
           extensions: pdo_pgsql
 
       - run: pip install uv
-      - run: npm install -g pnpm
+      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
+      # release cannot change the answer under one and not the other. No
+      # `runtime` input: `actions/setup-node` above already provides node 22.
+      # `install: false` because there is no root package.json -- each project
+      # below runs its own `pnpm install`.
+      - uses: pnpm/setup@v2
+        with:
+          version: "11"
+          install: false
+          cache: true
+          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
 
       - name: Test rust-sqlx
         working-directory: integration_tests/rust-sqlx
@@ -353,7 +363,17 @@ jobs:
           extensions: pdo_mysql
 
       - run: pip install uv
-      - run: npm install -g pnpm
+      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
+      # release cannot change the answer under one and not the other. No
+      # `runtime` input: `actions/setup-node` above already provides node 22.
+      # `install: false` because there is no root package.json -- each project
+      # below runs its own `pnpm install`.
+      - uses: pnpm/setup@v2
+        with:
+          version: "11"
+          install: false
+          cache: true
+          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
 
       - name: Test rust-sqlx-mysql
         working-directory: integration_tests/rust-sqlx-mysql
@@ -486,7 +506,17 @@ jobs:
           extensions: pdo_mysql
 
       - run: pip install uv
-      - run: npm install -g pnpm
+      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
+      # release cannot change the answer under one and not the other. No
+      # `runtime` input: `actions/setup-node` above already provides node 22.
+      # `install: false` because there is no root package.json -- each project
+      # below runs its own `pnpm install`.
+      - uses: pnpm/setup@v2
+        with:
+          version: "11"
+          install: false
+          cache: true
+          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
 
       - name: Test rust-sqlx-mariadb
         working-directory: integration_tests/rust-sqlx-mariadb
@@ -625,7 +655,17 @@ jobs:
           bundler: latest
 
       - run: pip install uv
-      - run: npm install -g pnpm
+      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
+      # release cannot change the answer under one and not the other. No
+      # `runtime` input: `actions/setup-node` above already provides node 22.
+      # `install: false` because there is no root package.json -- each project
+      # below runs its own `pnpm install`.
+      - uses: pnpm/setup@v2
+        with:
+          version: "11"
+          install: false
+          cache: true
+          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
 
       - name: Set Oracle library paths
         run: |
@@ -740,7 +780,17 @@ jobs:
           extensions: pdo_sqlsrv
 
       - run: pip install uv
-      - run: npm install -g pnpm
+      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
+      # release cannot change the answer under one and not the other. No
+      # `runtime` input: `actions/setup-node` above already provides node 22.
+      # `install: false` because there is no root package.json -- each project
+      # below runs its own `pnpm install`.
+      - uses: pnpm/setup@v2
+        with:
+          version: "11"
+          install: false
+          cache: true
+          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
 
       - name: Install ODBC driver for SQL Server
         run: |
@@ -855,7 +905,17 @@ jobs:
           extensions: pdo_sqlite
 
       - run: pip install uv
-      - run: npm install -g pnpm
+      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
+      # release cannot change the answer under one and not the other. No
+      # `runtime` input: `actions/setup-node` above already provides node 22.
+      # `install: false` because there is no root package.json -- each project
+      # below runs its own `pnpm install`.
+      - uses: pnpm/setup@v2
+        with:
+          version: "11"
+          install: false
+          cache: true
+          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
 
       - name: Create SQLite database
         run: touch /tmp/scythe_test.db
@@ -995,7 +1055,17 @@ jobs:
           extensions: pdo_pgsql
 
       - run: pip install uv
-      - run: npm install -g pnpm
+      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
+      # release cannot change the answer under one and not the other. No
+      # `runtime` input: `actions/setup-node` above already provides node 22.
+      # `install: false` because there is no root package.json -- each project
+      # below runs its own `pnpm install`.
+      - uses: pnpm/setup@v2
+        with:
+          version: "11"
+          install: false
+          cache: true
+          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
 
       - name: Test rust-sqlx-redshift
         working-directory: integration_tests/rust-sqlx-redshift
@@ -1085,7 +1155,17 @@ jobs:
           dotnet-version: "10.0.x"
 
       - run: pip install uv
-      - run: npm install -g pnpm@10
+      # Same pnpm major as ci.yml's generated-query-code gate, so a new pnpm
+      # release cannot change the answer under one and not the other. No
+      # `runtime` input: `actions/setup-node` above already provides node 22.
+      # `install: false` because there is no root package.json -- each project
+      # below runs its own `pnpm install`.
+      - uses: pnpm/setup@v2
+        with:
+          version: "11"
+          install: false
+          cache: true
+          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
 
       - name: Test python-snowflake
         working-directory: integration_tests/python-snowflake
