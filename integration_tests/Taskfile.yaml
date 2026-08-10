@@ -151,11 +151,27 @@ tasks:
     cmds:
       - go run .
 
+  # Every `pnpm install` below is a bare `--frozen-lockfile`, with no
+  # `2>/dev/null || pnpm install` fallback. That fallback used to sit on all 17
+  # of them, and it turned the one thing `--frozen-lockfile` exists to do into
+  # a no-op: the flag's entire job is to exit non-zero when pnpm-lock.yaml has
+  # drifted from package.json, and `|| pnpm install` caught exactly that exit,
+  # then *rewrote the lockfile* to match. So a drifted lockfile produced a
+  # green run and a dirty working tree instead of a failure -- against a
+  # dependency set nobody had reviewed, in a repository whose policy is that
+  # every lock file is committed. Verified by adding a dependency to
+  # typescript-pg/package.json without relocking: the fallback form exited 0
+  # (and edited pnpm-lock.yaml), the bare form exited 1 with
+  # ERR_PNPM_OUTDATED_LOCKFILE.
+  #
+  # If this now fails, the fix is `task -d ../ update:integration` (or
+  # `pnpm install --lockfile-only` in the offending project) and committing the
+  # resulting lockfile -- not restoring the fallback.
   test:typescript-postgres:
     desc: Run typescript-postgres integration test
     dir: typescript-postgres
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -163,7 +179,7 @@ tasks:
     desc: Run typescript-pg integration test
     dir: typescript-pg
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -171,7 +187,7 @@ tasks:
     desc: Run typescript-pg-zod integration test
     dir: typescript-pg-zod
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -179,7 +195,7 @@ tasks:
     desc: Run typescript-pg-outer-join-unions integration test
     dir: typescript-pg-outer-join-unions
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -187,7 +203,7 @@ tasks:
     desc: Run typescript-pg-zod-outer-join-unions integration test
     dir: typescript-pg-zod-outer-join-unions
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -195,7 +211,7 @@ tasks:
     desc: Type-check typescript-pg-structs-only and assert its structural shape (no driver import, no query functions)
     dir: typescript-pg-structs-only
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
       - task: structs-only-check
@@ -226,7 +242,7 @@ tasks:
     desc: Run typescript-kysely integration test
     dir: typescript-kysely
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -307,7 +323,7 @@ tasks:
     desc: Run typescript-mysql2 integration test
     dir: typescript-mysql2
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -315,7 +331,7 @@ tasks:
     desc: Run typescript-kysely-mysql2 integration test
     dir: typescript-kysely-mysql2
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -389,7 +405,7 @@ tasks:
     desc: Run typescript-mysql2-mariadb integration test
     dir: typescript-mysql2-mariadb
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -397,7 +413,7 @@ tasks:
     desc: Run typescript-kysely-mariadb integration test
     dir: typescript-kysely-mariadb
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -457,7 +473,7 @@ tasks:
     desc: Run typescript-oracledb-oracle integration test
     dir: typescript-oracledb-oracle
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -530,7 +546,7 @@ tasks:
     desc: Run typescript-better-sqlite3 integration test
     dir: typescript-better-sqlite3
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -538,7 +554,7 @@ tasks:
     desc: Run typescript-kysely-sqlite integration test
     dir: typescript-kysely-sqlite
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -546,7 +562,7 @@ tasks:
     desc: Run typescript-node-sqlite integration test
     dir: typescript-node-sqlite
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -554,7 +570,7 @@ tasks:
     desc: Run typescript-wasm-sqlite integration test
     dir: typescript-wasm-sqlite
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
@@ -606,7 +622,7 @@ tasks:
     env:
       MSSQL_URL: "{{.MSSQL_URL}}"
     cmds:
-      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm install --frozen-lockfile
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 

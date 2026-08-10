@@ -205,6 +205,24 @@ jobs:
           pnpm install
           pnpm exec tsc --noEmit
           pnpm exec tsx test.ts
+          # Both assertions below are negative -- "the file must NOT contain
+          # X" -- and `grep -q` on a file that does not exist exits 2, which
+          # takes the same `if` branch as "pattern not found". So a renamed or
+          # missing generated/queries.ts made this step report success while
+          # asserting nothing about anything. Establish the subject first:
+          # the file must exist and must actually be the structs_only output
+          # (row interfaces and nothing else), so the two greps below are
+          # searching something real.
+          if [ ! -f generated/queries.ts ]; then
+            echo "FAIL: generated/queries.ts is missing, so the structs_only assertions below would pass vacuously" >&2
+            exit 1
+          fi
+          structs=$(grep -cE '^export (interface|type) ' generated/queries.ts || true)
+          echo "structs_only output declares $structs exported interface/type(s)."
+          if [ "$structs" -eq 0 ]; then
+            echo "FAIL: structs_only output declares no exported interface or type. It is supposed to be nothing but row structs, so an empty one means the generator emitted nothing and the two 'must not contain' assertions below are checking an empty file." >&2
+            exit 1
+          fi
           if grep -q 'from "pg"' generated/queries.ts; then
             echo "FAIL: structs_only output must not import the pg driver" >&2
             exit 1
