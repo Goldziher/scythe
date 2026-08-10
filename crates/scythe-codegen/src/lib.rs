@@ -157,8 +157,9 @@ pub fn generate_with_backend_and_overrides(
     // ~keep Degradation pass: must run before any resolve_columns call. A backend
     // that doesn't opt into a nested struct (generate_nested_struct_def
     // returns Ok(None)) never sees json_nested<...> referencing it -- the
-    // column is rewritten to plain json first, matching this backend's
-    // output from before nested-aggregate inference existed byte for byte.
+    // column is rewritten to a manifest-supported fallback first: plain
+    // json by default, or the distinct json_array scalar for an array-shaped
+    // document when the manifest explicitly declares that representation.
     //
     // Skipped entirely when nested_structs is empty (the overwhelming
     // majority of queries) so the common path stays the zero-copy
@@ -206,8 +207,8 @@ pub fn generate_with_backend_and_overrides(
         // columns *and* from nested-aggregate fields. A composite reachable
         // only through a nested struct this backend degraded away would be
         // an unused definition that did not exist before nested-aggregate
-        // inference, breaking the byte-identity guarantee the degradation
-        // pass exists to provide.
+        // inference, even though the degraded output has no generated type
+        // that could reference it.
         let from_nested = nested_refs.composites.contains(comp.sql_name.as_str());
         if !from_nested && !type_referenced_by_columns(analyzed, "composite::", &comp.sql_name) {
             continue;
@@ -342,7 +343,7 @@ pub fn generate_with_backend_and_overrides(
 ///
 /// Built from the definitions the backend returned rather than from
 /// `analyzed.nested_structs`, so a backend that degraded the nested column
-/// back to plain `json` also keeps its enum output byte-identical.
+/// to `json` or `json_array` does not emit an otherwise unused enum.
 #[derive(Debug, Default)]
 struct NestedTypeRefs {
     enums: ahash::AHashSet<String>,
@@ -421,9 +422,9 @@ fn type_referenced_by_columns(analyzed: &AnalyzedQuery, prefix: &str, sql_name: 
 /// Whether `sql_name` is reachable from a nested-aggregate struct the
 /// backend actually emitted a definition for.
 ///
-/// The `supported` filter is what keeps a degraded backend's output
-/// byte-identical: a type reachable only through a nested struct that was
-/// rewritten back to plain `json` must not be emitted at all.
+/// The `supported` filter keeps degraded output self-contained: a type
+/// reachable only through a nested struct rewritten to `json` or
+/// `json_array` must not be emitted at all.
 pub fn nested_type_is_emitted(
     analyzed: &AnalyzedQuery,
     supported: &[NestedStructDef],
@@ -552,12 +553,6 @@ pub(crate) fn nested_struct_shape(neutral_type: &str) -> Option<NestedColumnShap
     }
 }
 
-/// `nested_struct_shape` reduced to just the struct name, for callers (the
-/// degradation pass) that don't care how it is wrapped.
-fn nested_struct_pascal_name(neutral_type: &str) -> Option<&str> {
-    nested_struct_shape(neutral_type).map(|shape| shape.name)
-}
-
 /// Degradation pass for nested-aggregate columns (`json_agg(o.*)`,
 /// `row_to_json(u.*)`). Must run before `resolve::resolve_columns` -- every
 /// caller that resolves `AnalyzedColumn`s into a backend's types needs this,
@@ -574,10 +569,11 @@ fn nested_struct_pascal_name(neutral_type: &str) -> Option<&str> {
 ///   `generate_composite_def` output goes through), and columns
 ///   referencing it are left as `json_nested<...>`.
 /// - `Ok(None)` (the default): not supported. Every column referencing it
-///   is rewritten to plain `json` -- byte-identical to this backend's
-///   output before nested-aggregate inference existed, since that is
-///   exactly what the pre-existing `json_agg`/`row_to_json` arms already
-///   produced.
+///   is rewritten to plain `json`, unless an array-shaped result targets a
+///   manifest that explicitly defines the `json_array` scalar marker. That
+///   marker means "one JSON document whose top level is an array"; it is
+///   deliberately distinct from `array<json>`, which means a SQL `json[]`
+///   column and may select a typed SQL-array reader.
 /// - `Err(_)`: a genuine failure, propagated rather than degraded.
 ///
 /// Returns the (possibly rewritten) columns and one [`NestedStructDef`] per
@@ -613,14 +609,21 @@ pub fn degrade_unsupported_nested_structs(
         return Ok((columns.to_vec(), defs));
     }
 
+    let supports_json_array = backend.manifest().types.scalars.contains_key("json_array");
+
     let degraded = columns
         .iter()
         .cloned()
         .map(|mut col| {
-            if let Some(name) = nested_struct_pascal_name(&col.neutral_type)
-                && unsupported.contains(name)
+            if let Some(shape) = nested_struct_shape(&col.neutral_type)
+                && unsupported.contains(shape.name)
             {
-                col.neutral_type = "json".to_string();
+                col.neutral_type = if shape.is_array && supports_json_array {
+                    "json_array"
+                } else {
+                    "json"
+                }
+                .to_string();
             }
             col
         })
@@ -1369,18 +1372,17 @@ mod tests {
     #[test]
     fn test_nested_struct_shape_ignores_user_json_typed_mapping() {
         assert!(nested_struct_shape("json_typed<EventData>").is_none());
-        assert!(nested_struct_pascal_name("json_typed<EventData>").is_none());
     }
 
     #[test]
-    fn test_nested_struct_pascal_name_none_for_ordinary_types() {
-        assert_eq!(nested_struct_pascal_name("int32"), None);
-        assert_eq!(nested_struct_pascal_name("json"), None);
-        assert_eq!(nested_struct_pascal_name("array<int32>"), None);
+    fn test_nested_struct_shape_none_for_ordinary_types() {
+        assert!(nested_struct_shape("int32").is_none());
+        assert!(nested_struct_shape("json").is_none());
+        assert!(nested_struct_shape("array<int32>").is_none());
     }
 
     #[test]
-    fn test_degrade_unsupported_nested_structs_rewrites_to_plain_json() {
+    fn test_degrade_unsupported_nested_structs_defaults_to_plain_json() {
         let manifest = get_backend("rust-sqlx", "postgresql").unwrap().manifest().clone();
         let backend = StubBackend { manifest };
         let nested = a_nested_struct();
@@ -1397,6 +1399,12 @@ mod tests {
                 nullable: true,
                 ..Default::default()
             },
+            AnalyzedColumn {
+                name: "profile".to_string(),
+                neutral_type: "json_nested<GetUserPostsRowPosts>".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
         ];
 
         let (degraded, defs) = degrade_unsupported_nested_structs(&columns, &[nested], &backend).unwrap();
@@ -1407,12 +1415,42 @@ mod tests {
         );
         assert_eq!(
             degraded[1].neutral_type, "json",
-            "StubBackend does not override generate_nested_struct_def, so it must degrade to plain json"
+            "a backend without an explicit JSON-array mapping must keep the safe plain-json fallback"
+        );
+        assert_eq!(
+            degraded[2].neutral_type, "json",
+            "an unsupported row_to_json result must remain a single object"
         );
         assert!(
             defs.is_empty(),
             "an unsupported backend must not emit a struct definition"
         );
+    }
+
+    #[test]
+    fn test_degrade_unsupported_nested_structs_uses_explicit_json_array_marker() {
+        let backend = get_backend("typescript-pg", "postgresql").unwrap();
+        let nested = a_nested_struct();
+        let columns = vec![
+            AnalyzedColumn {
+                name: "posts".to_string(),
+                neutral_type: "json_nested<array<GetUserPostsRowPosts>>".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+            AnalyzedColumn {
+                name: "profile".to_string(),
+                neutral_type: "json_nested<GetUserPostsRowPosts>".to_string(),
+                nullable: true,
+                ..Default::default()
+            },
+        ];
+
+        let (degraded, defs) = degrade_unsupported_nested_structs(&columns, &[nested], &*backend).unwrap();
+
+        assert_eq!(degraded[0].neutral_type, "json_array");
+        assert_eq!(degraded[1].neutral_type, "json");
+        assert!(defs.is_empty());
     }
 
     /// Minimal backend that opts into nested-struct support, to prove the
@@ -1483,15 +1521,53 @@ mod tests {
         assert_eq!(defs[0].code, "struct GetUserPostsRowPosts {}");
     }
 
-    /// The review check for this batch: for a backend that does not opt in,
-    /// generated output for a nested-aggregate column must be byte-identical
-    /// to what the same backend produces for an ordinary plain-`json` column
-    /// -- proving the degradation pass, not a per-backend special case,
-    /// is what keeps ~44 non-opted-in backends safe.
+    /// Backends whose drivers expose a JSON document as a structural value
+    /// may explicitly map the distinct `json_array` marker. This marker is
+    /// deliberately not `array<json>`: the latter means a PostgreSQL
+    /// `json[]` value and can select a typed SQL-array reader.
     #[test]
-    fn test_unopted_backend_output_is_byte_identical_to_plain_json_baseline() {
-        let backend = get_backend("java-jdbc", "postgresql").unwrap();
+    fn test_structural_backends_match_json_array_baseline() {
+        for backend_name in ["typescript-pg", "python-asyncpg", "elixir-postgrex", "php-pdo"] {
+            let backend = get_backend(backend_name, "postgresql").unwrap();
 
+            let baseline = make_query(
+                "GetUserPosts",
+                QueryCommand::Many,
+                "SELECT json_agg(p.*) AS posts FROM users u JOIN posts p ON u.id = p.user_id",
+                vec![AnalyzedColumn {
+                    name: "posts".to_string(),
+                    neutral_type: "json_array".to_string(),
+                    nullable: true,
+                    ..Default::default()
+                }],
+                vec![],
+            );
+
+            let mut nested_query = baseline.clone();
+            nested_query.columns[0].neutral_type = "json_nested<array<GetUserPostsRowPosts>>".to_string();
+            nested_query.nested_structs = vec![a_nested_struct()];
+
+            let baseline_result = generate_with_backend(&baseline, &*backend).unwrap();
+            let nested_result = generate_with_backend(&nested_query, &*backend).unwrap();
+
+            assert_eq!(
+                baseline_result.row_struct, nested_result.row_struct,
+                "{backend_name} row struct output must match the JSON array baseline"
+            );
+            assert_eq!(
+                baseline_result.query_fn, nested_result.query_fn,
+                "{backend_name} query output must match the JSON array baseline"
+            );
+            assert_eq!(baseline_result.model_struct, nested_result.model_struct);
+        }
+    }
+
+    /// A typed SQL-array backend must retain the old plain-JSON path. If a
+    /// nested aggregate were degraded to `array<json>`, C# would declare a
+    /// `List<string>` but read it through the untyped `GetValue` accessor.
+    #[test]
+    fn test_csharp_nested_aggregate_matches_plain_json_baseline() {
+        let backend = get_backend("csharp-npgsql", "postgresql").unwrap();
         let baseline = make_query(
             "GetUserPosts",
             QueryCommand::Many,
@@ -1512,15 +1588,23 @@ mod tests {
         let baseline_result = generate_with_backend(&baseline, &*backend).unwrap();
         let nested_result = generate_with_backend(&nested_query, &*backend).unwrap();
 
-        assert_eq!(
-            baseline_result.row_struct, nested_result.row_struct,
-            "row struct output must match byte for byte"
-        );
-        assert_eq!(
-            baseline_result.query_fn, nested_result.query_fn,
-            "query fn output must match byte for byte"
-        );
+        assert_eq!(baseline_result.row_struct, nested_result.row_struct);
+        assert_eq!(baseline_result.query_fn, nested_result.query_fn);
         assert_eq!(baseline_result.model_struct, nested_result.model_struct);
+        assert_eq!(baseline_result.enum_def, nested_result.enum_def);
+        assert_eq!(baseline_result.nested_struct_defs, nested_result.nested_struct_defs);
+        assert!(
+            nested_result
+                .row_struct
+                .as_deref()
+                .is_some_and(|row| row.contains("string? Posts"))
+        );
+        assert!(
+            nested_result
+                .query_fn
+                .as_deref()
+                .is_some_and(|query_fn| query_fn.contains("reader.GetString(0)"))
+        );
     }
 
     // -----------------------------------------------------------------

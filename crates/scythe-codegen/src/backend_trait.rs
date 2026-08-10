@@ -240,10 +240,12 @@ pub trait CodegenBackend: Send + Sync {
     /// Returns `Ok(None)` by default — "I do not support this" — so a
     /// backend is only at risk from this feature if it explicitly
     /// overrides the method. `crates/scythe-codegen/src/lib.rs` rewrites
-    /// any column referencing a struct this returns `Ok(None)` for back to
-    /// plain `json` *before* type resolution, so the default keeps a
-    /// non-opted-in backend's output byte-identical to what it produced
-    /// before nested-aggregate inference existed.
+    /// any column referencing a struct this returns `Ok(None)` for to a safe
+    /// fallback *before* type resolution. The default is plain `json`, so a
+    /// backend stays byte-identical to its pre-inference output; a manifest
+    /// may explicitly define the distinct `json_array` scalar when its
+    /// driver exposes an array-shaped JSON document as a structural value.
+    /// `json_array` is not the SQL-array container `array<json>`.
     ///
     /// Deliberately not the same shape as `generate_composite_def`, which
     /// always returns a definition (`CompositeInfo` only ever exists because
