@@ -14,7 +14,7 @@ public record CreateOrderRow(
 );
 
 public static async Task<CreateOrderRow?> CreateOrder(NpgsqlConnection conn, int user_id, decimal total, string? notes) {
-    await using var cmd = new NpgsqlCommand("INSERT INTO orders (user_id, total, notes) VALUES (@p1, @p2, @p3) RETURNING id, user_id, total, notes, created_at", conn);
+    await using var cmd = new NpgsqlCommand(@"INSERT INTO orders (user_id, total, notes) VALUES (@p1, @p2, @p3) RETURNING id, user_id, total, notes, created_at", conn);
     cmd.Parameters.AddWithValue("p1", user_id);
     cmd.Parameters.AddWithValue("p2", total);
     cmd.Parameters.AddWithValue("p3", notes);
@@ -37,7 +37,7 @@ public record GetOrdersByUserRow(
 );
 
 public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(NpgsqlConnection conn, int user_id) {
-    await using var cmd = new NpgsqlCommand("SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC", conn);
+    await using var cmd = new NpgsqlCommand(@"SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC", conn);
     cmd.Parameters.AddWithValue("p1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<GetOrdersByUserRow>();
@@ -57,7 +57,7 @@ public record GetOrderTotalRow(
 );
 
 public static async Task<GetOrderTotalRow?> GetOrderTotal(NpgsqlConnection conn, int user_id) {
-    await using var cmd = new NpgsqlCommand("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1", conn);
+    await using var cmd = new NpgsqlCommand(@"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -67,7 +67,7 @@ public static async Task<GetOrderTotalRow?> GetOrderTotal(NpgsqlConnection conn,
 }
 
 public static async Task<int> DeleteOrdersByUser(NpgsqlConnection conn, int user_id) {
-    await using var cmd = new NpgsqlCommand("DELETE FROM orders WHERE user_id = @p1", conn);
+    await using var cmd = new NpgsqlCommand(@"DELETE FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", user_id);
     return await cmd.ExecuteNonQueryAsync();
 }
@@ -81,7 +81,7 @@ public record GetUserByIdRow(
 );
 
 public static async Task<GetUserByIdRow?> GetUserById(NpgsqlConnection conn, int id) {
-    await using var cmd = new NpgsqlCommand("SELECT id, name, email, status, created_at FROM users WHERE id = @p1", conn);
+    await using var cmd = new NpgsqlCommand(@"SELECT id, name, email, status, created_at FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", id);
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -101,7 +101,7 @@ public record ListActiveUsersRow(
 );
 
 public static async Task<List<ListActiveUsersRow>> ListActiveUsers(NpgsqlConnection conn, string status) {
-    await using var cmd = new NpgsqlCommand("SELECT id, name, email FROM users WHERE status = @p1", conn);
+    await using var cmd = new NpgsqlCommand(@"SELECT id, name, email FROM users WHERE status = @p1", conn);
     cmd.Parameters.AddWithValue("p1", status);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<ListActiveUsersRow>();
@@ -124,7 +124,7 @@ public record CreateUserRow(
 );
 
 public static async Task<CreateUserRow?> CreateUser(NpgsqlConnection conn, string name, string? email, string status) {
-    await using var cmd = new NpgsqlCommand("INSERT INTO users (name, email, status) VALUES (@p1, @p2, @p3) RETURNING id, name, email, status, created_at", conn);
+    await using var cmd = new NpgsqlCommand(@"INSERT INTO users (name, email, status) VALUES (@p1, @p2, @p3) RETURNING id, name, email, status, created_at", conn);
     cmd.Parameters.AddWithValue("p1", name);
     cmd.Parameters.AddWithValue("p2", email);
     cmd.Parameters.AddWithValue("p3", status);
@@ -140,14 +140,14 @@ public static async Task<CreateUserRow?> CreateUser(NpgsqlConnection conn, strin
 }
 
 public static async Task UpdateUserEmail(NpgsqlConnection conn, string email, int id) {
-    await using var cmd = new NpgsqlCommand("UPDATE users SET email = @p1 WHERE id = @p2", conn);
+    await using var cmd = new NpgsqlCommand(@"UPDATE users SET email = @p1 WHERE id = @p2", conn);
     cmd.Parameters.AddWithValue("p1", email);
     cmd.Parameters.AddWithValue("p2", id);
     await cmd.ExecuteNonQueryAsync();
 }
 
 public static async Task DeleteUser(NpgsqlConnection conn, int id) {
-    await using var cmd = new NpgsqlCommand("DELETE FROM users WHERE id = @p1", conn);
+    await using var cmd = new NpgsqlCommand(@"DELETE FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", id);
     await cmd.ExecuteNonQueryAsync();
 }
@@ -159,7 +159,7 @@ public record SearchUsersRow(
 );
 
 public static async Task<List<SearchUsersRow>> SearchUsers(NpgsqlConnection conn, string status) {
-    await using var cmd = new NpgsqlCommand("SELECT id, name, email FROM users WHERE status = @p1 ORDER BY name", conn);
+    await using var cmd = new NpgsqlCommand(@"SELECT id, name, email FROM users WHERE status = @p1 ORDER BY name", conn);
     cmd.Parameters.AddWithValue("p1", status);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<SearchUsersRow>();

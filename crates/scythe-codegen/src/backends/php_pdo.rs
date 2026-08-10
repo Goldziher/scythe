@@ -1,5 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_pascal_case};
 use scythe_backend::types::resolve_type;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -216,8 +216,12 @@ impl CodegenBackend for PhpPdoBackend {
         "}".to_string()
     }
 
-    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let struct_name = row_struct_name(query_name, &self.manifest.naming);
+    fn generate_struct_decl(
+        &self,
+        struct_name: &str,
+        _query_name: &str,
+        columns: &[ResolvedColumn],
+    ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
         let _ = writeln!(out, "readonly class {} {{", struct_name);
@@ -288,11 +292,6 @@ impl CodegenBackend for PhpPdoBackend {
         let _ = writeln!(out, "    }}");
         let _ = write!(out, "}}");
         Ok(out)
-    }
-
-    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let name = to_pascal_case(table_name);
-        self.generate_row_struct(&name, columns)
     }
 
     fn generate_query_fn(

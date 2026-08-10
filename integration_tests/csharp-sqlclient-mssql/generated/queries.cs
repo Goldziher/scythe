@@ -14,7 +14,7 @@ public record CreateOrderRow(
 );
 
 public static async Task<CreateOrderRow?> CreateOrder(SqlConnection conn, int id, int user_id, decimal total, string? notes) {
-    await using var cmd = new SqlCommand("INSERT INTO orders (id, user_id, total, notes) OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)", conn);
+    await using var cmd = new SqlCommand(@"INSERT INTO orders (id, user_id, total, notes) OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)", conn);
     cmd.Parameters.AddWithValue("p1", id);
     cmd.Parameters.AddWithValue("p2", user_id);
     cmd.Parameters.AddWithValue("p3", total);
@@ -38,7 +38,7 @@ public record GetOrdersByUserRow(
 );
 
 public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(SqlConnection conn, int user_id) {
-    await using var cmd = new SqlCommand("SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC", conn);
+    await using var cmd = new SqlCommand(@"SELECT id, total, notes, created_at FROM orders WHERE user_id = @p1 ORDER BY created_at DESC", conn);
     cmd.Parameters.AddWithValue("p1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<GetOrdersByUserRow>();
@@ -58,7 +58,7 @@ public record GetOrderTotalRow(
 );
 
 public static async Task<GetOrderTotalRow?> GetOrderTotal(SqlConnection conn, int user_id) {
-    await using var cmd = new SqlCommand("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1", conn);
+    await using var cmd = new SqlCommand(@"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -68,7 +68,7 @@ public static async Task<GetOrderTotalRow?> GetOrderTotal(SqlConnection conn, in
 }
 
 public static async Task<int> DeleteOrdersByUser(SqlConnection conn, int user_id) {
-    await using var cmd = new SqlCommand("DELETE FROM orders WHERE user_id = @p1", conn);
+    await using var cmd = new SqlCommand(@"DELETE FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", user_id);
     return await cmd.ExecuteNonQueryAsync();
 }
@@ -82,7 +82,7 @@ public record GetUserByIdRow(
 );
 
 public static async Task<GetUserByIdRow?> GetUserById(SqlConnection conn, int id) {
-    await using var cmd = new SqlCommand("SELECT id, name, email, active, created_at FROM users WHERE id = @p1", conn);
+    await using var cmd = new SqlCommand(@"SELECT id, name, email, active, created_at FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", id);
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -102,7 +102,7 @@ public record ListActiveUsersRow(
 );
 
 public static async Task<List<ListActiveUsersRow>> ListActiveUsers(SqlConnection conn) {
-    await using var cmd = new SqlCommand("SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT)", conn);
+    await using var cmd = new SqlCommand(@"SELECT id, name, email FROM users WHERE active = CAST(1 AS BIT)", conn);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<ListActiveUsersRow>();
     while (await reader.ReadAsync()) {
@@ -124,7 +124,7 @@ public record CreateUserRow(
 );
 
 public static async Task<CreateUserRow?> CreateUser(SqlConnection conn, int id, string name, string? email, bool active) {
-    await using var cmd = new SqlCommand("INSERT INTO users (id, name, email, active) OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)", conn);
+    await using var cmd = new SqlCommand(@"INSERT INTO users (id, name, email, active) OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)", conn);
     cmd.Parameters.AddWithValue("p1", id);
     cmd.Parameters.AddWithValue("p2", name);
     cmd.Parameters.AddWithValue("p3", email);
@@ -141,14 +141,14 @@ public static async Task<CreateUserRow?> CreateUser(SqlConnection conn, int id, 
 }
 
 public static async Task UpdateUserEmail(SqlConnection conn, string email, int id) {
-    await using var cmd = new SqlCommand("UPDATE users SET email = @p1 WHERE id = @p2", conn);
+    await using var cmd = new SqlCommand(@"UPDATE users SET email = @p1 WHERE id = @p2", conn);
     cmd.Parameters.AddWithValue("p1", email);
     cmd.Parameters.AddWithValue("p2", id);
     await cmd.ExecuteNonQueryAsync();
 }
 
 public static async Task DeleteUser(SqlConnection conn, int id) {
-    await using var cmd = new SqlCommand("DELETE FROM users WHERE id = @p1", conn);
+    await using var cmd = new SqlCommand(@"DELETE FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", id);
     await cmd.ExecuteNonQueryAsync();
 }
@@ -160,7 +160,7 @@ public record SearchUsersRow(
 );
 
 public static async Task<List<SearchUsersRow>> SearchUsers(SqlConnection conn, string name) {
-    await using var cmd = new SqlCommand("SELECT id, name, email FROM users WHERE name LIKE @p1", conn);
+    await using var cmd = new SqlCommand(@"SELECT id, name, email FROM users WHERE name LIKE @p1", conn);
     cmd.Parameters.AddWithValue("p1", name);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<SearchUsersRow>();

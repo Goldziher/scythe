@@ -19,16 +19,15 @@
 # quotes as its delimiter, terminating the literal early and cascading into
 # unrelated-looking compiler errors. This is issue #179 (the open successor
 # to the closed #150) -- the torture schema's quoted mixed-case "widgetId"
-# primary key is simply the first fixture that reaches it. Every line below
-# should go stale together when the shared escaping layer lands.
+# primary key is simply the first fixture that reaches it. The escaping layer
+# is landing per language rather than all at once, so these go stale a few at
+# a time -- elixir-ecto and elixir-postgrex already have.
 rust-sqlx : SQL string literal embeds unescaped "widgetId", breaks the Rust string/sqlx macro (#179)
 rust-sqlx-nested-json : same as rust-sqlx -- shares backend rust-sqlx (#179)
 rust-tokio-postgres : same defect, tokio-postgres query string (#179)
 csharp-npgsql : same defect, C# string literal (#179)
 go-pgx : same defect, Go string literal (#179)
 ruby-pg : same defect, Ruby string literal (#179)
-elixir-ecto : same defect, Elixir string literal passed to Postgrex/Ecto (#179)
-elixir-postgrex : same defect, Elixir string literal passed to Postgrex.query (#179)
 
 # --- Defect B: a word reserved in the target language (`class`, from
 # sql/torture/schema.sql's "class" column) is emitted unescaped as a field,
@@ -38,10 +37,6 @@ elixir-postgrex : same defect, Elixir string literal passed to Postgrex.query (#
 java-jdbc : "class" column becomes an unescaped Java field/parameter name (#180)
 kotlin-jdbc : "class" column becomes an unescaped Kotlin `val class` (#180)
 kotlin-jdbc-ext : same as kotlin-jdbc -- shares backend kotlin-jdbc (#180)
-python-asyncpg : "class" column becomes an unescaped Python dataclass field (#180)
-python-psycopg3 : same as python-asyncpg -- shares backend python-psycopg3 (#180)
-python-psycopg3-msgspec : same as python-asyncpg -- shares backend python-psycopg3 (#180)
-python-psycopg3-pydantic : same as python-asyncpg -- shares backend python-psycopg3 (#180)
 typescript-postgres : "class" column becomes an unescaped TS function parameter name (#180, #215)
 typescript-pg : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
 typescript-pg-zod : same as typescript-postgres -- shares backend typescript-pg (#180, #215)

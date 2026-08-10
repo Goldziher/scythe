@@ -7,7 +7,7 @@ using Microsoft.Data.Sqlite;
 public static class Queries {
 
 public static async Task CreateOrder(SqliteConnection conn, long user_id, double total, string? notes) {
-    await using var cmd = new SqliteCommand("INSERT INTO orders (user_id, total, notes) VALUES (?1, ?2, ?3)", conn);
+    await using var cmd = new SqliteCommand(@"INSERT INTO orders (user_id, total, notes) VALUES (?1, ?2, ?3)", conn);
     cmd.Parameters.AddWithValue("?1", user_id);
     cmd.Parameters.AddWithValue("?2", total);
     cmd.Parameters.AddWithValue("?3", notes);
@@ -22,7 +22,7 @@ public record GetOrdersByUserRow(
 );
 
 public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(SqliteConnection conn, long user_id) {
-    await using var cmd = new SqliteCommand("SELECT id, total, notes, created_at FROM orders WHERE user_id = ?1 ORDER BY created_at DESC", conn);
+    await using var cmd = new SqliteCommand(@"SELECT id, total, notes, created_at FROM orders WHERE user_id = ?1 ORDER BY created_at DESC", conn);
     cmd.Parameters.AddWithValue("?1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<GetOrdersByUserRow>();
@@ -42,7 +42,7 @@ public record GetOrderTotalRow(
 );
 
 public static async Task<GetOrderTotalRow?> GetOrderTotal(SqliteConnection conn, long user_id) {
-    await using var cmd = new SqliteCommand("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?1", conn);
+    await using var cmd = new SqliteCommand(@"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?1", conn);
     cmd.Parameters.AddWithValue("?1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -52,7 +52,7 @@ public static async Task<GetOrderTotalRow?> GetOrderTotal(SqliteConnection conn,
 }
 
 public static async Task<int> DeleteOrdersByUser(SqliteConnection conn, long user_id) {
-    await using var cmd = new SqliteCommand("DELETE FROM orders WHERE user_id = ?1", conn);
+    await using var cmd = new SqliteCommand(@"DELETE FROM orders WHERE user_id = ?1", conn);
     cmd.Parameters.AddWithValue("?1", user_id);
     return await cmd.ExecuteNonQueryAsync();
 }
@@ -66,7 +66,7 @@ public record GetUserByIdRow(
 );
 
 public static async Task<GetUserByIdRow?> GetUserById(SqliteConnection conn, long id) {
-    await using var cmd = new SqliteCommand("SELECT id, name, email, status, created_at FROM users WHERE id = ?1", conn);
+    await using var cmd = new SqliteCommand(@"SELECT id, name, email, status, created_at FROM users WHERE id = ?1", conn);
     cmd.Parameters.AddWithValue("?1", id);
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -86,7 +86,7 @@ public record ListActiveUsersRow(
 );
 
 public static async Task<List<ListActiveUsersRow>> ListActiveUsers(SqliteConnection conn, string status) {
-    await using var cmd = new SqliteCommand("SELECT id, name, email FROM users WHERE status = ?1", conn);
+    await using var cmd = new SqliteCommand(@"SELECT id, name, email FROM users WHERE status = ?1", conn);
     cmd.Parameters.AddWithValue("?1", status);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<ListActiveUsersRow>();
@@ -101,7 +101,7 @@ public static async Task<List<ListActiveUsersRow>> ListActiveUsers(SqliteConnect
 }
 
 public static async Task CreateUser(SqliteConnection conn, string name, string? email, string status) {
-    await using var cmd = new SqliteCommand("INSERT INTO users (name, email, status) VALUES (?1, ?2, ?3)", conn);
+    await using var cmd = new SqliteCommand(@"INSERT INTO users (name, email, status) VALUES (?1, ?2, ?3)", conn);
     cmd.Parameters.AddWithValue("?1", name);
     cmd.Parameters.AddWithValue("?2", email);
     cmd.Parameters.AddWithValue("?3", status);
@@ -109,14 +109,14 @@ public static async Task CreateUser(SqliteConnection conn, string name, string? 
 }
 
 public static async Task UpdateUserEmail(SqliteConnection conn, string email, long id) {
-    await using var cmd = new SqliteCommand("UPDATE users SET email = ?1 WHERE id = ?2", conn);
+    await using var cmd = new SqliteCommand(@"UPDATE users SET email = ?1 WHERE id = ?2", conn);
     cmd.Parameters.AddWithValue("?1", email);
     cmd.Parameters.AddWithValue("?2", id);
     await cmd.ExecuteNonQueryAsync();
 }
 
 public static async Task DeleteUser(SqliteConnection conn, long id) {
-    await using var cmd = new SqliteCommand("DELETE FROM users WHERE id = ?1", conn);
+    await using var cmd = new SqliteCommand(@"DELETE FROM users WHERE id = ?1", conn);
     cmd.Parameters.AddWithValue("?1", id);
     await cmd.ExecuteNonQueryAsync();
 }
@@ -128,7 +128,7 @@ public record SearchUsersRow(
 );
 
 public static async Task<List<SearchUsersRow>> SearchUsers(SqliteConnection conn, string name) {
-    await using var cmd = new SqliteCommand("SELECT id, name, email FROM users WHERE name LIKE ?1", conn);
+    await using var cmd = new SqliteCommand(@"SELECT id, name, email FROM users WHERE name LIKE ?1", conn);
     cmd.Parameters.AddWithValue("?1", name);
     await using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<SearchUsersRow>();

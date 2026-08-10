@@ -99,7 +99,7 @@ final class Queries {
      * @return void
      */
     public static function createOrder(\PDO $pdo, int $user_id, float $total, ?string $notes): void {
-        $stmt = $pdo->prepare("INSERT INTO orders (user_id, total, notes) VALUES (:p1, :p2, :p3)");
+        $stmt = $pdo->prepare('INSERT INTO orders (user_id, total, notes) VALUES (:p1, :p2, :p3)');
         $stmt->execute(["p1" => $user_id, "p2" => $total, "p3" => $notes]);
     }
 
@@ -109,7 +109,7 @@ final class Queries {
      * @return \Generator<int, GetOrdersByUserRow, mixed, void>
      */
     public static function getOrdersByUser(\PDO $pdo, int $user_id): \Generator {
-        $stmt = $pdo->prepare("SELECT id, total, notes, created_at FROM orders WHERE user_id = :p1 ORDER BY created_at DESC");
+        $stmt = $pdo->prepare('SELECT id, total, notes, created_at FROM orders WHERE user_id = :p1 ORDER BY created_at DESC');
         $stmt->execute(["p1" => $user_id]);
         while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
             yield GetOrdersByUserRow::fromRow($row);
@@ -122,7 +122,7 @@ final class Queries {
      * @return GetOrderTotalRow|null
      */
     public static function getOrderTotal(\PDO $pdo, int $user_id): ?GetOrderTotalRow {
-        $stmt = $pdo->prepare("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :p1");
+        $stmt = $pdo->prepare('SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :p1');
         $stmt->execute(["p1" => $user_id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row ? GetOrderTotalRow::fromRow($row) : null;
@@ -134,7 +134,7 @@ final class Queries {
      * @return int
      */
     public static function deleteOrdersByUser(\PDO $pdo, int $user_id): int {
-        $stmt = $pdo->prepare("DELETE FROM orders WHERE user_id = :p1");
+        $stmt = $pdo->prepare('DELETE FROM orders WHERE user_id = :p1');
         $stmt->execute(["p1" => $user_id]);
         return $stmt->rowCount();
     }
@@ -145,7 +145,7 @@ final class Queries {
      * @return GetUserByIdRow|null
      */
     public static function getUserById(\PDO $pdo, int $id): ?GetUserByIdRow {
-        $stmt = $pdo->prepare("SELECT id, name, email, status, created_at FROM users WHERE id = :p1");
+        $stmt = $pdo->prepare('SELECT id, name, email, status, created_at FROM users WHERE id = :p1');
         $stmt->execute(["p1" => $id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
         return $row ? GetUserByIdRow::fromRow($row) : null;
@@ -157,7 +157,7 @@ final class Queries {
      * @return \Generator<int, ListActiveUsersRow, mixed, void>
      */
     public static function listActiveUsers(\PDO $pdo, string $status): \Generator {
-        $stmt = $pdo->prepare("SELECT id, name, email FROM users WHERE status = :p1");
+        $stmt = $pdo->prepare('SELECT id, name, email FROM users WHERE status = :p1');
         $stmt->execute(["p1" => $status]);
         while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
             yield ListActiveUsersRow::fromRow($row);
@@ -172,7 +172,7 @@ final class Queries {
      * @return void
      */
     public static function createUser(\PDO $pdo, string $name, ?string $email, string $status): void {
-        $stmt = $pdo->prepare("INSERT INTO users (name, email, status) VALUES (:p1, :p2, :p3)");
+        $stmt = $pdo->prepare('INSERT INTO users (name, email, status) VALUES (:p1, :p2, :p3)');
         $stmt->execute(["p1" => $name, "p2" => $email, "p3" => $status]);
     }
 
@@ -183,7 +183,7 @@ final class Queries {
      * @return void
      */
     public static function updateUserEmail(\PDO $pdo, string $email, int $id): void {
-        $stmt = $pdo->prepare("UPDATE users SET email = :p1 WHERE id = :p2");
+        $stmt = $pdo->prepare('UPDATE users SET email = :p1 WHERE id = :p2');
         $stmt->execute(["p1" => $email, "p2" => $id]);
     }
 
@@ -193,7 +193,7 @@ final class Queries {
      * @return void
      */
     public static function deleteUser(\PDO $pdo, int $id): void {
-        $stmt = $pdo->prepare("DELETE FROM users WHERE id = :p1");
+        $stmt = $pdo->prepare('DELETE FROM users WHERE id = :p1');
         $stmt->execute(["p1" => $id]);
     }
 
@@ -203,7 +203,7 @@ final class Queries {
      * @return \Generator<int, SearchUsersRow, mixed, void>
      */
     public static function searchUsers(\PDO $pdo, string $name): \Generator {
-        $stmt = $pdo->prepare("SELECT id, name, email FROM users WHERE name LIKE :p1");
+        $stmt = $pdo->prepare('SELECT id, name, email FROM users WHERE name LIKE :p1');
         $stmt->execute(["p1" => $name]);
         while ($row = $stmt->fetch(\PDO::FETCH_ASSOC)) {
             yield SearchUsersRow::fromRow($row);

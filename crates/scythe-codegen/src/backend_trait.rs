@@ -1,3 +1,4 @@
+use scythe_backend::naming::row_struct_name;
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo, NestedStructInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 
@@ -132,11 +133,70 @@ pub trait CodegenBackend: Send + Sync {
         &self.manifest().backend.file_extension
     }
 
-    /// Generate a row struct for a query result.
-    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError>;
+    /// Emit a row-shaped type declaration under an *already final* name.
+    ///
+    /// `struct_name` is the exact identifier to declare — this method must
+    /// not case-convert it, and must not append
+    /// [`NamingConfig::row_suffix`](scythe_backend::naming::NamingConfig::row_suffix)
+    /// or anything else to it. `doc_name` is prose only: the SQL-side name
+    /// ("GetActiveUsers", "User") that backends interpolate into a
+    /// docstring or moduledoc. Nothing may derive an identifier from it.
+    ///
+    /// This split is the fix for #164. Both callers below used to compute a
+    /// name each and hand it to one method that suffixed whatever it got,
+    /// so `generate_model_struct` declared `UserRow` while the query
+    /// function referenced `User`. Now the name is decided once, above the
+    /// backend, and the backend only renders it.
+    ///
+    /// ## Provided, but not optional
+    ///
+    /// The default returns [`ErrorCode::InternalError`] rather than
+    /// falling back to something plausible: a fallback that quietly
+    /// re-derived the name is precisely the defect this method exists to
+    /// remove. It is provided rather than required only so that a backend
+    /// which emits no types at all can override
+    /// [`generate_row_struct`](Self::generate_row_struct) and
+    /// [`generate_model_struct`](Self::generate_model_struct) directly and
+    /// never reach this. Any backend that does emit row types must
+    /// override this one and let both callers below default.
+    fn generate_struct_decl(
+        &self,
+        struct_name: &str,
+        doc_name: &str,
+        columns: &[ResolvedColumn],
+    ) -> Result<String, ScytheError> {
+        let _ = (struct_name, doc_name, columns);
+        Err(ScytheError::new(
+            ErrorCode::InternalError,
+            format!(
+                "backend '{}' emits row types but does not implement generate_struct_decl",
+                self.name()
+            ),
+        ))
+    }
 
-    /// Generate a model struct for a table.
-    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError>;
+    /// Generate a row struct for a query result.
+    ///
+    /// Applies the manifest's `struct_case` and `row_suffix` to the query
+    /// name and renders through
+    /// [`generate_struct_decl`](Self::generate_struct_decl).
+    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
+        let struct_name = row_struct_name(query_name, &self.manifest().naming);
+        self.generate_struct_decl(&struct_name, query_name, columns)
+    }
+
+    /// Generate a model struct for a table — the type a `SELECT *` shares
+    /// across every query over that table.
+    ///
+    /// Names it through [`crate::model_struct_name`], the same function
+    /// `determine_struct_name` uses to decide what the generated query
+    /// functions *reference*, so declaration and reference cannot disagree
+    /// (#164). Backends whose model type is not a row type at all (Exposed
+    /// emits a table object) override this.
+    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
+        let struct_name = crate::model_struct_name(table_name, &self.manifest().naming);
+        self.generate_struct_decl(&struct_name, &struct_name, columns)
+    }
 
     /// Generate a query function.
     fn generate_query_fn(

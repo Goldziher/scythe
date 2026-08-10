@@ -1,7 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_camel_case, to_pascal_case};
 use scythe_backend::types::resolve_type;
 use std::fmt::Write;
 
@@ -18,7 +16,6 @@ use crate::backends::typescript_common::{
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
     generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line, js_type_cast, parse_bool_option,
 };
-use crate::singularize;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-mysql2.toml");
 
@@ -159,10 +156,14 @@ impl CodegenBackend for TypescriptMysql2Backend {
         header
     }
 
-    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let struct_name = row_struct_name(query_name, &self.manifest.naming);
+    fn generate_struct_decl(
+        &self,
+        struct_name: &str,
+        query_name: &str,
+        columns: &[ResolvedColumn],
+    ) -> Result<String, ScytheError> {
         if self.js_mode {
-            return Ok(generate_js_typedef_row_struct(&struct_name, query_name, columns));
+            return Ok(generate_js_typedef_row_struct(struct_name, query_name, columns));
         }
         // Under Camel, the declared row type must not extend/intersect
         // RowDataPacket -- see the `field_case` field doc for why -- so
@@ -176,7 +177,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
         };
         if self.row_type == TsRowType::Zod {
             if self.outer_join_unions {
-                let mut out = generate_zod_union_row_struct(&struct_name, query_name, columns);
+                let mut out = generate_zod_union_row_struct(struct_name, query_name, columns);
                 let Some(base) = base else {
                     return Ok(out);
                 };
@@ -189,7 +190,7 @@ impl CodegenBackend for TypescriptMysql2Backend {
                 let _ = write!(out, "export type {struct_name}Packet = {base} & {struct_name};");
                 return Ok(out);
             }
-            let mut out = generate_zod_row_struct(&struct_name, query_name, columns);
+            let mut out = generate_zod_row_struct(struct_name, query_name, columns);
             let Some(base) = base else {
                 return Ok(out);
             };
@@ -202,20 +203,14 @@ impl CodegenBackend for TypescriptMysql2Backend {
             return Ok(out);
         }
         if self.outer_join_unions {
-            return Ok(generate_ts_union_row_struct(&struct_name, query_name, columns, base));
+            return Ok(generate_ts_union_row_struct(struct_name, query_name, columns, base));
         }
         Ok(generate_ts_interface_row_struct_with_base(
-            &struct_name,
+            struct_name,
             query_name,
             columns,
             base,
         ))
-    }
-
-    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let singular = singularize(table_name);
-        let name = to_pascal_case(&singular);
-        self.generate_row_struct(&name, columns)
     }
 
     fn generate_query_fn(
