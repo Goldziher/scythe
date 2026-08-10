@@ -44,9 +44,16 @@ fn scythe_lint_no_db(config_path: &str) -> assert_cmd::assert::Assert {
 /// Write a minimal `scythe.toml` with a `[[sql]]` block pointing at a
 /// benign SQL fixture that does NOT trigger any lint rules.
 ///
+/// The `-- @returns :one` line is load-bearing. Without it the query does not
+/// parse (`MISSING_ANNOTATION`), and `scythe lint` used to answer that by
+/// skipping the query and reporting "No lint violations found." -- so every
+/// test below was asserting a clean run over a project in which zero queries
+/// were ever linted. That skip is now an `SC-PARSE01` error finding (#158),
+/// which is what surfaced the broken fixture.
+///
 /// Returns the `TempDir` that owns the files (must be kept alive).
 fn write_benign_fixture(dir: &TempDir) -> String {
-    let sql_content = "-- @name GetUser\nSELECT id, name FROM users WHERE id = $1;\n";
+    let sql_content = "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;\n";
     let schema_content = "CREATE TABLE users (id bigint PRIMARY KEY, name text NOT NULL);\n";
 
     let sql_path = dir.path().join("queries.sql");

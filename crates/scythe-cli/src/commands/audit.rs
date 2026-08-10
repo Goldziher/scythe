@@ -18,7 +18,7 @@ use scythe_core::parser::Annotations;
 use scythe_lint::reporters::{Finding, Format};
 use scythe_lint::{
     AuditConfigError, LintContext, LintRule, MatcherRegistry, RuleCategory, RuleRegistry, RuleSpec, Severity,
-    SuppressionSet, default_registry, emit_findings, extract_cwe, load_rules_from_file, register_user_rules,
+    SuppressionSet, default_registry, emit_findings, load_rules_from_file, register_user_rules,
 };
 
 use super::shared::{config_dir, resolve_globs};
@@ -284,13 +284,106 @@ pub(crate) fn print_rule_explanation(
     writeln!(out, "{} — {}", rule.id(), rule.name())?;
     writeln!(out, "  category: {}", rule.category())?;
     writeln!(out, "  severity: {}", severity_label(*sev))?;
-    let cwes = extract_cwe(rule.description());
+    // `LintRule::cwe()`, not a regex scrape of `description()`. The rule
+    // declares its CWE list (`cwe = ["CWE-78"]`); every canonical rule also
+    // repeats those ids in its description prose, so the scrape happened to
+    // agree -- a second derivation of one fact, held in sync by hand and by
+    // nothing else. It does not agree for a user rule that declares `cwe`
+    // without restating it in prose, which then reported no CWE at all.
+    // `MatcherRule::cwe` keeps the description scrape as its own fallback for
+    // the reverse case.
+    let cwes = rule.cwe();
     if !cwes.is_empty() {
         writeln!(out, "  cwe:      {}", cwes.join(", "))?;
     }
     writeln!(out)?;
     writeln!(out, "{}", rule.description())?;
     Ok(())
+}
+
+/// Select the rules `scythe audit` will actually execute against `dialect`,
+/// and report -- out loud -- everything that was dropped on the way.
+///
+/// Two filters decide what runs, and before this neither was observable:
+///
+/// - **Category.** `audit` only executes Security, Migration and Antipattern
+///   rules; the rest of the registry is irrelevant here.
+/// - **Dialect.** [`LintRule::is_applicable_to`] gates a rule to the dialects
+///   its spec declares. Most canonical migration rules (and several security
+///   rules) declare `dialects = ["postgres"]`, so auditing a MySQL project
+///   silently ran a much smaller rule set than the one `--list-rules`
+///   advertises. `MatcherRule::check_query` applies the same gate internally
+///   and returns an empty `Vec`, which is indistinguishable from "the rule
+///   ran and found nothing" -- exactly the invisible skip #167 describes.
+///
+/// Returns the rules to run plus, when *nothing* is left to run, an
+/// error-severity [`Finding`]. A zero-rule audit that prints no findings and
+/// exits 0 is a verification apparatus reporting success without verifying:
+/// the finding turns it into an exit-2 failure that names the cause.
+/// `--exit-zero` still suppresses the exit code, as for any other finding.
+fn prepare_audit_rules<'a>(
+    rules: &[(&'a dyn LintRule, Severity)],
+    dialect: SqlDialect,
+    engine_label: &str,
+) -> (Vec<(&'a dyn LintRule, Severity)>, Option<Finding>) {
+    let in_category: Vec<(&'a dyn LintRule, Severity)> = rules
+        .iter()
+        .filter(|(rule, _)| {
+            matches!(
+                rule.category(),
+                RuleCategory::Security | RuleCategory::Migration | RuleCategory::Antipattern
+            )
+        })
+        .copied()
+        .collect();
+
+    let mut applicable: Vec<(&'a dyn LintRule, Severity)> = Vec::with_capacity(in_category.len());
+    let mut skipped: Vec<&'static str> = Vec::new();
+    for (rule, severity) in in_category {
+        if rule.is_applicable_to(dialect) {
+            applicable.push((rule, severity));
+        } else {
+            skipped.push(rule.id());
+        }
+    }
+
+    if !skipped.is_empty() {
+        eprintln!(
+            "audit: {} rule(s) skipped: not applicable to engine '{}' ({})",
+            skipped.len(),
+            engine_label,
+            skipped.join(", ")
+        );
+    }
+
+    if applicable.is_empty() {
+        let finding = Finding {
+            file: String::new(),
+            query_name: None,
+            rule_id: "SC-AUDIT00".to_string(),
+            rule_name: Some("no-applicable-rules".to_string()),
+            rule_description: Some(
+                "scythe audit had no rule to run, so it examined nothing. Reported as an error rather \
+                 than an empty (clean-looking) report so an audit that verified nothing cannot pass a \
+                 CI gate."
+                    .to_string(),
+            ),
+            severity: Severity::Error,
+            message: format!(
+                "no audit rule applies to engine '{}': {} rule(s) are restricted to other dialects and \
+                 the rest are configured off — audit examined 0 rules and cannot report on this project",
+                engine_label,
+                skipped.len()
+            ),
+            line: None,
+            column: None,
+            cwe: Vec::new(),
+            source: Some("audit".to_string()),
+        };
+        return (applicable, Some(finding));
+    }
+
+    (applicable, None)
 }
 
 fn severity_label(s: Severity) -> &'static str {
@@ -375,6 +468,19 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
     for sql_config in &config.sql {
         let sql_dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
 
+        // Per `[[sql]]` block, because the dialect gate is per block: the
+        // same registry can yield a different executable rule set for a
+        // postgres block and a mysql block in one config.
+        let engine_label = if sql_config.engine.is_empty() {
+            "postgres"
+        } else {
+            sql_config.engine.as_str()
+        };
+        let (rules, no_rules_finding) = prepare_audit_rules(&rules, sql_dialect, engine_label);
+        if let Some(finding) = no_rules_finding {
+            findings.push(finding);
+        }
+
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
         let schema_contents: Vec<String> = schema_files
             .iter()
@@ -437,9 +543,13 @@ pub(crate) fn audit_explicit_files(
     // a rule turned `"off"` in `scythe.toml` still fired and `[[audit.rule]]`
     // user rules never ran (#206, item 2).
     let registry = load_registry(config_path)?;
-    let rules = registry.active_rules();
+    let all_active = registry.active_rules();
+    let (rules, no_rules_finding) = prepare_audit_rules(&all_active, sql_dialect, engine);
 
     let mut findings = Vec::new();
+    if let Some(finding) = no_rules_finding {
+        findings.push(finding);
+    }
     for path in files {
         let content = std::fs::read_to_string(path).map_err(|e| format!("failed to read '{}': {}", path, e))?;
         findings.extend(run_security_rules_over_sql(
@@ -545,6 +655,14 @@ fn parse_statements_lenient(
 /// the line and the parser's message) rather than discarding every
 /// statement already parsed. See #208.
 ///
+/// # Rule set
+///
+/// `rules` must already be narrowed by [`prepare_audit_rules`] -- category
+/// *and* dialect. Filtering here as well would be a second derivation of the
+/// same fact, and the dialect half of it would once more be invisible: the
+/// count of skipped rules has to be reported where the audit knows what it is
+/// about to run, not buried in a per-statement loop.
+///
 /// # Suppression
 ///
 /// A `SuppressionSet` is built once from the full SQL string and looked up by
@@ -621,12 +739,6 @@ pub(crate) fn run_security_rules_over_sql(
         };
 
         for (rule, severity) in rules {
-            if !matches!(
-                rule.category(),
-                RuleCategory::Security | RuleCategory::Migration | RuleCategory::Antipattern
-            ) {
-                continue;
-            }
             for violation in rule.check_query(&ctx) {
                 // `SuppressionSet` is keyed by 0-based statement index, not
                 // by source line (scythe-lint #140: two statements sharing
@@ -650,7 +762,11 @@ pub(crate) fn run_security_rules_over_sql(
                     message: violation.message,
                     line: Some(stmt_line),
                     column: None,
-                    cwe: extract_cwe(rule.description()),
+                    // `LintRule::cwe()`, not `extract_cwe(rule.description())`
+                    // -- the rule's declaration rather than a regex over its
+                    // prose. See `print_rule_explanation` for what the scrape
+                    // got wrong.
+                    cwe: rule.cwe(),
                     source: Some("audit".to_string()),
                 });
             }

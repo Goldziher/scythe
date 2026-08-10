@@ -37,7 +37,7 @@ fn url() -> String {
 ///
 /// Returns the `TempDir` that owns the files (must be kept alive).
 fn write_benign_fixture(dir: &TempDir) -> String {
-    let sql_content = "-- @name GetUser\nSELECT id, name FROM users WHERE id = $1;\n";
+    let sql_content = "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;\n";
     let schema_content = "CREATE TABLE users (id bigint PRIMARY KEY, name text NOT NULL);\n";
 
     let sql_path = dir.path().join("queries.sql");
@@ -64,7 +64,7 @@ queries = ["queries.sql"]
 /// Write a `scythe.toml` that includes an `[inspect]` block with the given
 /// `database_url`.
 fn write_fixture_with_inspect_url(dir: &TempDir, database_url: &str) -> String {
-    let sql_content = "-- @name GetUser\nSELECT id, name FROM users WHERE id = $1;\n";
+    let sql_content = "-- @name GetUser\n-- @returns :one\nSELECT id, name FROM users WHERE id = $1;\n";
     let schema_content = "CREATE TABLE users (id bigint PRIMARY KEY, name text NOT NULL);\n";
 
     let sql_path = dir.path().join("queries.sql");
