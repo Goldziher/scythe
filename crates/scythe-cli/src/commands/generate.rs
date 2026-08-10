@@ -1672,7 +1672,17 @@ fn verify_against_database(
     runtime.block_on(async {
         let (client, connection) = tokio_postgres::connect(url, tokio_postgres::NoTls)
             .await
-            .map_err(|e| format!("failed to connect to '{}': {}", redact_url_password(url), e))?;
+            // `error_chain`, not `{e}`: `tokio_postgres::Error` displays as a
+            // bare "db error", which makes a wrong password, a missing database
+            // and a missing role indistinguishable. The server's `FATAL: ...`
+            // text is one level down the source chain.
+            .map_err(|e| {
+                format!(
+                    "failed to connect to '{}': {}",
+                    redact_url_password(url),
+                    scythe_inspect::error::error_chain(&e)
+                )
+            })?;
 
         tokio::spawn(async move {
             if let Err(e) = connection.await {

@@ -20,6 +20,7 @@ use tokio_postgres::Client;
 use tokio_postgres::types::{Kind, Type};
 
 use crate::error::InspectError;
+use crate::neutral::normalize_neutral_type;
 use crate::verify::pg_types::neutral_type_for;
 
 use super::model::{ColumnDescription, EnumDescription, SchemaDescription, TableDescription, object_key};
@@ -77,23 +78,71 @@ struct PgTypeRow {
 /// runs exactly this many levels and no more.
 const MAX_TYPE_RESOLUTION_DEPTH: usize = 16;
 
-/// Fetch the schemas on the connection's `search_path`, then everything they
+/// Fetch the schemas this comparison is scoped to, then everything they
 /// contain that drift compares.
 ///
-/// Scoped to `search_path` rather than to every non-system schema because that
-/// is exactly the set a query on this connection resolves against. Scanning
-/// every schema would report every table of every unrelated tenant, extension
-/// or staging schema as SC-DRF02.
-pub async fn fetch_live_schema(client: &Client) -> Result<SchemaDescription, InspectError> {
+/// The scope is the connection's `search_path` **plus every schema the
+/// committed DDL qualifies its objects with** (`declared_schemas`), not the
+/// search path alone.
+///
+/// Search path alone is the wrong scope, and demonstrably so: a DDL of
+/// `CREATE SCHEMA app; CREATE TABLE app.accounts (...)` against a connection
+/// whose search path is the default `public` made SC-DRF01 report
+/// `app.accounts` as missing *in the same run* in which the server had just
+/// prepared `SELECT id, name FROM app.accounts` successfully. One run, two
+/// contradictory answers about whether one table exists.
+///
+/// Every non-system schema would be the wrong scope in the other direction: it
+/// reports every table of every unrelated tenant, extension or staging schema
+/// as SC-DRF02. Search path plus the DDL's own qualifiers is exactly the set
+/// the DDL makes a claim about.
+///
+/// # Errors
+///
+/// [`InspectError::EmptySchemaScope`] when no schema in that union exists in
+/// the database. `current_schemas(false)` silently drops search-path entries
+/// that do not exist, so a `search_path` naming only absent schemas resolves to
+/// an empty list — and reading nothing, then comparing it against nothing,
+/// reports a clean bill of health for a database the check never looked at.
+pub async fn fetch_live_schema(
+    client: &Client,
+    declared_schemas: &[String],
+) -> Result<SchemaDescription, InspectError> {
     let types = fetch_types(client).await?;
     let enum_labels = fetch_enum_labels(client).await?;
     let search_path = fetch_search_path(client).await?;
+    let scope = schema_scope(&search_path, declared_schemas);
+
+    if scope.is_empty() {
+        return Err(InspectError::EmptySchemaScope {
+            search_path,
+            declared: declared_schemas.to_vec(),
+        });
+    }
 
     let mut description = SchemaDescription::new();
-    fetch_tables(client, &types, &enum_labels, &mut description).await?;
-    collect_enums(&types, &enum_labels, &search_path, &mut description);
+    fetch_tables(client, &types, &enum_labels, &scope, &mut description).await?;
+    collect_enums(&types, &enum_labels, &scope, &mut description);
 
     Ok(description)
+}
+
+/// The ordered schema list every catalog read is restricted to.
+///
+/// Order is the tie-break for a bare name declared in more than one schema, so
+/// it has to mean something: the search path comes first, in its own order,
+/// because that is what an unqualified query on this connection resolves to.
+/// DDL-declared schemas that are off the search path are appended after it, in
+/// the order given, so adding one can never change which object an
+/// already-resolvable name refers to.
+fn schema_scope(search_path: &[String], declared_schemas: &[String]) -> Vec<String> {
+    let mut scope = search_path.to_vec();
+    for schema in declared_schemas {
+        if !scope.iter().any(|existing| existing == schema) {
+            scope.push(schema.clone());
+        }
+    }
+    scope
 }
 
 /// Wrap a failed catalog query, naming the step that failed.
@@ -184,8 +233,14 @@ async fn fetch_tables(
     client: &Client,
     types: &HashMap<u32, PgTypeRow>,
     enum_labels: &HashMap<u32, Vec<String>>,
+    scope: &[String],
     description: &mut SchemaDescription,
 ) -> Result<(), InspectError> {
+    // The scope is bound as a `text[]` parameter rather than re-deriving it
+    // server-side from `current_schemas(false)`: the rank that resolves a name
+    // collision and the filter that selects the rows must come from the same
+    // list, and a schema the DDL declared but the search path omits has no
+    // `array_position` in `current_schemas(false)` at all.
     let sql = format!(
         "SELECT n.nspname::text AS schema_name, \
                 c.relname::text  AS relation_name, \
@@ -193,27 +248,28 @@ async fn fetch_tables(
                 a.attname::text  AS column_name, \
                 a.attnotnull     AS not_null, \
                 a.atttypid       AS type_oid, \
-                array_position(current_schemas(false), n.nspname) AS schema_rank \
+                array_position($1::text[], n.nspname::text) AS schema_rank \
          FROM pg_catalog.pg_class c \
          JOIN pg_catalog.pg_namespace n ON n.oid = c.relnamespace \
          JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid \
          WHERE c.relkind IN ({RELATION_KINDS}) \
-           AND n.nspname = ANY (current_schemas(false)) \
+           AND n.nspname::text = ANY ($1::text[]) \
            AND a.attnum > 0 \
            AND NOT a.attisdropped \
          ORDER BY schema_rank, c.relname, a.attnum"
     );
 
+    let scope_param: Vec<&str> = scope.iter().map(String::as_str).collect();
     let rows = client
-        .query(sql.as_str(), &[])
+        .query(sql.as_str(), &[&scope_param])
         .await
         .map_err(|e| query_error("pg_class", e))?;
 
-    // A table name can appear in more than one schema on the search path. The
-    // rows are ordered by search-path position, so the first occurrence of a
-    // name is the one an unqualified query would resolve to; the shadowed
-    // copies are dropped rather than merged, which would otherwise invent a
-    // table carrying both schemas' columns.
+    // A table name can appear in more than one schema in scope. The rows are
+    // ordered by scope position, so the first occurrence of a name is the one
+    // an unqualified query would resolve to; the shadowed copies are dropped
+    // rather than merged, which would otherwise invent a table carrying both
+    // schemas' columns.
     let mut winning_rank: HashMap<String, i32> = HashMap::new();
 
     for row in &rows {
@@ -240,9 +296,13 @@ async fn fetch_tables(
         let not_null: bool = row.get("not_null");
         let column = ColumnDescription {
             name: row.get("column_name"),
+            // Normalised here rather than at the comparison site, matching
+            // `describe_catalog`: one normalisation point, applied to both
+            // derivations of the type.
             neutral_type: resolve_type(type_oid, types, enum_labels, 0)
                 .as_ref()
-                .and_then(neutral_type_for),
+                .and_then(neutral_type_for)
+                .map(|neutral| normalize_neutral_type(&neutral).into_owned()),
             nullable: !not_null,
         };
 
@@ -254,19 +314,19 @@ async fn fetch_tables(
     Ok(())
 }
 
-/// Collect the enum types visible on the search path.
+/// Collect the enum types visible in `scope`.
 ///
-/// Two schemas on the search path may each declare an enum with the same bare
-/// name, which collapses onto one comparison key. The winner is the one in the
-/// earliest search-path schema — the type an unqualified reference would
-/// resolve to — exactly as [`fetch_tables`] resolves the same collision for
-/// relations. Without that rule the survivor would depend on `HashMap`
-/// iteration order, whose seed is randomised per process: SC-DRF07 would fire
-/// on some runs and swallow real enum drift on others.
+/// Two schemas in scope may each declare an enum with the same bare name, which
+/// collapses onto one comparison key. The winner is the one in the earliest
+/// scope position — the type an unqualified reference would resolve to —
+/// exactly as [`fetch_tables`] resolves the same collision for relations.
+/// Without that rule the survivor would depend on `HashMap` iteration order,
+/// whose seed is randomised per process: SC-DRF07 would fire on some runs and
+/// swallow real enum drift on others.
 fn collect_enums(
     types: &HashMap<u32, PgTypeRow>,
     enum_labels: &HashMap<u32, Vec<String>>,
-    search_path: &[String],
+    scope: &[String],
     description: &mut SchemaDescription,
 ) {
     let mut winning_rank: HashMap<String, usize> = HashMap::new();
@@ -275,7 +335,7 @@ fn collect_enums(
         if row.kind != "e" {
             continue;
         }
-        let Some(rank) = search_path.iter().position(|schema| *schema == row.schema) else {
+        let Some(rank) = scope.iter().position(|schema| *schema == row.schema) else {
             continue;
         };
         let Some(values) = enum_labels.get(oid) else {
@@ -498,8 +558,55 @@ mod tests {
         assert!(resolve_type(oid, &types, &HashMap::new(), 0).is_none());
     }
 
-    /// Only enums on the search path become comparable enum descriptions; an
-    /// enum in some unrelated schema is not part of what a query would see.
+    /// The SC-DRF01 false positive: a DDL that qualifies its objects with a
+    /// schema off the connection's search path had that schema read out of
+    /// scope entirely, so every table in it reported as missing from a database
+    /// that demonstrably had them.
+    #[test]
+    fn should_include_a_declared_schema_when_it_is_off_the_search_path() {
+        let scope = schema_scope(&["public".to_string()], &["app".to_string()]);
+        assert_eq!(scope, vec!["public".to_string(), "app".to_string()]);
+    }
+
+    /// A declared schema already on the search path must not be listed twice:
+    /// scope position is what resolves a name collision, and a duplicate would
+    /// give one schema two ranks.
+    #[test]
+    fn should_not_duplicate_a_declared_schema_that_is_already_on_the_search_path() {
+        let scope = schema_scope(&["app".to_string(), "public".to_string()], &["public".to_string()]);
+        assert_eq!(scope, vec!["app".to_string(), "public".to_string()]);
+    }
+
+    /// Appending after the search path rather than before it means adding a
+    /// DDL-declared schema can never change which object an already-resolvable
+    /// bare name refers to.
+    #[test]
+    fn should_rank_search_path_schemas_ahead_of_declared_ones() {
+        let scope = schema_scope(&["public".to_string()], &["app".to_string(), "archive".to_string()]);
+        assert_eq!(
+            scope.iter().position(|s| s == "public"),
+            Some(0),
+            "the search path must keep its precedence: {scope:?}"
+        );
+        assert_eq!(scope, vec!["public", "app", "archive"]);
+    }
+
+    #[test]
+    fn should_return_the_search_path_unchanged_when_the_ddl_declares_no_schema() {
+        let search_path = vec!["public".to_string(), "extensions".to_string()];
+        assert_eq!(schema_scope(&search_path, &[]), search_path);
+    }
+
+    /// The vacuous case the `EmptySchemaScope` error exists for:
+    /// `current_schemas(false)` drops search-path entries that do not exist, so
+    /// this is what a `search_path` naming only absent schemas produces.
+    #[test]
+    fn should_produce_an_empty_scope_when_neither_side_names_a_schema() {
+        assert!(schema_scope(&[], &[]).is_empty());
+    }
+
+    /// Only enums in scope become comparable enum descriptions; an enum in some
+    /// unrelated schema is not part of what a query would see.
     #[test]
     fn collect_enums_keeps_only_search_path_enums() {
         let visible_oid = 100_000;

@@ -34,8 +34,9 @@ fn url() -> String {
 /// connection's `search_path`.
 ///
 /// Isolating by `search_path` rather than by name filtering is what keeps
-/// these tests independent: `fetch_live_schema` scopes itself to
-/// `current_schemas(false)`, so another test's fixture is invisible here.
+/// these tests independent: `fetch_live_schema`'s scope starts from
+/// `current_schemas(false)`, so another test's fixture is invisible here
+/// unless the DDL under test qualifies its objects with that schema.
 async fn client_with_schema(schema: &str, ddl: &str) -> Client {
     let (client, connection) = tokio_postgres::connect(&url(), NoTls)
         .await
@@ -57,14 +58,31 @@ async fn client_with_schema(schema: &str, ddl: &str) -> Client {
     client
 }
 
-/// Compare `ddl` against whatever the connection's `search_path` schema holds.
+/// Compare `ddl` against the schemas in scope: the connection's `search_path`
+/// plus whatever schemas the DDL qualifies its own objects with.
 async fn drift_for(client: &Client, ddl: &str) -> Vec<Finding> {
     let catalog = Catalog::from_ddl_with_dialect(&[ddl], &SqlDialect::PostgreSQL).expect("catalog from ddl");
-    let live = fetch_live_schema(client).await.expect("fetch live schema");
-
     let ddl_schema = describe_catalog(&catalog).expect("describe catalog");
+    let declared = declared_schemas(&ddl_schema);
+
+    let live = fetch_live_schema(client, &declared).await.expect("fetch live schema");
 
     diff_schemas(&ddl_schema, &live, &DriftSeverities::default(), "test")
+}
+
+/// The schema qualifiers the DDL wrote, mirroring what `drift_findings` derives
+/// for the CLI.
+fn declared_schemas(ddl: &scythe_inspect::SchemaDescription) -> Vec<String> {
+    let mut declared: Vec<String> = ddl
+        .tables
+        .values()
+        .map(|table| table.display_name.as_str())
+        .chain(ddl.enums.values().map(|enum_type| enum_type.display_name.as_str()))
+        .filter_map(|name| name.rsplit_once('.').map(|(schema, _)| schema.to_lowercase()))
+        .collect();
+    declared.sort_unstable();
+    declared.dedup();
+    declared
 }
 
 fn rule_ids(findings: &[Finding]) -> Vec<&str> {
@@ -284,6 +302,91 @@ async fn a_view_is_not_reported_as_a_missing_table() {
         findings.is_empty(),
         "a view present on both sides must produce no findings, \
          including no nullability drift from PostgreSQL reporting every view column as nullable: {:?}",
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+}
+
+/// The SC-DRF01 false positive, live. The DDL qualifies its table with a
+/// schema that is not on the connection's `search_path`, so the live read used
+/// to skip that schema entirely and report the table as missing — in a run
+/// where the server would happily have prepared a query against it.
+#[tokio::test]
+async fn a_ddl_schema_off_the_search_path_is_still_compared() {
+    let (client, connection) = tokio_postgres::connect(&url(), NoTls)
+        .await
+        .expect("test setup: connect");
+    tokio::spawn(async move {
+        let _ = connection.await;
+    });
+
+    client
+        .batch_execute(
+            "DROP SCHEMA IF EXISTS drift_off_path CASCADE; \
+             CREATE SCHEMA drift_off_path; \
+             CREATE TABLE drift_off_path.accounts (id integer PRIMARY KEY, name text NOT NULL); \
+             SET search_path TO pg_catalog;",
+        )
+        .await
+        .expect("test setup: schema fixture");
+
+    let ddl = "CREATE TABLE drift_off_path.accounts (id integer PRIMARY KEY, name text NOT NULL);";
+    let findings = drift_for(&client, ddl).await;
+
+    assert!(
+        findings.is_empty(),
+        "a table the database demonstrably has must not be reported as missing \
+         merely because its schema is off the search path: {:?}",
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+
+    // The other half of the claim: the server resolves the same table in the
+    // same connection, so the drift answer and the server's answer agree.
+    let prepared = client
+        .prepare("SELECT id, name FROM drift_off_path.accounts")
+        .await
+        .expect("the server must be able to prepare against the very table drift just checked");
+    assert_eq!(prepared.columns().len(), 2);
+}
+
+/// `pg_dump --schema-only` qualifies a column's enum type. `pg_type` never
+/// does, so this fired SC-DRF05 on every enum column of every dumped schema.
+#[tokio::test]
+async fn a_schema_qualified_enum_column_is_not_reported_as_drift() {
+    let client = client_with_schema(
+        "drift_qualified_enum",
+        "CREATE TYPE status AS ENUM ('active', 'banned'); \
+         CREATE TABLE users (id integer, state status NOT NULL);",
+    )
+    .await;
+
+    let findings = drift_for(
+        &client,
+        "CREATE TYPE status AS ENUM ('active', 'banned'); \
+         CREATE TABLE users (id integer, state drift_qualified_enum.status NOT NULL);",
+    )
+    .await;
+
+    assert!(
+        findings.is_empty(),
+        "a column whose enum type the DDL qualified must compare equal to the bare \
+         type `pg_type` reports: {:?}",
+        findings.iter().map(|f| &f.message).collect::<Vec<_>>()
+    );
+}
+
+/// `sql_type_to_neutral` has no `name` arm, so the DDL side produced the raw
+/// spelling while `pg_catalog` reports `Type::NAME` → `string`. Across a
+/// 44-column sweep this was the only false positive.
+#[tokio::test]
+async fn a_name_typed_column_is_not_reported_as_drift() {
+    let ddl = "CREATE TABLE wide (id integer, c_name name);";
+    let client = client_with_schema("drift_name_type", ddl).await;
+
+    let findings = drift_for(&client, ddl).await;
+
+    assert!(
+        findings.is_empty(),
+        "a `name` column present identically on both sides is not drift: {:?}",
         findings.iter().map(|f| &f.message).collect::<Vec<_>>()
     );
 }

@@ -109,6 +109,16 @@ pub fn neutral_type_for(pg_type: &Type) -> Option<String> {
 /// one it is), so treating them as interchangeable would bury a real
 /// mismatch rather than a width guess.
 pub fn types_are_compatible(inferred: &str, reported: &str) -> bool {
+    // Both sides first go through the one normalisation point, so a difference
+    // that is only a difference in spelling — `enum::public.status` from a
+    // `pg_dump` column declaration against the `enum::status` `pg_type` always
+    // reports, or a `name` column the DDL side has no arm for — is settled
+    // before any tolerance below is consulted. Without this, SC-VER03 fired on
+    // every schema-qualified enum column in an otherwise exact match.
+    let inferred = crate::neutral::normalize_neutral_type(inferred);
+    let reported = crate::neutral::normalize_neutral_type(reported);
+    let (inferred, reported) = (inferred.as_ref(), reported.as_ref());
+
     if inferred == reported {
         return true;
     }
@@ -195,6 +205,38 @@ mod tests {
     fn width_differences_within_a_family_are_compatible() {
         assert!(types_are_compatible("int32", "int64"));
         assert!(types_are_compatible("float32", "float64"));
+    }
+
+    /// SC-VER03's false positive: static inference renders the enum from the
+    /// column's own type spelling, so a `pg_dump` schema declaring
+    /// `state public.status` infers `enum::public.status` while the server
+    /// reports `enum::status` for the very same column.
+    #[test]
+    fn should_accept_a_qualified_enum_against_the_bare_enum_the_server_reports() {
+        assert!(types_are_compatible("enum::public.status", "enum::status"));
+        assert!(types_are_compatible("enum::status", "enum::public.status"));
+    }
+
+    /// Stripping the qualifier must not make every enum interchangeable —
+    /// two genuinely different enum types are still a mismatch.
+    #[test]
+    fn should_still_reject_two_different_enums_after_stripping_the_qualifier() {
+        assert!(!types_are_compatible("enum::public.status", "enum::mood"));
+    }
+
+    /// The array form reaches the comparison whole, so the qualifier has to be
+    /// stripped inside the wrapper too.
+    #[test]
+    fn should_accept_a_qualified_enum_array_against_the_bare_array_the_server_reports() {
+        assert!(types_are_compatible("array<enum::public.mood>", "array<enum::mood>"));
+    }
+
+    /// A `name` column infers as the raw spelling `name` because
+    /// `sql_type_to_neutral` has no arm for it, while the server reports
+    /// `Type::NAME`, which this module maps to `string`.
+    #[test]
+    fn should_accept_a_name_typed_column_against_the_reported_string() {
+        assert!(types_are_compatible("name", "string"));
     }
 
     #[test]

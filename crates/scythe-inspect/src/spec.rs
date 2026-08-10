@@ -99,6 +99,29 @@ pub struct CheckSpec {
     /// a higher major version than the cluster's are skipped silently.
     #[serde(default)]
     pub min_pg_version: Option<u32>,
+
+    /// The projected column whose value names the object a finding is about —
+    /// what `[[inspect.suppression]] object = "…"` is compared against.
+    ///
+    /// Declared rather than guessed. The suppression engine used to pick the
+    /// binding by scanning the result row for a key containing `"name"`, over a
+    /// `HashMap` whose iteration order is randomised per process: SC-INS01 has
+    /// two qualifying keys (`table_name`, `constraint_name`) and SC-INS06 has
+    /// three, so the same config suppressed on some runs and not on others.
+    /// SC-INS12 could never be suppressed at all, because it aliases its object
+    /// column `parent_table` and no substring search for `"name"` will ever
+    /// find it.
+    #[serde(default)]
+    pub object_binding: Option<String>,
+
+    /// The projected column whose value names the schema a finding is in —
+    /// what `[[inspect.suppression]] schema = "…"` is compared against.
+    ///
+    /// Declared for the same reason as [`CheckSpec::object_binding`]: a
+    /// substring search cannot tell that a check projects no schema at all, and
+    /// silently declines to suppress instead of saying so.
+    #[serde(default)]
+    pub schema_binding: Option<String>,
 }
 
 /// Validation error for a user-supplied or canonical [`CheckSpec`].
@@ -126,6 +149,24 @@ pub enum SpecValidationError {
     /// The SQL body is not a SELECT statement.
     #[error("check {check_id:?}: SQL must be a SELECT statement, got a different statement type")]
     SqlNotSelect { check_id: String },
+    /// `object_binding` or `schema_binding` names a column the SQL does not
+    /// project, so `[[inspect.suppression]]` could never match on it.
+    #[error(
+        "check {check_id:?}: {field} = {binding:?} is not a column this check's SQL projects \
+         (available: {available:?})"
+    )]
+    SuppressionBindingMissing {
+        check_id: String,
+        field: &'static str,
+        binding: String,
+        available: Vec<String>,
+    },
+    /// A canonical built-in check does not declare `object_binding`.
+    #[error(
+        "check {check_id:?}: canonical checks must declare object_binding so \
+         `[[inspect.suppression]] object = \"…\"` has a column to compare against"
+    )]
+    MissingObjectBinding { check_id: String },
 }
 
 impl CheckSpec {
@@ -179,6 +220,80 @@ fn expr_to_name(expr: &sqlparser::ast::Expr) -> String {
 /// If the SQL uses a `SELECT *` or we cannot statically determine the
 /// projection (e.g. CTE-only bodies), validation is skipped (returns `Ok(())`).
 pub fn validate_message_bindings(spec: &CheckSpec) -> Result<(), SpecValidationError> {
+    let Some(projection) = sql_projection(spec)? else {
+        return Ok(());
+    };
+
+    let placeholders = extract_message_placeholders(&spec.message);
+
+    for ph in &placeholders {
+        if !projection.contains(&ph.to_ascii_lowercase()) {
+            return Err(SpecValidationError::MessageBindingMissing {
+                check_id: spec.id.clone(),
+                binding: ph.clone(),
+                available: projection,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// Validate that `object_binding` and `schema_binding` name columns the check's
+/// SQL actually projects.
+///
+/// Checked statically, at registry-load time, because the failure it prevents
+/// is invisible at runtime: a suppression rule pointed at a column that does
+/// not exist does not error, it simply never matches, and the user sees a
+/// finding they believed they had silenced with no indication why.
+///
+/// `require_object_binding` is set for canonical built-in checks, where the
+/// binding is not optional — every one of them projects an object column, and a
+/// missing declaration would send suppression back to guessing.
+pub fn validate_suppression_bindings(
+    spec: &CheckSpec,
+    require_object_binding: bool,
+) -> Result<(), SpecValidationError> {
+    if require_object_binding && spec.object_binding.is_none() {
+        return Err(SpecValidationError::MissingObjectBinding {
+            check_id: spec.id.clone(),
+        });
+    }
+
+    if spec.object_binding.is_none() && spec.schema_binding.is_none() {
+        return Ok(());
+    }
+
+    let Some(projection) = sql_projection(spec)? else {
+        return Ok(());
+    };
+
+    for (field, binding) in [
+        ("object_binding", spec.object_binding.as_deref()),
+        ("schema_binding", spec.schema_binding.as_deref()),
+    ] {
+        let Some(binding) = binding else { continue };
+        if !projection.contains(&binding.to_ascii_lowercase()) {
+            return Err(SpecValidationError::SuppressionBindingMissing {
+                check_id: spec.id.clone(),
+                field,
+                binding: binding.to_string(),
+                available: projection,
+            });
+        }
+    }
+
+    Ok(())
+}
+
+/// The lowercased column names `spec.sql` projects, or `None` when they cannot
+/// be determined statically (a wildcard projection, a set operation, a
+/// CTE-only body).
+///
+/// `None` means "unknown", never "empty": treating an undeterminable projection
+/// as an empty one would reject every binding on a check whose SQL is merely
+/// shaped in a way this parser does not model.
+fn sql_projection(spec: &CheckSpec) -> Result<Option<Vec<String>>, SpecValidationError> {
     let stmts =
         Parser::parse_sql(&PostgreSqlDialect {}, &spec.sql).map_err(|e| SpecValidationError::SqlParseError {
             check_id: spec.id.clone(),
@@ -207,9 +322,7 @@ pub fn validate_message_bindings(spec: &CheckSpec) -> Result<(), SpecValidationE
     use sqlparser::ast::{SelectItem, SetExpr};
     let select = match *query.body {
         SetExpr::Select(s) => s,
-        _ => {
-            return Ok(());
-        }
+        _ => return Ok(None),
     };
 
     let has_wildcard = select.projection.iter().any(|item| {
@@ -219,33 +332,21 @@ pub fn validate_message_bindings(spec: &CheckSpec) -> Result<(), SpecValidationE
         )
     });
     if has_wildcard {
-        return Ok(());
+        return Ok(None);
     }
 
-    let projection: Vec<String> = select
-        .projection
-        .iter()
-        .map(|item| match item {
-            SelectItem::ExprWithAlias { alias, .. } => alias.value.to_ascii_lowercase(),
-            SelectItem::UnnamedExpr(expr) => expr_to_name(expr),
-            _ => String::new(),
-        })
-        .filter(|s| !s.is_empty())
-        .collect();
-
-    let placeholders = extract_message_placeholders(&spec.message);
-
-    for ph in &placeholders {
-        if !projection.contains(&ph.to_ascii_lowercase()) {
-            return Err(SpecValidationError::MessageBindingMissing {
-                check_id: spec.id.clone(),
-                binding: ph.clone(),
-                available: projection,
-            });
-        }
-    }
-
-    Ok(())
+    Ok(Some(
+        select
+            .projection
+            .iter()
+            .map(|item| match item {
+                SelectItem::ExprWithAlias { alias, .. } => alias.value.to_ascii_lowercase(),
+                SelectItem::UnnamedExpr(expr) => expr_to_name(expr),
+                _ => String::new(),
+            })
+            .filter(|s| !s.is_empty())
+            .collect(),
+    ))
 }
 
 /// Errors that can arise while loading or validating a user-supplied check
@@ -322,6 +423,8 @@ mod tests {
             explanation: None,
             remediation: None,
             min_pg_version: None,
+            object_binding: None,
+            schema_binding: None,
         }
     }
 
@@ -367,6 +470,89 @@ mod tests {
             "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace",
         );
         validate_message_bindings(&spec).expect("all bindings present");
+    }
+
+    /// A binding pointed at a column the SQL does not project cannot ever
+    /// match, and at runtime that looks exactly like "the suppression rule is
+    /// wrong" rather than "the check is wrong". Catching it at load time is
+    /// what turns a silent non-match into a message.
+    #[test]
+    fn should_reject_an_object_binding_the_sql_does_not_project() {
+        let mut spec = make_spec(
+            "USER-INS-001",
+            "table {table_name}",
+            "SELECT c.relname AS table_name FROM pg_class c",
+        );
+        spec.object_binding = Some("parent_table".to_string());
+
+        let err = validate_suppression_bindings(&spec, false).unwrap_err();
+        let SpecValidationError::SuppressionBindingMissing { field, binding, .. } = err else {
+            panic!("expected SuppressionBindingMissing, got {err:?}");
+        };
+        assert_eq!(field, "object_binding");
+        assert_eq!(binding, "parent_table");
+    }
+
+    #[test]
+    fn should_reject_a_schema_binding_the_sql_does_not_project() {
+        let mut spec = make_spec(
+            "USER-INS-001",
+            "table {table_name}",
+            "SELECT c.relname AS table_name FROM pg_class c",
+        );
+        spec.schema_binding = Some("schema_name".to_string());
+
+        let err = validate_suppression_bindings(&spec, false).unwrap_err();
+        assert!(matches!(
+            err,
+            SpecValidationError::SuppressionBindingMissing {
+                field: "schema_binding",
+                ..
+            }
+        ));
+    }
+
+    #[test]
+    fn should_accept_bindings_the_sql_projects() {
+        let mut spec = make_spec(
+            "USER-INS-001",
+            "table {schema_name}.{table_name}",
+            "SELECT n.nspname AS schema_name, c.relname AS table_name FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace",
+        );
+        spec.object_binding = Some("table_name".to_string());
+        spec.schema_binding = Some("schema_name".to_string());
+
+        validate_suppression_bindings(&spec, true).expect("both bindings are projected");
+    }
+
+    /// A canonical check without an object binding sends suppression back to
+    /// guessing, which is the defect the field exists to remove — so the
+    /// registry must refuse to load one.
+    #[test]
+    fn should_reject_a_canonical_check_that_declares_no_object_binding() {
+        let spec = make_spec(
+            "SC-INS99",
+            "table {table_name}",
+            "SELECT c.relname AS table_name FROM pg_class c",
+        );
+
+        let err = validate_suppression_bindings(&spec, true).unwrap_err();
+        assert!(
+            matches!(err, SpecValidationError::MissingObjectBinding { .. }),
+            "{err:?}"
+        );
+    }
+
+    /// A user check may leave both undeclared; only canonical checks are held
+    /// to the stricter rule.
+    #[test]
+    fn should_accept_a_user_check_that_declares_no_bindings() {
+        let spec = make_spec(
+            "USER-INS-001",
+            "table {table_name}",
+            "SELECT c.relname AS table_name FROM pg_class c",
+        );
+        validate_suppression_bindings(&spec, false).expect("bindings are optional for user checks");
     }
 
     #[test]

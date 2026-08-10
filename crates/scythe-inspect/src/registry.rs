@@ -9,7 +9,7 @@ use std::path::Path;
 
 use scythe_lint::types::Severity;
 
-use crate::spec::{CheckSpec, ConfigError, validate_message_bindings};
+use crate::spec::{CheckSpec, ConfigError, validate_message_bindings, validate_suppression_bindings};
 
 /// Registry of all check specs available for a given run.
 ///
@@ -36,6 +36,16 @@ impl CheckRegistry {
         for spec in &checks {
             validate_message_bindings(spec)
                 .unwrap_or_else(|e| panic!("canonical check {id} has invalid message bindings: {e}", id = spec.id));
+            // Required, not optional, for canonical checks: a missing or
+            // misspelled `object_binding` makes `[[inspect.suppression]]
+            // object = "…"` silently do nothing for that rule, which is how
+            // SC-INS12 shipped with a dead object filter.
+            validate_suppression_bindings(spec, true).unwrap_or_else(|e| {
+                panic!(
+                    "canonical check {id} has invalid suppression bindings: {e}",
+                    id = spec.id
+                )
+            });
         }
 
         Self { checks }
@@ -62,6 +72,12 @@ impl CheckRegistry {
             })?;
 
             validate_message_bindings(&spec).map_err(|e| ConfigError::InvalidCheck {
+                path: path_str.clone(),
+                check_id: spec.id.clone(),
+                reason: format!("{e}"),
+            })?;
+
+            validate_suppression_bindings(&spec, false).map_err(|e| ConfigError::InvalidCheck {
                 path: path_str.clone(),
                 check_id: spec.id.clone(),
                 reason: format!("{e}"),
@@ -159,6 +175,8 @@ mod tests {
             explanation: None,
             remediation: None,
             min_pg_version: None,
+            object_binding: None,
+            schema_binding: None,
         });
 
         assert_eq!(reg.for_engine("postgres").count(), CANONICAL_CHECK_IDS.len());

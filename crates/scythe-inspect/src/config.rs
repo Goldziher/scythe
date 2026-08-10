@@ -45,16 +45,22 @@ use serde::Deserialize;
 
 use scythe_lint::types::Severity;
 
-use crate::spec::{CheckSpec, ConfigError, load_checks_from_file, validate_message_bindings};
+use crate::spec::{
+    CheckSpec, ConfigError, load_checks_from_file, validate_message_bindings, validate_suppression_bindings,
+};
 
 /// A single suppression rule from `[[inspect.suppression]]`.
 ///
 /// A finding is suppressed when ALL fields that are `Some` match:
 /// - `rule`   — the finding's `rule_id` must equal this.
-/// - `schema` — the row binding key whose name contains `"schema"` (e.g.
-///   `schema_name`) must equal this value.
-/// - `object` — any binding key whose name contains `"name"` (e.g.
-///   `table_name`, `extension_name`) must equal this value.
+/// - `schema` — the value of the column the check declares as its
+///   `schema_binding` must equal this value.
+/// - `object` — the value of the column the check declares as its
+///   `object_binding` must equal this value.
+///
+/// Both columns are declared by the check, not inferred from the row: see
+/// [`SuppressionEngine`](crate::suppression::SuppressionEngine) for what
+/// inferring them cost.
 #[derive(Debug, Clone, Deserialize)]
 pub struct SuppressionRule {
     /// Required: the rule ID this suppression silences (e.g. `"SC-INS09"`).
@@ -165,6 +171,11 @@ pub fn parse_inspect_section(config_path: &Path) -> Result<Option<InspectConfig>
             check_id: spec.id.clone(),
             reason: e.to_string(),
         })?;
+        validate_suppression_bindings(spec, false).map_err(|e| ConfigError::InvalidCheck {
+            path: config_path.display().to_string(),
+            check_id: spec.id.clone(),
+            reason: e.to_string(),
+        })?;
     }
 
     let mut resolved_extra_rules: Vec<String> = Vec::new();
@@ -180,6 +191,11 @@ pub fn parse_inspect_section(config_path: &Path) -> Result<Option<InspectConfig>
                 reason: e.to_string(),
             })?;
             validate_message_bindings(spec).map_err(|e| ConfigError::InvalidCheck {
+                path: abs_str.clone(),
+                check_id: spec.id.clone(),
+                reason: e.to_string(),
+            })?;
+            validate_suppression_bindings(spec, false).map_err(|e| ConfigError::InvalidCheck {
                 path: abs_str.clone(),
                 check_id: spec.id.clone(),
                 reason: e.to_string(),

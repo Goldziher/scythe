@@ -9,6 +9,7 @@ use scythe_core::analyzer::sql_type_to_neutral;
 use scythe_core::catalog::Catalog;
 
 use crate::error::InspectError;
+use crate::neutral::normalize_neutral_type;
 
 use super::model::{ColumnDescription, EnumDescription, SchemaDescription, TableDescription, object_key};
 
@@ -49,7 +50,7 @@ pub fn describe_catalog(catalog: &Catalog) -> Result<SchemaDescription, InspectE
         for column in &table.columns {
             described = described.with_column(ColumnDescription::new(
                 column.name.clone(),
-                sql_type_to_neutral(&column.sql_type, catalog).into_owned(),
+                column_neutral_type(&column.sql_type, catalog),
                 column.nullable,
             ));
         }
@@ -75,6 +76,43 @@ pub fn describe_catalog(catalog: &Catalog) -> Result<SchemaDescription, InspectE
     }
 
     Ok(description)
+}
+
+/// The neutral type a DDL column compares as, in the same form the live side
+/// produces.
+///
+/// Two things happen here that `sql_type_to_neutral` alone does not do, both
+/// caused by the DDL spelling a *user-defined* type with its schema — which is
+/// exactly what `pg_dump --schema-only` emits, so this is the ordinary case,
+/// not an exotic one:
+///
+/// 1. `Catalog`'s type lookup resolves a bare reference to a qualified
+///    declaration but not the reverse, so `state public.status` against a
+///    `CREATE TYPE status` finds nothing and the raw spelling `public.status`
+///    falls straight through. Retrying with the bare name recovers the
+///    `enum::status` the live side reports.
+/// 2. When the lookup *does* resolve, it renders the payload from the
+///    column's own spelling (`enum::public.status`) while `pg_type` — which
+///    stores the schema separately — always says `enum::status`.
+///    [`normalize_neutral_type`] settles that.
+///
+/// Both were reported as SC-DRF05 on schemas that match exactly.
+fn column_neutral_type(sql_type: &str, catalog: &Catalog) -> String {
+    let spelling = sql_type.trim();
+    let neutral = sql_type_to_neutral(spelling, catalog);
+
+    // The fall-through arm returns the normalised input verbatim, which is how
+    // "nothing was recognised" is distinguished from a real mapping.
+    if neutral.eq_ignore_ascii_case(spelling)
+        && let Some((_schema, bare)) = spelling.rsplit_once('.')
+    {
+        let bare_neutral = sql_type_to_neutral(bare, catalog);
+        if !bare_neutral.eq_ignore_ascii_case(bare) {
+            return normalize_neutral_type(&bare_neutral).into_owned();
+        }
+    }
+
+    normalize_neutral_type(&neutral).into_owned()
 }
 
 fn ambiguous(kind: &'static str, key: &str, first: &str, second: &str) -> InspectError {
@@ -123,6 +161,90 @@ mod tests {
         assert_eq!(
             description.tables["users"].display_name, "public.users",
             "the message must still show the qualified name the DDL wrote"
+        );
+    }
+
+    /// `pg_dump --schema-only` qualifies a column's enum type with its schema.
+    /// `pg_type` never does, so the DDL side rendered `enum::public.status`
+    /// against a live `enum::status` and SC-DRF05 fired on the output of the
+    /// most ordinary way there is to obtain a schema file.
+    #[test]
+    fn should_describe_a_schema_qualified_enum_column_bare_when_the_ddl_qualifies_it() {
+        let catalog = catalog_from(
+            "CREATE TYPE status AS ENUM ('active', 'banned');
+             CREATE TABLE users (id integer, state public.status);",
+        );
+        let description = describe_catalog(&catalog).expect("describe catalog");
+
+        assert_eq!(
+            description.tables["users"].columns["state"].neutral_type.as_deref(),
+            Some("enum::status")
+        );
+    }
+
+    /// The two spellings of one column type must describe identically, or the
+    /// comparison is still comparing spellings rather than types.
+    #[test]
+    fn should_describe_the_qualified_and_bare_enum_spellings_identically() {
+        let qualified = describe_catalog(&catalog_from(
+            "CREATE TYPE status AS ENUM ('active');
+             CREATE TABLE users (state public.status);",
+        ))
+        .expect("describe catalog");
+        let bare = describe_catalog(&catalog_from(
+            "CREATE TYPE status AS ENUM ('active');
+             CREATE TABLE users (state status);",
+        ))
+        .expect("describe catalog");
+
+        assert_eq!(
+            qualified.tables["users"].columns["state"].neutral_type,
+            bare.tables["users"].columns["state"].neutral_type
+        );
+    }
+
+    /// `sql_type_to_neutral` has no `name` arm and falls through to the raw
+    /// spelling, while the live side maps `Type::NAME` to `string`. Across a
+    /// 44-column sweep of the PostgreSQL type surface this was the only column
+    /// that reported drift on a schema in sync.
+    #[test]
+    fn should_describe_a_name_column_as_string_to_match_what_the_catalog_reports() {
+        let description =
+            describe_catalog(&catalog_from("CREATE TABLE wide (c_name name);")).expect("describe catalog");
+
+        assert_eq!(
+            description.tables["wide"].columns["c_name"].neutral_type.as_deref(),
+            Some("string")
+        );
+    }
+
+    /// The bare-name retry must not swallow the qualifier on a type scythe
+    /// genuinely does not know: losing it would make the finding message name a
+    /// type that does not exist.
+    #[test]
+    fn should_keep_the_qualifier_when_the_bare_name_resolves_to_nothing_either() {
+        let description =
+            describe_catalog(&catalog_from("CREATE TABLE t (c ext.widget_kind);")).expect("describe catalog");
+
+        assert_eq!(
+            description.tables["t"].columns["c"].neutral_type.as_deref(),
+            Some("ext.widget_kind")
+        );
+    }
+
+    /// The retry only fires when the qualified spelling resolved to nothing, so
+    /// a type name the qualified lookup already understands is untouched.
+    #[test]
+    fn should_not_retry_when_the_qualified_spelling_already_resolves() {
+        let description = describe_catalog(&catalog_from(
+            "CREATE TYPE public.status AS ENUM ('active');
+             CREATE TABLE t (c public.status);",
+        ))
+        .expect("describe catalog");
+
+        assert_eq!(
+            description.tables["t"].columns["c"].neutral_type.as_deref(),
+            Some("enum::status")
         );
     }
 
