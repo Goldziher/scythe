@@ -127,6 +127,16 @@ pub async fn fetch_live_schema(
     Ok(description)
 }
 
+/// Schemas PostgreSQL owns, which no committed DDL ever declares.
+///
+/// `pg_` is a reserved schema prefix — the server rejects `CREATE SCHEMA pg_x`
+/// outright — so the prefix test cannot collide with a user schema, and it
+/// covers the `pg_toast*` and per-session `pg_temp_N` families without naming
+/// each one.
+fn is_system_schema(schema: &str) -> bool {
+    schema == "information_schema" || schema.starts_with("pg_")
+}
+
 /// The ordered schema list every catalog read is restricted to.
 ///
 /// Order is the tie-break for a bare name declared in more than one schema, so
@@ -135,10 +145,20 @@ pub async fn fetch_live_schema(
 /// DDL-declared schemas that are off the search path are appended after it, in
 /// the order given, so adding one can never change which object an
 /// already-resolvable name refers to.
+///
+/// System schemas drop out of both halves. `current_schemas(false)` omits
+/// `pg_catalog` only while it is *implicit*; `SET search_path TO pg_catalog`
+/// makes it explicit and it comes back, pulling all ~130 system catalog
+/// relations into scope to be reported as SC-DRF02 "exists in the database but
+/// is not declared". The DDL makes no claim about them in either direction.
 fn schema_scope(search_path: &[String], declared_schemas: &[String]) -> Vec<String> {
-    let mut scope = search_path.to_vec();
+    let mut scope: Vec<String> = search_path
+        .iter()
+        .filter(|schema| !is_system_schema(schema))
+        .cloned()
+        .collect();
     for schema in declared_schemas {
-        if !scope.iter().any(|existing| existing == schema) {
+        if !is_system_schema(schema) && !scope.iter().any(|existing| existing == schema) {
             scope.push(schema.clone());
         }
     }
@@ -595,6 +615,44 @@ mod tests {
     fn should_return_the_search_path_unchanged_when_the_ddl_declares_no_schema() {
         let search_path = vec!["public".to_string(), "extensions".to_string()];
         assert_eq!(schema_scope(&search_path, &[]), search_path);
+    }
+
+    /// `SET search_path TO pg_catalog` is legal, and `current_schemas(false)`
+    /// reports it because it is explicit rather than implicit. Left in scope it
+    /// reports every system catalog relation as SC-DRF02 drift.
+    #[test]
+    fn should_drop_an_explicitly_search_pathed_system_schema() {
+        let scope = schema_scope(&["pg_catalog".to_string()], &["drift_off_path".to_string()]);
+        assert_eq!(scope, vec!["drift_off_path".to_string()]);
+    }
+
+    #[test]
+    fn should_drop_every_system_schema_family_from_the_search_path() {
+        let search_path = vec![
+            "pg_catalog".to_string(),
+            "information_schema".to_string(),
+            "pg_toast".to_string(),
+            "pg_temp_3".to_string(),
+            "app".to_string(),
+        ];
+        assert_eq!(schema_scope(&search_path, &[]), vec!["app".to_string()]);
+    }
+
+    /// A DDL naming a system schema is not a claim the drift check should act
+    /// on either — the tables it would pull in are the server's, not the
+    /// project's.
+    #[test]
+    fn should_drop_a_system_schema_the_ddl_declares() {
+        let scope = schema_scope(&["public".to_string()], &["pg_catalog".to_string()]);
+        assert_eq!(scope, vec!["public".to_string()]);
+    }
+
+    /// The prefix test must not swallow a user schema that merely reads like a
+    /// system one. PostgreSQL reserves `pg_`, so `pgbouncer` is a legal name.
+    #[test]
+    fn should_keep_a_user_schema_whose_name_only_resembles_a_system_one() {
+        let search_path = vec!["pgbouncer".to_string(), "pg_catalog".to_string()];
+        assert_eq!(schema_scope(&search_path, &[]), vec!["pgbouncer".to_string()]);
     }
 
     /// The vacuous case the `EmptySchemaScope` error exists for:
