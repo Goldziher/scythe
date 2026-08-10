@@ -73,8 +73,17 @@ output = "{output}"
     let config_path = temp.path().join("scythe.toml");
     std::fs::write(&config_path, &config).unwrap();
 
+    // `output` above is an absolute path (the temp dir's own `out/`
+    // subdirectory), which #207 now rejects by default as escaping the
+    // project root; `--allow-output-escape` opts back in, matching the same
+    // deliberate-absolute-output pattern in `config_relative_paths.rs`.
     let output = scythe_bin()
-        .args(["generate", "--config", config_path.to_str().unwrap()])
+        .args([
+            "generate",
+            "--config",
+            config_path.to_str().unwrap(),
+            "--allow-output-escape",
+        ])
         .current_dir(temp.path())
         .output()
         .expect("failed to run scythe generate");

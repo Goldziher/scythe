@@ -54,7 +54,7 @@ pub fn run_inspect(opts: RunInspectOpts) -> Result<(), Box<dyn std::error::Error
             None
         });
 
-    let engine = resolve_engine(opts.dialect.as_deref(), opts.database_url.as_deref());
+    let engine = resolve_engine(opts.dialect.as_deref(), opts.database_url.as_deref())?;
 
     let registry = build_registry(opts.config_path.as_str(), &engine, &inspect_config)?;
 
@@ -172,20 +172,44 @@ pub(crate) fn build_driver_with_config(
 
 /// Resolve engine from explicit `--dialect`, else from URL scheme, else
 /// default to `postgres`.
-fn resolve_engine(dialect: Option<&str>, url: Option<&str>) -> String {
+///
+/// An explicit `--dialect` is normalized and validated against the only two
+/// engines `scythe inspect` actually dispatches to
+/// ([`build_driver_with_config`]'s `"postgres"`/`"mysql"` match): before
+/// this, an unrecognized value (a typo, or `--dialect klingon`) passed
+/// through unchanged, `--list-checks` silently reported "no checks
+/// available" (indistinguishable from a real engine with a currently-empty
+/// catalog), and a live run of `--dialect klingon` would have silently
+/// fallen into `build_driver_with_config`'s `_ => MysqlDriver` catch-all --
+/// running the *wrong* driver rather than erroring. See #212. A URL's
+/// scheme is not validated the same way: an unrecognized scheme still
+/// reaches `build_driver_with_config`'s fallback today, but connecting with
+/// it fails loudly at the driver, which is not the same silent-success
+/// failure mode `--dialect` has for the no-connection `--list-checks` path.
+fn resolve_engine(dialect: Option<&str>, url: Option<&str>) -> Result<String, String> {
+    const KNOWN_ENGINES: &[&str] = &["postgres", "postgresql", "mysql", "mariadb"];
+
     if let Some(d) = dialect {
-        return d.to_string();
+        let lower = d.to_ascii_lowercase();
+        return match lower.as_str() {
+            "postgres" | "postgresql" => Ok("postgres".to_string()),
+            "mysql" | "mariadb" => Ok("mysql".to_string()),
+            _ => Err(format!(
+                "unknown --dialect '{d}' (expected {})",
+                KNOWN_ENGINES.join("|")
+            )),
+        };
     }
     if let Some(u) = url
         && let Some(scheme) = u.split("://").next()
     {
-        return match scheme {
+        return Ok(match scheme {
             "postgres" | "postgresql" => "postgres".to_string(),
             "mysql" | "mariadb" => "mysql".to_string(),
             other => other.to_string(),
-        };
+        });
     }
-    "postgres".to_string()
+    Ok("postgres".to_string())
 }
 
 /// Resolve the database URL with the full precedence chain:
@@ -197,25 +221,6 @@ pub(crate) fn resolve_url(
 ) -> Result<String, Box<dyn std::error::Error>> {
     resolve_url_inner(
         positional,
-        std::env::var("DATABASE_URL").ok().as_deref(),
-        std::env::var("SCYTHE_DATABASE_URL").ok().as_deref(),
-        config_url,
-    )
-}
-
-/// Resolve the database URL for use from lint — returns `Some(url)` when a
-/// URL is found via the full precedence chain, `None` when no URL is
-/// configured.
-///
-/// Precedence: `[inspect].database_url` in `config` <
-/// `$SCYTHE_DATABASE_URL` < `$DATABASE_URL`.  There is no CLI positional
-/// arg in the lint context.
-///
-/// This is intentionally infallible so the caller can silently skip
-/// inspection when no URL is found (the "no DB configured" path).
-pub fn resolve_inspect_url(config: &Option<InspectConfig>) -> Option<String> {
-    let config_url = config.as_ref().and_then(|c| c.database_url.as_deref());
-    resolve_url_inner_opt(
         std::env::var("DATABASE_URL").ok().as_deref(),
         std::env::var("SCYTHE_DATABASE_URL").ok().as_deref(),
         config_url,
@@ -237,11 +242,19 @@ fn resolve_url_inner(
         .ok_or_else(|| Box::new(InspectError::UrlMissing) as Box<dyn std::error::Error>)
 }
 
-/// Pure infallible URL resolver used by both [`resolve_url`] (which wraps
-/// it in `Result`) and [`resolve_inspect_url`] (which returns `Option`).
+/// Pure infallible URL resolver behind [`resolve_url`], which wraps it in a
+/// `Result`.
 ///
 /// Precedence (highest → lowest): `$DATABASE_URL` > `$SCYTHE_DATABASE_URL`
 /// > config file.
+///
+/// `scythe lint`'s inspect auto-run used to share this via a now-removed
+/// `resolve_inspect_url` wrapper. It no longer does: falling back to a bare
+/// environment variable meant a linter could open an outbound database
+/// connection purely because `$DATABASE_URL` happened to be set, with no
+/// flag to request it and no visible diagnostic if it failed (#210). `lint`
+/// now only honours an explicit `--database-url` or `[inspect].database_url`
+/// in `scythe.toml` — see `lint_cmd::try_run_inspect`.
 fn resolve_url_inner_opt(
     env_database_url: Option<&str>,
     env_scythe_database_url: Option<&str>,
@@ -362,20 +375,41 @@ mod tests {
 
     #[test]
     fn resolve_engine_explicit_dialect_wins() {
-        assert_eq!(resolve_engine(Some("mysql"), Some("postgres://x/y")), "mysql");
+        assert_eq!(resolve_engine(Some("mysql"), Some("postgres://x/y")).unwrap(), "mysql");
     }
 
     #[test]
     fn resolve_engine_from_url_scheme() {
-        assert_eq!(resolve_engine(None, Some("postgres://u@h/db")), "postgres");
-        assert_eq!(resolve_engine(None, Some("postgresql://u@h/db")), "postgres");
-        assert_eq!(resolve_engine(None, Some("mysql://u@h/db")), "mysql");
-        assert_eq!(resolve_engine(None, Some("mariadb://u@h/db")), "mysql");
+        assert_eq!(resolve_engine(None, Some("postgres://u@h/db")).unwrap(), "postgres");
+        assert_eq!(resolve_engine(None, Some("postgresql://u@h/db")).unwrap(), "postgres");
+        assert_eq!(resolve_engine(None, Some("mysql://u@h/db")).unwrap(), "mysql");
+        assert_eq!(resolve_engine(None, Some("mariadb://u@h/db")).unwrap(), "mysql");
     }
 
     #[test]
     fn resolve_engine_defaults_to_postgres() {
-        assert_eq!(resolve_engine(None, None), "postgres");
+        assert_eq!(resolve_engine(None, None).unwrap(), "postgres");
+    }
+
+    /// #212: an explicit `--dialect` alias is normalized -- `postgresql`
+    /// (scythe's own canonical engine name) must resolve the same as
+    /// sqruff/inspect's `postgres` spelling, not just pass through raw.
+    #[test]
+    fn resolve_engine_normalizes_explicit_dialect_aliases() {
+        assert_eq!(resolve_engine(Some("postgresql"), None).unwrap(), "postgres");
+        assert_eq!(resolve_engine(Some("mariadb"), None).unwrap(), "mysql");
+        assert_eq!(resolve_engine(Some("POSTGRES"), None).unwrap(), "postgres");
+    }
+
+    /// #212: an unrecognized `--dialect` must be rejected, not silently
+    /// treated as a real (if currently empty) engine catalog, and not
+    /// silently dispatched to `MysqlDriver` via
+    /// `build_driver_with_config`'s catch-all.
+    #[test]
+    fn resolve_engine_rejects_unknown_explicit_dialect() {
+        let err = resolve_engine(Some("klingon"), None).unwrap_err();
+        assert!(err.contains("klingon"));
+        assert!(err.contains("postgres"));
     }
 
     #[test]

@@ -16,6 +16,12 @@ enum Commands {
         /// Path to config file
         #[arg(short, long, default_value = "scythe.toml")]
         config: String,
+        /// Allow a `[[sql.gen]]` `output` directory to resolve outside the
+        /// project root (via `../` traversal or an absolute path). Off by
+        /// default: without it, such a path is rejected before anything is
+        /// written.
+        #[arg(long)]
+        allow_output_escape: bool,
     },
     /// Migrate from sqlc to scythe format
     Migrate {
@@ -24,9 +30,12 @@ enum Commands {
         sqlc_config: String,
     },
     /// Validate SQL without generating code. Exits 0 clean, 2 on
-    /// error-severity lint/drift findings (unless --exit-zero), 1 on
-    /// operational failure (unreadable config, unparseable SQL,
-    /// unconstructible backend, or other I/O error).
+    /// error-severity findings (unless --exit-zero) -- including an
+    /// unparseable query (SC-PARSE01/02) or a `[sql.gen]` target that
+    /// `scythe generate` would refuse to construct (SC-PRV09), both
+    /// reported without discarding findings collected from the rest of the
+    /// config -- 1 on operational failure (unreadable config, or other I/O
+    /// error).
     Check {
         #[arg(short, long, default_value = "scythe.toml")]
         config: String,
@@ -76,7 +85,9 @@ enum Commands {
         /// SQL files to format (if empty, uses config)
         files: Vec<String>,
     },
-    /// Lint SQL files (scythe rules + sqruff rules)
+    /// Lint SQL files (scythe rules + sqruff rules). Exits 2 on any
+    /// error-severity finding (unless --exit-zero), 1 on operational
+    /// failure (unreadable config, unparseable SQL, invalid [lint.sqruff]).
     Lint {
         /// Path to config file
         #[arg(short, long, default_value = "scythe.toml")]
@@ -89,6 +100,23 @@ enum Commands {
         dialect: Option<String>,
         /// SQL files to lint (if empty, uses config)
         files: Vec<String>,
+        /// Database URL for the auto-run `inspect` pass (live operational
+        /// checks: missing FK indexes, disabled RLS, duplicate indexes).
+        ///
+        /// Opt-in by design, like `check`'s `--database-url`: without this
+        /// flag (or a `[inspect].database_url` in scythe.toml), `lint` never
+        /// connects to a database, even if `$DATABASE_URL` happens to be set.
+        #[arg(long)]
+        database_url: Option<String>,
+        /// Output format: human (default), sarif, json
+        #[arg(long, default_value = "human")]
+        format: String,
+        /// Write reporter output to file instead of stdout
+        #[arg(short, long, value_name = "PATH")]
+        output: Option<String>,
+        /// Exit 0 even if error-severity findings are present
+        #[arg(long)]
+        exit_zero: bool,
     },
     /// Audit SQL files for security issues (privilege grants, dangerous
     /// functions, cartesian joins, unbounded LIKE, SECURITY DEFINER misuse).
@@ -166,7 +194,10 @@ fn main() {
     let cli = Cli::parse();
 
     let result = match cli.command {
-        Commands::Generate { config } => commands::generate::run_generate(&config),
+        Commands::Generate {
+            config,
+            allow_output_escape,
+        } => commands::generate::run_generate(&config, allow_output_escape),
         Commands::Migrate { sqlc_config } => commands::migrate::run_migrate(std::path::Path::new(&sqlc_config))
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
         Commands::Check {
@@ -194,7 +225,20 @@ fn main() {
             fix,
             dialect,
             files,
-        } => commands::lint_cmd::run_lint(&config, fix, dialect.as_deref(), &files),
+            database_url,
+            format,
+            output,
+            exit_zero,
+        } => commands::lint_cmd::run_lint(commands::lint_cmd::RunLintOpts {
+            config_path: config,
+            fix,
+            dialect,
+            files,
+            database_url,
+            format,
+            output,
+            exit_zero,
+        }),
         Commands::Audit {
             config,
             format,

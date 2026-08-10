@@ -16,7 +16,9 @@ use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::{QueryCommand, parse_query_with_dialect};
 use scythe_lint::{QueryViolation, RuleRegistry, Severity};
 
-use super::shared::{config_dir, redact_url_password, resolve_globs, split_query_file};
+use super::shared::{
+    config_dir, has_unannotated_sql, redact_url_password, resolve_contained_output, resolve_globs, split_query_file,
+};
 
 #[derive(Debug, Deserialize)]
 struct ScytheConfig {
@@ -410,7 +412,40 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
     }
 }
 
-pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_generate(config_path: &str, allow_output_escape: bool) -> Result<(), Box<dyn std::error::Error>> {
+    let mut written: Vec<String> = Vec::new();
+
+    let result = run_generate_inner(config_path, allow_output_escape, &mut written);
+
+    if result.is_err() && !written.is_empty() {
+        // Generation is not transactional -- a failure on a later `[[sql]]`
+        // block (or a later target within one) leaves every output already
+        // written by this run on disk, some of it now stale relative to the
+        // config that failed to finish. Silently leaving that out of the
+        // error would make a partial, inconsistent output tree look no
+        // different from a clean failure with nothing written. See #212.
+        eprintln!(
+            "warning: generation failed partway through -- {} output file(s) were already written \
+             this run and may be stale relative to the rest of the config:",
+            written.len()
+        );
+        for path in &written {
+            eprintln!("  {path}");
+        }
+    }
+
+    if result.is_ok() {
+        eprintln!("Done.");
+    }
+
+    result
+}
+
+fn run_generate_inner(
+    config_path: &str,
+    allow_output_escape: bool,
+    written: &mut Vec<String>,
+) -> Result<(), Box<dyn std::error::Error>> {
     let config_str =
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
     let config: ScytheConfig =
@@ -444,6 +479,15 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
         for query_file in &query_files {
             let content = std::fs::read_to_string(query_file)
                 .map_err(|e| format!("failed to read query file '{}': {}", query_file, e))?;
+            if has_unannotated_sql(&content) {
+                return Err(format!(
+                    "[{}] query file '{}' has SQL content with no `-- name:` / `-- @name` annotation above it; \
+                     that content is silently dropped, not generated. Add an annotation above every statement \
+                     (e.g. `-- name: MyQuery :one`), or move non-query SQL out of the `queries` glob",
+                    sql_config.name, query_file
+                )
+                .into());
+            }
             let blocks = split_query_file(&content);
             all_query_blocks.extend(blocks);
         }
@@ -478,6 +522,14 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
 
         let gen_targets = resolve_gen_targets(sql_config)?;
 
+        // Resolve every target's backend and output directory before writing
+        // any of them. This does two things a single combined loop cannot:
+        // (1) it lets a containment violation or a filename collision on the
+        // *last* target abort before the *first* target's files are written,
+        // and (2) it makes the collision check below possible at all, since
+        // detecting "two targets write the same file" requires knowing every
+        // target's resolved (output_dir, filename) up front.
+        let mut resolved: Vec<(&ResolvedGenTarget, Box<dyn CodegenBackend>, String)> = Vec::new();
         for target in &gen_targets {
             let mut backend = get_backend(&target.backend, &sql_config.engine).map_err(|e| {
                 format!(
@@ -507,13 +559,45 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
             // mangled. `PathBuf::push` (which `join` uses internally) leaves
             // an already-absolute `target.output` unchanged: pushing an
             // absolute path replaces the buffer instead of appending to it.
-            let output_dir = base_dir.join(&target.output).to_string_lossy().into_owned();
+            //
+            // Rejected by default when the resolved directory escapes
+            // `base_dir` (`../` traversal, or an absolute path) -- `scythe
+            // generate` running in CI against a PR-modified `scythe.toml` is
+            // otherwise an arbitrary directory-create-and-write primitive.
+            // See #207.
+            let output_dir = resolve_contained_output(base_dir, &target.output, &target.backend, allow_output_escape)?
+                .to_string_lossy()
+                .into_owned();
 
+            resolved.push((target, backend, output_dir));
+        }
+
+        // Two targets whose (output directory, filename) coincide would
+        // otherwise silently clobber each other -- the second one to write
+        // wins and the first target's generated code simply vanishes with
+        // no error. Detected up front (before either is written) rather
+        // than left for `scythe check`'s SC-PRV03 to notice after the fact.
+        // See #207.
+        let mut seen_paths: AHashMap<String, &str> = AHashMap::new();
+        for (target, backend, output_dir) in &resolved {
+            let filename = output_filename(backend.as_ref());
+            let full_path = Path::new(output_dir).join(&filename).to_string_lossy().into_owned();
+            if let Some(existing_backend) = seen_paths.insert(full_path.clone(), target.backend.as_str()) {
+                return Err(format!(
+                    "[{}] targets '{}' and '{}' both write '{}'; give one of them a distinct `output` \
+                     directory so neither silently overwrites the other's generated code",
+                    sql_config.name, existing_backend, target.backend, full_path
+                )
+                .into());
+            }
+        }
+
+        for (_target, backend, output_dir) in &resolved {
             generate_for_backend(
                 &sql_config.name,
-                &*backend,
+                backend.as_ref(),
                 &analyzed_queries,
-                &output_dir,
+                output_dir,
                 &overrides,
                 ProvenanceFields {
                     engine: &sql_config.engine,
@@ -521,10 +605,15 @@ pub fn run_generate(config_path: &str) -> Result<(), Box<dyn std::error::Error>>
                     queries: &queries_fingerprint,
                 },
             )?;
+            written.push(
+                Path::new(output_dir)
+                    .join(output_filename(backend.as_ref()))
+                    .display()
+                    .to_string(),
+            );
         }
     }
 
-    eprintln!("Done.");
     Ok(())
 }
 
@@ -580,6 +669,99 @@ fn apply_manifest_override(
         .map_err(|e| format!("backend '{backend_name}': invalid manifest override '{display_path}': {e}"))?;
 
     Ok(())
+}
+
+/// Validate that every `[[sql.gen]]` target in `sql_config` would actually
+/// construct -- resolving gen targets, building each backend, applying its
+/// manifest override and options -- without writing anything, and report
+/// each one that would not as an `SC-PRV09` error finding.
+///
+/// Mirrors exactly the fallible steps `run_generate_inner` performs before
+/// it writes a single byte, so `scythe check` reports precisely the configs
+/// `scythe generate` refuses (issue #209, item 1) -- previously the only
+/// signal was `verify_provenance`'s SC-PRV07, and only once a stale
+/// artifact happened to already exist on disk to check provenance against;
+/// a config with no artifact yet generated produced no finding at all, and
+/// `[main] All queries valid.` printed regardless.
+///
+/// Returns a plain `Vec`, like [`verify_provenance`], rather than a
+/// `Result` propagated via `?`: this function's finding must move the exit
+/// code (it is `Error`, not `Warn`, unlike SC-PRV07), but it must not be
+/// able to abort `run_check` before `emit_findings` runs, which would
+/// discard every other finding already collected for this block and every
+/// block after it -- and, for `check --output r.json`, leave no report
+/// file written at all. See
+/// `run_check_still_emits_lint_findings_when_a_gen_target_cannot_be_constructed`,
+/// which pins exactly that: a real SC-S03 lint finding must survive an
+/// unconstructable `[[sql.gen]]` target in the same config, not disappear
+/// with it.
+fn validate_gen_targets_constructible(sql_config: &SqlConfig, base_dir: &Path) -> Vec<QueryViolation> {
+    let mut violations = Vec::new();
+
+    let gen_targets = match resolve_gen_targets(sql_config) {
+        Ok(targets) => targets,
+        Err(e) => {
+            violations.push(QueryViolation {
+                query_name: sql_config.name.clone(),
+                rule_id: Cow::Borrowed("SC-PRV09"),
+                severity: Severity::Error,
+                message: format!(
+                    "failed to resolve [sql.gen] targets: {e} (run `scythe generate` for the full diagnosis)"
+                ),
+            });
+            return violations;
+        }
+    };
+
+    for target in &gen_targets {
+        let target_label = format!("{}:{}", sql_config.name, target.backend);
+
+        let mut backend = match get_backend(&target.backend, &sql_config.engine) {
+            Ok(backend) => backend,
+            Err(e) => {
+                violations.push(QueryViolation {
+                    query_name: target_label,
+                    rule_id: Cow::Borrowed("SC-PRV09"),
+                    severity: Severity::Error,
+                    message: format!(
+                        "backend '{}' with engine '{}' could not be constructed: {} (run `scythe generate` \
+                         for the full diagnosis)",
+                        target.backend, sql_config.engine, e
+                    ),
+                });
+                continue;
+            }
+        };
+
+        if let Some(ref manifest_path) = target.manifest_override
+            && let Err(e) = apply_manifest_override(backend.manifest_mut(), &target.backend, manifest_path, base_dir)
+        {
+            violations.push(QueryViolation {
+                query_name: target_label.clone(),
+                rule_id: Cow::Borrowed("SC-PRV09"),
+                severity: Severity::Error,
+                message: format!(
+                    "manifest override could not be applied: {e} (run `scythe generate` for the full diagnosis)"
+                ),
+            });
+            continue;
+        }
+
+        if !target.options.is_empty()
+            && let Err(e) = backend.apply_options(&target.options)
+        {
+            violations.push(QueryViolation {
+                query_name: target_label,
+                rule_id: Cow::Borrowed("SC-PRV09"),
+                severity: Severity::Error,
+                message: format!(
+                    "backend options could not be applied: {e} (run `scythe generate` for the full diagnosis)"
+                ),
+            });
+        }
+    }
+
+    violations
 }
 
 /// A single generated query's code alongside the enum definitions it
@@ -1120,6 +1302,13 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
     // instead of running every query through the PostgreSQL wire protocol.
     let mut verifiable: Vec<VerifiableBlock> = Vec::new();
 
+    // Maps a query's name back to the `.sql` file it came from, so findings
+    // can be attributed to the real source file instead of `scythe.toml`
+    // for every finding regardless of which query tripped it (#209, item 3).
+    // Catalog-wide and config-level findings (empty `query_name`) have no
+    // single file to attribute to and keep using `config_path`.
+    let mut query_file_by_name: AHashMap<String, String> = AHashMap::new();
+
     let base_dir = config_dir(config_path);
 
     for sql_config in &config.sql {
@@ -1135,13 +1324,43 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         let dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &dialect)?;
 
+        // Marks where this block's violations start in `all_violations`, so
+        // the "All queries valid." message below can be conditioned on
+        // whether *this* block actually is valid, instead of being printed
+        // unconditionally after findings (including this block's own) have
+        // already been collected. See #209, item 2. Captured before the
+        // gen-target validation just below so an SC-PRV09 finding also
+        // counts toward that decision.
+        let block_violations_start = all_violations.len();
+
+        // Validated eagerly, exactly as `scythe generate` constructs every
+        // target before writing anything: `check` exists to validate what
+        // `generate` would do without doing it, so a config `generate`
+        // refuses (an unresolvable `[sql.gen]`, or a backend/engine pair
+        // that will not construct) is now reported as an `SC-PRV09` error
+        // finding -- not silently degraded to a droppable SC-PRV07
+        // *warning* that only fires once an artifact already happens to
+        // exist on disk to check provenance against. See #209, item 1.
+        all_violations.extend(validate_gen_targets_constructible(sql_config, base_dir));
+
         let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
-        let mut all_query_blocks = Vec::new();
+        let mut all_query_blocks: Vec<(String, String)> = Vec::new();
         for query_file in &query_files {
             let content = std::fs::read_to_string(query_file)
                 .map_err(|e| format!("failed to read query file '{}': {}", query_file, e))?;
+            if has_unannotated_sql(&content) {
+                return Err(format!(
+                    "[{}] query file '{}' has SQL content with no `-- name:` / `-- @name` annotation above it; \
+                     that content is silently dropped, not checked. Add an annotation above every statement \
+                     (e.g. `-- name: MyQuery :one`), or move non-query SQL out of the `queries` glob",
+                    sql_config.name, query_file
+                )
+                .into());
+            }
             let blocks = split_query_file(&content);
-            all_query_blocks.extend(blocks);
+            for block in blocks {
+                all_query_blocks.push((query_file.clone(), block));
+            }
         }
 
         eprintln!("[{}] Checking {} queries...", sql_config.name, all_query_blocks.len());
@@ -1149,11 +1368,45 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
         let mut query_names: Vec<String> = Vec::new();
         let mut analyzed_queries: Vec<scythe_core::analyzer::AnalyzedQuery> = Vec::new();
 
-        for block in &all_query_blocks {
-            let parsed = parse_query_with_dialect(block, &dialect)?;
-            let analyzed = analyze(&catalog, &parsed)?;
+        for (query_file, block) in &all_query_blocks {
+            // A parse or analyze failure used to propagate via `?`, aborting
+            // `run_check` before `emit_findings` and discarding every
+            // finding already collected -- for `check --output r.json` that
+            // meant no report file was written at all. Both are now
+            // findings instead, exactly like `verify_provenance` already
+            // treats an unconstructible backend: unable to fully validate
+            // this one query is not the same as nothing being wrong with
+            // the rest of the file. See #209, item 4.
+            let parsed = match parse_query_with_dialect(block, &dialect) {
+                Ok(p) => p,
+                Err(e) => {
+                    all_violations.push(QueryViolation {
+                        query_name: String::new(),
+                        rule_id: Cow::Borrowed("SC-PARSE01"),
+                        severity: Severity::Error,
+                        message: format!("{query_file}: failed to parse query: {e}"),
+                    });
+                    continue;
+                }
+            };
+            let analyzed = match analyze(&catalog, &parsed) {
+                Ok(a) => a,
+                Err(e) => {
+                    all_violations.push(QueryViolation {
+                        query_name: parsed.annotations.name.clone(),
+                        rule_id: Cow::Borrowed("SC-PARSE02"),
+                        severity: Severity::Error,
+                        message: format!(
+                            "{query_file}: failed to analyze query '{}': {e}",
+                            parsed.annotations.name
+                        ),
+                    });
+                    continue;
+                }
+            };
 
             query_names.push(analyzed.name.clone());
+            query_file_by_name.insert(analyzed.name.clone(), query_file.clone());
 
             let ctx = LintContext {
                 sql: &parsed.sql,
@@ -1234,14 +1487,41 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
             provenance_severities,
         ));
 
-        eprintln!("[{}] All queries valid.", sql_config.name);
+        // Printed only when this block produced no error-severity finding
+        // -- previously printed unconditionally, so `[main] All queries
+        // valid.` appeared even immediately above an SC-S03 error for the
+        // very same block. See #209, item 2.
+        let block_has_error = all_violations[block_violations_start..]
+            .iter()
+            .any(|v| matches!(v.severity, Severity::Error));
+        if block_has_error {
+            let block_errors = all_violations[block_violations_start..]
+                .iter()
+                .filter(|v| matches!(v.severity, Severity::Error))
+                .count();
+            eprintln!("[{}] {} error(s) found.", sql_config.name, block_errors);
+        } else {
+            eprintln!("[{}] All queries valid.", sql_config.name);
+        }
     }
 
     let mut findings: Vec<Finding> = all_violations
         .iter()
         .filter(|qv| !matches!(qv.severity, Severity::Off))
         .map(|qv| Finding {
-            file: config_path.to_string(),
+            // Attributed to the `.sql` file the query actually came from
+            // when one is known, instead of always naming `scythe.toml` --
+            // SARIF/JSON consumers (e.g. GitHub code scanning) otherwise
+            // annotate the config file for a violation that lives in the
+            // query file, and the human reporter groups findings under the
+            // wrong heading. Catalog-wide findings (empty `query_name`, e.g.
+            // SC-C01) and ones whose query never made it far enough to be
+            // named (a parse failure) have no single file to attribute to
+            // and keep `config_path`. See #209, item 3.
+            file: query_file_by_name
+                .get(&qv.query_name)
+                .cloned()
+                .unwrap_or_else(|| config_path.to_string()),
             query_name: Some(qv.query_name.clone()),
             rule_id: qv.rule_id.to_string(),
             rule_name: None,
@@ -3729,10 +4009,21 @@ backend = \"rust-sqlx\"
 
     /// The regression this whole class of fix exists for: a `[[sql]]` block
     /// whose generation target cannot be constructed must still emit the
-    /// lint findings from its queries. Before the fix, `verify_provenance`'s
-    /// `?` unwound out of `run_check` before `emit_findings` ran, so the
-    /// report file was created but left empty and every SQL finding was
-    /// thrown away.
+    /// lint findings from its queries. Before the original fix,
+    /// `verify_provenance`'s `?` unwound out of `run_check` before
+    /// `emit_findings` ran, so the report file was created but left empty
+    /// and every SQL finding was thrown away.
+    ///
+    /// `exit_zero: true` is required here for a different reason than the
+    /// original version of this test needed it to be absent: #209 made an
+    /// unconstructable `[[sql.gen]]` target its own `SC-PRV09` *error*
+    /// finding (previously it was folded into `verify_provenance`'s
+    /// `SC-PRV07`, which is deliberately `Warn`-only). `run_check` calls
+    /// `std::process::exit(2)` directly on an error-severity finding
+    /// (matching `audit`/`inspect`), which would tear down the whole test
+    /// binary rather than returning -- `exit_zero` is what keeps this an
+    /// in-process, `Result`-returning call so the report content can still
+    /// be asserted on.
     ///
     /// Asserted through the emitted JSON report rather than through
     /// `verify_provenance` directly, because the discarded findings were
@@ -3748,9 +4039,7 @@ backend = \"rust-sqlx\"
         )
         .unwrap();
         // `SELECT *` trips SC-S03 (no-select-star), a `Warn` — the finding
-        // that must survive. Deliberately not an `Error`-severity rule, so
-        // that the run's exit status stays `Ok` and this test asserts on
-        // report *content*, not on the error path.
+        // that must survive alongside the now-`Error`-severity SC-PRV09.
         std::fs::write(
             dir.path().join("queries.sql"),
             "-- @name ListUsers\n-- @returns :many\nSELECT * FROM users;\n",
@@ -3773,12 +4062,12 @@ backend = \"rust-sqlx\"
             database_url: None,
             format: "json".to_string(),
             output: Some(report_path.to_string_lossy().into_owned()),
-            exit_zero: false,
+            exit_zero: true,
         });
 
         assert!(
             result.is_ok(),
-            "an unconstructable gen target must not fail the run: {result:?}"
+            "an unconstructable gen target must not abort the run before findings are emitted: {result:?}"
         );
 
         let report = std::fs::read_to_string(&report_path).expect("a report file must have been written");
@@ -3790,5 +4079,49 @@ backend = \"rust-sqlx\"
             report.contains("SC-PRV07"),
             "the unverifiable target must itself be reported:\n{report}"
         );
+        assert!(
+            report.contains("SC-PRV09"),
+            "an unconstructable [sql.gen] target must be its own error finding, matching what \
+             `scythe generate` would refuse (#209):\n{report}"
+        );
+    }
+
+    /// #209, item 1: without `--exit-zero`, an unconstructable `[[sql.gen]]`
+    /// target must move `check`'s exit code -- previously it was invisible
+    /// to the exit code entirely (only a `Warn`-severity SC-PRV07), so
+    /// `check` could report success (exit 0) on a config `scythe generate`
+    /// refuses outright.
+    #[test]
+    fn check_exit_code_reflects_an_unconstructable_gen_target() {
+        let violations = validate_gen_targets_constructible(
+            &SqlConfig {
+                name: "main".to_string(),
+                engine: "postgresql".to_string(),
+                schema: Vec::new(),
+                queries: Vec::new(),
+                output: None,
+                gen_config: Some(GenTargets::Array(vec![GenTarget {
+                    backend: "rust-sqlx-typo".to_string(),
+                    output: "generated".to_string(),
+                    manifest: None,
+                    options: std::collections::HashMap::new(),
+                }])),
+                type_overrides: None,
+            },
+            std::path::Path::new("."),
+        );
+
+        assert_eq!(
+            violations.len(),
+            1,
+            "expected exactly one violation, got {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV09");
+        assert_eq!(
+            violations[0].severity,
+            scythe_lint::Severity::Error,
+            "an unconstructable gen target must be an error, unlike SC-PRV07's Warn default, so it moves check's exit code"
+        );
+        assert!(violations[0].message.contains("rust-sqlx-typo"));
     }
 }

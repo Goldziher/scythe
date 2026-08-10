@@ -1,9 +1,19 @@
 //! End-to-end integration tests for `scythe lint`'s auto-inspect feature
-//! introduced in sub-phase 1D.
+//! introduced in sub-phase 1D, and for #210's fix to how it decides whether
+//! to run at all.
 //!
-//! Only the DB-free scenario lives here: no `[inspect].database_url`
-//! configured, lint output is byte-identical to v0.10 behaviour (i.e. zero
-//! inspect findings appended). Runs in any environment, no gating needed.
+//! Only scenarios that need no reachable database live here, so every test in
+//! this file runs in any environment with no gating:
+//! 1. No DB URL configured -- lint output is byte-identical to v0.10
+//!    behaviour (i.e. zero inspect findings appended).
+//! 2. A bare `$DATABASE_URL`/`$SCYTHE_DATABASE_URL` env var, with no
+//!    `--database-url` flag and no `[inspect].database_url` in the config --
+//!    ignored entirely; `lint` must never even attempt a connection (#210).
+//!    Uses an unreachable `.invalid` host.
+//! 3. An explicit `--database-url` flag or a configured
+//!    `[inspect].database_url` pointed at an unreachable host -- connection
+//!    failure is reported visibly (no `tracing` subscriber is installed, so
+//!    the diagnostic must not rely on one) without failing the run.
 //!
 //! The live-DB scenarios (a working `[inspect].database_url`/`DATABASE_URL`
 //! producing real `[inspect]` findings, and a misconfigured one being
@@ -60,6 +70,29 @@ queries = ["queries.sql"]
     config_path.to_string_lossy().into_owned()
 }
 
+/// Write the same benign fixture with an `[inspect]` block added, so the
+/// configured-URL opt-in path can be exercised against an unreachable host.
+fn write_fixture_with_inspect_url(dir: &TempDir, database_url: &str) -> String {
+    let config_path = write_benign_fixture(dir);
+    let config_content = format!(
+        r#"[scythe]
+version = "1"
+
+[[sql]]
+name = "test"
+engine = "postgresql"
+schema = ["schema.sql"]
+queries = ["queries.sql"]
+
+[inspect]
+database_url = "{database_url}"
+"#
+    );
+    fs::write(&config_path, config_content).expect("write scythe.toml");
+
+    config_path
+}
+
 /// When neither `DATABASE_URL` nor `SCYTHE_DATABASE_URL` is set, and the
 /// `scythe.toml` has no `[inspect].database_url`, `scythe lint` must:
 /// - Exit 0 (no violations in the benign fixture).
@@ -96,6 +129,117 @@ fn lint_without_db_url_emits_zero_inspect_findings() {
             "unexpected SC-INS finding without a DB URL; line: {line:?}"
         );
     }
+}
+
+/// #210: `scythe lint` must NOT auto-connect purely because `$DATABASE_URL`
+/// happens to be set in the environment -- unlike the old behaviour (which
+/// this test used to verify the opposite of), a bare env var is no longer
+/// enough on its own. Only an explicit `--database-url` flag or
+/// `[inspect].database_url` in `scythe.toml` opts in.
+///
+/// Deliberately does not need a live database (or `SCYTHE_TEST_DATABASE_URL`):
+/// the point is that `lint` must never even attempt a connection here, so an
+/// unreachable host is sufficient to prove it, and the test runs in any
+/// environment.
+#[test]
+fn lint_ignores_bare_database_url_env_var_for_auto_inspect() {
+    let dir = TempDir::new().expect("tempdir");
+    let config_path = write_benign_fixture(&dir);
+
+    let output = Command::cargo_bin("scythe")
+        .expect("scythe binary")
+        .args(["lint", "--config", &config_path])
+        .env("DATABASE_URL", "postgres://does-not-exist.invalid:1/x")
+        .env_remove("SCYTHE_DATABASE_URL")
+        .output()
+        .expect("spawn scythe lint");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+
+    assert!(
+        output.status.success(),
+        "a bare (ignored) DATABASE_URL must not affect a clean lint run; stderr: {stderr}"
+    );
+
+    for line in stderr.lines().chain(stdout.lines()) {
+        assert!(
+            !line.contains("[inspect]"),
+            "no [inspect] tag expected -- a bare env var must not trigger auto-inspect; line: {line:?}"
+        );
+        assert!(
+            !line.contains("could not connect"),
+            "lint must never attempt a connection from a bare env var alone; line: {line:?}"
+        );
+    }
+}
+
+/// The explicit `--database-url` flag is the opt-in `--database-url` (bare
+/// env vars are not, per the test above) -- and a connection failure through
+/// it must be visible (not silently swallowed) while still not failing the
+/// run. Uses a deliberately unreachable host, so this needs no live database.
+#[test]
+fn lint_with_explicit_database_url_flag_reports_failed_connection_and_does_not_fail() {
+    let dir = TempDir::new().expect("tempdir");
+    let config_path = write_benign_fixture(&dir);
+    let bad_url = "postgres://does-not-exist.invalid:1/x";
+
+    let output = Command::cargo_bin("scythe")
+        .expect("scythe binary")
+        .args(["lint", "--config", &config_path, "--database-url", bad_url])
+        .env_remove("DATABASE_URL")
+        .env_remove("SCYTHE_DATABASE_URL")
+        .output()
+        .expect("spawn scythe lint");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let exit_code = output.status.code();
+
+    assert!(
+        exit_code != Some(2),
+        "a failed inspect connection alone must not cause exit 2; exit: {exit_code:?}; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("could not connect"),
+        "the explicit --database-url path must report a visible diagnostic on connection failure \
+         (no tracing subscriber is installed, so a tracing::warn! alone would be invisible); stderr: {stderr}"
+    );
+    for line in stderr.lines() {
+        assert!(
+            !line.contains("[inspect]"),
+            "no [inspect] finding expected from a failed connection; line: {line:?}"
+        );
+    }
+}
+
+/// Same as the explicit-flag case above, but the URL comes from
+/// `[inspect].database_url` in `scythe.toml` -- the other opt-in source
+/// `try_run_inspect` still honours. Also needs no live database.
+#[test]
+fn lint_with_configured_inspect_url_reports_failed_connection_and_does_not_fail() {
+    let dir = TempDir::new().expect("tempdir");
+    let config_path = write_fixture_with_inspect_url(&dir, "postgres://does-not-exist.invalid:1/x");
+
+    let output = Command::cargo_bin("scythe")
+        .expect("scythe binary")
+        .args(["lint", "--config", &config_path])
+        .env_remove("DATABASE_URL")
+        .env_remove("SCYTHE_DATABASE_URL")
+        .output()
+        .expect("spawn scythe lint");
+
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    let exit_code = output.status.code();
+
+    assert!(
+        exit_code != Some(2),
+        "a failed inspect connection alone must not cause exit 2; exit: {exit_code:?}; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("could not connect"),
+        "a configured [inspect].database_url must still report a visible diagnostic on connection \
+         failure; stderr: {stderr}"
+    );
 }
 
 /// A bad `[lint.sqruff.rules]` entry must be reported as the configuration

@@ -215,6 +215,28 @@ fn invalid_config(msg: impl Into<String>) -> ScytheError {
     ScytheError::invalid_config(msg)
 }
 
+/// Normalize a sqlc `codegen: [{ plugin: "..." }]` plugin name (v2's
+/// `codegen:` array form, distinct from the `gen:` block's already-scoped
+/// `go`/`kotlin`/`python` keys) to the scythe language key
+/// [`default_driver_for`] and `scythe generate`'s `[sql.gen.<lang>]` expect.
+///
+/// sqlc's real plugin names for its own official Go/Python/Kotlin/Rust
+/// plugins (`sqlc-gen-go`, `sqlc-gen-python`, `sqlc-gen-kotlin`,
+/// `sqlc-gen-rust` -- and their bare-name shorthands `golang`/`go`,
+/// `python`/`py`, `kotlin`, `rust`) all map to the single scythe language
+/// key each language uses. Anything else passes through unchanged: it is
+/// not a plugin `migrate` recognizes, so `default_driver_for`'s catch-all
+/// reports it by name rather than this function silently guessing.
+fn normalize_sqlc_codegen_plugin_lang(plugin: &str) -> String {
+    match plugin.to_ascii_lowercase().as_str() {
+        "go" | "golang" | "sqlc-gen-go" => "go".to_string(),
+        "python" | "py" | "sqlc-gen-python" => "python".to_string(),
+        "kotlin" | "sqlc-gen-kotlin" => "kotlin".to_string(),
+        "rust" | "sqlc-gen-rust" => "rust".to_string(),
+        other => other.to_string(),
+    }
+}
+
 /// Map a sqlc `gen.<lang>` plugin (or, for v1 `packages`, the implicit Go
 /// target) plus a SQL engine to a concrete scythe backend driver suffix --
 /// the part after the `<lang>-` prefix in backend names like `go-pgx`.
@@ -342,12 +364,32 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
                 if let Some(out) = &cg.out {
                     output = out.clone();
                 }
-                let lang = cg.plugin.clone().unwrap_or_else(|| "rust".to_string());
-                let target = cg
-                    .options
-                    .as_ref()
-                    .and_then(|o| o.crate_name.clone())
-                    .unwrap_or_else(|| "tokio-postgres".to_string());
+                let raw_plugin = cg.plugin.clone().unwrap_or_else(|| "rust".to_string());
+                let lang = normalize_sqlc_codegen_plugin_lang(&raw_plugin);
+
+                // Rust keeps the `crate` option (or its "tokio-postgres"
+                // default) as the driver suffix, exactly as before -- those
+                // values are themselves real `rust-*` backend suffixes
+                // (`rust-sqlx`, `rust-tokio-postgres`), so the existing
+                // mapping is already correct for Rust. Every other
+                // language routes through `default_driver_for`, the same
+                // sqlc-plugin -> scythe-driver mapping the `gen:` block
+                // below uses: before this, a non-Rust `codegen:` plugin
+                // (e.g. `plugin: golang`) wrote the raw, un-normalized
+                // plugin name as the language key and unconditionally
+                // defaulted `target` to `"tokio-postgres"` -- a Rust driver
+                // name -- producing `[sql.gen.golang] target =
+                // "tokio-postgres"`, which `scythe generate` then rejected
+                // as `has no backend for language(s): golang`. See issue
+                // #211, item 2.
+                let target = if lang == "rust" {
+                    cg.options
+                        .as_ref()
+                        .and_then(|o| o.crate_name.clone())
+                        .unwrap_or_else(|| "tokio-postgres".to_string())
+                } else {
+                    default_driver_for(&lang, &engine)?.to_string()
+                };
                 let derive = cg
                     .options
                     .as_ref()
@@ -440,6 +482,21 @@ fn convert_config(sqlc: &SqlcConfig, base_dir: &Path) -> Result<String, ScytheEr
     let toml_string = toml::to_string_pretty(&config).map_err(|e| internal(format!("toml serialize: {e}")))?;
 
     let dest = base_dir.join("scythe.toml");
+
+    // Back up an existing `scythe.toml` before overwriting it, exactly like
+    // every converted query file gets a `.sql.bak` -- `migrate` is a
+    // best-effort, one-shot conversion tool, and a hand-written or
+    // previously-migrated `scythe.toml` sitting at the destination is
+    // exactly as much the user's own work as a hand-annotated query file
+    // is. Before this, `migrate` silently discarded it with no backup,
+    // prompt, `--dry-run`, or `--force`. See issue #211, item 1.
+    if dest.exists() {
+        let bak = dest.with_extension("toml.bak");
+        let existing =
+            fs::read_to_string(&dest).map_err(|e| internal(format!("read existing {}: {e}", dest.display())))?;
+        fs::write(&bak, &existing).map_err(|e| internal(format!("backup {}: {e}", bak.display())))?;
+    }
+
     fs::write(&dest, &toml_string).map_err(|e| internal(format!("write {}: {e}", dest.display())))?;
 
     Ok(dest.display().to_string())
@@ -515,7 +572,14 @@ fn convert_query_files(query_paths: &[String], base_dir: &Path) -> Result<Conver
             }
             matched_any = true;
             let (q, p) = convert_single_file(&path)?;
-            stats.files += 1;
+            // Only a file `migrate` actually rewrote counts as "converted".
+            // A file with no `-- name:` annotations passes through
+            // unchanged (`convert_query_content` returns `query_count: 0`
+            // for it) and previously still incremented `stats.files`,
+            // reporting a no-op pass as a conversion. See issue #211, item 3.
+            if q > 0 {
+                stats.files += 1;
+            }
             stats.queries += q;
             stats.params_renamed += p;
         }

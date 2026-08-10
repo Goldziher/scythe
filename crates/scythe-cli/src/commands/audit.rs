@@ -42,8 +42,45 @@ pub struct RunAuditOpts {
 }
 
 pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
+    // Every input that can be wrong is validated *before* any output sink is
+    // opened -- `--format`/`--severity`/`--dialect`/`--explain`'s rule id --
+    // so a bad flag is reported as a bad flag instead of truncating
+    // `--output`'s file to 0 bytes and then erroring (#212): `File::create`
+    // truncates immediately on open, so opening it ahead of validation
+    // destroys any existing report before the error is even known.
+    let format = Format::parse(&opts.format)
+        .ok_or_else(|| format!("unknown --format '{}' (expected human|sarif|json)", opts.format))?;
+
+    let severity_floor = match opts.severity.as_deref() {
+        Some(s) => Some(
+            Severity::parse_cli(s).ok_or_else(|| format!("unknown --severity '{}' (expected off|warn|error)", s))?,
+        ),
+        None => None,
+    };
+
+    // Validated even though `--list-rules`/`--explain` do not use it,
+    // because clap parses every flag on the same invocation regardless of
+    // which subcommand-like mode is active -- `--list-rules --dialect
+    // klingon` must still fail rather than silently ignore `--dialect`.
+    let dialect = match opts.dialect.as_deref() {
+        Some(raw) => Some(validate_audit_dialect(raw)?),
+        None => None,
+    };
+
     if opts.list_rules || opts.explain.is_some() {
-        let registry = load_registry_for_discovery(&opts.config_path)?;
+        let registry = load_registry(&opts.config_path)?;
+
+        // Validated before `open_output` opens (and, for a file path,
+        // truncates) the sink: `--explain <typo'd-id> --output report.json`
+        // used to truncate `report.json` to 0 bytes and only then report
+        // the unknown id, destroying whatever the file held before. See
+        // #212.
+        if let Some(id) = &opts.explain
+            && !registry.all_rules().iter().any(|(r, _)| r.id() == id.as_str())
+        {
+            return Err(format!("no rule with id '{}' — try `scythe audit --list-rules`", id).into());
+        }
+
         let mut out: Box<dyn Write> = open_output(opts.output.as_deref())?;
         if opts.list_rules {
             print_rule_catalog(&registry, out.as_mut())?;
@@ -55,23 +92,18 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    let format = Format::parse(&opts.format)
-        .ok_or_else(|| format!("unknown --format '{}' (expected human|sarif|json)", opts.format))?;
-
-    let severity_floor = match opts.severity.as_deref() {
-        Some(s) => Some(
-            Severity::parse_cli(s).ok_or_else(|| format!("unknown --severity '{}' (expected off|warn|error)", s))?,
-        ),
-        None => None,
-    };
-
     let mut findings: Vec<Finding> = Vec::new();
 
     if opts.files.is_empty() {
         findings.extend(audit_from_config(&opts.config_path, opts.ignore_suppressions)?);
     } else {
-        let engine = opts.dialect.as_deref().unwrap_or("postgres");
-        findings.extend(audit_explicit_files(&opts.files, engine, opts.ignore_suppressions)?);
+        let engine = dialect.as_deref().unwrap_or("postgres");
+        findings.extend(audit_explicit_files(
+            &opts.files,
+            engine,
+            opts.ignore_suppressions,
+            &opts.config_path,
+        )?);
     }
 
     if let Some(floor) = severity_floor {
@@ -92,6 +124,41 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
+/// Every alias [`SqlDialect::from_str`] recognizes, kept in sync with it so
+/// `audit --dialect` rejects exactly what that parser would otherwise
+/// silently default to PostgreSQL for.
+///
+/// Before this, an unrecognized `--dialect` (a typo, or literal gibberish
+/// like `klingon`) fell through `SqlDialect::from_str(..).unwrap_or(PostgreSQL)`
+/// and silently became PostgreSQL -- identical output to `--dialect
+/// postgres`, with no error either way. See #212.
+fn validate_audit_dialect(raw: &str) -> Result<String, String> {
+    const KNOWN: &[&str] = &[
+        "postgresql",
+        "postgres",
+        "pg",
+        "cockroachdb",
+        "crdb",
+        "mysql",
+        "mariadb",
+        "sqlite",
+        "sqlite3",
+        "duckdb",
+        "redshift",
+        "mssql",
+        "sqlserver",
+        "tsql",
+        "oracle",
+        "snowflake",
+    ];
+    let lower = raw.to_ascii_lowercase();
+    if KNOWN.contains(&lower.as_str()) {
+        Ok(lower)
+    } else {
+        Err(format!("unknown --dialect '{raw}' (expected {})", KNOWN.join("|")))
+    }
+}
+
 /// Open the output sink for a reporter. `None` → stdout. `Some(path)` →
 /// truncating file write. Parent directory must already exist.
 fn open_output(path: Option<&str>) -> Result<Box<dyn Write>, Box<dyn std::error::Error>> {
@@ -104,11 +171,22 @@ fn open_output(path: Option<&str>) -> Result<Box<dyn Write>, Box<dyn std::error:
     }
 }
 
-/// Build a registry for discovery commands (`--list-rules` / `--explain`).
-/// Loads canonical rules plus any user rules from `scythe.toml` if it exists.
-/// The registry is never executed; severity overrides are applied so the
-/// catalog reflects the user's effective configuration.
-fn load_registry_for_discovery(config_path: &str) -> Result<RuleRegistry, Box<dyn std::error::Error>> {
+/// Build the rule registry from `scythe.toml`'s `[lint]` and `[audit]`
+/// sections: canonical rules plus severity overrides, plus any user-defined
+/// rules from `[[audit.rule]]` and `extra_rules`.
+///
+/// Used two ways:
+/// - Discovery (`--list-rules` / `--explain`): the registry is never
+///   executed, so the catalog reflects severities and rules as configured.
+/// - Explicit-file mode (`scythe audit <file>...`): the *same* registry is
+///   executed by [`audit_explicit_files`] -- before this, explicit-file mode
+///   built a bare `default_registry()` and ignored `scythe.toml` entirely,
+///   so a rule configured `"off"` still fired and `[[audit.rule]]` entries
+///   never ran (issue #206, item 2).
+///
+/// Returns the canonical registry, unmodified, when `config_path` does not
+/// exist -- explicit-file mode is meant to work without a config at all.
+fn load_registry(config_path: &str) -> Result<RuleRegistry, Box<dyn std::error::Error>> {
     let mut registry = default_registry();
     if !Path::new(config_path).exists() {
         return Ok(registry);
@@ -345,13 +423,20 @@ pub(crate) fn audit_explicit_files(
     files: &[String],
     engine: &str,
     ignore_suppressions: bool,
+    config_path: &str,
 ) -> Result<Vec<Finding>, Box<dyn std::error::Error>> {
     let sql_dialect = SqlDialect::from_str(engine).unwrap_or(SqlDialect::PostgreSQL);
 
     let catalog = Catalog::from_ddl_with_dialect(&[], &sql_dialect)
         .unwrap_or_else(|_| Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog"));
 
-    let registry = default_registry();
+    // Loads `scythe.toml`'s `[lint]`/`[audit]` sections when `config_path`
+    // exists, falling back to the canonical registry when it does not --
+    // explicit-file mode must still work with no config at all. Before
+    // this, explicit-file mode always used a bare `default_registry()`, so
+    // a rule turned `"off"` in `scythe.toml` still fired and `[[audit.rule]]`
+    // user rules never ran (#206, item 2).
+    let registry = load_registry(config_path)?;
     let rules = registry.active_rules();
 
     let mut findings = Vec::new();
@@ -369,7 +454,96 @@ pub(crate) fn audit_explicit_files(
     Ok(findings)
 }
 
+/// One statement [`parse_statements_lenient`] could not parse: its
+/// approximate 1-based starting line and the parser's error message.
+struct StatementParseFailure {
+    line: usize,
+    message: String,
+}
+
+/// Parse `sql` into individual statements, recovering from a parse error on
+/// one statement by skipping to the next top-level `;` (or EOF) and
+/// continuing, instead of discarding every statement already parsed.
+///
+/// [`sqlparser::parser::Parser::parse_sql`] parses the whole input as one
+/// unit and fails on the first unparseable statement, taking every
+/// statement before it down too. For `scythe audit`, that meant a single
+/// statement using SQL syntax the parser does not yet support silently
+/// disabled every finding in the rest of the file -- including real
+/// security findings -- with only a stderr line (not visible to a CI job
+/// checking the exit code) marking what happened. See issue #208.
+///
+/// Returns each parsed statement paired with its 1-based starting line
+/// (found via the token span at the point `parse_statement` was called, so
+/// it stays correct even when earlier statements were skipped -- unlike a
+/// separate post-hoc token walk keyed by statement *index*, which would
+/// drift out of sync with `sql`'s real line numbers the moment any
+/// statement is skipped), plus every statement that could not be parsed.
+fn parse_statements_lenient(
+    dialect: &dyn sqlparser::dialect::Dialect,
+    sql: &str,
+) -> (Vec<(sqlparser::ast::Statement, usize)>, Vec<StatementParseFailure>) {
+    use sqlparser::parser::Parser;
+    use sqlparser::tokenizer::Token;
+
+    let mut parser = match Parser::new(dialect).try_with_sql(sql) {
+        Ok(p) => p,
+        Err(e) => {
+            return (
+                Vec::new(),
+                vec![StatementParseFailure {
+                    line: 1,
+                    message: e.to_string(),
+                }],
+            );
+        }
+    };
+
+    let mut statements = Vec::new();
+    let mut failures = Vec::new();
+
+    loop {
+        while parser.consume_token(&Token::SemiColon) {}
+        if matches!(parser.peek_token_ref().token, Token::EOF) {
+            break;
+        }
+
+        let start_line = (parser.peek_token_ref().span.start.line as usize).max(1);
+
+        match parser.parse_statement() {
+            Ok(stmt) => statements.push((stmt, start_line)),
+            Err(e) => {
+                failures.push(StatementParseFailure {
+                    line: start_line,
+                    message: e.to_string(),
+                });
+                // Recover by skipping to the next top-level `;` (or EOF) so
+                // the statements after this one still get a chance to parse
+                // and be audited, rather than aborting the whole file.
+                loop {
+                    match parser.peek_token_ref().token {
+                        Token::EOF | Token::SemiColon => break,
+                        _ => {
+                            parser.next_token();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    (statements, failures)
+}
+
 /// Parse `sql` statement-by-statement and run every security rule over each.
+///
+/// # Recovery
+///
+/// Uses [`parse_statements_lenient`], not
+/// [`sqlparser::parser::Parser::parse_sql`]: a statement that fails to parse
+/// is skipped (and reported as its own `SC-PARSE01` error finding, naming
+/// the line and the parser's message) rather than discarding every
+/// statement already parsed. See #208.
 ///
 /// # Suppression
 ///
@@ -384,10 +558,10 @@ pub(crate) fn audit_explicit_files(
 /// # Reported line numbers
 ///
 /// Statement start lines (used for [`Finding::line`], *not* for suppression
-/// lookup) are approximated by scanning the sqlparser token stream: for each
-/// parsed statement we find the minimum source-location line number among its
-/// tokens. This avoids re-splitting on `;` (which is quote-unsafe) and gives
-/// accurate 1-based line numbers even for multi-line statements.
+/// lookup) come from [`parse_statements_lenient`], which reads them from the
+/// parser's own token positions. This avoids re-splitting on `;` (which is
+/// quote-unsafe) and gives accurate 1-based line numbers even for multi-line
+/// statements.
 pub(crate) fn run_security_rules_over_sql(
     path: &str,
     sql: &str,
@@ -401,21 +575,41 @@ pub(crate) fn run_security_rules_over_sql(
     let suppressions = SuppressionSet::parse(sql);
 
     let parser_dialect = dialect.to_sqlparser_dialect();
-    let statements = match sqlparser::parser::Parser::parse_sql(parser_dialect.as_ref(), sql) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("warning: failed to parse '{}': {}", path, e);
-            return findings;
-        }
-    };
+    let (statements, failures) = parse_statements_lenient(parser_dialect.as_ref(), sql);
 
-    let stmt_start_lines = compute_stmt_start_lines(sql, parser_dialect.as_ref(), statements.len());
+    for failure in &failures {
+        eprintln!(
+            "warning: failed to parse a statement in '{}' at line {}: {}",
+            path, failure.line, failure.message
+        );
+        findings.push(Finding {
+            file: path.to_string(),
+            query_name: None,
+            rule_id: "SC-PARSE01".to_string(),
+            rule_name: Some("unparseable statement".to_string()),
+            rule_description: Some(
+                "A statement could not be parsed and was skipped, so no security rule could examine it. \
+                 This is reported as an error rather than only a stderr warning so a parser gap cannot \
+                 silently disable auditing for part of a file."
+                    .to_string(),
+            ),
+            severity: Severity::Error,
+            message: format!(
+                "failed to parse statement at line {}: {}",
+                failure.line, failure.message
+            ),
+            line: Some(failure.line),
+            column: None,
+            cwe: Vec::new(),
+            source: Some("audit".to_string()),
+        });
+    }
 
     let empty_annotations = Annotations::default();
     let empty_analyzed = AnalyzedQuery::default();
 
-    for (idx, stmt) in statements.iter().enumerate() {
-        let stmt_line = stmt_start_lines.get(idx).copied().unwrap_or(1);
+    for (idx, (stmt, stmt_line)) in statements.iter().enumerate() {
+        let stmt_line = *stmt_line;
 
         let ctx = LintContext {
             sql,
@@ -464,55 +658,4 @@ pub(crate) fn run_security_rules_over_sql(
     }
 
     findings
-}
-
-/// Compute the 1-based start line of each parsed statement by tokenizing the
-/// SQL and tracking the line at which each statement's first meaningful token
-/// appears.
-///
-/// Strategy: tokenize the full SQL with sqlparser. Walk tokens in order,
-/// keeping a running line counter.  For each statement slot (0..n_stmts) we
-/// record the line of its first token. Statement boundaries are identified by
-/// the `SemiColon` token — each `;` advances the statement index by one.
-fn compute_stmt_start_lines(sql: &str, dialect: &dyn sqlparser::dialect::Dialect, n_stmts: usize) -> Vec<usize> {
-    use sqlparser::tokenizer::{Token, Tokenizer};
-
-    let mut start_lines = vec![1usize; n_stmts];
-
-    if n_stmts == 0 {
-        return start_lines;
-    }
-
-    let tokens = match Tokenizer::new(dialect, sql).tokenize_with_location() {
-        Ok(t) => t,
-        Err(_) => return start_lines,
-    };
-
-    let mut stmt_idx: usize = 0;
-    let mut recorded = false;
-
-    for tok_with_span in &tokens {
-        let line = tok_with_span.span.start.line as usize;
-        let token = &tok_with_span.token;
-
-        match token {
-            Token::Whitespace(_) => continue,
-            Token::SemiColon => {
-                stmt_idx += 1;
-                recorded = false;
-                if stmt_idx >= n_stmts {
-                    break;
-                }
-                continue;
-            }
-            _ => {
-                if !recorded {
-                    start_lines[stmt_idx] = line;
-                    recorded = true;
-                }
-            }
-        }
-    }
-
-    start_lines
 }
