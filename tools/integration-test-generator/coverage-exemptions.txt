@@ -1,0 +1,93 @@
+# Integration-test coverage exemptions.
+#
+# Read by tools/integration-test-generator/tests/coverage_completeness.rs,
+# which runs under `cargo test --workspace`. Format, per section:
+#
+#   <key> : <reason>
+#
+# The reason is mandatory. Blank lines and lines starting with `#` are ignored.
+#
+# This list ratchets in BOTH directions and there is no tolerance mode:
+#
+#   * a key with no coverage and no entry here fails the build (regression);
+#   * an entry here whose key IS covered now also fails the build (stale).
+#
+# So the list can only ever shrink, and every line is a specific, reviewed
+# admission that something is not tested — not a percentage that a growing
+# denominator can quietly improve.
+
+[manifests]
+# Backend manifests (name|engine) that ship but that no integration project
+# exercises. Delete the line when you add the project.
+#
+# Common to every entry below: an integration project is only worth adding
+# together with the CI job that runs it. A project committed with no CI step
+# generates output that is checked for freshness but never executed, which is
+# the exact shape of the defect this list exists to expose (see the
+# csharp-snowflake note in .github/workflows/integration.yml, a binding bug
+# that survived v0.6.0 -> 0.14.0 because its backend ran nowhere). Each entry
+# therefore records the infrastructure the project needs, not just "TODO".
+
+# DuckDB: no integration_tests/sql/duckdb schema or query set exists, and no
+# CI job. DuckDB is embedded, so the job needs no service container -- this is
+# the cheapest of the four groups here and should go first (issue #126).
+go-database-sql|duckdb : needs integration_tests/sql/duckdb/* and an integration-duckdb CI job
+java-jdbc|duckdb : needs integration_tests/sql/duckdb/* and an integration-duckdb CI job
+kotlin-jdbc|duckdb : needs integration_tests/sql/duckdb/* and an integration-duckdb CI job
+python-duckdb|duckdb : needs integration_tests/sql/duckdb/* and an integration-duckdb CI job
+typescript-duckdb|duckdb : needs integration_tests/sql/duckdb/* and an integration-duckdb CI job (issue #99)
+
+# R2DBC (reactive) across Java and Kotlin. The java.java.jinja and kotlin.kt.jinja
+# harness templates emit blocking JDBC code exclusively; a reactive harness has
+# to await a Publisher/Mono and is a new template branch per language, not a new
+# BackendConfig row. This is the group where string-matching unit tests are
+# weakest: they cannot see a harness that never subscribes, or positional binds
+# where the driver wants named markers.
+java-r2dbc|postgresql : needs a reactive (Publisher/Mono) harness branch in java.java.jinja plus a CI job
+java-r2dbc|mysql : needs a reactive (Publisher/Mono) harness branch in java.java.jinja plus a CI job
+java-r2dbc|mariadb : needs a reactive (Publisher/Mono) harness branch in java.java.jinja plus a CI job
+java-r2dbc|sqlite : needs a reactive (Publisher/Mono) harness branch in java.java.jinja plus a CI job
+kotlin-r2dbc|postgresql : needs a reactive (Publisher/Mono) harness branch in kotlin.kt.jinja plus a CI job
+kotlin-r2dbc|mysql : needs a reactive (Publisher/Mono) harness branch in kotlin.kt.jinja plus a CI job
+kotlin-r2dbc|mariadb : needs a reactive (Publisher/Mono) harness branch in kotlin.kt.jinja plus a CI job
+kotlin-r2dbc|sqlite : needs a reactive (Publisher/Mono) harness branch in kotlin.kt.jinja plus a CI job
+
+# Exposed is a DSL, not a driver: the harness reads results through Exposed's
+# own column types rather than java.sql, so it needs its own kotlin.kt.jinja
+# branch and its own Gradle dependency set.
+kotlin-exposed|postgresql : needs an Exposed-DSL harness branch in kotlin.kt.jinja plus a CI job
+
+# php-amphp ships a PostgreSQL project only. The MySQL variant needs the
+# amphp/mysql package in composer.json.jinja and its own connect/query calls in
+# php.php.jinja -- amphp's two drivers do not share an API surface.
+php-amphp|mysql : needs an amphp/mysql harness branch in php.php.jinja plus composer.json.jinja deps and a CI job
+
+# php-pdo on Oracle needs the pdo_oci extension, which shivammathur/setup-php
+# does not install from a package: it requires the Oracle Instant Client to be
+# fetched and the extension built against it in the CI job.
+php-pdo|oracle : needs pdo_oci (Oracle Instant Client) built into the Oracle CI job
+
+# typescript-kysely on Redshift needs the redshift enum-vs-varchar branches that
+# typescript.ts.jinja already has for the `pg` driver added to its kysely-pg
+# harness body, plus a step in the integration-redshift job.
+typescript-kysely|redshift : needs redshift branches in typescript.ts.jinja's kysely-pg harness plus a step in integration-redshift
+
+[taskfile-targets]
+# Integration projects with no `test:<project>` target in
+# integration_tests/Taskfile.yaml. Empty: all 32 that issue #135 found were
+# added. Keep it empty.
+
+[ci-steps]
+# Integration projects that no job in .github/workflows/integration.yml runs.
+# Adding a project without a CI step produces output that is checked for
+# freshness but never executed -- see the [manifests] preamble.
+#
+# These six are issue #118. All six now have a `test:*` target in
+# integration_tests/Taskfile.yaml, so they are at least runnable by hand; what
+# they still lack is a step in the workflow.
+elixir-jamdb-oracle : issue #118 -- needs a step in the integration-oracle job
+kotlin-jdbc-ext : issue #118 -- needs a step in the integration-postgres job
+php-pdo-namespace : issue #118 -- generated-output-only project; needs a lint step in the integration-postgres job
+php-pdo-snowflake : issue #118 -- needs a step in the integration-snowflake job
+php-pdo-sqlite : issue #118 -- needs a step in the integration-sqlite job
+ruby-oci8-oracle : issue #118 -- needs a step in the integration-oracle job

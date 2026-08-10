@@ -7,6 +7,14 @@ vars:
   ORACLE_URL: "oracle://scythe:scythe@localhost:1521/XEPDB1"
   SQLITE_PATH: "/tmp/scythe_test.db"
   MSSQL_URL: "sqlserver://sa:Scythe_Test1@localhost:1433?database=master"
+  # Points at the `redshift-pg-compat` compose service, i.e. PostgreSQL with a
+  # substituted schema -- not Redshift. See docker-compose.yml.
+  REDSHIFT_URL: "postgres://scythe:scythe@localhost:5434/scythe_redshift_test"
+  # Points at the fakesnow emulator started by `task snowflake:emulator:up`,
+  # i.e. DuckDB behind a Snowflake REST facade -- not Snowflake.
+  SNOWFLAKE_URL: "snowflake://fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http"
+  # gosnowflake takes a DSN, not a URL, and needs insecureMode for plain HTTP.
+  SNOWFLAKE_GO_DSN: "fake:snow@127.0.0.1:64616/testdb/public?account=fakesnow&protocol=http&insecureMode=true"
 
 env:
   DATABASE_URL: "{{.DATABASE_URL}}"
@@ -16,6 +24,8 @@ env:
   SQLITE_PATH: "{{.SQLITE_PATH}}"
   DATABASE_PATH: "{{.SQLITE_PATH}}"
   MSSQL_URL: "{{.MSSQL_URL}}"
+  REDSHIFT_URL: "{{.REDSHIFT_URL}}"
+  SNOWFLAKE_URL: "{{.SNOWFLAKE_URL}}"
 
 tasks:
   db:up:
@@ -44,6 +54,34 @@ tasks:
     desc: Run MariaDB schema migration
     cmds:
       - mysql -h 127.0.0.1 -P 3308 -u scythe -pscythe scythe_test < sql/mariadb/schema.sql
+
+  db:migrate:redshift:
+    desc: Apply the PG-compat Redshift schema to the redshift-pg-compat service
+    cmds:
+      - PGPASSWORD=scythe psql -h localhost -p 5434 -U scythe -d scythe_redshift_test -f sql/redshift/schema_pg_compat.sql
+
+  db:migrate:mssql:
+    desc: Run MSSQL schema migration
+    cmds:
+      - >-
+        docker compose exec -T mssql /opt/mssql-tools18/bin/sqlcmd
+        -S localhost -U sa -P Scythe_Test1 -C -b -i /dev/stdin < sql/mssql/schema.sql
+
+  snowflake:emulator:up:
+    desc: Start the fakesnow emulator the snowflake test:* targets talk to
+    dir: fakesnow
+    cmds:
+      - |
+        set -e
+        uv run fakesnow_server.py &
+        echo $! > /tmp/scythe-fakesnow.pid
+        curl --retry 30 --retry-all-errors --retry-delay 1 --silent --output /dev/null http://127.0.0.1:64616/
+
+  snowflake:emulator:down:
+    desc: Stop the fakesnow emulator
+    cmds:
+      - kill "$(cat /tmp/scythe-fakesnow.pid)"
+      - rm -f /tmp/scythe-fakesnow.pid
 
   db:reset:
     desc: Drop and recreate all tables
@@ -281,6 +319,28 @@ tasks:
     cmds:
       - composer install --quiet
       - php test_integration.php
+
+  test:rust-sqlx-nested-json:
+    desc: Run rust-sqlx-nested-json integration test
+    dir: rust-sqlx-nested-json
+    cmds:
+      - cargo run --quiet
+
+  test:kotlin-jdbc-ext:
+    desc: Run kotlin-jdbc-ext integration test (kotlin-jdbc with extension_functions)
+    dir: kotlin-jdbc-ext
+    cmds:
+      - gradle run --quiet
+
+  # php-pdo-namespace generates into a PHP namespace and ships no harness --
+  # its whole point is the shape of the emitted file, so a lint of that file is
+  # the complete test rather than a stand-in for a missing one.
+  test:php-pdo-namespace:
+    desc: Lint the namespaced php-pdo output and assert the namespace declaration
+    dir: php-pdo-namespace
+    cmds:
+      - php -l generated/queries.php
+      - grep -qF 'namespace App\Database\Generated;' generated/queries.php
 
   # --- MySQL backends ---
   test:rust-sqlx-mysql:
@@ -616,6 +676,211 @@ tasks:
     cmds:
       - php test_integration.php
 
+  test:rust-tiberius-mssql:
+    desc: Run rust-tiberius-mssql integration test
+    dir: rust-tiberius-mssql
+    cmds:
+      - cargo run --quiet
+
+  test:go-database-sql-mssql:
+    desc: Run go-database-sql-mssql integration test
+    dir: go-database-sql-mssql
+    cmds:
+      - go mod tidy
+      - go run .
+
+  test:python-pyodbc-mssql:
+    desc: Run python-pyodbc-mssql integration test
+    dir: python-pyodbc-mssql
+    cmds:
+      - uv run python test_integration.py
+
+  test:typescript-mssql:
+    desc: Run typescript-mssql integration test
+    dir: typescript-mssql
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
+  test:java-jdbc-mssql:
+    desc: Run java-jdbc-mssql integration test
+    dir: java-jdbc-mssql
+    cmds:
+      - mvn -q compile exec:java
+
+  test:kotlin-jdbc-mssql:
+    desc: Run kotlin-jdbc-mssql integration test
+    dir: kotlin-jdbc-mssql
+    cmds:
+      - gradle run --quiet
+
+  test:csharp-sqlclient-mssql:
+    desc: Run csharp-sqlclient-mssql integration test
+    dir: csharp-sqlclient-mssql
+    cmds:
+      - dotnet run
+
+  test:ruby-tiny-tds-mssql:
+    desc: Run ruby-tiny-tds-mssql integration test
+    dir: ruby-tiny-tds-mssql
+    cmds:
+      - bundle install --quiet
+      - bundle exec ruby test_integration.rb
+
+  test:php-pdo-mssql:
+    desc: Run php-pdo-mssql integration test
+    dir: php-pdo-mssql
+    cmds:
+      - php test_integration.php
+
+  # --- Redshift backends ---
+  #
+  # These run against the `redshift-pg-compat` compose service -- stock
+  # PostgreSQL with sql/redshift/schema_pg_compat.sql, in which IDENTITY was
+  # substituted for SERIAL and GETDATE() for NOW(). They are not Redshift and
+  # cannot show the divergences listed in README.md; run
+  # `task db:migrate:redshift` first.
+  test:rust-sqlx-redshift:
+    desc: Run rust-sqlx-redshift integration test (PG-compat substitute)
+    dir: rust-sqlx-redshift
+    cmds:
+      - cargo run --quiet
+
+  test:rust-tokio-postgres-redshift:
+    desc: Run rust-tokio-postgres-redshift integration test (PG-compat substitute)
+    dir: rust-tokio-postgres-redshift
+    cmds:
+      - cargo run --quiet
+
+  test:python-psycopg3-redshift:
+    desc: Run python-psycopg3-redshift integration test (PG-compat substitute)
+    dir: python-psycopg3-redshift
+    cmds:
+      - uv run python test_integration.py
+
+  test:python-asyncpg-redshift:
+    desc: Run python-asyncpg-redshift integration test (PG-compat substitute)
+    dir: python-asyncpg-redshift
+    cmds:
+      - uv run python test_integration.py
+
+  test:go-pgx-redshift:
+    desc: Run go-pgx-redshift integration test (PG-compat substitute)
+    dir: go-pgx-redshift
+    cmds:
+      - go mod tidy
+      - go run .
+
+  test:typescript-pg-redshift:
+    desc: Run typescript-pg-redshift integration test (PG-compat substitute)
+    dir: typescript-pg-redshift
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
+  test:typescript-postgres-redshift:
+    desc: Run typescript-postgres-redshift integration test (PG-compat substitute)
+    dir: typescript-postgres-redshift
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
+  test:java-jdbc-redshift:
+    desc: Run java-jdbc-redshift integration test (PG-compat substitute)
+    dir: java-jdbc-redshift
+    cmds:
+      - mvn -q compile exec:java
+
+  test:kotlin-jdbc-redshift:
+    desc: Run kotlin-jdbc-redshift integration test (PG-compat substitute)
+    dir: kotlin-jdbc-redshift
+    cmds:
+      - gradle run --quiet
+
+  test:csharp-npgsql-redshift:
+    desc: Run csharp-npgsql-redshift integration test (PG-compat substitute)
+    dir: csharp-npgsql-redshift
+    cmds:
+      - dotnet run
+
+  test:elixir-postgrex-redshift:
+    desc: Run elixir-postgrex-redshift integration test (PG-compat substitute)
+    dir: elixir-postgrex-redshift
+    cmds:
+      - mix deps.get --quiet
+      - mix run test/integration_test.exs
+
+  test:ruby-pg-redshift:
+    desc: Run ruby-pg-redshift integration test (PG-compat substitute)
+    dir: ruby-pg-redshift
+    cmds:
+      - bundle install --quiet
+      - bundle exec ruby test_integration.rb
+
+  test:php-pdo-redshift:
+    desc: Run php-pdo-redshift integration test (PG-compat substitute)
+    dir: php-pdo-redshift
+    cmds:
+      - php test_integration.php
+
+  # --- Snowflake backends ---
+  #
+  # These run against fakesnow (DuckDB behind a Snowflake REST facade), not
+  # Snowflake. Start it with `task snowflake:emulator:up` first, except for
+  # python-snowflake, which embeds fakesnow in-process.
+  test:python-snowflake:
+    desc: Run python-snowflake integration test (fakesnow emulator)
+    dir: python-snowflake
+    env:
+      SNOWFLAKE_USE_FAKESNOW: "1"
+    cmds:
+      - uv run python test_integration.py
+
+  test:typescript-snowflake:
+    desc: Run typescript-snowflake integration test (fakesnow emulator)
+    dir: typescript-snowflake
+    cmds:
+      - pnpm install --frozen-lockfile 2>/dev/null || pnpm install
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
+  test:go-gosnowflake:
+    desc: Run go-gosnowflake integration test (fakesnow emulator)
+    dir: go-gosnowflake
+    env:
+      # gosnowflake takes a DSN rather than a URL; see the SNOWFLAKE_GO_DSN var.
+      SNOWFLAKE_URL: "{{.SNOWFLAKE_GO_DSN}}"
+    cmds:
+      - go mod tidy
+      - go run .
+
+  test:java-jdbc-snowflake:
+    desc: Run java-jdbc-snowflake integration test (fakesnow emulator)
+    dir: java-jdbc-snowflake
+    cmds:
+      - mvn -q compile exec:java
+
+  test:kotlin-jdbc-snowflake:
+    desc: Run kotlin-jdbc-snowflake integration test (fakesnow emulator)
+    dir: kotlin-jdbc-snowflake
+    cmds:
+      - gradle run --quiet
+
+  test:csharp-snowflake:
+    desc: Run csharp-snowflake integration test (fakesnow emulator)
+    dir: csharp-snowflake
+    cmds:
+      - dotnet run
+
+  test:php-pdo-snowflake:
+    desc: Run php-pdo-snowflake integration test (fakesnow emulator)
+    dir: php-pdo-snowflake
+    cmds:
+      - php test_integration.php
+
   # --- Aggregate tasks ---
   all:
     desc: Run all integration tests
@@ -697,3 +962,49 @@ tasks:
       # MSSQL
       - task: test:elixir-tds-mssql
       - task: test:typescript-kysely-mssql
+      - task: test:rust-tiberius-mssql
+      - task: test:go-database-sql-mssql
+      - task: test:python-pyodbc-mssql
+      - task: test:typescript-mssql
+      - task: test:java-jdbc-mssql
+      - task: test:kotlin-jdbc-mssql
+      - task: test:csharp-sqlclient-mssql
+      - task: test:ruby-tiny-tds-mssql
+      - task: test:php-pdo-mssql
+      # PostgreSQL, hand-maintained option-combination projects
+      - task: test:rust-sqlx-nested-json
+      - task: test:kotlin-jdbc-ext
+      - task: test:php-pdo-namespace
+
+  all:redshift:
+    desc: Run every Redshift project against the PG-compat substitute (see README.md)
+    cmds:
+      - task: db:migrate:redshift
+      - task: test:rust-sqlx-redshift
+      - task: test:rust-tokio-postgres-redshift
+      - task: test:python-psycopg3-redshift
+      - task: test:python-asyncpg-redshift
+      - task: test:go-pgx-redshift
+      - task: test:typescript-pg-redshift
+      - task: test:typescript-postgres-redshift
+      - task: test:java-jdbc-redshift
+      - task: test:kotlin-jdbc-redshift
+      - task: test:csharp-npgsql-redshift
+      - task: test:elixir-postgrex-redshift
+      - task: test:ruby-pg-redshift
+      - task: test:php-pdo-redshift
+
+  all:snowflake:
+    desc: Run every Snowflake project against the fakesnow emulator (see README.md)
+    cmds:
+      # python-snowflake embeds fakesnow in-process, so it runs before the
+      # shared server is started and does not need it.
+      - task: test:python-snowflake
+      - task: snowflake:emulator:up
+      - defer: { task: snowflake:emulator:down }
+      - task: test:typescript-snowflake
+      - task: test:go-gosnowflake
+      - task: test:java-jdbc-snowflake
+      - task: test:kotlin-jdbc-snowflake
+      - task: test:csharp-snowflake
+      - task: test:php-pdo-snowflake
