@@ -265,5 +265,5 @@ public enum UserStatus {
 | `DATE` | `date` | `java.time.LocalDate` |
 | `TIMESTAMPTZ` | `datetime_tz` | `java.time.OffsetDateTime` |
 | `JSON` | `json` | `String` |
-| `TEXT[]` | `array<string>` | `java.util.List<String>` |
+| `TEXT[]` | `array<string>` | `String` |
 | nullable | `nullable` | `@Nullable T` |

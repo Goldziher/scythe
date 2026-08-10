@@ -28,7 +28,11 @@ super = "String"
 geometry = "String"
 
 [types.containers]
-array = "java.util.List<{T}>"
+# Arrays have no typed reader on the JVM backends. Every non-scalar column is read through
+# the untyped object accessor, whose static type is Object on Java and Any on Kotlin, so a
+# list-typed declaration never compiles. Arrays are declared in their text form instead,
+# exactly like the range container below.
+array = "String"
 nullable = "@Nullable {T}"
 range = "String"
 json_typed = "{T}"

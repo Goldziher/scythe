@@ -351,5 +351,5 @@ enum class UserStatus(val value: String) {
 | `DATE` | `date` | `java.time.LocalDate` |
 | `TIMESTAMPTZ` | `datetime_tz` | `java.time.OffsetDateTime` |
 | `JSON` | `json` | `String` |
-| `TEXT[]` | `array<string>` | `List<String>` |
+| `TEXT[]` | `array<string>` | `String` |
 | nullable | `nullable` | `T?` |

@@ -32,11 +32,18 @@ Neutral types are scythe's intermediate representation between SQL types and lan
 
 | Neutral Pattern | Rust (sqlx) | Python | TypeScript | Go | Java | Kotlin | C# | Elixir | Ruby |
 |----------------|------------|--------|-----------|-----|------|--------|-----|--------|------|
-| `array<T>` | `Vec<T>` | `list[T]` | `T[]` | `[]T` | `java.util.List<T>` | `List<T>` | `List<T>` | `list(T)` | `Array<T>` |
+| `array<T>` | `Vec<T>` | `list[T]` | `T[]` | `[]T` | `String` | `String` | `List<T>` | `list(T)` | `Array<T>` |
 | `nullable` | `Option<T>` | `T \| None` | `T \| null` | `*T` | `@Nullable T` | `T?` | `T?` | `T \| nil` | `T` |
 | `range<T>` | `sqlx::postgres::types::PgRange<T>` | `tuple[T, T]` | `string` | `string` | `String` | `String` | `string` | `string()` | `String` |
 | `json_typed<T>` | `sqlx::types::Json<T>` | `T` | `T` | `T` | `T` | `T` | `T` | `T` | `T` |
 | `json_nested<T>` | `sqlx::types::Json<T>` | `T` | -- | `T` | -- | -- | -- | -- | -- |
+
+`array<T>` maps to `String` on Java and Kotlin, not to a list. Neither backend has
+an array reader -- every non-scalar column is read through the untyped accessor
+(`ResultSet.getObject`, `Row.get(col, Object.class)`), whose static type is
+`Object`/`Any`, so a list-typed declaration does not compile. The column arrives
+as the driver's text form, the same way `range<T>` and `json` already do. This is
+a limitation, not a design choice; typed array readers are tracked separately.
 
 `json_typed<T>` is what your own `@json` annotation produces: `T` is a type you
 declared and scythe knows nothing about its shape.
