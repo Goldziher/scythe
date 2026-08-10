@@ -30,6 +30,20 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **`IDENTITY` preprocessing ate the whitespace after the keyword and rewrote its case.** The catalog
+  strips `IDENTITY(seed, step)` before parsing; when the keyword was *not* followed by a clause, the
+  branch that put it back pushed a literal uppercase `"IDENTITY"` and resumed from the position it had
+  already advanced past the whitespace, so `GENERATED ALWAYS AS IDENTITY PRIMARY KEY` became
+  `IDENTITYPRIMARY KEY` and a column named `identity` became `IDENTITYTEXT NOT NULL`. The original
+  characters are now copied through unchanged. Thanks to @fzlzjerry. (#154)
+- **An unsupported nested `json_agg` degraded to a single JSON object even where the driver could
+  describe the array.** The degradation pass rewrote every column referencing a nested struct the
+  backend did not implement to plain `json`. A distinct `json_array` scalar marker now carries "one
+  JSON document whose top level is an array", and `typescript-pg`, `python-asyncpg`, `elixir-postgrex`
+  and `php-pdo` opt into it by declaring it in their manifests. It is deliberately not the `array<json>`
+  container, which means a SQL `json[]` column and can select a typed array reader: `csharp-npgsql`
+  would have declared `List<string>` while reading through the untyped `GetValue` accessor. Backends
+  that declare no `json_array` mapping keep the plain-`json` fallback unchanged. Thanks to @fzlzjerry.
 - **A parameter named after a column like `my col`, `with-dash` or `2fa` was emitted verbatim into a
   binding.** `export async function findWeird(client: PoolClient, my col: string)` does not parse, and
   neither does its equivalent in the other nine target languages. #215 fixed the two positions that
