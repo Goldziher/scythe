@@ -1,7 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_camel_case, to_pascal_case};
 use scythe_backend::types::resolve_type;
 use std::fmt::Write;
 
@@ -18,7 +16,6 @@ use crate::backends::typescript_common::{
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_enum,
     generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
 };
-use crate::singularize;
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/typescript-kysely.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/typescript-kysely.redshift.toml");
@@ -239,24 +236,22 @@ impl CodegenBackend for TypescriptKyselyBackend {
         self.header_with_kysely_import(needs_kysely)
     }
 
-    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let struct_name = row_struct_name(query_name, &self.manifest.naming);
+    fn generate_struct_decl(
+        &self,
+        struct_name: &str,
+        query_name: &str,
+        columns: &[ResolvedColumn],
+    ) -> Result<String, ScytheError> {
         if self.row_type == TsRowType::Zod {
             if self.outer_join_unions {
-                return Ok(generate_zod_union_row_struct(&struct_name, query_name, columns));
+                return Ok(generate_zod_union_row_struct(struct_name, query_name, columns));
             }
-            return Ok(generate_zod_row_struct(&struct_name, query_name, columns));
+            return Ok(generate_zod_row_struct(struct_name, query_name, columns));
         }
         if self.outer_join_unions {
-            return Ok(generate_ts_union_row_struct(&struct_name, query_name, columns, None));
+            return Ok(generate_ts_union_row_struct(struct_name, query_name, columns, None));
         }
-        Ok(generate_ts_interface_row_struct(&struct_name, query_name, columns))
-    }
-
-    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let singular = singularize(table_name);
-        let name = to_pascal_case(&singular);
-        self.generate_row_struct(&name, columns)
+        Ok(generate_ts_interface_row_struct(struct_name, query_name, columns))
     }
 
     fn generate_query_fn(

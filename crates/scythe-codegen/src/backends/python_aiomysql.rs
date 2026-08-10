@@ -1,7 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_pascal_case, to_snake_case};
 use scythe_backend::types::resolve_type;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -12,7 +10,6 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
-use crate::singularize;
 
 use super::python_common::{
     PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, type_support_imports,
@@ -108,11 +105,15 @@ impl CodegenBackend for PythonAiomysqlBackend {
         }
     }
 
-    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let struct_name = row_struct_name(query_name, &self.manifest.naming);
+    fn generate_struct_decl(
+        &self,
+        struct_name: &str,
+        query_name: &str,
+        columns: &[ResolvedColumn],
+    ) -> Result<String, ScytheError> {
         let mut out = String::new();
         let _ = write!(out, "{}", self.row_type.decorator());
-        let _ = writeln!(out, "{}", self.row_type.class_def(&struct_name));
+        let _ = writeln!(out, "{}", self.row_type.class_def(struct_name));
         let _ = writeln!(out, "    \"\"\"Row type for {} query.\"\"\"", query_name);
         if columns.is_empty() {
             let _ = writeln!(out, "    pass");
@@ -123,12 +124,6 @@ impl CodegenBackend for PythonAiomysqlBackend {
             }
         }
         Ok(out)
-    }
-
-    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let singular = singularize(table_name);
-        let name = to_pascal_case(&singular);
-        self.generate_row_struct(&name, columns)
     }
 
     fn generate_query_fn(

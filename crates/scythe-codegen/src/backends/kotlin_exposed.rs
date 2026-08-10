@@ -2,9 +2,7 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_camel_case, to_pascal_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_camel_case, to_pascal_case};
 use scythe_backend::types::resolve_type;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -153,8 +151,12 @@ impl CodegenBackend for KotlinExposedBackend {
             .to_string()
     }
 
-    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let struct_name = row_struct_name(query_name, &self.manifest.naming);
+    fn generate_struct_decl(
+        &self,
+        struct_name: &str,
+        _query_name: &str,
+        columns: &[ResolvedColumn],
+    ) -> Result<String, ScytheError> {
         let mut out = String::new();
         let _ = writeln!(out, "data class {}(", struct_name);
         for col in columns.iter() {

@@ -1,7 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_pascal_case, to_snake_case};
 use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -11,7 +9,6 @@ use scythe_core::parser::QueryCommand;
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
 use crate::backends::typescript_common::parse_bool_option;
-use crate::singularize;
 
 /// Default embedded manifest TOML for rust-sqlx, used as fallback.
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/rust-sqlx.toml");
@@ -173,25 +170,12 @@ impl CodegenBackend for SqlxBackend {
         Ok(())
     }
 
-    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let struct_name = row_struct_name(query_name, &self.manifest.naming);
-        let mut out = String::new();
-
-        let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone", "sqlx::FromRow"]));
-        let _ = writeln!(out, "pub struct {} {{", struct_name);
-
-        for col in columns {
-            let field_type = self.row_field_type(col);
-            let _ = writeln!(out, "    pub {}: {},", col.field_name, field_type);
-        }
-
-        let _ = write!(out, "}}");
-        Ok(out)
-    }
-
-    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let singular = singularize(table_name);
-        let struct_name = to_pascal_case(&singular).into_owned();
+    fn generate_struct_decl(
+        &self,
+        struct_name: &str,
+        _query_name: &str,
+        columns: &[ResolvedColumn],
+    ) -> Result<String, ScytheError> {
         let mut out = String::new();
 
         let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone", "sqlx::FromRow"]));

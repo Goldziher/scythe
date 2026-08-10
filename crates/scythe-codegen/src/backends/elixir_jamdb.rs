@@ -1,7 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{
-    enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case, to_snake_case,
-};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_pascal_case, to_snake_case};
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
@@ -56,8 +54,12 @@ impl CodegenBackend for ElixirJamdbBackend {
         "end".to_string()
     }
 
-    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let struct_name = row_struct_name(query_name, &self.manifest.naming);
+    fn generate_struct_decl(
+        &self,
+        struct_name: &str,
+        query_name: &str,
+        columns: &[ResolvedColumn],
+    ) -> Result<String, ScytheError> {
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", struct_name);
         let _ = writeln!(out, "  @moduledoc \"Row type for {} queries.\"", query_name);
@@ -78,11 +80,6 @@ impl CodegenBackend for ElixirJamdbBackend {
         let _ = writeln!(out, "  defstruct [{}]", fields);
         let _ = write!(out, "end");
         Ok(out)
-    }
-
-    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let name = to_pascal_case(table_name);
-        self.generate_row_struct(&name, columns)
     }
 
     fn generate_query_fn(

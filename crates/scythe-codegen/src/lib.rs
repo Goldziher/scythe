@@ -14,7 +14,7 @@ pub use backends::get_backend;
 pub use overrides::TypeOverride;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{row_struct_name, to_pascal_case};
+use scythe_backend::naming::{NamingConfig, apply_case, row_struct_name, to_pascal_case};
 
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, EnumInfo, NestedStructInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
@@ -111,11 +111,27 @@ pub fn get_manifest_for_backend(backend_name: &str) -> Result<BackendManifest, S
     Ok(backend.manifest().clone())
 }
 
+/// The type name a `SELECT *` model is declared under *and* referenced by.
+///
+/// The single source of truth for #164. Both sides of that defect now call
+/// this: [`determine_struct_name`] below, which decides what the generated
+/// query function references, and [`CodegenBackend::generate_model_struct`],
+/// which decides what gets declared. There is no longer a second derivation
+/// for them to drift apart from.
+///
+/// Deliberately does not apply [`row_struct_name`]'s `row_suffix`. The
+/// suffix exists to keep a per-query row type (`GetActiveUsersRow`) from
+/// colliding with the query function that returns it; a table model is not
+/// a per-query type, and suffixing it would make `SELECT * FROM users`
+/// declare `UserRow` — the very name a query named `User` already claims.
+pub fn model_struct_name(table_name: &str, naming: &NamingConfig) -> String {
+    apply_case(&singularize(table_name), &naming.struct_case).into_owned()
+}
+
 /// Determine the struct name for a query (model struct or row struct).
 fn determine_struct_name(analyzed: &AnalyzedQuery, manifest: &BackendManifest) -> String {
     if let Some(ref table_name) = analyzed.source_table {
-        let singular = singularize(table_name);
-        to_pascal_case(&singular).into_owned()
+        model_struct_name(table_name, &manifest.naming)
     } else {
         row_struct_name(&analyzed.name, &manifest.naming)
     }
@@ -1684,7 +1700,7 @@ mod tests {
     // -----------------------------------------------------------------
     // #164: `SELECT *` must declare and reference the same struct name,
     // across every registered backend -- not just the two (rust-sqlx,
-    // rust-tokio-postgres) with a hand-written `generate_model_struct`.
+    // rust-tokio-postgres) that used to get it right by hand.
     // -----------------------------------------------------------------
 
     /// Strip line comments (`//`, `#`), block comments (`/* ... */`), and
@@ -1887,22 +1903,6 @@ mod tests {
         reason: &'static str,
     }
 
-    /// Root cause shared by every entry in [`KNOWN_DIVERGENT_BACKENDS`]
-    /// except `kotlin-exposed`: `generate_model_struct`
-    /// (`crates/scythe-codegen/src/backends/*.rs`) computes `let name =
-    /// to_pascal_case(&singularize(table_name))` -- the correct, unsuffixed
-    /// model name -- and then delegates to `self.generate_row_struct(&name,
-    /// columns)`, whose contract unconditionally appends
-    /// `manifest.naming.row_suffix`. That turns "User" into "UserRow" on
-    /// *declaration* while `determine_struct_name` (this file, already
-    /// correct) keeps the *reference* at "User". Fix: replace that
-    /// delegation with an inline emission under `name` with no further
-    /// suffixing, matching what `backends/sqlx.rs` and
-    /// `backends/tokio_postgres.rs` already do for their own
-    /// `generate_model_struct` -- the two backends that do not appear below.
-    const ROW_SUFFIX_DELEGATION_BUG: &str = "generate_model_struct delegates to generate_row_struct, which appends row_suffix onto \
-         the already-final, unsuffixed model name (#164)";
-
     /// Ratcheting allowlist for
     /// [`test_select_star_declares_and_references_the_same_struct_name_across_all_backends`],
     /// matching the pattern established by `scripts/torture-expected-failures.txt`
@@ -1916,210 +1916,21 @@ mod tests {
     /// No percentage, no tolerance, no `#[ignore]`: every entry names one
     /// backend and one reason, and the list is forced to shrink to empty as
     /// backends get fixed instead of silently rotting.
-    const KNOWN_DIVERGENT_BACKENDS: &[BackendNote] = &[
-        BackendNote {
-            backend: "python-psycopg3",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "python-asyncpg",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "python-aiomysql",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "python-aiosqlite",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "python-duckdb",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-postgres",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-pg",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-mysql2",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-better-sqlite3",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-duckdb",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-node-sqlite",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-wasm-sqlite",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-kysely",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "go-database-sql",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "go-pgx",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "java-jdbc",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "java-r2dbc",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "kotlin-jdbc",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "kotlin-r2dbc",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "kotlin-exposed",
-            reason: "generate_model_struct emits an Exposed `object XTable : IntIdTable(...)` in place \
-                      of a row type entirely -- a different, more severe defect than the row_suffix bug \
-                      shared by every other entry in this list (#214)",
-        },
-        BackendNote {
-            backend: "csharp-npgsql",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "csharp-mysqlconnector",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "csharp-microsoft-sqlite",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "elixir-postgrex",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "elixir-ecto",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "elixir-myxql",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "elixir-exqlite",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "ruby-pg",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "ruby-mysql2",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "ruby-sqlite3",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "ruby-trilogy",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "php-pdo",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "php-amphp",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "rust-tiberius",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "python-pyodbc",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-mssql",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "csharp-sqlclient",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "ruby-tiny-tds",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "elixir-tds",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "rust-sibyl",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "python-oracledb",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-oracledb",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "go-godror",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "csharp-oracle",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "ruby-oci8",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "elixir-jamdb",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "python-snowflake",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "typescript-snowflake",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "go-gosnowflake",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-        BackendNote {
-            backend: "csharp-snowflake",
-            reason: ROW_SUFFIX_DELEGATION_BUG,
-        },
-    ];
+    ///
+    /// It started at 50 entries. The 49 that shared the `row_suffix`
+    /// delegation bug are gone: `generate_model_struct` and
+    /// `generate_row_struct` are now both provided methods that name the
+    /// type once — through [`model_struct_name`] and [`row_struct_name`]
+    /// respectively — and hand that final name to the backend's
+    /// `generate_struct_decl`, which is contractually forbidden from
+    /// deriving another one (#164). There is no per-backend name derivation
+    /// left for a 50th backend to get wrong.
+    const KNOWN_DIVERGENT_BACKENDS: &[BackendNote] = &[BackendNote {
+        backend: "kotlin-exposed",
+        reason: "generate_model_struct emits an Exposed `object XTable : IntIdTable(...)` in place \
+                  of a row type entirely -- not a naming defect, so the shared naming fix for #164 \
+                  does not reach it (#214)",
+    }];
 
     /// Backends this check cannot render a verdict on at all -- distinct
     /// from [`KNOWN_DIVERGENT_BACKENDS`], which lists backends the check

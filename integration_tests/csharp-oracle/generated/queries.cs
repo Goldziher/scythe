@@ -12,7 +12,7 @@ public record CreateAttachmentRow(
 );
 
 public static async Task<CreateAttachmentRow?> CreateAttachment(OracleConnection conn, long order_id, string filename, byte[] payload, string? description) {
-    using var cmd = new OracleCommand("INSERT INTO attachments (order_id, filename, payload, description) VALUES (:1, :2, :3, :4) RETURNING id, order_id, filename INTO :out0, :out1, :out2", conn);
+    using var cmd = new OracleCommand(@"INSERT INTO attachments (order_id, filename, payload, description) VALUES (:1, :2, :3, :4) RETURNING id, order_id, filename INTO :out0, :out1, :out2", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)order_id ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)filename ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)payload ?? DBNull.Value });
@@ -37,7 +37,7 @@ public record GetAttachmentsByOrderRow(
 );
 
 public static async Task<List<GetAttachmentsByOrderRow>> GetAttachmentsByOrder(OracleConnection conn, long order_id) {
-    using var cmd = new OracleCommand("SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = :1 ORDER BY id", conn);
+    using var cmd = new OracleCommand(@"SELECT id, order_id, filename, payload, description FROM attachments WHERE order_id = :1 ORDER BY id", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)order_id ?? DBNull.Value });
     using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<GetAttachmentsByOrderRow>();
@@ -62,7 +62,7 @@ public record GetAttachmentByIdRow(
 );
 
 public static async Task<GetAttachmentByIdRow?> GetAttachmentById(OracleConnection conn, long id) {
-    using var cmd = new OracleCommand("SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :1", conn);
+    using var cmd = new OracleCommand(@"SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :1", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)id ?? DBNull.Value });
     using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -76,7 +76,7 @@ public static async Task<GetAttachmentByIdRow?> GetAttachmentById(OracleConnecti
 }
 
 public static async Task<int> DeleteAttachmentsByOrder(OracleConnection conn, long order_id) {
-    using var cmd = new OracleCommand("DELETE FROM attachments WHERE order_id = :1", conn);
+    using var cmd = new OracleCommand(@"DELETE FROM attachments WHERE order_id = :1", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)order_id ?? DBNull.Value });
     return await cmd.ExecuteNonQueryAsync();
 }
@@ -90,7 +90,7 @@ public record CreateOrderRow(
 );
 
 public static async Task<CreateOrderRow?> CreateOrder(OracleConnection conn, long user_id, decimal total, string? notes) {
-    using var cmd = new OracleCommand("INSERT INTO orders (user_id, total, notes) VALUES (:1, :2, :3) RETURNING id, user_id, total, notes, created_at INTO :out0, :out1, :out2, :out3, :out4", conn);
+    using var cmd = new OracleCommand(@"INSERT INTO orders (user_id, total, notes) VALUES (:1, :2, :3) RETURNING id, user_id, total, notes, created_at INTO :out0, :out1, :out2, :out3, :out4", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)user_id ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)total ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)notes ?? DBNull.Value });
@@ -117,7 +117,7 @@ public record GetOrdersByUserRow(
 );
 
 public static async Task<List<GetOrdersByUserRow>> GetOrdersByUser(OracleConnection conn, long user_id) {
-    using var cmd = new OracleCommand("SELECT id, total, notes, created_at FROM orders WHERE user_id = :1 ORDER BY created_at DESC", conn);
+    using var cmd = new OracleCommand(@"SELECT id, total, notes, created_at FROM orders WHERE user_id = :1 ORDER BY created_at DESC", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)user_id ?? DBNull.Value });
     using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<GetOrdersByUserRow>();
@@ -137,7 +137,7 @@ public record GetOrderTotalRow(
 );
 
 public static async Task<GetOrderTotalRow?> GetOrderTotal(OracleConnection conn, long user_id) {
-    using var cmd = new OracleCommand("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :1", conn);
+    using var cmd = new OracleCommand(@"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :1", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)user_id ?? DBNull.Value });
     using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -147,7 +147,7 @@ public static async Task<GetOrderTotalRow?> GetOrderTotal(OracleConnection conn,
 }
 
 public static async Task<int> DeleteOrdersByUser(OracleConnection conn, long user_id) {
-    using var cmd = new OracleCommand("DELETE FROM orders WHERE user_id = :1", conn);
+    using var cmd = new OracleCommand(@"DELETE FROM orders WHERE user_id = :1", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)user_id ?? DBNull.Value });
     return await cmd.ExecuteNonQueryAsync();
 }
@@ -161,7 +161,7 @@ public record GetUserByIdRow(
 );
 
 public static async Task<GetUserByIdRow?> GetUserById(OracleConnection conn, long id) {
-    using var cmd = new OracleCommand("SELECT id, name, email, active, created_at FROM users WHERE id = :1", conn);
+    using var cmd = new OracleCommand(@"SELECT id, name, email, active, created_at FROM users WHERE id = :1", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)id ?? DBNull.Value });
     using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) return null;
@@ -181,7 +181,7 @@ public record ListActiveUsersRow(
 );
 
 public static async Task<List<ListActiveUsersRow>> ListActiveUsers(OracleConnection conn) {
-    using var cmd = new OracleCommand("SELECT id, name, email FROM users WHERE active = 1", conn);
+    using var cmd = new OracleCommand(@"SELECT id, name, email FROM users WHERE active = 1", conn);
     using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<ListActiveUsersRow>();
     while (await reader.ReadAsync()) {
@@ -203,7 +203,7 @@ public record CreateUserRow(
 );
 
 public static async Task<CreateUserRow?> CreateUser(OracleConnection conn, string name, string? email, long active) {
-    using var cmd = new OracleCommand("INSERT INTO users (name, email, active) VALUES (:1, :2, :3) RETURNING id, name, email, active, created_at INTO :out0, :out1, :out2, :out3, :out4", conn);
+    using var cmd = new OracleCommand(@"INSERT INTO users (name, email, active) VALUES (:1, :2, :3) RETURNING id, name, email, active, created_at INTO :out0, :out1, :out2, :out3, :out4", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)name ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)email ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)active ?? DBNull.Value });
@@ -223,14 +223,14 @@ public static async Task<CreateUserRow?> CreateUser(OracleConnection conn, strin
 }
 
 public static async Task UpdateUserEmail(OracleConnection conn, string email, long id) {
-    using var cmd = new OracleCommand("UPDATE users SET email = :1 WHERE id = :2", conn);
+    using var cmd = new OracleCommand(@"UPDATE users SET email = :1 WHERE id = :2", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)email ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)id ?? DBNull.Value });
     await cmd.ExecuteNonQueryAsync();
 }
 
 public static async Task DeleteUser(OracleConnection conn, long id) {
-    using var cmd = new OracleCommand("DELETE FROM users WHERE id = :1", conn);
+    using var cmd = new OracleCommand(@"DELETE FROM users WHERE id = :1", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)id ?? DBNull.Value });
     await cmd.ExecuteNonQueryAsync();
 }
@@ -242,7 +242,7 @@ public record SearchUsersRow(
 );
 
 public static async Task<List<SearchUsersRow>> SearchUsers(OracleConnection conn, string name) {
-    using var cmd = new OracleCommand("SELECT id, name, email FROM users WHERE name LIKE :1", conn);
+    using var cmd = new OracleCommand(@"SELECT id, name, email FROM users WHERE name LIKE :1", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)name ?? DBNull.Value });
     using var reader = await cmd.ExecuteReaderAsync();
     var results = new List<SearchUsersRow>();

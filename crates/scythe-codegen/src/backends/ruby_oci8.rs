@@ -1,5 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_pascal_case};
 use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -63,8 +63,12 @@ impl CodegenBackend for RubyOci8Backend {
         "end".to_string()
     }
 
-    fn generate_row_struct(&self, query_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let struct_name = row_struct_name(query_name, &self.manifest.naming);
+    fn generate_struct_decl(
+        &self,
+        struct_name: &str,
+        _query_name: &str,
+        columns: &[ResolvedColumn],
+    ) -> Result<String, ScytheError> {
         let fields = columns
             .iter()
             .map(|c| format!(":{}", c.field_name))
@@ -73,11 +77,6 @@ impl CodegenBackend for RubyOci8Backend {
         let mut out = String::new();
         let _ = writeln!(out, "  {} = Data.define({})", struct_name, fields);
         Ok(out)
-    }
-
-    fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let name = to_pascal_case(table_name);
-        self.generate_row_struct(&name, columns)
     }
 
     fn generate_query_fn(
