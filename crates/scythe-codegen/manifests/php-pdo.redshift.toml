@@ -28,7 +28,7 @@ super = "array"
 geometry = "string"
 
 [types.containers]
-array = "array<{T}>"
+array = "array"
 nullable = "?{T}"
 range = "string"
 json_typed = "{T}"
