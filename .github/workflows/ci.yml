@@ -35,6 +35,13 @@ jobs:
       - uses: go-task/setup-task@v2
         with:
           version: 3.x
+      # Pinned rather than relying on the runner image's default python:
+      # scripts/check-provenance-versions.py imports `tomllib`, which is 3.11+.
+      # On an older interpreter the step would fail with an ImportError that
+      # looks nothing like the version mismatch it exists to report.
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
       # Until now `version:check` ran only in publish.yaml, *after* the release
       # tag was already pushed -- see the comment at publish.yaml:72-78, which
       # records that v0.10.0 and v0.11.0 both shipped five crates instead of
@@ -50,50 +57,16 @@ jobs:
       # that forgot to regenerate, so committed provenance headers still name
       # the old release -- in seconds, from text already on disk, so it fails
       # fast on the release commit instead of waiting on the expensive job.
+      #
+      # This used to be ~40 lines of inline shell that scanned
+      # `integration_tests/` and nothing else, while 28 generated snippets
+      # under `website/src/content/docs/` carry the same header (#129). A
+      # release that regenerated one tree and not the other passed. The script
+      # scans both, and errors per-root when a root yields zero headers -- a
+      # total count guard is not enough once there is more than one root,
+      # because adding a root that matches nothing is then invisible.
       - name: Check provenance header versions match Cargo.toml
-        run: |
-          expected=$(awk -F'"' '/^version = /{print $2; exit}' crates/scythe-cli/Cargo.toml)
-          if [ -z "$expected" ]; then
-            echo "::error::Could not read version from crates/scythe-cli/Cargo.toml" >&2
-            exit 1
-          fi
-          # `while read` fed by a here-string, not by a pipe: a *pipeline*
-          # runs its loop in a subshell, so `count`/`offenders` set inside it
-          # would vanish once the pipeline exits and this would report success
-          # even when it found a mismatch -- see `version:check` in
-          # Taskfile.yaml for the same failure mode. A here-string keeps the
-          # loop in this shell while still splitting on newlines only, so a
-          # path containing a space stays one filename. Iterating unquoted
-          # `$files` would split on spaces too, and does not split at all
-          # under zsh, which makes the check silently scan one bogus path.
-          files=$(grep -rlE 'scythe:provenance v=[0-9]+\.[0-9]+\.[0-9]+' integration_tests/ 2>/dev/null || true)
-          count=0
-          offenders=""
-          while IFS= read -r f; do
-            [ -n "$f" ] || continue
-            count=$((count + 1))
-            v=$(grep -oE 'scythe:provenance v=[0-9]+\.[0-9]+\.[0-9]+' "$f" | head -1 | sed -E 's/^.*v=//')
-            if [ "$v" != "$expected" ]; then
-              offenders="${offenders}${f}: v=${v} (expected v=${expected})\n"
-            fi
-          done <<< "$files"
-          echo "Checked $count committed provenance header(s) under integration_tests/."
-          # A grep that matches nothing also "passes". Before the artifacts
-          # were regenerated this check scanned zero files and reported
-          # success, which reads identically to "every header agrees" -- so
-          # assert it found something. Any regression that stops the header
-          # being emitted, or that empties integration_tests/, now fails here
-          # instead of silently disarming this job.
-          if [ "$count" -eq 0 ]; then
-            echo "::error::Found no scythe:provenance headers under integration_tests/. Generated artifacts are expected to carry one, so this check would pass vacuously. Run 'cd integration_tests && task generate:all' and commit the result."
-            exit 1
-          fi
-          if [ -n "$offenders" ]; then
-            printf "%b" "$offenders" >&2
-            echo "::error::Provenance header version mismatch: expected v=$expected (from crates/scythe-cli/Cargo.toml) but at least one committed artifact under integration_tests/ disagrees -- see files above. Run 'task version:sync VERSION=$expected' (which regenerates integration_tests) or 'cd integration_tests && task generate:all' and commit the result."
-            exit 1
-          fi
-          echo "All $count provenance header(s) agree on v=$expected"
+        run: python3 scripts/check-provenance-versions.py
       # The fixture suite is committed in TWO places -- scythe-cli's and
       # scythe-codegen's `tests/generated/` are byte-identical, produced by the
       # same generator with a different `--output`. Both must be regenerated
