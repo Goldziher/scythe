@@ -1,13 +1,128 @@
+use ahash::{AHashMap, AHashSet};
 use sqlparser::ast::{
     self, BinaryOperator, Expr, GroupByExpr, ObjectName, Query, SelectItem, SetExpr, Statement, TableFactor, Value,
 };
 
 use crate::dialect::SqlDialect;
+use crate::errors::ScytheError;
 
-use super::types::{Scope, TypeInfo};
+use super::types::{AnalyzedColumn, Scope, TypeInfo};
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
+
+/// The name [`expr_to_name`] falls back to for a projected expression that
+/// carries no name of its own (`SELECT 1, 2` yields two of them). Several in
+/// one projection are normal rather than a genuine collision, so the
+/// duplicate-name pass skips them.
+pub(super) const UNNAMED_COLUMN: &str = "unknown";
+
+/// Marker written into a `TypeInfo::neutral_type` when a bare column name
+/// resolves against more than one relation in scope.
+///
+/// These three markers are *internal*: they are not neutral types any backend
+/// can resolve, and every statement path that produces user-visible result
+/// columns must convert them back into a user-facing [`ScytheError`] before
+/// returning (see [`reject_unresolved_columns`]). Both the producers (in
+/// `expressions.rs`) and the single consumer read them from these constants,
+/// so a marker cannot be renamed on one side and silently leak on the other
+/// -- which is exactly how RETURNING ended up reporting a typo'd column as
+/// `INTERNAL_ERROR: unknown neutral type: __unknown_col__:...` (#173).
+pub(super) const AMBIGUOUS_COLUMN_MARKER: &str = "__ambiguous__:";
+
+/// Marker written into a `TypeInfo::neutral_type` when a column name resolves
+/// against no relation in scope. See [`AMBIGUOUS_COLUMN_MARKER`].
+pub(super) const UNKNOWN_COLUMN_MARKER: &str = "__unknown_col__:";
+
+/// Marker written into a `TypeInfo::neutral_type` for a function call scythe
+/// has no return type for. See [`AMBIGUOUS_COLUMN_MARKER`].
+pub(super) const UNKNOWN_FUNCTION_MARKER: &str = "__unknown_func__:";
+
+/// Translate an internal resolution marker embedded in a column's neutral
+/// type back into the user-facing error it stands for, or `None` when the
+/// type resolved normally.
+pub(super) fn unresolved_type_error(neutral_type: &str) -> Option<ScytheError> {
+    if let Some(name) = neutral_type.strip_prefix(AMBIGUOUS_COLUMN_MARKER) {
+        return Some(ScytheError::ambiguous_column(name));
+    }
+    if let Some(name) = neutral_type.strip_prefix(UNKNOWN_COLUMN_MARKER) {
+        return Some(ScytheError::unknown_column(name));
+    }
+    if let Some(name) = neutral_type.strip_prefix(UNKNOWN_FUNCTION_MARKER) {
+        return Some(ScytheError::unknown_function(name));
+    }
+    None
+}
+
+/// Reject a projected column list that still carries an internal resolution
+/// marker, reporting the user error the marker stands for.
+///
+/// Every path that hands result columns back to `analyze()` runs this --
+/// `SELECT` and `RETURNING` alike. A marker that escapes here reaches codegen
+/// as a neutral type no manifest can resolve, where it surfaces as
+/// `INTERNAL_ERROR` (or, on a backend that tolerates unknown neutral types,
+/// as the raw marker string written into generated source).
+pub(super) fn reject_unresolved_columns(columns: &[AnalyzedColumn]) -> Result<(), ScytheError> {
+    for col in columns {
+        if let Some(err) = unresolved_type_error(&col.neutral_type) {
+            return Err(err);
+        }
+    }
+    Ok(())
+}
+
+/// Rename every name that occurs more than once so the whole list is unique,
+/// suffixing each occurrence with `_1`, `_2`, ... in positional order.
+///
+/// One rule for both name spaces scythe generates identifiers from: query
+/// parameters (`WHERE id = $1 OR id = $2` -> `id_1`, `id_2`) and result
+/// columns (`SELECT u.id, p.id` -> `id_1`, `id_2`). Those two paths used to
+/// disagree -- the parameter path suffixed silently while the column path
+/// hard-rejected an ordinary join projection with `DUPLICATE_ALIAS` (#175) --
+/// so they are now one function with one behaviour.
+///
+/// A generated suffix never lands on a name the list already contains:
+/// `SELECT a AS id, b AS id, c AS id_1` yields `id_1` for the existing
+/// `id_1` column and `id_2`/`id_3` for the two `id`s, rather than minting a
+/// second `id_1`.
+pub(super) fn disambiguate_duplicate_names<'a>(names: impl IntoIterator<Item = &'a mut String>) {
+    let mut names: Vec<&'a mut String> = names.into_iter().collect();
+
+    let mut occurrences: AHashMap<String, usize> = AHashMap::new();
+    for name in &names {
+        *occurrences.entry((*name).clone()).or_insert(0) += 1;
+    }
+
+    // Seeded with every original name so a suffix can never collide with one
+    // the caller already uses; grows as suffixed names are handed out so two
+    // different bases cannot converge on the same result either.
+    let mut taken: AHashSet<String> = occurrences.keys().cloned().collect();
+    let mut next_suffix: AHashMap<String, usize> = AHashMap::new();
+
+    for name in &mut names {
+        if occurrences.get(name.as_str()).copied().unwrap_or(0) < 2 {
+            continue;
+        }
+        let base = (**name).clone();
+        let suffix = next_suffix.entry(base.clone()).or_insert(0);
+        let renamed = loop {
+            *suffix += 1;
+            let candidate = format!("{base}_{suffix}");
+            if taken.insert(candidate.clone()) {
+                break candidate;
+            }
+        };
+        **name = renamed;
+    }
+
+    debug_assert!(
+        {
+            let mut unique: AHashSet<&str> = AHashSet::new();
+            names.iter().all(|name| unique.insert(name.as_str()))
+        },
+        "disambiguate_duplicate_names must leave every name unique"
+    );
+}
 
 pub(super) fn value_is_placeholder(vws: &ast::ValueWithSpan) -> Option<&str> {
     match &vws.value {
@@ -1242,5 +1357,77 @@ mod tests {
             span: Span::empty(),
         };
         assert_eq!(value_is_placeholder(&vws2), None);
+    }
+
+    fn disambiguated(names: &[&str]) -> Vec<String> {
+        let mut names: Vec<String> = names.iter().map(|n| (*n).to_string()).collect();
+        disambiguate_duplicate_names(names.iter_mut());
+        names
+    }
+
+    #[test]
+    fn test_disambiguate_leaves_unique_names_untouched() {
+        assert_eq!(disambiguated(&["id", "name", "email"]), ["id", "name", "email"]);
+    }
+
+    #[test]
+    fn test_disambiguate_suffixes_every_occurrence_in_positional_order() {
+        assert_eq!(disambiguated(&["id", "id"]), ["id_1", "id_2"]);
+        assert_eq!(
+            disambiguated(&["id", "name", "id", "id"]),
+            ["id_1", "name", "id_2", "id_3"]
+        );
+    }
+
+    #[test]
+    fn test_disambiguate_handles_two_independent_collisions() {
+        assert_eq!(
+            disambiguated(&["id", "total", "id", "total"]),
+            ["id_1", "total_1", "id_2", "total_2"]
+        );
+    }
+
+    /// A generated suffix must not land on a name the list already uses --
+    /// `SELECT a AS id, b AS id, c AS id_1` must not mint a second `id_1`.
+    #[test]
+    fn test_disambiguate_skips_suffixes_that_already_exist() {
+        assert_eq!(disambiguated(&["id", "id", "id_1"]), ["id_2", "id_3", "id_1"]);
+    }
+
+    #[test]
+    fn test_unresolved_type_error_maps_each_marker_to_its_user_facing_code() {
+        use crate::errors::ErrorCode;
+
+        let ambiguous = unresolved_type_error(&format!("{AMBIGUOUS_COLUMN_MARKER}id")).expect("marker recognised");
+        assert_eq!(ambiguous.code, ErrorCode::AmbiguousColumn);
+        assert!(ambiguous.message.contains("id"), "got: {}", ambiguous.message);
+
+        let unknown_col =
+            unresolved_type_error(&format!("{UNKNOWN_COLUMN_MARKER}nosuchcol")).expect("marker recognised");
+        assert_eq!(unknown_col.code, ErrorCode::UnknownColumn);
+        assert!(
+            unknown_col.message.contains("nosuchcol"),
+            "got: {}",
+            unknown_col.message
+        );
+
+        let unknown_func =
+            unresolved_type_error(&format!("{UNKNOWN_FUNCTION_MARKER}my_weird_func")).expect("marker recognised");
+        assert_eq!(unknown_func.code, ErrorCode::UnknownFunction);
+        assert!(
+            unknown_func.message.contains("my_weird_func"),
+            "got: {}",
+            unknown_func.message
+        );
+    }
+
+    #[test]
+    fn test_unresolved_type_error_ignores_ordinary_neutral_types() {
+        for neutral in ["int32", "array<string>", "json_nested<array<QRowX>>", "unknown"] {
+            assert!(
+                unresolved_type_error(neutral).is_none(),
+                "{neutral} must not be treated as an unresolved marker"
+            );
+        }
     }
 }

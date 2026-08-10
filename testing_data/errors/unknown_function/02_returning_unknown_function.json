@@ -1,0 +1,22 @@
+{
+  "name": "returning_unknown_function",
+  "description": "An unknown function in RETURNING reports UNKNOWN_FUNCTION rather than leaking the internal marker",
+  "category": "errors/unknown_function",
+  "tags": ["error", "function", "unknown", "returning", "insert"],
+  "schema_sql": ["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"],
+  "query_sql": "-- @name InsertUserReturningWeird\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING my_weird_func(id);",
+  "config": {
+    "engine": "postgresql",
+    "gen": {
+      "target": "sqlx"
+    }
+  },
+  "expected": {
+    "success": false,
+    "error": {
+      "code": "UNKNOWN_FUNCTION",
+      "message_contains": "my_weird_func"
+    }
+  },
+  "source": "original"
+}

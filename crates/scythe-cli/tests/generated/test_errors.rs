@@ -140,12 +140,12 @@ fn test_error_circular_cte() {
 }
 
 #[test]
-fn test_error_duplicate_column_alias() {
-    // From: testing_data/errors/duplicate_column_alias/01_duplicate_alias.json
-    // "Duplicate column aliases in SELECT should produce an error"
-    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
+fn test_empty_name_value() {
+    // From: testing_data/errors/invalid_annotation/04_empty_name_value.json
+    // "An @name annotation with no value is rejected instead of generating a nameless function"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
 
-    let query_sql = "-- @name DuplicateAlias\n-- @returns :many\nSELECT id AS x, name AS x FROM users";
+    let query_sql = "-- @name\n-- @returns :many\nSELECT id, name FROM users;";
 
     let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
     if let Ok(catalog) = catalog_result {
@@ -156,15 +156,15 @@ fn test_error_duplicate_column_alias() {
             let err = result.unwrap_err();
             let err_msg = err.to_string();
             assert!(
-                err_msg.contains("DUPLICATE_ALIAS"),
+                err_msg.contains("INVALID_ANNOTATION"),
                 "error should contain code {:?}, got: {}",
-                "DUPLICATE_ALIAS",
+                "INVALID_ANNOTATION",
                 err_msg
             );
             assert!(
-                err_msg.contains("duplicate"),
+                err_msg.contains("@name requires a value"),
                 "error should contain {:?}, got: {}",
-                "duplicate",
+                "@name requires a value",
                 err_msg
             );
         } else {
@@ -172,15 +172,15 @@ fn test_error_duplicate_column_alias() {
             let err = query_result.unwrap_err();
             let err_msg = err.to_string();
             assert!(
-                err_msg.contains("DUPLICATE_ALIAS"),
+                err_msg.contains("INVALID_ANNOTATION"),
                 "error should contain code {:?}, got: {}",
-                "DUPLICATE_ALIAS",
+                "INVALID_ANNOTATION",
                 err_msg
             );
             assert!(
-                err_msg.contains("duplicate"),
+                err_msg.contains("@name requires a value"),
                 "error should contain {:?}, got: {}",
-                "duplicate",
+                "@name requires a value",
                 err_msg
             );
         }
@@ -189,15 +189,149 @@ fn test_error_duplicate_column_alias() {
         let err = catalog_result.unwrap_err();
         let err_msg = err.to_string();
         assert!(
-            err_msg.contains("DUPLICATE_ALIAS"),
+            err_msg.contains("INVALID_ANNOTATION"),
             "error should contain code {:?}, got: {}",
-            "DUPLICATE_ALIAS",
+            "INVALID_ANNOTATION",
             err_msg
         );
         assert!(
-            err_msg.contains("duplicate"),
+            err_msg.contains("@name requires a value"),
             "error should contain {:?}, got: {}",
-            "duplicate",
+            "@name requires a value",
+            err_msg
+        );
+    }
+}
+
+#[test]
+fn test_group_by_uses_a_query_alias() {
+    // From: testing_data/errors/invalid_annotation/06_group_by_uses_a_query_alias.json
+    // "@group_by naming a query alias rather than the table matches no column and is reported instead of emitting an empty parent row type"
+    let schema_sql = &[
+        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+        "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);",
+    ];
+
+    let query_sql = "-- @name GetUsersWithOrders\n-- @returns :grouped\n-- @group_by u.id\nSELECT u.id, u.name, o.id AS order_id, o.total\nFROM users u\nJOIN orders o ON o.user_id = u.id;";
+
+    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
+    if let Ok(catalog) = catalog_result {
+        let query_result = scythe_core::parser::parse_query(query_sql);
+        if let Ok(query) = query_result {
+            let result = scythe_core::analyzer::analyze(&catalog, &query);
+            assert!(result.is_err(), "expected analysis to fail");
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("INVALID_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "INVALID_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("matched none of the query's result columns"),
+                "error should contain {:?}, got: {}",
+                "matched none of the query's result columns",
+                err_msg
+            );
+        } else {
+            // Parse failed -- that counts as expected failure.
+            let err = query_result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("INVALID_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "INVALID_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("matched none of the query's result columns"),
+                "error should contain {:?}, got: {}",
+                "matched none of the query's result columns",
+                err_msg
+            );
+        }
+    } else {
+        // DDL processing failed -- that counts as expected failure.
+        let err = catalog_result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("INVALID_ANNOTATION"),
+            "error should contain code {:?}, got: {}",
+            "INVALID_ANNOTATION",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("matched none of the query's result columns"),
+            "error should contain {:?}, got: {}",
+            "matched none of the query's result columns",
+            err_msg
+        );
+    }
+}
+
+#[test]
+fn test_group_by_with_disambiguated_columns() {
+    // From: testing_data/errors/invalid_annotation/07_group_by_with_disambiguated_columns.json
+    // "A :grouped query whose parent and child columns collide is reported, not split into an empty parent struct once the names are disambiguated"
+    let schema_sql = &[
+        "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+        "CREATE TABLE orders (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL REFERENCES users(id), total NUMERIC);",
+    ];
+
+    let query_sql = "-- @name GetUsersWithOrderIds\n-- @returns :grouped\n-- @group_by users.id\nSELECT u.id, o.id\nFROM users u\nJOIN orders o ON o.user_id = u.id;";
+
+    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
+    if let Ok(catalog) = catalog_result {
+        let query_result = scythe_core::parser::parse_query(query_sql);
+        if let Ok(query) = query_result {
+            let result = scythe_core::analyzer::analyze(&catalog, &query);
+            assert!(result.is_err(), "expected analysis to fail");
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("INVALID_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "INVALID_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("matched none of the query's result columns"),
+                "error should contain {:?}, got: {}",
+                "matched none of the query's result columns",
+                err_msg
+            );
+        } else {
+            // Parse failed -- that counts as expected failure.
+            let err = query_result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("INVALID_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "INVALID_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("matched none of the query's result columns"),
+                "error should contain {:?}, got: {}",
+                "matched none of the query's result columns",
+                err_msg
+            );
+        }
+    } else {
+        // DDL processing failed -- that counts as expected failure.
+        let err = catalog_result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("INVALID_ANNOTATION"),
+            "error should contain code {:?}, got: {}",
+            "INVALID_ANNOTATION",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("matched none of the query's result columns"),
+            "error should contain {:?}, got: {}",
+            "matched none of the query's result columns",
             err_msg
         );
     }
@@ -390,6 +524,70 @@ fn test_missing_returns_annotation() {
             err_msg.contains("missing @returns annotation"),
             "error should contain {:?}, got: {}",
             "missing @returns annotation",
+            err_msg
+        );
+    }
+}
+
+#[test]
+fn test_name_value_not_an_identifier() {
+    // From: testing_data/errors/invalid_annotation/05_name_value_not_an_identifier.json
+    // "An @name value that cannot be an identifier in generated code is rejected"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);"];
+
+    let query_sql = "-- @name get-user\n-- @returns :many\nSELECT id, name FROM users;";
+
+    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
+    if let Ok(catalog) = catalog_result {
+        let query_result = scythe_core::parser::parse_query(query_sql);
+        if let Ok(query) = query_result {
+            let result = scythe_core::analyzer::analyze(&catalog, &query);
+            assert!(result.is_err(), "expected analysis to fail");
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("INVALID_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "INVALID_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("only ASCII letters, digits and underscores"),
+                "error should contain {:?}, got: {}",
+                "only ASCII letters, digits and underscores",
+                err_msg
+            );
+        } else {
+            // Parse failed -- that counts as expected failure.
+            let err = query_result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("INVALID_ANNOTATION"),
+                "error should contain code {:?}, got: {}",
+                "INVALID_ANNOTATION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("only ASCII letters, digits and underscores"),
+                "error should contain {:?}, got: {}",
+                "only ASCII letters, digits and underscores",
+                err_msg
+            );
+        }
+    } else {
+        // DDL processing failed -- that counts as expected failure.
+        let err = catalog_result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("INVALID_ANNOTATION"),
+            "error should contain code {:?}, got: {}",
+            "INVALID_ANNOTATION",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("only ASCII letters, digits and underscores"),
+            "error should contain {:?}, got: {}",
+            "only ASCII letters, digits and underscores",
             err_msg
         );
     }
@@ -591,6 +789,70 @@ fn test_type_mismatch() {
 }
 
 #[test]
+fn test_returning_unknown_column() {
+    // From: testing_data/errors/unknown_column/02_returning_unknown_column.json
+    // "A nonexistent column in RETURNING is a user error, not an internal one"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
+
+    let query_sql = "-- @name InsertUserReturningUnknown\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING nosuchcol;";
+
+    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
+    if let Ok(catalog) = catalog_result {
+        let query_result = scythe_core::parser::parse_query(query_sql);
+        if let Ok(query) = query_result {
+            let result = scythe_core::analyzer::analyze(&catalog, &query);
+            assert!(result.is_err(), "expected analysis to fail");
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("UNKNOWN_COLUMN"),
+                "error should contain code {:?}, got: {}",
+                "UNKNOWN_COLUMN",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("column \"nosuchcol\" does not exist"),
+                "error should contain {:?}, got: {}",
+                "column \"nosuchcol\" does not exist",
+                err_msg
+            );
+        } else {
+            // Parse failed -- that counts as expected failure.
+            let err = query_result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("UNKNOWN_COLUMN"),
+                "error should contain code {:?}, got: {}",
+                "UNKNOWN_COLUMN",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("column \"nosuchcol\" does not exist"),
+                "error should contain {:?}, got: {}",
+                "column \"nosuchcol\" does not exist",
+                err_msg
+            );
+        }
+    } else {
+        // DDL processing failed -- that counts as expected failure.
+        let err = catalog_result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("UNKNOWN_COLUMN"),
+            "error should contain code {:?}, got: {}",
+            "UNKNOWN_COLUMN",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("column \"nosuchcol\" does not exist"),
+            "error should contain {:?}, got: {}",
+            "column \"nosuchcol\" does not exist",
+            err_msg
+        );
+    }
+}
+
+#[test]
 fn test_unknown_column() {
     // From: testing_data/errors/unknown_column/01_unknown_column.json
     // "Reference a nonexistent column in SELECT, expecting an error"
@@ -713,6 +975,70 @@ fn test_error_unknown_function() {
             err_msg.contains("nonexistent_func"),
             "error should contain {:?}, got: {}",
             "nonexistent_func",
+            err_msg
+        );
+    }
+}
+
+#[test]
+fn test_returning_unknown_function() {
+    // From: testing_data/errors/unknown_function/02_returning_unknown_function.json
+    // "An unknown function in RETURNING reports UNKNOWN_FUNCTION rather than leaking the internal marker"
+    let schema_sql = &["CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT NOT NULL);"];
+
+    let query_sql = "-- @name InsertUserReturningWeird\n-- @returns :one\nINSERT INTO users (name) VALUES ($1) RETURNING my_weird_func(id);";
+
+    let catalog_result = scythe_core::catalog::Catalog::from_ddl(schema_sql);
+    if let Ok(catalog) = catalog_result {
+        let query_result = scythe_core::parser::parse_query(query_sql);
+        if let Ok(query) = query_result {
+            let result = scythe_core::analyzer::analyze(&catalog, &query);
+            assert!(result.is_err(), "expected analysis to fail");
+            let err = result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("UNKNOWN_FUNCTION"),
+                "error should contain code {:?}, got: {}",
+                "UNKNOWN_FUNCTION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("my_weird_func"),
+                "error should contain {:?}, got: {}",
+                "my_weird_func",
+                err_msg
+            );
+        } else {
+            // Parse failed -- that counts as expected failure.
+            let err = query_result.unwrap_err();
+            let err_msg = err.to_string();
+            assert!(
+                err_msg.contains("UNKNOWN_FUNCTION"),
+                "error should contain code {:?}, got: {}",
+                "UNKNOWN_FUNCTION",
+                err_msg
+            );
+            assert!(
+                err_msg.contains("my_weird_func"),
+                "error should contain {:?}, got: {}",
+                "my_weird_func",
+                err_msg
+            );
+        }
+    } else {
+        // DDL processing failed -- that counts as expected failure.
+        let err = catalog_result.unwrap_err();
+        let err_msg = err.to_string();
+        assert!(
+            err_msg.contains("UNKNOWN_FUNCTION"),
+            "error should contain code {:?}, got: {}",
+            "UNKNOWN_FUNCTION",
+            err_msg
+        );
+        assert!(
+            err_msg.contains("my_weird_func"),
+            "error should contain {:?}, got: {}",
+            "my_weird_func",
             err_msg
         );
     }

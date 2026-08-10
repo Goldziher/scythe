@@ -1,0 +1,34 @@
+{
+  "category": "select/column_alias",
+  "description": "Two same-named columns from different joined tables are auto-disambiguated instead of rejected",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id_1",
+          "note": "users.id -- suffixed by the same rule the parameter path applies to duplicate parameter names",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "id_2",
+          "note": "posts.id",
+          "nullable": false,
+          "type": "int32"
+        }
+      ],
+      "command": "many",
+      "name": "ListUserPostIds",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "join_duplicate_column_names_disambiguated",
+  "query_sql": "-- @name ListUserPostIds\n-- @returns :many\nSELECT u.id, p.id FROM users u JOIN posts p ON p.user_id = u.id",
+  "schema_sql": [
+    "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL)",
+    "CREATE TABLE posts (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, title TEXT NOT NULL)"
+  ],
+  "source": "original",
+  "tags": ["select", "alias", "join", "duplicate"]
+}

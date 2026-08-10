@@ -21,7 +21,7 @@ use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 use crate::parser::{Query, QueryCommand};
 
-use helpers::{detect_select_star_source, find_nested_placeholder_id};
+use helpers::{detect_select_star_source, disambiguate_duplicate_names, find_nested_placeholder_id};
 use types::Analyzer;
 
 pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, ScytheError> {
@@ -107,20 +107,10 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         }
     }
 
-    {
-        let mut name_counts: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
-        for p in &params {
-            *name_counts.entry(p.name.clone()).or_insert(0) += 1;
-        }
-        let mut name_seen: ahash::AHashMap<String, usize> = ahash::AHashMap::new();
-        for p in &mut params {
-            if name_counts.get(&p.name).copied().unwrap_or(0) > 1 {
-                let idx = name_seen.entry(p.name.clone()).or_insert(0);
-                *idx += 1;
-                p.name = format!("{}_{}", p.name, idx);
-            }
-        }
-    }
+    // Shared with the result-column path in `analyze_select` /
+    // `analyze_returning` -- one rule for every identifier scythe generates
+    // from a user-supplied name (#175).
+    disambiguate_duplicate_names(params.iter_mut().map(|p| &mut p.name));
 
     let source_table = detect_select_star_source(&query.stmt);
 
@@ -210,6 +200,25 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
                 } else {
                     child_columns.push(col.clone());
                 }
+            }
+
+            // This split matches projected column names against the parent
+            // table's catalog columns, so anything that stops a projected
+            // name from being the catalog name -- an alias in `@group_by`
+            // (`@group_by u.id`, where `u` is not a table), a table that does
+            // not exist, or a name the duplicate-column pass had to suffix
+            // (`u.id`/`o.id` -> `id_1`/`id_2`, see
+            // `disambiguate_duplicate_names`) -- silently sends every column
+            // to the child struct and leaves the parent struct empty. That
+            // generates a parent row type with no fields at exit 0, so it is
+            // reported here instead.
+            if parent_columns.is_empty() {
+                return Err(ScytheError::invalid_annotation(format!(
+                    "@group_by {group_by_value} matched none of the query's result columns, so the \
+                     parent row type would have no fields -- name the table as it appears in the \
+                     schema (not a query alias), and make sure the projection selects its columns \
+                     under their own names"
+                )));
             }
 
             Some(types::GroupByConfig {
