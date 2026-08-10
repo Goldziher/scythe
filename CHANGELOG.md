@@ -89,6 +89,58 @@ methods with safe defaults. Details below.
 - A `[[sql.gen]]` entry missing its required `output` key produced a generic untagged-enum
   deserialization error that named neither the field nor the block. The error now names both, and
   unknown keys in a `[[sql]]` block are rejected rather than silently ignored. (#116)
+- Every PHP manifest declared its `array` container as `array<{T}>`, which reached the generated file
+  in a native type position where PHP has no generics: `public array<string> $tags` is a parse error.
+  Two routes hit it — a PostgreSQL array column, and an `= ANY(...)` parameter, which the analyzer
+  synthesises as `array<T>` in *every* dialect, so the broken type landed in function signatures even
+  on engines with no array type of their own. (#200)
+- All five JVM backends resolved a column's reader from a table maintained in parallel with the
+  manifest, and every type outside that table fell through to an untyped accessor — `rs.getObject(col)`
+  on the JDBC family, `row.get(col, Object.class)` / `Any::class.java` on the R2DBC pair. The declared
+  field type came from the manifest, nothing compared the two, and the result did not compile:
+  `incompatible types: Object cannot be converted to WidgetAddress`. Readers now derive from the
+  declared type itself, so the two cannot drift. Three defects fell out of the same tables: the R2DBC
+  arms matched `LocalDate` before `LocalDateTime` and read every datetime column as a date;
+  `kotlin-exposed` called `wasNull()` nowhere, so a SQL NULL in a nullable `Int?` arrived as `0`; and
+  all three JDBC backends read a nullable enum as `valueOf(getString(col).toUpperCase())`, an NPE on
+  exactly the value the column exists to hold. (#191, #192, #213, #214)
+- `java-r2dbc` emitted top-level records, a top-level enum and bare static methods into one
+  compilation unit, and closed its `:grouped` row buffer with `});` while `.flatMap(` was still open.
+  Neither had ever compiled. (#191)
+- TypeScript emitted raw column names into positions that require an identifier. `ts_property_key`
+  existed and was correct but only the row-struct emitters used it, so batch-params interface members,
+  per-item binds, dot-access row reads and oracledb object-literal keys spliced the name verbatim —
+  `first name: string;`, `[item.first name]`, and `row['it's']` closing its own quote. Property
+  positions are now quoted; a scalar *parameter* named after a non-identifier column is still broken,
+  because quoting is not available in a binding position, and is pinned by a failing-when-fixed test.
+  (#215)
+- `row_type = "zod"` derived its types from a table maintained beside the manifest, so the two
+  disagreed on four of six columns in the same query: `active` was `number` under `interface` and
+  `boolean` under `z.infer`, `price` `number` vs `string`, `created_at` `string` vs `Date`. Zod types
+  now derive from the resolved TypeScript type, so `z.infer` equals the manifest type by construction.
+  Enum variants also went through raw `to_pascal_case` and had their values spliced unescaped —
+  `In-active: "in-active",` is not a valid key. (#216)
+- `typescript-duckdb` imported `Connection`, which `@duckdb/node-api` does not export, and called
+  `stmt.run(args)`, which takes no arguments. Every file this backend has ever produced failed to
+  compile. Values now bind through `stmt.bind()`. (#217)
+- `typescript-oracledb` bound the driver result to `const result` inside the block where the grouped
+  fold declares its own (`Cannot redeclare block-scoped variable`), uppercased row keys
+  unconditionally so a quoted lower-case column read as `undefined` with no compile error, and ignored
+  `row_type = "zod"` entirely — there was a test certifying that no-op. (#218)
+- The postgres.js `:batch` path rewrote `$N` with a raw string replace while every other command path
+  used the literal-aware rewriter, so `VALUES ($1, $2, 'lit $1 $2 end')` turned an inert SQL string
+  literal into two extra live bindings. It compiled, ran, and stored the wrong text. (#219)
+- Six JSON functions were split across arms whose behaviour followed from which arm they landed in
+  rather than from their semantics: `jsonb_agg` lost the nested-struct inference `json_agg` got,
+  `to_json`/`to_jsonb` over a whole-row reference returned flat `json` and were hardcoded non-nullable
+  despite being strict, and `json_strip_nulls` was likewise fixed non-nullable.
+- The JSON function table is now derived from `pg_proc.proisstrict` and measured behaviour rather than
+  assumption. Four functions had no arm at all, so legal PostgreSQL failed with a hard
+  `unknown function` error: `array_to_json`, `json_object`/`jsonb_object`, `jsonb_set`/`jsonb_insert`
+  and `jsonb_pretty`. `jsonb_set_lax` reports `proisstrict = f` but still returns NULL for a NULL
+  target or path — only its replacement argument is exempt — so it gets its own arm. `json_typeof`,
+  `jsonb_typeof` and `json_array_length`/`jsonb_array_length` were unconditionally nullable where the
+  database is strict, and now follow their argument.
 
 ### Changed
 
@@ -96,6 +148,15 @@ methods with safe defaults. Details below.
   `tools/integration-test-generator/templates/`, which is where they actually live. Dependabot cannot
   target generated files, so its PRs against them were dead on arrival. (#115)
 - `snowflake-jdbc` is unified on 4.0.2 across both JVM templates, which previously disagreed.
+- The JVM manifests declare array columns in their text form (`String`) instead of `List<{T}>`. No JVM
+  backend has an array reader, so the list declaration never compiled, and `int[]`/`bool[]`
+  additionally rendered `java.util.List<int>`, which is not valid Java at all. This is a degradation,
+  not the destination — restoring `List<T>` needs a real reader first.
+- `scythe lint` and `scythe fmt` build one sqruff linter per `[[sql]]` block instead of one per file.
+  Construction compiles the dialect's lexer, so a run over N files paid N+1 constructions where one
+  suffices; measured on 200 single-query files in one block, `scythe lint` goes from 0.547s to 0.047s.
+  Construction is also validation, which moves an invalid `[lint.sqruff]` table from "error against
+  whichever file was read first" to an error about the config itself. (#130)
 
 ### Removed
 
