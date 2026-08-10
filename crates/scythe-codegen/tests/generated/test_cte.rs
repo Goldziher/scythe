@@ -360,10 +360,10 @@ fn test_cte_column_alias_literals() {
     assert_eq!(analyzed.command.to_string(), "many", "query command");
     assert_eq!(analyzed.columns.len(), 2, "column count");
     assert_eq!(analyzed.columns[0].name, "a", "column name");
-    assert_eq!(analyzed.columns[0].neutral_type, "int64", "column neutral_type for a");
+    assert_eq!(analyzed.columns[0].neutral_type, "int32", "column neutral_type for a");
     assert!(!analyzed.columns[0].nullable, "column nullable for a");
     assert_eq!(analyzed.columns[1].name, "b", "column name");
-    assert_eq!(analyzed.columns[1].neutral_type, "int64", "column neutral_type for b");
+    assert_eq!(analyzed.columns[1].neutral_type, "int32", "column neutral_type for b");
     assert!(!analyzed.columns[1].nullable, "column nullable for b");
 
     // Codegen verification: all backends should produce valid output
