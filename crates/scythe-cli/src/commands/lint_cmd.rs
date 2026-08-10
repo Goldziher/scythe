@@ -5,7 +5,7 @@ use scythe_inspect::parse_inspect_section;
 use scythe_lint::reporters::{Finding, Format};
 use scythe_lint::sqruff_adapter;
 use scythe_lint::types::Severity;
-use scythe_lint::{emit_findings, extract_cwe};
+use scythe_lint::{SuppressionSet, emit_findings};
 
 use super::inspect::{build_driver_with_config, build_registry};
 use super::shared::{config_dir, engine_to_sqruff_dialect, resolve_globs, split_query_file, validate_dialect};
@@ -22,6 +22,11 @@ struct FileViolation {
     line_pos: Option<usize>,
     /// Source sub-tool (`"lint"`, `"audit"`, `"inspect"`).  `None` means lint.
     source: Option<String>,
+    /// CWE ids for the rule that produced this violation, taken from
+    /// [`scythe_lint::LintRule::cwe`] at the point the rule set is known.
+    /// Empty for sqruff, inspect, and parse/analyze failures, none of which
+    /// map to a CWE.
+    cwe: Vec<String>,
 }
 
 /// Inputs to [`run_lint`]. Mirrors the clap `Commands::Lint` shape.
@@ -137,6 +142,7 @@ fn lint_files(
                         line_no: Some(sv.line_no),
                         line_pos: Some(sv.line_pos),
                         source: None,
+                        cwe: Vec::new(),
                     });
                 }
             } else {
@@ -152,6 +158,7 @@ fn lint_files(
                         line_no: Some(sv.line_no),
                         line_pos: Some(sv.line_pos),
                         source: None,
+                        cwe: Vec::new(),
                     });
                 }
             }
@@ -168,6 +175,7 @@ fn lint_files(
                     line_no: Some(sv.line_no),
                     line_pos: Some(sv.line_pos),
                     source: None,
+                    cwe: Vec::new(),
                 });
             }
         }
@@ -198,6 +206,21 @@ fn lint_from_config(
     use scythe_core::parser::parse_query_with_dialect;
     use scythe_lint::{LintContext, LintEngine, default_registry};
 
+    /// One query that parsed and analyzed, kept alive for the whole
+    /// `[[sql]]` block so [`LintEngine::build_report`] can borrow every
+    /// [`LintContext`] at once -- it needs the full set in one call to make
+    /// its cross-query checks (duplicate `@name`, SC-C03).
+    struct PreparedQuery {
+        file: String,
+        query: scythe_core::parser::Query,
+        analyzed: scythe_core::analyzer::AnalyzedQuery,
+        /// Suppressions parsed from this query's own block text. A block is
+        /// one statement, so the only meaningful statement index is 0 -- see
+        /// where this is consulted for why the index, not the source line,
+        /// is the key.
+        suppressions: SuppressionSet,
+    }
+
     #[derive(Deserialize)]
     struct ScytheConfig {
         sql: Vec<SqlConfig>,
@@ -224,6 +247,42 @@ fn lint_from_config(
     if let Some(ref lint_config) = config.lint {
         registry.apply_config(lint_config);
     }
+
+    // Both snapshots are taken before the registry moves into the engine,
+    // which consumes it.
+    //
+    // `cwe_by_rule` replaces a regex scrape of the violation *message*. No
+    // rule message template mentions a CWE id -- they are declared on the
+    // rule (`cwe = ["CWE-200"]`) and repeated only in its description -- so
+    // the scrape returned an empty list for every violation lint has ever
+    // reported and `--format sarif` carried no CWE tags at all.
+    let cwe_by_rule: ahash::AHashMap<String, Vec<String>> = registry
+        .all_rules()
+        .iter()
+        .map(|(rule, _)| (rule.id().to_string(), rule.cwe()))
+        .collect();
+
+    // Rules that will not fire for a `[[sql]]` block because
+    // `LintRule::is_applicable_to` excludes the block's engine -- most
+    // canonical security and migration rules declare `dialects =
+    // ["postgres"]`. `MatcherRule::check_query` applies the same gate
+    // internally and returns an empty `Vec`, which is indistinguishable from
+    // "the rule ran and found nothing"; reporting the ids here is what makes
+    // the difference visible (#167). Indexed in `config.sql` order.
+    let inapplicable_rules_per_block: Vec<Vec<&'static str>> = config
+        .sql
+        .iter()
+        .map(|sc| {
+            let block_dialect = SqlDialect::from_str(&sc.engine).unwrap_or(SqlDialect::PostgreSQL);
+            registry
+                .active_rules()
+                .iter()
+                .filter(|(rule, _)| !rule.is_applicable_to(block_dialect))
+                .map(|(rule, _)| rule.id())
+                .collect()
+        })
+        .collect();
+
     let engine = LintEngine::new(registry);
 
     let sqruff_config = config.lint.as_ref().and_then(|lc| lc.sqruff.as_ref());
@@ -232,8 +291,27 @@ fn lint_from_config(
 
     let base_dir = config_dir(config_path);
 
-    for sql_config in &config.sql {
+    for (block_index, sql_config) in config.sql.iter().enumerate() {
         eprintln!("[{}] Parsing schema...", sql_config.name);
+
+        let inapplicable = inapplicable_rules_per_block
+            .get(block_index)
+            .map(Vec::as_slice)
+            .unwrap_or(&[]);
+        if !inapplicable.is_empty() {
+            let engine_label = if sql_config.engine.is_empty() {
+                "postgres"
+            } else {
+                sql_config.engine.as_str()
+            };
+            eprintln!(
+                "[{}] {} rule(s) skipped: not applicable to engine '{}' ({})",
+                sql_config.name,
+                inapplicable.len(),
+                engine_label,
+                inapplicable.join(", ")
+            );
+        }
 
         // An explicit `--dialect` is validated (and, for a scythe engine
         // alias like `postgresql`, translated to sqruff's own spelling)
@@ -266,6 +344,13 @@ fn lint_from_config(
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
 
         let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
+
+        // Every query in this block, held until the whole block has been
+        // read: `build_report` takes the complete set in one call so it can
+        // run its cross-query checks. Reading the file with the sqruff pass
+        // and linting it immediately, as this used to, made those checks
+        // unreachable.
+        let mut prepared: Vec<PreparedQuery> = Vec::new();
 
         for query_file in &query_files {
             let content = std::fs::read_to_string(query_file)
@@ -306,6 +391,7 @@ fn lint_from_config(
                             line_no: Some(sv.line_no),
                             line_pos: Some(sv.line_pos),
                             source: None,
+                            cwe: Vec::new(),
                         });
                     }
                 } else {
@@ -319,6 +405,7 @@ fn lint_from_config(
                             line_no: Some(sv.line_no),
                             line_pos: Some(sv.line_pos),
                             source: None,
+                            cwe: Vec::new(),
                         });
                     }
                 }
@@ -335,66 +422,135 @@ fn lint_from_config(
                         line_no: Some(sv.line_no),
                         line_pos: Some(sv.line_pos),
                         source: None,
+                        cwe: Vec::new(),
                     });
                 }
             }
 
             let blocks = split_query_file(&content);
             for block in &blocks {
+                // A parse or analyze failure is an error-severity finding,
+                // not a `continue`. Skipping meant every query-level rule --
+                // security, safety, performance, naming -- was silently
+                // dropped for that query while lint went on to print "No
+                // lint violations found." and exit 0, so a CI gate on
+                // `scythe lint` read an unanalysable project as clean even
+                // though `scythe check` on the same project exited 1 (#158).
+                // The rule ids match the ones `scythe check` already uses for
+                // the same two failures, so the two commands agree.
                 let parsed = match parse_query_with_dialect(block, &sql_dialect) {
                     Ok(p) => p,
                     Err(e) => {
-                        eprintln!("warning: failed to parse query in '{}': {}", query_file, e);
+                        all_violations.push(FileViolation {
+                            file: query_file.clone(),
+                            query_name: None,
+                            rule_id: Cow::Borrowed("SC-PARSE01"),
+                            severity: Severity::Error,
+                            message: format!("failed to parse query: {e} — no lint rule could examine it"),
+                            line_no: None,
+                            line_pos: None,
+                            source: None,
+                            cwe: Vec::new(),
+                        });
                         continue;
                     }
                 };
                 let analyzed = match analyze(&catalog, &parsed) {
                     Ok(a) => a,
                     Err(e) => {
-                        eprintln!(
-                            "warning: failed to analyze query '{}' in '{}': {}",
-                            parsed.annotations.name, query_file, e
-                        );
+                        let name = parsed.annotations.name.clone();
+                        all_violations.push(FileViolation {
+                            file: query_file.clone(),
+                            query_name: Some(name.clone()),
+                            rule_id: Cow::Borrowed("SC-PARSE02"),
+                            severity: Severity::Error,
+                            message: format!("failed to analyze query '{name}': {e} — no lint rule could examine it"),
+                            line_no: None,
+                            line_pos: None,
+                            source: None,
+                            cwe: Vec::new(),
+                        });
                         continue;
                     }
                 };
 
-                let ctx = LintContext {
-                    sql: &parsed.sql,
-                    stmt: &parsed.stmt,
-                    analyzed: &analyzed,
-                    catalog: &catalog,
-                    annotations: &parsed.annotations,
-                    dialect: sql_dialect,
-                };
-
-                let violations = engine.check_query(&ctx);
-                for (v, sev) in violations {
-                    all_violations.push(FileViolation {
-                        file: query_file.clone(),
-                        query_name: Some(analyzed.name.clone()),
-                        rule_id: v.rule_id,
-                        severity: sev,
-                        message: v.message,
-                        line_no: None,
-                        line_pos: None,
-                        source: None,
-                    });
-                }
+                prepared.push(PreparedQuery {
+                    file: query_file.clone(),
+                    suppressions: SuppressionSet::parse(block),
+                    query: parsed,
+                    analyzed,
+                });
             }
         }
 
-        let cat_violations = engine.check_catalog(&catalog);
-        for (v, sev) in cat_violations {
+        // `build_report`, not a hand-rolled `check_query` loop plus a
+        // separate `check_catalog` call: the engine's own report is the one
+        // place that also runs the cross-query checks -- duplicate `@name`
+        // detection (SC-C03), routed through the registry's configured
+        // severity. Deriving the same walk here left `build_report` with no
+        // caller at all and left `scythe lint` unable to report a duplicate
+        // query name that `scythe check` fails on.
+        let contexts: Vec<LintContext<'_>> = prepared
+            .iter()
+            .map(|p| LintContext {
+                sql: &p.query.sql,
+                stmt: &p.query.stmt,
+                analyzed: &p.analyzed,
+                catalog: &catalog,
+                annotations: &p.query.annotations,
+                dialect: sql_dialect,
+            })
+            .collect();
+        let report = engine.build_report(contexts.into_iter(), &catalog);
+
+        // Printed unconditionally so an empty rule set (every rule
+        // configured `off`) or an empty query set cannot look like a clean
+        // project: "0 query(ies) against 0 active rule(s)" says plainly that
+        // nothing was verified.
+        eprintln!(
+            "[{}] checked {} query(ies) against {} active rule(s)",
+            sql_config.name, report.queries_checked, report.rules_active
+        );
+
+        // `build_report` reports a query by name; lint reports it by file.
+        // First occurrence wins, which matters only for a duplicate name --
+        // and in that case no single file is the right answer anyway.
+        let mut prepared_by_name: ahash::AHashMap<&str, usize> = ahash::AHashMap::new();
+        for (i, p) in prepared.iter().enumerate() {
+            prepared_by_name.entry(p.analyzed.name.as_str()).or_insert(i);
+        }
+
+        for violation in report.violations {
+            // Catalog-level violations carry no query name, so they cannot
+            // be attributed to a file -- matching what this reported before.
+            let origin = prepared_by_name
+                .get(violation.query_name.as_str())
+                .map(|&i| &prepared[i]);
+
+            // Honour the same `-- scythe-audit: ignore[ID]` annotations
+            // `scythe audit` honours, keyed by statement index exactly as
+            // `SuppressionSet` documents: the set is parsed from the query's
+            // own block, which is a single statement, so the index is 0.
+            // Keying by source line instead over-suppresses -- two
+            // statements sharing one physical line resolve to the same entry
+            // (scythe-lint #140).
+            if let Some(origin) = origin
+                && origin.suppressions.is_suppressed(&violation.rule_id, 0)
+            {
+                continue;
+            }
+
+            let cwe = cwe_by_rule.get(violation.rule_id.as_ref()).cloned().unwrap_or_default();
             all_violations.push(FileViolation {
-                file: String::new(),
-                query_name: None,
-                rule_id: v.rule_id,
-                severity: sev,
-                message: v.message,
+                file: origin.map(|p| p.file.clone()).unwrap_or_default(),
+                query_name: (!violation.query_name.is_empty()).then(|| violation.query_name.clone()),
+                rule_id: violation.rule_id,
+                severity: violation.severity,
+                message: violation.message,
                 line_no: None,
                 line_pos: None,
                 source: None,
+                cwe,
             });
         }
     }
@@ -515,6 +671,7 @@ fn try_run_inspect(config_path: &str, explicit_url: Option<&str>, engine_overrid
             line_no: f.line,
             line_pos: f.column,
             source: f.source,
+            cwe: Vec::new(),
         })
         .collect()
 }
@@ -555,7 +712,7 @@ fn report_violations(
             message: v.message.clone(),
             line: v.line_no,
             column: v.line_pos,
-            cwe: extract_cwe(&v.message),
+            cwe: v.cwe.clone(),
             source: v.source.clone(),
         })
         .collect();
