@@ -98,6 +98,46 @@ jobs:
         run: |
           cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated
           cargo fmt --all
+      # `crates/scythe-cli/tests/generated/` is committed and .gitignore
+      # deliberately re-includes it, but every job in this file regenerates it
+      # before use and nothing ever compared the result against the committed
+      # copy. So a fixture edited without regenerating passed CI green: the
+      # tests that ran were the fresh ones built from the edited fixture, while
+      # the stale files a reviewer actually read in the diff were never
+      # executed by anything. This is `generated-freshness`'s
+      # `git status --porcelain` gate (below) applied to the repository's
+      # *other* generator, which had none.
+      #
+      # It runs here rather than in a job of its own because the step above
+      # already does the two expensive halves -- regenerate, then `cargo fmt
+      # --all` so the comparison is against formatted output, which is what is
+      # committed.
+      - name: Fail if committed generated CLI tests are stale
+        run: |
+          # Count the committed files first. If the generator wrote nothing at
+          # all -- a `--fixtures` path that stopped matching, an output
+          # directory renamed -- and the committed set were also empty, then
+          # `git status --porcelain` would be empty too, which reads
+          # identically to "everything is fresh". Same vacuous-pass guard as
+          # the provenance check above.
+          count=$(git ls-files -- crates/scythe-cli/tests/generated/ | wc -l)
+          echo "Comparing $count committed generated test file(s) against a fresh generator run."
+          if [ "$count" -eq 0 ]; then
+            echo "::error::No committed files under crates/scythe-cli/tests/generated/. That directory is tracked on purpose (see .gitignore), so an empty set means this freshness check would pass vacuously. Run 'cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated', 'cargo fmt --all', and commit the result."
+            exit 1
+          fi
+          # `--porcelain`, not `git diff`: this must also catch a brand-new
+          # test file the generator creates from scratch (a new fixture
+          # category) that nobody committed, which is untracked and therefore
+          # invisible to `git diff`.
+          status=$(git status --porcelain -- crates/scythe-cli/tests/generated/)
+          if [ -n "$status" ]; then
+            echo "$status"
+            git diff -- crates/scythe-cli/tests/generated/
+            echo "::error::Committed generated CLI tests are stale. A fixture under testing_data/ changed without regenerating. Run 'cargo run -p test-generator -- --fixtures testing_data --output crates/scythe-cli/tests/generated', then 'cargo fmt --all', and commit the result."
+            exit 1
+          fi
+          echo "All $count committed generated test file(s) match a fresh generator run."
       - name: Run clippy
         run: cargo clippy --workspace -- -D warnings
 
