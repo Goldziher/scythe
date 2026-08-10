@@ -115,12 +115,21 @@ fn lint_files(
 ) -> Result<Vec<FileViolation>, Box<dyn std::error::Error>> {
     let mut all_violations: Vec<FileViolation> = Vec::new();
 
+    // One linter for the whole file list, not one per file: building it
+    // compiles the dialect's lexer, which is what a multi-file run actually
+    // spends its time on (#130). No `[lint.sqruff]` is passed here, exactly
+    // as the per-file calls this replaces passed `None` -- explicit-file
+    // mode has never applied the config's rule table.
+    let linter = sqruff_adapter::SqruffLinter::new(dialect, None)
+        .map_err(|e| format!("sqruff rejected dialect '{}': {}", dialect, e))?;
+
     for path in files {
         let sql = std::fs::read_to_string(path).map_err(|e| format!("failed to read '{}': {}", path, e))?;
 
         if fix {
-            let (_pre_fix_violations, fixed) = sqruff_adapter::lint_and_fix_sql(&sql, dialect, None)
-                .map_err(|e| format!("sqruff config error on '{}': {}", path, e))?;
+            let (_pre_fix_violations, fixed) = linter
+                .lint_and_fix(&sql)
+                .map_err(|e| format!("sqruff error on '{}': {}", path, e))?;
             if fixed != sql {
                 std::fs::write(path, &fixed).map_err(|e| format!("failed to write '{}': {}", path, e))?;
                 eprintln!("fixed {}", path);
@@ -130,8 +139,9 @@ fn lint_files(
                 // resolved by the write above, and reporting them as
                 // current findings fails CI on issues that no longer exist
                 // (#210).
-                let remaining = sqruff_adapter::lint_sql(&fixed, dialect, None)
-                    .map_err(|e| format!("sqruff config error on '{}': {}", path, e))?;
+                let remaining = linter
+                    .lint(&fixed)
+                    .map_err(|e| format!("sqruff error on '{}': {}", path, e))?;
                 for sv in &remaining {
                     all_violations.push(FileViolation {
                         file: path.clone(),
@@ -163,8 +173,9 @@ fn lint_files(
                 }
             }
         } else {
-            let violations = sqruff_adapter::lint_sql(&sql, dialect, None)
-                .map_err(|e| format!("sqruff config error on '{}': {}", path, e))?;
+            let violations = linter
+                .lint(&sql)
+                .map_err(|e| format!("sqruff error on '{}': {}", path, e))?;
             for sv in &violations {
                 all_violations.push(FileViolation {
                     file: path.clone(),
@@ -325,12 +336,26 @@ fn lint_from_config(
         };
         let sqruff_dialect = sqruff_dialect.as_str();
 
-        // Validate [lint.sqruff] before reading any query file. The per-file
-        // calls below return Err on a bad config, and that Err aborts the whole
-        // run -- including every scythe-native finding already collected. Failing
-        // here reports a config mistake as a config mistake, not as an error
-        // against an arbitrary query file.
-        sqruff_adapter::validate_config(sqruff_dialect, sqruff_config)
+        // One linter for the whole `[[sql]]` block, built before any query
+        // file is read. Two reasons, and they are the same reason:
+        //
+        // - Construction is what is expensive. It compiles the dialect's
+        //   lexer; the per-file calls this replaces paid that cost once per
+        //   query file, which on a large project is most of what `scythe
+        //   lint` does (#130).
+        // - Construction is what validates. `SqruffLinter` probes the
+        //   assembled configuration as it is built, so a bad `[lint.sqruff]`
+        //   fails here, naming the block, rather than as an error against
+        //   whichever query file happened to be read first -- an error that
+        //   aborts the run and discards every scythe-native finding already
+        //   collected, security rules included.
+        //
+        // `for_linting`, not `new`: under `enabled = false` the lint path
+        // never reaches sqruff, so a configuration it will never read must
+        // not fail the run. `None` is that case, and the call sites below
+        // reproduce what the disabled path returned -- no violations, and
+        // the query file left untouched.
+        let sqruff_linter = sqruff_adapter::SqruffLinter::for_linting(sqruff_dialect, sqruff_config)
             .map_err(|e| format!("[{}] invalid [lint.sqruff] configuration: {}", sql_config.name, e))?;
 
         let schema_files = resolve_globs(&sql_config.schema, base_dir, &format!("[{}] schema", sql_config.name))?;
@@ -367,9 +392,12 @@ fn lint_from_config(
             }
 
             if fix {
-                let (pre_fix_violations, fixed) =
-                    sqruff_adapter::lint_and_fix_sql(&content, sqruff_dialect, sqruff_config)
-                        .map_err(|e| format!("sqruff config error on '{}': {}", query_file, e))?;
+                let (pre_fix_violations, fixed) = match &sqruff_linter {
+                    Some(linter) => linter
+                        .lint_and_fix(&content)
+                        .map_err(|e| format!("sqruff error on '{}': {}", query_file, e))?,
+                    None => (Vec::new(), content.clone()),
+                };
                 if fixed != content {
                     std::fs::write(query_file, &fixed)
                         .map_err(|e| format!("failed to write '{}': {}", query_file, e))?;
@@ -379,8 +407,14 @@ fn lint_from_config(
                     // violations the write above just resolved, and
                     // reporting them as current findings fails CI on issues
                     // that no longer exist (#210).
-                    let remaining = sqruff_adapter::lint_sql(&fixed, sqruff_dialect, sqruff_config)
-                        .map_err(|e| format!("sqruff config error on '{}': {}", query_file, e))?;
+                    // Reachable only when the content changed, which only a
+                    // present linter can do.
+                    let remaining = match &sqruff_linter {
+                        Some(linter) => linter
+                            .lint(&fixed)
+                            .map_err(|e| format!("sqruff error on '{}': {}", query_file, e))?,
+                        None => Vec::new(),
+                    };
                     for sv in &remaining {
                         all_violations.push(FileViolation {
                             file: query_file.clone(),
@@ -410,8 +444,12 @@ fn lint_from_config(
                     }
                 }
             } else {
-                let sq_violations = sqruff_adapter::lint_sql(&content, sqruff_dialect, sqruff_config)
-                    .map_err(|e| format!("sqruff config error on '{}': {}", query_file, e))?;
+                let sq_violations = match &sqruff_linter {
+                    Some(linter) => linter
+                        .lint(&content)
+                        .map_err(|e| format!("sqruff error on '{}': {}", query_file, e))?,
+                    None => Vec::new(),
+                };
                 for sv in &sq_violations {
                     all_violations.push(FileViolation {
                         file: query_file.clone(),

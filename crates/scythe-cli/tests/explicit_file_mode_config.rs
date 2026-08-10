@@ -145,6 +145,57 @@ fn fmt_rejects_the_same_invalid_lint_sqruff_config_lint_does() {
     );
 }
 
+/// #130: `fmt` builds its sqruff linter **once for the whole run**, before it
+/// reads any file, and that is directly observable.
+///
+/// `fmt` formats whether or not sqruff-based *linting* is switched off, so
+/// `enabled = false` does not excuse it from an unusable
+/// `[lint.sqruff.rules]` -- it is a table `fmt` will act on. The question is
+/// where that failure is reported. Constructing the linter inside the
+/// per-file loop, as this used to, necessarily blames whichever file happened
+/// to be read first for a mistake that is in the config and in no file at
+/// all. Hoisting construction out of the loop is what makes the error name
+/// the configuration instead.
+///
+/// Two query files, so "reported once, against no file" is distinguishable
+/// from "reported against the first file".
+#[test]
+fn fmt_blames_an_unusable_rules_table_on_the_config_not_on_the_first_file() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(dir.path().join("first.sql"), "SELECT 1;\n").unwrap();
+    std::fs::write(dir.path().join("second.sql"), "SELECT 2;\n").unwrap();
+
+    let config = "[scythe]\nversion = \"1\"\n\n\
+        [[sql]]\nname = \"main\"\nengine = \"postgresql\"\nschema = []\n\
+        queries = [\"first.sql\", \"second.sql\"]\n\n\
+        [lint.sqruff]\nenabled = false\n\n\
+        [lint.sqruff.rules]\nLT0 = \"off\"\n";
+    let config_path = dir.path().join("scythe.toml");
+    std::fs::write(&config_path, config).unwrap();
+
+    let output = scythe_bin()
+        .args(["fmt", "--config", config_path.to_str().unwrap(), "--check"])
+        .current_dir(dir.path())
+        .output()
+        .expect("run scythe fmt");
+    let err = stderr(&output);
+
+    assert!(
+        !output.status.success(),
+        "an unknown rule code in a table fmt will act on must fail the run; stderr: {err}"
+    );
+    assert!(
+        err.contains("invalid [lint.sqruff] configuration"),
+        "must report a configuration error; stderr: {err}"
+    );
+    assert!(err.contains("LT0"), "must name the offending rule code; stderr: {err}");
+    assert!(
+        !err.contains("first.sql") && !err.contains("second.sql"),
+        "must not blame a query file for a mistake that is in the config -- the linter is built \
+         once, before any file is read; stderr: {err}"
+    );
+}
+
 /// #206, item 4: a malformed `--config` must be reported, not silently
 /// swallowed into "no dialect configured, default to ansi" -- in explicit
 /// file mode with no query files this manifests as `lint`/`fmt` reporting a

@@ -39,12 +39,23 @@ pub fn run_fmt(
         return Ok(());
     }
 
-    // `[lint.sqruff]` is validated once, up front, exactly like `scythe
-    // lint` does (see `lint_from_config`'s `validate_config` call) -- #206:
-    // before this, `fmt` accepted a `[lint.sqruff]` that `lint` rejects as
-    // an invalid configuration, and silently ignored `[lint.sqruff.rules]`
-    // (e.g. a disabled rule, or an excluded rule) entirely.
-    sqruff_adapter::validate_config(&dialect, sqruff_config.as_ref())
+    // One linter for the whole run, built before any file is read. The two
+    // reasons are the same reason:
+    //
+    // - Construction is the expensive part. It compiles the dialect's
+    //   lexer, which dominates a multi-file run (#130); the per-file
+    //   `format_sql` this replaces rebuilt it for every single file.
+    // - Construction is also the validation: `SqruffLinter::new` probes the
+    //   assembled configuration as it builds it, so an unusable
+    //   `[lint.sqruff]` is reported as the configuration error it is,
+    //   instead of as an error against whichever file was read first. That
+    //   is the #206 behaviour a separate `validate_config` call used to
+    //   provide, now inseparable from the thing it validates.
+    //
+    // `new`, not `for_linting`: `fmt` formats regardless of
+    // `[lint.sqruff].enabled`, so it must reject a rules table it will act
+    // on even when sqruff-based *linting* is switched off.
+    let linter = sqruff_adapter::SqruffLinter::new(&dialect, sqruff_config.as_ref())
         .map_err(|e| format!("invalid [lint.sqruff] configuration: {}", e))?;
 
     let mut needs_formatting = false;
@@ -52,7 +63,8 @@ pub fn run_fmt(
     for path in &file_paths {
         let original = std::fs::read_to_string(path).map_err(|e| format!("failed to read '{}': {}", path, e))?;
 
-        let formatted = sqruff_adapter::format_sql(&original, &dialect, sqruff_config.as_ref())
+        let formatted = linter
+            .format(&original)
             .map_err(|e| format!("sqruff error on '{}': {}", path, e))?;
 
         if original == formatted {
