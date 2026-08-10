@@ -11,6 +11,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
+use crate::backends::jvm_common;
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/kotlin-jdbc.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/kotlin-jdbc.mysql.toml");
@@ -56,27 +57,16 @@ impl KotlinJdbcBackend {
     }
 }
 
-/// Get the ResultSet getter method name for a given Kotlin type.
-fn rs_getter(kotlin_type: &str) -> &str {
-    match kotlin_type {
-        "Boolean" => "getBoolean",
-        "Byte" => "getByte",
-        "Short" => "getShort",
-        "Int" => "getInt",
-        "Long" => "getLong",
-        "Float" => "getFloat",
-        "Double" => "getDouble",
-        "String" => "getString",
-        "ByteArray" => "getBytes",
-        _ if kotlin_type.contains("BigDecimal") => "getBigDecimal",
-        _ if kotlin_type.contains("LocalDate") => "getObject",
-        _ if kotlin_type.contains("LocalTime") => "getObject",
-        _ if kotlin_type.contains("OffsetTime") => "getObject",
-        _ if kotlin_type.contains("LocalDateTime") => "getObject",
-        _ if kotlin_type.contains("OffsetDateTime") => "getObject",
-        _ if kotlin_type.contains("UUID") => "getObject",
-        _ => "getObject",
-    }
+/// Build the `ResultSet` read call for a Kotlin column.
+///
+/// Delegates to [`jvm_common::kotlin_jdbc_read_call`], which answers a named
+/// getter (`rs.getInt("n")`) where JDBC has one and the class-taking
+/// `rs.getObject("n", T::class.java)` overload where it does not. The table
+/// this replaced ended in a bare `"getObject"` arm that caught `UUID`,
+/// composites, and every other unrecognised type; its static type is `Any!`,
+/// which Kotlin refuses to pass where a `UUID`/`TortureAddress` is expected.
+fn rs_read_call(column: &str, kotlin_type: &str) -> String {
+    jvm_common::kotlin_jdbc_read_call(column, kotlin_type)
 }
 
 /// Return the Kotlin class literal for temporal types that need
@@ -190,8 +180,7 @@ fn kt_rs_expr(col: &ResolvedColumn, engine: &str) -> String {
     if col.neutral_type.starts_with("enum::") {
         return format!("{}.valueOf(rs.getString(\"{}\").uppercase())", col.lang_type, col.name);
     }
-    let getter = rs_getter(&col.lang_type);
-    format!("rs.{}(\"{}\")", getter, col.name)
+    rs_read_call(&col.name, &col.lang_type)
 }
 
 /// Emit nullable-column preamble for Kotlin JDBC grouped folding and row construction.
@@ -221,12 +210,31 @@ fn write_kt_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent:
                 "{}val {}Value = rs.getObject(\"{}\", {})",
                 indent, col.field_name, col.name, class_lit
             );
-        } else {
-            let getter = rs_getter(&col.lang_type);
+        } else if col.neutral_type.starts_with("enum::") {
+            // ~keep A nullable enum column read inline would be
+            // `Status.valueOf(rs.getString(col).uppercase())`, which throws on
+            // a NULL column: `getString` returns `null` and `uppercase()` is
+            // called on it. Guard on the raw string rather than `wasNull()`,
+            // and return early — the shared tail below cannot express the
+            // conversion.
             let _ = writeln!(
                 out,
-                "{}val {}Value = rs.{}(\"{}\")",
-                indent, col.field_name, getter, col.name
+                "{}val {}Value = rs.getString(\"{}\")",
+                indent, col.field_name, col.name
+            );
+            let _ = writeln!(
+                out,
+                "{}val {} = if ({}Value == null) null else {}.valueOf({}Value.uppercase())",
+                indent, col.field_name, col.field_name, col.lang_type, col.field_name
+            );
+            continue;
+        } else {
+            let _ = writeln!(
+                out,
+                "{}val {}Value = {}",
+                indent,
+                col.field_name,
+                rs_read_call(&col.name, &col.lang_type)
             );
         }
         let _ = writeln!(
@@ -478,11 +486,11 @@ impl CodegenBackend for KotlinJdbcBackend {
                                 col.field_name, col.lang_type, col.name
                             );
                         } else {
-                            let getter = rs_getter(&col.lang_type);
                             let _ = writeln!(
                                 out,
-                                "                {} = rs.{}(\"{}\"),",
-                                col.field_name, getter, col.name
+                                "                {} = {},",
+                                col.field_name,
+                                rs_read_call(&col.name, &col.lang_type)
                             );
                         }
                     }

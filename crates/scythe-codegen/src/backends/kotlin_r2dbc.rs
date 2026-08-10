@@ -11,6 +11,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
+use crate::backends::jvm_common;
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/kotlin-r2dbc.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/kotlin-r2dbc.mysql.toml");
@@ -47,27 +48,19 @@ impl KotlinR2dbcBackend {
     }
 }
 
-/// Get the R2DBC Row getter class for a given Kotlin type.
-fn r2dbc_row_class(kotlin_type: &str) -> &str {
-    match kotlin_type {
-        "Boolean" => "Boolean::class.java",
-        "Byte" => "Byte::class.java",
-        "Short" => "Short::class.java",
-        "Int" => "Int::class.javaObjectType",
-        "Long" => "Long::class.javaObjectType",
-        "Float" => "Float::class.javaObjectType",
-        "Double" => "Double::class.javaObjectType",
-        "String" => "String::class.java",
-        "ByteArray" => "ByteArray::class.java",
-        _ if kotlin_type.contains("BigDecimal") => "java.math.BigDecimal::class.java",
-        _ if kotlin_type.contains("LocalDate") => "java.time.LocalDate::class.java",
-        _ if kotlin_type.contains("LocalTime") => "java.time.LocalTime::class.java",
-        _ if kotlin_type.contains("OffsetTime") => "java.time.OffsetTime::class.java",
-        _ if kotlin_type.contains("LocalDateTime") => "java.time.LocalDateTime::class.java",
-        _ if kotlin_type.contains("OffsetDateTime") => "java.time.OffsetDateTime::class.java",
-        _ if kotlin_type.contains("UUID") => "java.util.UUID::class.java",
-        _ => "Any::class.java",
-    }
+/// The class literal to hand `Row.get(name, Class<T>)` for a column.
+///
+/// Derived from the declared type rather than looked up in a parallel table —
+/// see `r2dbc_row_class` in `java_r2dbc.rs` for the full reasoning. The table
+/// this replaced ended in `Any::class.java`, whose `Any!` result Kotlin
+/// refuses to pass where a composite or an enum is expected, and matched
+/// `LocalDateTime` against its `contains("LocalDate")` arm first.
+///
+/// Kotlin's primitive-backed types resolve to `::class.javaObjectType`: the
+/// unqualified `Int::class.java` is `int.class`, the *primitive* `Class`
+/// object, and no driver returns a value for it.
+fn r2dbc_row_class(kotlin_type: &str) -> String {
+    jvm_common::kotlin_boxed_class_literal(kotlin_type)
 }
 
 impl CodegenBackend for KotlinR2dbcBackend {

@@ -12,6 +12,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
+use crate::backends::jvm_common;
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/java-jdbc.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/java-jdbc.mysql.toml");
@@ -70,27 +71,16 @@ fn box_primitive(java_type: &str) -> &str {
     }
 }
 
-/// Get the ResultSet getter method name for a given Java type.
-fn rs_getter(java_type: &str) -> &str {
-    match java_type {
-        "boolean" | "Boolean" => "getBoolean",
-        "byte" | "Byte" => "getByte",
-        "short" | "Short" => "getShort",
-        "int" | "Integer" => "getInt",
-        "long" | "Long" => "getLong",
-        "float" | "Float" => "getFloat",
-        "double" | "Double" => "getDouble",
-        "String" => "getString",
-        "byte[]" => "getBytes",
-        _ if java_type.contains("BigDecimal") => "getBigDecimal",
-        _ if java_type.contains("LocalDate") => "getObject",
-        _ if java_type.contains("LocalTime") => "getObject",
-        _ if java_type.contains("OffsetTime") => "getObject",
-        _ if java_type.contains("LocalDateTime") => "getObject",
-        _ if java_type.contains("OffsetDateTime") => "getObject",
-        _ if java_type.contains("UUID") => "getObject",
-        _ => "getObject",
-    }
+/// Build the `ResultSet` read call for a Java column.
+///
+/// Delegates to [`jvm_common::java_jdbc_read_call`], which answers a named
+/// getter (`rs.getInt("n")`) where JDBC has one and the class-taking
+/// `rs.getObject("n", T.class)` overload where it does not. The table this
+/// replaced ended in a bare `"getObject"` arm that caught `UUID`, composites,
+/// and every other unrecognised type, emitting an `Object`-typed expression
+/// into a `TortureAddress`/`UUID` slot.
+fn rs_read_call(column: &str, java_type: &str) -> String {
+    jvm_common::java_jdbc_read_call(column, java_type)
 }
 
 /// Return the class literal for temporal types that need `rs.getObject("col", Type.class)`.
@@ -245,12 +235,23 @@ fn java_annotated_param(param: &ResolvedParam) -> String {
     }
 }
 
+/// Whether a column's value is produced by [`write_jdbc_nullable_preamble`]
+/// into a local named after the field, rather than read inline.
+///
+/// Two cases: a nullable primitive (whose `getInt`/`getBoolean`/... returns
+/// `0`/`false` for SQL NULL and must be paired with `wasNull()`), and a
+/// nullable enum (whose `valueOf(rs.getString(col).toUpperCase())` conversion
+/// throws `NullPointerException` on a NULL column and must be guarded).
+fn is_preamble_read(col: &ResolvedColumn) -> bool {
+    col.nullable && (is_java_primitive(&col.lang_type) || col.neutral_type.starts_with("enum::"))
+}
+
 /// Build the inline JDBC ResultSet expression for a column (read by column name).
-/// For nullable primitives and, on engines from [`engine_needs_legacy_temporal_getter`],
-/// nullable temporal columns, the variable name is returned — the preamble has already
-/// extracted the value and performed the wasNull() check.
+/// For nullable primitives, nullable enums, and, on engines from
+/// [`engine_needs_legacy_temporal_getter`], nullable temporal columns, the variable name is
+/// returned — the preamble has already extracted the value and performed the null check.
 fn col_rs_expr(col: &ResolvedColumn, engine: &str) -> String {
-    if col.nullable && is_java_primitive(&col.lang_type) {
+    if is_preamble_read(col) {
         return col.field_name.clone();
     }
     if let Some(class_lit) = temporal_class_literal(&col.lang_type) {
@@ -271,23 +272,23 @@ fn col_rs_expr(col: &ResolvedColumn, engine: &str) -> String {
             col.lang_type, col.name
         );
     }
-    let getter = rs_getter(&col.lang_type);
-    format!("rs.{}(\"{}\")", getter, col.name)
+    rs_read_call(&col.name, &col.lang_type)
 }
 
-/// Emit nullable-primitive and (on engines needing it) nullable-temporal preamble variable
-/// declarations for grouped JDBC folding and row construction.
+/// Emit nullable-primitive, nullable-enum, and (on engines needing it) nullable-temporal
+/// preamble variable declarations for grouped JDBC folding and row construction.
 fn write_jdbc_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent: &str, engine: &str) {
     for col in cols {
         if !col.nullable {
             continue;
         }
         if is_java_primitive(&col.lang_type) {
-            let getter = rs_getter(&col.lang_type);
             let _ = writeln!(
                 out,
-                "{}var {}Raw = rs.{}(\"{}\");",
-                indent, col.field_name, getter, col.name
+                "{}var {}Raw = {};",
+                indent,
+                col.field_name,
+                rs_read_call(&col.name, &col.lang_type)
             );
             let _ = writeln!(
                 out,
@@ -296,6 +297,25 @@ fn write_jdbc_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], inden
                 box_primitive(&col.lang_type),
                 col.field_name,
                 col.field_name
+            );
+            continue;
+        }
+        // ~keep A nullable enum column read inline would be
+        // `Status.valueOf(rs.getString(col).toUpperCase())`, which throws
+        // NullPointerException the moment the column is actually NULL — the
+        // one value a `@Nullable` field exists to represent. `getString`
+        // already returns `null` for SQL NULL, so the guard is on the raw
+        // string, not on `wasNull()`.
+        if col.neutral_type.starts_with("enum::") {
+            let _ = writeln!(
+                out,
+                "{}var {}Raw = rs.getString(\"{}\");",
+                indent, col.field_name, col.name
+            );
+            let _ = writeln!(
+                out,
+                "{}{} {} = {}Raw == null ? null : {}.valueOf({}Raw.toUpperCase());",
+                indent, col.lang_type, col.field_name, col.field_name, col.lang_type, col.field_name
             );
             continue;
         }

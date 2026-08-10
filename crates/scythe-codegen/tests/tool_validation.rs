@@ -1157,12 +1157,6 @@ fn test_kotlin_r2dbc_extension_functions_default_off() {
 #[test]
 fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
     const NO_TOOL_VALIDATOR: &[&str] = &[
-        // `java-r2dbc` needs `io.r2dbc.spi` (`ConnectionFactory`/`Row`/
-        // `RowMetadata`) plus Reactor's `Mono`/`Flux` chained through
-        // `.usingWhen`/`.flatMap`/`.then`/`.onErrorResume`/`.doFinally` --
-        // unlike `java-jdbc`'s two-interface JSR-305 stub, faithfully
-        // stubbing that means reproducing real Reactor generic inference.
-        "java-r2dbc",
         // C#: every backend here references a NuGet-only driver (Npgsql,
         // MySqlConnector, Microsoft.Data.Sqlite, Microsoft.Data.SqlClient,
         // Oracle.ManagedDataAccess.Core, Snowflake.Data.Client). `using
@@ -1190,12 +1184,17 @@ fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
         "rust-tokio-postgres",
         "rust-tiberius",
         "rust-sibyl",
-        // `kotlin-exposed` needs the Exposed DSL framework; `kotlin-r2dbc`
-        // needs `kotlinx.coroutines.flow.Flow` plus the same R2DBC SPI
-        // surface `java-r2dbc` cannot cheaply stub above. `kotlin-jdbc`
-        // itself has a real `kotlinc` validator now -- see
+        // `kotlin-exposed` needs the Exposed DSL framework (`transaction { }`,
+        // `exec(sql, args) { rs -> }`, a `*ColumnType` per scalar);
+        // `kotlin-r2dbc` needs `kotlinx.coroutines.flow.Flow` plus the
+        // `awaitFirst`/`asFlow` suspend bridges, whose stubs would have to
+        // reproduce the coroutines compiler plugin's view of `suspend`.
+        // `kotlin-jdbc` itself has a real `kotlinc` validator -- see
         // `validate_kotlin_tools` -- because it touches nothing but
-        // `java.sql`/`java.math`/`java.time`.
+        // `java.sql`/`java.math`/`java.time`. `java-r2dbc` has a real `javac`
+        // one now too: R2DBC SPI and Reactor turned out to be stubbable
+        // faithfully (`tests/java_stubs/`) where the coroutines runtime is
+        // not.
         "kotlin-r2dbc",
         "kotlin-exposed",
     ];
@@ -1217,6 +1216,7 @@ fn backends_with_no_tool_validator_are_a_known_and_shrinking_set() {
         "ruby-pg",
         "php-pdo",
         "java-jdbc",
+        "java-r2dbc",
         "kotlin-jdbc",
         "elixir-postgrex",
         "elixir-ecto",

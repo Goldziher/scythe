@@ -34,9 +34,14 @@ ruby-pg : same defect, Ruby string literal (#179)
 # parameter, or local name. This is issue #180 (open successor to the closed
 # #151); the TypeScript entries are also issue #215, which covers column
 # names that are not valid JS identifiers across all 12 TS backends.
-java-jdbc : "class" column becomes an unescaped Java field/parameter name (#180)
-kotlin-jdbc : "class" column becomes an unescaped Kotlin `val class` (#180)
-kotlin-jdbc-ext : same as kotlin-jdbc -- shares backend kotlin-jdbc (#180)
+#
+# The three JVM entries that used to sit here (java-jdbc, kotlin-jdbc,
+# kotlin-jdbc-ext) are gone, and their reason was misattributed while they
+# lived here: `class` is in both JVM manifests' `reserved` list and was always
+# escaped. What actually failed was the reader defect behind #191/#213/#214 --
+# the torture schema's composite `home_address` and uuid `external_id` columns
+# were read through the untyped `getObject`, whose Object/Any static type is
+# assignable to nothing. Fixing that made all three build.
 typescript-postgres : "class" column becomes an unescaped TS function parameter name (#180, #215)
 typescript-pg : same as typescript-postgres -- shares backend typescript-pg (#180, #215)
 typescript-pg-zod : same as typescript-postgres -- shares backend typescript-pg (#180, #215)

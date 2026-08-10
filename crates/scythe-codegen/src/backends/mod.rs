@@ -17,6 +17,7 @@ pub(crate) mod go_gosnowflake;
 pub(crate) mod go_pgx;
 pub(crate) mod java_jdbc;
 pub(crate) mod java_r2dbc;
+pub(crate) mod jvm_common;
 pub(crate) mod kotlin_exposed;
 pub(crate) mod kotlin_jdbc;
 pub(crate) mod kotlin_r2dbc;

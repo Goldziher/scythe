@@ -737,22 +737,22 @@ pub fn validate_with_tools(code: &str, backend_name: &str) -> ToolValidation {
         name if name.starts_with("go") => validate_go_tools(code),
         name if name.starts_with("ruby") => validate_ruby_tools(code),
         name if name.starts_with("php") => validate_php_tools(code),
-        // Only the JDBC backend: `java-r2dbc` pulls in `io.r2dbc.spi`
-        // (`ConnectionFactory`, `Row`, `RowMetadata`) plus Reactor's `Mono`/
-        // `Flux`, chained through `.usingWhen`/`.flatMap`/`.then`/
-        // `.onErrorResume`/`.doFinally`. Faithfully stubbing that surface --
-        // unlike the two-interface JSR-305 stub `java-jdbc` needs, see
-        // `java_annotation_stub_paths` -- means reproducing real Reactor
-        // generic inference, which is its own project and easy to get subtly
-        // wrong in a direction that hides real bugs. `validate_structural`
-        // still covers it, and the inventory test in `tests/tool_validation.rs`
-        // keeps the gap visible.
+        // Both Java backends compile against real `javac`. `java-jdbc` needs
+        // only the two-annotation JSR-305 stub (see
+        // `java_annotation_stub_paths`); `java-r2dbc` additionally needs
+        // `io.r2dbc.spi` and Reactor's `Mono`/`Flux`, stubbed in
+        // `tests/java_stubs/` -- see `java_r2dbc_stub_paths` for why that is
+        // worth doing despite the generic surface involved.
         "java-jdbc" => validate_java_tools(code),
+        "java-r2dbc" => validate_java_r2dbc_tools(code),
         // Only the JDBC backend: `kotlin-exposed` needs the Exposed DSL
-        // framework and `kotlin-r2dbc` needs `kotlinx.coroutines.flow.Flow`
-        // plus the same R2DBC SPI `java-r2dbc` cannot cheaply stub above.
-        // `kotlin-jdbc` itself touches nothing but `java.sql`/`java.math`/
-        // `java.time`, so `kotlinc` alone (no extra classpath) resolves it.
+        // framework (`transaction { }`, `exec(sql, args) { rs -> }`, and a
+        // `*ColumnType` per scalar), and `kotlin-r2dbc` needs
+        // `kotlinx.coroutines.flow.Flow` plus the `awaitFirst`/`asFlow`
+        // suspend bridges, whose stubs would have to reproduce the coroutines
+        // compiler plugin's view of `suspend`. `kotlin-jdbc` itself touches
+        // nothing but `java.sql`/`java.math`/`java.time`, so `kotlinc` alone
+        // (no extra classpath) resolves it.
         "kotlin-jdbc" => validate_kotlin_tools(code),
         // Every `elixir-*` backend, not just one: unlike Java/Kotlin/C#,
         // Elixir does not resolve a remote *function* call at compile time --
@@ -1149,13 +1149,68 @@ impl Drop for JavaSource {
 
 /// Validate generated `java-jdbc` code against the real `javac` compiler.
 ///
-/// Only `java-jdbc`, not `java-r2dbc` -- see the comment on that match arm in
-/// [`validate_with_tools`] for why the latter is out of reach for a
-/// lightweight checker. `java-jdbc` itself needs nothing beyond the JDK
-/// standard library plus the two-annotation JSR-305 stub from
-/// [`java_annotation_stub_paths`], so this compiles real generated code with
-/// no network access and no extra classpath setup.
+/// `java-jdbc` needs nothing beyond the JDK standard library plus the
+/// two-annotation JSR-305 stub from [`java_annotation_stub_paths`], so this
+/// compiles real generated code with no network access and no extra classpath
+/// setup. `java-r2dbc` goes through [`validate_java_r2dbc_tools`], which adds
+/// the R2DBC SPI and Reactor stubs it needs on top.
 fn validate_java_tools(code: &str) -> Vec<ToolOutcome> {
+    javac_with_stubs(code, &[])
+}
+
+/// The R2DBC SPI + Reactive Streams + Reactor stub sources `java-r2dbc` needs
+/// on top of the JSR-305 annotations, in `tests/java_stubs/`.
+///
+/// These exist because `java-r2dbc`'s output is almost entirely *inferred*:
+/// `Mono.usingWhen(...).flatMap(result -> Mono.from(result.map((row, meta) ->
+/// new GetUserRow(...))))` never spells its own element type, so the row
+/// mapping -- the part the reader defects behind #191/#213/#214 lived in -- is
+/// checked by nothing at all unless `Mono`, `Flux`, `Result`, and `Row`
+/// resolve. Every generic bound in the stubs is copied verbatim from Reactor 3
+/// and R2DBC SPI 1.0 rather than loosened, so a file these accept is one the
+/// real libraries accept; that is verified by mutation, not assumed (see the
+/// header comment on `tests/java_stubs/reactor/core/publisher/Mono.java`).
+fn java_r2dbc_stub_paths() -> Result<Vec<String>, ToolOutcome> {
+    const TOOL: &str = "javac";
+    const RELATIVE: [&str; 9] = [
+        "org/reactivestreams/Publisher.java",
+        "io/r2dbc/spi/ConnectionFactory.java",
+        "io/r2dbc/spi/Connection.java",
+        "io/r2dbc/spi/Statement.java",
+        "io/r2dbc/spi/Result.java",
+        "io/r2dbc/spi/Row.java",
+        "io/r2dbc/spi/RowMetadata.java",
+        "reactor/core/publisher/Mono.java",
+        "reactor/core/publisher/Flux.java",
+    ];
+    let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/java_stubs"));
+    RELATIVE
+        .iter()
+        .map(|relative| {
+            dir.join(relative)
+                .to_str()
+                .map(str::to_string)
+                .ok_or_else(|| ToolOutcome::Failed {
+                    tool: TOOL,
+                    reason: format!("{TOOL}: stub source path is not valid UTF-8: {relative}"),
+                })
+        })
+        .collect()
+}
+
+/// Validate generated `java-r2dbc` code against the real `javac` compiler,
+/// with the R2DBC SPI and Reactor stubs on the source path.
+fn validate_java_r2dbc_tools(code: &str) -> Vec<ToolOutcome> {
+    let stubs = match java_r2dbc_stub_paths() {
+        Ok(paths) => paths,
+        Err(outcome) => return vec![outcome],
+    };
+    javac_with_stubs(code, &stubs)
+}
+
+/// Compile `code` as `Queries.java` with `javac`, alongside the JSR-305
+/// annotation stubs and any `extra_stubs` the backend needs.
+fn javac_with_stubs(code: &str, extra_stubs: &[String]) -> Vec<ToolOutcome> {
     const TOOL: &str = "javac";
 
     if !tool_present(TOOL, "-version") {
@@ -1183,8 +1238,18 @@ fn validate_java_tools(code: &str) -> Vec<ToolOutcome> {
         Err(outcome) => return vec![outcome],
     };
 
-    let args = ["-d", out_arg, "-nowarn", &source_arg, &nonnull, &nullable];
-    vec![match run_tool(TOOL, &args, Stream::Both, 10) {
+    let mut args = vec![
+        "-d".to_string(),
+        out_arg.to_string(),
+        "-nowarn".to_string(),
+        source_arg,
+        nonnull,
+        nullable,
+    ];
+    args.extend(extra_stubs.iter().cloned());
+    let arg_refs: Vec<&str> = args.iter().map(String::as_str).collect();
+
+    vec![match run_tool(TOOL, &arg_refs, Stream::Both, 20) {
         Ok(errors) => ToolOutcome::Ran { tool: TOOL, errors },
         Err(outcome) => outcome,
     }]

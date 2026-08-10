@@ -11,6 +11,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
+use crate::backends::jvm_common;
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/kotlin-exposed.toml");
 
@@ -57,26 +58,65 @@ fn exposed_column_fn(kotlin_type: &str) -> &str {
     }
 }
 
-/// Get the ResultSet getter method name for a given Kotlin type.
-fn rs_getter(kotlin_type: &str) -> &str {
-    match kotlin_type {
-        "Boolean" => "getBoolean",
-        "Byte" => "getByte",
-        "Short" => "getShort",
-        "Int" => "getInt",
-        "Long" => "getLong",
-        "Float" => "getFloat",
-        "Double" => "getDouble",
-        "String" => "getString",
-        "ByteArray" => "getBytes",
-        _ if kotlin_type.contains("BigDecimal") => "getBigDecimal",
-        _ if kotlin_type.contains("LocalDate") => "getObject",
-        _ if kotlin_type.contains("LocalTime") => "getObject",
-        _ if kotlin_type.contains("OffsetTime") => "getObject",
-        _ if kotlin_type.contains("LocalDateTime") => "getObject",
-        _ if kotlin_type.contains("OffsetDateTime") => "getObject",
-        _ if kotlin_type.contains("UUID") => "getObject",
-        _ => "getObject",
+/// The inline read expression for a kotlin-exposed column.
+///
+/// Exposed's `exec(sql) { rs -> ... }` block hands out a plain
+/// `java.sql.ResultSet`, so this is the same problem `kotlin-jdbc` has and the
+/// same answer: a named getter where JDBC has one, `rs.getObject(col,
+/// T::class.java)` where it does not, and never the untyped
+/// `rs.getObject(col)` whose `Any!` result is assignable to nothing.
+///
+/// Nullable columns return the preamble local written by
+/// [`write_exposed_nullable_preamble`] instead of an inline read. This backend
+/// had no preamble at all: a nullable `Int?` column was read with
+/// `rs.getInt(col)`, which JDBC specifies to return `0` — not null — for SQL
+/// NULL, so every NULL in a nullable numeric or boolean column silently became
+/// `0`/`false` in the row object.
+fn exposed_rs_expr(col: &ResolvedColumn) -> String {
+    if col.nullable {
+        return col.field_name.clone();
+    }
+    if jvm_common::is_enum_column(&col.neutral_type) {
+        return format!("{}.valueOf(rs.getString(\"{}\").uppercase())", col.lang_type, col.name);
+    }
+    jvm_common::kotlin_jdbc_read_call(&col.name, &col.lang_type)
+}
+
+/// Emit the nullable-column preamble locals a following row construction reads
+/// through [`exposed_rs_expr`].
+fn write_exposed_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent: &str) {
+    for col in cols {
+        if !col.nullable {
+            continue;
+        }
+        if jvm_common::is_enum_column(&col.neutral_type) {
+            // ~keep `getString` returns null for SQL NULL, so the guard is on
+            // the raw string: `valueOf(rs.getString(col).uppercase())` would
+            // throw on exactly the value a nullable enum column exists to hold.
+            let _ = writeln!(
+                out,
+                "{}val {}Value = rs.getString(\"{}\")",
+                indent, col.field_name, col.name
+            );
+            let _ = writeln!(
+                out,
+                "{}val {} = if ({}Value == null) null else {}.valueOf({}Value.uppercase())",
+                indent, col.field_name, col.field_name, col.lang_type, col.field_name
+            );
+            continue;
+        }
+        let _ = writeln!(
+            out,
+            "{}val {}Value = {}",
+            indent,
+            col.field_name,
+            jvm_common::kotlin_jdbc_read_call(&col.name, &col.lang_type)
+        );
+        let _ = writeln!(
+            out,
+            "{}val {} = if (rs.wasNull()) null else {}Value",
+            indent, col.field_name, col.field_name
+        );
     }
 }
 
@@ -249,13 +289,14 @@ impl CodegenBackend for KotlinExposedBackend {
                 let args = build_args(params);
                 let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
                 let _ = writeln!(out, "            if (rs.next()) {{");
+                write_exposed_nullable_preamble(&mut out, columns, "                ");
                 let _ = writeln!(out, "                {}(", struct_name);
                 for col in columns.iter() {
-                    let getter = rs_getter(&col.lang_type);
                     let _ = writeln!(
                         out,
-                        "                    {} = rs.{}(\"{}\"),",
-                        col.field_name, getter, col.name
+                        "                    {} = {},",
+                        col.field_name,
+                        exposed_rs_expr(col)
                     );
                 }
                 let _ = writeln!(out, "                )");
@@ -316,14 +357,15 @@ impl CodegenBackend for KotlinExposedBackend {
                 let _ = writeln!(out, "        val result = mutableListOf<{}>()", struct_name);
                 let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
                 let _ = writeln!(out, "            while (rs.next()) {{");
+                write_exposed_nullable_preamble(&mut out, columns, "                ");
                 let _ = writeln!(out, "                result.add(");
                 let _ = writeln!(out, "                    {}(", struct_name);
                 for col in columns.iter() {
-                    let getter = rs_getter(&col.lang_type);
                     let _ = writeln!(
                         out,
-                        "                        {} = rs.{}(\"{}\"),",
-                        col.field_name, getter, col.name
+                        "                        {} = {},",
+                        col.field_name,
+                        exposed_rs_expr(col)
                     );
                 }
                 let _ = writeln!(out, "                    ),");
@@ -449,16 +491,19 @@ impl CodegenBackend for KotlinExposedBackend {
         let _ = writeln!(out, "        exec(\"{sql}\"{args}) {{ rs ->");
         let _ = writeln!(out, "            while (rs.next()) {{");
 
-        let key_getter = rs_getter(&key_col.lang_type);
-        let _ = writeln!(out, "                val key = rs.{key_getter}(\"{key_column}\")");
+        write_exposed_nullable_preamble(&mut out, child_columns, "                ");
+        write_exposed_nullable_preamble(&mut out, parent_columns, "                ");
+
+        let key_expr = exposed_rs_expr(key_col);
+        let _ = writeln!(out, "                val key = {key_expr}");
 
         let _ = writeln!(out, "                val child = {child_struct_name}(");
         for col in child_columns {
-            let getter = rs_getter(&col.lang_type);
             let _ = writeln!(
                 out,
-                "                    {} = rs.{}(\"{}\"),",
-                col.field_name, getter, col.name
+                "                    {} = {},",
+                col.field_name,
+                exposed_rs_expr(col)
             );
         }
         let _ = writeln!(out, "                )");
@@ -468,11 +513,11 @@ impl CodegenBackend for KotlinExposedBackend {
         let _ = writeln!(out, "                }} else {{");
         let _ = writeln!(out, "                    val parent = {parent_struct_name}(");
         for col in parent_columns {
-            let getter = rs_getter(&col.lang_type);
             let _ = writeln!(
                 out,
-                "                        {} = rs.{}(\"{}\"),",
-                col.field_name, getter, col.name
+                "                        {} = {},",
+                col.field_name,
+                exposed_rs_expr(col)
             );
         }
         let _ = writeln!(out, "                        children = mutableListOf(child),");

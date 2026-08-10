@@ -12,6 +12,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
+use crate::backends::jvm_common;
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/java-r2dbc.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/java-r2dbc.mysql.toml");
@@ -84,27 +85,22 @@ fn box_primitive(java_type: &str) -> &str {
     }
 }
 
-/// Get the R2DBC Row getter class for a given Java type.
-fn r2dbc_row_class(java_type: &str) -> &str {
-    match java_type {
-        "boolean" | "Boolean" => "Boolean.class",
-        "byte" | "Byte" => "Byte.class",
-        "short" | "Short" => "Short.class",
-        "int" | "Integer" => "Integer.class",
-        "long" | "Long" => "Long.class",
-        "float" | "Float" => "Float.class",
-        "double" | "Double" => "Double.class",
-        "String" => "String.class",
-        "byte[]" => "byte[].class",
-        _ if java_type.contains("BigDecimal") => "java.math.BigDecimal.class",
-        _ if java_type.contains("LocalDate") => "java.time.LocalDate.class",
-        _ if java_type.contains("LocalTime") => "java.time.LocalTime.class",
-        _ if java_type.contains("OffsetTime") => "java.time.OffsetTime.class",
-        _ if java_type.contains("LocalDateTime") => "java.time.LocalDateTime.class",
-        _ if java_type.contains("OffsetDateTime") => "java.time.OffsetDateTime.class",
-        _ if java_type.contains("UUID") => "java.util.UUID.class",
-        _ => "Object.class",
-    }
+/// The class literal to hand `Row.get(name, Class<T>)` for a column.
+///
+/// `Row.get` is generic in its class argument, so the only class that produces
+/// a value assignable to the declared field is the declared type's own —
+/// derived here rather than looked up in a parallel table. The table this
+/// replaced ended in `Object.class`, which caught composites and enums and
+/// made every such record constructor call a compile error; it also matched
+/// `LocalDateTime` against its `contains("LocalDate")` arm first, silently
+/// reading a `datetime` column as `java.time.LocalDate`.
+///
+/// Primitives are boxed first: `Row.get` is generic, and a generic type
+/// argument cannot be a primitive (`int.class` is `Class<Integer>` at best and
+/// `row.get(name, int.class)` does not type-check against `T get(String,
+/// Class<T>)` the way the boxed form does).
+fn r2dbc_row_class(java_type: &str) -> String {
+    jvm_common::java_class_literal(box_primitive(java_type))
 }
 
 /// Resolve the display type for a Java field, boxing primitives when nullable.
@@ -171,6 +167,18 @@ impl CodegenBackend for JavaR2dbcBackend {
         &["postgresql", "mysql", "mariadb", "sqlite"]
     }
 
+    /// The header ends by opening `public class Queries {`, matching
+    /// `java-jdbc`.
+    ///
+    /// Without it this backend emitted top-level `public record`s, a top-level
+    /// `public enum`, and bare `public static` methods into one file. None of
+    /// that is legal Java: a compilation unit may hold at most one public type
+    /// and cannot hold a method at all, so every generated file failed with
+    /// `class X is public, should be declared in a file named X.java` followed
+    /// by `<identifier> expected` on the first method. Nesting everything in
+    /// one public class — records, enums, and static methods alike — is what
+    /// `java-jdbc` already does and needs no name coordination with the file
+    /// the CLI writes (`Queries.java`).
     fn file_header(&self) -> String {
         "import io.r2dbc.spi.ConnectionFactory;\n\
          import io.r2dbc.spi.Row;\n\
@@ -183,8 +191,14 @@ impl CodegenBackend for JavaR2dbcBackend {
          import javax.annotation.Nonnull;\n\
          import javax.annotation.Nullable;\n\
          import reactor.core.publisher.Flux;\n\
-         import reactor.core.publisher.Mono;"
+         import reactor.core.publisher.Mono;\n\
+         \n\
+         public class Queries {"
             .to_string()
+    }
+
+    fn file_footer(&self) -> String {
+        "}\n".to_string()
     }
 
     fn generate_struct_decl(
@@ -569,11 +583,16 @@ impl CodegenBackend for JavaR2dbcBackend {
             out,
             "                .flatMap(result -> result.map((row, meta) -> new Object[]{{"
         );
-        for col in all_columns {
+        for (i, col) in all_columns.iter().enumerate() {
             let class = r2dbc_row_class(&col.lang_type);
-            let _ = writeln!(out, "                    row.get(\"{}\", {}),", col.name, class);
+            let sep = if i + 1 < all_columns.len() { "," } else { "" };
+            let _ = writeln!(out, "                    row.get(\"{}\", {}){}", col.name, class, sep);
         }
-        let _ = writeln!(out, "                }});");
+        // ~keep Three closers, not one: `}` ends the `new Object[]{` initializer,
+        // then `)` ends `result.map(`, then `)` ends `.flatMap(`. This emitted a
+        // bare `});` and left `.flatMap(` open, so every `:grouped` java-r2dbc
+        // file failed with `')' or ',' expected` before any type-checking began.
+        let _ = writeln!(out, "                }}));");
         let _ = writeln!(out, "        }},");
         let _ = writeln!(out, "        conn -> Mono.from(conn.close())");
         let _ = writeln!(out, "    ).collectList().map(rows -> {{");
