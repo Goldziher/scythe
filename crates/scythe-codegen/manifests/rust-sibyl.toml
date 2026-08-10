@@ -36,6 +36,7 @@ struct_case = "PascalCase"
 fn_case = "snake_case"
 enum_variant_case = "PascalCase"
 row_suffix = "Row"
+sanitize_field_names = true
 reserved = [
   "as",
   "async",

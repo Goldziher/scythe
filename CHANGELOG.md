@@ -30,6 +30,18 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **A column named `my col`, `with-dash` or `2fa` reached a field declaration verbatim in every
+  language but TypeScript.** `pub my col: String`, `my col: str`, `My col string`, `String my col` —
+  none of them parse, and no gate caught it because the torture schema has no such column. #215 fixed
+  this for TypeScript by quoting (`"my col": string`, `row["my col"]`), which is the right answer
+  *there* and only there: a generated TypeScript row type is cast onto the driver's rows, so its key
+  has to stay the column's own spelling. The other nine targets have no quoted form for a field and
+  never read a column back by the generated name — they use the position or the raw SQL name
+  (`rs.getString("my col")`) — so their 85 manifests now set `[naming] sanitize_field_names`, and
+  `field_name` replaces the characters an identifier cannot hold. A leading digit takes a `col_`
+  prefix rather than a bare `_`, because `to_pascal_case` drops a leading underscore and go-pgx and
+  the C# backends case the field name a second time, which handed the digit straight back. The SQL
+  text is untouched. (#215)
 - **`IDENTITY` preprocessing ate the whitespace after the keyword and rewrote its case.** The catalog
   strips `IDENTITY(seed, step)` before parsing; when the keyword was *not* followed by a clause, the
   branch that put it back pushed a literal uppercase `"IDENTITY"` and resumed from the position it had

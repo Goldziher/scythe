@@ -248,6 +248,7 @@ mod tests {
                 field_case: field_case.to_string(),
                 reserved: Vec::new(),
                 reserved_bindings: Vec::new(),
+                sanitize_field_names: false,
             },
             imports: None,
         }

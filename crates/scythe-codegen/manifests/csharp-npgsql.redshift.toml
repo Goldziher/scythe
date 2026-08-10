@@ -38,6 +38,7 @@ struct_case = "PascalCase"
 fn_case = "PascalCase"
 enum_variant_case = "PascalCase"
 row_suffix = "Row"
+sanitize_field_names = true
 reserved = [
   "abstract",
   "as",

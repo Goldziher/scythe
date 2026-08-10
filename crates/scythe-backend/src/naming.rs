@@ -54,6 +54,28 @@ pub struct NamingConfig {
     /// so a manifest that has not opted in is unaffected.
     #[serde(default)]
     pub reserved_bindings: Vec<String>,
+    /// Whether [`field_name`] should repair identifier *shape* -- replace the
+    /// characters an identifier cannot hold, and prefix a leading digit.
+    ///
+    /// Opt-in, and declared by every manifest whose target has no quoted form
+    /// for a field name, which is all of them but TypeScript. A column named
+    /// `my col` otherwise reaches `pub my col: String`, `my col: str`,
+    /// `My col string` and `String my col` -- none of which parse. Those
+    /// targets read the column back positionally or by its raw SQL name
+    /// (`rs.getString("my col")`), so the generated field name is theirs to
+    /// choose and mangling costs nothing.
+    ///
+    /// The TypeScript manifests leave it off because they have a better
+    /// answer -- `"my col": string` and `row["my col"]` are both legal, and
+    /// #215 already routes every such position through them -- and because
+    /// mangling would be actively wrong there: a TypeScript row type is cast
+    /// onto the driver's rows, so a renamed key describes an object that
+    /// never arrives.
+    ///
+    /// Opt-in rather than opt-out so the default failure is a compile error
+    /// in a target that has not been considered, never a silent rename.
+    #[serde(default)]
+    pub sanitize_field_names: bool,
 }
 
 fn default_field_case() -> String {
@@ -219,12 +241,50 @@ pub fn enum_type_name(sql_name: &str, naming: &NamingConfig) -> String {
 /// character, so one mangling strategy works everywhere without a
 /// per-language special case. A manifest with an empty `reserved` list (the
 /// default) never mangles anything.
+///
+/// Identifier *shape* is repaired only when the manifest sets
+/// [`NamingConfig::sanitize_field_names`] -- see that field for why it is
+/// opt-in rather than universal.
 pub fn field_name<'a>(sql_name: &'a str, naming: &NamingConfig) -> Cow<'a, str> {
+    if naming.sanitize_field_names {
+        return Cow::Owned(identifier_name(sql_name, naming));
+    }
     let cased = apply_case(sql_name, &naming.field_case);
     if naming.reserved.iter().any(|kw| kw == cased.as_ref()) {
         Cow::Owned(format!("{cased}_"))
     } else {
         cased
+    }
+}
+
+/// Case convention, identifier shape and reserved-word suffix, each applied
+/// in the only order that works.
+///
+/// The characters are replaced *first*, so `_` is already the word separator
+/// the case converters split on: `with-dash` becomes `withDash` under
+/// camelCase rather than staying `with-dash`. The leading-digit guard is
+/// applied to that same pre-case spelling, so the case conversion carries it
+/// through: `2fa` becomes `col_2fa`, and therefore `Col2fa` wherever a
+/// backend PascalCases the field. The reserved-word check runs last, on the
+/// final cased name, because that is the spelling that has to avoid the
+/// keyword.
+///
+/// The guard is a word and not a bare `_` because a leading underscore does
+/// not survive a case conversion: `to_pascal_case` splits on `_` and an
+/// empty leading part contributes nothing, so `_2fa` came back out as `2fa`
+/// in go-pgx and the csharp family -- and teaching the converter to keep it
+/// would change `_user_status` from `UserStatus` to `_UserStatus`
+/// everywhere, which two tests here pin deliberately.
+fn identifier_name(sql_name: &str, naming: &NamingConfig) -> String {
+    let mut shaped = replace_non_identifier_chars(sql_name);
+    if shaped.starts_with(|c: char| c.is_ascii_digit()) {
+        shaped.insert_str(0, "col_");
+    }
+    let cased = apply_case(&shaped, &naming.field_case);
+    if naming.reserved.iter().any(|kw| kw == cased.as_ref()) {
+        format!("{cased}_")
+    } else {
+        cased.into_owned()
     }
 }
 
@@ -237,7 +297,7 @@ pub fn field_name<'a>(sql_name: &'a str, naming: &NamingConfig) -> Cow<'a, str> 
 ///
 /// Also the one place identifier *shape* is repaired: a param named after a
 /// column called `my col`, `with-dash` or `2fa` binds as `my_col`,
-/// `with_dash` and `_2fa`. Quoting is what saves the other positions -- a
+/// `with_dash` and `col_2fa`. Quoting is what saves the other positions -- a
 /// property key can be `"my col"`, a read can be `row["my col"]` -- and a
 /// binding is the position with no quoted form, in any of the ten target
 /// languages.
@@ -251,18 +311,12 @@ pub fn field_name<'a>(sql_name: &'a str, naming: &NamingConfig) -> Cow<'a, str> 
 /// returns, so `my col` colliding with a real `my_col` is an error and not a
 /// silent overwrite.
 ///
-/// Order is load-bearing. The characters are replaced *before*
-/// [`field_name`] applies the case convention, so `_` is already the word
-/// separator the converters understand (`with-dash` -> `withDash` under
-/// camelCase, not `with-dash`). The leading-digit prefix goes on *after*,
-/// because every case converter treats a leading `_` as an empty first word
-/// and drops it, which would hand back the leading digit it was added to
-/// remove.
+/// Unconditional, unlike [`field_name`]'s
+/// [`NamingConfig::sanitize_field_names`] opt-in: quoting is what lets a
+/// manifest decline shape repair for a *field*, and a binding has no quoted
+/// form in any target language, so there is nothing to opt out of.
 pub fn param_name(sql_name: &str, naming: &NamingConfig) -> String {
-    let mut name = field_name(&replace_non_identifier_chars(sql_name), naming).into_owned();
-    if name.starts_with(|c: char| c.is_ascii_digit()) {
-        name.insert(0, '_');
-    }
+    let mut name = identifier_name(sql_name, naming);
     if naming.reserved_bindings.contains(&name) {
         name.push('_');
     }
@@ -321,6 +375,7 @@ mod tests {
             field_case: "snake_case".to_string(),
             reserved: Vec::new(),
             reserved_bindings: Vec::new(),
+            sanitize_field_names: false,
         }
     }
 
@@ -633,15 +688,19 @@ mod tests {
         assert_eq!(param_name("my col", &config), "myCol");
     }
 
-    /// The leading-digit prefix runs after, for the mirror-image reason:
-    /// every case converter treats a leading `_` as an empty first word and
-    /// drops it, which would hand back the digit it was added to hide.
+    /// The guard is a word rather than a bare `_` so that it survives the
+    /// case conversion, and therefore the second conversion a backend like
+    /// go-pgx or csharp-npgsql applies on top.
     #[test]
     fn test_param_name_prefixes_a_leading_digit_under_every_case() {
         let mut config = test_config();
-        assert_eq!(param_name("2fa", &config), "_2fa");
+        assert_eq!(param_name("2fa", &config), "col_2fa");
+        // The guard is added before the case runs, so it is cased along with
+        // the rest of the name rather than sitting in front of it.
         config.field_case = "camelCase".to_string();
-        assert_eq!(param_name("2fa", &config), "_2fa");
+        assert_eq!(param_name("2fa", &config), "col2fa");
+        config.field_case = "PascalCase".to_string();
+        assert_eq!(param_name("2fa", &config), "Col2fa");
     }
 
     #[test]
@@ -712,6 +771,7 @@ mod tests {
             field_case: "snake_case".to_string(),
             reserved: Vec::new(),
             reserved_bindings: Vec::new(),
+            sanitize_field_names: false,
         };
         assert_eq!(enum_variant_name("active", &config), "ACTIVE");
         assert_eq!(enum_variant_name("pending_review", &config), "PENDING_REVIEW");

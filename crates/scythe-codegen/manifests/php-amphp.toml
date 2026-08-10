@@ -44,6 +44,7 @@ struct_case = "PascalCase"
 fn_case = "camelCase"
 enum_variant_case = "SCREAMING_SNAKE_CASE"
 row_suffix = "Row"
+sanitize_field_names = true
 reserved = [
   "abstract",
   "and",
