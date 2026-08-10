@@ -25,9 +25,7 @@
   },
   "name": "math_power_sqrt_nullable_operand",
   "query_sql": "-- @name PowerSqrtNullable\n-- @returns :many\nSELECT POWER(value, 2) AS squared, SQRT(value) AS root FROM measurements",
-  "schema_sql": [
-    "CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION);"
-  ],
+  "schema_sql": ["CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION);"],
   "source": "original",
   "tags": ["expression", "math", "power", "sqrt", "nullability"]
 }

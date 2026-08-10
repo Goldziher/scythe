@@ -36,6 +36,41 @@ struct_case = "PascalCase"
 fn_case = "snake_case"
 enum_variant_case = "SCREAMING_SNAKE_CASE"
 row_suffix = "Row"
-reserved = ["begin", "break", "case", "class", "def", "defined?", "do", "else", "elsif", "end", "ensure", "false", "for", "if", "in", "module", "next", "nil", "not", "or", "redo", "rescue", "retry", "return", "self", "super", "then", "true", "undef", "unless", "until", "when", "while", "yield"]
+reserved = [
+  "begin",
+  "break",
+  "case",
+  "class",
+  "def",
+  "defined?",
+  "do",
+  "else",
+  "elsif",
+  "end",
+  "ensure",
+  "false",
+  "for",
+  "if",
+  "in",
+  "module",
+  "next",
+  "nil",
+  "not",
+  "or",
+  "redo",
+  "rescue",
+  "retry",
+  "return",
+  "self",
+  "super",
+  "then",
+  "true",
+  "undef",
+  "unless",
+  "until",
+  "when",
+  "while",
+  "yield",
+]
 
 [imports.rules]

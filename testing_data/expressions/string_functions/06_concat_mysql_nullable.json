@@ -22,7 +22,9 @@
   },
   "name": "concat_mysql_nullable",
   "query_sql": "-- @name GetDisplayNameMysql\n-- @returns :many\nSELECT CONCAT(name, nickname) AS display FROM users",
-  "schema_sql": ["CREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, nickname VARCHAR(255));"],
+  "schema_sql": [
+    "CREATE TABLE users (id INT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL, nickname VARCHAR(255));"
+  ],
   "source": "original",
   "tags": ["expression", "string", "concat", "mysql", "dialect", "nullability"]
 }

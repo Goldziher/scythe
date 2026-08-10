@@ -72,6 +72,7 @@ def load_expected_failures() -> dict[str, str]:
             expected[project.strip()] = reason.strip()
     return expected
 
+
 # Per-backend real build command, run with the project directory as cwd.
 # `None` means no real build tool applies to this language (PHP and Ruby
 # have no compile step at all; a syntax check *is* their real build).

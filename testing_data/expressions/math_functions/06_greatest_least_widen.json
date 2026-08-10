@@ -24,9 +24,7 @@
   },
   "name": "greatest_least_widen",
   "query_sql": "-- @name GetPriceBounds\n-- @returns :many\nSELECT GREATEST(price, msrp) AS g, LEAST(price, msrp) AS l FROM order_items",
-  "schema_sql": [
-    "CREATE TABLE order_items (id SERIAL PRIMARY KEY, price INTEGER NOT NULL, msrp NUMERIC NOT NULL)"
-  ],
+  "schema_sql": ["CREATE TABLE order_items (id SERIAL PRIMARY KEY, price INTEGER NOT NULL, msrp NUMERIC NOT NULL)"],
   "source": "original",
   "tags": ["expression", "math", "greatest", "least", "widening"]
 }

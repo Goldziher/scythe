@@ -25,9 +25,7 @@
   },
   "name": "arithmetic_widens_to_decimal",
   "query_sql": "-- @name GetDiscountedPrice\n-- @returns :many\nSELECT price * msrp AS a, msrp * price AS b FROM order_items",
-  "schema_sql": [
-    "CREATE TABLE order_items (id SERIAL PRIMARY KEY, price INTEGER NOT NULL, msrp NUMERIC NOT NULL)"
-  ],
+  "schema_sql": ["CREATE TABLE order_items (id SERIAL PRIMARY KEY, price INTEGER NOT NULL, msrp NUMERIC NOT NULL)"],
   "source": "original",
   "tags": ["expressions", "operators", "arithmetic", "widening"]
 }

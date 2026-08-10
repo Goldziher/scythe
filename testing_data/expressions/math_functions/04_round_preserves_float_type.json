@@ -19,9 +19,7 @@
   },
   "name": "round_preserves_float_type",
   "query_sql": "-- @name GetRoundedValue\n-- @returns :many\nSELECT ROUND(value) AS rounded FROM measurements",
-  "schema_sql": [
-    "CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION NOT NULL);"
-  ],
+  "schema_sql": ["CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION NOT NULL);"],
   "source": "original",
   "tags": ["expression", "math", "round", "dialect"]
 }

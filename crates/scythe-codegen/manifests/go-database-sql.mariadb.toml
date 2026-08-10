@@ -36,7 +36,33 @@ struct_case = "PascalCase"
 fn_case = "PascalCase"
 enum_variant_case = "PascalCase"
 row_suffix = "Row"
-reserved = ["break", "case", "chan", "const", "continue", "default", "defer", "else", "fallthrough", "for", "func", "go", "goto", "if", "import", "interface", "map", "package", "range", "return", "select", "struct", "switch", "type", "var"]
+reserved = [
+  "break",
+  "case",
+  "chan",
+  "const",
+  "continue",
+  "default",
+  "defer",
+  "else",
+  "fallthrough",
+  "for",
+  "func",
+  "go",
+  "goto",
+  "if",
+  "import",
+  "interface",
+  "map",
+  "package",
+  "range",
+  "return",
+  "select",
+  "struct",
+  "switch",
+  "type",
+  "var",
+]
 
 [imports.rules]
 "time." = "\"time\""
