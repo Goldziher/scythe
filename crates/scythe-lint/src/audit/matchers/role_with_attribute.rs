@@ -19,7 +19,12 @@ use sqlparser::ast::{AlterRoleOperation, RoleOption, Statement};
 use crate::audit::registry::MatcherHit;
 use crate::types::LintContext;
 
-const RECOGNIZED_ATTRIBUTES: &[&str] = &["superuser", "createdb", "createrole", "replication", "bypassrls"];
+/// The role attributes this matcher can actually test for.
+///
+/// `pub(crate)` so [`crate::audit::matcher_args`] can reject a rule that asks
+/// for anything else at registration time instead of letting it run forever
+/// finding nothing.
+pub(crate) const RECOGNIZED_ATTRIBUTES: &[&str] = &["superuser", "createdb", "createrole", "replication", "bypassrls"];
 
 pub fn match_role_with_attribute(ctx: &LintContext<'_>, args: &toml::Table) -> Vec<MatcherHit> {
     let wanted = read_wanted_attributes(args);
@@ -65,7 +70,13 @@ fn read_wanted_attributes(args: &toml::Table) -> Vec<String> {
         }
     };
     if let Some(arr) = args.get("attributes").and_then(|v| v.as_array()) {
-        return arr.iter().filter_map(|v| v.as_str().and_then(normalize)).collect();
+        let from_array: Vec<String> = arr.iter().filter_map(|v| v.as_str().and_then(normalize)).collect();
+        // Fall through to the singular key rather than returning here: an
+        // `attributes` list that yields nothing must not shadow a usable
+        // `attribute`, or a rule declaring both would silently never fire.
+        if !from_array.is_empty() {
+            return from_array;
+        }
     }
     if let Some(s) = args.get("attribute").and_then(|v| v.as_str()) {
         return normalize(s).into_iter().collect();
