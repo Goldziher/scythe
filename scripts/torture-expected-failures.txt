@@ -54,28 +54,42 @@ rust-tokio-postgres : same defect, tokio-postgres project scaffolding (unfiled)
 # this is the same static block failing when an import is *needed*.
 go-pgx : import block omits encoding/json and google/uuid while the emitted types reference both (#198)
 
-# --- Class 3: target-language reserved words reaching a binding position.
-# All six TypeScript projects fail identically on sql/torture/schema.sql's
-# "class" column:
+# --- Class 3: a composite-typed parameter cannot be bound by postgres.js.
+# The torture schema's home_address column is a composite type, and the
+# generated code interpolates it straight into the tagged template:
 #
-#   generated/queries.ts(82,2): error TS1390: 'class' is not allowed as a
-#                               parameter name.
+#   generated/queries.ts(91,81): error TS2345: Argument of type
+#     'TortureAddress | null' is not assignable to parameter of type
+#     'ParameterOrFragment<never>'.
+#   generated/queries.ts(89,15): error TS1320: Type of 'await' operand ...
 #
-# All 17 TypeScript manifests are the ones that declare no `[naming] reserved`
-# list, so naming.rs:202 field_name() never mangles for them. Populating that
-# list is necessary but not sufficient: typescript_common.rs deliberately
-# fixes identifier *shape* only (see its doc at :152-157), and ts_property_key
-# / ts_member_access / ts_index_access all quote rather than mangle -- correct
-# for a property key, useless for a parameter name. A ts_binding_name helper
-# is the missing piece.
-typescript-postgres : "class" column becomes an unescaped TS function parameter name (#180)
-typescript-pg : same as typescript-postgres -- shares backend typescript-pg (#180)
-typescript-pg-zod : same as typescript-postgres -- shares backend typescript-pg (#180)
-typescript-pg-zod-outer-join-unions : same as typescript-postgres -- shares backend typescript-pg (#180)
-typescript-pg-outer-join-unions : same as typescript-postgres -- shares backend typescript-pg (#180)
-typescript-kysely : same defect, Kysely query builder call parameter (#180)
+# The TS1320 is a cascade of the TS2345: with one argument unassignable,
+# `sql<CreateWidgetRow[]>` no longer resolves to a valid promise. postgres.js
+# accepts only values it knows how to serialize, and a plain object holding a
+# PostgreSQL composite is not one of them; binding it needs an explicit
+# encoding decision (a row literal, or sql.json for the json case), which the
+# backend does not make today.
+#
+# This is a *newly visible* defect, not a new one: until the entry below was
+# re-derived, all six TypeScript projects failed on `class` as a parameter
+# name (TS1390), and tsc stops at a syntax error before it type-checks
+# anything. Fixing the syntax error is what let the type error be seen. The
+# other five projects pass now and have been deleted from this list.
+# Marked "unfiled": no open issue covers composite binding in postgres.js,
+# and an invented issue reference is worse than an honest blank.
+typescript-postgres : a composite-typed param is not assignable to postgres.js's ParameterOrFragment (unfiled)
 
 # --- Resolved, kept as a record of what this list is for.
+#
+# The five deleted TypeScript entries (typescript-pg and its three variants,
+# typescript-kysely) failed on `class` as a parameter name -- TS1390, the
+# one position where a keyword cannot be quoted. The manifests now declare
+# `[naming] reserved_bindings`, consulted by naming::param_name, which
+# mangles it to `class_` in bindings only. Deliberately not `[naming]
+# reserved`: that would have mangled the *column* too, and a generated TS row
+# type is cast straight onto the driver's rows, so a key that no longer
+# matches the SQL column name is a silent wrong answer bought with a compile
+# error. See reserved_word_regression.rs, which asserts both halves.
 #
 # ruby-pg was listed under the escaping reason and never failed for it. The
 # script globs every file in the output directory and dispatched the syntax

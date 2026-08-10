@@ -38,5 +38,61 @@ struct_case = "PascalCase"
 fn_case = "camelCase"
 enum_variant_case = "PascalCase"
 row_suffix = "Row"
+# Reserved only in a binding position (a parameter name, a `const`, a
+# destructuring target). All of these are legal as property keys, which is
+# why they are not in `reserved`: mangling the column would break the cast
+# of the driver's rows onto the generated row type. Strict-mode words are
+# included because generated modules are ESM, which is always strict, and
+# `arguments`/`eval` because binding either is a SyntaxError there.
+reserved_bindings = [
+  "arguments",
+  "await",
+  "break",
+  "case",
+  "catch",
+  "class",
+  "const",
+  "continue",
+  "debugger",
+  "default",
+  "delete",
+  "do",
+  "else",
+  "enum",
+  "eval",
+  "export",
+  "extends",
+  "false",
+  "finally",
+  "for",
+  "function",
+  "if",
+  "implements",
+  "import",
+  "in",
+  "instanceof",
+  "interface",
+  "let",
+  "new",
+  "null",
+  "package",
+  "private",
+  "protected",
+  "public",
+  "return",
+  "static",
+  "super",
+  "switch",
+  "this",
+  "throw",
+  "true",
+  "try",
+  "typeof",
+  "var",
+  "void",
+  "while",
+  "with",
+  "yield",
+]
 
 [imports.rules]

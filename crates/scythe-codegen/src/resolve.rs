@@ -1,5 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{NamingConfig, field_name};
+use scythe_backend::naming::{NamingConfig, field_name, param_name};
 use scythe_backend::types::resolve_type_pair;
 
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam};
@@ -93,7 +93,7 @@ pub fn resolve_params(
             let borrowed_type = param_type_to_borrowed(&full_type);
             Ok(ResolvedParam {
                 name: param.name.clone(),
-                field_name: field_name(&param.name, &manifest.naming).into_owned(),
+                field_name: param_name(&param.name, &manifest.naming).into_owned(),
                 lang_type,
                 full_type,
                 borrowed_type,
@@ -247,6 +247,7 @@ mod tests {
                 row_suffix: "Row".to_string(),
                 field_case: field_case.to_string(),
                 reserved: Vec::new(),
+                reserved_bindings: Vec::new(),
             },
             imports: None,
         }

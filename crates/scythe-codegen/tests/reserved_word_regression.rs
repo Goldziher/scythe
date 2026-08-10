@@ -9,6 +9,12 @@
 //! (populated in every non-TypeScript manifest; see
 //! `crates/scythe-codegen/manifests/*.toml`) consulted by `field_name`,
 //! never a hardcoded cross-language table (#198).
+//!
+//! TypeScript declares `[naming] reserved_bindings` instead, consulted by
+//! `param_name`, because it is the one target where a keyword is illegal in
+//! a parameter binding and legal as a property key -- see
+//! `typescript_pg_mangles_class_in_a_binding_but_leaves_the_row_key_alone`
+//! at the bottom of this file for why the row key must not be mangled.
 
 use std::process::Command;
 
@@ -157,5 +163,45 @@ fn csharp_npgsql_mangles_the_class_keyword_in_the_function_parameter_list() {
     assert!(
         query_fn.contains("class_"),
         "expected the reserved-word mangled parameter `class_`:\n{query_fn}"
+    );
+}
+
+/// TypeScript mangles a keyword only where it lands in a binding.
+///
+/// The asymmetry `[naming] reserved_bindings` exists for, asserted in both
+/// directions in one test so neither half can be "fixed" without the other
+/// failing: `function q(class: string)` is `TS1390`, but the row type must
+/// keep declaring `class` because the driver's rows are cast straight onto
+/// it (`client.query<FindByClassRow>(...)`). Mangling the column instead
+/// would have swapped a compile error for a row type that describes an
+/// object `pg` never returns.
+#[test]
+fn typescript_pg_mangles_class_in_a_binding_but_leaves_the_row_key_alone() {
+    let backend = get_backend("typescript-pg", "postgresql").unwrap();
+    let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).unwrap();
+    const PARAM_QUERY: &str = "-- @name FindByClass\n-- @returns :one\n\
+        SELECT id, type, class, fn FROM items WHERE class = $1;";
+    let parsed = parse_query_with_dialect(PARAM_QUERY, &SqlDialect::PostgreSQL).unwrap();
+    let analyzed = analyze(&catalog, &parsed).unwrap();
+    let code = generate_with_backend(&analyzed, &*backend).unwrap();
+
+    let query_fn = code.query_fn.expect("expected a query fn");
+    assert!(
+        !query_fn.contains("\tclass: string,"),
+        "`class` is not allowed as a TypeScript parameter name (TS1390):\n{query_fn}"
+    );
+    assert!(
+        query_fn.contains("\tclass_: string,"),
+        "expected the mangled parameter binding `class_`:\n{query_fn}"
+    );
+
+    let row_struct = code.row_struct.expect("expected a row struct");
+    assert!(
+        row_struct.contains("\tclass: string;"),
+        "the row key must stay `class` -- it names a column `pg` returns:\n{row_struct}"
+    );
+    assert!(
+        !row_struct.contains("class_"),
+        "mangling the row key breaks the cast onto the driver's rows:\n{row_struct}"
     );
 }

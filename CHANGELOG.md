@@ -30,6 +30,20 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **A column named after a TypeScript keyword produced a file that would not parse.** Every generated
+  TypeScript query function takes its parameter names from the columns they are compared against, so a
+  `class` column emitted `export async function q(client: PoolClient, class: string)` — `TS1390`, and
+  the syntax error stopped `tsc` before it type-checked anything else in the file. The seventeen
+  TypeScript manifests now declare `[naming] reserved_bindings`, consulted by a new
+  `scythe_backend::naming::param_name`, which mangles a keyword to `class_` where it lands in a
+  binding. Deliberately *not* the existing `[naming] reserved` list: that is applied to columns too,
+  and a generated TypeScript row type is cast straight onto the driver's rows
+  (`client.query<FindByClassRow>(...)`), so renaming the key would have described an object `pg` never
+  returns — a compile error traded for a silent wrong answer. `class` therefore stays `class` in the
+  row type and in `row.class`, both of which are legal TypeScript. Five of the six TypeScript entries
+  in `scripts/torture-expected-failures.txt` are gone; `typescript-postgres` still fails, on a
+  composite-typed parameter postgres.js cannot bind, which was invisible behind the syntax error.
+  (#180)
 - `scripts/check-generated-backends.py` ran `ruby -c` over `queries.rbs`. The script globs every file
   in a backend's output directory and picked the syntax checker by *backend*, but RBS is a signature
   language, not Ruby, so it choked on `ACTIVE: String` and reported a `ruby-pg` failure that no change

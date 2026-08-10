@@ -34,6 +34,26 @@ pub struct NamingConfig {
     /// manifest that has not opted in is unaffected.
     #[serde(default)]
     pub reserved: Vec<String>,
+    /// Target-language words that are illegal specifically where a generated
+    /// name lands in a *binding* position -- a function parameter, a `const`,
+    /// a destructuring target -- while remaining legal as a property key.
+    ///
+    /// Only the TypeScript manifests declare this, because TypeScript is the
+    /// one target here where the two positions have different rules:
+    /// `interface R { class: string }` and `row.class` are both legal, but
+    /// `function q(class: string)` is `TS1390`. Listing `class` in
+    /// [`Self::reserved`] instead would mangle the *column* too, and a
+    /// generated TypeScript row type is cast straight onto the driver's rows
+    /// (`client.query<CreateOrderRow>(...)`), so a key that no longer matches
+    /// the SQL column name describes an object the driver never returns --
+    /// trading a compile error for a silent wrong answer.
+    ///
+    /// For every other target a keyword is illegal in both positions and so
+    /// belongs in [`Self::reserved`], which [`field_name`] already applies to
+    /// params as well. Consulted only by [`param_name`]; defaults to empty,
+    /// so a manifest that has not opted in is unaffected.
+    #[serde(default)]
+    pub reserved_bindings: Vec<String>,
 }
 
 fn default_field_case() -> String {
@@ -208,6 +228,28 @@ pub fn field_name<'a>(sql_name: &'a str, naming: &NamingConfig) -> Cow<'a, str> 
     }
 }
 
+/// Generate the name a query parameter binds to in generated code.
+///
+/// [`field_name`] plus the manifest's [`NamingConfig::reserved_bindings`].
+/// Params are the only generated names that land in a binding position,
+/// where a target-language keyword cannot be quoted out of trouble the way
+/// a property key can.
+///
+/// Mangling is safe here in a way it is not for a column: a param name is
+/// generated code's own vocabulary -- bound into the SQL positionally, read
+/// back by nobody -- whereas a column's field name is a contract with
+/// whatever the driver hands back. Any collision the extra suffix
+/// introduces is caught by `resolve::check_field_name_collisions`, which
+/// runs over the names this returns.
+pub fn param_name<'a>(sql_name: &'a str, naming: &NamingConfig) -> Cow<'a, str> {
+    let name = field_name(sql_name, naming);
+    if naming.reserved_bindings.iter().any(|kw| kw == name.as_ref()) {
+        Cow::Owned(format!("{name}_"))
+    } else {
+        name
+    }
+}
+
 /// Sanitize a string to be a valid Rust identifier fragment.
 ///
 /// Replaces hyphens, dots, and other non-alphanumeric/non-underscore characters
@@ -248,6 +290,7 @@ mod tests {
             row_suffix: "Row".to_string(),
             field_case: "snake_case".to_string(),
             reserved: Vec::new(),
+            reserved_bindings: Vec::new(),
         }
     }
 
@@ -588,6 +631,7 @@ mod tests {
             row_suffix: "Row".to_string(),
             field_case: "snake_case".to_string(),
             reserved: Vec::new(),
+            reserved_bindings: Vec::new(),
         };
         assert_eq!(enum_variant_name("active", &config), "ACTIVE");
         assert_eq!(enum_variant_name("pending_review", &config), "PENDING_REVIEW");
