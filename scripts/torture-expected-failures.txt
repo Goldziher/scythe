@@ -21,11 +21,10 @@
 # to the closed #150) -- the torture schema's quoted mixed-case "widgetId"
 # primary key is simply the first fixture that reaches it. The escaping layer
 # is landing per language rather than all at once, so these go stale a few at
-# a time -- elixir-ecto and elixir-postgrex already have.
+# a time -- elixir-ecto, elixir-postgrex and csharp-npgsql already have.
 rust-sqlx : SQL string literal embeds unescaped "widgetId", breaks the Rust string/sqlx macro (#179)
 rust-sqlx-nested-json : same as rust-sqlx -- shares backend rust-sqlx (#179)
 rust-tokio-postgres : same defect, tokio-postgres query string (#179)
-csharp-npgsql : same defect, C# string literal (#179)
 go-pgx : same defect, Go string literal (#179)
 ruby-pg : same defect, Ruby string literal (#179)
 
@@ -53,3 +52,13 @@ typescript-kysely : same defect, Kysely query builder call parameter (#180, #215
 # has no generic syntax -- is fixed. The three php entries that lived here are
 # deleted rather than kept "just in case": this file is a gate in both
 # directions, and a listed project that passes fails the run.
+
+# Defect D -- every non-scalar column read through the untyped
+# `GetValue` accessor, which returns `object` and binds to none of the types
+# the csharp manifests declare -- is fixed, so csharp-npgsql now builds clean
+# against the torture schema and its entry is gone from Defect A above. Note
+# that it never actually failed for Defect A's escaping reason: the C# escaping
+# layer was already in place, but check-generated-backends.py's HARNESS_STUBS
+# gave the project a Program.cs with no `Main`, so `dotnet build` failed with
+# CS5001 whatever the generated code did. That masked both the real defect and
+# the real fix; the stub has an entry point now.

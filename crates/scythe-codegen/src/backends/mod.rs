@@ -124,6 +124,37 @@ pub(crate) fn engine_supports_nested_aggregates(engine: &str) -> bool {
     matches!(engine, "postgresql" | "postgres" | "pg")
 }
 
+/// The ADO.NET accessor a `csharp-*` backend must use for a column whose
+/// neutral type its driver-specific accessor table does not name.
+///
+/// `DbDataReader.GetValue` is declared to return `object`, so a record field
+/// the manifest declared as anything else -- `List<{T}>` for an `array`,
+/// `byte[]` for `bytes`, a composite record, `{T}` for `json_typed` -- does
+/// not bind to it. The compiler rejects the constructor call outright:
+///
+/// ```text
+/// error CS1503: Argument 2: cannot convert from 'object' to
+/// 'System.Collections.Generic.List<string>'
+/// ```
+///
+/// `DbDataReader.GetFieldValue<T>` is the typed path every ADO.NET provider
+/// inherits, and it returns `T` by signature. Naming the manifest's own
+/// declared type as `T` therefore makes the reader agree with the declaration
+/// by construction, rather than by a second hand-maintained table that can
+/// drift away from the manifest -- which is precisely how this defect
+/// (issue #155) survived in five backends at once.
+///
+/// The typed path is not merely a compile-time trick: verified against a live
+/// PostgreSQL 17 server through Npgsql 8, `GetFieldValue<List<string>>` reads
+/// a `text[]`, `GetFieldValue<TimeSpan>` an `interval`,
+/// `GetFieldValue<System.Net.IPAddress>` an `inet` and
+/// `GetFieldValue<byte[]>` a `bytea`. Degrading the *manifest* to whatever
+/// `GetValue`/`GetString` happens to return would throw away types the driver
+/// can genuinely produce.
+pub(crate) fn csharp_typed_reader_method(lang_type: &str) -> String {
+    format!("GetFieldValue<{lang_type}>")
+}
+
 /// A classified span of SQL text produced by [`tokenize_sql`].
 ///
 /// One lexer pass drives both comment-stripping (`clean_sql`,

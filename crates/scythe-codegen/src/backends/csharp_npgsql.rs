@@ -44,23 +44,35 @@ impl CsharpNpgsqlBackend {
 }
 
 /// Map a neutral type to an Npgsql reader method.
-fn reader_method(neutral_type: &str) -> &'static str {
-    match neutral_type {
+///
+/// `lang_type` is the manifest's own declaration for the same column (the
+/// non-nullable base form). Every neutral type this table does not name falls
+/// through to a typed accessor built from it -- see
+/// [`super::csharp_typed_reader_method`] for why an untyped fallback cannot
+/// compile.
+///
+/// `inet` and `interval` are deliberately absent from the `GetString` arm:
+/// `csharp-npgsql.toml` declares them `System.Net.IPAddress` and `TimeSpan`,
+/// and Npgsql reads both natively, so routing them through `GetString` was the
+/// same declaration-vs-reader disagreement in a different disguise.
+fn reader_method(neutral_type: &str, lang_type: &str) -> String {
+    let mapped = match neutral_type {
         "bool" => "GetBoolean",
         "int16" => "GetInt16",
         "int32" => "GetInt32",
         "int64" => "GetInt64",
         "float32" => "GetFloat",
         "float64" => "GetDouble",
-        "string" | "json" | "inet" | "interval" => "GetString",
+        "string" | "json" => "GetString",
         "uuid" => "GetGuid",
         "decimal" => "GetDecimal",
         "date" => "GetFieldValue<DateOnly>",
         "time" | "time_tz" => "GetFieldValue<TimeOnly>",
         "datetime" => "GetDateTime",
         "datetime_tz" => "GetFieldValue<DateTimeOffset>",
-        _ => "GetValue",
-    }
+        _ => return super::csharp_typed_reader_method(lang_type),
+    };
+    mapped.to_string()
 }
 
 /// Build the expression to read a column from NpgsqlDataReader.
@@ -72,7 +84,7 @@ fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
             ord = ordinal
         )
     } else {
-        let method = reader_method(&col.neutral_type);
+        let method = reader_method(&col.neutral_type, &col.lang_type);
         format!("reader.{}({})", method, ordinal)
     }
 }

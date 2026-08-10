@@ -32,8 +32,14 @@ impl CsharpSqlClientBackend {
 }
 
 /// Map a neutral type to a SqlDataReader method.
-fn reader_method(neutral_type: &str) -> &'static str {
-    match neutral_type {
+///
+/// `lang_type` is the manifest's own declaration for the same column (the
+/// non-nullable base form). Every neutral type this table does not name --
+/// `bytes`, `interval`, `array<...>`, `range<...>`, `json_typed<...>`, a
+/// composite -- falls through to a typed accessor built from it; see
+/// [`super::csharp_typed_reader_method`].
+fn reader_method(neutral_type: &str, lang_type: &str) -> String {
+    let mapped = match neutral_type {
         "bool" => "GetBoolean",
         "int16" => "GetInt16",
         "int32" => "GetInt32",
@@ -47,8 +53,9 @@ fn reader_method(neutral_type: &str) -> &'static str {
         "time" | "time_tz" => "GetFieldValue<TimeOnly>",
         "datetime" => "GetDateTime",
         "datetime_tz" => "GetFieldValue<DateTimeOffset>",
-        _ => "GetValue",
-    }
+        _ => return super::csharp_typed_reader_method(lang_type),
+    };
+    mapped.to_string()
 }
 
 /// Rewrite $1, $2, ... to @p1, @p2, ... for MSSQL.
@@ -61,7 +68,7 @@ fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
             ord = ordinal
         )
     } else {
-        let method = reader_method(&col.neutral_type);
+        let method = reader_method(&col.neutral_type, &col.lang_type);
         format!("reader.{}({})", method, ordinal)
     }
 }

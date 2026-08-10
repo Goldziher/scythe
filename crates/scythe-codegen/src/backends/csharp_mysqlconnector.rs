@@ -33,8 +33,16 @@ impl CsharpMysqlConnectorBackend {
 }
 
 /// Map a neutral type to a MySqlDataReader method.
-fn reader_method(neutral_type: &str) -> &'static str {
-    match neutral_type {
+///
+/// `lang_type` is the manifest's own declaration for the same column (the
+/// non-nullable base form). Every neutral type this table does not name --
+/// `bytes`, `array<...>` (reachable through an `= ANY(?)` parameter even
+/// though MySQL has no array column), `range<...>`, `json_typed<...>` --
+/// falls through to a typed accessor built from it; see
+/// [`super::csharp_typed_reader_method`]. `uuid` is absent on purpose:
+/// [`column_read_expr`] handles it before this table is consulted.
+fn reader_method(neutral_type: &str, lang_type: &str) -> String {
+    let mapped = match neutral_type {
         "bool" => "GetBoolean",
         "int16" => "GetInt16",
         "int32" => "GetInt32",
@@ -47,8 +55,9 @@ fn reader_method(neutral_type: &str) -> &'static str {
         "time" | "time_tz" => "GetFieldValue<TimeOnly>",
         "datetime" => "GetDateTime",
         "datetime_tz" => "GetFieldValue<DateTimeOffset>",
-        _ => "GetValue",
-    }
+        _ => return super::csharp_typed_reader_method(lang_type),
+    };
+    mapped.to_string()
 }
 
 /// Build the expression to read a column from MySqlDataReader.
@@ -62,7 +71,7 @@ fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
     } else if col.neutral_type == "uuid" {
         format!("reader.GetValue({}).ToString()!", ordinal)
     } else {
-        let method = reader_method(&col.neutral_type);
+        let method = reader_method(&col.neutral_type, &col.lang_type);
         format!("reader.{}({})", method, ordinal)
     }
 }

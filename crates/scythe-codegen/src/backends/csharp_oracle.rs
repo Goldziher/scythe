@@ -71,8 +71,16 @@ fn oracle_out_cast(neutral_type: &str, param_expr: &str) -> String {
 }
 
 /// Map a neutral type to an OracleDataReader method.
-fn reader_method(neutral_type: &str) -> &'static str {
-    match neutral_type {
+///
+/// `lang_type` is the manifest's own declaration for the same column (the
+/// non-nullable base form). Every neutral type this table does not name --
+/// `array<...>` (reachable through an `= ANY(:1)` parameter even though
+/// Oracle has no array column), `range<...>`, `json_typed<...>`, a composite
+/// -- falls through to a typed accessor built from it; see
+/// [`super::csharp_typed_reader_method`], which generalises the `bytes` arm
+/// this table already had for exactly the same reason.
+fn reader_method(neutral_type: &str, lang_type: &str) -> String {
+    let mapped = match neutral_type {
         "bool" => "GetBoolean",
         "int16" => "GetInt16",
         "int32" => "GetInt32",
@@ -84,11 +92,9 @@ fn reader_method(neutral_type: &str) -> &'static str {
         "date" | "datetime" => "GetDateTime",
         "datetime_tz" => "GetFieldValue<DateTimeOffset>",
         "time" | "time_tz" => "GetFieldValue<TimeOnly>",
-        // GetValue returns object, which will not bind to a byte[] record
-        // field; ask the reader for the concrete type instead.
-        "bytes" => "GetFieldValue<byte[]>",
-        _ => "GetValue",
-    }
+        _ => return super::csharp_typed_reader_method(lang_type),
+    };
+    mapped.to_string()
 }
 
 impl CodegenBackend for CsharpOracleBackend {
@@ -302,7 +308,7 @@ impl CodegenBackend for CsharpOracleBackend {
                     let _ = writeln!(out, "    if (!await reader.ReadAsync()) return null;");
                     let _ = writeln!(out, "    return new {}(", struct_name);
                     for (i, col) in columns.iter().enumerate() {
-                        let method = reader_method(&col.neutral_type);
+                        let method = reader_method(&col.neutral_type, &col.lang_type);
                         let sep = if i + 1 < columns.len() { "," } else { "" };
                         if col.nullable {
                             let _ = writeln!(out, "        reader.IsDBNull({i}) ? null : reader.{method}({i}){sep}");
@@ -319,7 +325,7 @@ impl CodegenBackend for CsharpOracleBackend {
                 let _ = writeln!(out, "    while (await reader.ReadAsync()) {{");
                 let _ = writeln!(out, "        results.Add(new {}(", struct_name);
                 for (i, col) in columns.iter().enumerate() {
-                    let method = reader_method(&col.neutral_type);
+                    let method = reader_method(&col.neutral_type, &col.lang_type);
                     let sep = if i + 1 < columns.len() { "," } else { "" };
                     if col.nullable {
                         let _ = writeln!(
@@ -432,7 +438,7 @@ impl CodegenBackend for CsharpOracleBackend {
         let _ = writeln!(out, "    var result = new List<{parent_struct_name}>();");
         let _ = writeln!(out, "    while (await reader.ReadAsync()) {{");
 
-        let key_method = reader_method(&key_col.neutral_type);
+        let key_method = reader_method(&key_col.neutral_type, &key_col.lang_type);
         if key_col.nullable {
             let _ = writeln!(
                 out,
@@ -448,7 +454,7 @@ impl CodegenBackend for CsharpOracleBackend {
                 .iter()
                 .position(|c| c.name == col.name)
                 .unwrap_or(parent_columns.len() + ci);
-            let method = reader_method(&col.neutral_type);
+            let method = reader_method(&col.neutral_type, &col.lang_type);
             let trailing = if ci + 1 < child_columns.len() { "," } else { "" };
             if col.nullable {
                 let _ = writeln!(
@@ -467,7 +473,7 @@ impl CodegenBackend for CsharpOracleBackend {
         let _ = writeln!(out, "            var newParent = new {parent_struct_name}(");
         for col in parent_columns {
             let ord = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
-            let method = reader_method(&col.neutral_type);
+            let method = reader_method(&col.neutral_type, &col.lang_type);
             if col.nullable {
                 let _ = writeln!(
                     out,
@@ -671,7 +677,7 @@ mod tests {
     /// field, so a BLOB column produced a CS1503 conversion error.
     #[test]
     fn bytes_column_is_read_as_a_concrete_byte_array() {
-        assert_eq!(reader_method("bytes"), "GetFieldValue<byte[]>");
+        assert_eq!(reader_method("bytes", "byte[]"), "GetFieldValue<byte[]>");
     }
 
     /// A BLOB bind defaulted to `Varchar2`, which is wrong for binary data.

@@ -132,7 +132,19 @@ SYNTAX_ONLY: dict[str, list[str]] = {
 HARNESS_STUBS: dict[str, tuple[str, str]] = {
     "rust-sqlx": ("src/main.rs", "#[allow(dead_code, unused_imports)]\nmod queries;\n\nfn main() {}\n"),
     "rust-tokio-postgres": ("src/main.rs", "#[allow(dead_code, unused_imports)]\nmod queries;\n\nfn main() {}\n"),
-    "csharp-npgsql": ("Program.cs", "// stubbed by check-generated-backends.py: see HARNESS_STUBS\n"),
+    # ~keep The stub needs a real entry point, not just a comment: the project is
+    # `<OutputType>Exe</OutputType>`, so a Program.cs with no `Main` makes
+    # `dotnet build` fail with `CS5001: Program does not contain a static
+    # 'Main' method suitable for an entry point` no matter what the generated
+    # code says. That made csharp-npgsql's expected-failure entry permanent --
+    # it could never go stale, which is the exact rot this file's two-way gate
+    # exists to prevent. Mirrors rust-sqlx's `fn main() {}` and java-jdbc's
+    # `public static void main`, neither of which had the problem.
+    "csharp-npgsql": (
+        "Program.cs",
+        "// stubbed by check-generated-backends.py: see HARNESS_STUBS\n"
+        "public static class Program {\n    public static void Main() { }\n}\n",
+    ),
     "java-jdbc": (
         "src/main/java/IntegrationTest.java",
         "public class IntegrationTest {\n    public static void main(String[] args) {}\n}\n",

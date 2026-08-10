@@ -65,8 +65,14 @@ impl CsharpMicrosoftSqliteBackend {
 /// Note: For SQLite via Microsoft.Data.Sqlite, we remap int32 and float32 to their larger
 /// counterparts (int64 and double) in the manifest to properly handle SQLite's unbounded
 /// INTEGER and REAL types. This function must match those remappings.
-fn reader_method(neutral_type: &str) -> &'static str {
-    match neutral_type {
+/// `lang_type` is the manifest's own declaration for the same column (the
+/// non-nullable base form). Every neutral type this table does not name --
+/// `bytes`, `array<...>` (reachable through an `= ANY(?)` parameter even
+/// though SQLite has no array column), `range<...>`, `json_typed<...>` --
+/// falls through to a typed accessor built from it; see
+/// [`super::csharp_typed_reader_method`].
+fn reader_method(neutral_type: &str, lang_type: &str) -> String {
+    let mapped = match neutral_type {
         "bool" => "GetBoolean",
         "int16" => "GetInt16",
         "int32" => "GetInt64",
@@ -76,8 +82,9 @@ fn reader_method(neutral_type: &str) -> &'static str {
         "string" | "json" | "inet" | "interval" | "uuid" | "date" | "time" | "time_tz" | "datetime_tz" => "GetString",
         "decimal" => "GetDecimal",
         "datetime" => "GetDateTime",
-        _ => "GetValue",
-    }
+        _ => return super::csharp_typed_reader_method(lang_type),
+    };
+    mapped.to_string()
 }
 
 /// Build the expression to read a column from SqliteDataReader.
@@ -89,7 +96,7 @@ fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
             ord = ordinal
         )
     } else {
-        let method = reader_method(&col.neutral_type);
+        let method = reader_method(&col.neutral_type, &col.lang_type);
         format!("reader.{}({})", method, ordinal)
     }
 }

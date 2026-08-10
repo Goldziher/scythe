@@ -33,8 +33,13 @@ impl CsharpSnowflakeBackend {
 }
 
 /// Map a neutral type to a SnowflakeDbDataReader method.
-fn reader_method(neutral_type: &str) -> &'static str {
-    match neutral_type {
+///
+/// `lang_type` is the manifest's own declaration for the same column (the
+/// non-nullable base form). Every neutral type this table does not name --
+/// `bytes`, `array<...>`, `json_typed<...>` -- falls through to a typed
+/// accessor built from it; see [`super::csharp_typed_reader_method`].
+fn reader_method(neutral_type: &str, lang_type: &str) -> String {
+    let mapped = match neutral_type {
         "bool" => "GetBoolean",
         "int16" => "GetInt16",
         "int32" => "GetInt32",
@@ -45,8 +50,9 @@ fn reader_method(neutral_type: &str) -> &'static str {
         "decimal" => "GetDecimal",
         "date" | "datetime" => "GetDateTime",
         "datetime_tz" => "GetFieldValue<DateTimeOffset>",
-        _ => "GetValue",
-    }
+        _ => return super::csharp_typed_reader_method(lang_type),
+    };
+    mapped.to_string()
 }
 
 /// Map a neutral type to the `System.Data.DbType` a `SnowflakeDbParameter`
@@ -77,7 +83,7 @@ fn parameter_db_type(neutral_type: &str) -> &'static str {
 /// Rewrite $1, $2, ... to ?
 /// Build the expression to read a column from SnowflakeDbDataReader.
 fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
-    let method = reader_method(&col.neutral_type);
+    let method = reader_method(&col.neutral_type, &col.lang_type);
     format!("reader.{}({})", method, ordinal)
 }
 
