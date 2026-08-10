@@ -9,6 +9,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
+use crate::backends::php_common::{param_docblock_type, write_promoted_property};
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-amphp.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/php-amphp.mysql.toml");
@@ -210,8 +211,7 @@ impl CodegenBackend for PhpAmphpBackend {
         let _ = writeln!(out, "readonly class {} {{", struct_name);
         let _ = writeln!(out, "    public function __construct(");
         for c in columns.iter() {
-            let sep = ",";
-            let _ = writeln!(out, "        public {} ${}{}", c.full_type, c.field_name, sep);
+            write_promoted_property(&mut out, c, &self.manifest)?;
         }
         let _ = writeln!(out, "    ) {{}}");
         let _ = writeln!(out);
@@ -343,7 +343,12 @@ impl CodegenBackend for PhpAmphpBackend {
         let _ = writeln!(out, "    /**");
         let _ = writeln!(out, "     * @param \\Amp\\Sql\\SqlConnectionPool $pool");
         for p in params {
-            let _ = writeln!(out, "     * @param {} ${}", p.full_type, p.field_name);
+            let _ = writeln!(
+                out,
+                "     * @param {} ${}",
+                param_docblock_type(p, &self.manifest)?,
+                p.field_name
+            );
         }
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
@@ -432,7 +437,7 @@ impl CodegenBackend for PhpAmphpBackend {
         let _ = writeln!(out, "readonly class {} {{", child_struct_name);
         let _ = writeln!(out, "    public function __construct(");
         for c in child_columns.iter() {
-            let _ = writeln!(out, "        public {} ${},", c.full_type, c.field_name);
+            write_promoted_property(&mut out, c, &self.manifest)?;
         }
         let _ = writeln!(out, "    ) {{}}");
         let _ = writeln!(out);
@@ -445,7 +450,7 @@ impl CodegenBackend for PhpAmphpBackend {
         let _ = writeln!(out, "readonly class {} {{", parent_struct_name);
         let _ = writeln!(out, "    public function __construct(");
         for c in parent_columns.iter() {
-            let _ = writeln!(out, "        public {} ${},", c.full_type, c.field_name);
+            write_promoted_property(&mut out, c, &self.manifest)?;
         }
         let _ = writeln!(out, "        /** @var {}[] */", child_struct_name);
         let _ = writeln!(out, "        public array $children,");
@@ -480,7 +485,12 @@ impl CodegenBackend for PhpAmphpBackend {
         let _ = writeln!(out, "    /**");
         let _ = writeln!(out, "     * @param \\Amp\\Sql\\SqlConnectionPool $pool");
         for p in params {
-            let _ = writeln!(out, "     * @param {} ${}", p.full_type, p.field_name);
+            let _ = writeln!(
+                out,
+                "     * @param {} ${}",
+                param_docblock_type(p, &self.manifest)?,
+                p.field_name
+            );
         }
         let _ = writeln!(out, "     * @return {}[]", parent_struct_name);
         let _ = writeln!(out, "     */");

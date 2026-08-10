@@ -101,10 +101,11 @@ Merge granularity:
 |---------|-------------|----------|
 | `[types.scalars]` | per key | rejected |
 | `[types.containers]` | per key | rejected |
+| `[types.docblock_containers]` | per key | rejected |
 | `[imports.rules]` | per key | allowed |
 | `[naming]` | per field, whole value | rejected |
 
-Keys you omit keep their built-in values. There is no `[backend]` section — `name`, `language`, `file_extension`, and `engine` are identity, not configuration. An unknown key, an invalid mapping, or a missing file fails `scythe generate` with an error naming the backend, the resolved absolute path, and the offending key; nothing falls back to the built-in manifest silently.
+Keys you omit keep their built-in values. `[types.docblock_containers]` covers the container names again for positions where the language accepts a type only in a comment (a PHPStan docblock); a container it omits falls back to `[types.containers]`, and only the PHP manifests declare it. There is no `[backend]` section — `name`, `language`, `file_extension`, and `engine` are identity, not configuration. An unknown key, an invalid mapping, or a missing file fails `scythe generate` with an error naming the backend, the resolved absolute path, and the offending key; nothing falls back to the built-in manifest silently.
 
 ### `[[sql.type_overrides]]`
 

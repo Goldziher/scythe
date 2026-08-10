@@ -32,6 +32,24 @@ pub struct TypeMappings {
     pub scalars: AHashMap<String, String>,
     /// Container type patterns: container name -> pattern with `{T}` placeholder.
     pub containers: AHashMap<String, String>,
+    /// Container patterns used only where the target language accepts a type
+    /// in a *comment*, not in a native type position -- a PHPStan/Psalm
+    /// docblock being the only such position today.
+    ///
+    /// A language whose native syntax can express the element type needs
+    /// nothing here: any container this table omits falls back to
+    /// [`Self::containers`], so the two positions render identically and
+    /// every non-PHP manifest is unaffected by this table existing.
+    ///
+    /// PHP is the case that forces the split. `public array<string> $tags` is
+    /// a parse error -- PHP has no generics in a native type position -- so
+    /// `[types.containers]` must map `array` to a bare `array`. That is a real
+    /// loss of information, because `/** @var list<string> */` is both legal
+    /// and, at PHPStan level 9, necessary: a bare `array` is
+    /// `array<mixed, mixed>` there. This table is where the element type
+    /// survives.
+    #[serde(default)]
+    pub docblock_containers: AHashMap<String, String>,
 }
 
 /// Import rules for generated code.
@@ -103,7 +121,7 @@ pub struct ManifestOverlay {
     pub imports: Option<ImportConfigOverlay>,
 }
 
-/// Overlay half of [`TypeMappings`]. Both maps are replace-only; see
+/// Overlay half of [`TypeMappings`]. Every map is replace-only; see
 /// [`ManifestOverlay`].
 #[derive(Debug, Clone, Default, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -112,6 +130,17 @@ pub struct TypeMappingsOverlay {
     pub scalars: AHashMap<String, String>,
     #[serde(default)]
     pub containers: AHashMap<String, String>,
+    /// Overrides for [`TypeMappings::docblock_containers`].
+    ///
+    /// The accepted vocabulary is the *container* vocabulary, not whatever
+    /// subset the backend happens to have overridden for docblocks: because an
+    /// absent key falls back to `[types.containers]`, every container name is
+    /// a meaningful docblock key whether or not the compiled-in manifest
+    /// spells it out. Validating against `docblock_containers` alone would
+    /// reject `range` on a PHP manifest that only overrides `array`, which is
+    /// a legitimate thing to want.
+    #[serde(default)]
+    pub docblock_containers: AHashMap<String, String>,
 }
 
 /// Overlay half of [`NamingConfig`]. Every field replaces its compiled-in
@@ -190,6 +219,39 @@ fn closest_key<'a>(key: &str, candidates: impl Iterator<Item = &'a String>) -> O
         .map(|(_, candidate)| candidate)
 }
 
+/// Reject any `overlay` key outside `vocabulary`.
+///
+/// Split out from [`merge_replace_only`] because one table's accepted
+/// vocabulary is not its own key set: `[types.docblock_containers]` falls back
+/// to `[types.containers]`, so it accepts every container name, including the
+/// ones it does not itself spell out.
+fn reject_unknown_keys(
+    overlay: &AHashMap<String, String>,
+    vocabulary: &[String],
+    section: &str,
+) -> Result<(), BackendError> {
+    // Sorted so a manifest with several bad keys reports the same one on
+    // every run; hash-map iteration order is not stable across processes.
+    let mut unknown: Vec<&String> = overlay
+        .keys()
+        .filter(|key| !vocabulary.iter().any(|known| known == *key))
+        .collect();
+    unknown.sort();
+
+    let Some(key) = unknown.first() else {
+        return Ok(());
+    };
+
+    let suggestion = match closest_key(key, vocabulary.iter()) {
+        Some(near) => format!(" (did you mean '{near}'?)"),
+        None => String::new(),
+    };
+    Err(BackendError::ManifestError(format!(
+        "unknown [{section}] key '{key}'{suggestion}; \
+         this table may only override mappings the backend already defines"
+    )))
+}
+
 /// Merge `overlay` entries into `target`, rejecting keys that `target` does
 /// not already define. `section` names the TOML table for the error message
 /// (e.g. `"types.scalars"`).
@@ -198,21 +260,8 @@ fn merge_replace_only(
     overlay: &AHashMap<String, String>,
     section: &str,
 ) -> Result<(), BackendError> {
-    // Sorted so a manifest with several bad keys reports the same one on
-    // every run; hash-map iteration order is not stable across processes.
-    let mut unknown: Vec<&String> = overlay.keys().filter(|key| !target.contains_key(*key)).collect();
-    unknown.sort();
-
-    if let Some(key) = unknown.first() {
-        let suggestion = match closest_key(key, target.keys()) {
-            Some(near) => format!(" (did you mean '{near}'?)"),
-            None => String::new(),
-        };
-        return Err(BackendError::ManifestError(format!(
-            "unknown [{section}] key '{key}'{suggestion}; \
-             this table may only override mappings the backend already defines"
-        )));
-    }
+    let vocabulary: Vec<String> = target.keys().cloned().collect();
+    reject_unknown_keys(overlay, &vocabulary, section)?;
 
     for (key, value) in overlay {
         target.insert(key.clone(), value.clone());
@@ -231,6 +280,22 @@ impl BackendManifest {
         if let Some(ref types) = overlay.types {
             merge_replace_only(&mut self.types.scalars, &types.scalars, "types.scalars")?;
             merge_replace_only(&mut self.types.containers, &types.containers, "types.containers")?;
+
+            // Validated against both tables, then written into the docblock
+            // one -- see `TypeMappingsOverlay::docblock_containers`. The
+            // vocabulary is collected before the mutable borrow so the union
+            // can include keys the docblock table does not yet have.
+            let vocabulary: Vec<String> = self
+                .types
+                .containers
+                .keys()
+                .chain(self.types.docblock_containers.keys())
+                .cloned()
+                .collect();
+            reject_unknown_keys(&types.docblock_containers, &vocabulary, "types.docblock_containers")?;
+            for (key, value) in &types.docblock_containers {
+                self.types.docblock_containers.insert(key.clone(), value.clone());
+            }
         }
 
         if let Some(ref naming) = overlay.naming {
@@ -330,6 +395,64 @@ mod tests {
 
         assert_eq!(manifest.types.containers["array"], "MyVec<{T}>");
         assert_eq!(manifest.types.containers["nullable"], "Option<{T}>");
+    }
+
+    /// A manifest with no `[types.docblock_containers]` table -- which is
+    /// every manifest but the PHP ones -- parses, and gets an empty table
+    /// rather than a missing-field error.
+    #[test]
+    fn docblock_containers_defaults_to_empty_when_the_table_is_absent() {
+        let manifest = base_manifest();
+        assert!(manifest.types.docblock_containers.is_empty());
+    }
+
+    #[test]
+    fn apply_overlay_replaces_only_the_named_docblock_container() {
+        let mut manifest = base_manifest();
+        manifest
+            .types
+            .docblock_containers
+            .insert("array".to_string(), "list<{T}>".to_string());
+        let overlay: ManifestOverlay =
+            toml::from_str("[types.docblock_containers]\narray = \"non-empty-list<{T}>\"\n").unwrap();
+
+        manifest.apply_overlay(&overlay).unwrap();
+
+        assert_eq!(manifest.types.docblock_containers["array"], "non-empty-list<{T}>");
+        assert_eq!(
+            manifest.types.containers["array"], "Vec<{T}>",
+            "the docblock table must not write through to the native one"
+        );
+    }
+
+    /// The vocabulary is the *container* vocabulary, not the docblock table's
+    /// own keys: an absent key falls back to `[types.containers]`, so every
+    /// container name is a meaningful docblock key.
+    #[test]
+    fn apply_overlay_accepts_a_docblock_key_only_the_native_table_declares() {
+        let mut manifest = base_manifest();
+        assert!(manifest.types.docblock_containers.is_empty());
+        let overlay: ManifestOverlay =
+            toml::from_str("[types.docblock_containers]\nrange = \"RangeOf<{T}>\"\n").unwrap();
+
+        manifest.apply_overlay(&overlay).unwrap();
+
+        assert_eq!(manifest.types.docblock_containers["range"], "RangeOf<{T}>");
+    }
+
+    #[test]
+    fn apply_overlay_rejects_a_docblock_key_no_container_table_declares() {
+        let mut manifest = base_manifest();
+        let overlay: ManifestOverlay =
+            toml::from_str("[types.docblock_containers]\nnotacontainer = \"X<{T}>\"\n").unwrap();
+
+        let error = manifest.apply_overlay(&overlay).unwrap_err();
+
+        let message = error.to_string();
+        assert!(
+            message.contains("types.docblock_containers") && message.contains("notacontainer"),
+            "error must name the table and the offending key, got: {message}"
+        );
     }
 
     /// `[naming]` fields replace whole values; omitted fields inherit.

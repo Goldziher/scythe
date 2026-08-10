@@ -22,6 +22,7 @@ pub(crate) mod kotlin_exposed;
 pub(crate) mod kotlin_jdbc;
 pub(crate) mod kotlin_r2dbc;
 pub(crate) mod php_amphp;
+pub(crate) mod php_common;
 pub(crate) mod php_pdo;
 pub(crate) mod python_aiomysql;
 pub(crate) mod python_aiosqlite;

@@ -238,6 +238,7 @@ mod tests {
             types: TypeMappings {
                 scalars,
                 containers: AHashMap::new(),
+                docblock_containers: AHashMap::new(),
             },
             naming: NamingConfig {
                 struct_case: "PascalCase".to_string(),

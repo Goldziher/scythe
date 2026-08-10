@@ -144,6 +144,14 @@ methods with safe defaults. Details below.
 
 ### Changed
 
+- The PHP backends now render a type twice: the native position (property, parameter, return) keeps
+  the bare `array` PHP's syntax requires, and `@var`/`@param` docblocks get `array<T>` back. A bare
+  `array` is `array<mixed, mixed>` to PHPStan, so the fix that made the output parse cost every array
+  column and every `= ANY(...)` parameter its element type at level 9. Manifests gained an optional
+  `[types.docblock_containers]` table, which falls back per container name to `[types.containers]`;
+  only the nine `php-*.toml` manifests declare it, and every other language's output is byte-identical.
+  Measured on the torture schema at PHPStan level 9: 15 findings to 9 (php-pdo), 24 to 18 (php-amphp),
+  all six removed being `missingType.iterableValue`.
 - Dependency pins for `integration_tests/**` are managed by Renovate against the jinja templates in
   `tools/integration-test-generator/templates/`, which is where they actually live. Dependabot cannot
   target generated files, so its PRs against them were dead on arrival. (#115)

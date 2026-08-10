@@ -660,7 +660,8 @@ fn apply_manifest_override(
         format!(
             "backend '{backend_name}': invalid manifest override '{display_path}': {e}\n  \
              note: the file is a *partial* manifest -- it may contain [types.scalars], \
-             [types.containers],\n        [naming], and [imports.rules] only"
+             [types.containers],\n        [types.docblock_containers], [naming], and \
+             [imports.rules] only"
         )
     })?;
 

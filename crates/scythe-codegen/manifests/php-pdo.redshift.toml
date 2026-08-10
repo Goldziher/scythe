@@ -33,6 +33,14 @@ nullable = "?{T}"
 range = "string"
 json_typed = "{T}"
 
+[types.docblock_containers]
+# PHP has no generics in a native type position, so `[types.containers]` must
+# map `array` to a bare `array`. PHPStan reads that as `array<mixed, mixed>`,
+# which is a level-9 finding, so the element type is kept here instead and
+# rendered into `@var`/`@param` docblocks. Containers omitted here fall back to
+# `[types.containers]`.
+array = "array<{T}>"
+
 [naming]
 struct_case = "PascalCase"
 fn_case = "camelCase"

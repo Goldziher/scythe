@@ -414,6 +414,7 @@ The override is **per target**. A backend name alone does not identify a manifes
 |---------|-------------|----------|
 | `[types.scalars]` | per key | rejected |
 | `[types.containers]` | per key | rejected |
+| `[types.docblock_containers]` | per key | rejected |
 | `[imports.rules]` | per key | allowed |
 | `[naming]` | per field, whole value | rejected |
 
@@ -443,7 +444,9 @@ the two previously disagreed. `fn_case = "snake_case"` is unaffected. Update cal
 reference an old identifier after regenerating.
 :::
 
-`[types.scalars]` and `[types.containers]` are replace-only. Neutral type names (`int32`, `datetime_tz`, `array`, …) are a fixed vocabulary, so a key outside it is a typo — and a silently accepted typo would leave the original mapping in place and generate code you did not ask for. `[imports.rules]` does accept new keys, because its keys are prefixes of the *generated* language types, which necessarily change when you retarget a scalar.
+`[types.scalars]`, `[types.containers]` and `[types.docblock_containers]` are replace-only. Neutral type names (`int32`, `datetime_tz`, `array`, …) are a fixed vocabulary, so a key outside it is a typo — and a silently accepted typo would leave the original mapping in place and generate code you did not ask for. `[imports.rules]` does accept new keys, because its keys are prefixes of the *generated* language types, which necessarily change when you retarget a scalar.
+
+`[types.docblock_containers]` maps the same container names as `[types.containers]`, but is used only where the target language accepts a type in a comment rather than in a native type position — a PHPStan docblock today. A container it omits falls back to `[types.containers]`, so only the PHP backends declare it: `array` maps to a bare `array` natively, because `public array<string> $tags` is a PHP parse error, and to `array<{T}>` in the docblock, because a bare `array` is `array<mixed, mixed>` at PHPStan level 9. Its accepted keys are the container vocabulary, not just the ones the backend already overrides for docblocks.
 
 There is no `[backend]` section. `name`, `language`, `file_extension`, and `engine` are identity, not configuration.
 

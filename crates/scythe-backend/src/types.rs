@@ -4,6 +4,42 @@ use crate::errors::BackendError;
 use crate::manifest::BackendManifest;
 use crate::naming::to_pascal_case;
 
+/// Which syntactic position a resolved type is destined for.
+///
+/// Only the container tables differ between the two; scalars, enums and
+/// composites render identically either way, because the thing a language
+/// forbids in a native type position is generic *syntax*, not the names.
+///
+/// Deliberately not public: callers pick a position by picking a function
+/// ([`resolve_type`] or [`resolve_docblock_type`]), which keeps the set of
+/// positions an implementation detail of this module rather than a parameter
+/// every call site has to thread through.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TypePosition {
+    /// A real type position in the target language -- a property, parameter
+    /// or return type. Uses `[types.containers]`.
+    Native,
+    /// A type inside a documentation comment (a PHPStan/Psalm docblock), which
+    /// may accept syntax the native position rejects. Uses
+    /// `[types.docblock_containers]`, falling back per container name to
+    /// `[types.containers]`.
+    Docblock,
+}
+
+impl TypePosition {
+    /// The container pattern for `name`, or `None` if neither table defines it.
+    fn container_pattern<'a>(self, name: &str, manifest: &'a BackendManifest) -> Option<&'a String> {
+        match self {
+            Self::Native => manifest.types.containers.get(name),
+            Self::Docblock => manifest
+                .types
+                .docblock_containers
+                .get(name)
+                .or_else(|| manifest.types.containers.get(name)),
+        }
+    }
+}
+
 /// Resolves a neutral type string to a language-specific type string.
 ///
 /// Handles:
@@ -17,10 +53,34 @@ pub fn resolve_type<'a>(
     manifest: &'a BackendManifest,
     nullable: bool,
 ) -> Result<Cow<'a, str>, BackendError> {
-    let base = resolve_base_type(neutral, manifest)?;
+    resolve_type_at(neutral, manifest, nullable, TypePosition::Native)
+}
+
+/// Resolves a neutral type for a documentation comment.
+///
+/// Same inputs and same failure modes as [`resolve_type`]; the only
+/// difference is that `[types.docblock_containers]` gets first refusal on
+/// every container name, at every nesting depth. A manifest that defines no
+/// such table -- every non-PHP manifest today -- gets a result identical to
+/// [`resolve_type`].
+pub fn resolve_docblock_type<'a>(
+    neutral: &str,
+    manifest: &'a BackendManifest,
+    nullable: bool,
+) -> Result<Cow<'a, str>, BackendError> {
+    resolve_type_at(neutral, manifest, nullable, TypePosition::Docblock)
+}
+
+fn resolve_type_at<'a>(
+    neutral: &str,
+    manifest: &'a BackendManifest,
+    nullable: bool,
+    position: TypePosition,
+) -> Result<Cow<'a, str>, BackendError> {
+    let base = resolve_base_type_at(neutral, manifest, position)?;
 
     if nullable {
-        Ok(Cow::Owned(wrap_nullable(&base, manifest)?))
+        Ok(Cow::Owned(wrap_nullable_at(&base, manifest, position)?))
     } else {
         Ok(base)
     }
@@ -48,7 +108,15 @@ pub fn resolve_type_pair<'a>(
 
 /// Resolve the base type (without nullable wrapping).
 fn resolve_base_type<'a>(neutral: &str, manifest: &'a BackendManifest) -> Result<Cow<'a, str>, BackendError> {
-    if let Some(resolved) = try_resolve_container(neutral, manifest)? {
+    resolve_base_type_at(neutral, manifest, TypePosition::Native)
+}
+
+fn resolve_base_type_at<'a>(
+    neutral: &str,
+    manifest: &'a BackendManifest,
+    position: TypePosition,
+) -> Result<Cow<'a, str>, BackendError> {
+    if let Some(resolved) = try_resolve_container(neutral, manifest, position)? {
         return Ok(Cow::Owned(resolved));
     }
 
@@ -73,14 +141,18 @@ fn resolve_base_type<'a>(neutral: &str, manifest: &'a BackendManifest) -> Result
 
 /// Try to parse and resolve a container type like "array<int32>".
 /// Returns None if the input doesn't match any container pattern.
-fn try_resolve_container(neutral: &str, manifest: &BackendManifest) -> Result<Option<String>, BackendError> {
+fn try_resolve_container(
+    neutral: &str,
+    manifest: &BackendManifest,
+    position: TypePosition,
+) -> Result<Option<String>, BackendError> {
     let Some(angle_pos) = neutral.find('<') else {
         return Ok(None);
     };
 
     let container_name = &neutral[..angle_pos];
 
-    let Some(pattern) = manifest.types.containers.get(container_name) else {
+    let Some(pattern) = position.container_pattern(container_name, manifest) else {
         return Err(BackendError::UnknownContainer(container_name.to_string()));
     };
 
@@ -90,7 +162,7 @@ fn try_resolve_container(neutral: &str, manifest: &BackendManifest) -> Result<Op
 
     let inner = inner.trim();
 
-    let resolved_inner = resolve_base_type(inner, manifest)?;
+    let resolved_inner = resolve_base_type_at(inner, manifest, position)?;
 
     let result = pattern.replace("{T}", &resolved_inner);
     Ok(Some(result))
@@ -98,10 +170,16 @@ fn try_resolve_container(neutral: &str, manifest: &BackendManifest) -> Result<Op
 
 /// Wrap a resolved type in the nullable container pattern.
 fn wrap_nullable(resolved: &str, manifest: &BackendManifest) -> Result<String, BackendError> {
-    let pattern = manifest
-        .types
-        .containers
-        .get("nullable")
+    wrap_nullable_at(resolved, manifest, TypePosition::Native)
+}
+
+fn wrap_nullable_at(
+    resolved: &str,
+    manifest: &BackendManifest,
+    position: TypePosition,
+) -> Result<String, BackendError> {
+    let pattern = position
+        .container_pattern("nullable", manifest)
         .ok_or_else(|| BackendError::UnknownContainer("nullable".to_string()))?;
     Ok(pattern.replace("{T}", resolved))
 }
@@ -298,6 +376,82 @@ mod tests {
         let m = test_manifest();
         let result = resolve_type("array<>", &m, false);
         assert!(result.is_err());
+    }
+
+    // -- resolve_docblock_type -----------------------------------------
+
+    /// A manifest with no `[types.docblock_containers]` -- every manifest but
+    /// the PHP ones -- must be unaffected by the docblock path existing.
+    #[test]
+    fn docblock_falls_back_to_the_native_container_when_undeclared() {
+        let m = test_manifest();
+        assert_eq!(resolve_docblock_type("array<int32>", &m, false).unwrap(), "Vec<i32>");
+        assert_eq!(
+            resolve_docblock_type("array<int32>", &m, true).unwrap(),
+            "Option<Vec<i32>>"
+        );
+    }
+
+    /// The PHP shape: a native table that cannot express the element type and
+    /// a docblock table that can.
+    fn php_shaped_manifest() -> BackendManifest {
+        let mut m = test_manifest();
+        m.types.containers.insert("array".to_string(), "array".to_string());
+        m.types.containers.insert("nullable".to_string(), "?{T}".to_string());
+        m.types
+            .docblock_containers
+            .insert("array".to_string(), "array<{T}>".to_string());
+        m
+    }
+
+    #[test]
+    fn docblock_keeps_the_element_type_the_native_position_drops() {
+        let m = php_shaped_manifest();
+        assert_eq!(resolve_type("array<string>", &m, false).unwrap(), "array");
+        assert_eq!(
+            resolve_docblock_type("array<string>", &m, false).unwrap(),
+            "array<String>"
+        );
+    }
+
+    /// A container the docblock table does not mention still resolves, via
+    /// the native pattern -- the fallback is per key, not per manifest.
+    #[test]
+    fn docblock_falls_back_per_container_not_per_manifest() {
+        let m = php_shaped_manifest();
+        assert_eq!(
+            resolve_docblock_type("range<int32>", &m, false).unwrap(),
+            "sqlx::postgres::types::PgRange<i32>"
+        );
+    }
+
+    /// Nesting has to use the docblock table at every depth, or the inner
+    /// type silently reverts to the native rendering.
+    #[test]
+    fn docblock_applies_to_nested_containers() {
+        let m = php_shaped_manifest();
+        assert_eq!(
+            resolve_docblock_type("array<array<int32>>", &m, false).unwrap(),
+            "array<array<i32>>"
+        );
+    }
+
+    /// Nullable is a container like any other: absent from the docblock
+    /// table, it comes from the native one.
+    #[test]
+    fn docblock_nullable_falls_back_to_the_native_wrapper() {
+        let m = php_shaped_manifest();
+        assert_eq!(
+            resolve_docblock_type("array<string>", &m, true).unwrap(),
+            "?array<String>"
+        );
+    }
+
+    #[test]
+    fn docblock_rejects_an_unknown_element_type() {
+        let m = php_shaped_manifest();
+        let result = resolve_docblock_type("array<nonexistent_type>", &m, false);
+        assert!(matches!(result, Err(BackendError::UnknownType(_))));
     }
 
     // -- parse_rendered_nullable ---------------------------------------
