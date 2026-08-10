@@ -163,11 +163,21 @@ fn lint_with_db_url_emits_inspect_findings() {
     );
 }
 
-/// Same as above but the URL is passed via the `DATABASE_URL` environment
-/// variable rather than `[inspect].database_url` in the config. Verifies the
-/// env-var precedence path end-to-end.
+/// The inverse of the test above: a bare `DATABASE_URL` must NOT be enough to
+/// make `scythe lint` open a database connection.
+///
+/// This is the #210 contract. Before it, `lint` connected purely because the
+/// variable happened to be set — ambient network I/O from a linter, with no
+/// flag requesting it and no visible diagnostic either way. A URL now has to
+/// arrive through `--database-url` or `[inspect].database_url`.
+///
+/// The seeded `nopk` table is what gives this test teeth: the URL is live and
+/// SC-INS04 is genuinely there to be found, so the absence of any `[inspect]`
+/// output can only mean `lint` declined to connect. Asserting a negative
+/// against a URL that could not have produced a finding anyway would pass for
+/// the wrong reason.
 #[test]
-fn lint_with_db_url_via_env_var_emits_inspect_findings() {
+fn lint_does_not_connect_on_a_bare_database_url_env_var() {
     let url = url();
 
     let schema_name = "lint_integ_test_t3";
@@ -220,16 +230,17 @@ fn lint_with_db_url_via_env_var_emits_inspect_findings() {
     });
 
     assert!(
-        stderr.contains("[inspect]"),
-        "expected [inspect] tag when DATABASE_URL is set; stderr: {stderr}"
+        !stderr.contains("[inspect]"),
+        "a bare DATABASE_URL must not make lint connect (#210); stderr: {stderr}"
     );
     assert!(
-        stderr.contains("SC-INS04"),
-        "expected SC-INS04 (no-primary-key) finding via DATABASE_URL; stderr: {stderr}"
+        !stderr.contains("SC-INS04"),
+        "SC-INS04 is reachable at this URL, so reporting it proves lint connected \
+         without being asked to (#210); stderr: {stderr}"
     );
     assert!(
-        stderr.contains(schema_name),
-        "finding must reference schema {schema_name}; stderr: {stderr}"
+        !stderr.contains(schema_name),
+        "no output may reference the seeded schema {schema_name}; stderr: {stderr}"
     );
 }
 
