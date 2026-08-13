@@ -12,7 +12,7 @@ use sqlparser::parser::Parser;
 use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
-use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key};
+use type_normalizer::{bare_name, ident_to_lower, normalize_data_type, object_name_to_key, object_name_to_raw_name};
 
 #[derive(Debug)]
 pub struct Catalog {
@@ -54,6 +54,33 @@ pub(crate) struct DomainDef {
 #[derive(Debug, Clone)]
 pub struct Table {
     pub columns: Vec<Column>,
+    /// The table (or view) name exactly as the DDL spelled its final
+    /// identifier part, independent of the catalog's lowercase lookup key.
+    ///
+    /// This exists because [`Catalog`]'s tables map is keyed by
+    /// [`object_name_to_key`], which lowercases every identifier
+    /// unconditionally -- quoted or not -- so that lookups stay
+    /// case-insensitive the way every supported SQL dialect treats
+    /// unqualified references. That lowercasing is correct for lookup but
+    /// destroys the one signal a naming-convention lint needs: whether the
+    /// author actually wrote `"UserProfile"`.
+    ///
+    /// `raw_name` is populated via [`object_name_to_raw_name`], which
+    /// mirrors [`ident_to_lower`]'s quote-aware rule: a quoted identifier
+    /// keeps its literal casing, an unquoted one is folded to lowercase (the
+    /// same case-folding every dialect here applies to unquoted
+    /// identifiers). Concretely: for a bare `CREATE TABLE user_profiles`,
+    /// `raw_name` is `"user_profiles"` -- identical to the lookup key's bare
+    /// name, so a lint keyed on `raw_name` behaves exactly as it would
+    /// against the normalised key. It only diverges, and only becomes
+    /// interesting, when the DDL quoted a mixed-case or uppercase
+    /// identifier, e.g. `CREATE TABLE "UserProfile"` yields
+    /// `raw_name == "UserProfile"` while the lookup key is
+    /// `"userprofile"`.
+    ///
+    /// Always the bare (unqualified) name, never schema-qualified, since
+    /// every current consumer (SC-N02) only ever checks bare table casing.
+    pub raw_name: String,
 }
 
 #[derive(Debug, Clone)]
@@ -708,6 +735,7 @@ impl Catalog {
         dialect: &SqlDialect,
     ) -> Result<(), ScytheError> {
         let table_name = object_name_to_key(&ct.name);
+        let raw_name = object_name_to_raw_name(&ct.name);
 
         let columns: Vec<Column> = if ct.columns.is_empty() {
             match ct.query {
@@ -856,7 +884,7 @@ impl Catalog {
             return Ok(());
         }
 
-        self.tables.insert(table_name, Table { columns });
+        self.tables.insert(table_name, Table { columns, raw_name });
         Ok(())
     }
 
@@ -938,15 +966,23 @@ impl Catalog {
                     }
                 }
                 AlterTableOperation::RenameTable { table_name } => {
-                    let new_key = match &table_name {
+                    let (new_key, new_raw_name) = match &table_name {
                         sqlparser::ast::RenameTableNameKind::To(name)
-                        | sqlparser::ast::RenameTableNameKind::As(name) => object_name_to_key(name),
+                        | sqlparser::ast::RenameTableNameKind::As(name) => {
+                            (object_name_to_key(name), object_name_to_raw_name(name))
+                        }
                     };
-                    if let Some(table) = self.tables.remove(&table_key) {
+                    // `raw_name` must track the rename too, not just the
+                    // lookup key -- otherwise a table renamed to CamelCase
+                    // would keep reporting its pre-rename (possibly
+                    // snake_case) spelling to SC-N02 forever.
+                    if let Some(mut table) = self.tables.remove(&table_key) {
+                        table.raw_name = new_raw_name;
                         self.tables.insert(new_key, table);
                     } else {
                         let bare = bare_name(&table_key).to_string();
-                        if let Some(table) = self.tables.remove(&bare) {
+                        if let Some(mut table) = self.tables.remove(&bare) {
+                            table.raw_name = new_raw_name;
                             self.tables.insert(new_key, table);
                         }
                     }

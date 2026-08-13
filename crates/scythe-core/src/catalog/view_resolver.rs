@@ -3,7 +3,7 @@ use sqlparser::ast::ObjectName;
 use crate::dialect::SqlDialect;
 use crate::errors::ScytheError;
 
-use super::type_normalizer::{ident_to_lower, normalize_data_type, object_name_to_key};
+use super::type_normalizer::{ident_to_lower, normalize_data_type, object_name_to_key, object_name_to_raw_name};
 use super::{Catalog, Column, Table};
 
 /// The analyzer's neutral-type vocabulary spellings that never appear as a
@@ -46,6 +46,7 @@ impl Catalog {
         dialect: &SqlDialect,
     ) -> Result<(), ScytheError> {
         let view_key = object_name_to_key(&name);
+        let raw_name = object_name_to_raw_name(&name);
 
         if !view_columns.is_empty() {
             let columns: Vec<Column> = view_columns
@@ -68,12 +69,12 @@ impl Catalog {
                     }
                 })
                 .collect();
-            self.tables.insert(view_key, Table { columns });
+            self.tables.insert(view_key, Table { columns, raw_name });
             return Ok(());
         }
 
         let columns = self.resolve_select_columns(query)?;
-        self.tables.insert(view_key, Table { columns });
+        self.tables.insert(view_key, Table { columns, raw_name });
         Ok(())
     }
 

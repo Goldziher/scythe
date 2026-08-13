@@ -43,6 +43,11 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **`SC-N02` (`table-naming`) could not see a CamelCase table name.** The catalog stores tables under
+  a lowercased lookup key, so by the time the rule read the name every table looked snake_case and
+  `CREATE TABLE "UserProfile"` passed. `Table` now keeps the DDL's own spelling in `raw_name`
+  alongside the lookup key, and the rule reads that. The existing test asserted the miss verbatim —
+  it guarded the bug rather than against it — and is inverted here. (#145)
 - **A placeholder inside a `LIKE` pattern or an `IS NULL` operand was dropped from the generated
   signature.** `WHERE name LIKE '%' || $1 || '%'` and `WHERE $1 IS NULL` both bind a parameter, but
   the analyzer only collected one from a `LIKE` whose pattern was a bare literal and never descended

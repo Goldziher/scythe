@@ -48,16 +48,20 @@ impl LintRule for PreferSnakeCaseColumns {
     }
 }
 
-/// # Known limitation (#145)
+/// Checks each table's DDL-original spelling ([`scythe_core::catalog::Table::raw_name`])
+/// rather than the catalog's lowercased lookup key.
 ///
-/// `Catalog::tables()` (via `type_normalizer::object_name_to_key`) lowercases
-/// every identifier part unconditionally, quoted or not, before this rule
-/// ever sees it — so `CREATE TABLE "UserProfile"`, the canonical violation
-/// this rule exists to catch, is invisible to it. Only doubled/leading/
-/// trailing underscores (which survive lowercasing) can still fire. Fixing
-/// this requires `scythe-core`'s `Table` to retain the original DDL spelling
-/// (a `raw_name` field) alongside its lowercased lookup key; that is outside
-/// this crate.
+/// # History (#145)
+///
+/// `Catalog::tables()` yields the lowercased lookup keys `Catalog` indexes
+/// by (via `type_normalizer::object_name_to_key`, which lowercases every
+/// identifier part unconditionally, quoted or not). Reading those keys made
+/// `CREATE TABLE "UserProfile"` — the canonical violation this rule exists
+/// to catch — invisible: only doubled/leading/trailing underscores (which
+/// survive lowercasing) could still fire. `scythe-core::catalog::Table` now
+/// carries a `raw_name` alongside its lowercased key specifically so this
+/// rule can see what the DDL actually said; see that field's doc comment
+/// for exactly what it holds for quoted vs. bare identifiers.
 pub struct PreferSnakeCaseTables;
 
 impl LintRule for PreferSnakeCaseTables {
@@ -79,9 +83,8 @@ impl LintRule for PreferSnakeCaseTables {
 
     fn check_catalog(&self, catalog: &Catalog) -> Vec<Violation> {
         let mut violations = Vec::new();
-        for name in catalog.tables() {
-            let bare = name.rsplit('.').next().unwrap_or(name);
-            if !is_snake_case(bare) {
+        for (name, table) in catalog.tables_iter() {
+            if !is_snake_case(&table.raw_name) {
                 violations.push(Violation {
                     rule_id: Cow::Borrowed(self.id()),
                     message: format!("table \"{}\" is not snake_case", name),
@@ -429,23 +432,34 @@ mod tests {
         assert!(v.is_empty());
     }
 
-    /// SC-N02 cannot see CamelCase today: `type_normalizer::object_name_to_key`
-    /// lowercases every table name unconditionally, quoted or not, and
-    /// `catalog::Table` keeps no copy of the original DDL spelling. This test
-    /// therefore asserts the CURRENT, WRONG result on purpose (#145).
-    ///
-    /// When `scythe-core`'s `Table` gains a `raw_name`, this test will start
-    /// failing -- that failure is the signal to invert the assertion and
-    /// delete this comment, not a regression.
+    /// Inverted with #145: this used to assert that a quoted CamelCase table
+    /// name produced no finding, because `catalog::Table` had no copy of the
+    /// original DDL spelling and SC-N02 could only ever see the lowercased
+    /// lookup key. Now that `Table::raw_name` retains the DDL's own casing,
+    /// this is the canonical violation SC-N02 exists to catch, and it must
+    /// fire.
     #[test]
-    fn camel_case_table_name_is_not_yet_detected() {
+    fn camel_case_table_name_is_detected() {
         let cat = Catalog::from_ddl(&["CREATE TABLE \"UserProfile\" (id SERIAL PRIMARY KEY);"]).unwrap();
         let v = PreferSnakeCaseTables.check_catalog(&cat);
+        assert_eq!(v.len(), 1, "expected exactly one finding, got {v:?}");
+        assert_eq!(v[0].rule_id, "SC-N02");
         assert!(
-            v.is_empty(),
-            "known limitation (#145): CamelCase table names are lowercased before SC-N02 ever sees \
-             them, so this canonical violation is currently invisible"
+            v[0].message.contains("userprofile"),
+            "the finding must name the table it is about, got {:?}",
+            v[0].message
         );
+    }
+
+    /// Guards against a fix for the above that fires unconditionally: a bare
+    /// (unquoted) lowercase table name must still be clean, since it is the
+    /// overwhelmingly common case and `raw_name` for a bare identifier is
+    /// defined to equal the lowercased lookup key.
+    #[test]
+    fn bare_lowercase_table_name_stays_clean() {
+        let cat = Catalog::from_ddl(&["CREATE TABLE user_profiles (id SERIAL PRIMARY KEY);"]).unwrap();
+        let v = PreferSnakeCaseTables.check_catalog(&cat);
+        assert!(v.is_empty());
     }
 
     #[test]

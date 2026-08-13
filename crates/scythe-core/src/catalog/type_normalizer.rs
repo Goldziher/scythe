@@ -218,6 +218,36 @@ pub(crate) fn ident_to_lower(ident: &sqlparser::ast::Ident) -> String {
     }
 }
 
+/// The DDL-original spelling of an object name's final identifier part --
+/// e.g. `table` in `schema.table` -- as raw material for lint rules that
+/// need to see what the author actually typed, not the lookup key
+/// [`object_name_to_key`] derives from it.
+///
+/// [`object_name_to_key`] lowercases every part unconditionally, quoted or
+/// not, because that is what a case-insensitive catalog lookup needs. This
+/// function instead applies [`ident_to_lower`]'s quote-aware rule to just
+/// the final part: a quoted identifier keeps its literal casing (the
+/// database preserves it verbatim), an unquoted one is folded to lowercase
+/// (what an unquoted identifier resolves to in every dialect this catalog
+/// targets). For a bare identifier this therefore equals the normalised
+/// key's bare name -- the two values only diverge when the DDL quoted a
+/// mixed-case or uppercase name, which is exactly the case a
+/// naming-convention lint (SC-N02) needs to observe. Callers that need a
+/// schema-qualified raw name must join this with their own separator; this
+/// function intentionally returns only the bare part, since every current
+/// caller only ever compares the bare table name against a casing
+/// convention.
+pub(crate) fn object_name_to_raw_name(name: &ObjectName) -> String {
+    name.0
+        .iter()
+        .rev()
+        .find_map(|part| match part {
+            sqlparser::ast::ObjectNamePart::Identifier(ident) => Some(ident_to_lower(ident)),
+            _ => None,
+        })
+        .unwrap_or_default()
+}
+
 pub(crate) fn bare_name(key: &str) -> &str {
     key.rsplit_once('.').map_or(key, |(_, name)| name)
 }
