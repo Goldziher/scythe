@@ -724,7 +724,17 @@ impl TypescriptBetterSqlite3Backend {
                         js_fn_signature_line(false, &batch_fn_name, &batch_sig_params)
                     );
                     let _ = writeln!(out, "\tconst stmt = db.prepare(`{}`);", sql);
-                    let _ = writeln!(out, "\tconst runBatch = db.transaction((items) => {{");
+                    // The callback parameter needs its own JSDoc: `transaction` is generic over
+                    // the function it is handed, so with a bare `(items)` TypeScript has nothing
+                    // to infer from and resolves the parameter to `never` -- `for (const item of
+                    // items)` then fails with TS2488 and the `runBatch(items)` call with TS2345.
+                    // The TS emit path above says `(items: T[])` for the same reason; JSDoc mode
+                    // has to say it in a comment because the signature cannot carry it.
+                    let _ = writeln!(
+                        out,
+                        "\tconst runBatch = db.transaction(/** @param {{Array<{}>}} items */ (items) => {{",
+                        params_type_name
+                    );
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
                     let args: Vec<String> = params.iter().map(|p| ts_member_access("item", &p.field_name)).collect();
                     let _ = writeln!(out, "\t\t\tstmt.run({});", args.join(", "));
@@ -752,7 +762,13 @@ impl TypescriptBetterSqlite3Backend {
                         js_fn_signature_line(false, &batch_fn_name, &batch_sig_params)
                     );
                     let _ = writeln!(out, "\tconst stmt = db.prepare(`{}`);", sql);
-                    let _ = writeln!(out, "\tconst runBatch = db.transaction((items) => {{");
+                    // See the multi-parameter branch above for why the callback parameter
+                    // carries its own `@param`.
+                    let _ = writeln!(
+                        out,
+                        "\tconst runBatch = db.transaction(/** @param {{Array<{}>}} items */ (items) => {{",
+                        params[0].full_type
+                    );
                     let _ = writeln!(out, "\t\tfor (const item of items) stmt.run(item);");
                     let _ = writeln!(out, "\t}});");
                     let _ = writeln!(out, "\trunBatch(items);");
@@ -777,7 +793,11 @@ impl TypescriptBetterSqlite3Backend {
                         js_fn_signature_line(false, &batch_fn_name, &batch_sig_params)
                     );
                     let _ = writeln!(out, "\tconst stmt = db.prepare(`{}`);", sql);
-                    let _ = writeln!(out, "\tconst runBatch = db.transaction((n) => {{");
+                    // See the multi-parameter branch above; `n` needs the same treatment.
+                    let _ = writeln!(
+                        out,
+                        "\tconst runBatch = db.transaction(/** @param {{number}} n */ (n) => {{"
+                    );
                     let _ = writeln!(out, "\t\tfor (let i = 0; i < n; i++) stmt.run();");
                     let _ = writeln!(out, "\t}});");
                     let _ = writeln!(out, "\trunBatch(count);");

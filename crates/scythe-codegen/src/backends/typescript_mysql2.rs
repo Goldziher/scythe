@@ -907,22 +907,17 @@ impl TypescriptMysql2Backend {
     /// JSDoc-mode counterpart of `generate_enum_def`.
     fn generate_enum_def_js(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
-        let values_name = format!("{type_name}Values");
-        let mut out = String::new();
-        let _ = writeln!(out, "/** @type {{const}} */");
-        let _ = writeln!(out, "export const {} = {{", values_name);
-        for value in &enum_info.values {
-            let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(out, "\t{}: \"{}\",", variant, value);
-        }
-        let _ = writeln!(out, "}};");
-        let _ = writeln!(out);
-        let _ = write!(
-            out,
-            "/** @typedef {{typeof {}[keyof typeof {}]}} {} */",
-            values_name, values_name, type_name
-        );
-        Ok(out)
+        let variants: Vec<(String, String)> = enum_info
+            .values
+            .iter()
+            .map(|value| {
+                (
+                    enum_variant_name(value, &self.manifest.naming).to_string(),
+                    value.clone(),
+                )
+            })
+            .collect();
+        Ok(super::typescript_common::generate_js_enum_def(&type_name, &variants))
     }
 
     /// JSDoc-mode counterpart of `generate_composite_def`.

@@ -812,6 +812,44 @@ pub fn generate_ts_grouped_fold_body(
     out
 }
 
+/// Render `name` as a JSDoc `@property`/`@param` name token.
+///
+/// JSDoc tag syntax has no quoted or bracketed name form -- the name is a
+/// bare, whitespace-delimited token right after the `{type}` capture -- so
+/// neither of #215's two TypeScript answers to a hostile column name apply
+/// here. [`ts_property_key`]'s `"my col"` quoting and [`ts_index_access`]'s
+/// `row["my col"]` bracket access are both TypeScript/JavaScript *value*
+/// syntax; a `@property`/`@param` name is not a value position and cannot
+/// carry a string literal or a bracket expression. This is the same "no
+/// quoted form" situation `scythe_backend::naming::param_name` already
+/// resolves for parameter bindings across every target language, so the fix
+/// here is the same one: fold every character an identifier cannot hold
+/// into `_`, and prefix a leading digit so the token still opens like one.
+///
+/// The JSDoc name can therefore read differently from the row struct's own
+/// field spelling, which deliberately keeps the raw SQL column name (see
+/// [`ts_property_key`]'s doc comment) because it is cast straight onto the
+/// driver's row. That divergence is unavoidable once the name has to fit a
+/// syntax with no quoting at all -- it is the same trade-off every
+/// `sanitize_field_names` backend already accepts, for the same reason.
+pub fn js_doc_name(name: &str) -> String {
+    if is_ts_identifier(name) {
+        return name.to_string();
+    }
+    let mut mangled = String::with_capacity(name.len());
+    for ch in name.chars() {
+        if ch.is_ascii_alphanumeric() || ch == '_' || ch == '$' {
+            mangled.push(ch);
+        } else {
+            mangled.push('_');
+        }
+    }
+    if mangled.starts_with(|c: char| c.is_ascii_digit()) {
+        mangled.insert(0, '_');
+    }
+    mangled
+}
+
 /// Render one JSDoc `@property` line for a row typedef.
 ///
 /// This function's source is grepped by a dedicated test
@@ -825,39 +863,106 @@ pub fn generate_ts_grouped_fold_body(
 /// the type resolver -- see [`ResolvedColumn`]), so this function has no
 /// reason to branch on `col.nullable` at all: there is deliberately no such
 /// conditional here for the grep guard to catch a regression of.
+///
+/// The name goes through [`js_doc_name`] because a column is not guaranteed
+/// to be identifier-shaped and JSDoc's `@property` name has no quoted form
+/// -- see that function's doc comment.
 // jsdoc-property-line-start
 pub fn js_property_line(col: &ResolvedColumn) -> String {
-    format!(" * @property {{{}}} {}", col.full_type, col.field_name)
+    format!(" * @property {{{}}} {}", col.full_type, js_doc_name(&col.field_name))
 }
 // jsdoc-property-line-end
 
+/// True when every column's key can be spelled as a bare JSDoc `@property`
+/// name. See [`render_row_typedef_body`] for why that governs which of two
+/// `@typedef` forms a row gets.
+fn every_key_is_a_bare_jsdoc_name(columns: &[ResolvedColumn]) -> bool {
+    columns.iter().all(|col| is_ts_identifier(&col.field_name))
+}
+
+/// Render the `@typedef` line(s) describing a row's shape, choosing between
+/// JSDoc's two forms according to whether any key needs quoting.
+///
+/// A generated row typedef describes the object the *driver* hands back:
+/// the `javascript-*` query fns end in `return rows;`, so the runtime keys
+/// are the column's own SQL spelling, exactly as in TypeScript mode, where
+/// [`ts_property_key`] quotes rather than mangles for precisely this reason.
+///
+/// JSDoc has two ways to describe an object and they do not have the same
+/// expressive power, which is what forces the branch here:
+///
+/// * `@typedef {object} Name` plus one `@property {T} key` line each. The
+///   `@property` name is a bare token -- TypeScript's JSDoc parser rejects a
+///   quoted one with `TS1003: Identifier expected` -- so this form simply
+///   cannot describe a key like `my col`.
+/// * `@typedef {{ "my col": string, id: number }} Name`, an inline object
+///   type expression, which accepts quoted keys and checks clean.
+///
+/// Mangling the name to fit the first form would be a silent wrong answer,
+/// not a cosmetic one: `@property {string} my_col` tells `tsc --checkJs`
+/// that the row has a `my_col` property, so `row["my col"]` -- the access
+/// that actually works at runtime -- becomes an error, while `row.my_col`
+/// type-checks and is `undefined`. That is the same trade the row-key
+/// contract rejects everywhere else in this file.
+///
+/// The `@property` form is kept for the overwhelmingly common all-identifier
+/// case so ordinary generated output stays byte-identical and stays readable;
+/// the type-literal form is used only where the first form would lie.
+fn render_row_typedef_body(out: &mut String, struct_name: &str, columns: &[ResolvedColumn], children_of: Option<&str>) {
+    if every_key_is_a_bare_jsdoc_name(columns) {
+        let _ = writeln!(out, " * @typedef {{object}} {}", struct_name);
+        for col in columns {
+            let _ = writeln!(out, "{}", js_property_line(col));
+        }
+        if let Some(child_struct_name) = children_of {
+            let _ = writeln!(out, " * @property {{{}[]}} children", child_struct_name);
+        }
+        return;
+    }
+
+    let mut fields: Vec<String> = columns
+        .iter()
+        .map(|col| format!("{}: {}", ts_property_key(&col.field_name), col.full_type))
+        .collect();
+    if let Some(child_struct_name) = children_of {
+        fields.push(format!("children: {child_struct_name}[]"));
+    }
+    let _ = writeln!(out, " * @typedef {{{{ {} }}}} {}", fields.join(", "), struct_name);
+}
+
 /// Render a plain-JS JSDoc `@typedef` for a row -- the JSDoc-mode
 /// counterpart of [`generate_ts_interface_row_struct`], used by the
-/// `javascript-*` emit mode of the TypeScript backends (#81). Every column
-/// goes through [`js_property_line`], so the nullable-as-`T | null` rule
-/// applies uniformly here too.
+/// `javascript-*` emit mode of the TypeScript backends (#81). The
+/// nullable-as-`T | null` rule applies uniformly here too, via either
+/// [`js_property_line`] or the column's `full_type` directly; see
+/// [`render_row_typedef_body`] for which form a given row gets.
 pub fn generate_js_typedef_row_struct(struct_name: &str, query_name: &str, columns: &[ResolvedColumn]) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "/**");
     let _ = writeln!(out, " * Row type for {} queries.", query_name);
-    let _ = writeln!(out, " * @typedef {{object}} {}", struct_name);
-    for col in columns {
-        let _ = writeln!(out, "{}", js_property_line(col));
-    }
+    render_row_typedef_body(&mut out, struct_name, columns, None);
     let _ = write!(out, " */");
     out
 }
 
 /// Render a generic JSDoc `@typedef` from arbitrary `(name, type)` fields --
 /// used for `:batch` params objects, which are built from [`ResolvedParam`]s
-/// rather than [`ResolvedColumn`]s and so carry no SQL nullability to encode.
+/// rather than [`ResolvedColumn`]s and so carry no SQL nullability to encode,
+/// and for composite type typedefs.
+///
+/// `name` goes through [`js_doc_name`] like every other JSDoc name token.
+/// `ResolvedParam::field_name` is already identifier-mangled unconditionally
+/// (`scythe_backend::naming::param_name` has no `sanitize_field_names`
+/// opt-out, unlike columns), so this is a no-op for the batch-params caller;
+/// it is load-bearing for the composite-field caller, whose names go through
+/// `to_camel_case` only and can still carry non-identifier characters.
 pub fn generate_js_typedef(type_name: &str, description: &str, fields: &[(String, String)]) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "/**");
     let _ = writeln!(out, " * {}", description);
     let _ = writeln!(out, " * @typedef {{object}} {}", type_name);
     for (name, ty) in fields {
-        let _ = writeln!(out, " * @property {{{}}} {}", ty, name);
+        let _ = writeln!(out, " * @property {{{}}} {}", ty, js_doc_name(name));
     }
     let _ = write!(out, " */");
     out
@@ -874,19 +979,12 @@ pub fn generate_js_grouped_typedef_structs(
     let mut out = String::new();
     let _ = writeln!(out, "/**");
     let _ = writeln!(out, " * Child row type for grouped query.");
-    let _ = writeln!(out, " * @typedef {{object}} {}", child_struct_name);
-    for col in child_columns {
-        let _ = writeln!(out, "{}", js_property_line(col));
-    }
+    render_row_typedef_body(&mut out, child_struct_name, child_columns, None);
     let _ = writeln!(out, " */");
     let _ = writeln!(out);
     let _ = writeln!(out, "/**");
     let _ = writeln!(out, " * Parent row type for grouped query.");
-    let _ = writeln!(out, " * @typedef {{object}} {}", parent_struct_name);
-    for col in parent_columns {
-        let _ = writeln!(out, "{}", js_property_line(col));
-    }
-    let _ = writeln!(out, " * @property {{{}[]}} children", child_struct_name);
+    render_row_typedef_body(&mut out, parent_struct_name, parent_columns, Some(child_struct_name));
     let _ = write!(out, " */");
     out
 }
@@ -906,12 +1004,18 @@ pub fn js_type_cast(ty: &str, expr: &str) -> String {
 /// counterpart of a TypeScript function's inline `(name: Type): Ret`
 /// annotations, which a plain `.js` file cannot carry on the signature
 /// itself.
+///
+/// `name` goes through [`js_doc_name`] for the same reason [`js_property_line`]
+/// does. Every caller today passes an already-mangled `ResolvedParam::field_name`
+/// (or a literal like `"sql"`/`"items"`/`"count"`), so this is a no-op in
+/// practice, but it keeps `@param` from becoming the one JSDoc position that
+/// silently regresses if a future caller ever hands it a raw SQL name.
 pub fn generate_jsdoc_fn_header(description: &str, sig_params: &[(String, String)], ret_type: &str) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "/**");
     let _ = writeln!(out, " * {}", description);
     for (name, ty) in sig_params {
-        let _ = writeln!(out, " * @param {{{}}} {}", ty, name);
+        let _ = writeln!(out, " * @param {{{}}} {}", ty, js_doc_name(name));
     }
     let _ = writeln!(out, " * @returns {{{}}}", ret_type);
     let _ = write!(out, " */");
@@ -970,6 +1074,46 @@ pub fn generate_zod_enum(type_name: &str, values: &[String], naming: &scythe_bac
         );
     }
     let _ = write!(out, "}} as const;");
+    out
+}
+
+/// Render the JSDoc-mode enum definition: a frozen values object plus the
+/// union `@typedef` derived from it.
+///
+/// `as const` is TypeScript-only syntax, so the literal narrowing the TS path
+/// gets from it has to come from a JSDoc cast here. The cast must sit on the
+/// *initializer expression*, never on the declaration:
+///
+/// ```js
+/// export const XValues = /** @type {const} */ ({ A: "a" });  // narrows
+/// /** @type {const} */ export const XValues = { A: "a" };    // TS2304
+/// ```
+///
+/// There is no `const` *type* for JSDoc to name — `const` is only meaningful
+/// as an assertion applied to an expression — so the declaration form was
+/// never valid in any TypeScript version. All three `javascript-*` emitters
+/// used it until the tool-validation schema grew an enum column and
+/// `tsc --checkJs` rejected every one of them with
+/// `TS2304: Cannot find name 'const'`.
+///
+/// It lives here, rather than as three byte-identical copies in
+/// `typescript_pg.rs` / `typescript_postgres.rs` / `typescript_mysql2.rs`,
+/// because those copies are exactly why one wrong spelling took three fixes
+/// to remove.
+pub fn generate_js_enum_def(type_name: &str, variants: &[(String, String)]) -> String {
+    let values_name = format!("{type_name}Values");
+    let mut out = String::new();
+    let _ = writeln!(out, "export const {} = /** @type {{const}} */ ({{", values_name);
+    for (variant, value) in variants {
+        let _ = writeln!(out, "\t{}: \"{}\",", variant, value);
+    }
+    let _ = writeln!(out, "}});");
+    let _ = writeln!(out);
+    let _ = write!(
+        out,
+        "/** @typedef {{typeof {}[keyof typeof {}]}} {} */",
+        values_name, values_name, type_name
+    );
     out
 }
 

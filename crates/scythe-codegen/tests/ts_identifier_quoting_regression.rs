@@ -89,6 +89,17 @@ fn fixture(dialect: &SqlDialect) -> (&'static str, [&'static str; 3]) {
     }
 }
 
+/// The `javascript-*` (JSDoc emit mode, #81) counterpart of [`TS_BACKENDS`].
+/// Each pairs with the same engine its `typescript-*` sibling in
+/// [`TS_BACKENDS`] uses, since `get_backend` dispatches both names to the
+/// same per-engine constructor (`new` vs. `new_js`).
+const JS_BACKENDS: [(&str, &str, SqlDialect); 4] = [
+    ("javascript-postgres", "postgresql", SqlDialect::PostgreSQL),
+    ("javascript-pg", "postgresql", SqlDialect::PostgreSQL),
+    ("javascript-mysql2", "mysql", SqlDialect::MySQL),
+    ("javascript-better-sqlite3", "sqlite", SqlDialect::SQLite),
+];
+
 /// The three keys every fixture projects, spelled as they must appear in the
 /// generated file: quoted.
 const QUOTED_KEYS: [&str; 3] = ["\"with-dash\"", "\"my col\"", "\"2fa\""];
@@ -196,6 +207,66 @@ fn every_typescript_backend_quotes_non_identifier_column_names() {
                 "{backend_name}: `{bare}` is not a valid property read (#215) in:\n{file}"
             );
         }
+
+        tool_check(backend_name, &file);
+    }
+}
+
+/// JSDoc has no quoted or bracketed name form for `@property`/`@param`, so
+/// neither of #215's TypeScript fixes (quoting the declared key, bracket-
+/// accessing the read) apply to the `javascript-*` (JSDoc emit mode, #81)
+/// backends. This must fail before the fix: `with-dash`, `my col` and `2fa`
+/// reached `@property {string} with-dash` etc. verbatim, which is not a
+/// parseable JSDoc name token (a whitespace-containing one splits into a
+/// name and a bogus description; a leading digit is not a valid identifier
+/// start either).
+#[test]
+fn every_javascript_backend_describes_non_identifier_columns_with_a_quoted_typedef_key() {
+    for (backend_name, engine, dialect) in JS_BACKENDS {
+        let backend = build(backend_name, engine, &HashMap::new());
+        let codes = generate_all(&*backend, &dialect);
+        let file = assemble(&*backend, engine, &codes);
+
+        // The row typedef must keep the driver's own key spelling. A
+        // `javascript-*` query fn ends in `return rows;`, so the runtime keys
+        // are the SQL column names -- a JSDoc name that mangled them would
+        // tell `tsc --checkJs` the row has a `my_col` property, making
+        // `row["my col"]` an error and `row.my_col` a silent `undefined`.
+        for quoted in ["\"with-dash\":", "\"my col\":", "\"2fa\":"] {
+            assert!(
+                file.contains(quoted),
+                "{backend_name}: expected the row typedef to carry the quoted key `{quoted}`; got:\n{file}"
+            );
+        }
+
+        // `@property` cannot hold a quoted name -- TypeScript's JSDoc parser
+        // rejects it with `TS1003: Identifier expected` -- so a hostile column
+        // must never reach a bare JSDoc name position. Anchored on the `}`
+        // that closes a `{type}` capture, which is the JSDoc name position, so
+        // this cannot match the raw SQL text quoted elsewhere in the file.
+        //
+        // Only the *unmangled* spellings are banned. A mangled `with_dash` is
+        // legitimate and expected in `@param`: a function parameter is a
+        // binding, the emitted signature already mangles it via
+        // `naming::param_name`, and the JSDoc name has to match the binding it
+        // documents. It is the row *key* that must stay the column's own
+        // spelling, because that object comes straight from the driver.
+        for bare in ["with-dash", "my col", "2fa"] {
+            assert!(
+                !file.contains(&format!("}} {bare}\n")),
+                "{backend_name}: `{bare}` must not appear as a bare JSDoc name -- a row key \
+                 belongs in the quoted type-literal form, a binding belongs mangled; got:\n{file}"
+            );
+        }
+
+        // The row typedef must not fall back to the `@typedef {object}` +
+        // `@property` form for this row at all, since that form cannot spell
+        // any of the three keys above.
+        assert!(
+            !file.contains("@typedef {object} FindWeirdRow"),
+            "{backend_name}: a row with non-identifier keys must use the type-literal \
+             `@typedef {{{{ ... }}}}` form, not `@typedef {{object}}`; got:\n{file}"
+        );
 
         tool_check(backend_name, &file);
     }

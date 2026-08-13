@@ -44,6 +44,18 @@ const BATCH_QUERY: &str = "-- @name AddNote\n-- @returns :batch\n\
 const SINGLE_PARAM_BATCH_QUERY: &str = "-- @name TagNotes\n-- @returns :batch\n\
     UPDATE notes SET tag = $1 WHERE body = 'literal $1 here';";
 
+/// A single-parameter `:batch` whose literal contains the *rewritten*
+/// spelling of the placeholder (`${tag}`, the param's field name) rather
+/// than the raw `$1`. This is the shape [`SINGLE_PARAM_BATCH_QUERY`] cannot
+/// exercise: `$1` inside a literal is never touched by
+/// `rewrite_pg_placeholders`, so it stays `$1` in the output either way.
+/// `${tag}` inside a literal is escaped to the inert `\${tag}` by
+/// `escape_ts_template_literal` -- and a blind `.replace("${tag}",
+/// "${item}")` over the placeholder-rewritten SQL still matches that
+/// escaped tail, corrupting it to `\${item}`.
+const SINGLE_PARAM_BATCH_QUERY_WITH_FIELD_NAME_IN_LITERAL: &str = "-- @name TagNotes\n-- @returns :batch\n\
+    UPDATE notes SET tag = $1 WHERE body = 'literal ${tag} here';";
+
 fn query_fn(backend_name: &str, sql: &str) -> String {
     let backend: Box<dyn CodegenBackend> =
         get_backend(backend_name, "postgresql").expect("backend must support postgresql");
@@ -77,9 +89,15 @@ fn batch_placeholders_inside_a_sql_string_literal_stay_literal() {
     }
 }
 
-/// The one-parameter branch replaces `${field}` rather than `$1`, so it was
-/// already literal-safe -- pinned so a future unification of the two
-/// branches cannot regress it.
+/// The one-parameter branch used to replace the literal text `${field}`
+/// with `${item}` over the already placeholder-rewritten SQL, which cannot
+/// tell a real, rewritten `$1` apart from the same text sitting inert inside
+/// a string literal -- see
+/// `a_single_parameter_batch_leaves_a_literal_containing_the_field_name_placeholder_alone`
+/// below for the case that used to fail. This test only pins the `$1`-in-a-
+/// literal shape, which was never at risk (the rewriter never touches text
+/// inside a literal in the first place) -- kept so a future unification of
+/// the two `:batch` branches cannot regress it either.
 #[test]
 fn a_single_parameter_batch_also_leaves_the_literal_alone() {
     for backend_name in ["typescript-postgres", "javascript-postgres"] {
@@ -92,6 +110,33 @@ fn a_single_parameter_batch_also_leaves_the_literal_alone() {
         assert!(
             generated.contains("SET tag = ${item}"),
             "{backend_name}: got:\n{generated}"
+        );
+    }
+}
+
+/// This must fail before the fix on both emit modes: a SQL literal
+/// containing the literal text `${tag}` (the single param's field name) got
+/// its escaped `\${tag}` corrupted to `\${item}` by the old blind
+/// `.replace("${tag}", "${item}")`, because that replace ran over SQL that
+/// already had the real `$1` rewritten to `${tag}` and could no longer tell
+/// the two apart.
+#[test]
+fn a_single_parameter_batch_leaves_a_literal_containing_the_field_name_placeholder_alone() {
+    for backend_name in ["typescript-postgres", "javascript-postgres"] {
+        let generated = query_fn(backend_name, SINGLE_PARAM_BATCH_QUERY_WITH_FIELD_NAME_IN_LITERAL);
+
+        assert!(
+            generated.contains(r"'literal \${tag} here'"),
+            "{backend_name}: the SQL literal's own text must survive untouched (#219 residual); got:\n{generated}"
+        );
+        assert!(
+            !generated.contains(r"'literal \${item} here'"),
+            "{backend_name}: the literal's escaped `${{tag}}` must not become a live `${{item}}` binding; \
+             got:\n{generated}"
+        );
+        assert!(
+            generated.contains("SET tag = ${item}"),
+            "{backend_name}: the actual placeholder must still bind to the batch item; got:\n{generated}"
         );
     }
 }

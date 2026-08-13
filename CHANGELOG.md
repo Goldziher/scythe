@@ -43,6 +43,27 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **Every `javascript-*` file containing an enum failed `tsc --checkJs`.** The generated
+  `/** @type {const} */` sat on the declaration, where it is `TS2304: Cannot find name 'const'`. The
+  valid position is the initializer expression — `= /** @type {const} */ ({…})` — which also narrows
+  to literal types as intended. The same spelling existed as three byte-identical copies across
+  `typescript-pg`, `typescript-postgres` and `typescript-mysql2`; they now share one
+  `generate_js_enum_def`, so the next fix here lands once instead of three times.
+- **A non-identifier column name was spliced raw into a JSDoc `@property`.** `@property {string} my
+  col` is `TS1003: Identifier expected`, and unlike the TypeScript emit path the JSDoc row typedef
+  cannot mangle the name — a generated row type is cast onto the driver's rows, so its key must stay
+  the column's own spelling. The typedef now switches to JSDoc's quoted type-literal form
+  (`@typedef {{ "my col": string }}`) when any key is not a bare name, and keeps the `@property` form
+  otherwise. `@param` mangling is unaffected and remains correct: a binding is a JavaScript
+  parameter, which has no quoted form.
+- **`javascript-better-sqlite3`'s `:batch` path never type-checked.** `db.transaction((items) => …)`
+  with an unannotated parameter makes TypeScript infer `never` from better-sqlite3's variadic
+  signature, giving TS2488 and TS2345. The TypeScript emit path annotates it as `(items: T[])`; the
+  js_mode path now carries the equivalent inline `@param`. This was invisible until the enum fix
+  above stopped `tsc` short-circuiting on an earlier error.
+- **`typescript-postgres`'s single-parameter `:batch` rewrote `${field}` inside a SQL string
+  literal.** A blind `String::replace` matched the tail of an escaped `\${field}`. #219 covered the
+  `$N` form only.
 - **A `:grouped` query's `.rbs` described a class the `.rb` file never defines.** The RBS producer
   resolved the flat column list where the Ruby producer splits parent from child, so the signature
   declared one class with neither the `children` reader nor the child class `Data.define` actually

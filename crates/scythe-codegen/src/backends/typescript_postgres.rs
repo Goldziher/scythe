@@ -46,6 +46,25 @@ fn batch_item_sql(sql: &str, name_map: &std::collections::HashMap<u32, String>) 
     })
 }
 
+/// As [`batch_item_sql`], for the one-parameter `:batch` shape, where the
+/// whole item -- not one of its fields -- is what gets bound, so every
+/// placeholder rewrites to the same `${item}`.
+///
+/// This used to be `sql_template.replace(&format!("${{{}}}", field_name),
+/// "${item}")`, run over the *already placeholder-rewritten* SQL. That is
+/// literal-safe against a bare `$N` -- `rewrite_pg_placeholders` had already
+/// turned every real one into `${field_name}` by that point -- but not
+/// against a SQL string literal that itself contains the text
+/// `${field_name}`: `escape_ts_template_literal` turns that into the inert
+/// `\${field_name}`, and the blind `.replace` still matches its tail,
+/// silently corrupting the stored literal to `\${item}`. Rewriting straight
+/// from the escaped-but-not-yet-placeholder-rewritten SQL, through the same
+/// span-aware [`super::rewrite_pg_placeholders`] the multi-parameter branch
+/// uses, closes that gap the same way #219 closed it there.
+fn batch_item_sql_single(sql: &str) -> String {
+    super::rewrite_pg_placeholders(sql, |_| "${item}".to_string())
+}
+
 pub struct TypescriptPostgresBackend {
     manifest: BackendManifest,
     row_type: TsRowType,
@@ -303,7 +322,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "Promise<void>");
                     let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let batch_sql = sql_template.replace(&format!("${{{}}}", params[0].field_name), "${item}");
+                    let batch_sql = batch_item_sql_single(&sql_clean);
                     let _ = writeln!(out, "\t\t\tawait tx`");
                     let _ = writeln!(out, "    {}", batch_sql);
                     let _ = writeln!(out, "  `;");
@@ -746,7 +765,7 @@ impl TypescriptPostgresBackend {
                     let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
                     let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let batch_sql = sql_template.replace(&format!("${{{}}}", params[0].field_name), "${item}");
+                    let batch_sql = batch_item_sql_single(&sql_clean);
                     let _ = writeln!(out, "\t\t\tawait tx`");
                     let _ = writeln!(out, "    {}", batch_sql);
                     let _ = writeln!(out, "  `;");
@@ -850,22 +869,17 @@ impl TypescriptPostgresBackend {
     /// JSDoc-mode counterpart of `generate_enum_def`.
     fn generate_enum_def_js(&self, enum_info: &EnumInfo) -> Result<String, ScytheError> {
         let type_name = enum_type_name(&enum_info.sql_name, &self.manifest.naming);
-        let values_name = format!("{type_name}Values");
-        let mut out = String::new();
-        let _ = writeln!(out, "/** @type {{const}} */");
-        let _ = writeln!(out, "export const {} = {{", values_name);
-        for value in &enum_info.values {
-            let variant = enum_variant_name(value, &self.manifest.naming);
-            let _ = writeln!(out, "\t{}: \"{}\",", variant, value);
-        }
-        let _ = writeln!(out, "}};");
-        let _ = writeln!(out);
-        let _ = write!(
-            out,
-            "/** @typedef {{typeof {}[keyof typeof {}]}} {} */",
-            values_name, values_name, type_name
-        );
-        Ok(out)
+        let variants: Vec<(String, String)> = enum_info
+            .values
+            .iter()
+            .map(|value| {
+                (
+                    enum_variant_name(value, &self.manifest.naming).to_string(),
+                    value.clone(),
+                )
+            })
+            .collect();
+        Ok(super::typescript_common::generate_js_enum_def(&type_name, &variants))
     }
 
     /// JSDoc-mode counterpart of `generate_composite_def`.
