@@ -36,10 +36,10 @@ const CONNECTION_TYPE: &str = "DuckDBConnection";
 ///
 /// The `as DuckDBValue[]` assertion is the driver's own boundary type:
 /// `DuckDBValue` covers `null`/`boolean`/`number`/`bigint`/`string` plus the
-/// driver's wrapper classes, but not `Uint8Array` or `Record<string,
-/// unknown>`, which this manifest maps `bytes` and `json` to. Without it a
-/// binary or JSON parameter would not type-check even though the driver
-/// accepts it at runtime.
+/// driver's wrapper classes (which is where `bytes`'s `DuckDBBlobValue`
+/// lands -- see the manifest), but not `Record<string, unknown>`, which this
+/// manifest maps `json` to. Without it a JSON parameter would not type-check
+/// even though the driver accepts it at runtime.
 fn write_bind_and_run(out: &mut String, indent: &str, args: &[String], result_binding: Option<&str>) {
     if !args.is_empty() {
         let _ = writeln!(out, "{indent}stmt.bind([{}] as DuckDBValue[]);", args.join(", "));
@@ -76,20 +76,32 @@ pub struct TypescriptDuckdbBackend {
 
 impl TypescriptDuckdbBackend {
     /// The file header, with the `DuckDBValue` import included only when
-    /// `needs_value_type` says the file will reference it.
-    fn file_header_with_value_type(&self, needs_value_type: bool) -> String {
+    /// `needs_value_type` says the file will bind a parameter, and the
+    /// `DuckDBBlobValue` import included only when `needs_blob_type` says
+    /// the file references a `bytes` column -- `@duckdb/node-api` hands a
+    /// `BLOB` column back as a `DuckDBBlobValue` wrapper, not a raw
+    /// `Uint8Array` (`Uint8Array` is not part of the driver's own
+    /// `DuckDBValue` union either -- see the comment on `write_bind_and_run`
+    /// -- which is the same evidence).
+    fn file_header_with_value_type(&self, needs_value_type: bool, needs_blob_type: bool) -> String {
         if self.structs_only {
-            if self.row_type == TsRowType::Zod {
-                return "import { z } from \"zod\";\n".to_string();
+            let mut header = String::new();
+            if needs_blob_type {
+                header.push_str("import type { DuckDBBlobValue } from \"@duckdb/node-api\";\n");
             }
-            return String::new();
+            if self.row_type == TsRowType::Zod {
+                header.push_str("import { z } from \"zod\";\n");
+            }
+            return header;
         }
-        let imported = if needs_value_type {
-            format!("{CONNECTION_TYPE}, DuckDBValue")
-        } else {
-            CONNECTION_TYPE.to_string()
-        };
-        let mut header = format!("import type {{ {imported} }} from \"@duckdb/node-api\";\n");
+        let mut imported = vec![CONNECTION_TYPE.to_string()];
+        if needs_value_type {
+            imported.push("DuckDBValue".to_string());
+        }
+        if needs_blob_type {
+            imported.push("DuckDBBlobValue".to_string());
+        }
+        let mut header = format!("import type {{ {} }} from \"@duckdb/node-api\";\n", imported.join(", "));
         if self.row_type == TsRowType::Zod {
             header.push_str("import { z } from \"zod\";\n");
         }
@@ -148,11 +160,12 @@ impl CodegenBackend for TypescriptDuckdbBackend {
     /// caller inside this crate goes through
     /// [`CodegenBackend::file_header_for_results`], which does know.
     fn file_header(&self) -> String {
-        self.file_header_with_value_type(true)
+        self.file_header_with_value_type(true, false)
     }
 
     /// Drop the `DuckDBValue` import when nothing in the file binds a
-    /// parameter.
+    /// parameter, and drop the `DuckDBBlobValue` import when nothing in the
+    /// file reads or declares a `bytes` column.
     ///
     /// `DuckDBValue` only appears in the `stmt.bind([...] as DuckDBValue[])`
     /// assertion (see [`write_bind_and_run`]), so a file whose every query
@@ -160,12 +173,29 @@ impl CodegenBackend for TypescriptDuckdbBackend {
     /// a lint finding on output that is supposed to be clean. `file_header`
     /// alone cannot tell: it is asked for the header without being shown the
     /// queries.
+    ///
+    /// `DuckDBBlobValue` can appear in a row struct (the field's declared
+    /// type, or `z.custom<DuckDBBlobValue>()` under `row_type = "zod"`), a
+    /// composite/model struct, a nested-aggregate struct, or -- under
+    /// `field_case = "camelCase"` -- the per-field remap cast in the query
+    /// function body, so every one of those has to be scanned, not just
+    /// `query_fn`.
     fn file_header_for_results(&self, generated: &[crate::GeneratedCode]) -> String {
-        let binds = generated
-            .iter()
-            .filter_map(|code| code.query_fn.as_deref())
-            .any(|body| body.contains("DuckDBValue"));
-        self.file_header_with_value_type(binds)
+        let texts = || {
+            generated.iter().flat_map(|code| {
+                [
+                    code.query_fn.as_deref(),
+                    code.row_struct.as_deref(),
+                    code.model_struct.as_deref(),
+                ]
+                .into_iter()
+                .flatten()
+                .chain(code.nested_struct_defs.iter().map(|def| def.code.as_str()))
+            })
+        };
+        let binds = texts().any(|body| body.contains("DuckDBValue"));
+        let needs_blob_type = texts().any(|body| body.contains("DuckDBBlobValue"));
+        self.file_header_with_value_type(binds, needs_blob_type)
     }
 
     fn generate_struct_decl(

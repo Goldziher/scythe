@@ -13,7 +13,23 @@ int64 = "bigint"
 float32 = "number"
 float64 = "number"
 string = "string"
-bytes = "Uint8Array"
+# @duckdb/node-api hands a BLOB column back as a `DuckDBBlobValue` wrapper
+# object, not a raw `Uint8Array` -- the driver's own `DuckDBValue` union
+# (see typescript_duckdb.rs's `write_bind_and_run`) covers
+# null/boolean/number/bigint/string plus its wrapper classes, but not
+# `Uint8Array`, which is why binding one needs the `as DuckDBValue[]` force
+# cast. Declaring `bytes` as `Uint8Array` here would type a read column as
+# something the driver never actually returns.
+#
+# Verified against the real package rather than inferred: `npm pack
+# @duckdb/node-api@1.5.5-r.4` ships `lib/values/DuckDBBlobValue.d.ts` declaring
+# `class DuckDBBlobValue { readonly bytes: Uint8Array }`, and `DuckDBValue`
+# lists it in its union. It re-exports from the package root through
+# index -> duckdb -> values, so the generated `import type` resolves. The
+# driver also ships `blobValue(input: Uint8Array | string)`, which is what a
+# caller should use to construct one for a bind parameter -- this manifest has
+# no read/bind split, so the bind-position type changed with the read type.
+bytes = "DuckDBBlobValue"
 uuid = "string"
 decimal = "number"
 date = "string"
