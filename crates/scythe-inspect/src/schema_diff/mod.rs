@@ -32,13 +32,22 @@
 //! [`DriftSeverities`], so `[lint]` in `scythe.toml` tunes drift rules exactly
 //! as it tunes every other `SC-*` rule.
 //!
-//! PostgreSQL only. The comparison needs `pg_catalog`, and callers are
-//! expected to skip non-PostgreSQL engines rather than pass them here.
+//! [`diff`] and [`SchemaDescription`] were always engine-agnostic — they
+//! never touch a connection. [`fetch_live_schema`] and [`drift_findings`]
+//! (the free functions `scythe-cli`'s `scythe check` calls directly) remain
+//! PostgreSQL-only, reading `pg_catalog` through a `tokio_postgres::Client`
+//! parameter. Catalog-reading for other engines is not similarly restricted:
+//! [`source::SchemaCatalogDriver`] is the engine-agnostic trait for it, and
+//! [`crate::sqlite::SqliteCatalogSource`] / [`crate::mysql::MySqlCatalogSource`]
+//! implement it. Nothing currently wires their output into [`diff`] the way
+//! `fetch_live_schema`'s is — that plumbing (and, for PostgreSQL, populating
+//! [`ColumnDescription::primary_key`]) is a follow-up, not this change.
 
 pub mod catalog;
 pub mod diff;
 pub mod live;
 pub mod model;
+pub mod source;
 
 use scythe_lint::reporters::Finding;
 use tokio_postgres::Client;
@@ -51,6 +60,7 @@ pub use diff::{
 };
 pub use live::fetch_live_schema;
 pub use model::{ColumnDescription, EnumDescription, SchemaDescription, TableDescription, object_key};
+pub use source::SchemaCatalogDriver;
 
 /// Fetch the live schema once and diff every supplied DDL description against
 /// it.

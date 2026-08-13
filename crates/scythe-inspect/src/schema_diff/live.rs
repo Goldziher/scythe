@@ -324,6 +324,14 @@ async fn fetch_tables(
                 .and_then(neutral_type_for)
                 .map(|neutral| normalize_neutral_type(&neutral).into_owned()),
             nullable: !not_null,
+            // Not read here: this query joins `pg_attribute` for column shape
+            // and nullability only, with no `pg_index`/`pg_constraint` join to
+            // say which columns are the primary key. `SqliteCatalogSource` and
+            // `MySqlCatalogSource` (`crate::sqlite`, `crate::mysql`) populate
+            // this field from their own catalogs; wiring it up here is a
+            // follow-up, not attempted alongside those additions so as not to
+            // change this already-tested query's shape or row handling.
+            primary_key: false,
         };
 
         if let Some(table) = description.tables.get_mut(&key) {

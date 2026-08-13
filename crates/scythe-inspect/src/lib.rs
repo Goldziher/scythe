@@ -7,27 +7,40 @@
 //!
 //! ## Engines
 //!
-//! **PostgreSQL only.** [`PostgresDriver`], backed by `tokio-postgres`, is the
-//! one implemented driver: the SC-INS checks are `pg_catalog` queries, query
-//! verification uses the extended-query protocol's describe response, and
-//! schema drift reads `pg_attribute.attnotnull`. None of those has an
-//! equivalent implemented here for another engine.
+//! **The `SC-INS` health checks are PostgreSQL only.** [`PostgresDriver`],
+//! backed by `tokio-postgres`, is the one driver implementing them: the
+//! checks are `pg_catalog` queries, query verification uses the
+//! extended-query protocol's describe response, and schema drift reads
+//! `pg_attribute.attnotnull`. None of those has an equivalent implemented
+//! here for another engine.
 //!
-//! Every other engine — MySQL, MariaDB, SQLite, MSSQL, Oracle, Snowflake,
-//! Redshift — gets [`UnsupportedDriver`], which refuses every operation with
-//! [`InspectError::Unsupported`] naming *that* engine. It deliberately does not
-//! pretend to connect and does not return an empty finding set: an inspection
-//! that reports nothing because it never ran is indistinguishable from a clean
-//! database.
+//! Every engine with no [`DbDriver`] implementation — MySQL, MariaDB, SQLite,
+//! MSSQL, Oracle, Snowflake, Redshift — gets [`UnsupportedDriver`], which
+//! refuses every operation with [`InspectError::Unsupported`] naming *that*
+//! engine. It deliberately does not pretend to connect and does not return an
+//! empty finding set: an inspection that reports nothing because it never ran
+//! is indistinguishable from a clean database.
+//!
+//! **Catalog introspection — tables, columns, neutral types, nullability,
+//! primary keys — is a separate, narrower concern from the health checks
+//! above, and it is not PostgreSQL-only.** [`schema_diff::SchemaCatalogDriver`]
+//! is the engine-agnostic trait for reading a live database into a
+//! [`SchemaDescription`]; [`sqlite::SqliteCatalogSource`] and
+//! [`mysql::MySqlCatalogSource`] implement it alongside PostgreSQL's existing
+//! [`fetch_live_schema`]. See [`schema_diff`]'s module docs for why the two
+//! concerns are split and what implementing one gets an engine that
+//! implementing the other does not.
 
 pub mod config;
 pub mod driver;
 pub mod error;
+pub mod mysql;
 pub mod neutral;
 pub mod postgres;
 pub mod registry;
 pub mod schema_diff;
 pub mod spec;
+pub mod sqlite;
 pub mod suppression;
 pub mod unsupported;
 pub mod verify;
@@ -35,13 +48,16 @@ pub mod verify;
 pub use config::{InspectConfig, SuppressionRule, parse_inspect_section};
 pub use driver::{CheckCatalogEntry, DbDriver};
 pub use error::InspectError;
+pub use mysql::MySqlCatalogSource;
 pub use neutral::normalize_neutral_type;
 pub use postgres::PostgresDriver;
 pub use registry::CheckRegistry;
 pub use schema_diff::{
-    DriftSeverities, SchemaDescription, describe_catalog, diff_schemas, drift_findings, fetch_live_schema,
+    DriftSeverities, SchemaCatalogDriver, SchemaDescription, describe_catalog, diff_schemas, drift_findings,
+    fetch_live_schema,
 };
 pub use spec::{CheckCategory, CheckSpec, ConfigError, load_checks_from_file, parse_check_file};
+pub use sqlite::SqliteCatalogSource;
 pub use suppression::SuppressionEngine;
 pub use unsupported::UnsupportedDriver;
 pub use verify::verify_queries;

@@ -2301,7 +2301,9 @@ name = "scythe-inspect"
 version = "0.14.0"
 dependencies = [
  "async-trait",
+ "mysql_async",
  "regex",
+ "rusqlite",
  "scythe-core",
  "scythe-lint",
  "serde",

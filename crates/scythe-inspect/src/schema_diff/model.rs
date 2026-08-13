@@ -73,7 +73,9 @@ impl TableDescription {
     }
 }
 
-/// A single column, reduced to the two properties drift compares.
+/// A single column, reduced to the properties drift compares plus the
+/// key-membership fact catalog consumers need but drift itself does not yet
+/// compare.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ColumnDescription {
     /// Column name as written in its source, used for messages.
@@ -88,6 +90,16 @@ pub struct ColumnDescription {
     pub neutral_type: Option<String>,
     /// Whether the column accepts NULL.
     pub nullable: bool,
+    /// Whether this column is part of the table's primary key.
+    ///
+    /// Carried for catalog consumers (e.g. codegen-facing introspection) that
+    /// need to know which columns identify a row. Not yet read by
+    /// [`super::diff::diff`] — a live database's primary key can be added,
+    /// dropped or repointed independently of column shape, and folding that
+    /// into a rule belongs with its own SC-DRF constant and its own tests,
+    /// not as a side effect of adding the field. Defaults to `false` on every
+    /// constructor here so no existing caller has to opt in.
+    pub primary_key: bool,
 }
 
 impl ColumnDescription {
@@ -97,6 +109,7 @@ impl ColumnDescription {
             name: name.into(),
             neutral_type: Some(neutral_type.into()),
             nullable,
+            primary_key: false,
         }
     }
 
@@ -107,7 +120,19 @@ impl ColumnDescription {
             name: name.into(),
             neutral_type: None,
             nullable,
+            primary_key: false,
         }
+    }
+
+    /// Mark this column as (part of) the table's primary key.
+    ///
+    /// A builder method rather than a constructor parameter so every existing
+    /// call site — dozens, across this crate's unit tests — keeps compiling
+    /// unchanged; only a caller that has primary-key information to report
+    /// opts in.
+    pub fn as_primary_key(mut self) -> Self {
+        self.primary_key = true;
+        self
     }
 }
 
@@ -180,5 +205,20 @@ mod tests {
     #[test]
     fn unmappable_column_has_no_neutral_type() {
         assert_eq!(ColumnDescription::unmappable("shape", true).neutral_type, None);
+    }
+
+    /// New columns default to `primary_key: false` so every existing call
+    /// site across this crate's tests — none of which know about the field —
+    /// keeps its previous meaning without being touched.
+    #[test]
+    fn new_columns_default_to_not_primary_key() {
+        assert!(!ColumnDescription::new("id", "int32", false).primary_key);
+        assert!(!ColumnDescription::unmappable("id", false).primary_key);
+    }
+
+    #[test]
+    fn as_primary_key_marks_the_column() {
+        let column = ColumnDescription::new("id", "int32", false).as_primary_key();
+        assert!(column.primary_key);
     }
 }
