@@ -353,6 +353,24 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   `jsonb_typeof` and `json_array_length`/`jsonb_array_length` were unconditionally nullable where the
   database is strict, and now follow their argument.
 
+### Added
+
+- **`scythe-inspect` can read a SQLite or MySQL catalog.** A new `SchemaCatalogDriver` trait gives
+  catalog reading the engine seam it never had — `fetch_live_schema` was a bare function hardcoded to
+  `tokio_postgres::Client`. `SqliteCatalogSource` reads `sqlite_master` plus `PRAGMA table_info` and
+  needs no server, so it is tested in-process; `MySqlCatalogSource` reads `information_schema`, with
+  live tests gated the way the PostgreSQL ones already are. `ColumnDescription` gained `primary_key`.
+  The `SC-INS` health checks stay PostgreSQL-only — they are hand-written `pg_catalog` SQL — and the
+  CLI is not yet wired to the new sources, so `scythe inspect`'s user-facing behaviour is unchanged.
+- **Generated Python and PHP are type-checked in CI.** A new `validate-generated-types` job installs
+  each project's real driver, then runs `pyrefly check -p strict` over five Python backends and
+  PHPStan over both PHP ones. Every step was proven able to fail by injecting a defect first. The
+  `strict` preset is load-bearing — pyrefly's default `basic` preset misses a wrong return-type
+  annotation entirely — and the job already catches one real pre-existing bug. Ruby and Elixir were
+  investigated and deliberately left out rather than given a step that cannot fail: no Ruby driver
+  has signatures in `gem_rbs_collection` (and `rbs validate` returns 0 even for a nonexistent class),
+  and Dialyzer needs `dialyxir`'s translation layer, which no integration project depends on.
+
 ### Changed
 
 - **`scythe fmt --check` exits 2 rather than 1 when files need formatting.** #212 reserves exit 1 for

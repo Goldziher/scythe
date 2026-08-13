@@ -45,12 +45,6 @@ output/
 # poly cache
 .polylint/
 
-# BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
-.ai-rulez/.generated-manifest.json
-.codex/
-AGENTS.md
-CLAUDE.md
-# END ai-rulez
 poly.local.toml
 
 # Astro docs site
@@ -60,3 +54,10 @@ website/.astro/
 
 # snowflake-sdk writes this on every run
 snowflake.log
+
+# BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
+.ai-rulez/.generated-manifest.json
+.codex/
+AGENTS.md
+CLAUDE.md
+# END ai-rulez

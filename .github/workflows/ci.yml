@@ -403,6 +403,192 @@ jobs:
       - name: Compile-check every backend against the torture schema (issue #146)
         run: python3 scripts/check-generated-backends.py
 
+  # #127: `check-generated-syntax.sh` above (and `validate_with_tools` in
+  # crates/scythe-codegen/src/validation.rs) prove Python/PHP/Ruby/Elixir
+  # generated code *parses* -- `python3 -m py_compile`, `php -l`, `ruby -c`,
+  # `elixirc`/`mix compile`. None of those are a *type* checker: they cannot
+  # catch a declared type that the code cannot actually produce, which is
+  # exactly the shape of the two defects that shipped in the TypeScript/JS
+  # output this week (caught only because `tsc --checkJs --strict` -- a real
+  # type checker -- was pointed at richer input than a bare parse). This job
+  # adds real type checking for the two languages where it turned out to be
+  # reachable without inventing a fake driver, and documents -- rather than
+  # papering over -- the two where it is not.
+  #
+  # Python and PHP: every backend below already has a committed, real
+  # per-project dependency manifest under integration_tests/*/ (pyproject.toml
+  # + uv.lock; composer.json), the same mechanism `check-generated-syntax.sh`
+  # already uses to resolve TypeScript/C#/Rust/Java/Elixir driver types via a
+  # real project build instead of a hand-written stub. `uv sync`/
+  # `composer install` install the *real* driver package from that manifest,
+  # so the type checker below sees the actual `psycopg`/`amphp-postgres`
+  # types, not a stand-in.
+  #
+  # Ruby and Elixir are not in this job:
+  #
+  #   - Ruby: `pg`, `mysql2`, `sqlite3`, `trilogy`, `oci8` and `tiny_tds` have
+  #     no signatures in ruby/gem_rbs_collection (checked directly against
+  #     that repository -- zero `gems/<name>` entries for any of them), so
+  #     `steep check` has nothing to resolve `PG::Connection` et al. against
+  #     and would fail on every file, always, regardless of what scythe
+  #     generates -- the inverse of a vacuous pass, but just as useless as a
+  #     gate. `rbs validate` was tried as a lighter alternative and rejected:
+  #     it exits 0 even when a referenced class (`PG::NoSuchClassXYZ`,
+  #     substituted for `PG::Connection` in a throwaway copy) does not exist
+  #     anywhere in the loaded environment, so it validates nothing about
+  #     driver types either. Fixing this needs a hand-authored RBS stub for
+  #     each driver, reviewed by whoever owns the ruby-* backends -- out of
+  #     scope here.
+  #   - Elixir: `mix compile` (already run by `check-generated-syntax.sh`'s
+  #     `check_project`, with the real `postgrex`/`myxql`/etc. dependency
+  #     resolved via `mix deps.get`) is a real compile, not a Dialyzer-style
+  #     success-typing check. Driving `dialyzer` directly against the
+  #     project's compiled `.beam` files (no `mix.exs` edit, since
+  #     `dialyxir` -- the library that makes this work reliably -- is not a
+  #     dependency of any committed integration project) crashes inside
+  #     `dialyzer_utils:get_core_from_beam/2` on this toolchain: Elixir's
+  #     `debug_info` chunk format needs `dialyxir`'s translation to be read
+  #     back, which raw `dialyzer` does not have. Adding `dialyxir` to the
+  #     generated `mix.exs` template is a real fix, but it belongs in
+  #     `tools/integration-test-generator/templates/`, not here.
+  validate-generated-types:
+    name: "Validate: Generated Type Checking"
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+      - name: Install uv
+        run: pip install uv
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+      # Pinned phar download (same pattern as this file's "Install Kotlin"
+      # step below) rather than `composer global require`: none of the
+      # committed `composer.json` files may be edited to add a dev
+      # dependency, and a global require would still mutate the runner's
+      # composer state on every run instead of fetching one pinned artifact.
+      - name: Install PHPStan
+        run: |
+          curl -sL https://github.com/phpstan/phpstan/releases/download/2.2.8/phpstan.phar -o /usr/local/bin/phpstan
+          chmod +x /usr/local/bin/phpstan
+      - name: Verify every checker is on PATH
+        run: |
+          set -euo pipefail
+          missing=""
+          for tool in uv php phpstan jq; do
+            if command -v "$tool" >/dev/null 2>&1; then
+              echo "ok      $tool"
+            else
+              echo "MISSING $tool"
+              missing="$missing $tool"
+            fi
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Generated-type-checking tools not installed:$missing."
+            exit 1
+          fi
+      # pyrefly, not mypy: this repo's own Python type checker (see poly's
+      # engine table -- ruff for lint/format, pyrefly for types) is pyrefly.
+      # `poly lint` was tried first and rejected: run against both a clean
+      # generated file and one with a deliberately wrong return-type
+      # annotation, it reports only ruff findings in either case -- pyrefly
+      # is not reachable through `poly lint` in the installed poly version,
+      # so it is invoked directly here.
+      #
+      # `-p strict` is not optional. pyrefly's default preset with no
+      # `pyrefly.toml` present (`basic`) does not check return-type
+      # consistency at all -- verified directly: the same deliberately wrong
+      # annotation above produced zero diagnostics under `basic` and two
+      # under `-p strict` (`bad-return`, `implicitly-defined-attribute`-style
+      # "declared type does not allow None"). `--python-interpreter-path`
+      # points pyrefly at the project's own `uv sync`'d venv so it resolves
+      # the real installed driver package's types, not a stand-in.
+      - name: Type-check generated Python with pyrefly (issue #127)
+        run: |
+          set -euo pipefail
+          failures=0
+          # Only backends whose driver ships inline type hints (a `py.typed`
+          # marker or equivalent) are listed here. `python-aiomysql` and
+          # `python-pyodbc-mssql` are deliberately absent: neither `aiomysql`
+          # nor `pyodbc` ships types, no `types-aiomysql`/`types-pyodbc` stub
+          # package exists on PyPI (checked against the real index), and
+          # pointed at either backend's generated file, `pyrefly check -p
+          # strict` reports zero diagnostics even against the same
+          # deliberately-wrong return annotation used to prove this step can
+          # fail -- because the unresolved import becomes `Unknown`, which
+          # pyrefly accepts anywhere. A checker that cannot fail on that
+          # input is not a check; wiring it up would be exactly the "reads as
+          # coverage, checks nothing" step #127 is about. `python-duckdb` has
+          # no `integration_tests/` project directory at all (no scaffold to
+          # run this against), the same reason `check-generated-syntax.sh`
+          # never covered it either.
+          #
+          # proj:expected-error-count. A non-zero expectation records a real,
+          # pre-existing finding this step surfaces rather than introduces --
+          # see the inline note below -- and is not a suppression: a count
+          # that drops (bug fixed) or rises (regression) both fail this step,
+          # mirroring scripts/torture-expected-failures.txt's allowlist
+          # discipline elsewhere in this file.
+          for entry in \
+            "python-psycopg3:0" \
+            "python-asyncpg:0" \
+            "python-aiosqlite:0" \
+            "python-oracledb-oracle:0" \
+            "python-snowflake:1"; do
+            proj="${entry%%:*}"
+            expected="${entry##*:}"
+            dir="integration_tests/$proj"
+            echo "== $proj (pyrefly -p strict)"
+            ( cd "$dir" && uv sync --quiet )
+            json=$(cd "$dir" && uv run --with pyrefly -- pyrefly check -p strict \
+              --python-interpreter-path .venv/bin/python --output-format=json generated/*.py 2>/dev/null || true)
+            actual=$(printf '%s' "$json" | jq '.errors | length')
+            if [ "$actual" != "$expected" ]; then
+              echo "::error::$proj: pyrefly reported $actual error(s), expected $expected."
+              printf '%s\n' "$json" | jq -r '.errors[] | "  \(.path):\(.line): \(.concise_description)"'
+              if [ "$actual" -lt "$expected" ]; then
+                echo "  fewer errors than expected -- if python-snowflake's DeleteOrdersByUser rowcount/int mismatch (#127) was fixed, lower the expected count above."
+              fi
+              failures=$((failures + 1))
+            else
+              echo "  ok ($actual error(s), matches expected)"
+            fi
+          done
+          if [ "$failures" -ne 0 ]; then
+            echo "::error::$failures Python backend(s) diverged from their expected pyrefly error count."
+            exit 1
+          fi
+      # Level 5, not the repository's own PHPStan-level-9 convention
+      # (php-conventions): tried at level 9 first and rejected. Both
+      # backends produced findings there, but every one on php-amphp was
+      # `missingType.generics` on `Amp\Sql\SqlConnectionPool` -- scythe
+      # cannot spell that interface's four type parameters without knowing
+      # the caller's own pool configuration, so this is a structural
+      # property of the codegen contract, not a bug (the same reasoning
+      # `generated-code-poly.toml` already applies to two mago rules for the
+      # same reason). Level 5 keeps real argument/return/call-shape checking
+      # -- proven below -- while dropping that noise; both backends pass
+      # cleanly at level 5 today.
+      - name: Type-check generated PHP with PHPStan (issue #127)
+        run: |
+          set -euo pipefail
+          failures=0
+          for proj in php-pdo php-amphp; do
+            dir="integration_tests/$proj"
+            echo "== $proj (phpstan level 5)"
+            ( cd "$dir" && composer install --quiet --no-interaction )
+            if ! ( cd "$dir" && phpstan analyse --level=5 --no-progress generated ); then
+              echo "::error::$proj failed phpstan level 5 (issue #127)"
+              failures=$((failures + 1))
+            fi
+          done
+          if [ "$failures" -ne 0 ]; then
+            exit 1
+          fi
+
   validate-snippets:
     name: "Validate: Documentation Snippets"
     runs-on: ubuntu-latest
