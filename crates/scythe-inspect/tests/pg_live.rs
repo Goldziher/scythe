@@ -2,13 +2,25 @@
 //! enabled AND `$SCYTHE_TEST_DATABASE_URL` is set.
 //!
 //! Each test creates its own schema, runs the relevant check, and drops the
-//! schema on the way out.
+//! schema on the way out. Tests are independent and may run concurrently
+//! (the default `cargo test` behaviour): the per-test schema bounds the
+//! *fixture*, not the *assertion* — `run_all()` inspects every schema in the
+//! database, so a concurrently-running test's fixture can show up in
+//! `findings`, but every assertion below filters `findings` down to the
+//! schema/table name that test itself created, so unrelated fixtures never
+//! change the result.
 //!
-//! These tests must run serially (`--test-threads=1`, as the CI workflow does).
-//! The per-test schema bounds the *fixture*, not the *assertion*: `run_all()`
-//! inspects every schema in the database, so a concurrently-running test's
-//! fixture shows up in another test's findings.  SC-INS09 cannot be isolated by
-//! schema at all — installing an extension is database-global.
+//! SC-INS09 is the one rule whose fixture can't be isolated by schema at
+//! all: extensions live in a database-global namespace, so
+//! `CREATE EXTENSION IF NOT EXISTS` silently no-ops once *any* test has
+//! installed the same extension anywhere in the database — trusting that
+//! success meant "it's in the schema I asked for" is exactly what made this
+//! flaky. `install_test_extension_in_schema` instead checks the true
+//! location via `pg_extension`/`pg_namespace` after each attempt and falls
+//! through to the next candidate whenever the extension landed somewhere
+//! other than the requested schema, so the two SC-INS09 tests converge on
+//! disjoint extensions instead of racing for the same one, regardless of
+//! run order or concurrency.
 //!
 //! ## PG-version compatibility
 //!
@@ -556,15 +568,50 @@ async fn sc_ins08_skips_when_violation_absent() {
     client.batch_execute("DROP SCHEMA sc_ins08_negative CASCADE").await.ok();
 }
 
-/// Pick the first available test extension and install it in the requested
-/// schema. Returns the extension name on success, `None` if no benign
-/// extension is available (CI build without contrib modules).
-async fn install_test_extension_in_schema(client: &tokio_postgres::Client, schema: &str) -> Option<&'static str> {
-    for ext in ["pgcrypto", "btree_gin", "btree_gist"] {
+/// Try each extension in `candidates`, in order, and install the first one that actually lands
+/// in `schema`. Returns the extension name on success, `None` if every candidate is either
+/// unavailable in this build (missing contrib module) or already claimed by a different schema.
+/// A `Some` return means the extension is in `schema` — that is the postcondition, so there is
+/// nothing to hand back about where it ended up.
+///
+/// `CREATE EXTENSION IF NOT EXISTS` cannot be trusted to mean "it's in the schema I asked for":
+/// extensions live in a database-global namespace, so once *any* caller has installed an
+/// extension anywhere, `IF NOT EXISTS` silently no-ops for every later caller regardless of
+/// which schema they named. So after each attempt we ask `pg_extension`/`pg_namespace` where the
+/// extension actually ended up. If it's not in the requested schema — because another test (or a
+/// previous run) already owns it elsewhere — we treat that candidate as unavailable here and move
+/// on to the next one. This is what lets two tests each get their own extension deterministically,
+/// independent of run order or whether they execute concurrently.
+async fn install_test_extension_in_schema(
+    client: &tokio_postgres::Client,
+    schema: &str,
+    candidates: &[&'static str],
+) -> Option<&'static str> {
+    for &ext in candidates {
         let stmt = format!("CREATE EXTENSION IF NOT EXISTS {ext} SCHEMA {schema}");
-        if client.batch_execute(&stmt).await.is_ok() {
+        // Ignore the outcome here -- a missing contrib module makes this fail, and the catalog
+        // lookup below is the real source of truth for whether -- and where -- it landed.
+        let _ = client.batch_execute(&stmt).await;
+
+        let row = client
+            .query_opt(
+                "SELECT n.nspname FROM pg_extension e \
+                 JOIN pg_namespace n ON n.oid = e.extnamespace \
+                 WHERE e.extname = $1",
+                &[&ext],
+            )
+            .await
+            .expect("query pg_extension/pg_namespace for actual extension location");
+
+        let Some(row) = row else {
+            // Not installed anywhere -- contrib module unavailable. Try the next candidate.
+            continue;
+        };
+        let actual_schema: String = row.get("nspname");
+        if actual_schema == schema {
             return Some(ext);
         }
+        // It exists, just not here -- another test already owns this one. Move on.
     }
     None
 }
@@ -573,7 +620,8 @@ async fn install_test_extension_in_schema(client: &tokio_postgres::Client, schem
 async fn sc_ins09_fires_when_violation_present() {
     let client = raw_client().await;
 
-    let Some(ext) = install_test_extension_in_schema(&client, "public").await else {
+    let Some(ext) = install_test_extension_in_schema(&client, "public", &["pgcrypto", "btree_gin", "btree_gist"]).await
+    else {
         println!(
             "skipping sc_ins09_fires_when_violation_present: \
              no benign extension available to install in public"
@@ -608,7 +656,11 @@ async fn sc_ins09_skips_when_violation_absent() {
         .batch_execute(&format!("CREATE SCHEMA IF NOT EXISTS {schema}"))
         .await
         .expect("create non-public schema");
-    let Some(ext) = install_test_extension_in_schema(&client, schema).await else {
+    // Reversed candidate order relative to the positive test above: when every contrib module
+    // is available, the two tests naturally pick different extensions on the first try instead
+    // of both reaching for `pgcrypto` and falling through.
+    let Some(ext) = install_test_extension_in_schema(&client, schema, &["btree_gist", "btree_gin", "pgcrypto"]).await
+    else {
         let findings = run_all_findings().await;
         let leaked: Vec<_> = findings
             .iter()

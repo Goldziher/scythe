@@ -389,7 +389,7 @@ jobs:
       # This is a hard gate, not `continue-on-error: true` -- a step that
       # cannot fail is the exact anti-pattern the rest of this job exists to
       # eliminate (see Taskfile.yaml's old `cargo check --workspace
-      # 2>/dev/null || true`). 24 of the 25 postgresql-engine backends
+      # 2>/dev/null || true`). 5 of the 25 postgresql-engine backends
       # currently fail against the torture schema, so the script compares
       # against the checked-in scripts/torture-expected-failures.txt instead
       # of a plain pass/fail count: a listed project failing is a known,

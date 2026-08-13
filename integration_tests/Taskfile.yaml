@@ -122,7 +122,7 @@ tasks:
       # (via `--list`), not a hand-maintained copy, so this task can never
       # drift from what `generate:scaffolding` actually produces. See
       # tools/integration-test-generator/src/main.rs and
-      # integration_tests/README.md for the 8 directories intentionally
+      # integration_tests/README.md for the 9 directories intentionally
       # excluded because they are hand-maintained outside the generator.
       BACKENDS:
         sh: cd .. && cargo run --quiet -p integration-test-generator -- --list

@@ -43,6 +43,15 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **The tool-validation schemas contained no container or user-defined type.** The ~20 PostgreSQL
+  backend tests that compile generated code with a real compiler — the strongest gate in the project
+  — never asked one to accept an array, an enum, an array of enums, a composite, a `uuid` or a
+  `jsonb` column, which is why the JSDoc and JVM enum defects above survived. The schemas now carry
+  all of them, and every added column is selected by the query each test runs; a widened schema with
+  an unwidened query would have added columns no generated file reaches. MySQL gains an inline
+  `ENUM(...)` column for the same reason. (#146)
+- **The two `SC-INS09` live tests raced each other.** Both trusted `CREATE EXTENSION IF NOT EXISTS`
+  to tell them where an extension landed; they now verify against `pg_extension`/`pg_namespace`. (#144)
 - **`SC-N02` (`table-naming`) could not see a CamelCase table name.** The catalog stores tables under
   a lowercased lookup key, so by the time the rule read the name every table looked snake_case and
   `CREATE TABLE "UserProfile"` passed. `Table` now keeps the DDL's own spelling in `raw_name`

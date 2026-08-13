@@ -108,7 +108,7 @@ jobs:
           java-version: "21"
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "8.0"
+          dotnet-version: "10.0.x"
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -344,7 +344,7 @@ jobs:
           java-version: "21"
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "8.0"
+          dotnet-version: "10.0.x"
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -487,7 +487,7 @@ jobs:
           java-version: "21"
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "8.0"
+          dotnet-version: "10.0.x"
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -640,7 +640,7 @@ jobs:
           java-version: "21"
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "8.0"
+          dotnet-version: "10.0.x"
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -724,7 +724,7 @@ jobs:
           --health-retries 10
 
     env:
-      MSSQL_URL: "sqlserver://sa:Scythe_Test1@localhost:1433?database=master"
+      MSSQL_URL: "sqlserver://sa:Scythe_Test1@localhost:1433?database=scythe_test"
 
     steps:
       - uses: actions/checkout@v7
@@ -761,7 +761,7 @@ jobs:
           java-version: "21"
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "8.0"
+          dotnet-version: "10.0.x"
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -886,7 +886,7 @@ jobs:
           java-version: "21"
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "8.0"
+          dotnet-version: "10.0.x"
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"
@@ -986,6 +986,10 @@ jobs:
           bundle install
           bundle exec ruby test_integration.rb
 
+      - name: Test php-pdo-sqlite
+        working-directory: integration_tests/php-pdo-sqlite
+        run: php test_integration.php
+
   integration-redshift:
     name: Redshift Integration Tests (PG-compat)
     runs-on: ubuntu-latest
@@ -1036,7 +1040,7 @@ jobs:
           java-version: "21"
       - uses: actions/setup-dotnet@v6
         with:
-          dotnet-version: "8.0"
+          dotnet-version: "10.0.x"
       - uses: erlef/setup-beam@v1
         with:
           otp-version: "26"

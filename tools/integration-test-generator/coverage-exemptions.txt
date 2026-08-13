@@ -82,12 +82,13 @@ typescript-kysely|redshift : needs redshift branches in typescript.ts.jinja's ky
 # Adding a project without a CI step produces output that is checked for
 # freshness but never executed -- see the [manifests] preamble.
 #
-# These six are issue #118. All six now have a `test:*` target in
-# integration_tests/Taskfile.yaml, so they are at least runnable by hand; what
-# they still lack is a step in the workflow.
+# These were issue #118. php-pdo-sqlite is closed: integration-sqlite needs no
+# service container and already installs pdo_sqlite, so it only needed the
+# `Test php-pdo-sqlite` step. The remaining five still lack a step in the
+# workflow; all five now have a `test:*` target in integration_tests/Taskfile.yaml,
+# so they are at least runnable by hand.
 elixir-jamdb-oracle : issue #118 -- needs a step in the integration-oracle job
 kotlin-jdbc-ext : issue #118 -- needs a step in the integration-postgres job
 php-pdo-namespace : issue #118 -- generated-output-only project; needs a lint step in the integration-postgres job
 php-pdo-snowflake : issue #118 -- needs a step in the integration-snowflake job
-php-pdo-sqlite : issue #118 -- needs a step in the integration-sqlite job
 ruby-oci8-oracle : issue #118 -- needs a step in the integration-oracle job

@@ -1,10 +1,11 @@
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use clap::Parser;
 use minijinja::Environment;
-use serde::Serialize;
+use scythe_codegen::backends::get_backend;
+use serde::{Deserialize, Serialize};
 
 /// Integration test generator for scythe.
 ///
@@ -212,7 +213,19 @@ fn language_outputs(language: &str) -> LanguageOutputs {
     }
 }
 
-fn build_backends() -> Vec<BackendConfig> {
+/// The hand-maintained half of `build_backends()`: driver, connection env var
+/// and per-variant options (row_type, structs_only, etc.) for every project
+/// this generator ships. This data cannot come from the manifests directory —
+/// a manifest declares only (name, language, engine), not which driver
+/// crate/package exercises it or which one-off option combinations are worth
+/// their own project — so it stays a literal list.
+///
+/// What *is* derived, in `build_backends()` below, is completeness: every
+/// manifest under `crates/scythe-codegen/manifests` must be reachable from
+/// this list (resolved through the real backend resolver, not a re-derived
+/// fallback table) or be named in `coverage-exemptions.txt`. That is what
+/// keeps a new backend from shipping a manifest with no project (issue #134).
+fn backend_variants() -> Vec<BackendConfig> {
     vec![
         BackendConfig {
             name: "python-psycopg3".into(),
@@ -1109,6 +1122,172 @@ fn build_backends() -> Vec<BackendConfig> {
             options: HashMap::new(),
         },
     ]
+}
+
+/// The `[backend]` fields this generator needs out of a manifest TOML file.
+/// Mirrors `ManifestBackend` in
+/// `tools/integration-test-generator/tests/coverage_completeness.rs` — kept
+/// as a separate, minimal struct (rather than depending on
+/// `scythe_backend::manifest::BackendManifest`) because this is the disk-read
+/// half of the check, not the resolved half; the resolved half goes through
+/// `get_backend` instead, below.
+#[derive(Debug, Deserialize)]
+struct ManifestFile {
+    backend: ManifestBackendMeta,
+}
+
+#[derive(Debug, Deserialize)]
+struct ManifestBackendMeta {
+    name: String,
+    engine: String,
+}
+
+/// Every manifest that ships, keyed by the (name, engine) pair the backend
+/// resolver uses. This is the disk-derived side of the completeness check:
+/// `build_backends()` cannot ship a project for a manifest this function does
+/// not find.
+fn discover_manifest_pairs(manifests_dir: &Path) -> BTreeSet<(String, String)> {
+    let entries =
+        fs::read_dir(manifests_dir).unwrap_or_else(|err| panic!("reading {}: {err}", manifests_dir.display()));
+    let mut pairs = BTreeSet::new();
+    for entry in entries {
+        let path = entry
+            .unwrap_or_else(|err| panic!("reading manifest entry: {err}"))
+            .path();
+        if path.extension().and_then(|s| s.to_str()) != Some("toml") {
+            continue;
+        }
+        let contents = fs::read_to_string(&path).unwrap_or_else(|err| panic!("reading {}: {err}", path.display()));
+        let parsed: ManifestFile =
+            toml::from_str(&contents).unwrap_or_else(|err| panic!("parsing manifest {}: {err}", path.display()));
+        pairs.insert((parsed.backend.name, parsed.backend.engine));
+    }
+    assert!(
+        !pairs.is_empty(),
+        "no manifests found under {}",
+        manifests_dir.display()
+    );
+    pairs
+}
+
+/// Parses the `[manifests]` section of `coverage-exemptions.txt`: lines
+/// shaped `<name>|<engine> : <reason>`. Deliberately reads the same file
+/// `tests/coverage_completeness.rs` reads (rather than a second, generator-only
+/// opt-out list), because both are asserting the same fact — a manifest with
+/// no project — and two allowlists for one fact is exactly the drift issue
+/// #134 exists to close.
+fn load_manifest_exemptions(exemptions_path: &Path) -> HashMap<String, String> {
+    let contents = fs::read_to_string(exemptions_path)
+        .unwrap_or_else(|err| panic!("reading {}: {err}", exemptions_path.display()));
+    let mut in_section = false;
+    let mut entries = HashMap::new();
+    for raw in contents.lines() {
+        let line = raw.trim();
+        if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            in_section = header == "manifests";
+            continue;
+        }
+        if line.is_empty() || line.starts_with('#') || !in_section {
+            continue;
+        }
+        let Some((key, reason)) = line.split_once(':') else {
+            panic!("exemption line in [manifests] is not '<key> : <reason>': {line}");
+        };
+        let (key, reason) = (key.trim().to_string(), reason.trim().to_string());
+        assert!(!reason.is_empty(), "exemption '{key}' in [manifests] has no reason");
+        entries.insert(key, reason);
+    }
+    entries
+}
+
+/// Cross-checks `backend_variants()` against the manifests directory and
+/// `coverage-exemptions.txt`, failing the build in both directions — a
+/// manifest with no covering variant and no exemption, or an exemption whose
+/// manifest is covered now — the same ratchet `torture-expected-failures.txt`
+/// uses. See `backend_variants()`'s doc comment for why the entries
+/// themselves cannot be generated from the manifest directly.
+fn validate_manifest_coverage(variants: &[BackendConfig], manifests_dir: &Path, exemptions_path: &Path) {
+    let shipped = discover_manifest_pairs(manifests_dir);
+
+    // A variant names the (backend, engine) it *asks* for, but the resolver
+    // can answer with a manifest declared under a different engine (e.g.
+    // csharp-mysqlconnector on mariadb resolves to the mysql manifest, there
+    // being no mariadb manifest for it). So coverage is whatever the real
+    // resolver reaches, not a literal pair match -- re-deriving that
+    // fallback table here would reintroduce the "two derivations, never
+    // cross-checked" shape this check exists to kill.
+    let mut covered: BTreeSet<(String, String)> = BTreeSet::new();
+    for variant in variants {
+        let backend = get_backend(&variant.backend, &variant.engine).unwrap_or_else(|err| {
+            panic!(
+                "backend_variants() entry '{}' requests backend '{}' on engine '{}', which does not \
+                 resolve to any manifest: {err}",
+                variant.name, variant.backend, variant.engine
+            )
+        });
+        let meta = &backend.manifest().backend;
+        covered.insert((meta.name.clone(), meta.engine.clone()));
+    }
+
+    let exemptions = load_manifest_exemptions(exemptions_path);
+    let mut failures = Vec::new();
+
+    for (name, engine) in shipped.difference(&covered) {
+        let key = format!("{name}|{engine}");
+        if !exemptions.contains_key(&key) {
+            failures.push(format!(
+                "manifest '{name}' (engine '{engine}') has no entry in backend_variants() and no \
+                 exemption in {}",
+                exemptions_path.display()
+            ));
+        }
+    }
+    for key in exemptions.keys() {
+        let Some((name, engine)) = key.split_once('|') else {
+            failures.push(format!(
+                "malformed exemption key '{key}' in {}",
+                exemptions_path.display()
+            ));
+            continue;
+        };
+        if covered.contains(&(name.to_string(), engine.to_string())) {
+            failures.push(format!(
+                "exemption '{key}' in {} is stale -- it is covered now, delete the line",
+                exemptions_path.display()
+            ));
+        }
+    }
+
+    assert!(
+        failures.is_empty(),
+        "manifest coverage check failed:\n{}",
+        failures.iter().map(|f| format!("  {f}")).collect::<Vec<_>>().join("\n")
+    );
+}
+
+/// Repo root, derived from the compiled-in manifest dir rather than the
+/// process's current directory, so the coverage check below is correct
+/// regardless of where the binary is invoked from.
+fn repo_root() -> PathBuf {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("crate is two levels below the repo root")
+        .to_path_buf()
+}
+
+/// The list `main()` actually uses: `backend_variants()`, validated against
+/// `crates/scythe-codegen/manifests` and `coverage-exemptions.txt` so a
+/// manifest can never ship silently uncovered (issue #134).
+fn build_backends() -> Vec<BackendConfig> {
+    let variants = backend_variants();
+    let root = repo_root();
+    validate_manifest_coverage(
+        &variants,
+        &root.join("crates/scythe-codegen/manifests"),
+        &root.join("tools/integration-test-generator/coverage-exemptions.txt"),
+    );
+    variants
 }
 
 fn load_templates(env: &mut Environment<'_>, templates_dir: &Path) -> Result<(), String> {

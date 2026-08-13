@@ -9,16 +9,39 @@ use scythe_core::catalog::Catalog;
 use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::parse_query_with_dialect;
 
-const SCHEMA: &str = "CREATE TABLE users (\
+// ~keep #146: the PostgreSQL schema is the one shared by every full
+// generate-and-compile round in this file except the MySQL/SQLite/MSSQL/
+// Oracle/Snowflake ones below (see each dialect's own schema for why those
+// stay SERIAL/TEXT/VARCHAR/TIMESTAMP-only -- PostgreSQL is the only dialect
+// here with a real array element type and `CREATE TYPE`). Before this it
+// carried zero container or user-defined types, so nothing in this file's
+// ~20 PostgreSQL backend tests -- the strongest gate in the project -- ever
+// asked a real compiler to accept an array, an enum, an array of enums, a
+// composite, a `uuid`, or a `jsonb` column. `role`/`roles`/`tags`/
+// `home_address`/`external_id`/`metadata` below exist to close exactly that
+// gap; every one of them is selected by `QUERY_ONE`, the query every
+// PostgreSQL backend test in this file runs, so widening the schema without
+// also widening the query would have added dead columns no generated file
+// ever reaches.
+const SCHEMA: &str = "CREATE TYPE user_role AS ENUM ('member', 'admin'); \
+    CREATE TYPE user_address AS (street TEXT, city TEXT, zip TEXT); \
+    CREATE TABLE users (\
     id SERIAL PRIMARY KEY, \
     name TEXT NOT NULL, \
     email TEXT, \
     status TEXT NOT NULL DEFAULT 'active', \
+    role user_role NOT NULL DEFAULT 'member', \
+    roles user_role[], \
+    tags TEXT[], \
+    home_address user_address, \
+    external_id UUID, \
+    metadata JSONB, \
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()\
 );";
 
 const QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
-    SELECT id, name, email, status, created_at FROM users WHERE id = $1;";
+    SELECT id, name, email, status, role, roles, tags, home_address, external_id, metadata, \
+    created_at FROM users WHERE id = $1;";
 
 const QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
     SELECT id, name, email FROM users ORDER BY name;";
@@ -26,16 +49,23 @@ const QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
 const QUERY_EXEC: &str = "-- @name DeleteUser\n-- @returns :exec\n\
     DELETE FROM users WHERE id = $1;";
 
+// ~keep #146: MySQL has no `CREATE TYPE` and no array element type, but it
+// does have an inline `ENUM(...)` column -- a real user-defined-type family
+// this file's MySQL-backed tests (ruby-trilogy, csharp-mysqlconnector,
+// elixir-myxql, javascript-mysql2) had no coverage of at all. `role` is
+// selected by `MYSQL_QUERY_ONE` for the same reason `role` was added to the
+// PostgreSQL `QUERY_ONE` above -- an unselected column proves nothing.
 const MYSQL_SCHEMA: &str = "CREATE TABLE users (\
     id INT AUTO_INCREMENT PRIMARY KEY, \
     name VARCHAR(255) NOT NULL, \
     email VARCHAR(255), \
     status VARCHAR(50) NOT NULL DEFAULT 'active', \
+    role ENUM('member', 'admin') NOT NULL DEFAULT 'member', \
     created_at DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP\
 );";
 
 const MYSQL_QUERY_ONE: &str = "-- @name GetUser\n-- @returns :one\n\
-    SELECT id, name, email, status, created_at FROM users WHERE id = ?;";
+    SELECT id, name, email, status, role, created_at FROM users WHERE id = ?;";
 
 const MYSQL_QUERY_MANY: &str = "-- @name ListUsers\n-- @returns :many\n\
     SELECT id, name, email FROM users ORDER BY name;";

@@ -70,18 +70,24 @@ silently deleted the decimal-precision assertion.
 
 ## Directories outside the generator
 
-Eight directories are not produced by `tools/integration-test-generator` and are intentionally
-absent from `build_backends()`:
+Nine directories are not produced by `tools/integration-test-generator` and are intentionally
+absent from `build_backends()`: the three hand-maintained ones below, plus the six orphaned local
+artifacts after them.
 
 ### Hand-maintained by design
+
+The `HAND_MAINTAINED` list in `Taskfile.yaml` is the source of truth for this group — this section
+must list exactly what it lists.
 
 - `kotlin-jdbc-ext` — exercises the `extension_functions = "true"` codegen option for the
   `kotlin-jdbc` backend. Kept out of the generated matrix because it's a one-off option
   combination, not a distinct language/driver/engine axis.
 - `php-pdo-namespace` — exercises the configurable PHP `namespace` codegen option for the
   `php-pdo` backend, for the same reason.
+- `rust-sqlx-nested-json` — pins a schema and dependency set the generator has no template for
+  (nested JSON aggregation), so it owns its `scythe.toml` and `Cargo.toml` by hand.
 
-  Both have their own hand-written `scythe.toml` and dependency manifest, but their
+  All three have their own hand-written `scythe.toml` and dependency manifest, but their
   `generated/` output is still produced by `scythe generate` and drifts like any other generated
   output, so `task generate` regenerates them too — via the explicit `HAND_MAINTAINED` list in
   `Taskfile.yaml`, since they are absent from `build_backends()`. Only their scaffolding is
