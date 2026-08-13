@@ -4,7 +4,7 @@
 
 -- @name GetWidget
 -- @returns :one
-SELECT "widgetId", "type", "class", "fn", "end", children, tags, statuses, home_address, metadata, external_id, status, scheduled_at
+SELECT "widgetId", "type", "class", "fn", "end", children, "my col", "with-dash", "2fa", tags, statuses, home_address, metadata, external_id, status, scheduled_at
 FROM "torture_widgets"
 WHERE "widgetId" = $1;
 

@@ -26,6 +26,16 @@
 -- `torture_status[]`, that is itself a finding this gate should surface,
 -- not something to route around.
 --
+-- The three non-identifier names below (`"my col"`, `"with-dash"`, `"2fa"`)
+-- have no testing_data/ fixture; they were verified directly instead, by
+-- running `scythe generate` over a two-column schema using them and reading
+-- the result: scythe-core resolves all three between DDL and query, and
+-- python-psycopg3 emits `my_col` / `with_dash` / `col_2fa` read positionally
+-- (`row[1]`). That check matters because of the non-ASCII case immediately
+-- below -- a quoted name scythe-core cannot resolve aborts generation for
+-- the whole file, which would take every other case in this schema down
+-- with it and report one uniform failure that says nothing about codegen.
+--
 -- The non-ASCII identifier issue #181 asks for is deliberately NOT a column
 -- here: `CREATE TABLE t ("café" TEXT)` plus `SELECT "café" FROM t` makes
 -- `scythe generate` fail outright with `UNKNOWN_COLUMN: column "café" does
@@ -57,6 +67,20 @@ CREATE TABLE "torture_widgets" (
     -- Collides with a name scythe itself might synthesize for a nested or
     -- aggregated relation (e.g. a "children" field on a parent row struct).
     children INT NOT NULL DEFAULT 0,
+    -- Names that are not valid identifiers in ANY target language, so every
+    -- backend reaching them must sanitize in field-declaration position --
+    -- except TypeScript, which quotes and keeps the column's own spelling
+    -- because its row type is cast straight onto the driver's rows.
+    --
+    -- The absence of these three is why 40f6351's defect shipped: it emitted
+    -- `pub my col: String` / `my col: str` / `String my col` in nine
+    -- languages, none of which parse, and this gate stayed green throughout
+    -- because no column here had a space, a dash, or a leading digit. The
+    -- reserved-word case above (`class`, `fn`, `end`, `type`) was covered;
+    -- this class was not. A gate is only as strong as its worst input.
+    "my col" TEXT,                             -- space
+    "with-dash" TEXT,                          -- dash
+    "2fa" TEXT,                                -- leading digit
     tags TEXT[] NOT NULL,                      -- array column (issue #200)
     statuses torture_status[] NOT NULL,        -- enum inside an array (issue #187)
     home_address torture_address,              -- composite type

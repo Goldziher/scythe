@@ -132,6 +132,27 @@ SYNTAX_BY_EXTENSION: dict[str, list[str]] = {
     ".rbs": ["rbs", "parse"],
 }
 
+# The extension each SYNTAX_ONLY backend's own checker is able to read. A file
+# whose extension is in neither this map nor SYNTAX_BY_EXTENSION is a hard
+# error rather than a silent dispatch to the backend's checker.
+#
+# This is the ruby-pg defect generalised. `ruby -c` was run over `queries.rbs`
+# for as long as that entry existed, because dispatch fell back to the backend
+# whenever the extension was unrecognised -- and a checker pointed at a file it
+# cannot parse produces a failure no change to the generated code can ever
+# clear. SYNTAX_BY_EXTENSION fixed the one known instance; this closes the
+# fallback that would let the next one happen silently. A backend that starts
+# emitting a second file type now fails loudly here until someone decides
+# which checker should read it.
+PRIMARY_EXTENSION: dict[str, str] = {
+    "python-asyncpg": ".py",
+    "python-psycopg3": ".py",
+    "php-amphp": ".php",
+    "php-pdo": ".php",
+    "ruby-pg": ".rb",
+    "kotlin-jdbc": ".kt",
+}
+
 # The hand-written test harness in each project calls generated functions by
 # name against sql/pg/schema.sql's shape (CreateOrder, GetUserById, ...).
 # sql/torture/schema.sql defines none of those, so an unmodified harness
@@ -190,19 +211,44 @@ def find_pg_projects() -> list[dict]:
 
 
 def patch_scythe_toml(path: str) -> None:
-    """Point schema/queries at the torture fixture, in place, on the copy."""
+    """Point schema/queries at the torture fixture, in place, on the copy.
+
+    Both substitutions are asserted, because a silent no-op here is the worst
+    outcome this script can produce: the project would keep pointing at the
+    29-line sql/pg/schema.sql, generate trivially correct code from it, and
+    be recorded PASS while appearing to have been torture-tested. The match
+    is deliberately narrow -- a stripped line starting `schema = [` -- so a
+    multi-line array or a `schema=[` spelling would slip through unnoticed.
+    Every pg manifest matches the expected single-line form today; nothing
+    but this assertion keeps that true.
+    """
     with open(path, encoding="utf-8") as fh:
         text = fh.read()
     lines = text.splitlines()
     out = []
+    patched_schema = False
+    patched_queries = False
     for line in lines:
         stripped = line.strip()
         if stripped.startswith("schema = ["):
             out.append(f'schema = ["{TORTURE_SCHEMA}"]')
+            patched_schema = True
         elif stripped.startswith("queries = ["):
             out.append(f'queries = ["{TORTURE_QUERIES}"]')
+            patched_queries = True
         else:
             out.append(line)
+    if not patched_schema or not patched_queries:
+        missing = []
+        if not patched_schema:
+            missing.append("schema = [")
+        if not patched_queries:
+            missing.append("queries = [")
+        raise RuntimeError(
+            f"{path}: could not repoint {' and '.join(missing)} at the torture fixture. "
+            "The project would have been checked against its own schema and recorded PASS "
+            "without ever seeing the torture schema."
+        )
     with open(path, "w", encoding="utf-8") as fh:
         fh.write("\n".join(out) + "\n")
 
@@ -227,9 +273,19 @@ def run_syntax_check(backend: str, file_path: str, cwd: str) -> tuple[bool, str]
 
     The extension map wins because a file's language is a property of the file,
     not of the backend that emitted it."""
-    ext_cmd = SYNTAX_BY_EXTENSION.get(os.path.splitext(file_path)[1])
+    ext = os.path.splitext(file_path)[1]
+    ext_cmd = SYNTAX_BY_EXTENSION.get(ext)
     if ext_cmd is not None:
         return run([*ext_cmd, file_path], cwd=cwd, timeout=30)
+    expected = PRIMARY_EXTENSION.get(backend)
+    if expected is not None and ext != expected:
+        return False, (
+            f"{backend} emitted a {ext or '(no extension)'} file, but its checker "
+            f"{SYNTAX_ONLY.get(backend)} reads {expected}. Dispatching it anyway is how "
+            "`ruby -c` came to be run over queries.rbs. Register the right checker in "
+            "SYNTAX_BY_EXTENSION, or update PRIMARY_EXTENSION if the backend legitimately "
+            "changed what it emits."
+        )
     if backend == "kotlin-jdbc":
         with tempfile.TemporaryDirectory() as tmp:
             return run(["kotlinc", "-d", os.path.join(tmp, "out.jar"), file_path], cwd=cwd, timeout=120)
@@ -274,7 +330,23 @@ def main() -> int:
         stub = HARNESS_STUBS.get(proj["backend"])
         if stub is not None:
             rel_path, content = stub
-            with open(os.path.join(dst, rel_path), "w", encoding="utf-8") as fh:
+            stub_path = os.path.join(dst, rel_path)
+            # `open(..., "w")` creates a missing file rather than failing, so a
+            # stub aimed at a path the project no longer has would write a stray
+            # file AND leave the real harness in place. In a compiled language
+            # that is a permanent undefined-symbol failure, which then gets
+            # allowlisted with a reason describing the generated code -- the
+            # exact rot that made csharp-npgsql's entry unfalsifiable for its
+            # whole life. In TypeScript it is worse: a stray `test.ts` would
+            # itself typecheck clean, so the project fails silently in the PASS
+            # direction. One directory rename is all it takes either way.
+            if not os.path.exists(stub_path):
+                raise RuntimeError(
+                    f"{proj['name']}: HARNESS_STUBS targets {rel_path}, which does not exist in "
+                    "this project. Writing it would leave the real harness in place and make this "
+                    "project's result meaningless. Fix the stub path in HARNESS_STUBS."
+                )
+            with open(stub_path, "w", encoding="utf-8") as fh:
                 fh.write(content)
 
         ok, out = run([SCYTHE_BIN, "generate"], cwd=dst, timeout=60)
@@ -286,6 +358,22 @@ def main() -> int:
         if cmd is None:
             out_dir = os.path.join(dst, proj["output"])
             files = [f for f in glob.glob(os.path.join(out_dir, "*")) if os.path.isfile(f)]
+            # An empty output directory used to fall straight through to PASS:
+            # `failed` stays empty when there is nothing to iterate, so a project
+            # whose generator wrote no file at all reported exactly the same
+            # result as one whose every file checked out. A gate that passes when
+            # it inspected nothing is indistinguishable from one that cannot fail.
+            if not files:
+                results.append(
+                    (
+                        proj["name"],
+                        proj["backend"],
+                        "syntax",
+                        f"no generated files found in {proj['output']}/ -- nothing was checked, "
+                        "so this project's PASS would have been vacuous",
+                    )
+                )
+                continue
             failed = []
             for f in files:
                 ok2, out2 = run_syntax_check(proj["backend"], f, cwd=dst)
