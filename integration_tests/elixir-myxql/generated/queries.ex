@@ -160,7 +160,7 @@ def get_user_by_id(conn, id) do
   end
 end
 
-@spec list_active_users(MyXQL.conn(), UsersStatus) :: {:ok, [%ListActiveUsersRow{}]} | {:error, term()}
+@spec list_active_users(MyXQL.conn(), String.t()) :: {:ok, [%ListActiveUsersRow{}]} | {:error, term()}
 def list_active_users(conn, status) do
   case MyXQL.query(conn, "SELECT id, name, email FROM users WHERE status = ?", [status]) do
     {:ok, %MyXQL.Result{rows: rows}} ->
@@ -173,7 +173,7 @@ def list_active_users(conn, status) do
   end
 end
 
-@spec create_user(MyXQL.conn(), String.t(), String.t() | nil, UsersStatus) :: :ok | {:error, term()}
+@spec create_user(MyXQL.conn(), String.t(), String.t() | nil, String.t()) :: :ok | {:error, term()}
 def create_user(conn, name, email, status) do
   case MyXQL.query(conn, "INSERT INTO users (name, email, status) VALUES (?, ?, ?)", [name, email, status]) do
     {:ok, _} -> :ok

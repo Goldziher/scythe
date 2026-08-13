@@ -4,6 +4,7 @@ pub(crate) mod csharp_npgsql;
 pub(crate) mod csharp_oracle;
 pub(crate) mod csharp_snowflake;
 pub(crate) mod csharp_sqlclient;
+pub(crate) mod elixir_common;
 pub(crate) mod elixir_ecto;
 pub(crate) mod elixir_exqlite;
 pub(crate) mod elixir_jamdb;

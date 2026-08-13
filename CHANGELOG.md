@@ -43,6 +43,10 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- `elixir-exqlite` releases its prepared statement on every exit path, not just the success one;
+  `elixir-tds` types `bytes` and `time`/`time_tz` parameters instead of falling through to `:string`;
+  and a `:grouped` query with no parent columns no longer emits `defstruct [, :children]`, which is
+  not valid Elixir. (#202)
 - **A column named `my col`, `with-dash` or `2fa` reached a field declaration verbatim in every
   language but TypeScript.** `pub my col: String`, `my col: str`, `My col string`, `String my col` —
   none of them parse, and no gate caught it because the torture schema has no such column. #215 fixed
@@ -234,6 +238,13 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Changed
 
+- **Breaking (`elixir-ecto`): the backend emits Ecto instead of a Postgrex clone.** Generated
+  functions take a `repo` rather than a `conn`, specs change from `Postgrex.conn()` to
+  `Ecto.Repo.t()`, queries run through `Ecto.Adapters.SQL.query(repo, sql, args, [])`, and `:batch`
+  uses `repo.transaction/1` with `repo.rollback/1`. Struct definitions also move to top level instead
+  of nesting under `Scythe.Queries.*`. A backend named after Ecto that generated raw Postgrex calls
+  was misnamed rather than merely limited. Every caller of a generated `elixir-ecto` function must
+  now pass a repo module. (#202)
 - The PHP backends now render a type twice: the native position (property, parameter, return) keeps
   the bare `array` PHP's syntax requires, and `@var`/`@param` docblocks get `array<T>` back. A bare
   `array` is `array<mixed, mixed>` to PHPStan, so the fix that made the output parse cost every array

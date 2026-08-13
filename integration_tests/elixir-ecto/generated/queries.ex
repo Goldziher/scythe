@@ -1,6 +1,4 @@
 # scythe:provenance v=0.14.0 backend=elixir-ecto engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046
-defmodule Scythe.Queries do
-
 defmodule UserStatus do
   @moduledoc "Enum type for user_status."
 
@@ -29,17 +27,6 @@ defmodule CreateOrderRow do
   defstruct [:id, :user_id, :total, :notes, :created_at]
 end
 
-@spec create_order(Postgrex.conn(), integer(), Decimal.t(), String.t() | nil) :: {:ok, %CreateOrderRow{}} | {:error, :not_found} | {:error, term()}
-def create_order(conn, user_id, total, notes) do
-  case Postgrex.query(conn, "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at", [user_id, total, notes]) do
-    {:ok, %{rows: [row | _]}} ->
-      [id, user_id, total, notes, created_at] = row
-      {:ok, %CreateOrderRow{id: id, user_id: user_id, total: total, notes: notes, created_at: created_at}}
-    {:ok, %{rows: []}} -> {:error, :not_found}
-    {:error, err} -> {:error, err}
-  end
-end
-
 defmodule GetOrdersByUserRow do
   @moduledoc "Row type for GetOrdersByUser queries."
 
@@ -52,19 +39,6 @@ defmodule GetOrdersByUserRow do
   defstruct [:id, :total, :notes, :created_at]
 end
 
-@spec get_orders_by_user(Postgrex.conn(), integer()) :: {:ok, [%GetOrdersByUserRow{}]} | {:error, term()}
-def get_orders_by_user(conn, user_id) do
-  case Postgrex.query(conn, "SELECT id, total, notes, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC", [user_id]) do
-    {:ok, %{rows: rows}} ->
-      results = Enum.map(rows, fn row ->
-        [id, total, notes, created_at] = row
-        %GetOrdersByUserRow{id: id, total: total, notes: notes, created_at: created_at}
-      end)
-      {:ok, results}
-    {:error, err} -> {:error, err}
-  end
-end
-
 defmodule GetOrderTotalRow do
   @moduledoc "Row type for GetOrderTotal queries."
 
@@ -74,17 +48,6 @@ defmodule GetOrderTotalRow do
   defstruct [:total_sum]
 end
 
-@spec get_order_total(Postgrex.conn(), integer()) :: {:ok, %GetOrderTotalRow{}} | {:error, :not_found} | {:error, term()}
-def get_order_total(conn, user_id) do
-  case Postgrex.query(conn, "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1", [user_id]) do
-    {:ok, %{rows: [row | _]}} ->
-      [total_sum] = row
-      {:ok, %GetOrderTotalRow{total_sum: total_sum}}
-    {:ok, %{rows: []}} -> {:error, :not_found}
-    {:error, err} -> {:error, err}
-  end
-end
-
 defmodule GetOrderWeightTotalRow do
   @moduledoc "Row type for GetOrderWeightTotal queries."
 
@@ -92,25 +55,6 @@ defmodule GetOrderWeightTotalRow do
     weight_total: float() | nil
   }
   defstruct [:weight_total]
-end
-
-@spec get_order_weight_total(Postgrex.conn(), integer()) :: {:ok, %GetOrderWeightTotalRow{}} | {:error, :not_found} | {:error, term()}
-def get_order_weight_total(conn, user_id) do
-  case Postgrex.query(conn, "SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = $1", [user_id]) do
-    {:ok, %{rows: [row | _]}} ->
-      [weight_total] = row
-      {:ok, %GetOrderWeightTotalRow{weight_total: weight_total}}
-    {:ok, %{rows: []}} -> {:error, :not_found}
-    {:error, err} -> {:error, err}
-  end
-end
-
-@spec delete_orders_by_user(Postgrex.conn(), integer()) :: {:ok, non_neg_integer()} | {:error, term()}
-def delete_orders_by_user(conn, user_id) do
-  case Postgrex.query(conn, "DELETE FROM orders WHERE user_id = $1", [user_id]) do
-    {:ok, %{num_rows: n}} -> {:ok, n}
-    {:error, err} -> {:error, err}
-  end
 end
 
 defmodule GetUserByIdRow do
@@ -126,17 +70,6 @@ defmodule GetUserByIdRow do
   defstruct [:id, :name, :email, :status, :created_at]
 end
 
-@spec get_user_by_id(Postgrex.conn(), integer()) :: {:ok, %GetUserByIdRow{}} | {:error, :not_found} | {:error, term()}
-def get_user_by_id(conn, id) do
-  case Postgrex.query(conn, "SELECT id, name, email, status, created_at FROM users WHERE id = $1", [id]) do
-    {:ok, %{rows: [row | _]}} ->
-      [id, name, email, status, created_at] = row
-      {:ok, %GetUserByIdRow{id: id, name: name, email: email, status: status, created_at: created_at}}
-    {:ok, %{rows: []}} -> {:error, :not_found}
-    {:error, err} -> {:error, err}
-  end
-end
-
 defmodule ListActiveUsersRow do
   @moduledoc "Row type for ListActiveUsers queries."
 
@@ -146,19 +79,6 @@ defmodule ListActiveUsersRow do
     email: String.t() | nil
   }
   defstruct [:id, :name, :email]
-end
-
-@spec list_active_users(Postgrex.conn(), String.t()) :: {:ok, [%ListActiveUsersRow{}]} | {:error, term()}
-def list_active_users(conn, status) do
-  case Postgrex.query(conn, "SELECT id, name, email FROM users WHERE status = $1", [status]) do
-    {:ok, %{rows: rows}} ->
-      results = Enum.map(rows, fn row ->
-        [id, name, email] = row
-        %ListActiveUsersRow{id: id, name: name, email: email}
-      end)
-      {:ok, results}
-    {:error, err} -> {:error, err}
-  end
 end
 
 defmodule CreateUserRow do
@@ -174,33 +94,6 @@ defmodule CreateUserRow do
   defstruct [:id, :name, :email, :status, :created_at]
 end
 
-@spec create_user(Postgrex.conn(), String.t(), String.t() | nil, String.t()) :: {:ok, %CreateUserRow{}} | {:error, :not_found} | {:error, term()}
-def create_user(conn, name, email, status) do
-  case Postgrex.query(conn, "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at", [name, email, status]) do
-    {:ok, %{rows: [row | _]}} ->
-      [id, name, email, status, created_at] = row
-      {:ok, %CreateUserRow{id: id, name: name, email: email, status: status, created_at: created_at}}
-    {:ok, %{rows: []}} -> {:error, :not_found}
-    {:error, err} -> {:error, err}
-  end
-end
-
-@spec update_user_email(Postgrex.conn(), String.t(), integer()) :: :ok | {:error, term()}
-def update_user_email(conn, email, id) do
-  case Postgrex.query(conn, "UPDATE users SET email = $1 WHERE id = $2", [email, id]) do
-    {:ok, _} -> :ok
-    {:error, err} -> {:error, err}
-  end
-end
-
-@spec delete_user(Postgrex.conn(), integer()) :: :ok | {:error, term()}
-def delete_user(conn, id) do
-  case Postgrex.query(conn, "DELETE FROM users WHERE id = $1", [id]) do
-    {:ok, _} -> :ok
-    {:error, err} -> {:error, err}
-  end
-end
-
 defmodule GetUserOrdersRow do
   @moduledoc "Row type for GetUserOrders queries."
 
@@ -213,22 +106,6 @@ defmodule GetUserOrdersRow do
   defstruct [:id, :name, :total, :notes]
 end
 
-@spec get_user_orders(Postgrex.conn(), String.t()) :: {:ok, [%GetUserOrdersRow{}]} | {:error, term()}
-def get_user_orders(conn, status) do
-  case Postgrex.query(conn, "SELECT u.id, u.name, o.total, o.notes
-FROM users u
-LEFT JOIN orders o ON u.id = o.user_id
-WHERE u.status = $1", [status]) do
-    {:ok, %{rows: rows}} ->
-      results = Enum.map(rows, fn row ->
-        [id, name, total, notes] = row
-        %GetUserOrdersRow{id: id, name: name, total: total, notes: notes}
-      end)
-      {:ok, results}
-    {:error, err} -> {:error, err}
-  end
-end
-
 defmodule CountUsersByStatusRow do
   @moduledoc "Row type for CountUsersByStatus queries."
 
@@ -237,17 +114,6 @@ defmodule CountUsersByStatusRow do
     user_count: integer()
   }
   defstruct [:status, :user_count]
-end
-
-@spec count_users_by_status(Postgrex.conn(), String.t()) :: {:ok, %CountUsersByStatusRow{}} | {:error, :not_found} | {:error, term()}
-def count_users_by_status(conn, status) do
-  case Postgrex.query(conn, "SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = $1", [status]) do
-    {:ok, %{rows: [row | _]}} ->
-      [status, user_count] = row
-      {:ok, %CountUsersByStatusRow{status: status, user_count: user_count}}
-    {:ok, %{rows: []}} -> {:error, :not_found}
-    {:error, err} -> {:error, err}
-  end
 end
 
 defmodule GetUserWithTagsRow do
@@ -261,23 +127,6 @@ defmodule GetUserWithTagsRow do
   defstruct [:id, :name, :tag_name]
 end
 
-@spec get_user_with_tags(Postgrex.conn(), integer()) :: {:ok, [%GetUserWithTagsRow{}]} | {:error, term()}
-def get_user_with_tags(conn, id) do
-  case Postgrex.query(conn, "SELECT u.id, u.name, t.name AS tag_name
-FROM users u
-INNER JOIN user_tags ut ON u.id = ut.user_id
-INNER JOIN tags t ON ut.tag_id = t.id
-WHERE u.id = $1", [id]) do
-    {:ok, %{rows: rows}} ->
-      results = Enum.map(rows, fn row ->
-        [id, name, tag_name] = row
-        %GetUserWithTagsRow{id: id, name: name, tag_name: tag_name}
-      end)
-      {:ok, results}
-    {:error, err} -> {:error, err}
-  end
-end
-
 defmodule SearchUsersRow do
   @moduledoc "Row type for SearchUsers queries."
 
@@ -289,9 +138,160 @@ defmodule SearchUsersRow do
   defstruct [:id, :name, :email]
 end
 
-@spec search_users(Postgrex.conn(), String.t()) :: {:ok, [%SearchUsersRow{}]} | {:error, term()}
-def search_users(conn, name) do
-  case Postgrex.query(conn, "SELECT id, name, email FROM users WHERE name LIKE $1", [name]) do
+defmodule Scythe.Queries do
+
+@spec create_order(Ecto.Repo.t(), integer(), Decimal.t(), String.t() | nil) :: {:ok, %CreateOrderRow{}} | {:error, :not_found} | {:error, term()}
+def create_order(repo, user_id, total, notes) do
+  case Ecto.Adapters.SQL.query(repo, "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at", [user_id, total, notes], []) do
+    {:ok, %{rows: [row | _]}} ->
+      [id, user_id, total, notes, created_at] = row
+      {:ok, %CreateOrderRow{id: id, user_id: user_id, total: total, notes: notes, created_at: created_at}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_orders_by_user(Ecto.Repo.t(), integer()) :: {:ok, [%GetOrdersByUserRow{}]} | {:error, term()}
+def get_orders_by_user(repo, user_id) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT id, total, notes, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC", [user_id], []) do
+    {:ok, %{rows: rows}} ->
+      results = Enum.map(rows, fn row ->
+        [id, total, notes, created_at] = row
+        %GetOrdersByUserRow{id: id, total: total, notes: notes, created_at: created_at}
+      end)
+      {:ok, results}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_order_total(Ecto.Repo.t(), integer()) :: {:ok, %GetOrderTotalRow{}} | {:error, :not_found} | {:error, term()}
+def get_order_total(repo, user_id) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1", [user_id], []) do
+    {:ok, %{rows: [row | _]}} ->
+      [total_sum] = row
+      {:ok, %GetOrderTotalRow{total_sum: total_sum}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_order_weight_total(Ecto.Repo.t(), integer()) :: {:ok, %GetOrderWeightTotalRow{}} | {:error, :not_found} | {:error, term()}
+def get_order_weight_total(repo, user_id) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = $1", [user_id], []) do
+    {:ok, %{rows: [row | _]}} ->
+      [weight_total] = row
+      {:ok, %GetOrderWeightTotalRow{weight_total: weight_total}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec delete_orders_by_user(Ecto.Repo.t(), integer()) :: {:ok, non_neg_integer()} | {:error, term()}
+def delete_orders_by_user(repo, user_id) do
+  case Ecto.Adapters.SQL.query(repo, "DELETE FROM orders WHERE user_id = $1", [user_id], []) do
+    {:ok, %{num_rows: n}} -> {:ok, n}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_user_by_id(Ecto.Repo.t(), integer()) :: {:ok, %GetUserByIdRow{}} | {:error, :not_found} | {:error, term()}
+def get_user_by_id(repo, id) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT id, name, email, status, created_at FROM users WHERE id = $1", [id], []) do
+    {:ok, %{rows: [row | _]}} ->
+      [id, name, email, status, created_at] = row
+      {:ok, %GetUserByIdRow{id: id, name: name, email: email, status: status, created_at: created_at}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec list_active_users(Ecto.Repo.t(), String.t()) :: {:ok, [%ListActiveUsersRow{}]} | {:error, term()}
+def list_active_users(repo, status) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT id, name, email FROM users WHERE status = $1", [status], []) do
+    {:ok, %{rows: rows}} ->
+      results = Enum.map(rows, fn row ->
+        [id, name, email] = row
+        %ListActiveUsersRow{id: id, name: name, email: email}
+      end)
+      {:ok, results}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec create_user(Ecto.Repo.t(), String.t(), String.t() | nil, String.t()) :: {:ok, %CreateUserRow{}} | {:error, :not_found} | {:error, term()}
+def create_user(repo, name, email, status) do
+  case Ecto.Adapters.SQL.query(repo, "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at", [name, email, status], []) do
+    {:ok, %{rows: [row | _]}} ->
+      [id, name, email, status, created_at] = row
+      {:ok, %CreateUserRow{id: id, name: name, email: email, status: status, created_at: created_at}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec update_user_email(Ecto.Repo.t(), String.t(), integer()) :: :ok | {:error, term()}
+def update_user_email(repo, email, id) do
+  case Ecto.Adapters.SQL.query(repo, "UPDATE users SET email = $1 WHERE id = $2", [email, id], []) do
+    {:ok, _} -> :ok
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec delete_user(Ecto.Repo.t(), integer()) :: :ok | {:error, term()}
+def delete_user(repo, id) do
+  case Ecto.Adapters.SQL.query(repo, "DELETE FROM users WHERE id = $1", [id], []) do
+    {:ok, _} -> :ok
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_user_orders(Ecto.Repo.t(), String.t()) :: {:ok, [%GetUserOrdersRow{}]} | {:error, term()}
+def get_user_orders(repo, status) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT u.id, u.name, o.total, o.notes
+FROM users u
+LEFT JOIN orders o ON u.id = o.user_id
+WHERE u.status = $1", [status], []) do
+    {:ok, %{rows: rows}} ->
+      results = Enum.map(rows, fn row ->
+        [id, name, total, notes] = row
+        %GetUserOrdersRow{id: id, name: name, total: total, notes: notes}
+      end)
+      {:ok, results}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec count_users_by_status(Ecto.Repo.t(), String.t()) :: {:ok, %CountUsersByStatusRow{}} | {:error, :not_found} | {:error, term()}
+def count_users_by_status(repo, status) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = $1", [status], []) do
+    {:ok, %{rows: [row | _]}} ->
+      [status, user_count] = row
+      {:ok, %CountUsersByStatusRow{status: status, user_count: user_count}}
+    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec get_user_with_tags(Ecto.Repo.t(), integer()) :: {:ok, [%GetUserWithTagsRow{}]} | {:error, term()}
+def get_user_with_tags(repo, id) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT u.id, u.name, t.name AS tag_name
+FROM users u
+INNER JOIN user_tags ut ON u.id = ut.user_id
+INNER JOIN tags t ON ut.tag_id = t.id
+WHERE u.id = $1", [id], []) do
+    {:ok, %{rows: rows}} ->
+      results = Enum.map(rows, fn row ->
+        [id, name, tag_name] = row
+        %GetUserWithTagsRow{id: id, name: name, tag_name: tag_name}
+      end)
+      {:ok, results}
+    {:error, err} -> {:error, err}
+  end
+end
+
+@spec search_users(Ecto.Repo.t(), String.t()) :: {:ok, [%SearchUsersRow{}]} | {:error, term()}
+def search_users(repo, name) do
+  case Ecto.Adapters.SQL.query(repo, "SELECT id, name, email FROM users WHERE name LIKE $1", [name], []) do
     {:ok, %{rows: rows}} ->
       results = Enum.map(rows, fn row ->
         [id, name, email] = row

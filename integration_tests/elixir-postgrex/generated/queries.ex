@@ -205,7 +205,7 @@ def get_user_by_id(conn, id) do
   end
 end
 
-@spec list_active_users(Postgrex.conn(), UserStatus) :: {:ok, [%ListActiveUsersRow{}]} | {:error, term()}
+@spec list_active_users(Postgrex.conn(), String.t()) :: {:ok, [%ListActiveUsersRow{}]} | {:error, term()}
 def list_active_users(conn, status) do
   case Postgrex.query(conn, "SELECT id, name, email FROM users WHERE status = $1", [status]) do
     {:ok, %{rows: rows}} ->
@@ -218,7 +218,7 @@ def list_active_users(conn, status) do
   end
 end
 
-@spec create_user(Postgrex.conn(), String.t(), String.t() | nil, UserStatus) :: {:ok, %CreateUserRow{}} | {:error, :not_found} | {:error, term()}
+@spec create_user(Postgrex.conn(), String.t(), String.t() | nil, String.t()) :: {:ok, %CreateUserRow{}} | {:error, :not_found} | {:error, term()}
 def create_user(conn, name, email, status) do
   case Postgrex.query(conn, "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at", [name, email, status]) do
     {:ok, %{rows: [row | _]}} ->
@@ -245,7 +245,7 @@ def delete_user(conn, id) do
   end
 end
 
-@spec get_user_orders(Postgrex.conn(), UserStatus) :: {:ok, [%GetUserOrdersRow{}]} | {:error, term()}
+@spec get_user_orders(Postgrex.conn(), String.t()) :: {:ok, [%GetUserOrdersRow{}]} | {:error, term()}
 def get_user_orders(conn, status) do
   case Postgrex.query(conn, "SELECT u.id, u.name, o.total, o.notes
 FROM users u
@@ -261,7 +261,7 @@ WHERE u.status = $1", [status]) do
   end
 end
 
-@spec count_users_by_status(Postgrex.conn(), UserStatus) :: {:ok, %CountUsersByStatusRow{}} | {:error, :not_found} | {:error, term()}
+@spec count_users_by_status(Postgrex.conn(), String.t()) :: {:ok, %CountUsersByStatusRow{}} | {:error, :not_found} | {:error, term()}
 def count_users_by_status(conn, status) do
   case Postgrex.query(conn, "SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = $1", [status]) do
     {:ok, %{rows: [row | _]}} ->

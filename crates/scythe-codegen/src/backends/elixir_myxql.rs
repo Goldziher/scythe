@@ -126,7 +126,10 @@ impl CodegenBackend for ElixirMyxqlBackend {
         let param_specs = if params.is_empty() {
             String::new()
         } else {
-            let specs: Vec<String> = params.iter().map(|p| p.full_type.clone()).collect();
+            let specs: Vec<String> = params
+                .iter()
+                .map(super::elixir_common::elixir_param_spec_type)
+                .collect();
             format!(", {}", specs.join(", "))
         };
         match &analyzed.command {
@@ -360,7 +363,16 @@ impl CodegenBackend for ElixirMyxqlBackend {
             .map(|c| format!(":{}", c.field_name))
             .collect::<Vec<_>>()
             .join(", ");
-        let _ = writeln!(out, "  defstruct [{}, :children]", parent_fields);
+        // ~keep an alias-qualified `@group_by` (e.g. `u.id`) is accepted by the
+        // core parser but can resolve to zero parent columns; without this guard
+        // the join above produces an empty string and this line becomes the
+        // syntactically invalid `defstruct [, :children]` (#202).
+        let defstruct_fields = if parent_fields.is_empty() {
+            ":children".to_string()
+        } else {
+            format!("{}, :children", parent_fields)
+        };
+        let _ = writeln!(out, "  defstruct [{}]", defstruct_fields);
         let _ = write!(out, "end");
         Ok(out)
     }
@@ -412,7 +424,7 @@ impl CodegenBackend for ElixirMyxqlBackend {
                 ", {}",
                 params
                     .iter()
-                    .map(|p| p.full_type.clone())
+                    .map(super::elixir_common::elixir_param_spec_type)
                     .collect::<Vec<_>>()
                     .join(", ")
             )
