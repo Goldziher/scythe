@@ -310,9 +310,12 @@ fn php_scalar_columns_get_no_docblock() {
 /// `oracle` arm and `supported_engines()` omits oracle, so that manifest is
 /// not compiled into the binary at all. The manifest-wide test below is what
 /// covers it.
-#[test]
-fn php_any_params_parse_on_every_reachable_engine() {
-    let cases: &[(&str, &str, SqlDialect)] = &[
+///
+/// Shared with [`php_any_param_docblocks_carry_the_element_type_on_every_reachable_engine`]
+/// so both tests see the same reachable set by construction -- a case added
+/// to only one of them would leave the other one silently short.
+fn any_param_reachable_cases() -> &'static [(&'static str, &'static str, SqlDialect)] {
+    &[
         ("php-pdo", "postgresql", SqlDialect::PostgreSQL),
         ("php-pdo", "mysql", SqlDialect::MySQL),
         ("php-pdo", "mariadb", SqlDialect::MySQL),
@@ -323,14 +326,41 @@ fn php_any_params_parse_on_every_reachable_engine() {
         ("php-amphp", "postgresql", SqlDialect::PostgreSQL),
         ("php-amphp", "mysql", SqlDialect::MySQL),
         ("php-amphp", "mariadb", SqlDialect::MySQL),
-    ];
+    ]
+}
 
-    for (backend_name, engine, dialect) in cases {
+#[test]
+fn php_any_params_parse_on_every_reachable_engine() {
+    for (backend_name, engine, dialect) in any_param_reachable_cases() {
         let (schema, query) = any_param_fixture(dialect);
         let code = generate_full_file(backend_name, engine, dialect, schema, query);
         assert!(
             code.contains("array $ids") || code.contains("array $id"),
             "{backend_name}/{engine}: expected an `array` parameter from `= ANY(...)`:\n{code}"
+        );
+        assert_php_file_is_valid(backend_name, &code);
+    }
+}
+
+/// The other half of [`php_any_params_parse_on_every_reachable_engine`],
+/// across the same reachable set: that test only pins the native `array`
+/// parameter every one of these ten pairs degrades to. Before this test,
+/// the element type surviving in `@param array<int>` was pinned only for
+/// `postgresql`, by [`php_any_param_docblocks_carry_the_element_type`] --
+/// the other nine (backend, engine) pairs could lose the element type
+/// entirely and every existing test would still pass, because the native
+/// side is the only thing any of them checked on those nine. That is
+/// exactly the shape #164 exists to catch: a whole set that only ever
+/// degrades, verified to agree with itself and nothing else.
+#[test]
+fn php_any_param_docblocks_carry_the_element_type_on_every_reachable_engine() {
+    for (backend_name, engine, dialect) in any_param_reachable_cases() {
+        let (schema, query) = any_param_fixture(dialect);
+        let code = generate_full_file(backend_name, engine, dialect, schema, query);
+        assert!(
+            code.contains("@param array<int> $ids") || code.contains("@param array<int> $id"),
+            "{backend_name}/{engine}: expected `@param array<int>` to survive for the \
+             `= ANY(...)` parameter, not just the degraded native `array`:\n{code}"
         );
         assert_php_file_is_valid(backend_name, &code);
     }
