@@ -43,6 +43,12 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **A placeholder inside a `LIKE` pattern or an `IS NULL` operand was dropped from the generated
+  signature.** `WHERE name LIKE '%' || $1 || '%'` and `WHERE $1 IS NULL` both bind a parameter, but
+  the analyzer only collected one from a `LIKE` whose pattern was a bare literal and never descended
+  into `IS NULL` / `IS NOT NULL` at all — so the generated function took fewer arguments than the
+  statement needs. Placeholder positions are now memoised by source span, which keeps a parameter
+  repeated across several expressions from being counted more than once. (#171)
 - **`go-pgx` emitted a static import block that omitted imports its own types needed.** A query
   selecting a `json` or `uuid` column produced `*json.RawMessage` and `uuid.UUID` with neither import,
   so the file did not compile; the generated header conceded as much by advising `goimports -w .`.

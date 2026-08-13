@@ -709,6 +709,7 @@ mod union_sql_type_tests {
             positional_param_counter: 0,
             pending_nested: Vec::new(),
             next_nested_id: 0,
+            resolved_placeholders: AHashMap::new(),
         }
     }
 

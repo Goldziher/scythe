@@ -33,6 +33,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         positional_param_counter: 0,
         pending_nested: Vec::new(),
         next_nested_id: 0,
+        resolved_placeholders: AHashMap::new(),
     };
 
     let (columns, _) = analyzer.analyze_statement(&query.stmt)?;
@@ -1565,5 +1566,95 @@ WITH RECURSIVE t(n) AS (SELECT 1 UNION ALL SELECT n + 1 FROM t WHERE n < 10) SEL
         // anchor-typed `n` widened against another `int32` literal); see
         // #122.
         assert_eq!(result.columns[0].neutral_type, "int32");
+    }
+
+    // Regression tests for #170: `analyze_select` walks every projection
+    // expression twice -- `collect_params_from_where` then `infer_expr_type`
+    // -- and shapes like `Between` independently reach
+    // `resolve_placeholder_position` from both passes. `$N` is idempotent
+    // (it just parses the explicit number), but a bare `?` auto-increments,
+    // so without occurrence-based memoization the second pass minted brand
+    // new positions and doubled the reported parameter count. `?` only
+    // tokenizes as `Token::Placeholder` in dialects that don't claim it for
+    // PostgreSQL geometric operators (`?-`, `?|`, `?#`), so these use a
+    // MySQL-dialect catalog and parse.
+
+    fn make_mysql_catalog() -> Catalog {
+        Catalog::from_ddl_with_dialect(
+            &["CREATE TABLE users (id INTEGER PRIMARY KEY, age INTEGER);"],
+            &SqlDialect::MySQL,
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn test_bare_placeholder_in_between_projection_is_not_double_counted() {
+        let catalog = make_mysql_catalog();
+        let query = crate::parser::parse_query_with_dialect(
+            "-- @name UsersInRange
+-- @returns :many
+SELECT (age BETWEEN ? AND ?) AS in_range FROM users;",
+            &SqlDialect::MySQL,
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(
+            result.params.len(),
+            2,
+            "two distinct `?` occurrences in a BETWEEN projection must report exactly two parameters, \
+             not four"
+        );
+        assert_eq!(result.params[0].position, 1);
+        assert_eq!(result.params[1].position, 2);
+    }
+
+    /// Same double-traversal shape as above, but inside a derived subquery,
+    /// to prove the occurrence memo survives the sub-analyzer boundary the
+    /// same way `positional_param_counter` and `next_nested_id` already do
+    /// (see `TableFactor::Derived` in `scope.rs`).
+    #[test]
+    fn test_bare_placeholder_in_between_inside_derived_subquery_is_not_double_counted() {
+        let catalog = make_mysql_catalog();
+        let query = crate::parser::parse_query_with_dialect(
+            "-- @name UsersInRangeSub
+-- @returns :many
+SELECT * FROM (SELECT (age BETWEEN ? AND ?) AS in_range FROM users) sub;",
+            &SqlDialect::MySQL,
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(
+            result.params.len(),
+            2,
+            "two distinct `?` occurrences inside a derived subquery must report exactly two parameters"
+        );
+        assert_eq!(result.params[0].position, 1);
+        assert_eq!(result.params[1].position, 2);
+    }
+
+    /// A placeholder inside a derived subquery and one outside it must number
+    /// sequentially across the boundary, exercising the same
+    /// into-and-back-out threading `positional_param_counter` already relies
+    /// on -- `resolved_placeholders` has to make the same round trip.
+    #[test]
+    fn test_bare_placeholder_numbers_sequentially_across_derived_subquery_boundary() {
+        let catalog = make_mysql_catalog();
+        let query = crate::parser::parse_query_with_dialect(
+            "-- @name UsersInRangeOuter
+-- @returns :many
+SELECT * FROM (SELECT id, age FROM users WHERE age > ?) sub WHERE sub.id > ?;",
+            &SqlDialect::MySQL,
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+        assert_eq!(result.params.len(), 2);
+        assert_eq!(
+            result.params[0].position, 1,
+            "the placeholder inside the subquery must resolve first"
+        );
+        assert_eq!(
+            result.params[1].position, 2,
+            "the outer placeholder must continue numbering after it"
+        );
     }
 }

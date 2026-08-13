@@ -1,3 +1,4 @@
+use ahash::AHashMap;
 use sqlparser::ast::{self, JoinOperator, TableFactor};
 
 use crate::errors::ScytheError;
@@ -175,6 +176,7 @@ impl<'a> Analyzer<'a> {
                     positional_param_counter: self.positional_param_counter,
                     pending_nested: Vec::new(),
                     next_nested_id: self.next_nested_id,
+                    resolved_placeholders: AHashMap::new(),
                 };
                 let sub_cols = sub_analyzer.analyze_query(subquery)?;
 
@@ -183,6 +185,7 @@ impl<'a> Analyzer<'a> {
                 self.type_errors.extend(sub_analyzer.type_errors);
                 self.next_nested_id = sub_analyzer.next_nested_id;
                 self.pending_nested.extend(sub_analyzer.pending_nested);
+                self.resolved_placeholders.extend(sub_analyzer.resolved_placeholders);
 
                 let alias_name = alias
                     .as_ref()
@@ -381,6 +384,7 @@ mod tests {
             positional_param_counter: 0,
             pending_nested: Vec::new(),
             next_nested_id: 0,
+            resolved_placeholders: AHashMap::new(),
         }
     }
 

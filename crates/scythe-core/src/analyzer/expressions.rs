@@ -145,7 +145,7 @@ impl<'a> Analyzer<'a> {
                 for item in list {
                     if let Expr::Value(vws) = item
                         && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p)
+                        && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                     {
                         let col_name = expr_to_name(col_expr);
                         self.register_param(pos, Some(col_name), Some(col_ti.neutral_type.clone()), false);
@@ -214,7 +214,7 @@ impl<'a> Analyzer<'a> {
                     let _ = self.infer_expr_type(&case_when.condition, scope);
                     if let Expr::Value(vws) = &case_when.condition
                         && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p)
+                        && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                     {
                         match &operand_ti {
                             Some(op_ti) => {
@@ -276,7 +276,7 @@ impl<'a> Analyzer<'a> {
                 let left_ti = self.infer_expr_type(left, scope);
                 if let Expr::Value(vws) = right.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
+                    && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&expr_to_name(left));
@@ -290,7 +290,7 @@ impl<'a> Analyzer<'a> {
                 let left_ti = self.infer_expr_type(left, scope);
                 if let Expr::Value(vws) = right.as_ref()
                     && let Some(p) = value_is_placeholder(vws)
-                    && let Some(pos) = self.resolve_placeholder_position(p)
+                    && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&expr_to_name(left));
@@ -558,7 +558,7 @@ impl<'a> Analyzer<'a> {
                 for arg in &args {
                     if let Expr::Value(vws) = arg
                         && let Some(p) = value_is_placeholder(vws)
-                        && let Some(pos) = self.resolve_placeholder_position(p)
+                        && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                     {
                         let param_type = if result_type != "unknown" {
                             Some(result_type.clone())
@@ -1209,6 +1209,7 @@ mod tests {
             positional_param_counter: 0,
             pending_nested: Vec::new(),
             next_nested_id: 0,
+            resolved_placeholders: AHashMap::new(),
         }
     }
 

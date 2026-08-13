@@ -353,6 +353,7 @@ impl TypeInfo {
 }
 
 use ahash::AHashMap;
+use sqlparser::tokenizer::Span;
 
 use crate::catalog::Catalog;
 
@@ -373,6 +374,26 @@ pub(super) struct Analyzer<'a> {
     /// `positional_param_counter`) so ids stay unique across a subquery
     /// boundary once `pending_nested` is bubbled up.
     pub(super) next_nested_id: u32,
+    /// Memoizes the position already assigned to a `?` occurrence, keyed by
+    /// that occurrence's source span. A single placeholder AST node is
+    /// visited twice per projection expression -- once by
+    /// `collect_params_from_where`, once by `infer_expr_type` -- and `?` has
+    /// no explicit position to make that idempotent the way `$N` is, so
+    /// without this memo the second visit mints a brand-new position and
+    /// the query reports the wrong parameter count (#170). Keyed by
+    /// [`Span`] rather than an occurrence index because `sqlparser` (see
+    /// `Parser::try_with_sql` -> `Tokenizer::tokenize_with_location`)
+    /// always tokenizes with real line/column locations, so every `?` in
+    /// parsed SQL carries a distinct, stable span. `Span::empty()` --
+    /// which only synthetic/test AST nodes carry, never output from
+    /// `Parser::parse_sql` -- deliberately bypasses this memo (see
+    /// `resolve_placeholder_position`) rather than being treated as a
+    /// valid key, since every such node would otherwise collapse onto the
+    /// same entry. Starts empty and is extended (not overwritten) across
+    /// a derived-subquery sub-analyzer boundary, the same way
+    /// `pending_nested` is: a subquery's placeholder spans live in a
+    /// disjoint region of the source text, so merging can never collide.
+    pub(super) resolved_placeholders: AHashMap<Span, i64>,
 }
 
 impl<'a> Analyzer<'a> {
