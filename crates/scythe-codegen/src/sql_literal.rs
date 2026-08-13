@@ -182,6 +182,41 @@ pub fn escape_python_triple_double(sql: &str) -> String {
     })
 }
 
+/// Double every literal `%` in SQL text destined for a Python `%`-paramstyle DB-API driver
+/// (psycopg3's `%(name)s`, aiomysql's/PyMySQL's `%s`).
+///
+/// Both drivers apply Python `%`-style string formatting to the *entire* SQL string at
+/// execute time, not just to the placeholder tokens the generator emits. A literal `%`
+/// anywhere in the query -- a `LIKE '100%'` pattern, a `to_char(..., 'HH24%')` format
+/// string -- is therefore read by the driver as the start of a conversion specifier: `%'`
+/// is not a valid one, so psycopg raises `ValueError: unsupported format character` at
+/// execute time, and PyMySQL either raises the same way or silently mis-binds (issue
+/// #201). Doubling `%` to `%%` is the driver's own escape for a literal percent, identical
+/// to Python's own `%` operator.
+///
+/// Callers MUST run this over the *raw* SQL text -- after `clean_sql`/
+/// `clean_sql_with_optional`, before [`crate::backends::rewrite_pg_placeholders`] rewrites
+/// placeholders to their `%`-paramstyle form. Doing it in the other order would double the
+/// `%` in every placeholder this function's caller is about to emit (`%(id)s` becomes
+/// `%%(id)s`, which the driver then reads as a literal percent followed by literal text
+/// `(id)s`, not a binding) and corrupt every parameter. Because the source SQL at this
+/// point still uses `$N` or bare `?` placeholders -- never `%` -- every `%` found here is
+/// unambiguously literal SQL text, so a single unconditional `replace` is correct with no
+/// span-awareness needed, unlike the interpolation escaping elsewhere in this module.
+///
+/// Callers MUST ALSO apply this **only to a query that actually binds parameters**. Both
+/// drivers do the `%`-formatting pass inside `execute(query, params)` and skip it entirely
+/// for `execute(query)` -- psycopg3 documents `%` as not special when no parameters are
+/// passed, and PyMySQL simply never reaches `query % escaped_args` with `args=None`. So
+/// doubling a parameterless query's `%` is not a no-op: the doubled text reaches the server
+/// verbatim, and `LIKE '100%%'` matches a literal percent sign instead of acting as a
+/// wildcard. That is the same silent wrong answer #201 is about, merely inverted, which is
+/// why the backends gate the call on a non-empty parameter list rather than applying it
+/// unconditionally.
+pub fn double_percent_for_percent_paramstyle(sql: &str) -> String {
+    sql.replace('%', "%%")
+}
+
 /// Escape SQL text for splicing into a Rust plain `"..."` string literal.
 ///
 /// Rust string literals permit raw newlines, so only backslash and `"` need escaping.
@@ -582,6 +617,40 @@ mod tests {
         assert_eq!(
             escaped, "line1\nline2",
             "python triple-quoted strings permit raw newlines"
+        );
+    }
+
+    // --- Python %-paramstyle doubling (#201) -------------------------------
+
+    #[test]
+    fn double_percent_doubles_a_lone_percent() {
+        assert_eq!(double_percent_for_percent_paramstyle("LIKE '100%'"), "LIKE '100%%'");
+    }
+
+    #[test]
+    fn double_percent_doubles_every_occurrence() {
+        assert_eq!(
+            double_percent_for_percent_paramstyle("a%b%c"),
+            "a%%b%%c",
+            "every literal % must be doubled, not just the first"
+        );
+    }
+
+    #[test]
+    fn double_percent_is_a_no_op_when_no_percent_present() {
+        let sql = "SELECT id FROM users WHERE id = $1";
+        assert_eq!(double_percent_for_percent_paramstyle(sql), sql);
+    }
+
+    #[test]
+    fn double_percent_leaves_dollar_placeholders_untouched() {
+        // Regression guard for #201: doubling must run before placeholder rewriting, so at
+        // this stage the only placeholder syntax present is `$N` -- never `%`. This pins
+        // that a `$N` placeholder survives the pass unchanged.
+        let sql = "SELECT * FROM t WHERE name LIKE $1 AND note LIKE '100%'";
+        assert_eq!(
+            double_percent_for_percent_paramstyle(sql),
+            "SELECT * FROM t WHERE name LIKE $1 AND note LIKE '100%%'"
         );
     }
 

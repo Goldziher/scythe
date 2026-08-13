@@ -214,9 +214,25 @@ impl CodegenBackend for PythonPsycopg3Backend {
             .zip(params.iter())
             .map(|(ap, rp)| (ap.position as u32, rp.field_name.clone()))
             .collect();
-        let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&sql_clean, |n| {
-            format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))
-        }));
+        // %-doubling MUST run before `rewrite_pg_placeholders` emits the `%(name)s`
+        // placeholders below -- doubling after would corrupt every placeholder into
+        // `%%(name)s`, which psycopg reads as a literal percent followed by inert text
+        // instead of a binding. At this point `sql_clean` still uses `$N` placeholders
+        // (never `%`), so every `%` found here is unambiguously literal SQL text (#201).
+        //
+        // Gated on a non-empty parameter list because psycopg only runs its %-formatting
+        // pass inside `execute(query, params)`; the parameterless branches below emit a
+        // bare `execute(query)`, where `%` is not special and a doubled `%%` would reach
+        // the server verbatim. See the helper's doc comment.
+        let percent_doubled = if params.is_empty() {
+            sql_clean.clone()
+        } else {
+            crate::sql_literal::double_percent_for_percent_paramstyle(&sql_clean)
+        };
+        let sql =
+            crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&percent_doubled, |n| {
+                format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))
+            }));
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
@@ -556,9 +572,25 @@ impl CodegenBackend for PythonPsycopg3Backend {
             .zip(params.iter())
             .map(|(ap, rp)| (ap.position as u32, rp.field_name.clone()))
             .collect();
-        let sql = crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&sql_clean, |n| {
-            format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))
-        }));
+        // %-doubling MUST run before `rewrite_pg_placeholders` emits the `%(name)s`
+        // placeholders below -- doubling after would corrupt every placeholder into
+        // `%%(name)s`, which psycopg reads as a literal percent followed by inert text
+        // instead of a binding. At this point `sql_clean` still uses `$N` placeholders
+        // (never `%`), so every `%` found here is unambiguously literal SQL text (#201).
+        //
+        // Gated on a non-empty parameter list because psycopg only runs its %-formatting
+        // pass inside `execute(query, params)`; the parameterless branches below emit a
+        // bare `execute(query)`, where `%` is not special and a doubled `%%` would reach
+        // the server verbatim. See the helper's doc comment.
+        let percent_doubled = if params.is_empty() {
+            sql_clean.clone()
+        } else {
+            crate::sql_literal::double_percent_for_percent_paramstyle(&sql_clean)
+        };
+        let sql =
+            crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&percent_doubled, |n| {
+                format!("%({})s", name_map.get(&n).map_or("?", |s| s.as_str()))
+            }));
 
         let sig =
             format!("async def {func_name}(conn: AsyncConnection{kw_sep}{param_list}) -> list[{parent_struct_name}]:");

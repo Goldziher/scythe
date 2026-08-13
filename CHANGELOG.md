@@ -30,6 +30,19 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **A literal `%` in SQL broke every `%`-paramstyle Python driver at execute time.** `WHERE name LIKE
+  'a%'` reaches psycopg3 and aiomysql as a format string, and `%'` is not a valid placeholder, so the
+  driver raised before the statement was ever sent. The `%` is now doubled — but only for a query that
+  actually binds parameters. psycopg3 and PyMySQL run `%`-formatting exclusively from
+  `execute(query, params)`; a parameterless `execute(query)` passes the string through untouched, so
+  doubling it there would have replaced a driver-side error with a silently wrong `LIKE 'a%%'` that
+  matches nothing. `python-snowflake` additionally emits
+  `snowflake.connector.paramstyle = "qmark"` to match the `?` it generates — previously the only
+  `paramstyle` assignment in the tree was a hand-written compensation inside the integration harness,
+  so every consumer of the generated module got none. (#201)
+- **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
+  *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
+  `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
 - **A column named `my col`, `with-dash` or `2fa` reached a field declaration verbatim in every
   language but TypeScript.** `pub my col: String`, `my col: str`, `My col string`, `String my col` —
   none of them parse, and no gate caught it because the torture schema has no such column. #215 fixed

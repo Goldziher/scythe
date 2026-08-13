@@ -144,9 +144,26 @@ impl CodegenBackend for PythonAiomysqlBackend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         let cleaned = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql = crate::sql_literal::escape_python_triple_double(
-            &super::rewrite_pg_placeholders(&cleaned, |_| "%s".to_string()).replace('?', "%s"),
-        );
+        // %-doubling MUST run before `rewrite_pg_placeholders` emits `%s` placeholders below
+        // -- doubling after would corrupt every placeholder into `%%s`. At this point
+        // `cleaned` still uses bare `?` placeholders (never `%`), so every `%` found here is
+        // unambiguously literal SQL text (#201). The trailing `.replace('?', "%s")` that used
+        // to run here is gone: `rewrite_pg_placeholders` already rewrites every real `?`
+        // placeholder (mysql SQL has no `$N`, so its span-aware bare-`?` branch fires), and a
+        // second blind `.replace` afterwards is span-blind -- it rewrote a literal `?` inside
+        // a string, e.g. `'really?'` became `'really%s'` (#153 item 2).
+        // Gated on a non-empty parameter list: PyMySQL only reaches its `query % args`
+        // formatting pass from `execute(query, args)`, and the parameterless branches below
+        // emit a bare `execute(query)` where a doubled `%%` would reach the server verbatim.
+        let percent_doubled = if params.is_empty() {
+            cleaned.clone()
+        } else {
+            crate::sql_literal::double_percent_for_percent_paramstyle(&cleaned)
+        };
+        let sql =
+            crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&percent_doubled, |_| {
+                "%s".to_string()
+            }));
 
         let args_tuple = if params.is_empty() {
             String::new()
@@ -379,9 +396,22 @@ impl CodegenBackend for PythonAiomysqlBackend {
         let kw_sep = if param_list.is_empty() { "" } else { ", *, " };
 
         let cleaned = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql = crate::sql_literal::escape_python_triple_double(
-            &super::rewrite_pg_placeholders(&cleaned, |_| "%s".to_string()).replace('?', "%s"),
-        );
+        // See the comment on the identical pattern in `generate_query_fn` above: %-doubling
+        // must run before `rewrite_pg_placeholders`, and the old trailing `.replace('?',
+        // "%s")` is gone because it was span-blind and corrupted `?` inside string literals
+        // (#153 item 2).
+        // Gated on a non-empty parameter list: PyMySQL only reaches its `query % args`
+        // formatting pass from `execute(query, args)`, and the parameterless branches below
+        // emit a bare `execute(query)` where a doubled `%%` would reach the server verbatim.
+        let percent_doubled = if params.is_empty() {
+            cleaned.clone()
+        } else {
+            crate::sql_literal::double_percent_for_percent_paramstyle(&cleaned)
+        };
+        let sql =
+            crate::sql_literal::escape_python_triple_double(&super::rewrite_pg_placeholders(&percent_doubled, |_| {
+                "%s".to_string()
+            }));
 
         let args_tuple = if params.is_empty() {
             None

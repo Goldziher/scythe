@@ -6,6 +6,8 @@ from enum import Enum  # noqa: F401
 
 import snowflake.connector  # noqa: F401
 
+snowflake.connector.paramstyle = "qmark"  # this module emits qmark binds
+
 
 
 def create_order(

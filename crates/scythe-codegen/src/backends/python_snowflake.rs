@@ -71,6 +71,16 @@ impl CodegenBackend for PythonSnowflakeBackend {
 
     fn file_header(&self) -> String {
         let import_line = self.row_type.import_line();
+        // This backend emits `?` (qmark) placeholders -- see `generate_query_fn` below --
+        // but the snowflake-connector-python driver's own default `paramstyle` module
+        // attribute is `pyformat`, not `qmark`. Without setting it explicitly here, every
+        // bind in every generated function fails at execute time for anyone who simply
+        // imports this module (the only place `paramstyle = "qmark"` existed before was a
+        // hand-written compensation in the integration test harness, which does not help a
+        // real caller). Setting it as a side effect of importing this module -- the same
+        // place the driver import itself lives -- means it is set exactly once, regardless
+        // of how many query functions or generated files import `snowflake.connector`.
+        const PARAMSTYLE_LINE: &str = "snowflake.connector.paramstyle = \"qmark\"  # this module emits qmark binds";
         if self.row_type.is_stdlib_import() {
             format!(
                 "import datetime  # noqa: F401\n\
@@ -79,6 +89,8 @@ impl CodegenBackend for PythonSnowflakeBackend {
                  from enum import Enum  # noqa: F401\n\
                  \n\
                  import snowflake.connector  # noqa: F401\n\
+                 \n\
+                 {PARAMSTYLE_LINE}\n\
                  \n",
             )
         } else {
@@ -91,6 +103,8 @@ impl CodegenBackend for PythonSnowflakeBackend {
                  from enum import Enum  # noqa: F401\n\
                  \n\
                  {third_party}\n\
+                 \n\
+                 {PARAMSTYLE_LINE}\n\
                  \n",
             )
         }
