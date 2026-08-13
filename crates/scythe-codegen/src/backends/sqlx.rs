@@ -500,8 +500,12 @@ impl CodegenBackend for SqlxBackend {
         }
 
         let sql_raw = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
-        let sql =
-            crate::sql_literal::escape_rust_string(&rewrite_sql_for_enums(&sql_raw, &analyzed.columns, &self.manifest));
+        let sql = crate::sql_literal::escape_rust_string(&rewrite_sql_for_grouped_row(
+            &sql_raw,
+            parent_columns,
+            child_columns,
+            &self.manifest,
+        ));
 
         let bind_params: String = analyzed
             .params
@@ -746,6 +750,82 @@ fn write_sqlx_rename_attr(out: &mut String, col: &ResolvedColumn) {
     if col.field_name != col.name {
         let _ = writeln!(out, "    #[sqlx(rename = \"{}\")]", col.name);
     }
+}
+
+/// Alias every grouped-query column that needs one, folding an identifier
+/// rename and an enum type override into a single `AS "..."` clause when a
+/// column needs both.
+///
+/// `generate_grouped_query_fn` reads the flat rows through the untyped
+/// `sqlx::query!` macro (no `query_as!`, no `#[derive(sqlx::FromRow)]`), so
+/// the anonymous row struct's field names come from whatever the *driver*
+/// reports as each column's name, not from this backend's `field_name`
+/// convention. Two independent things can make that raw name unusable:
+///
+/// - **Identifier shape.** A column that needed `sanitize_field_names` to
+///   become a valid Rust field (`"my col"` -> `my_col`) reports its
+///   original, unsanitized name to the driver. sqlx-macros-core's
+///   `output::parse_ident` requires that name to already be a valid Rust
+///   identifier and hard-errors at compile time otherwise ("... is not a
+///   valid Rust identifier") -- it does not sanitize on its own, so
+///   `row.my_col` below would either not compile at all or, for a
+///   valid-but-differently-cased name, compile against a field that isn't
+///   there.
+/// - **Enum decoding**, same reason as [`rewrite_sql_for_enums`]: sqlx
+///   cannot infer a custom enum's Rust type without an explicit `: Type`
+///   override in the alias.
+///
+/// sqlx accepts only one alias clause per column, so a column needing both
+/// gets `AS "field_name: Type"` rather than two rewrite passes fighting
+/// over the same text.
+fn rewrite_sql_for_grouped_row(
+    sql: &str,
+    parent_columns: &[ResolvedColumn],
+    child_columns: &[ResolvedColumn],
+    manifest: &BackendManifest,
+) -> String {
+    let mut result = sql.to_string();
+
+    for col in parent_columns.iter().chain(child_columns.iter()) {
+        let type_override = col.neutral_type.strip_prefix("enum::").map(|enum_name| {
+            let rust_type = enum_type_name(enum_name, &manifest.naming);
+            if col.nullable {
+                format!("Option<{}>", rust_type)
+            } else {
+                rust_type
+            }
+        });
+
+        if col.field_name == col.name && type_override.is_none() {
+            continue;
+        }
+
+        let Some(from_pos) = result.to_uppercase().find(" FROM ") else {
+            continue;
+        };
+        let select_part = &result[..from_pos];
+        let rest = &result[from_pos..];
+
+        let alias_body = match &type_override {
+            Some(ty) => format!("{}: {}", col.field_name, ty),
+            None => col.field_name.clone(),
+        };
+        let alias = format!("\"{}\"", alias_body);
+
+        let quoted_name = format!("\"{}\"", col.name);
+        let new_select = if let Some(pos) = select_part.rfind(quoted_name.as_str()) {
+            let mut selected = select_part.to_string();
+            let replacement = format!("{} AS {}", quoted_name, alias);
+            selected.replace_range(pos..pos + quoted_name.len(), &replacement);
+            selected
+        } else {
+            let replacement = format!("{} AS {}", col.name, alias);
+            replace_column_in_select(select_part, &col.name, &replacement)
+        };
+        result = format!("{}{}", new_select, rest);
+    }
+
+    result
 }
 
 /// Rewrite SQL to add enum type annotations for sqlx.

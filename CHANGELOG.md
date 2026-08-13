@@ -42,6 +42,16 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **A `rust-sqlx` `:grouped` query selecting a non-identifier column produced code that could not
+  compile.** The grouped path reads its flat rows through the untyped `sqlx::query!` macro, whose row
+  field names come from sqlx's own expansion of the raw column names rather than from this backend's
+  `sanitize_field_names` convention. sqlx's `parse_ident` requires the driver-reported name to be a
+  valid Rust identifier and otherwise fails macro expansion outright, so a quoted `"my col"` was a
+  hard compile error, not a silent mismatch. Such columns now get an explicit `AS "field_name"` so the
+  macro sees a name scythe chose. Note this is a different mechanism from the `#[sqlx(rename)]`
+  attribute added earlier for `FromRow`: both `query!` and `query_as!` build their row type directly
+  and never consult `FromRow`, so that attribute has no effect on either macro path. (#191)
+
 - **`check` printed "All queries valid." for a query file it had not checked at all.** A file whose
   annotations were never recognised — a mistyped `--name:`, or every statement commented out — yields
   zero query blocks, and `has_unannotated_sql` deliberately ignores it, so the run reported success
