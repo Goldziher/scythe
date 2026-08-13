@@ -172,7 +172,9 @@ fn grouped_query_child_column_types_are_not_lost_in_the_split() {
     let context = grouped_rbs_context(&analyzed, &*backend);
     let rbs = backend.generate_rbs_file(&context).expect("ruby-pg must emit RBS");
 
-    // Parent columns.
+    // ~keep Parent columns. The parent/child labels are the point of this test:
+    // #203 was the RBS describing one flat class, so which side each assertion
+    // belongs to is what distinguishes a passing split from a regressed one.
     assert!(rbs.contains("attr_reader id: Integer"), "got:\n{rbs}");
     assert!(rbs.contains("attr_reader name: String"), "got:\n{rbs}");
     // Child columns, including the `decimal` -> `BigDecimal` one that motivated #198.
