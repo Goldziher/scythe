@@ -19,6 +19,15 @@ public enum UsersStatus {
     private final String value;
     UsersStatus(String value) { this.value = value; }
     public String getValue() { return value; }
+
+    public static UsersStatus fromValue(String value) {
+        for (UsersStatus v : values()) {
+            if (v.value.equals(value)) {
+                return v;
+            }
+        }
+        throw new IllegalArgumentException("Unknown UsersStatus value: " + value);
+    }
 }
 
 public record CreateOrderRow(
@@ -123,7 +132,7 @@ public record GetUserByIdRow(
             rs.getString("id"),
             rs.getString("name"),
             rs.getString("email"),
-            UsersStatus.valueOf(rs.getString("status").toUpperCase()),
+            UsersStatus.fromValue(rs.getString("status")),
             rs.getObject("created_at", LocalDateTime.class)
         );
     }

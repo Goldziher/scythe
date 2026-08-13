@@ -15,6 +15,12 @@ enum class UserStatus(val value: String) {
     ACTIVE("active"),
     INACTIVE("inactive"),
     BANNED("banned");
+
+    companion object {
+        fun fromValue(value: String): UserStatus =
+            values().firstOrNull { it.value == value }
+                ?: throw IllegalArgumentException("Unknown UserStatus value: $value")
+    }
 }
 
 
@@ -176,7 +182,7 @@ fun getUserById(
                     id = rs.getInt("id"),
                     name = rs.getString("name"),
                     email = email,
-                    status = UserStatus.valueOf(rs.getString("status").uppercase()),
+                    status = UserStatus.fromValue(rs.getString("status")),
                     created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
@@ -246,7 +252,7 @@ fun createUser(
                     id = rs.getInt("id"),
                     name = rs.getString("name"),
                     email = email,
-                    status = UserStatus.valueOf(rs.getString("status").uppercase()),
+                    status = UserStatus.fromValue(rs.getString("status")),
                     created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
@@ -332,7 +338,7 @@ fun countUsersByStatus(
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
                 CountUsersByStatusRow(
-                    status = UserStatus.valueOf(rs.getString("status").uppercase()),
+                    status = UserStatus.fromValue(rs.getString("status")),
                     user_count = rs.getLong("user_count"),
                 )
             } else {

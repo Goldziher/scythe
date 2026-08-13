@@ -22,15 +22,31 @@
 //!    `0`/`false` for SQL NULL and require a following `wasNull()` to tell
 //!    that apart from a real zero. `kotlin-exposed` had no `wasNull()`
 //!    handling whatsoever, so a nullable `Int?`/`Boolean?`/`Double?` column
-//!    silently became `0`/`false` instead of null. Separately, all three JDBC
-//!    backends read a *nullable* enum column as
-//!    `Status.valueOf(rs.getString(col).uppercase())`, which throws on
-//!    exactly the value a nullable enum column exists to hold.
+//!    silently became `0`/`false` instead of null.
 //!
-//! The fix removes the second table: a reference-typed column is read through
-//! the class-taking accessor overload (`rs.getObject(col, T.class)`,
-//! `row.get(col, T.class)`) with `T` derived from the declared type, so
-//! declaration and reader cannot drift. See
+//! 3. **The enum reader decoded against the wrong string (#213).** All three
+//!    JDBC-family backends read an enum column as
+//!    `Status.valueOf(rs.getString(col).uppercase())`. `valueOf` matches the
+//!    *generated variant name* (`enum_variant_name` sanitises characters an
+//!    identifier cannot hold: SQL value `"in-active"` becomes variant
+//!    `IN_ACTIVE`), while `uppercase()`/`toUpperCase()` only case-folds the
+//!    raw string (`"IN-ACTIVE"`), without sanitising it. `valueOf` throws on
+//!    exactly that value -- for both NULL and ordinary non-NULL values alike,
+//!    not only on NULL. Bind and read also disagreed about the wire value
+//!    itself: bind already sent the declared `value` (`x.getValue()`/
+//!    `x.value`), so the round trip was broken in both directions. The fix is
+//!    `T.fromValue(x)`, a static lookup generated onto the enum (see
+//!    `generate_enum_def`) that scans `values()` for the declared `value`;
+//!    `fromValue(x.getValue()) == x` holds for every variant. `java-r2dbc` and
+//!    `kotlin-r2dbc` had no enum reader at all -- they read every column
+//!    through the driver's class-typed accessor, which is
+//!    driver-codec-dependent for an application-defined enum; they now decode
+//!    the wire value with the same `fromValue` conversion.
+//!
+//! The fix for defects 1 removes the second table: a reference-typed column is
+//! read through the class-taking accessor overload (`rs.getObject(col,
+//! T.class)`, `row.get(col, T.class)`) with `T` derived from the declared
+//! type, so declaration and reader cannot drift. See
 //! `src/backends/jvm_common.rs`.
 //!
 //! Every assertion below runs unconditionally on the generated text. The real
@@ -340,11 +356,23 @@ fn java_r2dbc_row_get_uses_the_declared_class_never_object() {
         "row.get(\"home_address\", WidgetAddress.class)",
         "Row.get is generic in its class argument; only the declared class yields an assignable value",
     );
+    // ~keep #213: an R2DBC driver has no reason to know about a generated
+    // enum type, and `row.get(col, WidgetStatus.class)` is
+    // driver-codec-dependent -- unregistered, it throws at runtime. The wire
+    // value is read as `String` and decoded through `fromValue`, the same
+    // conversion the JDBC family uses, so this must never regress to a
+    // class-typed `row.get` for an enum column.
     assert_contains(
         "java-r2dbc",
         &code,
+        "WidgetStatus.fromValue(row.get(\"status\", String.class))",
+        "enums are decoded from the wire value, not read through a driver-codec-dependent class",
+    );
+    assert_absent(
+        "java-r2dbc",
+        &code,
         "row.get(\"status\", WidgetStatus.class)",
-        "enum columns fell through to Object.class too",
+        "a driver has no codec for a generated enum type without explicit registration",
     );
     assert_absent(
         "java-r2dbc",
@@ -369,11 +397,20 @@ fn kotlin_r2dbc_row_get_uses_the_declared_class_never_any() {
         "row.get(\"home_address\", WidgetAddress::class.java)",
         "only the declared class yields a value assignable to the declared field",
     );
+    // ~keep #213: same reasoning as `java-r2dbc` -- an R2DBC driver has no
+    // codec for a generated enum type without explicit registration, so the
+    // wire value is read as `String` and decoded through `fromValue`.
     assert_contains(
         "kotlin-r2dbc",
         &code,
+        "WidgetStatus.fromValue(row.get(\"status\", String::class.java))",
+        "enums are decoded from the wire value, not read through a driver-codec-dependent class",
+    );
+    assert_absent(
+        "kotlin-r2dbc",
+        &code,
         "row.get(\"status\", WidgetStatus::class.java)",
-        "enum columns fell through to Any::class.java too",
+        "a driver has no codec for a generated enum type without explicit registration",
     );
     assert_absent(
         "kotlin-r2dbc",
@@ -499,30 +536,51 @@ fn kotlin_exposed_guards_every_nullable_primitive_with_was_null() {
     }
 }
 
-/// A nullable enum column read as `Status.valueOf(rs.getString(col)...)`
-/// throws `NullPointerException` on a NULL, because `getString` returns null
-/// and the conversion dereferences it. All three JDBC backends did this.
+/// Inverted with #213. This test used to pin the *defective* spelling: a
+/// nullable enum column guarded against NULL by checking the raw string, then
+/// calling `Status.valueOf(raw.toUpperCase())`. That guard was necessary but
+/// not sufficient -- `valueOf` matches against the sanitised *variant name*
+/// (`enum_variant_name` turns a SQL value like `"in-active"` into
+/// `IN_ACTIVE`, an identifier `-` cannot appear in), while `toUpperCase()`
+/// only upper-cases the raw string (`"IN-ACTIVE"`) without sanitising it.
+/// `valueOf("IN-ACTIVE")` throws `IllegalArgumentException` on exactly the
+/// value the column exists to hold, for both NULL and non-NULL enum columns
+/// alike -- the bug lived in the *conversion*, not in whether it was guarded.
+///
+/// The fix is `T.fromValue(x)`, a static lookup generated onto the enum
+/// itself (see `generate_enum_def` in each backend) that scans `values()` for
+/// the declared `value` -- the same string the bind side sends via
+/// `x.getValue()`/`x.value`. `fromValue(x.getValue()) == x` for every
+/// variant, regardless of how the variant name was sanitised. The NULL guard
+/// itself is unchanged: `getString` still returns `null` for SQL NULL, so the
+/// check still runs on the raw string before `fromValue` is called.
 #[test]
 fn jdbc_backends_null_guard_a_nullable_enum_column() {
     let java = generated_text("java-jdbc");
     assert_contains(
         "java-jdbc",
         &java,
-        "optional_statusRaw == null ? null : WidgetStatus.valueOf(optional_statusRaw.toUpperCase());",
-        "a nullable enum needs the raw string checked before valueOf",
+        "optional_statusRaw == null ? null : WidgetStatus.fromValue(optional_statusRaw);",
+        "a nullable enum needs the raw string checked before fromValue",
     );
     assert_absent(
         "java-jdbc",
         &java,
-        "WidgetStatus.valueOf(rs.getString(\"optional_status\").toUpperCase())",
+        "WidgetStatus.fromValue(rs.getString(\"optional_status\"))",
         "the unguarded inline form throws NullPointerException on a NULL column",
+    );
+    assert_absent(
+        "java-jdbc",
+        &java,
+        ".valueOf(",
+        "valueOf matches the sanitised variant spelling, not the SQL wire value -- fromValue is round-trip-correct",
     );
     // The NOT NULL enum keeps the direct conversion -- the guard is scoped to
     // nullable columns, not applied to everything.
     assert_contains(
         "java-jdbc",
         &java,
-        "WidgetStatus.valueOf(rs.getString(\"status\").toUpperCase())",
+        "WidgetStatus.fromValue(rs.getString(\"status\"))",
         "a NOT NULL enum column needs no guard and must not grow one",
     );
 
@@ -531,19 +589,25 @@ fn jdbc_backends_null_guard_a_nullable_enum_column() {
         assert_contains(
             backend,
             &code,
-            "if (optional_statusValue == null) null else WidgetStatus.valueOf(optional_statusValue.uppercase())",
-            "a nullable enum needs the raw string checked before valueOf",
+            "if (optional_statusValue == null) null else WidgetStatus.fromValue(optional_statusValue)",
+            "a nullable enum needs the raw string checked before fromValue",
         );
         assert_absent(
             backend,
             &code,
-            "WidgetStatus.valueOf(rs.getString(\"optional_status\").uppercase())",
+            "WidgetStatus.fromValue(rs.getString(\"optional_status\"))",
             "the unguarded inline form throws on a NULL column",
+        );
+        assert_absent(
+            backend,
+            &code,
+            ".valueOf(",
+            "valueOf matches the sanitised variant spelling, not the SQL wire value -- fromValue is round-trip-correct",
         );
         assert_contains(
             backend,
             &code,
-            "WidgetStatus.valueOf(rs.getString(\"status\").uppercase())",
+            "WidgetStatus.fromValue(rs.getString(\"status\"))",
             "a NOT NULL enum column needs no guard and must not grow one",
         );
     }
@@ -676,10 +740,13 @@ fn kotlin_exposed_grouped_fold_guards_nullable_columns() {
         "val nullable_int = if (rs.wasNull()) null else nullable_intValue",
         "without this the SQL NULL becomes 0",
     );
+    // Inverted with #213 alongside `jdbc_backends_null_guard_a_nullable_enum_column` --
+    // see that test's doc comment for why `valueOf(...uppercase())` was itself
+    // defective, not just unguarded.
     assert_contains(
         "kotlin-exposed",
         &code,
-        "if (part_statusValue == null) null else WidgetStatus.valueOf(part_statusValue.uppercase())",
+        "if (part_statusValue == null) null else WidgetStatus.fromValue(part_statusValue)",
         "the child row's nullable enum needs the null guard too",
     );
 }

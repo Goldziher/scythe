@@ -149,6 +149,18 @@ pub(crate) fn is_enum_column(neutral_type: &str) -> bool {
     neutral_type.starts_with("enum::")
 }
 
+/// The element neutral type of an `array<...>` neutral type (`"array<int32>"`
+/// -> `Some("int32")`), or `None` when `neutral_type` does not name an array.
+///
+/// Used instead of the manifest's `array` container pattern to derive the
+/// *element* type independently, because the manifest's `{T}` substitution
+/// draws on the same scalar table a plain field uses -- which on Java is
+/// deliberately unboxed (`int32` -> `int`) -- and `List<int>` is not legal
+/// Java. See `java_jdbc.rs`'s array reader for where this gets boxed.
+pub(crate) fn array_element_neutral_type(neutral_type: &str) -> Option<&str> {
+    neutral_type.strip_prefix("array<")?.strip_suffix('>')
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -193,6 +205,17 @@ mod tests {
             kotlin_jdbc_read_call("external_id", "java.util.UUID"),
             "rs.getObject(\"external_id\", java.util.UUID::class.java)"
         );
+    }
+
+    #[test]
+    fn array_element_neutral_type_extracts_the_inner_type() {
+        assert_eq!(array_element_neutral_type("array<int32>"), Some("int32"));
+        assert_eq!(
+            array_element_neutral_type("array<enum::widget_status>"),
+            Some("enum::widget_status")
+        );
+        assert_eq!(array_element_neutral_type("int32"), None);
+        assert_eq!(array_element_neutral_type("range<int32>"), None);
     }
 
     #[test]

@@ -103,13 +103,74 @@ fn r2dbc_row_class(java_type: &str) -> String {
     jvm_common::java_class_literal(box_primitive(java_type))
 }
 
+/// The boxed Java element type for an array column's `List<{T}>`. See
+/// `java_jdbc.rs`'s `java_array_element_type` for the full reasoning --
+/// duplicated here rather than shared because the two backends have no other
+/// coupling and this is a five-line wrapper around `resolve_type`.
+fn java_array_element_type(element_neutral: &str, manifest: &BackendManifest) -> String {
+    resolve_type(element_neutral, manifest, false)
+        .map(|t| box_primitive(&t).to_string())
+        .unwrap_or_else(|_| "Object".to_string())
+}
+
+/// The Java type an array column is declared *and* cast as: `List<{T}>` with
+/// `T` boxed. Not `col.lang_type`/`col.full_type` -- see
+/// `java_array_element_type`.
+fn java_array_list_type(element_neutral: &str, manifest: &BackendManifest) -> String {
+    format!("java.util.List<{}>", java_array_element_type(element_neutral, manifest))
+}
+
 /// Resolve the display type for a Java field, boxing primitives when nullable.
-fn java_field_type(col: &ResolvedColumn) -> String {
+fn java_field_type(col: &ResolvedColumn, manifest: &BackendManifest) -> String {
+    if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+        return java_array_list_type(element, manifest);
+    }
     if col.nullable {
         box_primitive(&col.lang_type).to_string()
     } else {
         col.full_type.clone()
     }
+}
+
+/// Build the `Row.get` expression for a column, handling arrays and enums
+/// specially -- everywhere else defers to [`r2dbc_row_class`].
+///
+/// Arrays: R2DBC hands back the driver's native array shape (`String[]`,
+/// `Integer[]`, never a `List`), so the class literal asked for is an array
+/// class (`String[].class`) and the result is wrapped in `Arrays.asList`.
+/// `row.get` returns `null` for a NULL column, and `Arrays.asList(null)`
+/// throws `NullPointerException`, hence the null check.
+///
+/// Enums: an R2DBC driver has no reason to know about a generated enum type,
+/// and `row.get(col, WidgetStatus.class)` is driver-codec-dependent --
+/// PostgreSQL's own enum codec is opt-in and, unregistered, throws at
+/// runtime. Reading the wire value as `String` and decoding through
+/// `fromValue` (the same conversion the JDBC family already does) has no such
+/// dependency and matches the wire value the bind side sends.
+fn r2dbc_col_read_expr(col: &ResolvedColumn, manifest: &BackendManifest) -> String {
+    if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+        let boxed_element = java_array_element_type(element, manifest);
+        let get_expr = format!("row.get(\"{}\", {}[].class)", col.name, boxed_element);
+        return format!("{get_expr} == null ? null : java.util.Arrays.asList({get_expr})");
+    }
+    if col.neutral_type.starts_with("enum::") {
+        return format!("{}.fromValue(row.get(\"{}\", String.class))", col.lang_type, col.name);
+    }
+    let class = r2dbc_row_class(&col.lang_type);
+    format!("row.get(\"{}\", {})", col.name, class)
+}
+
+/// The Java type an `:grouped` raw `Object[]` element is cast back to.
+/// Mirrors [`java_field_type`]'s array branch (nullability is irrelevant to a
+/// cast target -- Java generics carry no runtime nullability distinction) and
+/// [`box_primitive`] otherwise, matching what [`r2dbc_col_read_expr`] actually
+/// stored at that ordinal (a `fromValue`-decoded enum, a `List<T>`, or a
+/// boxed scalar).
+fn r2dbc_cast_type(col: &ResolvedColumn, manifest: &BackendManifest) -> String {
+    if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+        return java_array_list_type(element, manifest);
+    }
+    box_primitive(&col.lang_type).to_string()
 }
 
 /// Resolve the display type for a Java param, boxing primitives when nullable.
@@ -212,7 +273,7 @@ impl CodegenBackend for JavaR2dbcBackend {
         let fields = columns
             .iter()
             .map(|c| {
-                let field_type = java_field_type(c);
+                let field_type = java_field_type(c, &self.manifest);
                 if c.nullable {
                     format!("    @Nullable {} {}", field_type, c.field_name)
                 } else {
@@ -255,9 +316,9 @@ impl CodegenBackend for JavaR2dbcBackend {
         let write_row_map = |out: &mut String, indent: &str| {
             let _ = writeln!(out, "{}new {}(", indent, struct_name);
             for (i, col) in columns.iter().enumerate() {
-                let class = r2dbc_row_class(&col.lang_type);
+                let expr = r2dbc_col_read_expr(col, &self.manifest);
                 let sep = if i + 1 < columns.len() { "," } else { "" };
-                let _ = writeln!(out, "{}    row.get(\"{}\", {}){}", indent, col.name, class, sep);
+                let _ = writeln!(out, "{}    {}{}", indent, expr, sep);
             }
             let _ = write!(out, "{})", indent);
         };
@@ -477,6 +538,23 @@ impl CodegenBackend for JavaR2dbcBackend {
         let _ = writeln!(out, "    private final String value;");
         let _ = writeln!(out, "    {}(String value) {{ this.value = value; }}", type_name);
         let _ = writeln!(out, "    public String getValue() {{ return value; }}");
+        let _ = writeln!(out);
+        // ~keep #213: see `java_jdbc.rs`'s `generate_enum_def` for the full
+        // reasoning -- decoding against the declared `value` rather than the
+        // sanitised variant spelling is what makes `fromValue(x.getValue()) ==
+        // x` hold for every variant.
+        let _ = writeln!(out, "    public static {} fromValue(String value) {{", type_name);
+        let _ = writeln!(out, "        for ({} v : values()) {{", type_name);
+        let _ = writeln!(out, "            if (v.value.equals(value)) {{");
+        let _ = writeln!(out, "                return v;");
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(
+            out,
+            "        throw new IllegalArgumentException(\"Unknown {} value: \" + value);",
+            type_name
+        );
+        let _ = writeln!(out, "    }}");
         let _ = write!(out, "}}");
         Ok(out)
     }
@@ -515,7 +593,7 @@ impl CodegenBackend for JavaR2dbcBackend {
 
         let _ = writeln!(out, "public record {}(", child_struct_name);
         for (i, c) in child_columns.iter().enumerate() {
-            let field_type = java_field_type(c);
+            let field_type = java_field_type(c, &self.manifest);
             let sep = if i + 1 < child_columns.len() { "," } else { "" };
             if c.nullable {
                 let _ = writeln!(out, "    @Nullable {} {}{}", field_type, c.field_name, sep);
@@ -528,7 +606,7 @@ impl CodegenBackend for JavaR2dbcBackend {
 
         let _ = writeln!(out, "public record {}(", parent_struct_name);
         for c in parent_columns {
-            let field_type = java_field_type(c);
+            let field_type = java_field_type(c, &self.manifest);
             if c.nullable {
                 let _ = writeln!(out, "    @Nullable {} {},", field_type, c.field_name);
             } else {
@@ -564,7 +642,7 @@ impl CodegenBackend for JavaR2dbcBackend {
             .iter()
             .find(|c| c.name == key_column)
             .unwrap_or(&parent_columns[0]);
-        let key_type = box_primitive(&key_col.lang_type).to_string();
+        let key_type = r2dbc_cast_type(key_col, &self.manifest);
 
         let mut out = String::new();
         let _ = writeln!(
@@ -584,9 +662,9 @@ impl CodegenBackend for JavaR2dbcBackend {
             "                .flatMap(result -> result.map((row, meta) -> new Object[]{{"
         );
         for (i, col) in all_columns.iter().enumerate() {
-            let class = r2dbc_row_class(&col.lang_type);
+            let expr = r2dbc_col_read_expr(col, &self.manifest);
             let sep = if i + 1 < all_columns.len() { "," } else { "" };
-            let _ = writeln!(out, "                    row.get(\"{}\", {}){}", col.name, class, sep);
+            let _ = writeln!(out, "                    {}{}", expr, sep);
         }
         // ~keep Three closers, not one: `}` ends the `new Object[]{` initializer,
         // then `)` ends `result.map(`, then `)` ends `.flatMap(`. This emitted a
@@ -607,7 +685,7 @@ impl CodegenBackend for JavaR2dbcBackend {
         let _ = writeln!(out, "        for (var raw : rows) {{");
 
         let key_ordinal = all_columns.iter().position(|c| c.name == key_column).unwrap_or(0);
-        let key_cast = box_primitive(&key_col.lang_type);
+        let key_cast = r2dbc_cast_type(key_col, &self.manifest);
         let _ = writeln!(out, "            var key = ({key_cast}) raw[{key_ordinal}];");
 
         let _ = writeln!(out, "            var child = new {child_struct_name}(");
@@ -616,7 +694,7 @@ impl CodegenBackend for JavaR2dbcBackend {
                 .iter()
                 .position(|c| c.name == col.name)
                 .unwrap_or(parent_columns.len() + ci);
-            let cast_type = box_primitive(&col.lang_type);
+            let cast_type = r2dbc_cast_type(col, &self.manifest);
             let sep = if ci + 1 < child_columns.len() { "," } else { "" };
             let _ = writeln!(out, "                ({cast_type}) raw[{ordinal}]{sep}");
         }
@@ -628,7 +706,7 @@ impl CodegenBackend for JavaR2dbcBackend {
         let _ = writeln!(out, "                var parent = new {parent_struct_name}(");
         for col in parent_columns {
             let ordinal = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
-            let cast_type = box_primitive(&col.lang_type);
+            let cast_type = r2dbc_cast_type(col, &self.manifest);
             let _ = writeln!(out, "                    ({cast_type}) raw[{ordinal}],");
         }
         let _ = writeln!(

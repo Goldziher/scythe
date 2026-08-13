@@ -58,6 +58,23 @@ fn exposed_column_fn(kotlin_type: &str) -> &str {
     }
 }
 
+/// The Kotlin element type an array column's `List<{T}>` reader casts each
+/// element to. See `kotlin_jdbc.rs`'s `element_kotlin_type` -- identical
+/// reasoning, duplicated rather than shared because it is a five-line wrapper
+/// and the two backends have no other coupling.
+fn element_kotlin_type(element_neutral: &str, manifest: &BackendManifest) -> String {
+    resolve_type(element_neutral, manifest, false)
+        .map(|t| t.into_owned())
+        .unwrap_or_else(|_| "Any".to_string())
+}
+
+/// The Kotlin `List<T>` expression that turns a `java.sql.Array` (already
+/// known non-null) into the declared element type. See `kotlin_jdbc.rs`'s
+/// `array_list_expr` for the full reasoning.
+fn array_list_expr(sql_array_expr: &str, element_type: &str) -> String {
+    format!("({sql_array_expr}.array as Array<*>).map {{ it as {element_type} }}")
+}
+
 /// The inline read expression for a kotlin-exposed column.
 ///
 /// Exposed's `exec(sql) { rs -> ... }` block hands out a plain
@@ -72,27 +89,55 @@ fn exposed_column_fn(kotlin_type: &str) -> &str {
 /// `rs.getInt(col)`, which JDBC specifies to return `0` — not null — for SQL
 /// NULL, so every NULL in a nullable numeric or boolean column silently became
 /// `0`/`false` in the row object.
-fn exposed_rs_expr(col: &ResolvedColumn) -> String {
+fn exposed_rs_expr(col: &ResolvedColumn, manifest: &BackendManifest) -> String {
     if col.nullable {
         return col.field_name.clone();
     }
+    if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+        let element_type = element_kotlin_type(element, manifest);
+        return array_list_expr(&format!("rs.getArray(\"{}\")", col.name), &element_type);
+    }
     if jvm_common::is_enum_column(&col.neutral_type) {
-        return format!("{}.valueOf(rs.getString(\"{}\").uppercase())", col.lang_type, col.name);
+        return format!("{}.fromValue(rs.getString(\"{}\"))", col.lang_type, col.name);
     }
     jvm_common::kotlin_jdbc_read_call(&col.name, &col.lang_type)
 }
 
 /// Emit the nullable-column preamble locals a following row construction reads
 /// through [`exposed_rs_expr`].
-fn write_exposed_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent: &str) {
+fn write_exposed_nullable_preamble(
+    out: &mut String,
+    cols: &[ResolvedColumn],
+    indent: &str,
+    manifest: &BackendManifest,
+) {
     for col in cols {
         if !col.nullable {
             continue;
         }
+        if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+            // ~keep A nullable array column's `rs.getArray(col)` returns
+            // `null` for SQL NULL; calling `.array` on that null throws
+            // `NullPointerException`, so the guard is on the `java.sql.Array`
+            // local, before the element conversion runs.
+            let element_type = element_kotlin_type(element, manifest);
+            let _ = writeln!(
+                out,
+                "{}val {}SqlArray = rs.getArray(\"{}\")",
+                indent, col.field_name, col.name
+            );
+            let list_expr = array_list_expr(&format!("{}SqlArray", col.field_name), &element_type);
+            let _ = writeln!(
+                out,
+                "{}val {} = if ({}SqlArray == null) null else {}",
+                indent, col.field_name, col.field_name, list_expr
+            );
+            continue;
+        }
         if jvm_common::is_enum_column(&col.neutral_type) {
             // ~keep `getString` returns null for SQL NULL, so the guard is on
-            // the raw string: `valueOf(rs.getString(col).uppercase())` would
-            // throw on exactly the value a nullable enum column exists to hold.
+            // the raw string: `fromValue(rs.getString(col))` would throw on
+            // exactly the value a nullable enum column exists to hold.
             let _ = writeln!(
                 out,
                 "{}val {}Value = rs.getString(\"{}\")",
@@ -100,7 +145,7 @@ fn write_exposed_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], in
             );
             let _ = writeln!(
                 out,
-                "{}val {} = if ({}Value == null) null else {}.valueOf({}Value.uppercase())",
+                "{}val {} = if ({}Value == null) null else {}.fromValue({}Value)",
                 indent, col.field_name, col.field_name, col.lang_type, col.field_name
             );
             continue;
@@ -206,9 +251,23 @@ impl CodegenBackend for KotlinExposedBackend {
         Ok(out)
     }
 
+    /// #214: this used to declare only `object EvTable : IntIdTable("ev")`
+    /// and no row type at all, while the query function `determine_struct_name`
+    /// pairs it with constructs `Ev(...)` -- a type declared nowhere. Exposed's
+    /// idiom genuinely is a table object (there is no idiomatic way to drop
+    /// it), so the fix emits *both*: the table object, for callers who want to
+    /// build Exposed DSL queries against it, and the `data class` the query
+    /// function already references.
+    ///
+    /// `struct_name` is derived through [`crate::model_struct_name`] -- the
+    /// same function the base trait's default `generate_model_struct` and
+    /// `determine_struct_name` both use -- not `to_pascal_case(table_name)`,
+    /// whose un-singularized spelling (`"events"` -> `Events`, not `Event`) is
+    /// exactly the #164 divergence this repo already fixed for every other
+    /// backend.
     fn generate_model_struct(&self, table_name: &str, columns: &[ResolvedColumn]) -> Result<String, ScytheError> {
-        let name = to_pascal_case(table_name);
-        let table_obj_name = format!("{}Table", name);
+        let struct_name = crate::model_struct_name(table_name, &self.manifest.naming);
+        let table_obj_name = format!("{}Table", struct_name);
         let mut out = String::new();
         let table_base = exposed_id_table_type(columns);
         let _ = writeln!(out, "object {} : {}(\"{}\") {{", table_obj_name, table_base, table_name);
@@ -222,6 +281,9 @@ impl CodegenBackend for KotlinExposedBackend {
             );
         }
         let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        let row_decl = self.generate_struct_decl(&struct_name, &struct_name, columns)?;
+        out.push_str(&row_decl);
         Ok(out)
     }
 
@@ -289,14 +351,14 @@ impl CodegenBackend for KotlinExposedBackend {
                 let args = build_args(params);
                 let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
                 let _ = writeln!(out, "            if (rs.next()) {{");
-                write_exposed_nullable_preamble(&mut out, columns, "                ");
+                write_exposed_nullable_preamble(&mut out, columns, "                ", &self.manifest);
                 let _ = writeln!(out, "                {}(", struct_name);
                 for col in columns.iter() {
                     let _ = writeln!(
                         out,
                         "                    {} = {},",
                         col.field_name,
-                        exposed_rs_expr(col)
+                        exposed_rs_expr(col, &self.manifest)
                     );
                 }
                 let _ = writeln!(out, "                )");
@@ -357,7 +419,7 @@ impl CodegenBackend for KotlinExposedBackend {
                 let _ = writeln!(out, "        val result = mutableListOf<{}>()", struct_name);
                 let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
                 let _ = writeln!(out, "            while (rs.next()) {{");
-                write_exposed_nullable_preamble(&mut out, columns, "                ");
+                write_exposed_nullable_preamble(&mut out, columns, "                ", &self.manifest);
                 let _ = writeln!(out, "                result.add(");
                 let _ = writeln!(out, "                    {}(", struct_name);
                 for col in columns.iter() {
@@ -365,7 +427,7 @@ impl CodegenBackend for KotlinExposedBackend {
                         out,
                         "                        {} = {},",
                         col.field_name,
-                        exposed_rs_expr(col)
+                        exposed_rs_expr(col, &self.manifest)
                     );
                 }
                 let _ = writeln!(out, "                    ),");
@@ -389,6 +451,20 @@ impl CodegenBackend for KotlinExposedBackend {
             let sep = if i + 1 < enum_info.values.len() { "," } else { ";" };
             let _ = writeln!(out, "    {}(\"{}\"){}", variant, value, sep);
         }
+        let _ = writeln!(out);
+        // ~keep #213: see `java_jdbc.rs`'s `generate_enum_def` for the full
+        // reasoning -- decoding against the declared `value` rather than the
+        // sanitised variant spelling is what makes `fromValue(x.value) == x`
+        // hold for every variant.
+        let _ = writeln!(out, "    companion object {{");
+        let _ = writeln!(out, "        fun fromValue(value: String): {} =", type_name);
+        let _ = writeln!(out, "            values().firstOrNull {{ it.value == value }}");
+        let _ = writeln!(
+            out,
+            "                ?: throw IllegalArgumentException(\"Unknown {} value: $value\")",
+            type_name
+        );
+        let _ = writeln!(out, "    }}");
         let _ = writeln!(out, "}}");
         Ok(out)
     }
@@ -491,10 +567,10 @@ impl CodegenBackend for KotlinExposedBackend {
         let _ = writeln!(out, "        exec(\"{sql}\"{args}) {{ rs ->");
         let _ = writeln!(out, "            while (rs.next()) {{");
 
-        write_exposed_nullable_preamble(&mut out, child_columns, "                ");
-        write_exposed_nullable_preamble(&mut out, parent_columns, "                ");
+        write_exposed_nullable_preamble(&mut out, child_columns, "                ", &self.manifest);
+        write_exposed_nullable_preamble(&mut out, parent_columns, "                ", &self.manifest);
 
-        let key_expr = exposed_rs_expr(key_col);
+        let key_expr = exposed_rs_expr(key_col, &self.manifest);
         let _ = writeln!(out, "                val key = {key_expr}");
 
         let _ = writeln!(out, "                val child = {child_struct_name}(");
@@ -503,7 +579,7 @@ impl CodegenBackend for KotlinExposedBackend {
                 out,
                 "                    {} = {},",
                 col.field_name,
-                exposed_rs_expr(col)
+                exposed_rs_expr(col, &self.manifest)
             );
         }
         let _ = writeln!(out, "                )");
@@ -517,7 +593,7 @@ impl CodegenBackend for KotlinExposedBackend {
                 out,
                 "                        {} = {},",
                 col.field_name,
-                exposed_rs_expr(col)
+                exposed_rs_expr(col, &self.manifest)
             );
         }
         let _ = writeln!(out, "                        children = mutableListOf(child),");
@@ -721,6 +797,66 @@ mod tests {
         assert!(
             !query_fn.contains("rs.getInt(\"userId\")"),
             "must never look the driver up by the renamed field; got:\n{query_fn}"
+        );
+    }
+
+    fn make_select_star_query() -> AnalyzedQuery {
+        AnalyzedQuery::build(|q| {
+            q.name = "GetAllUsers".to_string();
+            q.command = QueryCommand::Many;
+            q.sql = "SELECT * FROM users".to_string();
+            q.columns = vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "name".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ];
+            q.params = vec![];
+            q.deprecated = None;
+            q.source_table = Some("users".to_string());
+            q.composites = vec![];
+            q.enums = vec![];
+            q.optional_params = vec![];
+            q.group_by = None;
+            q.custom = vec![];
+        })
+    }
+
+    /// #214: `generate_model_struct` used to emit only the Exposed table
+    /// object (`object UserTable : IntIdTable("users")`), never a row type,
+    /// while `determine_struct_name` -- shared naming code this backend does
+    /// not control -- decided the query function would construct `User(...)`,
+    /// a type declared nowhere. `test_select_star_declares_and_references_the_same_struct_name_across_all_backends`
+    /// in `lib.rs` checks this invariant generically across every backend;
+    /// this test exercises the same fix directly so it lives with the code it
+    /// covers.
+    #[test]
+    fn test_select_star_declares_both_the_table_object_and_the_row_data_class() {
+        let backend = KotlinExposedBackend::new("postgresql").unwrap();
+        let query = make_select_star_query();
+        let result = crate::generate_with_backend(&query, &backend).unwrap();
+        let model_struct = result.model_struct.as_deref().unwrap();
+        let query_fn = result.query_fn.as_deref().unwrap();
+
+        assert!(
+            model_struct.contains("object UserTable : IntIdTable(\"users\") {"),
+            "must still declare the Exposed table object; got:\n{model_struct}"
+        );
+        assert!(
+            model_struct.contains("data class User("),
+            "must also declare the row type the query function references; got:\n{model_struct}"
+        );
+        assert!(
+            query_fn.contains("User("),
+            "the query function must construct the declared row type; got:\n{query_fn}"
         );
     }
 

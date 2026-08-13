@@ -26,11 +26,12 @@ json = "String"
 inet = "String"
 
 [types.containers]
-# Arrays have no typed reader on the JVM backends. Every non-scalar column is read through
-# the untyped object accessor, whose static type is Object on Java and Any on Kotlin, so a
-# list-typed declaration never compiles. Arrays are declared in their text form instead,
-# exactly like the range container below.
-array = "String"
+# GH#192: array columns are decoded into this List<{T}> by the backend, not
+# by the manifest -- java.sql.Array (JDBC) / the driver's native array shape
+# (R2DBC) are turned into List<T>, see jvm_common.rs and each backend's array
+# reader. No boxing decision is needed here, unlike Java: List<Int>/List<Boolean>
+# are legal Kotlin on their own.
+array = "List<{T}>"
 nullable = "{T}?"
 range = "String"
 json_typed = "{T}"

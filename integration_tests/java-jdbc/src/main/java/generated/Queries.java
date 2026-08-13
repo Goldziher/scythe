@@ -19,6 +19,15 @@ public enum UserStatus {
     private final String value;
     UserStatus(String value) { this.value = value; }
     public String getValue() { return value; }
+
+    public static UserStatus fromValue(String value) {
+        for (UserStatus v : values()) {
+            if (v.value.equals(value)) {
+                return v;
+            }
+        }
+        throw new IllegalArgumentException("Unknown UserStatus value: " + value);
+    }
 }
 
 public record CreateOrderRow(
@@ -147,7 +156,7 @@ public record GetUserByIdRow(
             rs.getInt("id"),
             rs.getString("name"),
             rs.getString("email"),
-            UserStatus.valueOf(rs.getString("status").toUpperCase()),
+            UserStatus.fromValue(rs.getString("status")),
             rs.getObject("created_at", OffsetDateTime.class)
         );
     }
@@ -204,7 +213,7 @@ public record CreateUserRow(
             rs.getInt("id"),
             rs.getString("name"),
             rs.getString("email"),
-            UserStatus.valueOf(rs.getString("status").toUpperCase()),
+            UserStatus.fromValue(rs.getString("status")),
             rs.getObject("created_at", OffsetDateTime.class)
         );
     }
@@ -274,7 +283,7 @@ public record CountUsersByStatusRow(
 ) {
     public static CountUsersByStatusRow fromResultSet(ResultSet rs) throws SQLException {
         return new CountUsersByStatusRow(
-            UserStatus.valueOf(rs.getString("status").toUpperCase()),
+            UserStatus.fromValue(rs.getString("status")),
             rs.getLong("user_count")
         );
     }

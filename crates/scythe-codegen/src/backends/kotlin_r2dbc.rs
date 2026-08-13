@@ -63,6 +63,35 @@ fn r2dbc_row_class(kotlin_type: &str) -> String {
     jvm_common::kotlin_boxed_class_literal(kotlin_type)
 }
 
+/// Build the `Row.get` expression for a column, handling arrays and enums
+/// specially -- everywhere else defers to [`r2dbc_row_class`]. See
+/// `java_r2dbc.rs`'s `r2dbc_col_read_expr` for the full reasoning behind both
+/// cases.
+///
+/// Neither case null-guards: this file's existing `write_row_map` never did
+/// either -- a platform-typed `row.get` result is passed straight through to
+/// a declared type that may or may not be nullable, and this keeps the same
+/// convention rather than introducing null-safety only for these two cases.
+fn r2dbc_col_read_expr(col: &ResolvedColumn, manifest: &BackendManifest) -> String {
+    if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+        let element_type = resolve_type(element, manifest, false)
+            .map(|t| t.into_owned())
+            .unwrap_or_else(|_| "Any".to_string());
+        return format!(
+            "row.get(\"{}\", Array<{}>::class.java).toList()",
+            col.name, element_type
+        );
+    }
+    if col.neutral_type.starts_with("enum::") {
+        return format!(
+            "{}.fromValue(row.get(\"{}\", String::class.java))",
+            col.lang_type, col.name
+        );
+    }
+    let class = r2dbc_row_class(&col.lang_type);
+    format!("row.get(\"{}\", {})", col.name, class)
+}
+
 impl CodegenBackend for KotlinR2dbcBackend {
     fn name(&self) -> &str {
         "kotlin-r2dbc"
@@ -173,6 +202,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
 
         let use_multiline_params = !params.is_empty();
         let ext = self.extension_functions;
+        let manifest = &self.manifest;
 
         let mut out = String::new();
 
@@ -185,12 +215,8 @@ impl CodegenBackend for KotlinR2dbcBackend {
         let write_row_map = |out: &mut String, indent: &str| {
             let _ = writeln!(out, "{}{}(", indent, struct_name);
             for col in columns.iter() {
-                let class = r2dbc_row_class(&col.lang_type);
-                let _ = writeln!(
-                    out,
-                    "{}    {} = row.get(\"{}\", {}),",
-                    indent, col.field_name, col.name, class
-                );
+                let expr = r2dbc_col_read_expr(col, manifest);
+                let _ = writeln!(out, "{}    {} = {},", indent, col.field_name, expr);
             }
             let _ = write!(out, "{})", indent);
         };
@@ -514,6 +540,20 @@ impl CodegenBackend for KotlinR2dbcBackend {
             let sep = if i + 1 < enum_info.values.len() { "," } else { ";" };
             let _ = writeln!(out, "    {}(\"{}\"){}", variant, value, sep);
         }
+        let _ = writeln!(out);
+        // ~keep #213: see `java_jdbc.rs`'s `generate_enum_def` for the full
+        // reasoning -- decoding against the declared `value` rather than the
+        // sanitised variant spelling is what makes `fromValue(x.value) == x`
+        // hold for every variant.
+        let _ = writeln!(out, "    companion object {{");
+        let _ = writeln!(out, "        fun fromValue(value: String): {} =", type_name);
+        let _ = writeln!(out, "            values().firstOrNull {{ it.value == value }}");
+        let _ = writeln!(
+            out,
+            "                ?: throw IllegalArgumentException(\"Unknown {} value: $value\")",
+            type_name
+        );
+        let _ = writeln!(out, "    }}");
         let _ = writeln!(out, "}}");
         Ok(out)
     }
@@ -582,6 +622,7 @@ impl CodegenBackend for KotlinR2dbcBackend {
 
         let ext = self.extension_functions;
         let use_multiline_params = !params.is_empty();
+        let manifest = &self.manifest;
 
         let key_col = parent_columns
             .iter()
@@ -634,12 +675,8 @@ impl CodegenBackend for KotlinR2dbcBackend {
         let _ = writeln!(out, "{stmt_indent}        result.map {{ row, _ ->");
         let _ = writeln!(out, "{stmt_indent}            arrayOf(");
         for col in all_columns {
-            let class = r2dbc_row_class(&col.lang_type);
-            let _ = writeln!(
-                out,
-                "{stmt_indent}                row.get(\"{}\", {}),",
-                col.name, class
-            );
+            let expr = r2dbc_col_read_expr(col, manifest);
+            let _ = writeln!(out, "{stmt_indent}                {},", expr);
         }
         let _ = writeln!(out, "{stmt_indent}            )");
         let _ = writeln!(out, "{stmt_indent}        }}");

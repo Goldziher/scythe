@@ -1,21 +1,37 @@
 //! Regression tests for array-typed columns on the JVM backends.
 //!
-//! The JVM manifests used to map the `array` container to `List<{T}>`, but no
-//! JVM backend has an array reader: `java_jdbc`/`kotlin_jdbc`/`kotlin_exposed`
-//! read any non-scalar column with `rs.getObject(col)` (static type `Object` /
-//! `Any!`) and the two R2DBC backends with `row.get(col, Object.class)` /
-//! `row.get(col, Any::class.java)`. Neither is assignable to `List<T>`, so
-//! every array column produced a file that `javac`/`kotlinc` rejected --
-//! `incompatible types: Object cannot be converted to List<String>` on Java,
-//! `argument type mismatch: actual type is 'Any!'` on Kotlin -- and
-//! `array<int32>`/`array<bool>` additionally produced `java.util.List<int>`,
-//! which is not even valid Java syntax.
+//! #192 was closed once already, but the fix was a degradation: the JVM
+//! manifests were changed to declare every `array<T>` column as plain `String`
+//! (see the removed comment this file used to quote: "arrays are declared in
+//! their text form ... exactly like the range container"), and this file's
+//! assertions were rewritten to pin that string-typed spelling as if it were
+//! correct. It was not -- an array column's *value* is not a string, and no
+//! caller wanted `"{a,b,c}"` back. The degradation made a compile failure go
+//! away without giving callers a usable value.
 //!
-//! No integration-test schema declares an array column, and the shared
-//! `tool_validation.rs` fixture has none either, so nothing compiled such a
-//! file: the breakage was latent for every element type, `array<json>`
-//! included. The manifests now declare arrays as the plain text form the
-//! string reader actually returns, exactly like the `range` container.
+//! The real fix restores a typed `List<T>` declaration and a matching reader:
+//!
+//! - **JDBC** (`java-jdbc`, `kotlin-jdbc`, `kotlin-exposed`, which shares the
+//!   JDBC `ResultSet`): `rs.getArray(col)` returns a `java.sql.Array`; its
+//!   `.getArray()` (Java) / `.array` (Kotlin) is cast to a reference-type
+//!   array (`Object[]`/`Array<*>` -- JDBC never returns a primitive array for
+//!   an SQL array column) and each element is cast to the declared element
+//!   type. A NULL column's `getArray()` returns `null`, so nullable array
+//!   columns get the same guarded preamble a nullable enum column already
+//!   has.
+//! - **R2DBC** (`java-r2dbc`, `kotlin-r2dbc`): the driver hands back its own
+//!   native array shape (`String[]`/`Array<String>`, not a `java.sql.Array`),
+//!   read via `row.get(col, T[].class)` / `row.get(col, Array<T>::class.java)`
+//!   and converted to a `List<T>`.
+//!
+//! Java alone needs a boxing step the manifest's `{T}` substitution cannot
+//! provide: `[types.scalars]` deliberately spells `int32` as the unboxed
+//! `int` (right for a plain field), and `List<int>` is not legal Java. The
+//! Java backends re-resolve the element type and box it themselves (see
+//! `java_array_element_type` in `java_jdbc.rs`/`java_r2dbc.rs`) rather than
+//! trusting `col.lang_type`/`col.full_type`. Kotlin needs no such step:
+//! `List<Int>`/`List<Boolean>` are legal Kotlin on their own, so the manifest
+//! change alone is correct for `kotlin-jdbc`/`kotlin-r2dbc`/`kotlin-exposed`.
 
 use scythe_codegen::{CodegenBackend, generate_with_backend, get_backend};
 use scythe_core::analyzer::analyze;
@@ -24,8 +40,9 @@ use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::parse_query_with_dialect;
 
 /// Every neutral array spelling reachable from PostgreSQL DDL that used to
-/// render as a `List<...>`: a JSON element type, a string one, a boxed-in-name
-/// -only primitive one (`int[]` -> `java.util.List<int>`), and a nullable one.
+/// render as `List<...>` and get degraded to `String`: a JSON element type, a
+/// string one, a boxed-in-name-only primitive one (`int32` -> unboxed `int`
+/// unless the backend boxes it), and a nullable one.
 const SCHEMA: &str = "CREATE TABLE events (\
     id INTEGER PRIMARY KEY, \
     payload JSON[] NOT NULL, \
@@ -37,9 +54,6 @@ const SCHEMA: &str = "CREATE TABLE events (\
 
 const QUERY: &str = "-- @name GetEvent\n-- @returns :one\n\
     SELECT id, payload, payload_opt, tags, counts, flags FROM events WHERE id = $1;";
-
-/// The array columns in [`SCHEMA`], by generated field name.
-const ARRAY_FIELDS: [&str; 5] = ["payload", "payload_opt", "tags", "counts", "flags"];
 
 fn generate_row_struct(backend_name: &str) -> String {
     let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
@@ -54,144 +68,257 @@ fn generate_row_struct_with(backend: &dyn CodegenBackend) -> String {
     code.row_struct.expect("expected a row struct")
 }
 
-/// Assert that no array column is declared as a list type. A `List<...>`
-/// declaration is precisely what none of the JVM readers can produce.
-fn assert_no_list_declaration(backend_name: &str, row_struct: &str) {
-    for field in ARRAY_FIELDS {
-        for list_type in [
-            "List<String>",
-            "List<Int>",
-            "List<int>",
-            "List<Boolean>",
-            "List<boolean>",
-        ] {
-            let declaration = format!("{list_type} {field}");
-            assert!(
-                !row_struct.contains(&declaration),
-                "{backend_name}: array column `{field}` is declared `{list_type}`, which no JVM \
-                 reader can produce; got:\n{row_struct}"
-            );
-            let kotlin_declaration = format!("{field}: {list_type}");
-            assert!(
-                !row_struct.contains(&kotlin_declaration),
-                "{backend_name}: array column `{field}` is declared `{list_type}`, which no JVM \
-                 reader can produce; got:\n{row_struct}"
-            );
-        }
-    }
-}
-
-/// Assert every array column is both declared as `String` and read with the
-/// backend's string accessor -- the declaration and the reader must agree, or
-/// the file does not compile.
-fn assert_string_reader(backend_name: &str, row_struct: &str, declaration: impl Fn(&str) -> String, reader: &str) {
-    for field in ARRAY_FIELDS {
-        let declared = declaration(field);
-        assert!(
-            row_struct.contains(&declared),
-            "{backend_name}: expected array column `{field}` declared as `{declared}`; got:\n{row_struct}"
-        );
-        let read = reader.replace("{col}", field);
-        assert!(
-            row_struct.contains(&read),
-            "{backend_name}: expected array column `{field}` read with `{read}`; got:\n{row_struct}"
-        );
-    }
-}
-
-#[test]
-fn java_jdbc_reads_array_columns_as_strings() {
-    let row_struct = generate_row_struct("java-jdbc");
-    assert_no_list_declaration("java-jdbc", &row_struct);
-    assert_string_reader(
-        "java-jdbc",
-        &row_struct,
-        |field| format!("String {field}"),
-        "rs.getString(\"{col}\")",
-    );
-}
-
-#[test]
-fn java_r2dbc_reads_array_columns_as_strings() {
-    let row_struct = generate_row_struct("java-r2dbc");
-    assert_no_list_declaration("java-r2dbc", &row_struct);
-    // java-r2dbc puts the reader in the query fn, not the row record, so only
-    // the declaration is checked here; the reader is checked below.
-    for field in ARRAY_FIELDS {
-        let declared = format!("String {field}");
-        assert!(
-            row_struct.contains(&declared),
-            "java-r2dbc: expected array column `{field}` declared as `{declared}`; got:\n{row_struct}"
-        );
-    }
-}
-
-#[test]
-fn java_r2dbc_query_fn_reads_array_columns_with_the_string_class() {
-    let backend = get_backend("java-r2dbc", "postgresql").expect("backend must support postgresql");
+fn generate_query_fn(backend_name: &str) -> String {
+    let backend = get_backend(backend_name, "postgresql").expect("backend must support postgresql");
     let catalog = Catalog::from_ddl_with_dialect(&[SCHEMA], &SqlDialect::PostgreSQL).expect("schema must parse");
     let parsed = parse_query_with_dialect(QUERY, &SqlDialect::PostgreSQL).expect("query must parse");
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     let code = generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
-    let query_fn = code.query_fn.expect("expected a query fn");
-    for field in ARRAY_FIELDS {
-        let read = format!("row.get(\"{field}\", String.class)");
+    code.query_fn.expect("expected a query fn")
+}
+
+// -- java-jdbc ---------------------------------------------------------------
+
+#[test]
+fn java_jdbc_declares_array_columns_as_boxed_lists() {
+    let row_struct = generate_row_struct("java-jdbc");
+    for (field, elem) in [
+        ("payload", "String"),
+        ("tags", "String"),
+        ("counts", "Integer"),
+        ("flags", "Boolean"),
+    ] {
+        let declared = format!("List<{elem}> {field}");
         assert!(
-            query_fn.contains(&read),
-            "java-r2dbc: expected array column `{field}` read with `{read}`; got:\n{query_fn}"
+            row_struct.contains(&declared),
+            "java-jdbc: expected `{field}` declared as `{declared}`; got:\n{row_struct}"
+        );
+    }
+    assert!(
+        row_struct.contains("List<String> payload_opt"),
+        "java-jdbc: nullable array column must still declare List<String>, not String; got:\n{row_struct}"
+    );
+}
+
+#[test]
+fn java_jdbc_reads_non_nullable_array_columns_through_getarray() {
+    let row_struct = generate_row_struct("java-jdbc");
+    for (field, elem) in [
+        ("payload", "String"),
+        ("tags", "String"),
+        ("counts", "Integer"),
+        ("flags", "Boolean"),
+    ] {
+        let expr = format!(
+            "java.util.Arrays.stream((Object[]) rs.getArray(\"{field}\").getArray()).map(v -> ({elem}) v).collect(java.util.stream.Collectors.toList())"
+        );
+        assert!(
+            row_struct.contains(&expr),
+            "java-jdbc: expected `{field}` read with `{expr}`; got:\n{row_struct}"
         );
     }
 }
 
 #[test]
-fn kotlin_jdbc_reads_array_columns_as_strings() {
+fn java_jdbc_null_guards_a_nullable_array_column() {
+    let row_struct = generate_row_struct("java-jdbc");
+    assert!(
+        row_struct.contains("var payload_optSqlArray = rs.getArray(\"payload_opt\");"),
+        "java-jdbc: nullable array must extract the java.sql.Array into a local first; got:\n{row_struct}"
+    );
+    assert!(
+        row_struct.contains(
+            "List<String> payload_opt = payload_optSqlArray == null ? null : java.util.Arrays.stream((Object[]) payload_optSqlArray.getArray()).map(v -> (String) v).collect(java.util.stream.Collectors.toList());"
+        ),
+        "java-jdbc: nullable array must null-check before calling .getArray(); got:\n{row_struct}"
+    );
+}
+
+// -- java-r2dbc ---------------------------------------------------------------
+
+#[test]
+fn java_r2dbc_declares_array_columns_as_boxed_lists() {
+    let row_struct = generate_row_struct("java-r2dbc");
+    for (field, elem) in [
+        ("payload", "String"),
+        ("tags", "String"),
+        ("counts", "Integer"),
+        ("flags", "Boolean"),
+    ] {
+        let declared = format!("List<{elem}> {field}");
+        assert!(
+            row_struct.contains(&declared),
+            "java-r2dbc: expected `{field}` declared as `{declared}`; got:\n{row_struct}"
+        );
+    }
+}
+
+#[test]
+fn java_r2dbc_query_fn_reads_array_columns_through_the_native_array_shape() {
+    let query_fn = generate_query_fn("java-r2dbc");
+    for (field, elem) in [
+        ("payload", "String"),
+        ("tags", "String"),
+        ("counts", "Integer"),
+        ("flags", "Boolean"),
+    ] {
+        let get_expr = format!("row.get(\"{field}\", {elem}[].class)");
+        let full_expr = format!("{get_expr} == null ? null : java.util.Arrays.asList({get_expr})");
+        assert!(
+            query_fn.contains(&full_expr),
+            "java-r2dbc: expected `{field}` read with `{full_expr}`; got:\n{query_fn}"
+        );
+    }
+}
+
+// -- kotlin-jdbc ---------------------------------------------------------------
+
+#[test]
+fn kotlin_jdbc_declares_array_columns_as_lists() {
     let row_struct = generate_row_struct("kotlin-jdbc");
-    assert_no_list_declaration("kotlin-jdbc", &row_struct);
-    for field in ARRAY_FIELDS {
+    for (field, elem) in [
+        ("payload", "String"),
+        ("tags", "String"),
+        ("counts", "Int"),
+        ("flags", "Boolean"),
+    ] {
+        let declared = format!("val {field}: List<{elem}>,");
         assert!(
-            row_struct.contains(&format!("val {field}: String")),
-            "kotlin-jdbc: expected array column `{field}` declared as `String`; got:\n{row_struct}"
+            row_struct.contains(&declared),
+            "kotlin-jdbc: expected `{field}` declared as `{declared}`; got:\n{row_struct}"
+        );
+    }
+    assert!(
+        row_struct.contains("val payload_opt: List<String>?,"),
+        "kotlin-jdbc: nullable array column must declare List<String>?, not String?; got:\n{row_struct}"
+    );
+}
+
+#[test]
+fn kotlin_jdbc_reads_non_nullable_array_columns_through_getarray() {
+    let query_fn = generate_query_fn("kotlin-jdbc");
+    for (field, elem) in [
+        ("payload", "String"),
+        ("tags", "String"),
+        ("counts", "Int"),
+        ("flags", "Boolean"),
+    ] {
+        let expr = format!("(rs.getArray(\"{field}\").array as Array<*>).map {{ it as {elem} }}");
+        assert!(
+            query_fn.contains(&expr),
+            "kotlin-jdbc: expected `{field}` read with `{expr}`; got:\n{query_fn}"
         );
     }
 }
 
 #[test]
-fn kotlin_exposed_reads_array_columns_as_strings() {
+fn kotlin_jdbc_null_guards_a_nullable_array_column() {
+    let query_fn = generate_query_fn("kotlin-jdbc");
+    assert!(
+        query_fn.contains("val payload_optSqlArray = rs.getArray(\"payload_opt\")"),
+        "kotlin-jdbc: nullable array must extract the java.sql.Array into a local first; got:\n{query_fn}"
+    );
+    assert!(
+        query_fn.contains(
+            "val payload_opt = if (payload_optSqlArray == null) null else (payload_optSqlArray.array as Array<*>).map { it as String }"
+        ),
+        "kotlin-jdbc: nullable array must null-check before calling .array; got:\n{query_fn}"
+    );
+}
+
+// -- kotlin-exposed ------------------------------------------------------------
+
+#[test]
+fn kotlin_exposed_declares_array_columns_as_lists() {
     let row_struct = generate_row_struct("kotlin-exposed");
-    assert_no_list_declaration("kotlin-exposed", &row_struct);
-    for field in ARRAY_FIELDS {
+    for (field, elem) in [
+        ("payload", "String"),
+        ("tags", "String"),
+        ("counts", "Int"),
+        ("flags", "Boolean"),
+    ] {
+        let declared = format!("val {field}: List<{elem}>,");
         assert!(
-            row_struct.contains(&format!("val {field}: String")),
-            "kotlin-exposed: expected array column `{field}` declared as `String`; got:\n{row_struct}"
+            row_struct.contains(&declared),
+            "kotlin-exposed: expected `{field}` declared as `{declared}`; got:\n{row_struct}"
         );
     }
 }
 
 #[test]
-fn kotlin_r2dbc_reads_array_columns_as_strings() {
-    let row_struct = generate_row_struct("kotlin-r2dbc");
-    assert_no_list_declaration("kotlin-r2dbc", &row_struct);
-    for field in ARRAY_FIELDS {
+fn kotlin_exposed_reads_non_nullable_array_columns_through_getarray() {
+    let query_fn = generate_query_fn("kotlin-exposed");
+    for (field, elem) in [
+        ("payload", "String"),
+        ("tags", "String"),
+        ("counts", "Int"),
+        ("flags", "Boolean"),
+    ] {
+        let expr = format!("(rs.getArray(\"{field}\").array as Array<*>).map {{ it as {elem} }}");
         assert!(
-            row_struct.contains(&format!("val {field}: String")),
-            "kotlin-r2dbc: expected array column `{field}` declared as `String`; got:\n{row_struct}"
+            query_fn.contains(&expr),
+            "kotlin-exposed: expected `{field}` read with `{expr}`; got:\n{query_fn}"
         );
     }
 }
+
+// -- kotlin-r2dbc ---------------------------------------------------------------
+
+#[test]
+fn kotlin_r2dbc_declares_array_columns_as_lists() {
+    let row_struct = generate_row_struct("kotlin-r2dbc");
+    for (field, elem) in [
+        ("payload", "String"),
+        ("tags", "String"),
+        ("counts", "Int"),
+        ("flags", "Boolean"),
+    ] {
+        let declared = format!("val {field}: List<{elem}>,");
+        assert!(
+            row_struct.contains(&declared),
+            "kotlin-r2dbc: expected `{field}` declared as `{declared}`; got:\n{row_struct}"
+        );
+    }
+}
+
+#[test]
+fn kotlin_r2dbc_query_fn_reads_array_columns_through_the_native_array_shape() {
+    let query_fn = generate_query_fn("kotlin-r2dbc");
+    for (field, elem) in [
+        ("payload", "String"),
+        ("tags", "String"),
+        ("counts", "Int"),
+        ("flags", "Boolean"),
+    ] {
+        let expr = format!("row.get(\"{field}\", Array<{elem}>::class.java).toList()");
+        assert!(
+            query_fn.contains(&expr),
+            "kotlin-r2dbc: expected `{field}` read with `{expr}`; got:\n{query_fn}"
+        );
+    }
+}
+
+// -- shared: never regress to the untyped fallback ----------------------------
 
 /// The JDBC-family readers (`java-jdbc`, `kotlin-jdbc`, `kotlin-exposed`) must
-/// never fall back to `getObject` for an array column: that is the accessor
-/// whose `Object`/`Any!` static type started this.
+/// never fall back to a bare, class-less `getObject`/`getString` for an array
+/// column -- that untyped accessor (or the plain-text degradation) is exactly
+/// what this file exists to keep out.
 #[test]
-fn jdbc_backends_never_read_array_columns_with_get_object() {
+fn jdbc_backends_never_read_array_columns_as_plain_strings() {
     for backend_name in ["java-jdbc", "kotlin-jdbc", "kotlin-exposed"] {
         let row_struct = generate_row_struct(backend_name);
-        for field in ARRAY_FIELDS {
+        for field in ["payload", "payload_opt", "tags", "counts", "flags"] {
             let get_object = format!("getObject(\"{field}\")");
             assert!(
                 !row_struct.contains(&get_object),
                 "{backend_name}: array column `{field}` is still read with `{get_object}`, whose \
                  static type is Object/Any; got:\n{row_struct}"
+            );
+            let get_string = format!("getString(\"{field}\")");
+            assert!(
+                !row_struct.contains(&get_string),
+                "{backend_name}: array column `{field}` must not be read as plain text; got:\n{row_struct}"
             );
         }
     }

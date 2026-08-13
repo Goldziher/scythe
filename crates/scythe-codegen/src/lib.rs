@@ -2009,12 +2009,15 @@ mod tests {
     /// `generate_struct_decl`, which is contractually forbidden from
     /// deriving another one (#164). There is no per-backend name derivation
     /// left for a 50th backend to get wrong.
-    const KNOWN_DIVERGENT_BACKENDS: &[BackendNote] = &[BackendNote {
-        backend: "kotlin-exposed",
-        reason: "generate_model_struct emits an Exposed `object XTable : IntIdTable(...)` in place \
-                  of a row type entirely -- not a naming defect, so the shared naming fix for #164 \
-                  does not reach it (#214)",
-    }];
+    ///
+    /// It is now empty. The last entry was `kotlin-exposed`, whose
+    /// `generate_model_struct` emitted an Exposed `object XTable :
+    /// IntIdTable(...)` in place of a row type entirely, so the shared naming
+    /// fix could not reach it. It now emits both — the table object, because
+    /// that genuinely is the Exposed idiom, and the row `data class`, because
+    /// `determine_struct_name` constructs that type regardless and leaving it
+    /// undeclared is what #214 was about.
+    const KNOWN_DIVERGENT_BACKENDS: &[BackendNote] = &[];
 
     /// Backends this check cannot render a verdict on at all -- distinct
     /// from [`KNOWN_DIVERGENT_BACKENDS`], which lists backends the check

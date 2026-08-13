@@ -19,6 +19,15 @@ public enum UsersStatus {
     private final String value;
     UsersStatus(String value) { this.value = value; }
     public String getValue() { return value; }
+
+    public static UsersStatus fromValue(String value) {
+        for (UsersStatus v : values()) {
+            if (v.value.equals(value)) {
+                return v;
+            }
+        }
+        throw new IllegalArgumentException("Unknown UsersStatus value: " + value);
+    }
 }
 
 public static void createOrder(Connection conn, int user_id, @Nonnull java.math.BigDecimal total, @Nullable String notes) throws SQLException {
@@ -129,7 +138,7 @@ public record GetUserByIdRow(
             rs.getInt("id"),
             rs.getString("name"),
             rs.getString("email"),
-            UsersStatus.valueOf(rs.getString("status").toUpperCase()),
+            UsersStatus.fromValue(rs.getString("status")),
             rs.getObject("created_at", LocalDateTime.class)
         );
     }
@@ -195,7 +204,7 @@ public record GetLastInsertUserRow(
             rs.getInt("id"),
             rs.getString("name"),
             rs.getString("email"),
-            UsersStatus.valueOf(rs.getString("status").toUpperCase()),
+            UsersStatus.fromValue(rs.getString("status")),
             rs.getObject("created_at", LocalDateTime.class)
         );
     }

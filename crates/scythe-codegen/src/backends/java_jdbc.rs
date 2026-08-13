@@ -197,8 +197,46 @@ fn ps_bind_param(param: &ResolvedParam, index: usize, engine: &str) -> String {
     }
 }
 
+/// The boxed Java element type for an array column's `List<{T}>`, derived
+/// from the element's own neutral type through the manifest's ordinary
+/// scalar/enum/composite resolution.
+///
+/// Deliberately not `col.lang_type`/`col.full_type`: those come from the
+/// manifest's `array` container pattern substituting `{T}` with whatever
+/// `[types.scalars]` spells the element as, which for Java is deliberately
+/// unboxed (`int32` -> `int`) because that is the right spelling for a plain
+/// field. `List<int>` is not legal Java, so the element is re-resolved here
+/// and boxed exactly like a nullable primitive *field* already is.
+fn java_array_element_type(element_neutral: &str, manifest: &BackendManifest) -> String {
+    resolve_type(element_neutral, manifest, false)
+        .map(|t| box_primitive(&t).to_string())
+        .unwrap_or_else(|_| "Object".to_string())
+}
+
+/// Build the `List<T>` expression that turns a `java.sql.Array` (already
+/// known non-null) into the declared element type. `sql_array_expr` is the
+/// expression producing the `java.sql.Array` -- either an inline
+/// `rs.getArray(...)` call or a preamble local already null-checked by
+/// [`write_jdbc_nullable_preamble`].
+///
+/// `getArray()` returns `Object`; every JDBC array element type (per the
+/// JDBC array-mapping table) comes back as a reference-type array --
+/// `Integer[]`, `String[]`, never the primitive `int[]` -- so the cast to
+/// `Object[]` is always legal array covariance, and each element is then
+/// cast to the declared boxed type. Never `getObject`: `Object[]` is exactly
+/// the shape the untyped accessor could not produce for a non-scalar column.
+fn array_list_expr(sql_array_expr: &str, boxed_element_type: &str) -> String {
+    format!(
+        "java.util.Arrays.stream((Object[]) {sql_array_expr}.getArray()).map(v -> ({boxed_element_type}) v).collect(java.util.stream.Collectors.toList())"
+    )
+}
+
 /// Resolve the display type for a Java field, boxing primitives when nullable.
-fn java_field_type(col: &ResolvedColumn) -> String {
+fn java_field_type(col: &ResolvedColumn, manifest: &BackendManifest) -> String {
+    if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+        let boxed_element = java_array_element_type(element, manifest);
+        return format!("List<{boxed_element}>");
+    }
     if col.nullable {
         box_primitive(&col.lang_type).to_string()
     } else {
@@ -238,19 +276,24 @@ fn java_annotated_param(param: &ResolvedParam) -> String {
 /// Whether a column's value is produced by [`write_jdbc_nullable_preamble`]
 /// into a local named after the field, rather than read inline.
 ///
-/// Two cases: a nullable primitive (whose `getInt`/`getBoolean`/... returns
-/// `0`/`false` for SQL NULL and must be paired with `wasNull()`), and a
-/// nullable enum (whose `valueOf(rs.getString(col).toUpperCase())` conversion
-/// throws `NullPointerException` on a NULL column and must be guarded).
+/// Three cases: a nullable primitive (whose `getInt`/`getBoolean`/... returns
+/// `0`/`false` for SQL NULL and must be paired with `wasNull()`), a nullable
+/// enum (whose `fromValue(rs.getString(col))` conversion throws on a NULL
+/// column and must be guarded), and a nullable array (whose
+/// `rs.getArray(col)` returns `null` for SQL NULL, and calling `.getArray()`
+/// on that null throws `NullPointerException`).
 fn is_preamble_read(col: &ResolvedColumn) -> bool {
-    col.nullable && (is_java_primitive(&col.lang_type) || col.neutral_type.starts_with("enum::"))
+    col.nullable
+        && (is_java_primitive(&col.lang_type)
+            || col.neutral_type.starts_with("enum::")
+            || jvm_common::array_element_neutral_type(&col.neutral_type).is_some())
 }
 
 /// Build the inline JDBC ResultSet expression for a column (read by column name).
-/// For nullable primitives, nullable enums, and, on engines from
+/// For nullable primitives, nullable enums, nullable arrays, and, on engines from
 /// [`engine_needs_legacy_temporal_getter`], nullable temporal columns, the variable name is
 /// returned — the preamble has already extracted the value and performed the null check.
-fn col_rs_expr(col: &ResolvedColumn, engine: &str) -> String {
+fn col_rs_expr(col: &ResolvedColumn, engine: &str, manifest: &BackendManifest) -> String {
     if is_preamble_read(col) {
         return col.field_name.clone();
     }
@@ -266,18 +309,26 @@ fn col_rs_expr(col: &ResolvedColumn, engine: &str) -> String {
         }
         return format!("rs.getObject(\"{}\", {})", col.name, class_lit);
     }
+    if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+        let boxed_element = java_array_element_type(element, manifest);
+        return array_list_expr(&format!("rs.getArray(\"{}\")", col.name), &boxed_element);
+    }
     if col.neutral_type.starts_with("enum::") {
-        return format!(
-            "{}.valueOf(rs.getString(\"{}\").toUpperCase())",
-            col.lang_type, col.name
-        );
+        return format!("{}.fromValue(rs.getString(\"{}\"))", col.lang_type, col.name);
     }
     rs_read_call(&col.name, &col.lang_type)
 }
 
-/// Emit nullable-primitive, nullable-enum, and (on engines needing it) nullable-temporal
-/// preamble variable declarations for grouped JDBC folding and row construction.
-fn write_jdbc_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent: &str, engine: &str) {
+/// Emit nullable-primitive, nullable-enum, nullable-array, and (on engines
+/// needing it) nullable-temporal preamble variable declarations for grouped
+/// JDBC folding and row construction.
+fn write_jdbc_nullable_preamble(
+    out: &mut String,
+    cols: &[ResolvedColumn],
+    indent: &str,
+    engine: &str,
+    manifest: &BackendManifest,
+) {
     for col in cols {
         if !col.nullable {
             continue;
@@ -301,7 +352,7 @@ fn write_jdbc_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], inden
             continue;
         }
         // ~keep A nullable enum column read inline would be
-        // `Status.valueOf(rs.getString(col).toUpperCase())`, which throws
+        // `Status.fromValue(rs.getString(col))`, which throws
         // NullPointerException the moment the column is actually NULL — the
         // one value a `@Nullable` field exists to represent. `getString`
         // already returns `null` for SQL NULL, so the guard is on the raw
@@ -314,8 +365,27 @@ fn write_jdbc_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], inden
             );
             let _ = writeln!(
                 out,
-                "{}{} {} = {}Raw == null ? null : {}.valueOf({}Raw.toUpperCase());",
+                "{}{} {} = {}Raw == null ? null : {}.fromValue({}Raw);",
                 indent, col.lang_type, col.field_name, col.field_name, col.lang_type, col.field_name
+            );
+            continue;
+        }
+        // ~keep A nullable array column's `rs.getArray(col)` returns `null`
+        // for SQL NULL; calling `.getArray()` on that null throws
+        // `NullPointerException`, so the guard is on the `java.sql.Array`
+        // local, before the element conversion runs.
+        if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+            let boxed_element = java_array_element_type(element, manifest);
+            let _ = writeln!(
+                out,
+                "{}var {}SqlArray = rs.getArray(\"{}\");",
+                indent, col.field_name, col.name
+            );
+            let list_expr = array_list_expr(&format!("{}SqlArray", col.field_name), &boxed_element);
+            let _ = writeln!(
+                out,
+                "{}List<{}> {} = {}SqlArray == null ? null : {};",
+                indent, boxed_element, col.field_name, col.field_name, list_expr
             );
             continue;
         }
@@ -408,7 +478,7 @@ impl CodegenBackend for JavaJdbcBackend {
         let fields = columns
             .iter()
             .map(|c| {
-                let field_type = java_field_type(c);
+                let field_type = java_field_type(c, &self.manifest);
                 if c.nullable {
                     format!("    @Nullable {} {}", field_type, c.field_name)
                 } else {
@@ -427,11 +497,11 @@ impl CodegenBackend for JavaJdbcBackend {
             "    public static {} fromResultSet(ResultSet rs) throws SQLException {{",
             struct_name
         );
-        write_jdbc_nullable_preamble(&mut out, columns, "        ", &self.engine);
+        write_jdbc_nullable_preamble(&mut out, columns, "        ", &self.engine, &self.manifest);
         let _ = writeln!(out, "        return new {}(", struct_name);
         for (i, col) in columns.iter().enumerate() {
             let sep = if i + 1 < columns.len() { "," } else { "" };
-            let expr = col_rs_expr(col, &self.engine);
+            let expr = col_rs_expr(col, &self.engine, &self.manifest);
             let _ = writeln!(out, "            {}{}", expr, sep);
         }
         let _ = writeln!(out, "        );");
@@ -677,6 +747,30 @@ impl CodegenBackend for JavaJdbcBackend {
         let _ = writeln!(out, "    private final String value;");
         let _ = writeln!(out, "    {}(String value) {{ this.value = value; }}", type_name);
         let _ = writeln!(out, "    public String getValue() {{ return value; }}");
+        let _ = writeln!(out);
+        // ~keep #213: the reader must decode against the same wire value the
+        // bind side sends (`ps.setString(n, x.getValue())` /
+        // `ps.setObject(n, x.getValue(), Types.OTHER)`). `enum_variant_name`
+        // sanitises characters an identifier cannot hold, so a SQL value like
+        // `in-active` becomes the variant `IN_ACTIVE` while the wire value
+        // stays `"in-active"`. A reader that upper-cased the raw string and
+        // called `valueOf` was matching against the *variant spelling*, not
+        // the SQL value, and threw `IllegalArgumentException` on exactly the
+        // value the column exists to hold. Scanning `values()` for the
+        // declared `value` is the round-trip-correct answer: `fromValue(x.getValue()) == x`
+        // for every variant, regardless of how the variant name was sanitised.
+        let _ = writeln!(out, "    public static {} fromValue(String value) {{", type_name);
+        let _ = writeln!(out, "        for ({} v : values()) {{", type_name);
+        let _ = writeln!(out, "            if (v.value.equals(value)) {{");
+        let _ = writeln!(out, "                return v;");
+        let _ = writeln!(out, "            }}");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(
+            out,
+            "        throw new IllegalArgumentException(\"Unknown {} value: \" + value);",
+            type_name
+        );
+        let _ = writeln!(out, "    }}");
         let _ = write!(out, "}}");
         Ok(out)
     }
@@ -715,7 +809,7 @@ impl CodegenBackend for JavaJdbcBackend {
 
         let _ = writeln!(out, "public record {}(", child_struct_name);
         for (i, c) in child_columns.iter().enumerate() {
-            let field_type = java_field_type(c);
+            let field_type = java_field_type(c, &self.manifest);
             let sep = if i + 1 < child_columns.len() { "," } else { "" };
             if c.nullable {
                 let _ = writeln!(out, "    @Nullable {} {}{}", field_type, c.field_name, sep);
@@ -728,7 +822,7 @@ impl CodegenBackend for JavaJdbcBackend {
 
         let _ = writeln!(out, "public record {}(", parent_struct_name);
         for c in parent_columns {
-            let field_type = java_field_type(c);
+            let field_type = java_field_type(c, &self.manifest);
             if c.nullable {
                 let _ = writeln!(out, "    @Nullable {} {},", field_type, c.field_name);
             } else {
@@ -782,14 +876,20 @@ impl CodegenBackend for JavaJdbcBackend {
         let _ = writeln!(out, "        try (ResultSet rs = ps.executeQuery()) {{");
         let _ = writeln!(out, "            while (rs.next()) {{");
 
-        let key_expr = col_rs_expr(key_col, &self.engine);
+        let key_expr = col_rs_expr(key_col, &self.engine, &self.manifest);
         let _ = writeln!(out, "                {key_type} key = {key_expr};");
 
-        write_jdbc_nullable_preamble(&mut out, child_columns, "                ", &self.engine);
+        write_jdbc_nullable_preamble(
+            &mut out,
+            child_columns,
+            "                ",
+            &self.engine,
+            &self.manifest,
+        );
 
         let _ = writeln!(out, "                var child = new {child_struct_name}(");
         for (i, col) in child_columns.iter().enumerate() {
-            let expr = col_rs_expr(col, &self.engine);
+            let expr = col_rs_expr(col, &self.engine, &self.manifest);
             let sep = if i + 1 < child_columns.len() { "," } else { "" };
             let _ = writeln!(out, "                    {expr}{sep}");
         }
@@ -799,11 +899,17 @@ impl CodegenBackend for JavaJdbcBackend {
         let _ = writeln!(out, "                    lookup.get(key).children().add(child);");
         let _ = writeln!(out, "                }} else {{");
 
-        write_jdbc_nullable_preamble(&mut out, parent_columns, "                    ", &self.engine);
+        write_jdbc_nullable_preamble(
+            &mut out,
+            parent_columns,
+            "                    ",
+            &self.engine,
+            &self.manifest,
+        );
 
         let _ = writeln!(out, "                    var parent = new {parent_struct_name}(");
         for col in parent_columns {
-            let expr = col_rs_expr(col, &self.engine);
+            let expr = col_rs_expr(col, &self.engine, &self.manifest);
             let _ = writeln!(out, "                        {expr},");
         }
         let _ = writeln!(out, "                        new ArrayList<>(List.of(child))");

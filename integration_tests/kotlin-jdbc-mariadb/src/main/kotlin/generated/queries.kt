@@ -14,6 +14,12 @@ enum class UsersStatus(val value: String) {
     ACTIVE("active"),
     INACTIVE("inactive"),
     BANNED("banned");
+
+    companion object {
+        fun fromValue(value: String): UsersStatus =
+            values().firstOrNull { it.value == value }
+                ?: throw IllegalArgumentException("Unknown UsersStatus value: $value")
+    }
 }
 
 
@@ -146,7 +152,7 @@ fun getUserById(
                     id = rs.getString("id"),
                     name = rs.getString("name"),
                     email = email,
-                    status = UsersStatus.valueOf(rs.getString("status").uppercase()),
+                    status = UsersStatus.fromValue(rs.getString("status")),
                     created_at = rs.getObject("created_at", LocalDateTime::class.java),
                 )
             } else {

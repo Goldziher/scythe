@@ -163,9 +163,37 @@ fn ps_setter(kotlin_type: &str) -> &str {
     }
 }
 
+/// The Kotlin `List<T>` expression that turns a `java.sql.Array` (already
+/// known non-null) into the declared element type. `sql_array_expr` is the
+/// expression producing the `java.sql.Array` -- either an inline
+/// `rs.getArray(...)` call or a preamble local already null-checked by
+/// [`write_kt_nullable_preamble`].
+///
+/// `.array` returns the platform type `Any!`; every JDBC array element type
+/// comes back as a reference-type array (`Array<Int>`/`Array<String>`, never
+/// the primitive `IntArray`), so the cast to `Array<*>` is always legal, and
+/// `.map` casts each element to the declared type.
+fn array_list_expr(sql_array_expr: &str, element_type: &str) -> String {
+    format!("({sql_array_expr}.array as Array<*>).map {{ it as {element_type} }}")
+}
+
+/// The Kotlin element type an array column's `List<{T}>` reader casts each
+/// element to, resolved from the element's own neutral type through the
+/// manifest's ordinary scalar/enum/composite resolution -- the same
+/// resolution the manifest's `array` container pattern already applies to
+/// produce `col.lang_type` itself (`List<{T}>`). Unlike Java, no boxing
+/// decision is needed here: a Kotlin `List<Int>`/`List<Boolean>` is legal
+/// Kotlin on its own, because Kotlin's generic parameters are always
+/// reference types under the hood.
+fn element_kotlin_type(element_neutral: &str, manifest: &BackendManifest) -> String {
+    resolve_type(element_neutral, manifest, false)
+        .map(|t| t.into_owned())
+        .unwrap_or_else(|_| "Any".to_string())
+}
+
 /// Build the inline ResultSet read expression for a Kotlin JDBC column (by name).
 /// For nullable columns, the preamble has already extracted the value with wasNull().
-fn kt_rs_expr(col: &ResolvedColumn, engine: &str) -> String {
+fn kt_rs_expr(col: &ResolvedColumn, engine: &str, manifest: &BackendManifest) -> String {
     if col.nullable {
         return col.field_name.clone();
     }
@@ -177,14 +205,24 @@ fn kt_rs_expr(col: &ResolvedColumn, engine: &str) -> String {
         }
         return format!("rs.getObject(\"{}\", {})", col.name, class_lit);
     }
+    if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+        let element_type = element_kotlin_type(element, manifest);
+        return array_list_expr(&format!("rs.getArray(\"{}\")", col.name), &element_type);
+    }
     if col.neutral_type.starts_with("enum::") {
-        return format!("{}.valueOf(rs.getString(\"{}\").uppercase())", col.lang_type, col.name);
+        return format!("{}.fromValue(rs.getString(\"{}\"))", col.lang_type, col.name);
     }
     rs_read_call(&col.name, &col.lang_type)
 }
 
 /// Emit nullable-column preamble for Kotlin JDBC grouped folding and row construction.
-fn write_kt_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent: &str, engine: &str) {
+fn write_kt_nullable_preamble(
+    out: &mut String,
+    cols: &[ResolvedColumn],
+    indent: &str,
+    engine: &str,
+    manifest: &BackendManifest,
+) {
     for col in cols {
         if !col.nullable {
             continue;
@@ -212,8 +250,8 @@ fn write_kt_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent:
             );
         } else if col.neutral_type.starts_with("enum::") {
             // ~keep A nullable enum column read inline would be
-            // `Status.valueOf(rs.getString(col).uppercase())`, which throws on
-            // a NULL column: `getString` returns `null` and `uppercase()` is
+            // `Status.fromValue(rs.getString(col))`, which throws on
+            // a NULL column: `getString` returns `null` and `fromValue` is
             // called on it. Guard on the raw string rather than `wasNull()`,
             // and return early — the shared tail below cannot express the
             // conversion.
@@ -224,8 +262,26 @@ fn write_kt_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent:
             );
             let _ = writeln!(
                 out,
-                "{}val {} = if ({}Value == null) null else {}.valueOf({}Value.uppercase())",
+                "{}val {} = if ({}Value == null) null else {}.fromValue({}Value)",
                 indent, col.field_name, col.field_name, col.lang_type, col.field_name
+            );
+            continue;
+        } else if let Some(element) = jvm_common::array_element_neutral_type(&col.neutral_type) {
+            // ~keep A nullable array column's `rs.getArray(col)` returns
+            // `null` for SQL NULL; calling `.array` on that null throws
+            // `NullPointerException`, so the guard is on the `java.sql.Array`
+            // local, before the element conversion runs.
+            let element_type = element_kotlin_type(element, manifest);
+            let _ = writeln!(
+                out,
+                "{}val {}SqlArray = rs.getArray(\"{}\")",
+                indent, col.field_name, col.name
+            );
+            let list_expr = array_list_expr(&format!("{}SqlArray", col.field_name), &element_type);
+            let _ = writeln!(
+                out,
+                "{}val {} = if ({}SqlArray == null) null else {}",
+                indent, col.field_name, col.field_name, list_expr
             );
             continue;
         } else {
@@ -248,18 +304,24 @@ fn write_kt_nullable_preamble(out: &mut String, cols: &[ResolvedColumn], indent:
 /// Emit `StructName(\n    field = expr,\n    ...\n){suffix}` reading each column from `rs`.
 /// Assumes any nullable-column preamble locals have already been written via
 /// [`write_kt_nullable_preamble`] using the same `engine`.
+///
+/// The field indent is derived as `outer_indent` plus one 4-space level rather
+/// than passed in. Every call site computed exactly that, so accepting it as a
+/// parameter only created a way for the two to disagree and misalign the
+/// emitted literal.
 fn write_kt_struct_literal(
     out: &mut String,
     struct_name: &str,
     columns: &[ResolvedColumn],
     engine: &str,
+    manifest: &BackendManifest,
     outer_indent: &str,
-    field_indent: &str,
     closing_suffix: &str,
 ) {
+    let field_indent = format!("{outer_indent}    ");
     let _ = writeln!(out, "{}{}(", outer_indent, struct_name);
     for col in columns {
-        let expr = kt_rs_expr(col, engine);
+        let expr = kt_rs_expr(col, engine, manifest);
         let _ = writeln!(out, "{}{} = {},", field_indent, col.field_name, expr);
     }
     let _ = writeln!(out, "{}){}", outer_indent, closing_suffix);
@@ -385,6 +447,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         let mut out = String::new();
 
         let engine = &self.engine;
+        let manifest = &self.manifest;
         let write_setters = |out: &mut String, params: &[ResolvedParam]| {
             for (i, param) in params.iter().enumerate() {
                 if param.neutral_type.starts_with("enum::") {
@@ -482,7 +545,7 @@ impl CodegenBackend for KotlinJdbcBackend {
                         } else if col.neutral_type.starts_with("enum::") {
                             let _ = writeln!(
                                 out,
-                                "                {} = {}.valueOf(rs.getString(\"{}\").uppercase()),",
+                                "                {} = {}.fromValue(rs.getString(\"{}\")),",
                                 col.field_name, col.lang_type, col.name
                             );
                         } else {
@@ -533,16 +596,8 @@ impl CodegenBackend for KotlinJdbcBackend {
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                     let _ = writeln!(out, "            if (rs.next()) {{");
-                    write_kt_nullable_preamble(&mut out, columns, "                ", engine);
-                    write_kt_struct_literal(
-                        &mut out,
-                        struct_name,
-                        columns,
-                        engine,
-                        "                ",
-                        "                    ",
-                        "",
-                    );
+                    write_kt_nullable_preamble(&mut out, columns, "                ", engine, manifest);
+                    write_kt_struct_literal(&mut out, struct_name, columns, engine, manifest, "                ", "");
                     let _ = writeln!(out, "            }} else {{");
                     let _ = writeln!(out, "                null");
                     let _ = writeln!(out, "            }}");
@@ -554,16 +609,8 @@ impl CodegenBackend for KotlinJdbcBackend {
                     write_setters(&mut out, params);
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                     let _ = writeln!(out, "            return if (rs.next()) {{");
-                    write_kt_nullable_preamble(&mut out, columns, "                ", engine);
-                    write_kt_struct_literal(
-                        &mut out,
-                        struct_name,
-                        columns,
-                        engine,
-                        "                ",
-                        "                    ",
-                        "",
-                    );
+                    write_kt_nullable_preamble(&mut out, columns, "                ", engine, manifest);
+                    write_kt_struct_literal(&mut out, struct_name, columns, engine, manifest, "                ", "");
                     let _ = writeln!(out, "            }} else {{");
                     let _ = writeln!(out, "                null");
                     let _ = writeln!(out, "            }}");
@@ -692,15 +739,15 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                     let _ = writeln!(out, "            val result = mutableListOf<{struct_name}>()",);
                     let _ = writeln!(out, "            while (rs.next()) {{");
-                    write_kt_nullable_preamble(&mut out, columns, "                ", engine);
+                    write_kt_nullable_preamble(&mut out, columns, "                ", engine, manifest);
                     let _ = writeln!(out, "                result.add(");
                     write_kt_struct_literal(
                         &mut out,
                         struct_name,
                         columns,
                         engine,
+                        manifest,
                         "                    ",
-                        "                        ",
                         ",",
                     );
                     let _ = writeln!(out, "                )");
@@ -715,15 +762,15 @@ impl CodegenBackend for KotlinJdbcBackend {
                     let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
                     let _ = writeln!(out, "            val result = mutableListOf<{struct_name}>()",);
                     let _ = writeln!(out, "            while (rs.next()) {{");
-                    write_kt_nullable_preamble(&mut out, columns, "                ", engine);
+                    write_kt_nullable_preamble(&mut out, columns, "                ", engine, manifest);
                     let _ = writeln!(out, "                result.add(");
                     write_kt_struct_literal(
                         &mut out,
                         struct_name,
                         columns,
                         engine,
+                        manifest,
                         "                    ",
-                        "                        ",
                         ",",
                     );
                     let _ = writeln!(out, "                )");
@@ -751,6 +798,24 @@ impl CodegenBackend for KotlinJdbcBackend {
             let sep = if i + 1 < enum_info.values.len() { "," } else { ";" };
             let _ = writeln!(out, "    {}(\"{}\"){}", variant, value, sep);
         }
+        let _ = writeln!(out);
+        // ~keep #213: decode against the declared `value`, not the variant
+        // spelling. `enum_variant_name` sanitises characters an identifier
+        // cannot hold, so a SQL value like `in-active` becomes the variant
+        // `IN_ACTIVE` while `value` stays `"in-active"`. A reader that
+        // upper-cased the raw string and called `valueOf` matched the variant
+        // spelling, not the wire value, and threw on exactly the value the
+        // column exists to hold. Scanning `values()` for `value` round-trips:
+        // `fromValue(x.value) == x` for every variant.
+        let _ = writeln!(out, "    companion object {{");
+        let _ = writeln!(out, "        fun fromValue(value: String): {} =", type_name);
+        let _ = writeln!(out, "            values().firstOrNull {{ it.value == value }}");
+        let _ = writeln!(
+            out,
+            "                ?: throw IllegalArgumentException(\"Unknown {} value: $value\")",
+            type_name
+        );
+        let _ = writeln!(out, "    }}");
         let _ = writeln!(out, "}}");
         Ok(out)
     }
@@ -826,6 +891,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         let ret = format!(": List<{parent_struct_name}>");
 
         let engine = &self.engine;
+        let manifest = &self.manifest;
         let write_setters = |out: &mut String| {
             for (i, param) in params.iter().enumerate() {
                 if param.neutral_type.starts_with("enum::") {
@@ -877,15 +943,15 @@ impl CodegenBackend for KotlinJdbcBackend {
         let _ = writeln!(out, "        ps.executeQuery().use {{ rs ->");
         let _ = writeln!(out, "            while (rs.next()) {{");
 
-        write_kt_nullable_preamble(&mut out, child_columns, "                ", engine);
-        write_kt_nullable_preamble(&mut out, parent_columns, "                ", engine);
+        write_kt_nullable_preamble(&mut out, child_columns, "                ", engine, manifest);
+        write_kt_nullable_preamble(&mut out, parent_columns, "                ", engine, manifest);
 
-        let key_expr = kt_rs_expr(key_col, engine);
+        let key_expr = kt_rs_expr(key_col, engine, manifest);
         let _ = writeln!(out, "                val key = {key_expr}");
 
         let _ = writeln!(out, "                val child = {child_struct_name}(");
         for col in child_columns {
-            let expr = kt_rs_expr(col, engine);
+            let expr = kt_rs_expr(col, engine, manifest);
             let _ = writeln!(out, "                    {} = {},", col.field_name, expr);
         }
         let _ = writeln!(out, "                )");
@@ -895,7 +961,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         let _ = writeln!(out, "                }} else {{");
         let _ = writeln!(out, "                    val parent = {parent_struct_name}(");
         for col in parent_columns {
-            let expr = kt_rs_expr(col, engine);
+            let expr = kt_rs_expr(col, engine, manifest);
             let _ = writeln!(out, "                        {} = {},", col.field_name, expr);
         }
         let _ = writeln!(out, "                        children = mutableListOf(child),");

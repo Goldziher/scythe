@@ -43,6 +43,14 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **A JVM enum whose SQL spelling was not the uppercase of its variant threw on every read.** Binding
+  emitted `.getValue()` / `.value` — the SQL value — while reading emitted
+  `valueOf(rs.getString(col).toUpperCase())` — the variant *name*. For a value like `in-active` with
+  variant `IN_ACTIVE`, `toUpperCase()` yields `IN-ACTIVE`, which `valueOf` rejects with
+  `IllegalArgumentException`; case-folding is not the same operation as sanitising. The generated
+  `value`/`getValue()` accessor that makes this exact was emitted and consulted by no reader. Reads
+  now match on the declared SQL value. The existing tests asserted the `toUpperCase()` spelling
+  verbatim, so they pinned the defect and changed with the fix. (#213)
 - **Every `javascript-*` file containing an enum failed `tsc --checkJs`.** The generated
   `/** @type {const} */` sat on the declaration, where it is `TS2304: Cannot find name 'const'`. The
   valid position is the initializer expression — `= /** @type {const} */ ({…})` — which also narrows
@@ -290,10 +298,12 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   `tools/integration-test-generator/templates/`, which is where they actually live. Dependabot cannot
   target generated files, so its PRs against them were dead on arrival. (#115)
 - `snowflake-jdbc` is unified on 4.0.2 across both JVM templates, which previously disagreed.
-- The JVM manifests declare array columns in their text form (`String`) instead of `List<{T}>`. No JVM
-  backend has an array reader, so the list declaration never compiled, and `int[]`/`bool[]`
-  additionally rendered `java.util.List<int>`, which is not valid Java at all. This is a degradation,
-  not the destination — restoring `List<T>` needs a real reader first.
+- **The JVM backends have a real array reader, and array columns are `List<T>` again.** An earlier
+  revision of this release degraded the JVM manifests to declare array columns as `String`, because
+  no JVM backend could read one and `int[]`/`bool[]` additionally rendered `java.util.List<int>`,
+  which is not valid Java. That entry said the degradation was not the destination; the reader now
+  exists, so `array` maps to a boxed `List<T>` and the `String` fallback is gone. Regenerated JVM
+  output changes shape for every array column. (#192)
 - `scythe lint` and `scythe fmt` build one sqruff linter per `[[sql]]` block instead of one per file.
   Construction compiles the dialect's lexer, so a run over N files paid N+1 constructions where one
   suffices; measured on 200 single-query files in one block, `scythe lint` goes from 0.547s to 0.047s.
