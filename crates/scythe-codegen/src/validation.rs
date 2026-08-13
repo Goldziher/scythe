@@ -794,6 +794,128 @@ pub fn validate_with_tools(code: &str, backend_name: &str) -> ToolValidation {
     ToolValidation::Attempted(outcomes)
 }
 
+/// A validation result for one backend's generated output, shaped for a
+/// caller (the CLI, in particular) to report directly to a user rather than
+/// for a test assertion to pick apart.
+///
+/// Three variants, not two, on purpose: collapsing [`Self::Unsupported`] into
+/// [`Self::Passed`] is the exact dishonesty [`ToolValidation`] exists to
+/// prevent -- see that type's doc comment. A caller that only distinguished
+/// pass from fail would report "OK" for a `csharp-npgsql` file that no
+/// compiler ever looked at, which is the bug this whole module was written to
+/// close.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValidationOutcome {
+    /// No tool-based validator exists for this backend's language at all
+    /// (see [`ToolValidation::Unsupported`]). Not a pass and not a failure --
+    /// report it as "not checked", never as "checked, no problems".
+    Unsupported,
+    /// A validator exists and every checker that ran found nothing wrong.
+    ///
+    /// `tools_run` names the checkers that actually inspected the code;
+    /// `tools_missing` names any this validator would also have liked to run
+    /// but could not find on `PATH`. Both are carried through rather than
+    /// collapsed, because "passed, nothing was installed to check it"
+    /// (`tools_run` empty) and "passed, `poly` verified it" are different
+    /// claims a caller may want to report differently even though neither is
+    /// a build failure under the default, non-strict policy this is built
+    /// on (see [`ToolValidation::into_result_with_strictness`]).
+    Passed {
+        /// Checkers that ran to completion and found nothing wrong.
+        tools_run: Vec<&'static str>,
+        /// Checkers this validator wanted to run but could not find.
+        tools_missing: Vec<&'static str>,
+    },
+    /// A checker found a problem with the generated code, or the harness
+    /// itself could not drive an installed tool. Never produced by a
+    /// merely-missing tool -- see [`ToolOutcome::Missing`] vs.
+    /// [`ToolOutcome::Failed`], which is exactly the distinction that keeps
+    /// an uninstalled linter from reading as a build failure here.
+    Failed {
+        /// Checkers that ran to completion (regardless of whether they were
+        /// the one that reported a problem).
+        tools_run: Vec<&'static str>,
+        /// Checkers this validator wanted to run but could not find.
+        tools_missing: Vec<&'static str>,
+        /// Findings, already prefixed with the tool name that reported each
+        /// one -- see [`ToolValidation::errors`].
+        errors: Vec<String>,
+    },
+}
+
+impl ValidationOutcome {
+    /// Whether this outcome should stop a build: `true` only for
+    /// [`Self::Failed`].
+    ///
+    /// Both [`Self::Unsupported`] and [`Self::Passed`] are "let it through"
+    /// outcomes under the default policy -- a caller that wants "no
+    /// validator for this language" to also block a build (unusual: it would
+    /// stop every C#, Rust, `kotlin-exposed`, and `kotlin-r2dbc` backend from
+    /// ever generating) must match on the variant itself rather than use
+    /// this helper.
+    #[must_use]
+    pub fn is_failure(&self) -> bool {
+        matches!(self, Self::Failed { .. })
+    }
+}
+
+/// Validate one backend's generated output with the real compilers and
+/// linters for its target language, collapsed to the three outcomes a
+/// caller needs to decide what to print and whether to fail a build.
+///
+/// This is [`validate_with_tools`] built on top of, not reimplemented: the
+/// pass/fail split follows the same non-strict policy as
+/// [`ToolValidation::into_result`] outside [`STRICT_ENV_VAR`] -- a tool that
+/// is not installed is tolerated, never a build failure. Keeping the collapse
+/// here, delegating to [`ToolValidation::into_result_with_strictness`] rather
+/// than re-deriving "missing is fine, a real finding is not" a second time,
+/// is what keeps that policy defined in exactly one place; see the doc
+/// comment on [`ToolValidation::into_result_with_strictness`] for why
+/// [`ValidationOutcome::Unsupported`] is exempt from strictness entirely
+/// rather than becoming a fourth, stricter failure case.
+///
+/// # This shells out to real external tools
+///
+/// `poly`, `tsc`, `node`, `gofmt`, `javac`, `kotlinc`, `elixirc`, `ruby`, and
+/// others, depending on `backend_name` -- see [`validate_with_tools`]'s match
+/// arms. When a tool is not installed, probing for it
+/// (`Command::new(tool).arg(probe_arg).output()`) fails fast: the OS reports
+/// "no such file" as soon as it tries to spawn the process, so an absent
+/// tool costs microseconds and never blocks. The cost that matters is the
+/// opposite case -- a tool that *is* installed. `javac` and `kotlinc` each
+/// pay JVM startup (commonly over a second) on top of a real compile;
+/// `tsc --checkJs --strict` runs a full TypeScript typecheck. A caller that
+/// invokes this unconditionally on every `scythe generate` would make every
+/// run pay that cost for every backend the file targets, on any machine that
+/// happens to have the tool installed -- and would silently validate less on
+/// a machine that doesn't, with no way for the user to tell which happened
+/// short of reading [`ValidationOutcome::Passed`]'s `tools_run`/
+/// `tools_missing` fields. **Callers should gate this behind an explicit
+/// opt-in (e.g. a `--verify` flag), not run it unconditionally on every
+/// generate.**
+#[must_use]
+pub fn validate_generated_code(code: &str, backend_name: &str) -> ValidationOutcome {
+    let validation = validate_with_tools(code, backend_name);
+    if matches!(validation, ToolValidation::Unsupported) {
+        return ValidationOutcome::Unsupported;
+    }
+
+    let tools_run = validation.tools_run();
+    let tools_missing = validation.missing_tools();
+
+    match validation.into_result_with_strictness(false) {
+        Ok(()) => ValidationOutcome::Passed {
+            tools_run,
+            tools_missing,
+        },
+        Err(errors) => ValidationOutcome::Failed {
+            tools_run,
+            tools_missing,
+            errors,
+        },
+    }
+}
+
 fn write_temp(code: &str, ext: &str) -> Option<std::path::PathBuf> {
     use std::sync::atomic::{AtomicU64, Ordering};
     static COUNTER: AtomicU64 = AtomicU64::new(0);
