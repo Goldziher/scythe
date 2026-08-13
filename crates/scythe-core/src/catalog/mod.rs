@@ -972,20 +972,30 @@ impl Catalog {
                             (object_name_to_key(name), object_name_to_raw_name(name))
                         }
                     };
+                    let removed = match self.tables.remove(&table_key) {
+                        Some(table) => Some(table),
+                        None => {
+                            let bare = bare_name(&table_key).to_string();
+                            self.tables.remove(&bare)
+                        }
+                    };
+                    // Every other operation in this match (AddColumn,
+                    // DropColumn, RenameColumn, AlterColumn, AddConstraint)
+                    // rejects an unknown target table with
+                    // `ScytheError::unknown_table` rather than silently doing
+                    // nothing. `RENAME TO` was the one exception: a typo'd
+                    // table name in a migration no-opped without any signal,
+                    // making it indistinguishable from a correct rename.
+                    // Follow the same precedent here.
+                    let Some(mut table) = removed else {
+                        return Err(ScytheError::unknown_table(&table_key));
+                    };
                     // `raw_name` must track the rename too, not just the
                     // lookup key -- otherwise a table renamed to CamelCase
                     // would keep reporting its pre-rename (possibly
                     // snake_case) spelling to SC-N02 forever.
-                    if let Some(mut table) = self.tables.remove(&table_key) {
-                        table.raw_name = new_raw_name;
-                        self.tables.insert(new_key, table);
-                    } else {
-                        let bare = bare_name(&table_key).to_string();
-                        if let Some(mut table) = self.tables.remove(&bare) {
-                            table.raw_name = new_raw_name;
-                            self.tables.insert(new_key, table);
-                        }
-                    }
+                    table.raw_name = new_raw_name;
+                    self.tables.insert(new_key, table);
                 }
                 AlterTableOperation::AlterColumn { column_name, op } => {
                     let Some(table) = get_table_mut(&mut self.tables, &table_key) else {
@@ -2017,6 +2027,44 @@ END;\n\
         ]);
         assert!(result.is_err());
         assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::UnknownTable);
+    }
+
+    #[test]
+    fn test_alter_table_rename_table_on_unknown_table_errors() {
+        // A typo'd table name in a migration's `RENAME TO` must not
+        // disappear silently -- every other ALTER TABLE operation here
+        // already rejects an unknown target (see the two tests above); a
+        // rename that quietly no-ops is indistinguishable from a correct
+        // one and leaves the catalog with neither the old nor the new name
+        // registered under a real definition.
+        let result = Catalog::from_ddl(&[
+            "CREATE TABLE users (id INTEGER NOT NULL);",
+            "ALTER TABLE userz RENAME TO people;",
+        ]);
+        assert!(
+            result.is_err(),
+            "RENAME TO against an unknown table must error, not silently no-op"
+        );
+        assert_eq!(result.unwrap_err().code, crate::errors::ErrorCode::UnknownTable);
+    }
+
+    #[test]
+    fn test_alter_table_rename_table_on_known_table_still_renames() {
+        // Regression guard alongside the error-path test above: fixing the
+        // unknown-table case must not break the ordinary successful rename,
+        // including keeping `raw_name` in sync with the new name.
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE users (id INTEGER NOT NULL);",
+            "ALTER TABLE users RENAME TO people;",
+        ])
+        .unwrap();
+        assert!(
+            catalog.get_table("users").is_none(),
+            "the old name must no longer resolve"
+        );
+        let renamed = catalog.get_table("people").expect("the new name must resolve");
+        assert_eq!(renamed.raw_name, "people");
+        assert_eq!(renamed.columns.len(), 1);
     }
 
     // -- #184: CREATE DOMAIN panic, schema-qualified NOT NULL ----------------

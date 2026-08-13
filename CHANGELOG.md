@@ -43,6 +43,23 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **A `CREATE VIEW` with an explicit column list got no types at all.** The branch handling
+  `CREATE VIEW v (a, b) AS SELECT …` never ran the analyzer: `sql_type` fell back to the literal
+  string `"unknown"` and `nullable` was hardcoded `true`, so the same view declared with and without
+  a column list produced different — and wrong — columns. It now analyzes the body and overlays the
+  declared names. A declared list whose arity disagrees with the body is now an error rather than
+  silently mismatched output, mirroring how a `WITH t(a,b) AS …` alias list is already handled.
+- **`ALTER TABLE … RENAME TO` on an unknown table did nothing, silently.** Every sibling operation —
+  `AddColumn`, `DropColumn`, `RenameColumn`, `AlterColumn`, `AddConstraint` — errors on a missing
+  table; `RenameTable` alone fell through with no `else`, so a typo'd migration was indistinguishable
+  from a correct one. It now follows the same precedent.
+- **`json_each` and friends were typed `string` in select-list position.** They return `SETOF record`,
+  not text. The neutral type vocabulary cannot name an anonymous record — `composite::{name}` needs a
+  catalog entry and the `json_nested` machinery assumes the value on the wire is JSON text, which a
+  native composite is not — so they now resolve to `unknown`, following the precedent
+  `json_populate_record` already set, rather than to a confidently wrong scalar.
+  `json_array_elements`/`jsonb_array_elements` previously hit the unknown-function error path and now
+  resolve to `json`, matching what the FROM-position handling already assigned.
 - **`rust-sqlx`'s `:opt` output never compiled.** The return type said `{Struct}` while the body's
   `has_row_struct` guard excluded `Opt`, so it emitted the anonymous-record `sqlx::query!` instead of
   `sqlx::query_as!` — the declared type and the produced type disagreed on every `:opt` query the

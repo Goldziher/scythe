@@ -48,10 +48,42 @@ impl Catalog {
         let view_key = object_name_to_key(&name);
         let raw_name = object_name_to_raw_name(&name);
 
+        // `CREATE VIEW v (a, b) AS SELECT ...` renames the body's projected
+        // columns positionally; it does not redeclare their types. The body
+        // must still go through the analyzer -- exactly like the
+        // no-explicit-column-list path just below -- so that `sql_type` and
+        // `nullable` come from a real analysis of the underlying query
+        // (join nullability, aggregate return types, ...) rather than being
+        // hardcoded here. A prior version of this branch skipped the
+        // analyzer entirely: every declared column was forced `nullable:
+        // true` and given `sql_type: "unknown"` unless the (rarely present)
+        // `vc.data_type` supplied one, so `CREATE VIEW v (a, b) AS SELECT x,
+        // y FROM t` and `CREATE VIEW v AS SELECT x, y FROM t` -- otherwise
+        // identical views -- disagreed on every column's type and
+        // nullability. Mirrors `apply_cte_alias_columns` in
+        // `analyzer::statements`, which applies a `WITH t(a, b) AS ...`
+        // alias list to an already-analyzed body the same way.
         if !view_columns.is_empty() {
+            let analyzed_columns = self.resolve_select_columns(query)?;
+            if view_columns.len() != analyzed_columns.len() {
+                // PostgreSQL rejects this at CREATE VIEW time; matching a
+                // shorter or longer alias list against the body positionally
+                // would silently drop or misname columns instead.
+                return Err(ScytheError::column_count_mismatch(
+                    view_columns.len(),
+                    analyzed_columns.len(),
+                ));
+            }
             let columns: Vec<Column> = view_columns
                 .iter()
-                .map(|vc| {
+                .zip(analyzed_columns)
+                .map(|(vc, analyzed)| {
+                    // `vc.data_type` is essentially never present in real
+                    // SQL (`CREATE VIEW` column lists take names only, no
+                    // types) but sqlparser's grammar allows it; when a
+                    // caller does supply one, honor it as an explicit
+                    // override of the analyzed type rather than silently
+                    // discarding it.
                     let sql_type = vc
                         .data_type
                         .as_ref()
@@ -59,11 +91,11 @@ impl Catalog {
                             let (t, _) = normalize_data_type(dt, &self.domains, *dialect);
                             t
                         })
-                        .unwrap_or_else(|| "unknown".to_string());
+                        .unwrap_or(analyzed.sql_type);
                     Column {
                         name: ident_to_lower(&vc.name),
                         sql_type,
-                        nullable: true,
+                        nullable: analyzed.nullable,
                         default: None,
                         primary_key: false,
                     }
@@ -272,6 +304,85 @@ mod tests {
         assert!(
             view.columns.iter().all(|c| c.name != "unknown"),
             "expression columns must get a real name through the analyzer, not the literal placeholder \"unknown\": {names:?}"
+        );
+    }
+
+    // -- explicit view column list must not bypass the analyzer --------
+
+    #[test]
+    fn test_view_with_explicit_column_list_uses_real_types() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE sales (amount NUMERIC(10,2) NOT NULL);",
+            "CREATE VIEW v (total) AS SELECT SUM(amount) FROM sales;",
+        ])
+        .unwrap();
+        let view = catalog.get_table("v").expect("view should exist");
+        assert_eq!(view.columns.len(), 1);
+        let total = &view.columns[0];
+        assert_eq!(total.name, "total", "the declared column name must still be used");
+        assert_eq!(
+            total.sql_type, "numeric",
+            "an explicit view column list must run the analyzer over the SELECT body: \
+             SUM(numeric) resolves to numeric, not the placeholder \"unknown\""
+        );
+    }
+
+    #[test]
+    fn test_view_with_explicit_column_list_uses_real_nullability() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+            "CREATE VIEW v (uid) AS SELECT id FROM users;",
+        ])
+        .unwrap();
+        let view = catalog.get_table("v").expect("view should exist");
+        let uid = &view.columns[0];
+        assert_eq!(uid.name, "uid");
+        assert!(
+            !uid.nullable,
+            "an explicit view column list must not hardcode nullable = true: \
+             `id` is the table's NOT NULL primary key"
+        );
+    }
+
+    #[test]
+    fn test_view_with_explicit_column_list_and_matching_view_without_one_agree() {
+        // The whole premise of resolving explicit-column-list views through
+        // the analyzer is that two otherwise-identical views -- one with a
+        // column alias list, one without -- describe the same query and so
+        // must report the same types and nullability, differing only in
+        // name.
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+            "CREATE TABLE profiles (id SERIAL PRIMARY KEY, user_id INTEGER NOT NULL, bio TEXT NOT NULL);",
+            "CREATE VIEW plain AS SELECT u.id, p.bio FROM users u LEFT JOIN profiles p ON u.id = p.user_id;",
+            "CREATE VIEW aliased (uid, ubio) AS SELECT u.id, p.bio FROM users u LEFT JOIN profiles p ON u.id = p.user_id;",
+        ])
+        .unwrap();
+        let plain = catalog.get_table("plain").unwrap();
+        let aliased = catalog.get_table("aliased").unwrap();
+        assert_eq!(plain.columns[0].sql_type, aliased.columns[0].sql_type);
+        assert_eq!(plain.columns[0].nullable, aliased.columns[0].nullable);
+        assert_eq!(plain.columns[1].sql_type, aliased.columns[1].sql_type);
+        assert_eq!(
+            plain.columns[1].nullable, aliased.columns[1].nullable,
+            "bio comes from the outer side of a LEFT JOIN and must be nullable through both views alike"
+        );
+        assert!(
+            aliased.columns[1].nullable,
+            "sanity check: LEFT JOIN must widen nullability at all"
+        );
+    }
+
+    #[test]
+    fn test_view_column_list_arity_mismatch_is_an_error() {
+        let result = Catalog::from_ddl(&[
+            "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL);",
+            "CREATE VIEW v (a, b) AS SELECT id FROM users;",
+        ]);
+        assert!(
+            result.is_err(),
+            "a view column alias list with a different arity than the query's projected columns \
+             must be rejected, not silently mismatched by position"
         );
     }
 }
