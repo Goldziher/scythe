@@ -164,7 +164,7 @@ fn generated_code_contains(code: &GeneratedCode, needle: &str) -> bool {
 }
 
 /// Whether any generated fragment in `generated` references `needle`.
-fn generated_code_uses_prefix(generated: &[GeneratedCode], needle: &str) -> bool {
+pub(crate) fn generated_code_uses_prefix(generated: &[GeneratedCode], needle: &str) -> bool {
     generated.iter().any(|code| generated_code_contains(code, needle))
 }
 

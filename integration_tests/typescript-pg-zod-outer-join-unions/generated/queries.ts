@@ -24,18 +24,22 @@ export const CreateOrderRowSchema = z.object({
 
 export type CreateOrderRow = z.infer<typeof CreateOrderRowSchema>;
 
-/** Fetch a single CreateOrderRow or null. */
+/** Fetch a single CreateOrderRow. */
 export async function createOrder(
 	client: PoolClient,
 	user_id: number,
 	total: string,
 	notes: string | null,
-): Promise<CreateOrderRow | null> {
+): Promise<CreateOrderRow> {
 	const { rows } = await client.query<CreateOrderRow>(
 		`INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at`,
 		[user_id, total, notes],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: CreateOrder");
+	}
+	return row;
 }
 
 /** Row type for GetOrdersByUser queries. */
@@ -67,16 +71,20 @@ export const GetOrderTotalRowSchema = z.object({
 
 export type GetOrderTotalRow = z.infer<typeof GetOrderTotalRowSchema>;
 
-/** Fetch a single GetOrderTotalRow or null. */
+/** Fetch a single GetOrderTotalRow. */
 export async function getOrderTotal(
 	client: PoolClient,
 	user_id: number,
-): Promise<GetOrderTotalRow | null> {
+): Promise<GetOrderTotalRow> {
 	const { rows } = await client.query<GetOrderTotalRow>(
 		`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1`,
 		[user_id],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetOrderTotal");
+	}
+	return row;
 }
 
 /** Row type for GetOrderWeightTotal queries. */
@@ -86,16 +94,20 @@ export const GetOrderWeightTotalRowSchema = z.object({
 
 export type GetOrderWeightTotalRow = z.infer<typeof GetOrderWeightTotalRowSchema>;
 
-/** Fetch a single GetOrderWeightTotalRow or null. */
+/** Fetch a single GetOrderWeightTotalRow. */
 export async function getOrderWeightTotal(
 	client: PoolClient,
 	user_id: number,
-): Promise<GetOrderWeightTotalRow | null> {
+): Promise<GetOrderWeightTotalRow> {
 	const { rows } = await client.query<GetOrderWeightTotalRow>(
 		`SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = $1`,
 		[user_id],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetOrderWeightTotal");
+	}
+	return row;
 }
 
 /** Execute a query and return the number of affected rows. */
@@ -121,16 +133,20 @@ export const GetUserByIdRowSchema = z.object({
 
 export type GetUserByIdRow = z.infer<typeof GetUserByIdRowSchema>;
 
-/** Fetch a single GetUserByIdRow or null. */
+/** Fetch a single GetUserByIdRow. */
 export async function getUserById(
 	client: PoolClient,
 	id: number,
-): Promise<GetUserByIdRow | null> {
+): Promise<GetUserByIdRow> {
 	const { rows } = await client.query<GetUserByIdRow>(
 		`SELECT id, name, email, status, created_at FROM users WHERE id = $1`,
 		[id],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserById");
+	}
+	return row;
 }
 
 /** Row type for ListActiveUsers queries. */
@@ -165,18 +181,22 @@ export const CreateUserRowSchema = z.object({
 
 export type CreateUserRow = z.infer<typeof CreateUserRowSchema>;
 
-/** Fetch a single CreateUserRow or null. */
+/** Fetch a single CreateUserRow. */
 export async function createUser(
 	client: PoolClient,
 	name: string,
 	email: string | null,
 	status: UserStatus,
-): Promise<CreateUserRow | null> {
+): Promise<CreateUserRow> {
 	const { rows } = await client.query<CreateUserRow>(
 		`INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at`,
 		[name, email, status],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: CreateUser");
+	}
+	return row;
 }
 
 /** Execute a query returning no rows. */
@@ -230,16 +250,20 @@ export const CountUsersByStatusRowSchema = z.object({
 
 export type CountUsersByStatusRow = z.infer<typeof CountUsersByStatusRowSchema>;
 
-/** Fetch a single CountUsersByStatusRow or null. */
+/** Fetch a single CountUsersByStatusRow. */
 export async function countUsersByStatus(
 	client: PoolClient,
 	status: UserStatus,
-): Promise<CountUsersByStatusRow | null> {
+): Promise<CountUsersByStatusRow> {
 	const { rows } = await client.query<CountUsersByStatusRow>(
 		`SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = $1`,
 		[status],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: CountUsersByStatus");
+	}
+	return row;
 }
 
 /** Row type for GetUserWithTags queries. */

@@ -68,7 +68,7 @@ data class GetOrderTotalRow(
 fun getOrderTotal(
     conn: Connection,
     user_id: Long,
-): GetOrderTotalRow? {
+): GetOrderTotalRow {
     conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?").use { ps ->
         ps.setLong(1, user_id)
         ps.executeQuery().use { rs ->
@@ -79,7 +79,7 @@ fun getOrderTotal(
                     total_sum = total_sum,
                 )
             } else {
-                null
+                throw NoSuchElementException("getOrderTotal: no rows returned")
             }
         }
     }
@@ -111,7 +111,7 @@ data class GetUserByIdRow(
 fun getUserById(
     conn: Connection,
     id: Long,
-): GetUserByIdRow? {
+): GetUserByIdRow {
     conn.prepareStatement("SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?").use { ps ->
         ps.setLong(1, id)
         ps.executeQuery().use { rs ->
@@ -132,7 +132,7 @@ fun getUserById(
                     updated_at = updated_at,
                 )
             } else {
-                null
+                throw NoSuchElementException("getUserById: no rows returned")
             }
         }
     }

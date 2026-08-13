@@ -29,7 +29,7 @@ public record CreateOrderRow(
     }
 }
 
-public static @Nullable CreateOrderRow createOrder(Connection conn, int id, int user_id, @Nonnull java.math.BigDecimal total, @Nullable String notes) throws SQLException {
+public static CreateOrderRow createOrder(Connection conn, int id, int user_id, @Nonnull java.math.BigDecimal total, @Nullable String notes) throws SQLException {
     try (var ps = conn.prepareStatement("INSERT INTO orders (id, user_id, total, notes) OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at VALUES (?, ?, ?, ?)")) {
         ps.setInt(1, id);
         ps.setInt(2, user_id);
@@ -39,7 +39,7 @@ public static @Nullable CreateOrderRow createOrder(Connection conn, int id, int 
             if (rs.next()) {
                 return CreateOrderRow.fromResultSet(rs);
             }
-            return null;
+            throw new java.util.NoSuchElementException("createOrder: no rows returned");
         }
     }
 }
@@ -83,14 +83,14 @@ public record GetOrderTotalRow(
     }
 }
 
-public static @Nullable GetOrderTotalRow getOrderTotal(Connection conn, int user_id) throws SQLException {
+public static GetOrderTotalRow getOrderTotal(Connection conn, int user_id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?")) {
         ps.setInt(1, user_id);
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetOrderTotalRow.fromResultSet(rs);
             }
-            return null;
+            throw new java.util.NoSuchElementException("getOrderTotal: no rows returned");
         }
     }
 }
@@ -120,14 +120,14 @@ public record GetUserByIdRow(
     }
 }
 
-public static @Nullable GetUserByIdRow getUserById(Connection conn, int id) throws SQLException {
+public static GetUserByIdRow getUserById(Connection conn, int id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email, active, created_at FROM users WHERE id = ?")) {
         ps.setInt(1, id);
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetUserByIdRow.fromResultSet(rs);
             }
-            return null;
+            throw new java.util.NoSuchElementException("getUserById: no rows returned");
         }
     }
 }
@@ -176,7 +176,7 @@ public record CreateUserRow(
     }
 }
 
-public static @Nullable CreateUserRow createUser(Connection conn, int id, @Nonnull String name, @Nullable String email, boolean active) throws SQLException {
+public static CreateUserRow createUser(Connection conn, int id, @Nonnull String name, @Nullable String email, boolean active) throws SQLException {
     try (var ps = conn.prepareStatement("INSERT INTO users (id, name, email, active) OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at VALUES (?, ?, ?, ?)")) {
         ps.setInt(1, id);
         ps.setString(2, name);
@@ -186,7 +186,7 @@ public static @Nullable CreateUserRow createUser(Connection conn, int id, @Nonnu
             if (rs.next()) {
                 return CreateUserRow.fromResultSet(rs);
             }
-            return null;
+            throw new java.util.NoSuchElementException("createUser: no rows returned");
         }
     }
 }

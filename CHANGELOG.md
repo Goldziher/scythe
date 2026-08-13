@@ -38,9 +38,36 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   invoke is reported as `SKIPPED`, never as success: reporting it as validated would recreate the
   unfalsifiable gate the flag exists to close. A `FAILED` target exits 2, matching the exit-code
   contract `check`/`lint`/`fmt --check` follow, where exit 1 stays reserved for operational failure.
-  (#187)
+  (unfiled)
 
 ### Fixed
+
+- **`:one` and `:opt` rendered identical code on 53 backends, so one of the two contracts was always
+  silently wrong.** `:one` means "exactly one row, error if absent"; `:opt` means "zero or one". Every
+  affected backend matched `QueryCommand::One | QueryCommand::Opt` in a single arm, so whichever
+  behaviour that arm happened to implement won for both. Each language now gets an error path built
+  from its own idiom — a raised `ScytheNoRowsError` / `RecordNotFound` / `RecordNotFoundException`, a
+  thrown `NoSuchElementException` or `InvalidOperationException`, `Mono.error` on the reactive
+  backends, the driver's own `ErrNoRows` in Go, `{:error, :not_found}` in Elixir, and `Err` in Rust —
+  while `:opt` keeps its existing shape everywhere. Ruby `.rbs` signatures and PHP return-type
+  declarations were narrowed to match, so signatures no longer over-promise nullability. (#197)
+
+  The direction was not uniform, and the earlier census recorded it wrongly for 10 of the 53. On the
+  `go-*` and `elixir-*` backends `:one` was already correct — `sql.ErrNoRows` propagates through
+  `row.Scan`, and Elixir already returned `{:error, :not_found}` — and it was `:opt` that wrongly
+  errored on a legitimately absent row. `go-godror` folded the permissive way while its three Go
+  siblings did not, so even same-family behaviour was not safe to assume.
+
+- **`python-snowflake` declared `:execrows` as `-> int` while returning `cur.rowcount`, which the
+  DB-API types `int | None`.** Narrowed at the call site rather than widening the annotation:
+  psycopg, aiosqlite, aiomysql and oracledb all type `rowcount` as plain `int`, so snowflake was the
+  lone outlier and widening would have spread the imprecision to seven backends. (unfiled)
+
+- **`typescript-postgres` could not bind a composite-typed parameter.** postgres.js serialises only
+  values it recognises, and a plain object standing for a PostgreSQL composite is not one, so the
+  generated tagged template failed to type-check. Composite parameters are now expanded to
+  `ROW(${field}, ...)::type_name` — one binding per scalar field, recursing through nested composites
+  — instead of being interpolated whole. (unfiled)
 
 - **A `rust-sqlx` `:grouped` query selecting a non-identifier column produced code that could not
   compile.** The grouped path reads its flat rows through the untyped `sqlx::query!` macro, whose row
@@ -50,14 +77,14 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   hard compile error, not a silent mismatch. Such columns now get an explicit `AS "field_name"` so the
   macro sees a name scythe chose. Note this is a different mechanism from the `#[sqlx(rename)]`
   attribute added earlier for `FromRow`: both `query!` and `query_as!` build their row type directly
-  and never consult `FromRow`, so that attribute has no effect on either macro path. (#191)
+  and never consult `FromRow`, so that attribute has no effect on either macro path. (unfiled)
 
 - **`check` printed "All queries valid." for a query file it had not checked at all.** A file whose
   annotations were never recognised — a mistyped `--name:`, or every statement commented out — yields
   zero query blocks, and `has_unannotated_sql` deliberately ignores it, so the run reported success
   having examined nothing. A non-empty file that produces no query blocks is now an `SC-PRV10` error
   naming the file. A genuinely empty or whitespace-only file is still accepted: there is nothing there
-  that could have been misrecognised. (#186)
+  that could have been misrecognised. (unfiled)
 
 - **`VARBINARY(MAX)` resolved to the invalid neutral type `varbinary(max)`, which no manifest maps.**
   SQL Server's unbounded binary type parses to `DataType::Varbinary(Some(BinaryLength::Max))`, for
@@ -67,7 +94,7 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   `VARCHAR(MAX)`/`NVARCHAR(MAX)` spellings were already correct — their arms route
   `CharacterLength::Max` through a `_ => "text"` fallback — and all ten mssql-capable manifests
   already mapped `bytes`, so no manifest changed. `BINARY` needs no equivalent arm: sqlparser types
-  it `Option<u64>`, making `BINARY(MAX)` unrepresentable. (#174)
+  it `Option<u64>`, making `BINARY(MAX)` unrepresentable. (unfiled)
 
 - **A literal `%` in SQL broke every `%`-paramstyle Python driver at execute time.** `WHERE name LIKE
   'a%'` reaches psycopg3 and aiomysql as a format string, and `%'` is not a valid placeholder, so the

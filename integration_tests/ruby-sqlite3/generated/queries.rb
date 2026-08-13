@@ -2,6 +2,7 @@
 # scythe:provenance v=0.14.0 backend=ruby-sqlite3 engine=sqlite schema=sch1:588fb635332179bc queries=q1:f7199f36438b6396
 
 module Queries
+  class RecordNotFound < StandardError; end
 
   def self.create_order(db, user_id, total, notes)
     db.execute("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?)", [user_id, total, notes])
@@ -23,7 +24,7 @@ module Queries
 
   def self.get_order_total(db, user_id)
     row = db.get_first_row("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?", [user_id])
-    return nil if row.nil?
+    raise RecordNotFound, "get_order_total: no row found" if row.nil?
     GetOrderTotalRow.new(total_sum: row[0]&.then { |v| v.to_f })
   end
 
@@ -37,7 +38,7 @@ module Queries
 
   def self.get_user_by_id(db, id)
     row = db.get_first_row("SELECT id, name, email, status, created_at FROM users WHERE id = ?", [id])
-    return nil if row.nil?
+    raise RecordNotFound, "get_user_by_id: no row found" if row.nil?
     GetUserByIdRow.new(id: row[0].to_i, name: row[1], email: row[2]&.then { |v| v }, status: row[3], created_at: row[4])
   end
 

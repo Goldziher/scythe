@@ -10,7 +10,10 @@ use scythe_core::parser::QueryCommand;
 
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
-use crate::backends::php_common::{param_docblock_type, write_promoted_property};
+use crate::backends::php_common::{
+    RECORD_NOT_FOUND_EXCEPTION_CLASS, param_docblock_type, record_not_found_exception_class_def,
+    write_promoted_property,
+};
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/php-pdo.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/php-pdo.mysql.toml");
@@ -229,7 +232,10 @@ impl CodegenBackend for PhpPdoBackend {
         } else {
             format!("namespace {};\n\n", self.namespace)
         };
-        format!("declare(strict_types=1);\n\n{ns}")
+        format!(
+            "declare(strict_types=1);\n\n{ns}{}",
+            record_not_found_exception_class_def()
+        )
     }
 
     fn query_class_header(&self) -> String {
@@ -378,7 +384,12 @@ impl CodegenBackend for PhpPdoBackend {
         let sep = if param_list.is_empty() { "" } else { ", " };
 
         let return_type = match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => format!("?{}", struct_name),
+            // `:one` throws `RecordNotFoundException` instead of returning `null` on a
+            // missing row (see the body match below), so its declared return type is
+            // non-nullable -- a `?` here would promise a value the method can no longer
+            // produce and PHP's own type checker would flag the mismatch at runtime.
+            QueryCommand::One => struct_name.to_string(),
+            QueryCommand::Opt => format!("?{}", struct_name),
             QueryCommand::Many => "\\Generator".to_string(),
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
@@ -399,7 +410,11 @@ impl CodegenBackend for PhpPdoBackend {
             );
         }
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                let _ = writeln!(out, "     * @return {}", struct_name);
+                let _ = writeln!(out, "     * @throws {}", RECORD_NOT_FOUND_EXCEPTION_CLASS);
+            }
+            QueryCommand::Opt => {
                 let _ = writeln!(out, "     * @return {}|null", struct_name);
             }
             QueryCommand::Many => {
@@ -451,7 +466,18 @@ impl CodegenBackend for PhpPdoBackend {
         }
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                let _ = writeln!(out, "        $row = $stmt->fetch(\\PDO::FETCH_ASSOC);");
+                let _ = writeln!(out, "        if ($row === false) {{");
+                let _ = writeln!(
+                    out,
+                    "            throw new {}('{}: no row found');",
+                    RECORD_NOT_FOUND_EXCEPTION_CLASS, func_name
+                );
+                let _ = writeln!(out, "        }}");
+                let _ = writeln!(out, "        return {}::fromRow($row);", struct_name);
+            }
+            QueryCommand::Opt => {
                 let _ = writeln!(out, "        $row = $stmt->fetch(\\PDO::FETCH_ASSOC);");
                 let _ = writeln!(out, "        return $row ? {}::fromRow($row) : null;", struct_name);
             }

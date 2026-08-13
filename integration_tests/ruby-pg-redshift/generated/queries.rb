@@ -4,6 +4,7 @@
 require "bigdecimal/util"
 
 module Queries
+  class RecordNotFound < StandardError; end
 
   CreateOrderRow = Data.define(:id, :user_id, :total, :notes, :created_at)
 
@@ -12,7 +13,7 @@ module Queries
     result = conn.exec_params("INSERT INTO orders (user_id, total, notes)
 VALUES ($1, $2, $3)
 RETURNING id, user_id, total, notes, created_at", [user_id, total, notes])
-    return nil if result.ntuples.zero?
+    raise RecordNotFound, "create_order: no row found" if result.ntuples.zero?
     row = result[0]
     CreateOrderRow.new(id: row["id"].to_i, user_id: row["user_id"].to_i, total: row["total"].to_d, notes: row["notes"]&.then { |v| v }, created_at: row["created_at"])
   end
@@ -32,7 +33,7 @@ RETURNING id, user_id, total, notes, created_at", [user_id, total, notes])
 
   def self.get_order_total(conn, user_id)
     result = conn.exec_params("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1", [user_id])
-    return nil if result.ntuples.zero?
+    raise RecordNotFound, "get_order_total: no row found" if result.ntuples.zero?
     row = result[0]
     GetOrderTotalRow.new(total_sum: row["total_sum"]&.then { |v| v.to_d })
   end
@@ -49,7 +50,7 @@ RETURNING id, user_id, total, notes, created_at", [user_id, total, notes])
     result = conn.exec_params("SELECT id, name, email, status, created_at
 FROM users
 WHERE id = $1", [id])
-    return nil if result.ntuples.zero?
+    raise RecordNotFound, "get_user_by_id: no row found" if result.ntuples.zero?
     row = result[0]
     GetUserByIdRow.new(id: row["id"].to_i, name: row["name"], email: row["email"]&.then { |v| v }, status: row["status"], created_at: row["created_at"])
   end
@@ -73,7 +74,7 @@ WHERE status = $1", [status])
     result = conn.exec_params("INSERT INTO users (name, email, status)
 VALUES ($1, $2, $3)
 RETURNING id, name, email, status, created_at", [name, email, status])
-    return nil if result.ntuples.zero?
+    raise RecordNotFound, "create_user: no row found" if result.ntuples.zero?
     row = result[0]
     CreateUserRow.new(id: row["id"].to_i, name: row["name"], email: row["email"]&.then { |v| v }, status: row["status"], created_at: row["created_at"])
   end

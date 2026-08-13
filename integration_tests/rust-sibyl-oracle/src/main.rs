@@ -64,9 +64,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     // Test: CreateUser
-let user = queries::create_user(&session, "Alice", Some("alice@example.com"), 1i64)
-        .await?
-        .expect("create_user returned None");
+let user = queries::create_user(&session, "Alice", Some("alice@example.com"), 1i64).await?;
     assert_test!(user.name == "Alice", "CreateUser");
     assert_test!(
         user.email.as_deref() == Some("alice@example.com"),
@@ -76,9 +74,7 @@ let user = queries::create_user(&session, "Alice", Some("alice@example.com"), 1i
     pass!("CreateUser");
 
     // Test: GetUserById
-let fetched = queries::get_user_by_id(&session, user_id)
-        .await?
-        .expect("get_user_by_id returned None");
+let fetched = queries::get_user_by_id(&session, user_id).await?;
     assert_test!(fetched.id == user_id, "GetUserById");
     assert_test!(fetched.name == "Alice", "GetUserById");
     assert_test!(
@@ -95,9 +91,7 @@ let active_users = queries::list_active_users(&session).await?;
 
     // Test: CreateOrder
 let order_total: f64 = 9999.0;
-    let order = queries::create_order(&session, user_id, order_total, Some("first order"))
-        .await?
-        .expect("create_order returned None");
+    let order = queries::create_order(&session, user_id, order_total, Some("first order")).await?;
 
     assert_test!(order.user_id == user_id, "CreateOrder");
     assert_test!(order.total == order_total, "CreateOrder");
@@ -132,8 +126,7 @@ let orders = queries::get_orders_by_user(&session, user_id).await?;
         &payload,
         Some(description.as_str()),
     )
-    .await?
-    .expect("create_attachment returned None");
+    .await?;
     assert_test!(attachment.order_id == order.id, "CreateAttachment");
     assert_test!(attachment.filename == "report.bin", "CreateAttachment");
     pass!("CreateAttachment");
@@ -162,8 +155,8 @@ queries::delete_attachments_by_order(&session, order.id).await?;
     queries::delete_orders_by_user(&session, user_id).await?;
     queries::delete_user(&session, user_id).await?;
     // Verify user is gone
-    let deleted = queries::get_user_by_id(&session, user_id).await?;
-    assert_test!(deleted.is_none(), "DeleteUser");
+    let deleted = queries::get_user_by_id(&session, user_id).await;
+    assert_test!(deleted.is_err(), "DeleteUser");
     pass!("DeleteUser");
 
     println!("ALL TESTS PASSED");

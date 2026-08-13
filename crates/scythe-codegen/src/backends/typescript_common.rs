@@ -1,6 +1,7 @@
 use std::fmt::Write;
 
 use scythe_core::errors::{ErrorCode, ScytheError};
+use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::ResolvedColumn;
 
@@ -674,6 +675,28 @@ pub fn generate_ts_row_object_literal(
     out
 }
 
+/// Render the `throw new Error(...)` statement a `:one` query emits when no
+/// row matched, unindented -- the caller splices it at whatever depth its
+/// surrounding `if` block sits at.
+///
+/// A plain `Error`, not a scythe-defined error class (#192): no TypeScript
+/// or JavaScript backend emits a custom error type into generated output
+/// today -- every backend's try/catch already re-throws a driver failure
+/// as-is (`throw error;`), so a caller of a generated query function
+/// already has to handle a bare `Error` from it, and a `:one` miss joins
+/// that same surface instead of adding a second, differently-typed one to
+/// tell apart. Introducing an exported class would also need a
+/// run-once-per-generated-file emission slot this trait does not have --
+/// the only such dedup machinery lives in the file assembler (`scythe-cli`,
+/// outside this crate), and it is keyed by SQL type name, not by "this file
+/// happens to contain a `:one` query".
+pub fn ts_row_not_found_throw(query_name: &str) -> String {
+    format!(
+        "throw new Error(\"no row found for query: {}\");",
+        escape_ts_double_quoted_literal(query_name)
+    )
+}
+
 /// Render a `:one`/`:opt` return body that reconstructs the row field by
 /// field instead of trusting a blind cast of the driver's raw row.
 ///
@@ -693,14 +716,25 @@ pub fn generate_ts_row_object_literal(
 /// `shape` must be the shape of the row type the enclosing function
 /// declares, so the literal is assignable to it -- see
 /// [`TsRowShape::cast_type`].
+///
+/// `command` picks the missing-row branch (#192): `QueryCommand::One` throws
+/// via [`ts_row_not_found_throw`], naming the query `query_name`; anything
+/// else (`QueryCommand::Opt`, the only other caller) keeps the pre-#192
+/// `return null;`.
 pub fn generate_ts_one_row_remap(
     columns: &[ResolvedColumn],
     shape: TsRowShape,
+    command: &QueryCommand,
+    query_name: &str,
     row_access: impl Fn(&str, &str) -> String,
 ) -> String {
     let mut out = String::new();
     let _ = writeln!(out, "\tif (!row) {{");
-    let _ = writeln!(out, "\t\treturn null;");
+    if matches!(command, QueryCommand::One) {
+        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(query_name));
+    } else {
+        let _ = writeln!(out, "\t\treturn null;");
+    }
     let _ = writeln!(out, "\t}}");
     let _ = writeln!(out, "\treturn {{");
     out.push_str(&generate_ts_row_object_literal(columns, "\t\t", shape, row_access));
@@ -1542,12 +1576,14 @@ mod tests {
     }
 
     #[test]
-    fn test_generate_ts_one_row_remap_null_checks_then_builds_fields() {
+    fn test_generate_ts_one_row_remap_opt_null_checks_then_builds_fields() {
         let columns = vec![
             column("id", "number", false, None, false),
             column("name", "string", false, None, false),
         ];
-        let out = generate_ts_one_row_remap(&columns, TsRowShape::Flat, |name, ty| format!("row['{name}'] as {ty}"));
+        let out = generate_ts_one_row_remap(&columns, TsRowShape::Flat, &QueryCommand::Opt, "GetUser", |name, ty| {
+            format!("row['{name}'] as {ty}")
+        });
         assert_eq!(
             out,
             "\tif (!row) {\n\
@@ -1557,6 +1593,35 @@ mod tests {
              \t\tid: row['id'] as number,\n\
              \t\tname: row['name'] as string,\n\
              \t};\n"
+        );
+    }
+
+    /// #192: `:one` must throw, not return `null`, when no row matched --
+    /// silently returning `null` is the exact defect this test guards
+    /// against regressing.
+    #[test]
+    fn test_generate_ts_one_row_remap_one_throws_instead_of_returning_null() {
+        let columns = vec![column("id", "number", false, None, false)];
+        let out = generate_ts_one_row_remap(&columns, TsRowShape::Flat, &QueryCommand::One, "GetUser", |name, ty| {
+            format!("row['{name}'] as {ty}")
+        });
+        assert_eq!(
+            out,
+            "\tif (!row) {\n\
+             \t\tthrow new Error(\"no row found for query: GetUser\");\n\
+             \t}\n\
+             \treturn {\n\
+             \t\tid: row['id'] as number,\n\
+             \t};\n"
+        );
+        assert!(!out.contains("return null"), "{out}");
+    }
+
+    #[test]
+    fn test_ts_row_not_found_throw_escapes_the_query_name() {
+        assert_eq!(
+            ts_row_not_found_throw("weird\"name"),
+            "throw new Error(\"no row found for query: weird\\\"name\");"
         );
     }
 

@@ -61,14 +61,14 @@ public record GetOrderTotalRow(
     }
 }
 
-public static @Nullable GetOrderTotalRow getOrderTotal(Connection conn, long user_id) throws SQLException {
+public static GetOrderTotalRow getOrderTotal(Connection conn, long user_id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?")) {
         ps.setLong(1, user_id);
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetOrderTotalRow.fromResultSet(rs);
             }
-            return null;
+            throw new java.util.NoSuchElementException("getOrderTotal: no rows returned");
         }
     }
 }
@@ -98,14 +98,14 @@ public record GetUserByIdRow(
     }
 }
 
-public static @Nullable GetUserByIdRow getUserById(Connection conn, long id) throws SQLException {
+public static GetUserByIdRow getUserById(Connection conn, long id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = ?")) {
         ps.setLong(1, id);
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetUserByIdRow.fromResultSet(rs);
             }
-            return null;
+            throw new java.util.NoSuchElementException("getUserById: no rows returned");
         }
     }
 }

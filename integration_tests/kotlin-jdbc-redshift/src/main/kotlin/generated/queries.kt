@@ -25,7 +25,7 @@ fun createOrder(
     user_id: Int,
     total: java.math.BigDecimal,
     notes: String?,
-): CreateOrderRow? {
+): CreateOrderRow {
     conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at").use { ps ->
         ps.setInt(1, user_id)
         ps.setBigDecimal(2, total)
@@ -42,7 +42,7 @@ fun createOrder(
                     created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
-                null
+                throw NoSuchElementException("createOrder: no rows returned")
             }
         }
     }
@@ -91,7 +91,7 @@ data class GetOrderTotalRow(
 fun getOrderTotal(
     conn: Connection,
     user_id: Int,
-): GetOrderTotalRow? {
+): GetOrderTotalRow {
     conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?").use { ps ->
         ps.setInt(1, user_id)
         ps.executeQuery().use { rs ->
@@ -102,7 +102,7 @@ fun getOrderTotal(
                     total_sum = total_sum,
                 )
             } else {
-                null
+                throw NoSuchElementException("getOrderTotal: no rows returned")
             }
         }
     }
@@ -132,7 +132,7 @@ data class GetUserByIdRow(
 fun getUserById(
     conn: Connection,
     id: Int,
-): GetUserByIdRow? {
+): GetUserByIdRow {
     conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = ?").use { ps ->
         ps.setInt(1, id)
         ps.executeQuery().use { rs ->
@@ -147,7 +147,7 @@ fun getUserById(
                     created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
-                null
+                throw NoSuchElementException("getUserById: no rows returned")
             }
         }
     }
@@ -200,7 +200,7 @@ fun createUser(
     name: String,
     email: String?,
     status: String,
-): CreateUserRow? {
+): CreateUserRow {
     conn.prepareStatement("INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email, status, created_at").use { ps ->
         ps.setString(1, name)
         ps.setString(2, email)
@@ -217,7 +217,7 @@ fun createUser(
                     created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
-                null
+                throw NoSuchElementException("createUser: no rows returned")
             }
         }
     }

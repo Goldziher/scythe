@@ -27,10 +27,10 @@ public record GetLastInsertOrderRow(
     DateTime CreatedAt
 );
 
-public static async Task<GetLastInsertOrderRow?> GetLastInsertOrder(MySqlConnection conn) {
+public static async Task<GetLastInsertOrderRow> GetLastInsertOrder(MySqlConnection conn) {
     await using var cmd = new MySqlCommand(@"SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()", conn);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetLastInsertOrder expected exactly one row but found none");
     return new GetLastInsertOrderRow(
         reader.GetInt32(0),
         reader.GetInt32(1),
@@ -67,11 +67,11 @@ public record GetOrderTotalRow(
     decimal? TotalSum
 );
 
-public static async Task<GetOrderTotalRow?> GetOrderTotal(MySqlConnection conn, int user_id) {
+public static async Task<GetOrderTotalRow> GetOrderTotal(MySqlConnection conn, int user_id) {
     await using var cmd = new MySqlCommand(@"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("@p1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetOrderTotal expected exactly one row but found none");
     return new GetOrderTotalRow(
         reader.IsDBNull(0) ? null : reader.GetDecimal(0)
     );
@@ -91,11 +91,11 @@ public record GetUserByIdRow(
     DateTime CreatedAt
 );
 
-public static async Task<GetUserByIdRow?> GetUserById(MySqlConnection conn, int id) {
+public static async Task<GetUserByIdRow> GetUserById(MySqlConnection conn, int id) {
     await using var cmd = new MySqlCommand(@"SELECT id, name, email, status, created_at FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("@p1", id);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserById expected exactly one row but found none");
     return new GetUserByIdRow(
         reader.GetInt32(0),
         reader.GetString(1),
@@ -142,10 +142,10 @@ public record GetLastInsertUserRow(
     DateTime CreatedAt
 );
 
-public static async Task<GetLastInsertUserRow?> GetLastInsertUser(MySqlConnection conn) {
+public static async Task<GetLastInsertUserRow> GetLastInsertUser(MySqlConnection conn) {
     await using var cmd = new MySqlCommand(@"SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()", conn);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetLastInsertUser expected exactly one row but found none");
     return new GetLastInsertUserRow(
         reader.GetInt32(0),
         reader.GetString(1),

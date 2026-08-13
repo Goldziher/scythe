@@ -41,11 +41,11 @@ public record GetOrderTotalRow(
     double? TotalSum
 );
 
-public static async Task<GetOrderTotalRow?> GetOrderTotal(SqliteConnection conn, long user_id) {
+public static async Task<GetOrderTotalRow> GetOrderTotal(SqliteConnection conn, long user_id) {
     await using var cmd = new SqliteCommand(@"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?1", conn);
     cmd.Parameters.AddWithValue("?1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetOrderTotal expected exactly one row but found none");
     return new GetOrderTotalRow(
         reader.IsDBNull(0) ? null : reader.GetDouble(0)
     );
@@ -65,11 +65,11 @@ public record GetUserByIdRow(
     string CreatedAt
 );
 
-public static async Task<GetUserByIdRow?> GetUserById(SqliteConnection conn, long id) {
+public static async Task<GetUserByIdRow> GetUserById(SqliteConnection conn, long id) {
     await using var cmd = new SqliteCommand(@"SELECT id, name, email, status, created_at FROM users WHERE id = ?1", conn);
     cmd.Parameters.AddWithValue("?1", id);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserById expected exactly one row but found none");
     return new GetUserByIdRow(
         reader.GetInt64(0),
         reader.GetString(1),

@@ -144,13 +144,13 @@ def get_attachments_by_order(conn, order_id) do
   end
 end
 
-@spec get_attachment_by_id(DBConnection.conn(), integer()) :: {:ok, %GetAttachmentByIdRow{}} | {:error, :not_found} | {:error, term()}
+@spec get_attachment_by_id(DBConnection.conn(), integer()) :: {:ok, %GetAttachmentByIdRow{} | nil} | {:error, term()}
 def get_attachment_by_id(conn, id) do
   case Jamdb.Oracle.query(conn, "SELECT id, order_id, filename, payload, description FROM attachments WHERE id = :1", [id]) do
     {:ok, %{rows: [row | _]}} ->
       [id, order_id, filename, payload, description] = row
       {:ok, %GetAttachmentByIdRow{id: id, order_id: order_id, filename: filename, payload: payload, description: description}}
-    {:ok, %{rows: []}} -> {:error, :not_found}
+    {:ok, %{rows: []}} -> {:ok, nil}
     {:error, err} -> {:error, err}
   end
 end

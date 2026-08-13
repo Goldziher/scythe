@@ -8,6 +8,10 @@ from typing import Any  # noqa: F401
 import aiomysql  # noqa: F401
 
 
+class ScytheNoRowsError(Exception):
+    """Raised by a `:one` query when no row matches."""
+
+
 
 class UsersStatus(str, Enum):
     """Database enum type users_status."""
@@ -34,13 +38,13 @@ class GetLastInsertOrderRow:
     created_at: datetime.datetime
 
 
-async def get_last_insert_order(conn: aiomysql.Connection) -> GetLastInsertOrderRow | None:
+async def get_last_insert_order(conn: aiomysql.Connection) -> GetLastInsertOrderRow:
     """Execute GetLastInsertOrder query."""
     async with conn.cursor() as cur:
         await cur.execute("""SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()""")
         row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetLastInsertOrder: no rows returned")
     return GetLastInsertOrderRow(
         id=row[0],
         user_id=row[1],
@@ -83,13 +87,13 @@ class GetOrderTotalRow:
     total_sum: decimal.Decimal | None
 
 
-async def get_order_total(conn: aiomysql.Connection, *, user_id: int) -> GetOrderTotalRow | None:
+async def get_order_total(conn: aiomysql.Connection, *, user_id: int) -> GetOrderTotalRow:
     """Execute GetOrderTotal query."""
     async with conn.cursor() as cur:
         await cur.execute("""SELECT SUM(total) AS total_sum FROM orders WHERE user_id = %s""", (user_id,))
         row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetOrderTotal: no rows returned")
     return GetOrderTotalRow(total_sum=row[0])
 
 
@@ -111,13 +115,13 @@ class GetUserByIdRow:
     created_at: datetime.datetime
 
 
-async def get_user_by_id(conn: aiomysql.Connection, *, id: int) -> GetUserByIdRow | None:
+async def get_user_by_id(conn: aiomysql.Connection, *, id: int) -> GetUserByIdRow:
     """Execute GetUserById query."""
     async with conn.cursor() as cur:
         await cur.execute("""SELECT id, name, email, status, created_at FROM users WHERE id = %s""", (id,))
         row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetUserById: no rows returned")
     return GetUserByIdRow(
         id=row[0],
         name=row[1],
@@ -161,13 +165,13 @@ class GetLastInsertUserRow:
     created_at: datetime.datetime
 
 
-async def get_last_insert_user(conn: aiomysql.Connection) -> GetLastInsertUserRow | None:
+async def get_last_insert_user(conn: aiomysql.Connection) -> GetLastInsertUserRow:
     """Execute GetLastInsertUser query."""
     async with conn.cursor() as cur:
         await cur.execute("""SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()""")
         row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetLastInsertUser: no rows returned")
     return GetLastInsertUserRow(
         id=row[0],
         name=row[1],

@@ -12,8 +12,8 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 use super::python_common::{
-    PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, write_def_signature,
-    write_execute_call,
+    PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, no_rows_exception_def,
+    write_def_signature, write_execute_call, write_missing_row_guard,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-snowflake.toml");
@@ -81,7 +81,7 @@ impl CodegenBackend for PythonSnowflakeBackend {
         // place the driver import itself lives -- means it is set exactly once, regardless
         // of how many query functions or generated files import `snowflake.connector`.
         const PARAMSTYLE_LINE: &str = "snowflake.connector.paramstyle = \"qmark\"  # this module emits qmark binds";
-        if self.row_type.is_stdlib_import() {
+        let header = if self.row_type.is_stdlib_import() {
             format!(
                 "import datetime  # noqa: F401\n\
                  import decimal  # noqa: F401\n\
@@ -107,7 +107,8 @@ impl CodegenBackend for PythonSnowflakeBackend {
                  {PARAMSTYLE_LINE}\n\
                  \n",
             )
-        }
+        };
+        format!("{header}{}", no_rows_exception_def())
     }
 
     fn generate_struct_decl(
@@ -165,15 +166,19 @@ impl CodegenBackend for PythonSnowflakeBackend {
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
-                let ret = format!("{} | None", struct_name);
+                let is_one = matches!(analyzed.command, QueryCommand::One);
+                let ret = if is_one {
+                    struct_name.to_string()
+                } else {
+                    format!("{struct_name} | None")
+                };
                 write_def_signature(&mut out, "def", &func_name, CONN_PARAM, &kw_params, &ret);
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    cur = conn.cursor()");
                 let args = (!params.is_empty()).then_some(args_tuple.as_str());
                 write_execute_call(&mut out, "    ", "cur.execute", &sql, args);
                 let _ = writeln!(out, "    row = cur.fetchone()");
-                let _ = writeln!(out, "    if row is None:");
-                let _ = writeln!(out, "        return None");
+                write_missing_row_guard(&mut out, "    ", "row", is_one, &analyzed.name);
                 let field_assignments: Vec<String> = columns
                     .iter()
                     .enumerate()
@@ -265,7 +270,10 @@ impl CodegenBackend for PythonSnowflakeBackend {
                 let _ = writeln!(out, "    cur = conn.cursor()");
                 let args = (!params.is_empty()).then_some(args_tuple.as_str());
                 write_execute_call(&mut out, "    ", "cur.execute", &sql, args);
-                let _ = writeln!(out, "    return cur.rowcount");
+                // ~keep snowflake-connector-python types `Cursor.rowcount` as `int | None`
+                // (unlike every other python backend's driver, which types it plain `int`) --
+                // `or 0` narrows it back to the `-> int` this fn declares (#193).
+                let _ = writeln!(out, "    return cur.rowcount or 0");
             }
         }
 

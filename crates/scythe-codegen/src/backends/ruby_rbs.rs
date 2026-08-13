@@ -90,6 +90,22 @@ fn write_rbs_grouped_classes(
     let _ = writeln!(out, "  end");
 }
 
+/// `Queries::RecordNotFound`, raised by every ruby-* backend's `:one` query when the driver
+/// returns no row.
+///
+/// `:one` means "exactly one row, error if absent" -- unlike `:opt`, which returns `nil` for a
+/// legitimately absent row. Before this fix every ruby-* `generate_query_fn` folded
+/// `QueryCommand::One | QueryCommand::Opt` into one arm that always returned `nil` on a
+/// missing row, so `:one` silently inherited `:opt`'s permissiveness (see
+/// `ruby_php_one_contract_regression.rs`). `StandardError` is the idiomatic Ruby base for an
+/// application-specific exception -- a bare `raise "message"` raises `RuntimeError`, which a
+/// caller cannot rescue selectively from unrelated runtime errors. Emitted once per generated
+/// file (inside `module Queries`, alongside the row structs and query methods it is raised
+/// from) rather than shipped as a separate gem dependency: every ruby-* backend already
+/// generates a single self-contained `.rb` file with no runtime dependency beyond the DB
+/// driver itself, and this preserves that.
+pub(crate) const RECORD_NOT_FOUND_CLASS: &str = "  class RecordNotFound < StandardError; end";
+
 /// Whether any of a query's generated `.rb` code (row struct, query function, or model
 /// struct) applies the `.to_d` coercion that `ruby_pg.rs`, `ruby_mysql2.rs`, and
 /// `ruby_trilogy.rs` emit for a `decimal` column whose manifest declares it `BigDecimal`.
@@ -276,7 +292,11 @@ fn write_rbs_method(out: &mut String, query: &RbsQueryInfo, connection_type: &st
     let params_str = all_param_types.join(", ");
 
     let return_type = match query.command {
-        QueryCommand::One | QueryCommand::Opt => {
+        // `:one` raises `RecordNotFound` instead of returning `nil` on a missing row (see
+        // `RECORD_NOT_FOUND_CLASS`), so its signature is non-nullable -- a `?` here would
+        // describe a return value the `.rb` code beside it can no longer produce.
+        QueryCommand::One => query.struct_name.clone().unwrap_or_else(|| "void".to_string()),
+        QueryCommand::Opt => {
             if let Some(ref sn) = query.struct_name {
                 format!("{}?", sn)
             } else {
@@ -566,6 +586,9 @@ mod tests {
         assert_eq!(neutral_to_rbs("enum::user_status", false, &m), "String");
     }
 
+    /// `:one` raises `RecordNotFound` on a missing row (see `RECORD_NOT_FOUND_CLASS`) rather
+    /// than returning `nil`, so its signature must be non-nullable -- companion test
+    /// `test_generate_rbs_opt_query_is_nullable` pins that `:opt` keeps the `?`.
     #[test]
     fn test_generate_rbs_one_query() {
         let context = RbsGenerationContext {
@@ -591,8 +614,34 @@ mod tests {
         assert!(rbs.contains("attr_reader name: String"));
         assert!(rbs.contains("attr_reader email: String?"));
         assert!(rbs.contains("def self.new: (id: Integer, name: String, email: String?) -> GetUserRow"));
-        assert!(rbs.contains("def self.get_user: (PG::Connection, Integer) -> GetUserRow?"));
+        assert!(
+            rbs.contains("def self.get_user: (PG::Connection, Integer) -> GetUserRow\n"),
+            "`:one` must return the bare row type, not `GetUserRow?`; got:\n{rbs}"
+        );
         assert!(rbs.contains("end\n"));
+    }
+
+    /// Companion to `test_generate_rbs_one_query`: `:opt` is unaffected by the `:one` fix and
+    /// keeps returning `{Struct}?`.
+    #[test]
+    fn test_generate_rbs_opt_query_is_nullable() {
+        let context = RbsGenerationContext {
+            queries: vec![RbsQueryInfo {
+                func_name: "get_user".to_string(),
+                struct_name: Some("GetUserRow".to_string()),
+                columns: vec![col("id", "int32", false), col("name", "string", false)],
+                child_columns: Vec::new(),
+                params: vec![param("id", "int32", false)],
+                command: QueryCommand::Opt,
+            }],
+            enums: vec![],
+        };
+
+        let rbs = generate_rbs_content(&context, "PG::Connection", &manifest());
+        assert!(
+            rbs.contains("def self.get_user: (PG::Connection, Integer) -> GetUserRow?"),
+            "`:opt` must keep returning `GetUserRow?`; got:\n{rbs}"
+        );
     }
 
     #[test]
@@ -699,7 +748,7 @@ mod tests {
         };
 
         let rbs = generate_rbs_content(&context, "Mysql2::Client", &manifest());
-        assert!(rbs.contains("def self.get_user: (Mysql2::Client, Integer) -> GetUserRow?"));
+        assert!(rbs.contains("def self.get_user: (Mysql2::Client, Integer) -> GetUserRow\n"));
     }
 
     #[test]
@@ -717,7 +766,7 @@ mod tests {
         };
 
         let rbs = generate_rbs_content(&context, "SQLite3::Database", &sqlite3_manifest());
-        assert!(rbs.contains("def self.get_user: (SQLite3::Database, Integer) -> GetUserRow?"));
+        assert!(rbs.contains("def self.get_user: (SQLite3::Database, Integer) -> GetUserRow\n"));
     }
 
     #[test]
@@ -735,7 +784,7 @@ mod tests {
         };
 
         let rbs = generate_rbs_content(&context, "Trilogy", &manifest());
-        assert!(rbs.contains("def self.get_user: (Trilogy, Integer) -> GetUserRow?"));
+        assert!(rbs.contains("def self.get_user: (Trilogy, Integer) -> GetUserRow\n"));
     }
 
     /// End-to-end regression test for #101: a `json` column's RBS type must match the

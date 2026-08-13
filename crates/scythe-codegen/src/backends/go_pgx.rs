@@ -74,10 +74,18 @@ impl CodegenBackend for GoPgxBackend {
     }
 
     fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
+        let mut third_party_imports = vec!["github.com/jackc/pgx/v5/pgxpool"];
+        // ~keep only a file with a :opt query needs the bare pgx package (for
+        // pgx.ErrNoRows) alongside pgxpool -- adding it unconditionally would
+        // make `go build` fail with "imported and not used" on every file
+        // that has no :opt query, the same failure #100 fixed for time/decimal.
+        if super::go_common::generated_code_uses_prefix(generated, "pgx.ErrNoRows") {
+            third_party_imports.push("github.com/jackc/pgx/v5");
+        }
         go_file_header(
             PGX_HEADER_PREAMBLE,
             &["context"],
-            &["github.com/jackc/pgx/v5/pgxpool"],
+            &third_party_imports,
             &self.manifest,
             generated,
         )
@@ -165,9 +173,7 @@ impl CodegenBackend for GoPgxBackend {
                 let _ = writeln!(out, "\treturn result.RowsAffected(), nil");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::One | QueryCommand::Opt => {
-                let _ = writeln!(out, "// Returns the zero value of the struct if no row is found.");
-                let _ = writeln!(out, "// Use pgx.ErrNoRows to distinguish not-found from other errors.");
+            QueryCommand::One => {
                 let _ = writeln!(
                     out,
                     "func {}(ctx context.Context, db *pgxpool.Pool{}{}) ({}, error) {{",
@@ -184,8 +190,36 @@ impl CodegenBackend for GoPgxBackend {
                     .iter()
                     .map(|c| format!("&r.{}", to_pascal_case(&c.field_name)))
                     .collect();
+                // ~keep pgx.ErrNoRows propagates through err unmodified -- QueryRow's
+                // own Scan already gives :one the "error if absent" contract for free.
                 let _ = writeln!(out, "\terr := row.Scan({})", scan_fields.join(", "));
                 let _ = writeln!(out, "\treturn r, err");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Opt => {
+                let _ = writeln!(
+                    out,
+                    "func {}(ctx context.Context, db *pgxpool.Pool{}{}) (*{}, error) {{",
+                    func_name, sep, param_list, struct_name
+                );
+                let args_str = if args.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", args.join(", "))
+                };
+                let _ = writeln!(out, "\trow := db.QueryRow(ctx, \"{}\"{})", sql, args_str);
+                let _ = writeln!(out, "\tvar r {}", struct_name);
+                let scan_fields: Vec<String> = columns
+                    .iter()
+                    .map(|c| format!("&r.{}", to_pascal_case(&c.field_name)))
+                    .collect();
+                let _ = writeln!(out, "\tif err := row.Scan({}); err != nil {{", scan_fields.join(", "));
+                let _ = writeln!(out, "\t\tif err == pgx.ErrNoRows {{");
+                let _ = writeln!(out, "\t\t\treturn nil, nil");
+                let _ = writeln!(out, "\t\t}}");
+                let _ = writeln!(out, "\t\treturn nil, err");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn &r, nil");
                 let _ = write!(out, "}}");
             }
             QueryCommand::Many => {

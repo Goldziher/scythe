@@ -14,29 +14,35 @@ pub async fn create_attachment<'a>(
     filename: &str,
     payload: &[u8],
     description: Option<&str>,
-) -> sibyl::Result<Option<CreateAttachmentRow>> {
+) -> sibyl::Result<CreateAttachmentRow> {
     let stmt = session.prepare("INSERT INTO attachments (order_id, filename, payload, description) VALUES (:ORDER_ID, :FILENAME, :PAYLOAD, :DESCRIPTION) RETURNING id, order_id, filename INTO :OUT_ID, :OUT_ORDER_ID, :OUT_FILENAME").await?;
     let mut out_id: i64 = 0;
     let mut out_order_id: i64 = 0;
     let mut out_filename = String::with_capacity(4000);
-    stmt.execute((
-        (":ORDER_ID", order_id),
-        (":FILENAME", filename),
-        (":PAYLOAD", payload),
-        (":DESCRIPTION", description),
-        (":OUT_ID", &mut out_id),
-        (":OUT_ORDER_ID", &mut out_order_id),
-        (":OUT_FILENAME", &mut out_filename),
-    ))
-    .await?;
+    let rows_affected = stmt
+        .execute((
+            (":ORDER_ID", order_id),
+            (":FILENAME", filename),
+            (":PAYLOAD", payload),
+            (":DESCRIPTION", description),
+            (":OUT_ID", &mut out_id),
+            (":OUT_ORDER_ID", &mut out_order_id),
+            (":OUT_FILENAME", &mut out_filename),
+        ))
+        .await?;
+    if rows_affected == 0 {
+        return Err(sibyl::Error::Interface(
+            "create_attachment expected exactly one row but found none".to_string(),
+        ));
+    }
     let id = out_id;
     let order_id = out_order_id;
     let filename = out_filename;
-    Ok(Some(CreateAttachmentRow {
+    Ok(CreateAttachmentRow {
         id: id,
         order_id: order_id,
         filename: filename,
-    }))
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -195,24 +201,30 @@ pub async fn create_order<'a>(
     user_id: i64,
     total: f64,
     notes: Option<&str>,
-) -> sibyl::Result<Option<CreateOrderRow>> {
+) -> sibyl::Result<CreateOrderRow> {
     let stmt = session.prepare("INSERT INTO orders (user_id, total, notes) VALUES (:USER_ID, :TOTAL, :NOTES) RETURNING id, user_id, total, notes, created_at INTO :OUT_ID, :OUT_USER_ID, :OUT_TOTAL, :OUT_NOTES, :OUT_CREATED_AT").await?;
     let mut out_id: i64 = 0;
     let mut out_user_id: i64 = 0;
     let mut out_total: f64 = 0.0;
     let mut out_notes = String::with_capacity(4000);
     let mut out_created_at = Date::new(session);
-    stmt.execute((
-        (":USER_ID", user_id),
-        (":TOTAL", total),
-        (":NOTES", notes),
-        (":OUT_ID", &mut out_id),
-        (":OUT_USER_ID", &mut out_user_id),
-        (":OUT_TOTAL", &mut out_total),
-        (":OUT_NOTES", &mut out_notes),
-        (":OUT_CREATED_AT", &mut out_created_at),
-    ))
-    .await?;
+    let rows_affected = stmt
+        .execute((
+            (":USER_ID", user_id),
+            (":TOTAL", total),
+            (":NOTES", notes),
+            (":OUT_ID", &mut out_id),
+            (":OUT_USER_ID", &mut out_user_id),
+            (":OUT_TOTAL", &mut out_total),
+            (":OUT_NOTES", &mut out_notes),
+            (":OUT_CREATED_AT", &mut out_created_at),
+        ))
+        .await?;
+    if rows_affected == 0 {
+        return Err(sibyl::Error::Interface(
+            "create_order expected exactly one row but found none".to_string(),
+        ));
+    }
     let id = out_id;
     let user_id = out_user_id;
     let total = out_total;
@@ -227,13 +239,13 @@ pub async fn create_order<'a>(
             .and_then(|dt| dt.and_hms_opt(h as u32, mi as u32, s as u32))
             .expect("invalid date from Oracle")
     };
-    Ok(Some(CreateOrderRow {
+    Ok(CreateOrderRow {
         id: id,
         user_id: user_id,
         total: total,
         notes: notes,
         created_at: created_at,
-    }))
+    })
 }
 
 #[derive(Debug, Clone)]
@@ -294,16 +306,18 @@ pub struct GetOrderTotalRow {
     pub total_sum: Option<f64>,
 }
 
-pub async fn get_order_total<'a>(session: &'a Session<'a>, user_id: i64) -> sibyl::Result<Option<GetOrderTotalRow>> {
+pub async fn get_order_total<'a>(session: &'a Session<'a>, user_id: i64) -> sibyl::Result<GetOrderTotalRow> {
     let stmt = session
         .prepare("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :USER_ID")
         .await?;
     let rows = stmt.query((":USER_ID", user_id)).await?;
     if let Some(row) = rows.next().await? {
         let total_sum: Option<f64> = row.get(0)?;
-        Ok(Some(GetOrderTotalRow { total_sum: total_sum }))
+        Ok(GetOrderTotalRow { total_sum: total_sum })
     } else {
-        Ok(None)
+        Err(sibyl::Error::Interface(
+            "get_order_total expected exactly one row but found none".to_string(),
+        ))
     }
 }
 
@@ -322,7 +336,7 @@ pub struct GetUserByIdRow {
     pub created_at: chrono::NaiveDateTime,
 }
 
-pub async fn get_user_by_id<'a>(session: &'a Session<'a>, id: i64) -> sibyl::Result<Option<GetUserByIdRow>> {
+pub async fn get_user_by_id<'a>(session: &'a Session<'a>, id: i64) -> sibyl::Result<GetUserByIdRow> {
     let stmt = session
         .prepare("SELECT id, name, email, active, created_at FROM users WHERE id = :ID")
         .await?;
@@ -339,15 +353,17 @@ pub async fn get_user_by_id<'a>(session: &'a Session<'a>, id: i64) -> sibyl::Res
                 .and_then(|dt| dt.and_hms_opt(h as u32, mi as u32, s as u32))
                 .expect("invalid date from Oracle")
         };
-        Ok(Some(GetUserByIdRow {
+        Ok(GetUserByIdRow {
             id: id,
             name: name,
             email: email,
             active: active,
             created_at: created_at,
-        }))
+        })
     } else {
-        Ok(None)
+        Err(sibyl::Error::Interface(
+            "get_user_by_id expected exactly one row but found none".to_string(),
+        ))
     }
 }
 
@@ -391,24 +407,30 @@ pub async fn create_user<'a>(
     name: &str,
     email: Option<&str>,
     active: i64,
-) -> sibyl::Result<Option<CreateUserRow>> {
+) -> sibyl::Result<CreateUserRow> {
     let stmt = session.prepare("INSERT INTO users (name, email, active) VALUES (:NAME, :EMAIL, :ACTIVE) RETURNING id, name, email, active, created_at INTO :OUT_ID, :OUT_NAME, :OUT_EMAIL, :OUT_ACTIVE, :OUT_CREATED_AT").await?;
     let mut out_id: i64 = 0;
     let mut out_name = String::with_capacity(4000);
     let mut out_email = String::with_capacity(4000);
     let mut out_active: i64 = 0;
     let mut out_created_at = Date::new(session);
-    stmt.execute((
-        (":NAME", name),
-        (":EMAIL", email),
-        (":ACTIVE", active),
-        (":OUT_ID", &mut out_id),
-        (":OUT_NAME", &mut out_name),
-        (":OUT_EMAIL", &mut out_email),
-        (":OUT_ACTIVE", &mut out_active),
-        (":OUT_CREATED_AT", &mut out_created_at),
-    ))
-    .await?;
+    let rows_affected = stmt
+        .execute((
+            (":NAME", name),
+            (":EMAIL", email),
+            (":ACTIVE", active),
+            (":OUT_ID", &mut out_id),
+            (":OUT_NAME", &mut out_name),
+            (":OUT_EMAIL", &mut out_email),
+            (":OUT_ACTIVE", &mut out_active),
+            (":OUT_CREATED_AT", &mut out_created_at),
+        ))
+        .await?;
+    if rows_affected == 0 {
+        return Err(sibyl::Error::Interface(
+            "create_user expected exactly one row but found none".to_string(),
+        ));
+    }
     let id = out_id;
     let name = out_name;
     let email = if stmt.is_null(":OUT_EMAIL")? {
@@ -423,13 +445,13 @@ pub async fn create_user<'a>(
             .and_then(|dt| dt.and_hms_opt(h as u32, mi as u32, s as u32))
             .expect("invalid date from Oracle")
     };
-    Ok(Some(CreateUserRow {
+    Ok(CreateUserRow {
         id: id,
         name: name,
         email: email,
         active: active,
         created_at: created_at,
-    }))
+    })
 }
 
 pub async fn update_user_email<'a>(session: &'a Session<'a>, email: &str, id: i64) -> sibyl::Result<()> {

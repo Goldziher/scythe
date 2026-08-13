@@ -118,8 +118,14 @@ def test_delete_user(conn, user_id)
   deleted_count = Queries.delete_orders_by_user(conn, user_id)
   assert_equal(1, deleted_count, "delete_orders_by_user count")
   Queries.delete_user(conn, user_id)
-  user = Queries.get_user_by_id(conn, user_id)
-  assert_true(user.nil?, "Expected user to be deleted, but it still exists")
+  # GetUserById is `:one`, so a missing row raises Queries::RecordNotFound
+  # rather than returning nil.
+  begin
+    Queries.get_user_by_id(conn, user_id)
+    raise "Expected get_user_by_id to raise Queries::RecordNotFound, but it returned a row"
+  rescue Queries::RecordNotFound
+    # expected: the user was deleted
+  end
   puts "PASS: DeleteUser"
 end
 

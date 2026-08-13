@@ -4,6 +4,7 @@
 require "tiny_tds"
 
 module Queries
+  class RecordNotFound < StandardError; end
 
   CreateOrderRow = Data.define(:id, :user_id, :total, :notes, :created_at)
 
@@ -13,7 +14,7 @@ module Queries
 OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at
 VALUES (#{id}, #{user_id}, #{total}, #{ notes.nil? ? 'NULL' : "'#{client.escape(notes)}'"})"
     result = client.execute(sql).first
-    return nil if result.nil?
+    raise RecordNotFound, "create_order: no row found" if result.nil?
     CreateOrderRow.new(id: result["id"], user_id: result["user_id"], total: result["total"], notes: result["notes"], created_at: result["created_at"])
   end
 
@@ -34,7 +35,7 @@ VALUES (#{id}, #{user_id}, #{total}, #{ notes.nil? ? 'NULL' : "'#{client.escape(
   def self.get_order_total(client, user_id)
     sql = "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = #{user_id}"
     result = client.execute(sql).first
-    return nil if result.nil?
+    raise RecordNotFound, "get_order_total: no row found" if result.nil?
     GetOrderTotalRow.new(total_sum: result["total_sum"])
   end
 
@@ -49,7 +50,7 @@ VALUES (#{id}, #{user_id}, #{total}, #{ notes.nil? ? 'NULL' : "'#{client.escape(
   def self.get_user_by_id(client, id)
     sql = "SELECT id, name, email, active, created_at FROM users WHERE id = #{id}"
     result = client.execute(sql).first
-    return nil if result.nil?
+    raise RecordNotFound, "get_user_by_id: no row found" if result.nil?
     GetUserByIdRow.new(id: result["id"], name: result["name"], email: result["email"], active: result["active"], created_at: result["created_at"])
   end
 
@@ -71,7 +72,7 @@ VALUES (#{id}, #{user_id}, #{total}, #{ notes.nil? ? 'NULL' : "'#{client.escape(
 OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at
 VALUES (#{id}, '#{client.escape(name)}', #{ email.nil? ? 'NULL' : "'#{client.escape(email)}'"}, #{active ? 1 : 0})"
     result = client.execute(sql).first
-    return nil if result.nil?
+    raise RecordNotFound, "create_user: no row found" if result.nil?
     CreateUserRow.new(id: result["id"], name: result["name"], email: result["email"], active: result["active"], created_at: result["created_at"])
   end
 

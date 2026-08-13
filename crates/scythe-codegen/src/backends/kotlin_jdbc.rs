@@ -524,7 +524,21 @@ impl CodegenBackend for KotlinJdbcBackend {
                 }
             }
             QueryCommand::One | QueryCommand::Opt => {
-                let ret = format!(": {}?", struct_name);
+                // ~keep #192: see java-jdbc's generate_query_fn for the full
+                // reasoning -- this shared arm used to render byte-identical
+                // code for :one and :opt, so :one silently returned null on a
+                // missing row instead of erroring. `is_one` is the only
+                // difference from here down: the declared return type drops
+                // its `?`, and every branch's null-on-missing-row tail throws
+                // `NoSuchElementException` instead (kotlin.NoSuchElementException
+                // is in Kotlin's default imports, so no import is needed).
+                let is_one = matches!(analyzed.command, QueryCommand::One);
+                let ret = if is_one {
+                    format!(": {}", struct_name)
+                } else {
+                    format!(": {}?", struct_name)
+                };
+                let missing_row = format!("throw NoSuchElementException(\"{}: no rows returned\")", func_name);
                 let is_oracle_returning = self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
                 let is_mariadb_returning = self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
                 if is_mariadb_returning {
@@ -559,7 +573,11 @@ impl CodegenBackend for KotlinJdbcBackend {
                     }
                     let _ = writeln!(out, "            )");
                     let _ = writeln!(out, "        }}");
-                    let _ = writeln!(out, "        return null");
+                    if is_one {
+                        let _ = writeln!(out, "        {}", missing_row);
+                    } else {
+                        let _ = writeln!(out, "        return null");
+                    }
                     let _ = writeln!(out, "    }}");
                     let _ = writeln!(out, "}}");
                 } else if is_oracle_returning {
@@ -599,7 +617,11 @@ impl CodegenBackend for KotlinJdbcBackend {
                     write_kt_nullable_preamble(&mut out, columns, "                ", engine, manifest);
                     write_kt_struct_literal(&mut out, struct_name, columns, engine, manifest, "                ", "");
                     let _ = writeln!(out, "            }} else {{");
-                    let _ = writeln!(out, "                null");
+                    if is_one {
+                        let _ = writeln!(out, "                {}", missing_row);
+                    } else {
+                        let _ = writeln!(out, "                null");
+                    }
                     let _ = writeln!(out, "            }}");
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "    }}");
@@ -612,7 +634,11 @@ impl CodegenBackend for KotlinJdbcBackend {
                     write_kt_nullable_preamble(&mut out, columns, "                ", engine, manifest);
                     write_kt_struct_literal(&mut out, struct_name, columns, engine, manifest, "                ", "");
                     let _ = writeln!(out, "            }} else {{");
-                    let _ = writeln!(out, "                null");
+                    if is_one {
+                        let _ = writeln!(out, "                {}", missing_row);
+                    } else {
+                        let _ = writeln!(out, "                null");
+                    }
                     let _ = writeln!(out, "            }}");
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "    }}");

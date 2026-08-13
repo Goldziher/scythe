@@ -4,6 +4,7 @@
 require 'oci8'
 
 module Queries
+  class RecordNotFound < StandardError; end
 
   CreateAttachmentRow = Data.define(:id, :order_id, :filename)
 
@@ -17,7 +18,8 @@ module Queries
     cursor.bind_param(5, nil, Integer)
     cursor.bind_param(6, nil, Integer)
     cursor.bind_param(7, nil, String)
-    cursor.exec
+    rows_affected = cursor.exec
+    raise RecordNotFound, "create_attachment: no row found" if rows_affected.zero?
     CreateAttachmentRow.new(id: cursor[5], order_id: cursor[6], filename: cursor[7])
   end
 
@@ -61,7 +63,8 @@ module Queries
     cursor.bind_param(6, nil, Float)
     cursor.bind_param(7, nil, String)
     cursor.bind_param(8, nil, Time)
-    cursor.exec
+    rows_affected = cursor.exec
+    raise RecordNotFound, "create_order: no row found" if rows_affected.zero?
     CreateOrderRow.new(id: cursor[4], user_id: cursor[5], total: cursor[6], notes: cursor[7], created_at: cursor[8])
   end
 
@@ -83,7 +86,7 @@ module Queries
   def self.get_order_total(conn, user_id)
     cursor = conn.exec("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :1", user_id)
     row = cursor.fetch
-    return nil if row.nil?
+    raise RecordNotFound, "get_order_total: no row found" if row.nil?
     GetOrderTotalRow.new(total_sum: row[0])
   end
 
@@ -98,7 +101,7 @@ module Queries
   def self.get_user_by_id(conn, id)
     cursor = conn.exec("SELECT id, name, email, active, created_at FROM users WHERE id = :1", id)
     row = cursor.fetch
-    return nil if row.nil?
+    raise RecordNotFound, "get_user_by_id: no row found" if row.nil?
     GetUserByIdRow.new(id: row[0], name: row[1], email: row[2], active: row[3], created_at: row[4])
   end
 
@@ -127,7 +130,8 @@ module Queries
     cursor.bind_param(6, nil, String)
     cursor.bind_param(7, nil, Integer)
     cursor.bind_param(8, nil, Time)
-    cursor.exec
+    rows_affected = cursor.exec
+    raise RecordNotFound, "create_user: no row found" if rows_affected.zero?
     CreateUserRow.new(id: cursor[4], name: cursor[5], email: cursor[6], active: cursor[7], created_at: cursor[8])
   end
 

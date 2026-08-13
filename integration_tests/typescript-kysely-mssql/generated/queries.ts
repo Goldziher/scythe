@@ -11,18 +11,22 @@ export interface CreateOrderRow {
 	created_at: Date;
 }
 
-/** Fetch a single CreateOrderRow or null. */
+/** Fetch a single CreateOrderRow. */
 export async function createOrder(
 	db: QueryExecutorProvider,
 	id: number,
 	user_id: number,
 	total: string,
 	notes: string | null,
-): Promise<CreateOrderRow | null> {
+): Promise<CreateOrderRow> {
 	const result = await sql<CreateOrderRow>`INSERT INTO orders (id, user_id, total, notes)
 OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at
 VALUES (${id}, ${user_id}, ${total}, ${notes})`.execute(db);
-	return result.rows[0] ?? null;
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: CreateOrder");
+	}
+	return row;
 }
 
 /** Row type for GetOrdersByUser queries. */
@@ -47,13 +51,17 @@ export interface GetOrderTotalRow {
 	total_sum: string | null;
 }
 
-/** Fetch a single GetOrderTotalRow or null. */
+/** Fetch a single GetOrderTotalRow. */
 export async function getOrderTotal(
 	db: QueryExecutorProvider,
 	user_id: number,
-): Promise<GetOrderTotalRow | null> {
+): Promise<GetOrderTotalRow> {
 	const result = await sql<GetOrderTotalRow>`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ${user_id}`.execute(db);
-	return result.rows[0] ?? null;
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetOrderTotal");
+	}
+	return row;
 }
 
 /** Execute a query and return the number of affected rows. */
@@ -74,13 +82,17 @@ export interface GetUserByIdRow {
 	created_at: Date;
 }
 
-/** Fetch a single GetUserByIdRow or null. */
+/** Fetch a single GetUserByIdRow. */
 export async function getUserById(
 	db: QueryExecutorProvider,
 	id: number,
-): Promise<GetUserByIdRow | null> {
+): Promise<GetUserByIdRow> {
 	const result = await sql<GetUserByIdRow>`SELECT id, name, email, active, created_at FROM users WHERE id = ${id}`.execute(db);
-	return result.rows[0] ?? null;
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserById");
+	}
+	return row;
 }
 
 /** Row type for ListActiveUsers queries. */
@@ -107,18 +119,22 @@ export interface CreateUserRow {
 	created_at: Date;
 }
 
-/** Fetch a single CreateUserRow or null. */
+/** Fetch a single CreateUserRow. */
 export async function createUser(
 	db: QueryExecutorProvider,
 	id: number,
 	name: string,
 	email: string | null,
 	active: boolean,
-): Promise<CreateUserRow | null> {
+): Promise<CreateUserRow> {
 	const result = await sql<CreateUserRow>`INSERT INTO users (id, name, email, active)
 OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at
 VALUES (${id}, ${name}, ${email}, ${active})`.execute(db);
-	return result.rows[0] ?? null;
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: CreateUser");
+	}
+	return row;
 }
 
 /** Execute a query returning no rows. */

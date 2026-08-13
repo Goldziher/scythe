@@ -16,7 +16,7 @@ use crate::backends::typescript_common::{
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
     generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line, js_type_cast, parse_bool_option,
-    ts_index_access, ts_member_access, ts_property_key,
+    ts_index_access, ts_member_access, ts_property_key, ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-postgres.toml");
@@ -26,8 +26,9 @@ const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/typescript
 /// postgres.js `${item.field}` interpolations.
 ///
 /// `sql` must already have been through [`escape_ts_template_literal`], and
-/// `name_map` maps a 1-based placeholder position to the batch item's field
-/// name.
+/// `param_map` maps a 1-based placeholder position to the batch item's
+/// resolved param (its field name, and its neutral type for the composite
+/// case -- see [`pg_bind_expr`]).
 ///
 /// This exists so the `:batch` path goes through the same literal-aware
 /// [`super::rewrite_pg_placeholders`] the `:one`/`:many`/`:exec` paths use
@@ -37,12 +38,16 @@ const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/typescript
 /// text inside the literal became a second live postgres.js binding. That
 /// silently changes what the statement inserts -- and, unlike a syntax
 /// error, nothing downstream notices.
-fn batch_item_sql(sql: &str, name_map: &std::collections::HashMap<u32, String>) -> String {
+fn batch_item_sql(
+    sql: &str,
+    param_map: &std::collections::HashMap<u32, &ResolvedParam>,
+    composites: &[CompositeInfo],
+) -> String {
     super::rewrite_pg_placeholders(sql, |n| {
-        let accessor = name_map
-            .get(&n)
-            .map_or_else(|| "?".to_string(), |field| ts_member_access("item", field));
-        format!("${{{accessor}}}")
+        param_map.get(&n).map_or_else(
+            || "${item.?}".to_string(),
+            |rp| pg_bind_expr(&ts_member_access("item", &rp.field_name), &rp.neutral_type, composites),
+        )
     })
 }
 
@@ -61,8 +66,60 @@ fn batch_item_sql(sql: &str, name_map: &std::collections::HashMap<u32, String>) 
 /// from the escaped-but-not-yet-placeholder-rewritten SQL, through the same
 /// span-aware [`super::rewrite_pg_placeholders`] the multi-parameter branch
 /// uses, closes that gap the same way #219 closed it there.
-fn batch_item_sql_single(sql: &str) -> String {
-    super::rewrite_pg_placeholders(sql, |_| "${item}".to_string())
+fn batch_item_sql_single(sql: &str, param: &ResolvedParam, composites: &[CompositeInfo]) -> String {
+    super::rewrite_pg_placeholders(sql, |_| pg_bind_expr("item", &param.neutral_type, composites))
+}
+
+/// Render the postgres.js binding text for a parameter read through
+/// `access_expr` (a TS/JS expression, e.g. a field name or `item.field`).
+///
+/// Delegates to [`pg_composite_bind_expr`] when `neutral_type` is a
+/// composite; every other type keeps the plain `${access_expr}`
+/// substitution every param used before #179.
+fn pg_bind_expr(access_expr: &str, neutral_type: &str, composites: &[CompositeInfo]) -> String {
+    match neutral_type.strip_prefix("composite::") {
+        Some(sql_name) => pg_composite_bind_expr(access_expr, sql_name, composites),
+        None => format!("${{{access_expr}}}"),
+    }
+}
+
+/// Render `access_expr` (a TS/JS expression reading a whole composite
+/// value) as postgres.js binding text for the Postgres composite type
+/// `sql_name`.
+///
+/// (#179) postgres.js's tagged-template `${}` binds one scalar/array/json
+/// value at a time; its type declarations reject a plain object typed as a
+/// Postgres composite (`ParameterOrFragment<never>`, a TS2345 the caller
+/// cannot work around), and it has no runtime serializer that could accept
+/// one either -- unlike scalars, a composite has no fixed OID postgres.js
+/// could dispatch a serializer on without a live catalog lookup, which
+/// codegen has no access to. Postgres itself accepts a composite value
+/// spelled as a row constructor cast to the type name (`ROW(a, b)::address`),
+/// built here from one `${}` binding per scalar field -- each field is a
+/// value postgres.js already knows how to bind, so the composite as a whole
+/// never has to be. `ROW(`, the field separators, and `)::sql_name` are
+/// literal SQL text spliced around those per-field bindings; they do not
+/// themselves flow through `${}`.
+///
+/// A field that is itself a composite recurses through the same
+/// construction. A composite this query's `composites` catalog does not
+/// carry (should not happen -- the analyzer collects every composite a
+/// query's params and columns reference) falls back to binding the whole
+/// object directly: that fails exactly the way every composite param failed
+/// before this fix, not worse.
+fn pg_composite_bind_expr(access_expr: &str, sql_name: &str, composites: &[CompositeInfo]) -> String {
+    let Some(info) = composites.iter().find(|c| c.sql_name == sql_name) else {
+        return format!("${{{access_expr}}}");
+    };
+    let fields: Vec<String> = info
+        .fields
+        .iter()
+        .map(|field| {
+            let field_access = ts_member_access(access_expr, &to_camel_case(&field.name));
+            pg_bind_expr(&field_access, &field.neutral_type, composites)
+        })
+        .collect();
+    format!("ROW({})::{}", fields.join(", "), sql_name)
 }
 
 pub struct TypescriptPostgresBackend {
@@ -221,14 +278,17 @@ impl CodegenBackend for TypescriptPostgresBackend {
         // becomes a live binding, and escaping afterwards would also mangle
         // the interpolations this pass is about to add.
         let sql_clean = escape_ts_template_literal(&sql_clean);
-        let name_map: std::collections::HashMap<u32, String> = analyzed
+        let param_map: std::collections::HashMap<u32, &ResolvedParam> = analyzed
             .params
             .iter()
             .zip(params.iter())
-            .map(|(ap, rp)| (ap.position as u32, rp.field_name.clone()))
+            .map(|(ap, rp)| (ap.position as u32, rp))
             .collect();
         let sql_template = super::rewrite_pg_placeholders(&sql_clean, |n| {
-            format!("${{{}}}", name_map.get(&n).map_or("?", |s| s.as_str()))
+            param_map.get(&n).map_or_else(
+                || "${?}".to_string(),
+                |rp| pg_bind_expr(&rp.field_name, &rp.neutral_type, &analyzed.composites),
+            )
         });
 
         let write_fn_sig = |out: &mut String, name: &str, sig_params: &[(String, String)], ret: &str| {
@@ -254,7 +314,38 @@ impl CodegenBackend for TypescriptPostgresBackend {
             .collect();
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                let _ = writeln!(out, "/** Fetch a single {}. */", struct_name);
+                let ret = format!("Promise<{}>", struct_name);
+                write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        let _ = writeln!(out, "\tconst rows = await sql<{}[]>`", struct_name);
+                        let _ = writeln!(out, "    {}", sql_template);
+                        let _ = writeln!(out, "  `;");
+                        let _ = writeln!(out, "\tconst row = rows[0];");
+                        let _ = writeln!(out, "\tif (row === undefined) {{");
+                        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
+                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(out, "\treturn row;");
+                    }
+                    TsFieldCase::Camel => {
+                        let _ = writeln!(out, "\tconst rows = await sql<Record<string, unknown>[]>`");
+                        let _ = writeln!(out, "    {}", sql_template);
+                        let _ = writeln!(out, "  `;");
+                        let _ = writeln!(out, "\tconst row = rows[0];");
+                        out.push_str(&generate_ts_one_row_remap(
+                            columns,
+                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            &analyzed.command,
+                            &analyzed.name,
+                            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
+                        ));
+                    }
+                }
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Opt => {
                 let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let ret = format!("Promise<{} | null>", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
@@ -273,6 +364,8 @@ impl CodegenBackend for TypescriptPostgresBackend {
                         out.push_str(&generate_ts_one_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            &analyzed.command,
+                            &analyzed.name,
                             |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
                         ));
                     }
@@ -302,7 +395,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "Promise<void>");
                     let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let batch_sql = batch_item_sql(&sql_clean, &name_map);
+                    let batch_sql = batch_item_sql(&sql_clean, &param_map, &analyzed.composites);
                     let _ = writeln!(out, "\t\t\tawait tx`");
                     let _ = writeln!(out, "    {}", batch_sql);
                     let _ = writeln!(out, "  `;");
@@ -322,7 +415,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
                     write_fn_sig(&mut out, &batch_fn_name, &batch_sig_params, "Promise<void>");
                     let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let batch_sql = batch_item_sql_single(&sql_clean);
+                    let batch_sql = batch_item_sql_single(&sql_clean, &params[0], &analyzed.composites);
                     let _ = writeln!(out, "\t\t\tawait tx`");
                     let _ = writeln!(out, "    {}", batch_sql);
                     let _ = writeln!(out, "  `;");
@@ -450,14 +543,17 @@ impl CodegenBackend for TypescriptPostgresBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let sql_clean = escape_ts_template_literal(&sql_clean);
-        let name_map: std::collections::HashMap<u32, String> = analyzed
+        let param_map: std::collections::HashMap<u32, &ResolvedParam> = analyzed
             .params
             .iter()
             .zip(params.iter())
-            .map(|(ap, rp)| (ap.position as u32, rp.field_name.clone()))
+            .map(|(ap, rp)| (ap.position as u32, rp))
             .collect();
         let sql_template = super::rewrite_pg_placeholders(&sql_clean, |n| {
-            format!("${{{}}}", name_map.get(&n).map_or("?", |s| s.as_str()))
+            param_map.get(&n).map_or_else(
+                || "${?}".to_string(),
+                |rp| pg_bind_expr(&rp.field_name, &rp.neutral_type, &analyzed.composites),
+            )
         });
 
         let param_list = params
@@ -624,14 +720,17 @@ impl TypescriptPostgresBackend {
 
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let sql_clean = escape_ts_template_literal(&sql_clean);
-        let name_map: std::collections::HashMap<u32, String> = analyzed
+        let param_map: std::collections::HashMap<u32, &ResolvedParam> = analyzed
             .params
             .iter()
             .zip(params.iter())
-            .map(|(ap, rp)| (ap.position as u32, rp.field_name.clone()))
+            .map(|(ap, rp)| (ap.position as u32, rp))
             .collect();
         let sql_template = super::rewrite_pg_placeholders(&sql_clean, |n| {
-            format!("${{{}}}", name_map.get(&n).map_or("?", |s| s.as_str()))
+            param_map.get(&n).map_or_else(
+                || "${?}".to_string(),
+                |rp| pg_bind_expr(&rp.field_name, &rp.neutral_type, &analyzed.composites),
+            )
         });
 
         let query_sig_params: Vec<(String, String)> = std::iter::once(("sql".to_string(), SQL_TYPE.to_string()))
@@ -645,7 +744,35 @@ impl TypescriptPostgresBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch a single {}.", struct_name),
+                    &query_sig_params,
+                    &format!("Promise<{}>", struct_name),
+                );
+                // ~keep postgres.js's `sql` tag defaults to its own untyped `Row`
+                // shape without a type argument -- and unlike
+                // `client.query(...)` (pg) or `pool.execute(...)` (mysql2),
+                // that default is a *concrete* type, not `any`, so `rows[0]`
+                // does not structurally match `StructName` and `tsc
+                // --strict` rejects the assignment on `return`. The TS path
+                // supplies `sql<StructName[]>` to fix this; JS mode has no
+                // generic call syntax, so the JSDoc inline cast substitutes.
+                let query_expr = format!("await sql`\n    {sql_template}\n  `");
+                let _ = writeln!(
+                    out,
+                    "\tconst rows = {};",
+                    js_type_cast(&format!("Array<{struct_name}>"), &query_expr)
+                );
+                let _ = writeln!(out, "\tconst row = rows[0];");
+                let _ = writeln!(out, "\tif (row === undefined) {{");
+                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn row;");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Opt => {
                 write_signature(
                     &mut out,
                     &format!("Fetch a single {} or null.", struct_name),
@@ -741,7 +868,7 @@ impl TypescriptPostgresBackend {
                     let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
                     let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let batch_sql = batch_item_sql(&sql_clean, &name_map);
+                    let batch_sql = batch_item_sql(&sql_clean, &param_map, &analyzed.composites);
                     let _ = writeln!(out, "\t\t\tawait tx`");
                     let _ = writeln!(out, "    {}", batch_sql);
                     let _ = writeln!(out, "  `;");
@@ -765,7 +892,7 @@ impl TypescriptPostgresBackend {
                     let _ = writeln!(out, "{}", js_fn_signature_line(true, &batch_fn_name, &batch_sig_params));
                     let _ = writeln!(out, "\tawait sql.begin(async (tx) => {{");
                     let _ = writeln!(out, "\t\tfor (const item of items) {{");
-                    let batch_sql = batch_item_sql_single(&sql_clean);
+                    let batch_sql = batch_item_sql_single(&sql_clean, &params[0], &analyzed.composites);
                     let _ = writeln!(out, "\t\t\tawait tx`");
                     let _ = writeln!(out, "    {}", batch_sql);
                     let _ = writeln!(out, "  `;");
@@ -824,14 +951,17 @@ impl TypescriptPostgresBackend {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql_clean = super::clean_sql_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params);
         let sql_clean = escape_ts_template_literal(&sql_clean);
-        let name_map: std::collections::HashMap<u32, String> = analyzed
+        let param_map: std::collections::HashMap<u32, &ResolvedParam> = analyzed
             .params
             .iter()
             .zip(params.iter())
-            .map(|(ap, rp)| (ap.position as u32, rp.field_name.clone()))
+            .map(|(ap, rp)| (ap.position as u32, rp))
             .collect();
         let sql_template = super::rewrite_pg_placeholders(&sql_clean, |n| {
-            format!("${{{}}}", name_map.get(&n).map_or("?", |s| s.as_str()))
+            param_map.get(&n).map_or_else(
+                || "${?}".to_string(),
+                |rp| pg_bind_expr(&rp.field_name, &rp.neutral_type, &analyzed.composites),
+            )
         });
 
         let sig_params: Vec<(String, String)> = std::iter::once(("sql".to_string(), SQL_TYPE.to_string()))
@@ -1578,8 +1708,8 @@ mod tests {
         );
         assert!(query_fn.contains("@param {number} id"), "got:\n{query_fn}");
         assert!(
-            query_fn.contains("@returns {Promise<GetUserByIdRow | null>}"),
-            "got:\n{query_fn}"
+            query_fn.contains("@returns {Promise<GetUserByIdRow>}"),
+            "`:one` must not be nullable; got:\n{query_fn}"
         );
         assert!(
             query_fn.contains("export async function getUserById(sql, id) {"),
@@ -1606,7 +1736,16 @@ mod tests {
             query_fn.contains("const rows = /** @type {Array<GetUserByIdRow>} */ (await sql`"),
             "got:\n{query_fn}"
         );
-        assert!(query_fn.contains("return rows[0] ?? null;"), "got:\n{query_fn}");
+        assert!(
+            query_fn.contains(
+                "const row = rows[0];\n\tif (row === undefined) {\n\t\tthrow new Error(\"no row found for query: GetUserById\");\n\t}\n\treturn row;"
+            ),
+            "`:one` must throw on a missing row, not return null; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("?? null"),
+            "`:one` must not return null; got:\n{query_fn}"
+        );
     }
 
     #[test]

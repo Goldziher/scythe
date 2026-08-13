@@ -131,9 +131,6 @@ func GetOrderTotal(ctx context.Context, db *sql.DB, user_id int64) (*GetOrderTot
 	row := db.QueryRowContext(ctx, "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :1", user_id)
 	var item GetOrderTotalRow
 	if err := row.Scan(&item.TotalSum); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
 	return &item, nil
@@ -159,9 +156,6 @@ func GetUserById(ctx context.Context, db *sql.DB, id int64) (*GetUserByIdRow, er
 	row := db.QueryRowContext(ctx, "SELECT id, name, email, active, created_at FROM users WHERE id = :1", id)
 	var item GetUserByIdRow
 	if err := row.Scan(&item.Id, &item.Name, &item.Email, &item.Active, &item.CreatedAt); err != nil {
-		if err == sql.ErrNoRows {
-			return nil, nil
-		}
 		return nil, err
 	}
 	return &item, nil

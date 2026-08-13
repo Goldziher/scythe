@@ -12,7 +12,8 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 use super::python_common::{
-    PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, write_execute_call,
+    PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, no_rows_exception_def,
+    write_execute_call, write_missing_row_guard,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-pyodbc.toml");
@@ -70,7 +71,7 @@ impl CodegenBackend for PythonPyodbcBackend {
 
     fn file_header(&self) -> String {
         let import_line = self.row_type.import_line();
-        if self.row_type.is_stdlib_import() {
+        let header = if self.row_type.is_stdlib_import() {
             format!(
                 "import datetime  # noqa: F401\n\
                  import decimal  # noqa: F401\n\
@@ -90,7 +91,8 @@ impl CodegenBackend for PythonPyodbcBackend {
                  {third_party}\n\
                  \n",
             )
-        }
+        };
+        format!("{header}{}", no_rows_exception_def())
     }
 
     fn generate_struct_decl(
@@ -149,18 +151,23 @@ impl CodegenBackend for PythonPyodbcBackend {
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
+                let is_one = matches!(analyzed.command, QueryCommand::One);
+                let ret_type = if is_one {
+                    struct_name.to_string()
+                } else {
+                    format!("{struct_name} | None")
+                };
                 let _ = writeln!(
                     out,
-                    "def {}(conn: pyodbc.Connection{}{}) -> {} | None:",
-                    func_name, kw_sep, param_list, struct_name
+                    "def {}(conn: pyodbc.Connection{}{}) -> {}:",
+                    func_name, kw_sep, param_list, ret_type
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 let _ = writeln!(out, "    cursor = conn.cursor()");
                 let args = (!params.is_empty()).then_some(args_tuple.as_str());
                 write_execute_call(&mut out, "    ", "cursor.execute", &sql, args);
                 let _ = writeln!(out, "    row = cursor.fetchone()");
-                let _ = writeln!(out, "    if row is None:");
-                let _ = writeln!(out, "        return None");
+                write_missing_row_guard(&mut out, "    ", "row", is_one, &analyzed.name);
                 let field_assignments: Vec<String> = columns
                     .iter()
                     .enumerate()

@@ -9,6 +9,10 @@ from typing import Any  # noqa: F401
 from psycopg import AsyncConnection  # noqa: F401
 
 
+class ScytheNoRowsError(Exception):
+    """Raised by a `:one` query when no row matches."""
+
+
 
 @dataclass(frozen=True, slots=True)
 class CreateOrderRow:
@@ -21,7 +25,7 @@ class CreateOrderRow:
     created_at: datetime.datetime
 
 
-async def create_order(conn: AsyncConnection, *, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow | None:
+async def create_order(conn: AsyncConnection, *, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow:
     """Execute CreateOrder query."""
     cur = await conn.execute(
         """INSERT INTO orders (user_id, total, notes)
@@ -31,7 +35,7 @@ RETURNING id, user_id, total, notes, created_at""",
     )
     row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("CreateOrder: no rows returned")
     return CreateOrderRow(
         id=row[0],
         user_id=row[1],
@@ -76,7 +80,7 @@ class GetOrderTotalRow:
     total_sum: decimal.Decimal | None
 
 
-async def get_order_total(conn: AsyncConnection, *, user_id: int) -> GetOrderTotalRow | None:
+async def get_order_total(conn: AsyncConnection, *, user_id: int) -> GetOrderTotalRow:
     """Execute GetOrderTotal query."""
     cur = await conn.execute(
         """SELECT SUM(total) AS total_sum FROM orders WHERE user_id = %(user_id)s""",
@@ -84,7 +88,7 @@ async def get_order_total(conn: AsyncConnection, *, user_id: int) -> GetOrderTot
     )
     row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetOrderTotal: no rows returned")
     return GetOrderTotalRow(total_sum=row[0])
 
 
@@ -108,7 +112,7 @@ class GetUserByIdRow:
     created_at: datetime.datetime
 
 
-async def get_user_by_id(conn: AsyncConnection, *, id: int) -> GetUserByIdRow | None:
+async def get_user_by_id(conn: AsyncConnection, *, id: int) -> GetUserByIdRow:
     """Execute GetUserById query."""
     cur = await conn.execute(
         """SELECT id, name, email, status, created_at
@@ -118,7 +122,7 @@ WHERE id = %(id)s""",
     )
     row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetUserById: no rows returned")
     return GetUserByIdRow(
         id=row[0],
         name=row[1],
@@ -160,7 +164,7 @@ class CreateUserRow:
     created_at: datetime.datetime
 
 
-async def create_user(conn: AsyncConnection, *, name: str, email: str | None, status: str) -> CreateUserRow | None:
+async def create_user(conn: AsyncConnection, *, name: str, email: str | None, status: str) -> CreateUserRow:
     """Execute CreateUser query."""
     cur = await conn.execute(
         """INSERT INTO users (name, email, status)
@@ -170,7 +174,7 @@ RETURNING id, name, email, status, created_at""",
     )
     row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("CreateUser: no rows returned")
     return CreateUserRow(
         id=row[0],
         name=row[1],

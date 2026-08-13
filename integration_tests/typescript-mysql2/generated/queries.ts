@@ -29,14 +29,18 @@ export interface GetLastInsertOrderRow extends RowDataPacket {
 	created_at: Date;
 }
 
-/** Fetch a single GetLastInsertOrderRow or null. */
+/** Fetch a single GetLastInsertOrderRow. */
 export async function getLastInsertOrder(
 	pool: Pool,
-): Promise<GetLastInsertOrderRow | null> {
+): Promise<GetLastInsertOrderRow> {
 	const [rows] = await pool.execute<GetLastInsertOrderRow[]>(
 		`SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()`,
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetLastInsertOrder");
+	}
+	return row;
 }
 
 /** Row type for GetOrdersByUser queries. */
@@ -63,15 +67,19 @@ export interface GetOrderTotalRow extends RowDataPacket {
 	total_sum: string | null;
 }
 
-/** Fetch a single GetOrderTotalRow or null. */
+/** Fetch a single GetOrderTotalRow. */
 export async function getOrderTotal(
 	pool: Pool,
 	user_id: number,
-): Promise<GetOrderTotalRow | null> {
+): Promise<GetOrderTotalRow> {
 	const [rows] = await pool.execute<GetOrderTotalRow[]>(
 		`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`, [user_id],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetOrderTotal");
+	}
+	return row;
 }
 
 /** Execute a query and return the number of affected rows. */
@@ -94,15 +102,19 @@ export interface GetUserByIdRow extends RowDataPacket {
 	created_at: Date;
 }
 
-/** Fetch a single GetUserByIdRow or null. */
+/** Fetch a single GetUserByIdRow. */
 export async function getUserById(
 	pool: Pool,
 	id: number,
-): Promise<GetUserByIdRow | null> {
+): Promise<GetUserByIdRow> {
 	const [rows] = await pool.execute<GetUserByIdRow[]>(
 		`SELECT id, name, email, status, created_at FROM users WHERE id = ?`, [id],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserById");
+	}
+	return row;
 }
 
 /** Row type for ListActiveUsers queries. */
@@ -144,14 +156,18 @@ export interface GetLastInsertUserRow extends RowDataPacket {
 	created_at: Date;
 }
 
-/** Fetch a single GetLastInsertUserRow or null. */
+/** Fetch a single GetLastInsertUserRow. */
 export async function getLastInsertUser(
 	pool: Pool,
-): Promise<GetLastInsertUserRow | null> {
+): Promise<GetLastInsertUserRow> {
 	const [rows] = await pool.execute<GetLastInsertUserRow[]>(
 		`SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()`,
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetLastInsertUser");
+	}
+	return row;
 }
 
 /** Execute a query returning no rows. */

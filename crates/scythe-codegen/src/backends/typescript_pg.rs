@@ -16,7 +16,7 @@ use crate::backends::typescript_common::{
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_enum, generate_zod_grouped_structs,
     generate_zod_row_struct, generate_zod_union_row_struct, js_fn_signature_line, parse_bool_option, ts_member_access,
-    ts_property_key,
+    ts_property_key, ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-pg.toml");
@@ -235,7 +235,40 @@ impl CodegenBackend for TypescriptPgBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                let _ = writeln!(out, "/** Fetch a single {}. */", struct_name);
+                let ret = format!("Promise<{}>", struct_name);
+                write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        write_typed_query(&mut out, "\tconst { rows } = await ", struct_name, &sql, params);
+                        let _ = writeln!(out, "\tconst row = rows[0];");
+                        let _ = writeln!(out, "\tif (row === undefined) {{");
+                        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
+                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(out, "\treturn row;");
+                    }
+                    TsFieldCase::Camel => {
+                        write_typed_query(
+                            &mut out,
+                            "\tconst { rows } = await ",
+                            "Record<string, unknown>",
+                            &sql,
+                            params,
+                        );
+                        let _ = writeln!(out, "\tconst row = rows[0];");
+                        out.push_str(&generate_ts_one_row_remap(
+                            columns,
+                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            &analyzed.command,
+                            &analyzed.name,
+                            |name, ty| format!("{} as {ty}", ts_member_access("row", name)),
+                        ));
+                    }
+                }
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Opt => {
                 let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let ret = format!("Promise<{} | null>", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
@@ -256,6 +289,8 @@ impl CodegenBackend for TypescriptPgBackend {
                         out.push_str(&generate_ts_one_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            &analyzed.command,
+                            &analyzed.name,
                             |name, ty| format!("{} as {ty}", ts_member_access("row", name)),
                         ));
                     }
@@ -664,7 +699,22 @@ impl TypescriptPgBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                write_signature(
+                    &mut out,
+                    &format!("Fetch a single {}.", struct_name),
+                    &query_sig_params,
+                    &format!("Promise<{}>", struct_name),
+                );
+                write_query(&mut out, "\tconst { rows } = await ", &sql, params);
+                let _ = writeln!(out, "\tconst row = rows[0];");
+                let _ = writeln!(out, "\tif (row === undefined) {{");
+                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn row;");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Opt => {
                 write_signature(
                     &mut out,
                     &format!("Fetch a single {} or null.", struct_name),
@@ -1704,8 +1754,8 @@ mod tests {
         );
         assert!(query_fn.contains("@param {number} id"), "got:\n{query_fn}");
         assert!(
-            query_fn.contains("@returns {Promise<GetUserByIdRow | null>}"),
-            "got:\n{query_fn}"
+            query_fn.contains("@returns {Promise<GetUserByIdRow>}"),
+            "`:one` must not be nullable; got:\n{query_fn}"
         );
         assert!(
             query_fn.contains("export async function getUserById(client, id) {"),
@@ -1725,7 +1775,16 @@ mod tests {
             ),
             "got:\n{query_fn}"
         );
-        assert!(query_fn.contains("return rows[0] ?? null;"), "got:\n{query_fn}");
+        assert!(
+            query_fn.contains(
+                "const row = rows[0];\n\tif (row === undefined) {\n\t\tthrow new Error(\"no row found for query: GetUserById\");\n\t}\n\treturn row;"
+            ),
+            "`:one` must throw on a missing row, not return null; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("?? null"),
+            "`:one` must not return null; got:\n{query_fn}"
+        );
     }
 
     #[test]

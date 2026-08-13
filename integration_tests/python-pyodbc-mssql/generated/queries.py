@@ -7,6 +7,10 @@ from enum import Enum  # noqa: F401
 import pyodbc  # noqa: F401
 
 
+class ScytheNoRowsError(Exception):
+    """Raised by a `:one` query when no row matches."""
+
+
 
 @dataclass(frozen=True, slots=True)
 class CreateOrderRow:
@@ -19,7 +23,7 @@ class CreateOrderRow:
     created_at: datetime.datetime
 
 
-def create_order(conn: pyodbc.Connection, *, id: int, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow | None:
+def create_order(conn: pyodbc.Connection, *, id: int, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow:
     """Execute CreateOrder query."""
     cursor = conn.cursor()
     cursor.execute(
@@ -30,7 +34,7 @@ VALUES (?, ?, ?, ?)""",
     )
     row = cursor.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("CreateOrder: no rows returned")
     return CreateOrderRow(
         id=row[0],
         user_id=row[1],
@@ -76,7 +80,7 @@ class GetOrderTotalRow:
     total_sum: decimal.Decimal | None
 
 
-def get_order_total(conn: pyodbc.Connection, *, user_id: int) -> GetOrderTotalRow | None:
+def get_order_total(conn: pyodbc.Connection, *, user_id: int) -> GetOrderTotalRow:
     """Execute GetOrderTotal query."""
     cursor = conn.cursor()
     cursor.execute(
@@ -85,7 +89,7 @@ def get_order_total(conn: pyodbc.Connection, *, user_id: int) -> GetOrderTotalRo
     )
     row = cursor.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetOrderTotal: no rows returned")
     return GetOrderTotalRow(total_sum=row[0])
 
 
@@ -108,7 +112,7 @@ class GetUserByIdRow:
     created_at: datetime.datetime
 
 
-def get_user_by_id(conn: pyodbc.Connection, *, id: int) -> GetUserByIdRow | None:
+def get_user_by_id(conn: pyodbc.Connection, *, id: int) -> GetUserByIdRow:
     """Execute GetUserById query."""
     cursor = conn.cursor()
     cursor.execute(
@@ -117,7 +121,7 @@ def get_user_by_id(conn: pyodbc.Connection, *, id: int) -> GetUserByIdRow | None
     )
     row = cursor.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetUserById: no rows returned")
     return GetUserByIdRow(
         id=row[0],
         name=row[1],
@@ -157,7 +161,7 @@ class CreateUserRow:
     created_at: datetime.datetime
 
 
-def create_user(conn: pyodbc.Connection, *, id: int, name: str, email: str | None, active: bool) -> CreateUserRow | None:
+def create_user(conn: pyodbc.Connection, *, id: int, name: str, email: str | None, active: bool) -> CreateUserRow:
     """Execute CreateUser query."""
     cursor = conn.cursor()
     cursor.execute(
@@ -168,7 +172,7 @@ VALUES (?, ?, ?, ?)""",
     )
     row = cursor.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("CreateUser: no rows returned")
     return CreateUserRow(
         id=row[0],
         name=row[1],

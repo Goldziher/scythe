@@ -214,10 +214,14 @@ fun testDeleteUser(conn: java.sql.Connection) {
     val name = "DeleteUser"
     try {
         deleteUser(conn, createdUserId)
-        val user = getUserById(conn, createdUserId)
-        if (user != null) {
-            fail(name, "expected null after deletion, but user still exists")
+        // GetUserById is `:one`, so a missing row throws
+        // NoSuchElementException rather than returning null.
+        try {
+            getUserById(conn, createdUserId)
+            fail(name, "expected getUserById to throw after deletion, but it returned a row")
             return
+        } catch (expected: NoSuchElementException) {
+            // expected: the user was deleted
         }
         pass(name)
     } catch (e: Exception) {

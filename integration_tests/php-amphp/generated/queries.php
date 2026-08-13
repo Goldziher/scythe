@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 namespace App\Generated;
 
+final class RecordNotFoundException extends \RuntimeException {}
 
 
 enum UserStatus: string {
@@ -202,14 +203,15 @@ final class Queries {
      * @param int $user_id
      * @param string $total
      * @param ?string $notes
-     * @return CreateOrderRow|null
+     * @return CreateOrderRow
+     * @throws RecordNotFoundException
      */
-    public static function createOrder(\Amp\Sql\SqlConnectionPool $pool, int $user_id, string $total, ?string $notes): ?CreateOrderRow {
+    public static function createOrder(\Amp\Sql\SqlConnectionPool $pool, int $user_id, string $total, ?string $notes): CreateOrderRow {
         $result = $pool->prepare('INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at')->execute([$user_id, $total, $notes]);
         foreach ($result as $row) {
             return CreateOrderRow::fromRow($row);
         }
-        return null;
+        throw new RecordNotFoundException('createOrder: no row found');
     }
 
     /**
@@ -227,27 +229,29 @@ final class Queries {
     /**
      * @param \Amp\Sql\SqlConnectionPool $pool
      * @param int $user_id
-     * @return GetOrderTotalRow|null
+     * @return GetOrderTotalRow
+     * @throws RecordNotFoundException
      */
-    public static function getOrderTotal(\Amp\Sql\SqlConnectionPool $pool, int $user_id): ?GetOrderTotalRow {
+    public static function getOrderTotal(\Amp\Sql\SqlConnectionPool $pool, int $user_id): GetOrderTotalRow {
         $result = $pool->prepare('SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?')->execute([$user_id]);
         foreach ($result as $row) {
             return GetOrderTotalRow::fromRow($row);
         }
-        return null;
+        throw new RecordNotFoundException('getOrderTotal: no row found');
     }
 
     /**
      * @param \Amp\Sql\SqlConnectionPool $pool
      * @param int $user_id
-     * @return GetOrderWeightTotalRow|null
+     * @return GetOrderWeightTotalRow
+     * @throws RecordNotFoundException
      */
-    public static function getOrderWeightTotal(\Amp\Sql\SqlConnectionPool $pool, int $user_id): ?GetOrderWeightTotalRow {
+    public static function getOrderWeightTotal(\Amp\Sql\SqlConnectionPool $pool, int $user_id): GetOrderWeightTotalRow {
         $result = $pool->prepare('SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ?')->execute([$user_id]);
         foreach ($result as $row) {
             return GetOrderWeightTotalRow::fromRow($row);
         }
-        return null;
+        throw new RecordNotFoundException('getOrderWeightTotal: no row found');
     }
 
     /**
@@ -263,14 +267,15 @@ final class Queries {
     /**
      * @param \Amp\Sql\SqlConnectionPool $pool
      * @param int $id
-     * @return GetUserByIdRow|null
+     * @return GetUserByIdRow
+     * @throws RecordNotFoundException
      */
-    public static function getUserById(\Amp\Sql\SqlConnectionPool $pool, int $id): ?GetUserByIdRow {
+    public static function getUserById(\Amp\Sql\SqlConnectionPool $pool, int $id): GetUserByIdRow {
         $result = $pool->prepare('SELECT id, name, email, status, created_at FROM users WHERE id = ?')->execute([$id]);
         foreach ($result as $row) {
             return GetUserByIdRow::fromRow($row);
         }
-        return null;
+        throw new RecordNotFoundException('getUserById: no row found');
     }
 
     /**
@@ -290,14 +295,15 @@ final class Queries {
      * @param string $name
      * @param ?string $email
      * @param UserStatus $status
-     * @return CreateUserRow|null
+     * @return CreateUserRow
+     * @throws RecordNotFoundException
      */
-    public static function createUser(\Amp\Sql\SqlConnectionPool $pool, string $name, ?string $email, UserStatus $status): ?CreateUserRow {
+    public static function createUser(\Amp\Sql\SqlConnectionPool $pool, string $name, ?string $email, UserStatus $status): CreateUserRow {
         $result = $pool->prepare('INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email, status, created_at')->execute([$name, $email, $status->value]);
         foreach ($result as $row) {
             return CreateUserRow::fromRow($row);
         }
-        return null;
+        throw new RecordNotFoundException('createUser: no row found');
     }
 
     /**
@@ -334,14 +340,15 @@ final class Queries {
     /**
      * @param \Amp\Sql\SqlConnectionPool $pool
      * @param UserStatus $status
-     * @return CountUsersByStatusRow|null
+     * @return CountUsersByStatusRow
+     * @throws RecordNotFoundException
      */
-    public static function countUsersByStatus(\Amp\Sql\SqlConnectionPool $pool, UserStatus $status): ?CountUsersByStatusRow {
+    public static function countUsersByStatus(\Amp\Sql\SqlConnectionPool $pool, UserStatus $status): CountUsersByStatusRow {
         $result = $pool->prepare('SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = ?')->execute([$status->value]);
         foreach ($result as $row) {
             return CountUsersByStatusRow::fromRow($row);
         }
-        return null;
+        throw new RecordNotFoundException('countUsersByStatus: no row found');
     }
 
     /**

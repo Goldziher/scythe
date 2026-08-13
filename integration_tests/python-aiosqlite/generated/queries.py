@@ -6,6 +6,10 @@ import decimal
 import aiosqlite  # noqa: F401
 
 
+class ScytheNoRowsError(Exception):
+    """Raised by a `:one` query when no row matches."""
+
+
 
 async def create_order(conn: aiosqlite.Connection, *, user_id: int, total: float, notes: str | None) -> None:
     """Execute CreateOrder query."""
@@ -44,12 +48,12 @@ class GetOrderTotalRow:
     total_sum: float | None
 
 
-async def get_order_total(conn: aiosqlite.Connection, *, user_id: int) -> GetOrderTotalRow | None:
+async def get_order_total(conn: aiosqlite.Connection, *, user_id: int) -> GetOrderTotalRow:
     """Execute GetOrderTotal query."""
     async with conn.execute("""SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?""", (user_id,)) as cursor:
         row = await cursor.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetOrderTotal: no rows returned")
     return GetOrderTotalRow(total_sum=row[0])
 
 
@@ -70,12 +74,12 @@ class GetUserByIdRow:
     created_at: str
 
 
-async def get_user_by_id(conn: aiosqlite.Connection, *, id: int) -> GetUserByIdRow | None:
+async def get_user_by_id(conn: aiosqlite.Connection, *, id: int) -> GetUserByIdRow:
     """Execute GetUserById query."""
     async with conn.execute("""SELECT id, name, email, status, created_at FROM users WHERE id = ?""", (id,)) as cursor:
         row = await cursor.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetUserById: no rows returned")
     return GetUserByIdRow(
         id=row[0],
         name=row[1],

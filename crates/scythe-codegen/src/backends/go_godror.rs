@@ -260,9 +260,14 @@ impl CodegenBackend for GoGodrorBackend {
                         .map(|c| format!("&item.{}", to_pascal_case(&c.field_name)))
                         .collect();
                     let _ = writeln!(out, "\tif err := row.Scan({}); err != nil {{", scan_fields.join(", "));
-                    let _ = writeln!(out, "\t\tif err == sql.ErrNoRows {{");
-                    let _ = writeln!(out, "\t\t\treturn nil, nil");
-                    let _ = writeln!(out, "\t\t}}");
+                    // ~keep :opt alone swallows sql.ErrNoRows into (nil, nil); :one
+                    // leaves it to fall through to `return nil, err` below so a
+                    // missing row surfaces as an error, per #192.
+                    if matches!(analyzed.command, QueryCommand::Opt) {
+                        let _ = writeln!(out, "\t\tif err == sql.ErrNoRows {{");
+                        let _ = writeln!(out, "\t\t\treturn nil, nil");
+                        let _ = writeln!(out, "\t\t}}");
+                    }
                     let _ = writeln!(out, "\t\treturn nil, err");
                     let _ = writeln!(out, "\t}}");
                     let _ = writeln!(out, "\treturn &item, nil");

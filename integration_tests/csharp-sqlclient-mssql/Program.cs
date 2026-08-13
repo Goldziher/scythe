@@ -115,8 +115,16 @@ Console.WriteLine("PASS: SearchUsers");
 var deletedOrders = await Queries.DeleteOrdersByUser(conn, userId);
 Assert(deletedOrders == 1, "DeleteUser", $"expected 1 deleted order, got {deletedOrders}");
 await Queries.DeleteUser(conn, userId);
-var deleted = await Queries.GetUserById(conn, userId);
-Assert(deleted == null, "DeleteUser", "user should not exist after deletion");
+var deletedUserWasFound = true;
+try
+{
+    await Queries.GetUserById(conn, userId);
+}
+catch (InvalidOperationException)
+{
+    deletedUserWasFound = false;
+}
+Assert(!deletedUserWasFound, "DeleteUser", "user should not exist after deletion");
 Console.WriteLine("PASS: DeleteUser");
 
 if (exitCode == 0)

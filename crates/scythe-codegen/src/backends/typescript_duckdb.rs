@@ -14,6 +14,7 @@ use crate::backends::typescript_common::{
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_many_row_remap,
     generate_ts_one_row_remap, generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct,
     generate_zod_union_row_struct, parse_bool_option, ts_index_access, ts_member_access, ts_property_key,
+    ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-duckdb.toml");
@@ -271,7 +272,34 @@ impl CodegenBackend for TypescriptDuckdbBackend {
         let param_args: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                let _ = writeln!(out, "/** Fetch a single {}. */", struct_name);
+                write_fn_sig(&mut out, &func_name, &query_sig_params, struct_name);
+                write_prepare(&mut out, &sql);
+                write_bind_and_run(&mut out, "\t", &param_args, Some("result"));
+                let _ = writeln!(out, "\tconst rows = await result.getRowObjects();");
+                match self.field_case {
+                    TsFieldCase::Snake => {
+                        let _ = writeln!(out, "\tconst row = firstRow<{}>(rows);", struct_name);
+                        let _ = writeln!(out, "\tif (row === null) {{");
+                        let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
+                        let _ = writeln!(out, "\t}}");
+                        let _ = writeln!(out, "\treturn row;");
+                    }
+                    TsFieldCase::Camel => {
+                        let _ = writeln!(out, "\tconst row = firstRow<Record<string, unknown>>(rows);");
+                        out.push_str(&generate_ts_one_row_remap(
+                            columns,
+                            TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            &analyzed.command,
+                            &analyzed.name,
+                            |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
+                        ));
+                    }
+                }
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Opt => {
                 let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let ret = format!("{} | null", struct_name);
                 write_fn_sig(&mut out, &func_name, &query_sig_params, &ret);
@@ -288,6 +316,8 @@ impl CodegenBackend for TypescriptDuckdbBackend {
                         out.push_str(&generate_ts_one_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
+                            &analyzed.command,
+                            &analyzed.name,
                             |name, ty| format!("{} as {ty}", ts_index_access("row", name)),
                         ));
                     }

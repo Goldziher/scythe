@@ -878,9 +878,13 @@ fn test_kotlin_jdbc_extension_functions_expression_body() {
         code.contains("): List<") && code.contains("> =\n    this.prepareStatement"),
         "kotlin-jdbc ext: expected expression body for :many with 'this.prepareStatement'\n\nGenerated:\n{code}"
     );
+    // ~keep This asserted `"? =\n"` until #192 -- a nullable return, which is
+    // `:opt`'s shape, not `:one`'s. The fixture's only single-row query is
+    // `:one`, so the assertion was pinning the very fold #192 fixed: `:one`
+    // inheriting `:opt`'s permissiveness. It must stay non-nullable.
     assert!(
-        code.contains("? =\n    this.prepareStatement"),
-        "kotlin-jdbc ext: expected expression body for :one with 'this.prepareStatement'\n\nGenerated:\n{code}"
+        code.contains("): GetUserRow =\n    this.prepareStatement"),
+        "kotlin-jdbc ext: expected a non-nullable expression body for :one with 'this.prepareStatement'\n\nGenerated:\n{code}"
     );
 }
 

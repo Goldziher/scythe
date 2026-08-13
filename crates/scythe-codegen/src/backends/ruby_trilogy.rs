@@ -119,7 +119,10 @@ impl CodegenBackend for RubyTrilogyBackend {
     }
 
     fn file_header(&self) -> String {
-        "require \"json\"\n\nmodule Queries".to_string()
+        format!(
+            "require \"json\"\n\nmodule Queries\n{}",
+            super::ruby_rbs::RECORD_NOT_FOUND_CLASS
+        )
     }
 
     fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
@@ -128,7 +131,10 @@ impl CodegenBackend for RubyTrilogyBackend {
         // `file_header` already emitted it unconditionally -- that predates this fix and is
         // out of scope for it; only the new `bigdecimal/util` requirement is conditional.
         if super::ruby_rbs::ruby_generated_code_needs_bigdecimal_util(generated) {
-            "require \"json\"\nrequire \"bigdecimal/util\"\n\nmodule Queries".to_string()
+            format!(
+                "require \"json\"\nrequire \"bigdecimal/util\"\n\nmodule Queries\n{}",
+                super::ruby_rbs::RECORD_NOT_FOUND_CLASS
+            )
         } else {
             self.file_header()
         }
@@ -177,7 +183,44 @@ impl CodegenBackend for RubyTrilogyBackend {
         let sep = if param_list.is_empty() { "" } else { ", " };
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
+                let mut sql_interpolated = sql.clone();
+                for param in params.iter() {
+                    if let Some(pos) = sql_interpolated.find('?') {
+                        let replacement = ruby_sql_literal(&param.neutral_type, &param.field_name);
+                        sql_interpolated.replace_range(pos..pos + 1, &replacement);
+                    }
+                }
+
+                if params.is_empty() {
+                    let _ = writeln!(out, "    results = client.query(\"{}\")", sql);
+                } else {
+                    let _ = writeln!(out, "    results = client.query(\"{}\")", sql_interpolated);
+                }
+                let _ = writeln!(out, "    row = results.first");
+                let _ = writeln!(
+                    out,
+                    "    raise RecordNotFound, \"{}: no row found\" if row.nil?",
+                    func_name
+                );
+
+                let fields = columns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
+                        if c.nullable {
+                            format!("{}: row[{}]&.then {{ |v| v{} }}", c.field_name, i, coercion)
+                        } else {
+                            format!("{}: row[{}]{}", c.field_name, i, coercion)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+            }
+            QueryCommand::Opt => {
                 let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
                 let mut sql_interpolated = sql.clone();
                 for param in params.iter() {

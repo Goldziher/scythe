@@ -38,7 +38,7 @@ fun createOrder(
     user_id: Int,
     total: java.math.BigDecimal,
     notes: String?,
-): CreateOrderRow? {
+): CreateOrderRow {
     conn.prepareStatement("INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at").use { ps ->
         ps.setInt(1, user_id)
         ps.setBigDecimal(2, total)
@@ -55,7 +55,7 @@ fun createOrder(
                     created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
-                null
+                throw NoSuchElementException("createOrder: no rows returned")
             }
         }
     }
@@ -104,7 +104,7 @@ data class GetOrderTotalRow(
 fun getOrderTotal(
     conn: Connection,
     user_id: Int,
-): GetOrderTotalRow? {
+): GetOrderTotalRow {
     conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?").use { ps ->
         ps.setInt(1, user_id)
         ps.executeQuery().use { rs ->
@@ -115,7 +115,7 @@ fun getOrderTotal(
                     total_sum = total_sum,
                 )
             } else {
-                null
+                throw NoSuchElementException("getOrderTotal: no rows returned")
             }
         }
     }
@@ -130,7 +130,7 @@ data class GetOrderWeightTotalRow(
 fun getOrderWeightTotal(
     conn: Connection,
     user_id: Int,
-): GetOrderWeightTotalRow? {
+): GetOrderWeightTotalRow {
     conn.prepareStatement("SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ?").use { ps ->
         ps.setInt(1, user_id)
         ps.executeQuery().use { rs ->
@@ -141,7 +141,7 @@ fun getOrderWeightTotal(
                     weight_total = weight_total,
                 )
             } else {
-                null
+                throw NoSuchElementException("getOrderWeightTotal: no rows returned")
             }
         }
     }
@@ -171,7 +171,7 @@ data class GetUserByIdRow(
 fun getUserById(
     conn: Connection,
     id: Int,
-): GetUserByIdRow? {
+): GetUserByIdRow {
     conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = ?").use { ps ->
         ps.setInt(1, id)
         ps.executeQuery().use { rs ->
@@ -186,7 +186,7 @@ fun getUserById(
                     created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
-                null
+                throw NoSuchElementException("getUserById: no rows returned")
             }
         }
     }
@@ -239,7 +239,7 @@ fun createUser(
     name: String,
     email: String?,
     status: UserStatus,
-): CreateUserRow? {
+): CreateUserRow {
     conn.prepareStatement("INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email, status, created_at").use { ps ->
         ps.setString(1, name)
         ps.setString(2, email)
@@ -256,7 +256,7 @@ fun createUser(
                     created_at = rs.getObject("created_at", OffsetDateTime::class.java),
                 )
             } else {
-                null
+                throw NoSuchElementException("createUser: no rows returned")
             }
         }
     }
@@ -332,7 +332,7 @@ data class CountUsersByStatusRow(
 fun countUsersByStatus(
     conn: Connection,
     status: UserStatus,
-): CountUsersByStatusRow? {
+): CountUsersByStatusRow {
     conn.prepareStatement("SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = ?").use { ps ->
         ps.setObject(1, status.value, java.sql.Types.OTHER)
         ps.executeQuery().use { rs ->
@@ -342,7 +342,7 @@ fun countUsersByStatus(
                     user_count = rs.getLong("user_count"),
                 )
             } else {
-                null
+                throw NoSuchElementException("countUsersByStatus: no rows returned")
             }
         }
     }

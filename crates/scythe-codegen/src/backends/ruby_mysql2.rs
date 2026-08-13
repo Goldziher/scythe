@@ -84,14 +84,17 @@ impl CodegenBackend for RubyMysql2Backend {
     }
 
     fn file_header(&self) -> String {
-        "module Queries".to_string()
+        format!("module Queries\n{}", super::ruby_rbs::RECORD_NOT_FOUND_CLASS)
     }
 
     fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
         // See `ruby_pg.rs`'s identical override: `require "bigdecimal/util"` only when this
         // file's generated code actually calls `.to_d`.
         if super::ruby_rbs::ruby_generated_code_needs_bigdecimal_util(generated) {
-            "require \"bigdecimal/util\"\n\nmodule Queries".to_string()
+            format!(
+                "require \"bigdecimal/util\"\n\nmodule Queries\n{}",
+                super::ruby_rbs::RECORD_NOT_FOUND_CLASS
+            )
         } else {
             self.file_header()
         }
@@ -155,7 +158,35 @@ impl CodegenBackend for RubyMysql2Backend {
         };
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
+                let _ = writeln!(
+                    out,
+                    "    results = stmt.execute({})",
+                    param_array.trim_start_matches('[').trim_end_matches(']')
+                );
+                let _ = writeln!(out, "    row = results.first");
+                let _ = writeln!(
+                    out,
+                    "    raise RecordNotFound, \"{}: no row found\" if row.nil?",
+                    func_name
+                );
+
+                let fields = columns
+                    .iter()
+                    .map(|c| {
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
+                        if c.nullable {
+                            format!("{}: row[\"{}\"]&.then {{ |v| v{} }}", c.field_name, c.name, coercion)
+                        } else {
+                            format!("{}: row[\"{}\"]{}", c.field_name, c.name, coercion)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+            }
+            QueryCommand::Opt => {
                 let _ = writeln!(out, "    stmt = client.prepare(\"{}\")", sql);
                 let _ = writeln!(
                     out,

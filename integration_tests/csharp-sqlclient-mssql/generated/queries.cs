@@ -13,14 +13,14 @@ public record CreateOrderRow(
     DateTime CreatedAt
 );
 
-public static async Task<CreateOrderRow?> CreateOrder(SqlConnection conn, int id, int user_id, decimal total, string? notes) {
+public static async Task<CreateOrderRow> CreateOrder(SqlConnection conn, int id, int user_id, decimal total, string? notes) {
     await using var cmd = new SqlCommand(@"INSERT INTO orders (id, user_id, total, notes) OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)", conn);
     cmd.Parameters.AddWithValue("p1", id);
     cmd.Parameters.AddWithValue("p2", user_id);
     cmd.Parameters.AddWithValue("p3", total);
     cmd.Parameters.AddWithValue("p4", notes);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("CreateOrder expected exactly one row but found none");
     return new CreateOrderRow(
         reader.GetInt32(0),
         reader.GetInt32(1),
@@ -57,11 +57,11 @@ public record GetOrderTotalRow(
     decimal? TotalSum
 );
 
-public static async Task<GetOrderTotalRow?> GetOrderTotal(SqlConnection conn, int user_id) {
+public static async Task<GetOrderTotalRow> GetOrderTotal(SqlConnection conn, int user_id) {
     await using var cmd = new SqlCommand(@"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetOrderTotal expected exactly one row but found none");
     return new GetOrderTotalRow(
         reader.IsDBNull(0) ? null : reader.GetDecimal(0)
     );
@@ -81,11 +81,11 @@ public record GetUserByIdRow(
     DateTime CreatedAt
 );
 
-public static async Task<GetUserByIdRow?> GetUserById(SqlConnection conn, int id) {
+public static async Task<GetUserByIdRow> GetUserById(SqlConnection conn, int id) {
     await using var cmd = new SqlCommand(@"SELECT id, name, email, active, created_at FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", id);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserById expected exactly one row but found none");
     return new GetUserByIdRow(
         reader.GetInt32(0),
         reader.GetString(1),
@@ -123,14 +123,14 @@ public record CreateUserRow(
     DateTime CreatedAt
 );
 
-public static async Task<CreateUserRow?> CreateUser(SqlConnection conn, int id, string name, string? email, bool active) {
+public static async Task<CreateUserRow> CreateUser(SqlConnection conn, int id, string name, string? email, bool active) {
     await using var cmd = new SqlCommand(@"INSERT INTO users (id, name, email, active) OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at VALUES (@p1, @p2, @p3, @p4)", conn);
     cmd.Parameters.AddWithValue("p1", id);
     cmd.Parameters.AddWithValue("p2", name);
     cmd.Parameters.AddWithValue("p3", email);
     cmd.Parameters.AddWithValue("p4", active);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("CreateUser expected exactly one row but found none");
     return new CreateUserRow(
         reader.GetInt32(0),
         reader.GetString(1),

@@ -7,7 +7,7 @@ module Queries
     def self.new: (id: Integer, order_id: Integer, filename: String) -> CreateAttachmentRow
   end
 
-  def self.create_attachment: (OCI8, Integer, String, String, String?) -> CreateAttachmentRow?
+  def self.create_attachment: (OCI8, Integer, String, String, String?) -> CreateAttachmentRow
 
   class GetAttachmentsByOrderRow
     attr_reader id: Integer
@@ -33,7 +33,7 @@ module Queries
     def self.new: (id: Integer, user_id: Integer, total: BigDecimal, notes: String?, created_at: Time) -> CreateOrderRow
   end
 
-  def self.create_order: (OCI8, Integer, BigDecimal, String?) -> CreateOrderRow?
+  def self.create_order: (OCI8, Integer, BigDecimal, String?) -> CreateOrderRow
 
   class GetOrdersByUserRow
     attr_reader id: Integer
@@ -50,7 +50,7 @@ module Queries
     def self.new: (total_sum: BigDecimal?) -> GetOrderTotalRow
   end
 
-  def self.get_order_total: (OCI8, Integer) -> GetOrderTotalRow?
+  def self.get_order_total: (OCI8, Integer) -> GetOrderTotalRow
 
   def self.delete_orders_by_user: (OCI8, Integer) -> Integer
 
@@ -63,7 +63,7 @@ module Queries
     def self.new: (id: Integer, name: String, email: String?, active: Integer, created_at: Time) -> GetUserByIdRow
   end
 
-  def self.get_user_by_id: (OCI8, Integer) -> GetUserByIdRow?
+  def self.get_user_by_id: (OCI8, Integer) -> GetUserByIdRow
 
   class ListActiveUsersRow
     attr_reader id: Integer
@@ -83,7 +83,7 @@ module Queries
     def self.new: (id: Integer, name: String, email: String?, active: Integer, created_at: Time) -> CreateUserRow
   end
 
-  def self.create_user: (OCI8, String, String?, Integer) -> CreateUserRow?
+  def self.create_user: (OCI8, String, String?, Integer) -> CreateUserRow
 
   def self.update_user_email: (OCI8, String, Integer) -> void
 

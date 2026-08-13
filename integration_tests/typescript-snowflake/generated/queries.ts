@@ -47,18 +47,21 @@ export interface GetOrderTotalRow {
 	total_sum: number | null;
 }
 
-/** Fetch a single GetOrderTotalRow or null. */
+/** Fetch a single GetOrderTotalRow. */
 export async function getOrderTotal(
 	conn: Connection,
 	user_id: number,
-): Promise<GetOrderTotalRow | null> {
+): Promise<GetOrderTotalRow> {
 	const rows = await new Promise<unknown[]>((resolve, reject) => {
 		conn.execute({ sqlText: `SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`, binds: [user_id] as unknown as Binds, complete: (err, _stmt, rows) => {
 			if (err) reject(err);
 			else resolve((rows ?? []).map(normalizeRow));
 		}});
 	});
-	return rows.length > 0 ? (rows[0] as GetOrderTotalRow) : null;
+	if (rows.length === 0) {
+		throw new Error("no row found for query: GetOrderTotal");
+	}
+	return rows[0] as GetOrderTotalRow;
 }
 
 /** Execute a query and return the number of affected rows. */
@@ -86,18 +89,21 @@ export interface GetUserByIdRow {
 	updated_at: string | null;
 }
 
-/** Fetch a single GetUserByIdRow or null. */
+/** Fetch a single GetUserByIdRow. */
 export async function getUserById(
 	conn: Connection,
 	id: number,
-): Promise<GetUserByIdRow | null> {
+): Promise<GetUserByIdRow> {
 	const rows = await new Promise<unknown[]>((resolve, reject) => {
 		conn.execute({ sqlText: `SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?`, binds: [id] as unknown as Binds, complete: (err, _stmt, rows) => {
 			if (err) reject(err);
 			else resolve((rows ?? []).map(normalizeRow));
 		}});
 	});
-	return rows.length > 0 ? (rows[0] as GetUserByIdRow) : null;
+	if (rows.length === 0) {
+		throw new Error("no row found for query: GetUserById");
+	}
+	return rows[0] as GetUserByIdRow;
 }
 
 /** Row type for ListActiveUsers queries. */

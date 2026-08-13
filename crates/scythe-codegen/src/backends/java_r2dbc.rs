@@ -368,6 +368,17 @@ impl CodegenBackend for JavaR2dbcBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::One | QueryCommand::Opt => {
+                // ~keep #192: a missing row in a reactive chain is not a
+                // thrown exception at call time -- it is an error signal on
+                // the publisher. `:opt`'s own shape was already correct: an
+                // empty `Mono<T>` (no error) is exactly what "zero or one"
+                // means to a Reactor subscriber, and `Mono<{Struct}>` never
+                // changes. `:one` needs the empty case turned into an error
+                // signal instead, so this appends `.switchIfEmpty(Mono.error(...))`
+                // to the row-producing Mono -- never `.block()` or any other
+                // synchronous idiom, which would defeat the reactive contract
+                // this backend exists for.
+                let is_one = matches!(analyzed.command, QueryCommand::One);
                 let _ = writeln!(
                     out,
                     "public static Mono<{}> {}(ConnectionFactory cf{}{}) {{",
@@ -384,7 +395,16 @@ impl CodegenBackend for JavaR2dbcBackend {
                     "                .flatMap(result -> Mono.from(result.map((row, meta) ->"
                 );
                 write_row_map(&mut out, "                    ");
-                let _ = writeln!(out, ")));");
+                if is_one {
+                    let _ = writeln!(out, ")))");
+                    let _ = writeln!(
+                        out,
+                        "                .switchIfEmpty(Mono.error(new java.util.NoSuchElementException(\"{}: no rows returned\")));",
+                        func_name
+                    );
+                } else {
+                    let _ = writeln!(out, ")));");
+                }
                 let _ = writeln!(out, "        }},");
                 let _ = writeln!(out, "        conn -> Mono.from(conn.close())");
                 let _ = writeln!(out, "    );");

@@ -57,13 +57,13 @@ public record GetLastInsertOrderRow(
     }
 }
 
-public static @Nullable GetLastInsertOrderRow getLastInsertOrder(Connection conn) throws SQLException {
+public static GetLastInsertOrderRow getLastInsertOrder(Connection conn) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()")) {
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetLastInsertOrderRow.fromResultSet(rs);
             }
-            return null;
+            throw new java.util.NoSuchElementException("getLastInsertOrder: no rows returned");
         }
     }
 }
@@ -107,14 +107,14 @@ public record GetOrderTotalRow(
     }
 }
 
-public static @Nullable GetOrderTotalRow getOrderTotal(Connection conn, int user_id) throws SQLException {
+public static GetOrderTotalRow getOrderTotal(Connection conn, int user_id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?")) {
         ps.setInt(1, user_id);
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetOrderTotalRow.fromResultSet(rs);
             }
-            return null;
+            throw new java.util.NoSuchElementException("getOrderTotal: no rows returned");
         }
     }
 }
@@ -144,14 +144,14 @@ public record GetUserByIdRow(
     }
 }
 
-public static @Nullable GetUserByIdRow getUserById(Connection conn, int id) throws SQLException {
+public static GetUserByIdRow getUserById(Connection conn, int id) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = ?")) {
         ps.setInt(1, id);
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetUserByIdRow.fromResultSet(rs);
             }
-            return null;
+            throw new java.util.NoSuchElementException("getUserById: no rows returned");
         }
     }
 }
@@ -210,13 +210,13 @@ public record GetLastInsertUserRow(
     }
 }
 
-public static @Nullable GetLastInsertUserRow getLastInsertUser(Connection conn) throws SQLException {
+public static GetLastInsertUserRow getLastInsertUser(Connection conn) throws SQLException {
     try (var ps = conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()")) {
         try (ResultSet rs = ps.executeQuery()) {
             if (rs.next()) {
                 return GetLastInsertUserRow.fromResultSet(rs);
             }
-            return null;
+            throw new java.util.NoSuchElementException("getLastInsertUser: no rows returned");
         }
     }
 }

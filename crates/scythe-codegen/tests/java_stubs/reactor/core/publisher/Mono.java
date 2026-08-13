@@ -65,6 +65,8 @@ public abstract class Mono<T> implements Publisher<T> {
 
     public abstract <V> Mono<V> then(Mono<V> other);
 
+    public abstract Mono<T> switchIfEmpty(Mono<? extends T> alternate);
+
     public abstract Mono<T> onErrorResume(Function<? super Throwable, ? extends Mono<? extends T>> fallback);
 
     public abstract Mono<T> doFinally(Consumer<Object> onFinally);

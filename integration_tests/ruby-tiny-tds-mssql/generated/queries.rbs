@@ -9,7 +9,7 @@ module Queries
     def self.new: (id: Integer, user_id: Integer, total: BigDecimal, notes: String?, created_at: Time) -> CreateOrderRow
   end
 
-  def self.create_order: (TinyTds::Client, Integer, Integer, BigDecimal, String?) -> CreateOrderRow?
+  def self.create_order: (TinyTds::Client, Integer, Integer, BigDecimal, String?) -> CreateOrderRow
 
   class GetOrdersByUserRow
     attr_reader id: Integer
@@ -26,7 +26,7 @@ module Queries
     def self.new: (total_sum: BigDecimal?) -> GetOrderTotalRow
   end
 
-  def self.get_order_total: (TinyTds::Client, Integer) -> GetOrderTotalRow?
+  def self.get_order_total: (TinyTds::Client, Integer) -> GetOrderTotalRow
 
   def self.delete_orders_by_user: (TinyTds::Client, Integer) -> Integer
 
@@ -39,7 +39,7 @@ module Queries
     def self.new: (id: Integer, name: String, email: String?, active: bool, created_at: Time) -> GetUserByIdRow
   end
 
-  def self.get_user_by_id: (TinyTds::Client, Integer) -> GetUserByIdRow?
+  def self.get_user_by_id: (TinyTds::Client, Integer) -> GetUserByIdRow
 
   class ListActiveUsersRow
     attr_reader id: Integer
@@ -59,7 +59,7 @@ module Queries
     def self.new: (id: Integer, name: String, email: String?, active: bool, created_at: Time) -> CreateUserRow
   end
 
-  def self.create_user: (TinyTds::Client, Integer, String, String?, bool) -> CreateUserRow?
+  def self.create_user: (TinyTds::Client, Integer, String, String?, bool) -> CreateUserRow
 
   def self.update_user_email: (TinyTds::Client, String, Integer) -> void
 

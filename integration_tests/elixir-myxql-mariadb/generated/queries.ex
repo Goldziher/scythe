@@ -96,7 +96,7 @@ end
 
 defmodule Scythe.Queries do
 
-@spec create_order(MyXQL.conn(), String.t(), Decimal.t(), String.t() | nil) :: {:ok, %CreateOrderRow{}} | {:error, term()}
+@spec create_order(MyXQL.conn(), String.t(), Decimal.t(), String.t() | nil) :: {:ok, %CreateOrderRow{}} | {:error, :not_found} | {:error, term()}
 def create_order(conn, user_id, total, notes) do
   case MyXQL.query(conn, "INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at", [user_id, total, notes]) do
     {:ok, %MyXQL.Result{rows: [row]}} ->
@@ -120,7 +120,7 @@ def get_orders_by_user(conn, user_id) do
   end
 end
 
-@spec get_order_total(MyXQL.conn(), String.t()) :: {:ok, %GetOrderTotalRow{}} | {:error, term()}
+@spec get_order_total(MyXQL.conn(), String.t()) :: {:ok, %GetOrderTotalRow{}} | {:error, :not_found} | {:error, term()}
 def get_order_total(conn, user_id) do
   case MyXQL.query(conn, "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?", [user_id]) do
     {:ok, %MyXQL.Result{rows: [row]}} ->
@@ -139,7 +139,7 @@ def delete_orders_by_user(conn, user_id) do
   end
 end
 
-@spec get_user_by_id(MyXQL.conn(), String.t()) :: {:ok, %GetUserByIdRow{}} | {:error, term()}
+@spec get_user_by_id(MyXQL.conn(), String.t()) :: {:ok, %GetUserByIdRow{}} | {:error, :not_found} | {:error, term()}
 def get_user_by_id(conn, id) do
   case MyXQL.query(conn, "SELECT id, name, email, status, created_at FROM users WHERE id = ?", [id]) do
     {:ok, %MyXQL.Result{rows: [row]}} ->
@@ -163,7 +163,7 @@ def list_active_users(conn, status) do
   end
 end
 
-@spec create_user(MyXQL.conn(), String.t(), String.t() | nil, String.t()) :: {:ok, %CreateUserRow{}} | {:error, term()}
+@spec create_user(MyXQL.conn(), String.t(), String.t() | nil, String.t()) :: {:ok, %CreateUserRow{}} | {:error, :not_found} | {:error, term()}
 def create_user(conn, name, email, status) do
   case MyXQL.query(conn, "INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email", [name, email, status]) do
     {:ok, %MyXQL.Result{rows: [row]}} ->

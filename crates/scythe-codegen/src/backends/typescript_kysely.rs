@@ -15,7 +15,7 @@ use crate::backends::typescript_common::{
     TsFieldCase, TsRowType, escape_ts_template_literal, generate_grouped_interface_structs,
     generate_ts_grouped_fold_body, generate_ts_interface_row_struct, generate_ts_union_row_struct, generate_zod_enum,
     generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct, parse_bool_option,
-    ts_index_access, ts_member_access, ts_property_key,
+    ts_index_access, ts_member_access, ts_property_key, ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/typescript-kysely.toml");
@@ -312,7 +312,23 @@ impl CodegenBackend for TypescriptKyselyBackend {
                 .collect();
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                let _ = writeln!(out, "/** Fetch a single {}. */", struct_name);
+                let ret = format!("Promise<{}>", struct_name);
+                write_fn_sig(&mut out, &func_name, "", &query_sig_params, &ret);
+                let _ = writeln!(
+                    out,
+                    "\tconst result = await sql<{}>`{}`.execute(db);",
+                    struct_name, sql_text
+                );
+                let _ = writeln!(out, "\tconst row = result.rows[0];");
+                let _ = writeln!(out, "\tif (row === undefined) {{");
+                let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn row;");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Opt => {
                 let _ = writeln!(out, "/** Fetch a single {} or null. */", struct_name);
                 let ret = format!("Promise<{} | null>", struct_name);
                 write_fn_sig(&mut out, &func_name, "", &query_sig_params, &ret);
@@ -854,7 +870,12 @@ mod tests {
             !query_fn.contains("$1"),
             "must not leak the postgres placeholder into the sql tag; got:\n{query_fn}"
         );
-        assert!(query_fn.contains("result.rows[0] ?? null"), "got:\n{query_fn}");
+        assert!(
+            query_fn.contains(
+                "const row = result.rows[0];\n\tif (row === undefined) {\n\t\tthrow new Error(\"no row found for query: GetUserById\");\n\t}\n\treturn row;"
+            ),
+            "`:one` must throw on a missing row, not return null; got:\n{query_fn}"
+        );
     }
 
     /// Bare `?` covers MySQL and SQLite queries natively, and MSSQL too: the
@@ -1364,8 +1385,12 @@ mod tests {
             "must still trust Kysely's own generic, no remap; got:\n{query_fn}"
         );
         assert!(
-            query_fn.contains("return result.rows[0] ?? null;"),
-            "must return Kysely's row directly, unmodified; got:\n{query_fn}"
+            query_fn.contains("const row = result.rows[0];"),
+            "must read Kysely's row directly, unmodified; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("throw new Error(\"no row found for query: GetSession\");"),
+            "`:one` must throw on a missing row; got:\n{query_fn}"
         );
     }
 

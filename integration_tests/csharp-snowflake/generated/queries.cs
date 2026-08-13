@@ -43,12 +43,12 @@ public record GetOrderTotalRow(
     decimal? TotalSum
 );
 
-public static async Task<GetOrderTotalRow?> GetOrderTotal(SnowflakeDbConnection conn, long user_id) {
+public static async Task<GetOrderTotalRow> GetOrderTotal(SnowflakeDbConnection conn, long user_id) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = @"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?";
     cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "1", DbType = System.Data.DbType.Int64, Value = user_id });
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetOrderTotal expected exactly one row but found none");
     return new GetOrderTotalRow(
         reader.IsDBNull(0) ? null : reader.GetDecimal(0)
     );
@@ -71,12 +71,12 @@ public record GetUserByIdRow(
     DateTimeOffset? UpdatedAt
 );
 
-public static async Task<GetUserByIdRow?> GetUserById(SnowflakeDbConnection conn, long id) {
+public static async Task<GetUserByIdRow> GetUserById(SnowflakeDbConnection conn, long id) {
     await using var cmd = new SnowflakeDbCommand(conn);
     cmd.CommandText = @"SELECT id, name, email, active, metadata, created_at, updated_at FROM users WHERE id = ?";
     cmd.Parameters.Add(new SnowflakeDbParameter { ParameterName = "1", DbType = System.Data.DbType.Int64, Value = id });
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserById expected exactly one row but found none");
     return new GetUserByIdRow(
         reader.GetInt64(0),
         reader.GetString(1),

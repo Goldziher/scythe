@@ -16,7 +16,7 @@ module Queries
     def self.new: (id: Integer, user_id: String, total: BigDecimal, notes: String?, created_at: Time) -> CreateOrderRow
   end
 
-  def self.create_order: (Mysql2::Client, String, BigDecimal, String?) -> CreateOrderRow?
+  def self.create_order: (Mysql2::Client, String, BigDecimal, String?) -> CreateOrderRow
 
   class GetOrdersByUserRow
     attr_reader id: Integer
@@ -33,7 +33,7 @@ module Queries
     def self.new: (total_sum: BigDecimal?) -> GetOrderTotalRow
   end
 
-  def self.get_order_total: (Mysql2::Client, String) -> GetOrderTotalRow?
+  def self.get_order_total: (Mysql2::Client, String) -> GetOrderTotalRow
 
   def self.delete_orders_by_user: (Mysql2::Client, String) -> Integer
 
@@ -46,7 +46,7 @@ module Queries
     def self.new: (id: String, name: String, email: String?, status: String, created_at: Time) -> GetUserByIdRow
   end
 
-  def self.get_user_by_id: (Mysql2::Client, String) -> GetUserByIdRow?
+  def self.get_user_by_id: (Mysql2::Client, String) -> GetUserByIdRow
 
   class ListActiveUsersRow
     attr_reader id: String
@@ -64,7 +64,7 @@ module Queries
     def self.new: (id: String, name: String, email: String?) -> CreateUserRow
   end
 
-  def self.create_user: (Mysql2::Client, String, String?, String) -> CreateUserRow?
+  def self.create_user: (Mysql2::Client, String, String?, String) -> CreateUserRow
 
   def self.update_user_email: (Mysql2::Client, String, String) -> void
 

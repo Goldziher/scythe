@@ -5,6 +5,7 @@ require "json"
 require "bigdecimal/util"
 
 module Queries
+  class RecordNotFound < StandardError; end
 
   module UsersStatus
     ACTIVE = "active"
@@ -19,7 +20,7 @@ module Queries
   def self.create_order(client, user_id, total, notes)
     results = client.query("INSERT INTO orders (user_id, total, notes) VALUES ('#{client.escape(user_id.to_s)}', #{total}, '#{client.escape(notes.to_s)}') RETURNING id, user_id, total, notes, created_at")
     row = results.first
-    return nil if row.nil?
+    raise RecordNotFound, "create_order: no row found" if row.nil?
     CreateOrderRow.new(id: row[0].to_i, user_id: row[1], total: row[2].to_d, notes: row[3]&.then { |v| v }, created_at: row[4])
   end
 
@@ -39,7 +40,7 @@ module Queries
   def self.get_order_total(client, user_id)
     results = client.query("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = '#{client.escape(user_id.to_s)}'")
     row = results.first
-    return nil if row.nil?
+    raise RecordNotFound, "get_order_total: no row found" if row.nil?
     GetOrderTotalRow.new(total_sum: row[0]&.then { |v| v.to_d })
   end
 
@@ -54,7 +55,7 @@ module Queries
   def self.get_user_by_id(client, id)
     results = client.query("SELECT id, name, email, status, created_at FROM users WHERE id = '#{client.escape(id.to_s)}'")
     row = results.first
-    return nil if row.nil?
+    raise RecordNotFound, "get_user_by_id: no row found" if row.nil?
     GetUserByIdRow.new(id: row[0], name: row[1], email: row[2]&.then { |v| v }, status: row[3], created_at: row[4])
   end
 
@@ -74,7 +75,7 @@ module Queries
   def self.create_user(client, name, email, status)
     results = client.query("INSERT INTO users (name, email, status) VALUES ('#{client.escape(name.to_s)}', '#{client.escape(email.to_s)}', '#{client.escape(status.to_s)}') RETURNING id, name, email")
     row = results.first
-    return nil if row.nil?
+    raise RecordNotFound, "create_user: no row found" if row.nil?
     CreateUserRow.new(id: row[0], name: row[1], email: row[2]&.then { |v| v })
   end
 

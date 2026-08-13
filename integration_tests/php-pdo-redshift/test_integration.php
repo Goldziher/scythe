@@ -8,6 +8,7 @@ if (file_exists(__DIR__ . '/vendor/autoload.php')) {
 require_once __DIR__ . '/generated/queries.php';
 
 use App\Generated\Queries;
+use App\Generated\RecordNotFoundException;
 use App\Generated\CreateUserRow;
 use App\Generated\GetUserByIdRow;
 use App\Generated\ListActiveUsersRow;
@@ -147,8 +148,14 @@ function test_delete_user(PDO $pdo, int $user_id): void
     // Delete orders first due to FK constraint
     Queries::deleteOrdersByUser($pdo, $user_id);
     Queries::deleteUser($pdo, $user_id);
-    $user = Queries::getUserById($pdo, $user_id);
-    assert_true($user === null || $user === false, "Expected user to be deleted, but it still exists");
+    // getUserById is `:one`, so a missing row throws RecordNotFoundException rather than
+    // returning null.
+    try {
+        Queries::getUserById($pdo, $user_id);
+        throw new RuntimeException("Expected getUserById to throw RecordNotFoundException, but it returned a row");
+    } catch (RecordNotFoundException) {
+        // expected: the user was deleted
+    }
     echo "PASS: DeleteUser\n";
 }
 

@@ -163,7 +163,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                 let _ = writeln!(out, "\treturn result.RowsAffected()");
                 let _ = write!(out, "}}");
             }
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
                 let _ = writeln!(
                     out,
                     "func {}(ctx context.Context, db *sql.DB{}{}) ({}, error) {{",
@@ -180,8 +180,36 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                     .iter()
                     .map(|c| format!("&r.{}", to_pascal_case(&c.field_name)))
                     .collect();
+                // ~keep sql.ErrNoRows propagates through err unmodified -- QueryRow's
+                // own Scan already gives :one the "error if absent" contract for free.
                 let _ = writeln!(out, "\terr := row.Scan({})", scan_fields.join(", "));
                 let _ = writeln!(out, "\treturn r, err");
+                let _ = write!(out, "}}");
+            }
+            QueryCommand::Opt => {
+                let _ = writeln!(
+                    out,
+                    "func {}(ctx context.Context, db *sql.DB{}{}) (*{}, error) {{",
+                    func_name, sep, param_list, struct_name
+                );
+                let args_str = if args.is_empty() {
+                    String::new()
+                } else {
+                    format!(", {}", args.join(", "))
+                };
+                let _ = writeln!(out, "\trow := db.QueryRowContext(ctx, \"{}\"{})", sql, args_str);
+                let _ = writeln!(out, "\tvar r {}", struct_name);
+                let scan_fields: Vec<String> = columns
+                    .iter()
+                    .map(|c| format!("&r.{}", to_pascal_case(&c.field_name)))
+                    .collect();
+                let _ = writeln!(out, "\tif err := row.Scan({}); err != nil {{", scan_fields.join(", "));
+                let _ = writeln!(out, "\t\tif err == sql.ErrNoRows {{");
+                let _ = writeln!(out, "\t\t\treturn nil, nil");
+                let _ = writeln!(out, "\t\t}}");
+                let _ = writeln!(out, "\t\treturn nil, err");
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\treturn &r, nil");
                 let _ = write!(out, "}}");
             }
             QueryCommand::Batch => {

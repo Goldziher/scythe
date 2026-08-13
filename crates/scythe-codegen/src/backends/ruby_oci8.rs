@@ -56,7 +56,10 @@ impl CodegenBackend for RubyOci8Backend {
     }
 
     fn file_header(&self) -> String {
-        "require 'oci8'\n\nmodule Queries".to_string()
+        format!(
+            "require 'oci8'\n\nmodule Queries\n{}",
+            super::ruby_rbs::RECORD_NOT_FOUND_CLASS
+        )
     }
 
     fn file_footer(&self) -> String {
@@ -120,7 +123,65 @@ impl CodegenBackend for RubyOci8Backend {
         let has_returning = sql.to_uppercase().contains("RETURNING");
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                if has_returning {
+                    let _ = writeln!(out, "    cursor = conn.parse(\"{}\")", {
+                        let into_clause = columns
+                            .iter()
+                            .enumerate()
+                            .map(|(i, _)| format!(":{}", params.len() + i + 1))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!("{} INTO {}", sql, into_clause)
+                    });
+                    for (i, p) in params.iter().enumerate() {
+                        let _ = writeln!(out, "    cursor.bind_param({}, {})", i + 1, p.field_name);
+                    }
+                    for (i, col) in columns.iter().enumerate() {
+                        let ruby_type = match col.neutral_type.as_str() {
+                            "int32" | "int64" => "Integer",
+                            "float32" | "float64" | "decimal" => "Float",
+                            "date" | "datetime" | "datetime_tz" | "time" | "time_tz" => "Time",
+                            _ => "String",
+                        };
+                        let _ = writeln!(
+                            out,
+                            "    cursor.bind_param({}, nil, {})",
+                            params.len() + i + 1,
+                            ruby_type
+                        );
+                    }
+                    let _ = writeln!(out, "    rows_affected = cursor.exec");
+                    let _ = writeln!(
+                        out,
+                        "    raise RecordNotFound, \"{}: no row found\" if rows_affected.zero?",
+                        func_name
+                    );
+                    let fields = columns
+                        .iter()
+                        .enumerate()
+                        .map(|(i, c)| format!("{}: cursor[{}]", c.field_name, params.len() + i + 1))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+                } else {
+                    let _ = writeln!(out, "    cursor = conn.exec(\"{}\"{})", sql, bind_vars);
+                    let _ = writeln!(out, "    row = cursor.fetch");
+                    let _ = writeln!(
+                        out,
+                        "    raise RecordNotFound, \"{}: no row found\" if row.nil?",
+                        func_name
+                    );
+                    let fields = columns
+                        .iter()
+                        .enumerate()
+                        .map(|(i, c)| format!("{}: row[{}]", c.field_name, i))
+                        .collect::<Vec<_>>()
+                        .join(", ");
+                    let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+                }
+            }
+            QueryCommand::Opt => {
                 if has_returning {
                     let _ = writeln!(out, "    cursor = conn.parse(\"{}\")", {
                         let into_clause = columns

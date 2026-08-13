@@ -47,7 +47,7 @@ data class GetLastInsertOrderRow(
 )
 
 
-fun getLastInsertOrder(conn: Connection): GetLastInsertOrderRow? {
+fun getLastInsertOrder(conn: Connection): GetLastInsertOrderRow {
     conn.prepareStatement("SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()").use { ps ->
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
@@ -61,7 +61,7 @@ fun getLastInsertOrder(conn: Connection): GetLastInsertOrderRow? {
                     created_at = rs.getObject("created_at", LocalDateTime::class.java),
                 )
             } else {
-                null
+                throw NoSuchElementException("getLastInsertOrder: no rows returned")
             }
         }
     }
@@ -110,7 +110,7 @@ data class GetOrderTotalRow(
 fun getOrderTotal(
     conn: Connection,
     user_id: Int,
-): GetOrderTotalRow? {
+): GetOrderTotalRow {
     conn.prepareStatement("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?").use { ps ->
         ps.setInt(1, user_id)
         ps.executeQuery().use { rs ->
@@ -121,7 +121,7 @@ fun getOrderTotal(
                     total_sum = total_sum,
                 )
             } else {
-                null
+                throw NoSuchElementException("getOrderTotal: no rows returned")
             }
         }
     }
@@ -151,7 +151,7 @@ data class GetUserByIdRow(
 fun getUserById(
     conn: Connection,
     id: Int,
-): GetUserByIdRow? {
+): GetUserByIdRow {
     conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = ?").use { ps ->
         ps.setInt(1, id)
         ps.executeQuery().use { rs ->
@@ -166,7 +166,7 @@ fun getUserById(
                     created_at = rs.getObject("created_at", LocalDateTime::class.java),
                 )
             } else {
-                null
+                throw NoSuchElementException("getUserById: no rows returned")
             }
         }
     }
@@ -229,7 +229,7 @@ data class GetLastInsertUserRow(
 )
 
 
-fun getLastInsertUser(conn: Connection): GetLastInsertUserRow? {
+fun getLastInsertUser(conn: Connection): GetLastInsertUserRow {
     conn.prepareStatement("SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()").use { ps ->
         ps.executeQuery().use { rs ->
             return if (rs.next()) {
@@ -243,7 +243,7 @@ fun getLastInsertUser(conn: Connection): GetLastInsertUserRow? {
                     created_at = rs.getObject("created_at", LocalDateTime::class.java),
                 )
             } else {
-                null
+                throw NoSuchElementException("getLastInsertUser: no rows returned")
             }
         }
     }

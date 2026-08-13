@@ -10,6 +10,7 @@ import psycopg
 import msgspec
 
 from generated.queries import (
+    ScytheNoRowsError,
     UserStatus,
     create_order,
     create_user,
@@ -50,7 +51,6 @@ async def test_create_user(conn: psycopg.AsyncConnection) -> int:
     user = await create_user(
         conn, name="Alice", email="alice@example.com", status=UserStatus.ACTIVE
     )
-    assert user is not None, "CreateUser returned None"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.email == "alice@example.com", f"Expected email 'alice@example.com', got '{user.email}'"
     assert user.status == UserStatus.ACTIVE or user.status == "active", (
@@ -64,7 +64,6 @@ async def test_create_user(conn: psycopg.AsyncConnection) -> int:
 async def test_get_user_by_id(conn: psycopg.AsyncConnection, user_id: int) -> None:
     """Test GetUserById query."""
     user = await get_user_by_id(conn, id=user_id)
-    assert user is not None, f"GetUserById returned None for id={user_id}"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.id == user_id, f"Expected id {user_id}, got {user.id}"
     print("PASS: GetUserById")
@@ -106,8 +105,12 @@ async def test_delete_user(conn: psycopg.AsyncConnection, user_id: int) -> None:
     await delete_orders_by_user(conn, user_id=user_id)
     await delete_user(conn, id=user_id)
     await conn.commit()
-    user = await get_user_by_id(conn, id=user_id)
-    assert user is None, f"Expected user to be deleted, but got {user}"
+    try:
+        user = await get_user_by_id(conn, id=user_id)
+    except ScytheNoRowsError:
+        pass
+    else:
+        raise AssertionError(f"Expected user to be deleted, but got {user}")
     print("PASS: DeleteUser")
 
 

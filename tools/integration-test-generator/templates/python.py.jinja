@@ -45,6 +45,7 @@ from generated.queries import (
     GetUserByIdRow,
     ListActiveUsersRow,
 {%- endif %}
+    ScytheNoRowsError,
 {%- if engine == "postgresql" and engine != "redshift" %}
     UserStatus,
 {%- elif engine == "mysql" or engine == "mariadb" %}
@@ -258,7 +259,6 @@ async def test_create_user(conn) -> int:
         {%- elif engine == "mariadb" %}, status=UsersStatus.ACTIVE{%- endif %}
     )
 {%- endif %}
-    assert user is not None, "CreateUser returned None"
 {%- if options.row_type == "pydantic" %}
     assert isinstance(user, BaseModel), f"Expected BaseModel instance, got {type(user)}"
 {%- endif %}
@@ -301,7 +301,6 @@ async def test_get_user_by_id(conn, user_id: int) -> None:
 {%- else %}
     user = get_user_by_id(conn, id=user_id)
 {%- endif %}
-    assert user is not None, f"GetUserById returned None for id={user_id}"
 {%- if options.row_type == "pydantic" %}
     assert isinstance(user, BaseModel), f"Expected BaseModel instance, got {type(user)}"
 {%- endif %}
@@ -444,11 +443,20 @@ async def test_delete_user(conn, user_id: int) -> None:
     conn.commit()
 {%- endif %}
 {%- if driver != "pyodbc" and driver != "snowflake" %}
-    user = await get_user_by_id(conn, id=user_id)
+    try:
+        user = await get_user_by_id(conn, id=user_id)
+    except ScytheNoRowsError:
+        pass
+    else:
+        raise AssertionError(f"Expected user to be deleted, but got {user}")
 {%- else %}
-    user = get_user_by_id(conn, id=user_id)
+    try:
+        user = get_user_by_id(conn, id=user_id)
+    except ScytheNoRowsError:
+        pass
+    else:
+        raise AssertionError(f"Expected user to be deleted, but got {user}")
 {%- endif %}
-    assert user is None, f"Expected user to be deleted, but got {user}"
     print("PASS: DeleteUser")
 
 

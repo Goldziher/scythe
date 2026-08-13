@@ -120,7 +120,10 @@ impl CodegenBackend for RubyTinyTdsBackend {
     }
 
     fn file_header(&self) -> String {
-        "require \"tiny_tds\"\n\nmodule Queries".to_string()
+        format!(
+            "require \"tiny_tds\"\n\nmodule Queries\n{}",
+            super::ruby_rbs::RECORD_NOT_FOUND_CLASS
+        )
     }
 
     fn file_footer(&self) -> String {
@@ -170,7 +173,32 @@ impl CodegenBackend for RubyTinyTdsBackend {
         }
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                if params.is_empty() {
+                    let _ = writeln!(out, "    result = client.execute(\"{}\").first", sql);
+                } else {
+                    let params_info: Vec<(String, String, bool)> = params
+                        .iter()
+                        .map(|p| (p.neutral_type.clone(), p.field_name.clone(), p.nullable))
+                        .collect();
+                    let inlined_sql = inline_params(&sql, &params_info);
+                    let _ = writeln!(out, "    sql = \"{}\"", inlined_sql);
+                    let _ = writeln!(out, "    result = client.execute(sql).first");
+                }
+                let _ = writeln!(
+                    out,
+                    "    raise RecordNotFound, \"{}: no row found\" if result.nil?",
+                    func_name
+                );
+
+                let fields = columns
+                    .iter()
+                    .map(|c| format!("{}: result[\"{}\"]", c.field_name, c.name))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+            }
+            QueryCommand::Opt => {
                 if params.is_empty() {
                     let _ = writeln!(out, "    result = client.execute(\"{}\").first", sql);
                 } else {

@@ -85,7 +85,7 @@ impl CodegenBackend for RubyPgBackend {
     }
 
     fn file_header(&self) -> String {
-        "module Queries".to_string()
+        format!("module Queries\n{}", super::ruby_rbs::RECORD_NOT_FOUND_CLASS)
     }
 
     fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
@@ -96,7 +96,10 @@ impl CodegenBackend for RubyPgBackend {
         // see `ruby_rbs.rs`'s `generate_rbs_content` for why a signature naming `BigDecimal`
         // carries no directive at all.
         if super::ruby_rbs::ruby_generated_code_needs_bigdecimal_util(generated) {
-            "require \"bigdecimal/util\"\n\nmodule Queries".to_string()
+            format!(
+                "require \"bigdecimal/util\"\n\nmodule Queries\n{}",
+                super::ruby_rbs::RECORD_NOT_FOUND_CLASS
+            )
         } else {
             self.file_header()
         }
@@ -162,7 +165,30 @@ impl CodegenBackend for RubyPgBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                let _ = writeln!(out, "    result = conn.exec_params(\"{}\", {})", sql, param_array);
+                let _ = writeln!(
+                    out,
+                    "    raise RecordNotFound, \"{}: no row found\" if result.ntuples.zero?",
+                    func_name
+                );
+                let _ = writeln!(out, "    row = result[0]");
+
+                let fields = columns
+                    .iter()
+                    .map(|c| {
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
+                        if c.nullable {
+                            format!("{}: row[\"{}\"]&.then {{ |v| v{} }}", c.field_name, c.name, coercion)
+                        } else {
+                            format!("{}: row[\"{}\"]{}", c.field_name, c.name, coercion)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+            }
+            QueryCommand::Opt => {
                 let _ = writeln!(out, "    result = conn.exec_params(\"{}\", {})", sql, param_array);
                 let _ = writeln!(out, "    return nil if result.ntuples.zero?");
                 let _ = writeln!(out, "    row = result[0]");

@@ -134,10 +134,22 @@ impl CodegenBackend for ElixirMyxqlBackend {
         };
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
+                // ~keep :one keeps erroring on a missing row ({:error, :not_found});
+                // :opt returns it as an absent value instead of an error (#192). The
+                // spec previously omitted {:error, :not_found} even though the body
+                // already produced it for :one -- corrected here alongside the split.
+                let return_type = if matches!(analyzed.command, QueryCommand::Opt) {
+                    format!("{{:ok, %{}{{}} | nil}} | {{:error, term()}}", struct_name)
+                } else {
+                    format!(
+                        "{{:ok, %{}{{}}}} | {{:error, :not_found}} | {{:error, term()}}",
+                        struct_name
+                    )
+                };
                 let _ = writeln!(
                     out,
-                    "@spec {}(MyXQL.conn(){}) :: {{:ok, %{}{{}}}} | {{:error, term()}}",
-                    func_name, param_specs, struct_name
+                    "@spec {}(MyXQL.conn(){}) :: {}",
+                    func_name, param_specs, return_type
                 );
             }
             QueryCommand::Many => {
@@ -208,7 +220,12 @@ impl CodegenBackend for ElixirMyxqlBackend {
                     .collect::<Vec<_>>()
                     .join(", ");
                 let _ = writeln!(out, "      {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
-                let _ = writeln!(out, "    {{:ok, %MyXQL.Result{{rows: []}}}} -> {{:error, :not_found}}");
+                let not_found_arm = if matches!(analyzed.command, QueryCommand::Opt) {
+                    "    {:ok, %MyXQL.Result{rows: []}} -> {:ok, nil}"
+                } else {
+                    "    {:ok, %MyXQL.Result{rows: []}} -> {:error, :not_found}"
+                };
+                let _ = writeln!(out, "{}", not_found_arm);
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }

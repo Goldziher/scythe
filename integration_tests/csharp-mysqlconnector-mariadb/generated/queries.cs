@@ -19,13 +19,13 @@ public record CreateOrderRow(
     DateTime CreatedAt
 );
 
-public static async Task<CreateOrderRow?> CreateOrder(MySqlConnection conn, string user_id, decimal total, string? notes) {
+public static async Task<CreateOrderRow> CreateOrder(MySqlConnection conn, string user_id, decimal total, string? notes) {
     await using var cmd = new MySqlCommand(@"INSERT INTO orders (user_id, total, notes) VALUES (@p1, @p2, @p3) RETURNING id, user_id, total, notes, created_at", conn);
     cmd.Parameters.AddWithValue("@p1", user_id);
     cmd.Parameters.AddWithValue("@p2", total);
     cmd.Parameters.AddWithValue("@p3", notes);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("CreateOrder expected exactly one row but found none");
     return new CreateOrderRow(
         reader.GetInt32(0),
         reader.GetValue(1).ToString()!,
@@ -62,11 +62,11 @@ public record GetOrderTotalRow(
     decimal? TotalSum
 );
 
-public static async Task<GetOrderTotalRow?> GetOrderTotal(MySqlConnection conn, string user_id) {
+public static async Task<GetOrderTotalRow> GetOrderTotal(MySqlConnection conn, string user_id) {
     await using var cmd = new MySqlCommand(@"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("@p1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetOrderTotal expected exactly one row but found none");
     return new GetOrderTotalRow(
         reader.IsDBNull(0) ? null : reader.GetDecimal(0)
     );
@@ -86,11 +86,11 @@ public record GetUserByIdRow(
     DateTime CreatedAt
 );
 
-public static async Task<GetUserByIdRow?> GetUserById(MySqlConnection conn, string id) {
+public static async Task<GetUserByIdRow> GetUserById(MySqlConnection conn, string id) {
     await using var cmd = new MySqlCommand(@"SELECT id, name, email, status, created_at FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("@p1", id);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserById expected exactly one row but found none");
     return new GetUserByIdRow(
         reader.GetValue(0).ToString()!,
         reader.GetString(1),
@@ -127,13 +127,13 @@ public record CreateUserRow(
     string? Email
 );
 
-public static async Task<CreateUserRow?> CreateUser(MySqlConnection conn, string name, string? email, UsersStatus status) {
+public static async Task<CreateUserRow> CreateUser(MySqlConnection conn, string name, string? email, UsersStatus status) {
     await using var cmd = new MySqlCommand(@"INSERT INTO users (name, email, status) VALUES (@p1, @p2, @p3) RETURNING id, name, email", conn);
     cmd.Parameters.AddWithValue("@p1", name);
     cmd.Parameters.AddWithValue("@p2", email);
     cmd.Parameters.AddWithValue("@p3", status.ToString().ToLower());
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("CreateUser expected exactly one row but found none");
     return new CreateUserRow(
         reader.GetValue(0).ToString()!,
         reader.GetString(1),

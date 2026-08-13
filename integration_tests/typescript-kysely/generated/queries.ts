@@ -19,15 +19,19 @@ export interface CreateOrderRow {
 	created_at: Date;
 }
 
-/** Fetch a single CreateOrderRow or null. */
+/** Fetch a single CreateOrderRow. */
 export async function createOrder(
 	db: QueryExecutorProvider,
 	user_id: number,
 	total: string,
 	notes: string | null,
-): Promise<CreateOrderRow | null> {
+): Promise<CreateOrderRow> {
 	const result = await sql<CreateOrderRow>`INSERT INTO orders (user_id, total, notes) VALUES (${user_id}, ${total}, ${notes}) RETURNING id, user_id, total, notes, created_at`.execute(db);
-	return result.rows[0] ?? null;
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: CreateOrder");
+	}
+	return row;
 }
 
 /** Row type for GetOrdersByUser queries. */
@@ -52,13 +56,17 @@ export interface GetOrderTotalRow {
 	total_sum: string | null;
 }
 
-/** Fetch a single GetOrderTotalRow or null. */
+/** Fetch a single GetOrderTotalRow. */
 export async function getOrderTotal(
 	db: QueryExecutorProvider,
 	user_id: number,
-): Promise<GetOrderTotalRow | null> {
+): Promise<GetOrderTotalRow> {
 	const result = await sql<GetOrderTotalRow>`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ${user_id}`.execute(db);
-	return result.rows[0] ?? null;
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetOrderTotal");
+	}
+	return row;
 }
 
 /** Row type for GetOrderWeightTotal queries. */
@@ -66,13 +74,17 @@ export interface GetOrderWeightTotalRow {
 	weight_total: number | null;
 }
 
-/** Fetch a single GetOrderWeightTotalRow or null. */
+/** Fetch a single GetOrderWeightTotalRow. */
 export async function getOrderWeightTotal(
 	db: QueryExecutorProvider,
 	user_id: number,
-): Promise<GetOrderWeightTotalRow | null> {
+): Promise<GetOrderWeightTotalRow> {
 	const result = await sql<GetOrderWeightTotalRow>`SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = ${user_id}`.execute(db);
-	return result.rows[0] ?? null;
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetOrderWeightTotal");
+	}
+	return row;
 }
 
 /** Execute a query and return the number of affected rows. */
@@ -93,13 +105,17 @@ export interface GetUserByIdRow {
 	created_at: Date;
 }
 
-/** Fetch a single GetUserByIdRow or null. */
+/** Fetch a single GetUserByIdRow. */
 export async function getUserById(
 	db: QueryExecutorProvider,
 	id: number,
-): Promise<GetUserByIdRow | null> {
+): Promise<GetUserByIdRow> {
 	const result = await sql<GetUserByIdRow>`SELECT id, name, email, status, created_at FROM users WHERE id = ${id}`.execute(db);
-	return result.rows[0] ?? null;
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserById");
+	}
+	return row;
 }
 
 /** Row type for ListActiveUsers queries. */
@@ -127,15 +143,19 @@ export interface CreateUserRow {
 	created_at: Date;
 }
 
-/** Fetch a single CreateUserRow or null. */
+/** Fetch a single CreateUserRow. */
 export async function createUser(
 	db: QueryExecutorProvider,
 	name: string,
 	email: string | null,
 	status: UserStatus,
-): Promise<CreateUserRow | null> {
+): Promise<CreateUserRow> {
 	const result = await sql<CreateUserRow>`INSERT INTO users (name, email, status) VALUES (${name}, ${email}, ${status}) RETURNING id, name, email, status, created_at`.execute(db);
-	return result.rows[0] ?? null;
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: CreateUser");
+	}
+	return row;
 }
 
 /** Execute a query returning no rows. */
@@ -181,13 +201,17 @@ export interface CountUsersByStatusRow {
 	user_count: number;
 }
 
-/** Fetch a single CountUsersByStatusRow or null. */
+/** Fetch a single CountUsersByStatusRow. */
 export async function countUsersByStatus(
 	db: QueryExecutorProvider,
 	status: UserStatus,
-): Promise<CountUsersByStatusRow | null> {
+): Promise<CountUsersByStatusRow> {
 	const result = await sql<CountUsersByStatusRow>`SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = ${status}`.execute(db);
-	return result.rows[0] ?? null;
+	const row = result.rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: CountUsersByStatus");
+	}
+	return row;
 }
 
 /** Row type for GetUserWithTags queries. */

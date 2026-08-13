@@ -107,7 +107,7 @@ def get_orders_by_user(conn, user_id) do
   end
 end
 
-@spec get_order_total(Exqlite.Sqlite3.db(), integer()) :: {:ok, %GetOrderTotalRow{}} | {:error, term()}
+@spec get_order_total(Exqlite.Sqlite3.db(), integer()) :: {:ok, %GetOrderTotalRow{}} | {:error, :not_found} | {:error, term()}
 def get_order_total(conn, user_id) do
   sql = "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?"
   with {:ok, stmt} <- Exqlite.Sqlite3.prepare(conn, sql) do
@@ -162,7 +162,7 @@ def delete_orders_by_user(conn, user_id) do
   end
 end
 
-@spec get_user_by_id(Exqlite.Sqlite3.db(), integer()) :: {:ok, %GetUserByIdRow{}} | {:error, term()}
+@spec get_user_by_id(Exqlite.Sqlite3.db(), integer()) :: {:ok, %GetUserByIdRow{}} | {:error, :not_found} | {:error, term()}
 def get_user_by_id(conn, id) do
   sql = "SELECT id, name, email, status, created_at FROM users WHERE id = ?"
   with {:ok, stmt} <- Exqlite.Sqlite3.prepare(conn, sql) do

@@ -17,7 +17,7 @@ module Queries
     def self.new: (total_sum: Float?) -> GetOrderTotalRow
   end
 
-  def self.get_order_total: (SQLite3::Database, Integer) -> GetOrderTotalRow?
+  def self.get_order_total: (SQLite3::Database, Integer) -> GetOrderTotalRow
 
   def self.delete_orders_by_user: (SQLite3::Database, Integer) -> Integer
 
@@ -30,7 +30,7 @@ module Queries
     def self.new: (id: Integer, name: String, email: String?, status: String, created_at: String) -> GetUserByIdRow
   end
 
-  def self.get_user_by_id: (SQLite3::Database, Integer) -> GetUserByIdRow?
+  def self.get_user_by_id: (SQLite3::Database, Integer) -> GetUserByIdRow
 
   class ListActiveUsersRow
     attr_reader id: Integer

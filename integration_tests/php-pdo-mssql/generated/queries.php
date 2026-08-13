@@ -5,6 +5,7 @@ declare(strict_types=1);
 
 namespace App\Generated;
 
+final class RecordNotFoundException extends \RuntimeException {}
 
 
 readonly class CreateOrderRow {
@@ -137,13 +138,17 @@ final class Queries {
      * @param int $user_id
      * @param string $total
      * @param ?string $notes
-     * @return CreateOrderRow|null
+     * @return CreateOrderRow
+     * @throws RecordNotFoundException
      */
-    public static function createOrder(\PDO $pdo, int $id, int $user_id, string $total, ?string $notes): ?CreateOrderRow {
+    public static function createOrder(\PDO $pdo, int $id, int $user_id, string $total, ?string $notes): CreateOrderRow {
         $stmt = $pdo->prepare('INSERT INTO orders (id, user_id, total, notes) OUTPUT INSERTED.id, INSERTED.user_id, INSERTED.total, INSERTED.notes, INSERTED.created_at VALUES (:p1, :p2, :p3, :p4)');
         $stmt->execute(["p1" => $id, "p2" => $user_id, "p3" => $total, "p4" => $notes]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        return $row ? CreateOrderRow::fromRow($row) : null;
+        if ($row === false) {
+            throw new RecordNotFoundException('createOrder: no row found');
+        }
+        return CreateOrderRow::fromRow($row);
     }
 
     /**
@@ -162,13 +167,17 @@ final class Queries {
     /**
      * @param \PDO $pdo
      * @param int $user_id
-     * @return GetOrderTotalRow|null
+     * @return GetOrderTotalRow
+     * @throws RecordNotFoundException
      */
-    public static function getOrderTotal(\PDO $pdo, int $user_id): ?GetOrderTotalRow {
+    public static function getOrderTotal(\PDO $pdo, int $user_id): GetOrderTotalRow {
         $stmt = $pdo->prepare('SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :p1');
         $stmt->execute(["p1" => $user_id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        return $row ? GetOrderTotalRow::fromRow($row) : null;
+        if ($row === false) {
+            throw new RecordNotFoundException('getOrderTotal: no row found');
+        }
+        return GetOrderTotalRow::fromRow($row);
     }
 
     /**
@@ -185,13 +194,17 @@ final class Queries {
     /**
      * @param \PDO $pdo
      * @param int $id
-     * @return GetUserByIdRow|null
+     * @return GetUserByIdRow
+     * @throws RecordNotFoundException
      */
-    public static function getUserById(\PDO $pdo, int $id): ?GetUserByIdRow {
+    public static function getUserById(\PDO $pdo, int $id): GetUserByIdRow {
         $stmt = $pdo->prepare('SELECT id, name, email, active, created_at FROM users WHERE id = :p1');
         $stmt->execute(["p1" => $id]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        return $row ? GetUserByIdRow::fromRow($row) : null;
+        if ($row === false) {
+            throw new RecordNotFoundException('getUserById: no row found');
+        }
+        return GetUserByIdRow::fromRow($row);
     }
 
     /**
@@ -212,13 +225,17 @@ final class Queries {
      * @param string $name
      * @param ?string $email
      * @param bool $active
-     * @return CreateUserRow|null
+     * @return CreateUserRow
+     * @throws RecordNotFoundException
      */
-    public static function createUser(\PDO $pdo, int $id, string $name, ?string $email, bool $active): ?CreateUserRow {
+    public static function createUser(\PDO $pdo, int $id, string $name, ?string $email, bool $active): CreateUserRow {
         $stmt = $pdo->prepare('INSERT INTO users (id, name, email, active) OUTPUT INSERTED.id, INSERTED.name, INSERTED.email, INSERTED.active, INSERTED.created_at VALUES (:p1, :p2, :p3, :p4)');
         $stmt->execute(["p1" => $id, "p2" => $name, "p3" => $email, "p4" => $active]);
         $row = $stmt->fetch(\PDO::FETCH_ASSOC);
-        return $row ? CreateUserRow::fromRow($row) : null;
+        if ($row === false) {
+            throw new RecordNotFoundException('createUser: no row found');
+        }
+        return CreateUserRow::fromRow($row);
     }
 
     /**

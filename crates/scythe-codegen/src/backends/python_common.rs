@@ -231,6 +231,47 @@ pub fn generate_grouped_structs_py(
     out
 }
 
+/// Name of the exception every generated python module raises from a `:one`
+/// query when its row is missing. DB-API 2.0 has no built-in "no rows found"
+/// exception -- unlike Go's `sql.ErrNoRows` or a Rust driver's own `Result`,
+/// `fetchone()`/`fetchrow()` just hands back `None` -- so scythe defines this
+/// class once per generated module (see [`no_rows_exception_def`]) and every
+/// python backend's `:one` arm raises it under this shared name.
+pub const NO_ROWS_EXCEPTION_NAME: &str = "ScytheNoRowsError";
+
+/// The `ScytheNoRowsError` class definition, meant to be appended once to a
+/// generated module's `file_header()` output. See [`NO_ROWS_EXCEPTION_NAME`].
+///
+/// Opens with a newline and ends with a blank line. The leading one is
+/// load-bearing: every `file_header()` ends its import block with a single
+/// trailing blank line, and ruff's `I001` counts the blank lines *after* an
+/// import block as part of that block's formatting. Appending the class
+/// directly would leave one blank line where PEP 8 and isort want two, so
+/// every generated python module would fail `poly lint` on its own header.
+/// Caught by `scythe generate --validate-output` (board #187) the first time
+/// it ran.
+pub fn no_rows_exception_def() -> String {
+    format!(
+        "\nclass {NO_ROWS_EXCEPTION_NAME}(Exception):\n    \"\"\"Raised by a `:one` query when no row matches.\"\"\"\n\n"
+    )
+}
+
+/// Emit the `if {var} is None: ...` guard following a `:one`/`:opt` fetch:
+/// `:one` (`is_one == true`) raises [`NO_ROWS_EXCEPTION_NAME`]; `:opt`
+/// returns `None`. `indent` is the leading whitespace shared by both emitted
+/// lines; `query_name` is `analyzed.name`, used in the raised message.
+pub fn write_missing_row_guard(out: &mut String, indent: &str, var: &str, is_one: bool, query_name: &str) {
+    let _ = writeln!(out, "{indent}if {var} is None:");
+    if is_one {
+        let _ = writeln!(
+            out,
+            "{indent}    raise {NO_ROWS_EXCEPTION_NAME}(\"{query_name}: no rows returned\")"
+        );
+    } else {
+        let _ = writeln!(out, "{indent}    return None");
+    }
+}
+
 /// Emit the client-side fold logic for a `:grouped` query that uses positional
 /// (index-based) row access — all Python backends except asyncpg.
 ///

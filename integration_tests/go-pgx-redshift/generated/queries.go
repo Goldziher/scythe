@@ -20,8 +20,6 @@ type CreateOrderRow struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Returns the zero value of the struct if no row is found.
-// Use pgx.ErrNoRows to distinguish not-found from other errors.
 func CreateOrder(ctx context.Context, db *pgxpool.Pool, UserId int32, Total decimal.Decimal, Notes *string) (CreateOrderRow, error) {
 	row := db.QueryRow(ctx, "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at", UserId, Total, Notes)
 	var r CreateOrderRow
@@ -57,8 +55,6 @@ type GetOrderTotalRow struct {
 	TotalSum *decimal.Decimal `json:"total_sum"`
 }
 
-// Returns the zero value of the struct if no row is found.
-// Use pgx.ErrNoRows to distinguish not-found from other errors.
 func GetOrderTotal(ctx context.Context, db *pgxpool.Pool, UserId int32) (GetOrderTotalRow, error) {
 	row := db.QueryRow(ctx, "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1", UserId)
 	var r GetOrderTotalRow
@@ -82,8 +78,6 @@ type GetUserByIdRow struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Returns the zero value of the struct if no row is found.
-// Use pgx.ErrNoRows to distinguish not-found from other errors.
 func GetUserById(ctx context.Context, db *pgxpool.Pool, Id int32) (GetUserByIdRow, error) {
 	row := db.QueryRow(ctx, "SELECT id, name, email, status, created_at FROM users WHERE id = $1", Id)
 	var r GetUserByIdRow
@@ -122,8 +116,6 @@ type CreateUserRow struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// Returns the zero value of the struct if no row is found.
-// Use pgx.ErrNoRows to distinguish not-found from other errors.
 func CreateUser(ctx context.Context, db *pgxpool.Pool, Name string, Email *string, Status string) (CreateUserRow, error) {
 	row := db.QueryRow(ctx, "INSERT INTO users (name, email, status) VALUES ($1, $2, $3) RETURNING id, name, email, status, created_at", Name, Email, Status)
 	var r CreateUserRow

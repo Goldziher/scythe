@@ -18,7 +18,7 @@ module Queries
     def self.new: (id: Integer, user_id: Integer, total: BigDecimal, notes: String?, created_at: Time) -> GetLastInsertOrderRow
   end
 
-  def self.get_last_insert_order: (Trilogy) -> GetLastInsertOrderRow?
+  def self.get_last_insert_order: (Trilogy) -> GetLastInsertOrderRow
 
   class GetOrdersByUserRow
     attr_reader id: Integer
@@ -35,7 +35,7 @@ module Queries
     def self.new: (total_sum: BigDecimal?) -> GetOrderTotalRow
   end
 
-  def self.get_order_total: (Trilogy, Integer) -> GetOrderTotalRow?
+  def self.get_order_total: (Trilogy, Integer) -> GetOrderTotalRow
 
   def self.delete_orders_by_user: (Trilogy, Integer) -> Integer
 
@@ -48,7 +48,7 @@ module Queries
     def self.new: (id: Integer, name: String, email: String?, status: String, created_at: Time) -> GetUserByIdRow
   end
 
-  def self.get_user_by_id: (Trilogy, Integer) -> GetUserByIdRow?
+  def self.get_user_by_id: (Trilogy, Integer) -> GetUserByIdRow
 
   class ListActiveUsersRow
     attr_reader id: Integer
@@ -70,7 +70,7 @@ module Queries
     def self.new: (id: Integer, name: String, email: String?, status: String, created_at: Time) -> GetLastInsertUserRow
   end
 
-  def self.get_last_insert_user: (Trilogy) -> GetLastInsertUserRow?
+  def self.get_last_insert_user: (Trilogy) -> GetLastInsertUserRow
 
   def self.update_user_email: (Trilogy, String, Integer) -> void
 

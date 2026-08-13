@@ -4,6 +4,7 @@
 require "bigdecimal/util"
 
 module Queries
+  class RecordNotFound < StandardError; end
 
   module UsersStatus
     ACTIVE = "active"
@@ -25,7 +26,7 @@ module Queries
     stmt = client.prepare("SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()")
     results = stmt.execute()
     row = results.first
-    return nil if row.nil?
+    raise RecordNotFound, "get_last_insert_order: no row found" if row.nil?
     GetLastInsertOrderRow.new(id: row["id"].to_i, user_id: row["user_id"].to_i, total: row["total"].to_d, notes: row["notes"]&.then { |v| v }, created_at: row["created_at"])
   end
 
@@ -47,7 +48,7 @@ module Queries
     stmt = client.prepare("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?")
     results = stmt.execute(user_id)
     row = results.first
-    return nil if row.nil?
+    raise RecordNotFound, "get_order_total: no row found" if row.nil?
     GetOrderTotalRow.new(total_sum: row["total_sum"]&.then { |v| v.to_d })
   end
 
@@ -64,7 +65,7 @@ module Queries
     stmt = client.prepare("SELECT id, name, email, status, created_at FROM users WHERE id = ?")
     results = stmt.execute(id)
     row = results.first
-    return nil if row.nil?
+    raise RecordNotFound, "get_user_by_id: no row found" if row.nil?
     GetUserByIdRow.new(id: row["id"].to_i, name: row["name"], email: row["email"]&.then { |v| v }, status: row["status"], created_at: row["created_at"])
   end
 
@@ -92,7 +93,7 @@ module Queries
     stmt = client.prepare("SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()")
     results = stmt.execute()
     row = results.first
-    return nil if row.nil?
+    raise RecordNotFound, "get_last_insert_user: no row found" if row.nil?
     GetLastInsertUserRow.new(id: row["id"].to_i, name: row["name"], email: row["email"]&.then { |v| v }, status: row["status"], created_at: row["created_at"])
   end
 

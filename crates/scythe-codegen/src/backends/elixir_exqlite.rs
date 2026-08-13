@@ -134,10 +134,22 @@ impl CodegenBackend for ElixirExqliteBackend {
         };
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
+                // ~keep :one keeps erroring on a missing row ({:error, :not_found});
+                // :opt returns it as an absent value instead of an error (#192). The
+                // spec previously omitted {:error, :not_found} even though the body
+                // already produced it for :one -- corrected here alongside the split.
+                let return_type = if matches!(analyzed.command, QueryCommand::Opt) {
+                    format!("{{:ok, %{}{{}} | nil}} | {{:error, term()}}", struct_name)
+                } else {
+                    format!(
+                        "{{:ok, %{}{{}}}} | {{:error, :not_found}} | {{:error, term()}}",
+                        struct_name
+                    )
+                };
                 let _ = writeln!(
                     out,
-                    "@spec {}(Exqlite.Sqlite3.db(){}) :: {{:ok, %{}{{}}}} | {{:error, term()}}",
-                    func_name, param_specs, struct_name
+                    "@spec {}(Exqlite.Sqlite3.db(){}) :: {}",
+                    func_name, param_specs, return_type
                 );
             }
             QueryCommand::Many => {
@@ -255,7 +267,12 @@ impl CodegenBackend for ElixirExqliteBackend {
                     .join(", ");
                 let _ = writeln!(out, "            {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
                 let _ = writeln!(out, "          {{:ok, []}} ->");
-                let _ = writeln!(out, "            {{:error, :not_found}}");
+                let not_found_body = if matches!(analyzed.command, QueryCommand::Opt) {
+                    "            {:ok, nil}"
+                } else {
+                    "            {:error, :not_found}"
+                };
+                let _ = writeln!(out, "{}", not_found_body);
                 let _ = writeln!(out, "          {{:error, err}} ->");
                 let _ = writeln!(out, "            {{:error, err}}");
                 let _ = writeln!(out, "        end");

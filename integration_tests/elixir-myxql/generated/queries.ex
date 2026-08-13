@@ -106,7 +106,7 @@ def create_order(conn, user_id, total, notes) do
   end
 end
 
-@spec get_last_insert_order(MyXQL.conn()) :: {:ok, %GetLastInsertOrderRow{}} | {:error, term()}
+@spec get_last_insert_order(MyXQL.conn()) :: {:ok, %GetLastInsertOrderRow{}} | {:error, :not_found} | {:error, term()}
 def get_last_insert_order(conn) do
   case MyXQL.query(conn, "SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()", []) do
     {:ok, %MyXQL.Result{rows: [row]}} ->
@@ -130,7 +130,7 @@ def get_orders_by_user(conn, user_id) do
   end
 end
 
-@spec get_order_total(MyXQL.conn(), integer()) :: {:ok, %GetOrderTotalRow{}} | {:error, term()}
+@spec get_order_total(MyXQL.conn(), integer()) :: {:ok, %GetOrderTotalRow{}} | {:error, :not_found} | {:error, term()}
 def get_order_total(conn, user_id) do
   case MyXQL.query(conn, "SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?", [user_id]) do
     {:ok, %MyXQL.Result{rows: [row]}} ->
@@ -149,7 +149,7 @@ def delete_orders_by_user(conn, user_id) do
   end
 end
 
-@spec get_user_by_id(MyXQL.conn(), integer()) :: {:ok, %GetUserByIdRow{}} | {:error, term()}
+@spec get_user_by_id(MyXQL.conn(), integer()) :: {:ok, %GetUserByIdRow{}} | {:error, :not_found} | {:error, term()}
 def get_user_by_id(conn, id) do
   case MyXQL.query(conn, "SELECT id, name, email, status, created_at FROM users WHERE id = ?", [id]) do
     {:ok, %MyXQL.Result{rows: [row]}} ->
@@ -181,7 +181,7 @@ def create_user(conn, name, email, status) do
   end
 end
 
-@spec get_last_insert_user(MyXQL.conn()) :: {:ok, %GetLastInsertUserRow{}} | {:error, term()}
+@spec get_last_insert_user(MyXQL.conn()) :: {:ok, %GetLastInsertUserRow{}} | {:error, :not_found} | {:error, term()}
 def get_last_insert_user(conn) do
   case MyXQL.query(conn, "SELECT id, name, email, status, created_at FROM users WHERE id = LAST_INSERT_ID()", []) do
     {:ok, %MyXQL.Result{rows: [row]}} ->

@@ -220,10 +220,14 @@ public class IntegrationTest {
         String name = "DeleteUser";
         try {
             Queries.deleteUser(conn, createdUserId);
-            var user = Queries.getUserById(conn, createdUserId);
-            if (user != null) {
-                fail(name, "expected null after deletion, but user still exists");
+            // GetUserById is `:one`, so a missing row throws
+            // NoSuchElementException rather than returning null.
+            try {
+                Queries.getUserById(conn, createdUserId);
+                fail(name, "expected getUserById to throw after deletion, but it returned a row");
                 return;
+            } catch (java.util.NoSuchElementException expected) {
+                // expected: the user was deleted
             }
             pass(name);
         } catch (Exception e) {

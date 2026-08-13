@@ -9,6 +9,10 @@ import snowflake.connector  # noqa: F401
 snowflake.connector.paramstyle = "qmark"  # this module emits qmark binds
 
 
+class ScytheNoRowsError(Exception):
+    """Raised by a `:one` query when no row matches."""
+
+
 
 def create_order(
     conn: snowflake.connector.SnowflakeConnection,
@@ -69,7 +73,7 @@ def get_order_total(
     conn: snowflake.connector.SnowflakeConnection,
     *,
     user_id: int,
-) -> GetOrderTotalRow | None:
+) -> GetOrderTotalRow:
     """Execute GetOrderTotal query."""
     cur = conn.cursor()
     cur.execute(
@@ -78,7 +82,7 @@ def get_order_total(
     )
     row = cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetOrderTotal: no rows returned")
     return GetOrderTotalRow(total_sum=row[0])
 
 
@@ -93,7 +97,7 @@ def delete_orders_by_user(
         """DELETE FROM orders WHERE id IN (SELECT id FROM orders WHERE user_id = ?)""",
         (user_id,),
     )
-    return cur.rowcount
+    return cur.rowcount or 0
 
 
 @dataclass(frozen=True, slots=True)
@@ -113,7 +117,7 @@ def get_user_by_id(
     conn: snowflake.connector.SnowflakeConnection,
     *,
     id: int,
-) -> GetUserByIdRow | None:
+) -> GetUserByIdRow:
     """Execute GetUserById query."""
     cur = conn.cursor()
     cur.execute(
@@ -122,7 +126,7 @@ def get_user_by_id(
     )
     row = cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetUserById: no rows returned")
     return GetUserByIdRow(
         id=row[0],
         name=row[1],

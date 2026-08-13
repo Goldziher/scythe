@@ -11,7 +11,7 @@ public record CreateAttachmentRow(
     string Filename
 );
 
-public static async Task<CreateAttachmentRow?> CreateAttachment(OracleConnection conn, long order_id, string filename, byte[] payload, string? description) {
+public static async Task<CreateAttachmentRow> CreateAttachment(OracleConnection conn, long order_id, string filename, byte[] payload, string? description) {
     using var cmd = new OracleCommand(@"INSERT INTO attachments (order_id, filename, payload, description) VALUES (:1, :2, :3, :4) RETURNING id, order_id, filename INTO :out0, :out1, :out2", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)order_id ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)filename ?? DBNull.Value });
@@ -20,7 +20,8 @@ public static async Task<CreateAttachmentRow?> CreateAttachment(OracleConnection
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out0", OracleDbType = OracleDbType.Int64, Direction = System.Data.ParameterDirection.Output });
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out1", OracleDbType = OracleDbType.Int64, Direction = System.Data.ParameterDirection.Output });
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out2", OracleDbType = OracleDbType.Varchar2, Size = 4000, Direction = System.Data.ParameterDirection.Output });
-    await cmd.ExecuteNonQueryAsync();
+    var rowsAffected = await cmd.ExecuteNonQueryAsync();
+    if (rowsAffected == 0) throw new InvalidOperationException("CreateAttachment expected exactly one row but found none");
     return new CreateAttachmentRow(
         ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out0"].Value).ToInt64(),
         ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out1"].Value).ToInt64(),
@@ -89,7 +90,7 @@ public record CreateOrderRow(
     DateTime CreatedAt
 );
 
-public static async Task<CreateOrderRow?> CreateOrder(OracleConnection conn, long user_id, decimal total, string? notes) {
+public static async Task<CreateOrderRow> CreateOrder(OracleConnection conn, long user_id, decimal total, string? notes) {
     using var cmd = new OracleCommand(@"INSERT INTO orders (user_id, total, notes) VALUES (:1, :2, :3) RETURNING id, user_id, total, notes, created_at INTO :out0, :out1, :out2, :out3, :out4", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)user_id ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)total ?? DBNull.Value });
@@ -99,7 +100,8 @@ public static async Task<CreateOrderRow?> CreateOrder(OracleConnection conn, lon
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out2", OracleDbType = OracleDbType.Decimal, Direction = System.Data.ParameterDirection.Output });
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out3", OracleDbType = OracleDbType.Varchar2, Size = 4000, Direction = System.Data.ParameterDirection.Output });
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out4", OracleDbType = OracleDbType.Date, Direction = System.Data.ParameterDirection.Output });
-    await cmd.ExecuteNonQueryAsync();
+    var rowsAffected = await cmd.ExecuteNonQueryAsync();
+    if (rowsAffected == 0) throw new InvalidOperationException("CreateOrder expected exactly one row but found none");
     return new CreateOrderRow(
         ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out0"].Value).ToInt64(),
         ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out1"].Value).ToInt64(),
@@ -136,11 +138,11 @@ public record GetOrderTotalRow(
     decimal? TotalSum
 );
 
-public static async Task<GetOrderTotalRow?> GetOrderTotal(OracleConnection conn, long user_id) {
+public static async Task<GetOrderTotalRow> GetOrderTotal(OracleConnection conn, long user_id) {
     using var cmd = new OracleCommand(@"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = :1", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)user_id ?? DBNull.Value });
     using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetOrderTotal expected exactly one row but found none");
     return new GetOrderTotalRow(
         reader.IsDBNull(0) ? null : reader.GetDecimal(0)
     );
@@ -160,11 +162,11 @@ public record GetUserByIdRow(
     DateTime CreatedAt
 );
 
-public static async Task<GetUserByIdRow?> GetUserById(OracleConnection conn, long id) {
+public static async Task<GetUserByIdRow> GetUserById(OracleConnection conn, long id) {
     using var cmd = new OracleCommand(@"SELECT id, name, email, active, created_at FROM users WHERE id = :1", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)id ?? DBNull.Value });
     using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserById expected exactly one row but found none");
     return new GetUserByIdRow(
         reader.GetInt64(0),
         reader.GetString(1),
@@ -202,7 +204,7 @@ public record CreateUserRow(
     DateTime CreatedAt
 );
 
-public static async Task<CreateUserRow?> CreateUser(OracleConnection conn, string name, string? email, long active) {
+public static async Task<CreateUserRow> CreateUser(OracleConnection conn, string name, string? email, long active) {
     using var cmd = new OracleCommand(@"INSERT INTO users (name, email, active) VALUES (:1, :2, :3) RETURNING id, name, email, active, created_at INTO :out0, :out1, :out2, :out3, :out4", conn);
     cmd.Parameters.Add(new OracleParameter { Value = (object)name ?? DBNull.Value });
     cmd.Parameters.Add(new OracleParameter { Value = (object)email ?? DBNull.Value });
@@ -212,7 +214,8 @@ public static async Task<CreateUserRow?> CreateUser(OracleConnection conn, strin
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out2", OracleDbType = OracleDbType.Varchar2, Size = 4000, Direction = System.Data.ParameterDirection.Output });
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out3", OracleDbType = OracleDbType.Int64, Direction = System.Data.ParameterDirection.Output });
     cmd.Parameters.Add(new OracleParameter { ParameterName = "out4", OracleDbType = OracleDbType.Date, Direction = System.Data.ParameterDirection.Output });
-    await cmd.ExecuteNonQueryAsync();
+    var rowsAffected = await cmd.ExecuteNonQueryAsync();
+    if (rowsAffected == 0) throw new InvalidOperationException("CreateUser expected exactly one row but found none");
     return new CreateUserRow(
         ((Oracle.ManagedDataAccess.Types.OracleDecimal)cmd.Parameters["out0"].Value).ToInt64(),
         ((Oracle.ManagedDataAccess.Types.OracleString)cmd.Parameters["out1"].Value).Value,

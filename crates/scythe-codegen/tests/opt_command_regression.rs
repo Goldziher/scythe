@@ -8,22 +8,43 @@
 //! two commands render byte-identical code. Which contract silently wins
 //! depends on which behaviour that shared arm happens to implement:
 //!
-//! - `rust-tiberius` (fixed here) implemented the arm as "exactly one row,
-//!   `.expect()` if absent" -- so `:opt` panicked at runtime on a missing
-//!   row, the exact case `:opt` exists to handle without an error.
-//! - Most other backends (csharp-*, python-*, elixir-*, go-*, java-*,
-//!   kotlin-*, php-*, ruby-*, typescript-*, rust-sibyl) implemented the arm
-//!   as "zero or one row, return null/None" -- so `:opt`'s own output is
-//!   actually correct, but `:one` silently inherits `:opt`'s permissiveness
-//!   and never errors on a missing row. That is a real, separate defect
-//!   (`:one`'s contract, not `:opt`'s), left to the backend owners named in
-//!   `KNOWN_UNDIFFERENTIATED_BACKENDS` below.
+//! - `rust-tiberius` implemented the arm as "exactly one row, `.expect()` if
+//!   absent" -- so `:opt` panicked at runtime on a missing row, the exact
+//!   case `:opt` exists to handle without an error.
+//! - Most backends implemented the arm as "zero or one row, return
+//!   null/None" -- so `:opt`'s own output was correct and `:one` silently
+//!   inherited its permissiveness, never erroring on a missing row.
 //!
-//! `rust-tokio-postgres` was already correct before this fix and is the
-//! reference shape the `rust-tiberius` fix follows: `query_one` for `:one`
-//! (errors on a missing row through the driver's own `Result`, never
-//! panics) and `query_opt` for `:opt` (returns `Option<Row>`, mapped into
-//! `Option<Struct>`).
+//! An earlier revision of this comment claimed that second bullet covered
+//! "csharp-*, python-*, elixir-*, go-*, java-*, kotlin-*, php-*, ruby-*,
+//! typescript-*, rust-sibyl". **That was wrong for go-\* and elixir-\***, 10
+//! of the 53 entries this list used to hold, and the error was found only
+//! when someone re-derived each family's arm from the code while fixing it:
+//!
+//! - `go_database_sql.rs` emitted `err := row.Scan(..); return r, err`, and
+//!   `sql.ErrNoRows` propagates through that untouched -- so `:one` was
+//!   already correct and `:opt` was the broken one, erroring on a
+//!   legitimately absent row.
+//! - Every `elixir_*.rs` emitted `{:error, :not_found}` for both commands,
+//!   the same inversion.
+//! - `go_godror.rs` really did fold the permissive way, unlike its three Go
+//!   siblings -- so even "the family behaves alike" was not safe to assume.
+//!
+//! The lesson is the one the `rust-sqlx` note below records independently: a
+//! ratchet can only check pass/fail, never *why*, so a stated reason nobody
+//! re-derives rots while the gate stays green. Re-derive before trusting a
+//! reason in this file, and prefer quoting the emitted code over describing
+//! it.
+//!
+//! `rust-tokio-postgres` was already correct throughout and is the reference
+//! shape: `query_one` for `:one` (errors on a missing row through the
+//! driver's own `Result`, never panics) and `query_opt` for `:opt` (returns
+//! `Option<Row>`, mapped into `Option<Struct>`).
+//!
+//! Every backend has since been fixed, so `KNOWN_UNDIFFERENTIATED_BACKENDS`
+//! is empty. It is kept, rather than deleted with its last entry, because
+//! the ratchet still fails in both directions and an empty list is what
+//! makes a new fold show up as a regression instead of as the status quo.
 
 use scythe_codegen::{generate_with_backend, get_backend};
 use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery};
@@ -257,236 +278,7 @@ struct BackendNote {
 /// produced type disagreed, and the generated code did not compile at all.
 /// A reason derived by reading match arms missed that, because the defect
 /// was in the interaction between three arms, not in any one of them.
-const KNOWN_UNDIFFERENTIATED_BACKENDS: &[BackendNote] = &[
-    BackendNote {
-        backend: "rust-sibyl",
-        reason: "generate_query_fn's QueryCommand::One | QueryCommand::Opt arm always returns \
-                  sibyl::Result<Option<Struct>> and returns Ok(None) on a missing row for both \
-                  commands -- :opt's own output is correct, but :one silently inherits it and \
-                  never errors on a missing row. A real but distinct defect (:one's contract, not \
-                  :opt's); not fixed here to stay inside this fix's stated scope.",
-    },
-    BackendNote {
-        backend: "csharp-npgsql",
-        reason: "return type `{Struct}?` and `if (!await reader.ReadAsync()) return null;` are \
-                  shared by One and Opt -- same :one-inherits-:opt's-nullability shape as rust-sibyl, \
-                  reproduced identically across every csharp-*.rs backend in this list.",
-    },
-    BackendNote {
-        backend: "csharp-mysqlconnector",
-        reason: "same shared nullable-return-and-null-on-missing-row arm as csharp-npgsql.",
-    },
-    BackendNote {
-        backend: "csharp-microsoft-sqlite",
-        reason: "same shared nullable-return-and-null-on-missing-row arm as csharp-npgsql.",
-    },
-    BackendNote {
-        backend: "csharp-sqlclient",
-        reason: "same shared nullable-return-and-null-on-missing-row arm as csharp-npgsql.",
-    },
-    BackendNote {
-        backend: "csharp-oracle",
-        reason: "same shared nullable-return-and-null-on-missing-row arm as csharp-npgsql.",
-    },
-    BackendNote {
-        backend: "csharp-snowflake",
-        reason: "same shared nullable-return-and-null-on-missing-row arm as csharp-npgsql.",
-    },
-    BackendNote {
-        backend: "python-psycopg3",
-        reason: "`-> {Struct} | None:` plus `if row is None: return None` are shared by One and \
-                  Opt -- :one silently inherits :opt's nullability, reproduced identically across \
-                  every python-*.rs backend in this list.",
-    },
-    BackendNote {
-        backend: "python-asyncpg",
-        reason: "same shared `{Struct} | None` / `return None` arm as python-psycopg3.",
-    },
-    BackendNote {
-        backend: "python-aiomysql",
-        reason: "same shared `{Struct} | None` / `return None` arm as python-psycopg3.",
-    },
-    BackendNote {
-        backend: "python-aiosqlite",
-        reason: "same shared `{Struct} | None` / `return None` arm as python-psycopg3.",
-    },
-    BackendNote {
-        backend: "python-duckdb",
-        reason: "same shared `{Struct} | None` / `return None` arm as python-psycopg3.",
-    },
-    BackendNote {
-        backend: "python-pyodbc",
-        reason: "same shared `{Struct} | None` / `return None` arm as python-psycopg3.",
-    },
-    BackendNote {
-        backend: "python-oracledb",
-        reason: "same shared `{Struct} | None` / `return None` arm as python-psycopg3.",
-    },
-    BackendNote {
-        backend: "python-snowflake",
-        reason: "same shared `{Struct} | None` / `return None` arm as python-psycopg3.",
-    },
-    BackendNote {
-        backend: "typescript-postgres",
-        reason: "One and Opt share one return-type/body arm rendering `{Struct} | null` and a \
-                  `null` result on a missing row, reproduced identically across every \
-                  typescript-*.rs/javascript-*.rs backend in this list.",
-    },
-    BackendNote {
-        backend: "javascript-postgres",
-        reason: "js_mode of typescript-postgres; same shared arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "typescript-pg",
-        reason: "same shared nullable arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "javascript-pg",
-        reason: "js_mode of typescript-pg; same shared arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "typescript-mysql2",
-        reason: "same shared nullable arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "javascript-mysql2",
-        reason: "js_mode of typescript-mysql2; same shared arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "typescript-better-sqlite3",
-        reason: "same shared nullable arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "javascript-better-sqlite3",
-        reason: "js_mode of typescript-better-sqlite3; same shared arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "typescript-duckdb",
-        reason: "same shared nullable arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "typescript-node-sqlite",
-        reason: "same shared nullable arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "typescript-wasm-sqlite",
-        reason: "same shared nullable arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "typescript-kysely",
-        reason: "same shared nullable arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "typescript-mssql",
-        reason: "same shared nullable arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "typescript-oracledb",
-        reason: "same shared nullable arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "typescript-snowflake",
-        reason: "same shared nullable arm as typescript-postgres.",
-    },
-    BackendNote {
-        backend: "go-database-sql",
-        reason: "One and Opt share one arm; Go's zero-value/error idiom collapses the same way, \
-                  reproduced identically across every go-*.rs backend in this list.",
-    },
-    BackendNote {
-        backend: "go-pgx",
-        reason: "same shared arm as go-database-sql.",
-    },
-    BackendNote {
-        backend: "go-godror",
-        reason: "same shared arm as go-database-sql.",
-    },
-    BackendNote {
-        backend: "go-gosnowflake",
-        reason: "same shared arm as go-database-sql.",
-    },
-    BackendNote {
-        backend: "java-jdbc",
-        reason: "One and Opt share one `@Nullable {Struct}` arm returning null on a missing row, \
-                  reproduced identically across every java-*.rs/kotlin-*.rs backend in this list.",
-    },
-    BackendNote {
-        backend: "java-r2dbc",
-        reason: "same shared @Nullable arm as java-jdbc.",
-    },
-    BackendNote {
-        backend: "kotlin-exposed",
-        reason: "same shared nullable arm as java-jdbc.",
-    },
-    BackendNote {
-        backend: "kotlin-jdbc",
-        reason: "same shared nullable arm as java-jdbc.",
-    },
-    BackendNote {
-        backend: "kotlin-r2dbc",
-        reason: "same shared nullable arm as java-jdbc.",
-    },
-    BackendNote {
-        backend: "elixir-postgrex",
-        reason: "One and Opt share one arm returning `nil` on a missing row, reproduced \
-                  identically across every elixir-*.rs backend in this list.",
-    },
-    BackendNote {
-        backend: "elixir-ecto",
-        reason: "same shared nil-on-missing-row arm as elixir-postgrex.",
-    },
-    BackendNote {
-        backend: "elixir-myxql",
-        reason: "same shared nil-on-missing-row arm as elixir-postgrex.",
-    },
-    BackendNote {
-        backend: "elixir-exqlite",
-        reason: "same shared nil-on-missing-row arm as elixir-postgrex.",
-    },
-    BackendNote {
-        backend: "elixir-tds",
-        reason: "same shared nil-on-missing-row arm as elixir-postgrex.",
-    },
-    BackendNote {
-        backend: "elixir-jamdb",
-        reason: "same shared nil-on-missing-row arm as elixir-postgrex.",
-    },
-    BackendNote {
-        backend: "ruby-pg",
-        reason: "One and Opt share one arm returning `nil` on a missing row, reproduced \
-                  identically across every ruby-*.rs backend in this list.",
-    },
-    BackendNote {
-        backend: "ruby-mysql2",
-        reason: "same shared nil-on-missing-row arm as ruby-pg.",
-    },
-    BackendNote {
-        backend: "ruby-sqlite3",
-        reason: "same shared nil-on-missing-row arm as ruby-pg.",
-    },
-    BackendNote {
-        backend: "ruby-trilogy",
-        reason: "same shared nil-on-missing-row arm as ruby-pg.",
-    },
-    BackendNote {
-        backend: "ruby-tiny-tds",
-        reason: "same shared nil-on-missing-row arm as ruby-pg.",
-    },
-    BackendNote {
-        backend: "ruby-oci8",
-        reason: "same shared nil-on-missing-row arm as ruby-pg.",
-    },
-    BackendNote {
-        backend: "php-pdo",
-        reason: "One and Opt share the return-type, docblock, and body arms, all rendering \
-                  `?{Struct}` / `{Struct}|null` and `null` on a missing row, reproduced \
-                  identically in php-amphp.",
-    },
-    BackendNote {
-        backend: "php-amphp",
-        reason: "same shared nullable arm as php-pdo.",
-    },
-];
+const KNOWN_UNDIFFERENTIATED_BACKENDS: &[BackendNote] = &[];
 
 /// Census guard for #197: does any backend other than `rust-tiberius` and
 /// `rust-tokio-postgres` actually render different code for `:one` vs.

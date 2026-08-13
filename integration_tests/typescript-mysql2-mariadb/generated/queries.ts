@@ -17,17 +17,21 @@ export interface CreateOrderRow extends RowDataPacket {
 	created_at: Date;
 }
 
-/** Fetch a single CreateOrderRow or null. */
+/** Fetch a single CreateOrderRow. */
 export async function createOrder(
 	pool: Pool,
 	user_id: string,
 	total: string,
 	notes: string | null,
-): Promise<CreateOrderRow | null> {
+): Promise<CreateOrderRow> {
 	const [rows] = await pool.execute<CreateOrderRow[]>(
 		`INSERT INTO orders (user_id, total, notes) VALUES (?, ?, ?) RETURNING id, user_id, total, notes, created_at`, [user_id, total, notes],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: CreateOrder");
+	}
+	return row;
 }
 
 /** Row type for GetOrdersByUser queries. */
@@ -54,15 +58,19 @@ export interface GetOrderTotalRow extends RowDataPacket {
 	total_sum: string | null;
 }
 
-/** Fetch a single GetOrderTotalRow or null. */
+/** Fetch a single GetOrderTotalRow. */
 export async function getOrderTotal(
 	pool: Pool,
 	user_id: string,
-): Promise<GetOrderTotalRow | null> {
+): Promise<GetOrderTotalRow> {
 	const [rows] = await pool.execute<GetOrderTotalRow[]>(
 		`SELECT SUM(total) AS total_sum FROM orders WHERE user_id = ?`, [user_id],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetOrderTotal");
+	}
+	return row;
 }
 
 /** Execute a query and return the number of affected rows. */
@@ -85,15 +93,19 @@ export interface GetUserByIdRow extends RowDataPacket {
 	created_at: Date;
 }
 
-/** Fetch a single GetUserByIdRow or null. */
+/** Fetch a single GetUserByIdRow. */
 export async function getUserById(
 	pool: Pool,
 	id: string,
-): Promise<GetUserByIdRow | null> {
+): Promise<GetUserByIdRow> {
 	const [rows] = await pool.execute<GetUserByIdRow[]>(
 		`SELECT id, name, email, status, created_at FROM users WHERE id = ?`, [id],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: GetUserById");
+	}
+	return row;
 }
 
 /** Row type for ListActiveUsers queries. */
@@ -121,17 +133,21 @@ export interface CreateUserRow extends RowDataPacket {
 	email: string | null;
 }
 
-/** Fetch a single CreateUserRow or null. */
+/** Fetch a single CreateUserRow. */
 export async function createUser(
 	pool: Pool,
 	name: string,
 	email: string | null,
 	status: UsersStatus,
-): Promise<CreateUserRow | null> {
+): Promise<CreateUserRow> {
 	const [rows] = await pool.execute<CreateUserRow[]>(
 		`INSERT INTO users (name, email, status) VALUES (?, ?, ?) RETURNING id, name, email`, [name, email, status],
 	);
-	return rows[0] ?? null;
+	const row = rows[0];
+	if (row === undefined) {
+		throw new Error("no row found for query: CreateUser");
+	}
+	return row;
 }
 
 /** Execute a query returning no rows. */

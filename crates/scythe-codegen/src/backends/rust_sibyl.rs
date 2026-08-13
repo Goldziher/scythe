@@ -460,10 +460,24 @@ impl CodegenBackend for RustSibylBackend {
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
+                let is_one = matches!(analyzed.command, QueryCommand::One);
+                let return_type = if is_one {
+                    struct_name.to_string()
+                } else {
+                    format!("Option<{}>", struct_name)
+                };
                 let _ = writeln!(
                     out,
-                    "pub async fn {}<'a>(session: &'a Session<'a>{}{}) -> sibyl::Result<Option<{}>> {{",
-                    func_name, sep, param_list, struct_name
+                    "pub async fn {}<'a>(session: &'a Session<'a>{}{}) -> sibyl::Result<{}> {{",
+                    func_name, sep, param_list, return_type
+                );
+                // ~keep sibyl's `stmt.execute()` returns the OCI-reported rows-affected
+                // count (`Result<usize>`, see sibyl-0.7.1 src/stmt/nonblocking.rs), so a
+                // RETURNING INTO whose WHERE clause matched nothing is detectable without
+                // a second round trip: the out vars stay at their pre-execute defaults, but
+                // `rows_affected == 0` catches the missing row before those are read.
+                let missing_row_err = format!(
+                    "sibyl::Error::Interface(\"{func_name} expected exactly one row but found none\".to_string())"
                 );
 
                 if has_returning {
@@ -492,7 +506,12 @@ impl CodegenBackend for RustSibylBackend {
                     } else {
                         format!("({})", all_pairs.join(", "))
                     };
-                    let _ = writeln!(out, "    stmt.execute({}).await?;", args_expr);
+                    let _ = writeln!(out, "    let rows_affected = stmt.execute({}).await?;", args_expr);
+                    if is_one {
+                        let _ = writeln!(out, "    if rows_affected == 0 {{ return Err({missing_row_err}); }}");
+                    } else {
+                        let _ = writeln!(out, "    if rows_affected == 0 {{ return Ok(None); }}");
+                    }
                     for col in columns {
                         let _ = writeln!(out, "{}", Self::emit_out_var_conversion(col));
                     }
@@ -500,7 +519,11 @@ impl CodegenBackend for RustSibylBackend {
                         .iter()
                         .map(|c| format!("{}: {}", c.field_name, c.field_name))
                         .collect();
-                    let _ = writeln!(out, "    Ok(Some({} {{ {} }}))", struct_name, field_assigns.join(", "));
+                    if is_one {
+                        let _ = writeln!(out, "    Ok({} {{ {} }})", struct_name, field_assigns.join(", "));
+                    } else {
+                        let _ = writeln!(out, "    Ok(Some({} {{ {} }}))", struct_name, field_assigns.join(", "));
+                    }
                     let _ = write!(out, "}}");
                 } else {
                     let _ = writeln!(out, "    let stmt = session.prepare(\"{}\").await?;", sql);
@@ -514,14 +537,20 @@ impl CodegenBackend for RustSibylBackend {
                         .iter()
                         .map(|c| format!("{}: {}", c.field_name, c.field_name))
                         .collect();
-                    let _ = writeln!(
-                        out,
-                        "        Ok(Some({} {{ {} }}))",
-                        struct_name,
-                        field_assigns.join(", ")
-                    );
-                    let _ = writeln!(out, "    }} else {{");
-                    let _ = writeln!(out, "        Ok(None)");
+                    if is_one {
+                        let _ = writeln!(out, "        Ok({} {{ {} }})", struct_name, field_assigns.join(", "));
+                        let _ = writeln!(out, "    }} else {{");
+                        let _ = writeln!(out, "        Err({missing_row_err})");
+                    } else {
+                        let _ = writeln!(
+                            out,
+                            "        Ok(Some({} {{ {} }}))",
+                            struct_name,
+                            field_assigns.join(", ")
+                        );
+                        let _ = writeln!(out, "    }} else {{");
+                        let _ = writeln!(out, "        Ok(None)");
+                    }
                     let _ = writeln!(out, "    }}");
                     let _ = write!(out, "}}");
                 }

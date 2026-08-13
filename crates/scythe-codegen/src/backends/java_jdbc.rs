@@ -558,10 +558,28 @@ impl CodegenBackend for JavaJdbcBackend {
                 let _ = write!(out, "}}");
             }
             QueryCommand::One | QueryCommand::Opt => {
+                // ~keep #192: :one means "exactly one row, error if absent";
+                // :opt means "zero or one, null if absent". This arm used to
+                // render byte-identical code for both, so :one silently
+                // returned null on a missing row -- a wrong answer in the
+                // caller's happy path rather than a signal. `is_one` is the
+                // only difference from here down: the declared return type
+                // drops `@Nullable`, and every branch's null-on-missing-row
+                // tail becomes a thrown `NoSuchElementException` instead.
+                let is_one = matches!(analyzed.command, QueryCommand::One);
+                let return_type = if is_one {
+                    struct_name.to_string()
+                } else {
+                    format!("@Nullable {}", struct_name)
+                };
                 let _ = writeln!(
                     out,
-                    "public static @Nullable {} {}(Connection conn{}{}) throws SQLException {{",
-                    struct_name, func_name, sep, param_list
+                    "public static {} {}(Connection conn{}{}) throws SQLException {{",
+                    return_type, func_name, sep, param_list
+                );
+                let missing_row = format!(
+                    "throw new java.util.NoSuchElementException(\"{}: no rows returned\");",
+                    func_name
                 );
                 let is_oracle_returning = self.engine == "oracle" && sql.to_uppercase().contains("RETURNING");
                 let is_mariadb_returning = self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
@@ -575,7 +593,11 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "        if (rs != null && rs.next()) {{");
                     let _ = writeln!(out, "            return {}.fromResultSet(rs);", struct_name);
                     let _ = writeln!(out, "        }}");
-                    let _ = writeln!(out, "        return null;");
+                    if is_one {
+                        let _ = writeln!(out, "        {}", missing_row);
+                    } else {
+                        let _ = writeln!(out, "        return null;");
+                    }
                     let _ = writeln!(out, "    }}");
                     let _ = write!(out, "}}");
                 } else if is_oracle_returning {
@@ -614,7 +636,11 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "            if (rs.next()) {{");
                     let _ = writeln!(out, "                return {}.fromResultSet(rs);", struct_name);
                     let _ = writeln!(out, "            }}");
-                    let _ = writeln!(out, "            return null;");
+                    if is_one {
+                        let _ = writeln!(out, "            {}", missing_row);
+                    } else {
+                        let _ = writeln!(out, "            return null;");
+                    }
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "    }}");
                     let _ = write!(out, "}}");

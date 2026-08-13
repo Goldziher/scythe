@@ -9,6 +9,7 @@ from pathlib import Path
 import pyodbc
 
 from generated.queries import (
+    ScytheNoRowsError,
     create_order,
     create_user,
     delete_orders_by_user,
@@ -48,7 +49,6 @@ def setup_schema(conn: pyodbc.Connection) -> None:
 def test_create_user(conn: pyodbc.Connection) -> int:
     """Test CreateUser query. Returns created user ID."""
     user = create_user(conn, id=1, name="Alice", email="alice@example.com", active=True)
-    assert user is not None, "CreateUser returned None"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.email == "alice@example.com", f"Expected email 'alice@example.com', got '{user.email}'"
     conn.commit()
@@ -59,7 +59,6 @@ def test_create_user(conn: pyodbc.Connection) -> int:
 def test_get_user_by_id(conn: pyodbc.Connection, user_id: int) -> None:
     """Test GetUserById query."""
     user = get_user_by_id(conn, id=user_id)
-    assert user is not None, f"GetUserById returned None for id={user_id}"
     assert user.name == "Alice", f"Expected name 'Alice', got '{user.name}'"
     assert user.id == user_id, f"Expected id {user_id}, got {user.id}"
     print("PASS: GetUserById")
@@ -99,8 +98,12 @@ def test_delete_user(conn: pyodbc.Connection, user_id: int) -> None:
     delete_orders_by_user(conn, user_id=user_id)
     delete_user(conn, id=user_id)
     conn.commit()
-    user = get_user_by_id(conn, id=user_id)
-    assert user is None, f"Expected user to be deleted, but got {user}"
+    try:
+        user = get_user_by_id(conn, id=user_id)
+    except ScytheNoRowsError:
+        pass
+    else:
+        raise AssertionError(f"Expected user to be deleted, but got {user}")
     print("PASS: DeleteUser")
 
 

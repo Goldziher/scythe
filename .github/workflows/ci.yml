@@ -537,7 +537,7 @@ jobs:
             "python-asyncpg:0" \
             "python-aiosqlite:0" \
             "python-oracledb-oracle:0" \
-            "python-snowflake:1"; do
+            "python-snowflake:0"; do
             proj="${entry%%:*}"
             expected="${entry##*:}"
             dir="integration_tests/$proj"

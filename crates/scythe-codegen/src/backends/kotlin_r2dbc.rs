@@ -300,8 +300,28 @@ impl CodegenBackend for KotlinR2dbcBackend {
                 }
             }
             QueryCommand::One | QueryCommand::Opt => {
-                let ret = format!(": {}?", struct_name);
+                // ~keep #192: see java-r2dbc's generate_query_fn for the full
+                // reasoning -- a missing row in a reactive chain is an error
+                // signal on the publisher, not a thrown exception at call
+                // time. `:opt` keeps `awaitFirstOrNull()` (already correct:
+                // null on an empty Mono, without an exception). `:one` chains
+                // `.switchIfEmpty(Mono.error(...))` onto the row-producing
+                // Mono before collecting it, then collects with
+                // `awaitFirst()` (no new import: both are already imported)
+                // rather than `awaitFirstOrNull()`, so the coroutine
+                // propagates the error instead of returning a null the
+                // now-non-nullable return type could not express.
+                let is_one = matches!(analyzed.command, QueryCommand::One);
+                let ret = if is_one {
+                    format!(": {}", struct_name)
+                } else {
+                    format!(": {}?", struct_name)
+                };
                 write_suspend_fn_sig(&mut out, &func_name, &ret, use_multiline_params, params);
+                let switch_if_empty = format!(
+                    "Mono.error(java.util.NoSuchElementException(\"{}: no rows returned\"))",
+                    func_name
+                );
                 if ext {
                     let _ = writeln!(out, "    val stmt = createStatement(\"{sql}\")");
                     write_binds(&mut out, "    stmt");
@@ -314,7 +334,13 @@ impl CodegenBackend for KotlinR2dbcBackend {
                     let _ = writeln!(out);
                     let _ = writeln!(out, "                }},");
                     let _ = writeln!(out, "            )");
-                    let _ = writeln!(out, "        }}.awaitFirstOrNull()");
+                    if is_one {
+                        let _ = writeln!(out, "        }}");
+                        let _ = writeln!(out, "        .switchIfEmpty({switch_if_empty})");
+                        let _ = writeln!(out, "        .awaitFirst()");
+                    } else {
+                        let _ = writeln!(out, "        }}.awaitFirstOrNull()");
+                    }
                     let _ = writeln!(out, "}}");
                 } else {
                     let _ = writeln!(out, "    val conn = Mono.from(cf.create()).awaitFirst()");
@@ -330,7 +356,13 @@ impl CodegenBackend for KotlinR2dbcBackend {
                     let _ = writeln!(out);
                     let _ = writeln!(out, "                    }},");
                     let _ = writeln!(out, "                )");
-                    let _ = writeln!(out, "            }}.awaitFirstOrNull()");
+                    if is_one {
+                        let _ = writeln!(out, "            }}");
+                        let _ = writeln!(out, "            .switchIfEmpty({switch_if_empty})");
+                        let _ = writeln!(out, "            .awaitFirst()");
+                    } else {
+                        let _ = writeln!(out, "            }}.awaitFirstOrNull()");
+                    }
                     let _ = writeln!(out, "    }} finally {{");
                     let _ = writeln!(out, "        Mono.from(conn.close()).awaitFirstOrNull()");
                     let _ = writeln!(out, "    }}");

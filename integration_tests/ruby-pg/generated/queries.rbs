@@ -16,7 +16,7 @@ module Queries
     def self.new: (id: Integer, user_id: Integer, total: BigDecimal, notes: String?, created_at: Time) -> CreateOrderRow
   end
 
-  def self.create_order: (PG::Connection, Integer, BigDecimal, String?) -> CreateOrderRow?
+  def self.create_order: (PG::Connection, Integer, BigDecimal, String?) -> CreateOrderRow
 
   class GetOrdersByUserRow
     attr_reader id: Integer
@@ -33,14 +33,14 @@ module Queries
     def self.new: (total_sum: BigDecimal?) -> GetOrderTotalRow
   end
 
-  def self.get_order_total: (PG::Connection, Integer) -> GetOrderTotalRow?
+  def self.get_order_total: (PG::Connection, Integer) -> GetOrderTotalRow
 
   class GetOrderWeightTotalRow
     attr_reader weight_total: Float?
     def self.new: (weight_total: Float?) -> GetOrderWeightTotalRow
   end
 
-  def self.get_order_weight_total: (PG::Connection, Integer) -> GetOrderWeightTotalRow?
+  def self.get_order_weight_total: (PG::Connection, Integer) -> GetOrderWeightTotalRow
 
   def self.delete_orders_by_user: (PG::Connection, Integer) -> Integer
 
@@ -53,7 +53,7 @@ module Queries
     def self.new: (id: Integer, name: String, email: String?, status: String, created_at: Time) -> GetUserByIdRow
   end
 
-  def self.get_user_by_id: (PG::Connection, Integer) -> GetUserByIdRow?
+  def self.get_user_by_id: (PG::Connection, Integer) -> GetUserByIdRow
 
   class ListActiveUsersRow
     attr_reader id: Integer
@@ -73,7 +73,7 @@ module Queries
     def self.new: (id: Integer, name: String, email: String?, status: String, created_at: Time) -> CreateUserRow
   end
 
-  def self.create_user: (PG::Connection, String, String?, String) -> CreateUserRow?
+  def self.create_user: (PG::Connection, String, String?, String) -> CreateUserRow
 
   def self.update_user_email: (PG::Connection, String, Integer) -> void
 
@@ -95,7 +95,7 @@ module Queries
     def self.new: (status: String, user_count: Integer) -> CountUsersByStatusRow
   end
 
-  def self.count_users_by_status: (PG::Connection, String) -> CountUsersByStatusRow?
+  def self.count_users_by_status: (PG::Connection, String) -> CountUsersByStatusRow
 
   class GetUserWithTagsRow
     attr_reader id: Integer

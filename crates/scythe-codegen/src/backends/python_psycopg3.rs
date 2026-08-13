@@ -12,7 +12,8 @@ use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 
 use super::python_common::{
-    PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, type_support_imports,
+    PythonRowType, generate_grouped_fold_positional, generate_grouped_structs_py, no_rows_exception_def,
+    type_support_imports, write_missing_row_guard,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-psycopg3.toml");
@@ -131,7 +132,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
         } else {
             ""
         };
-        if self.row_type.is_stdlib_import() {
+        let header = if self.row_type.is_stdlib_import() {
             format!(
                 "import datetime  # noqa: F401\n\
                  import decimal  # noqa: F401\n\
@@ -157,7 +158,8 @@ impl CodegenBackend for PythonPsycopg3Backend {
                  {third_party}\n\
                  \n",
             )
-        }
+        };
+        format!("{header}{}", no_rows_exception_def())
     }
 
     fn generate_struct_decl(
@@ -236,10 +238,16 @@ impl CodegenBackend for PythonPsycopg3Backend {
 
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
+                let is_one = matches!(analyzed.command, QueryCommand::One);
+                let ret_type = if is_one {
+                    struct_name.to_string()
+                } else {
+                    format!("{struct_name} | None")
+                };
                 let _ = writeln!(
                     out,
-                    "async def {}(conn: AsyncConnection{}{}) -> {} | None:",
-                    func_name, kw_sep, param_list, struct_name
+                    "async def {}(conn: AsyncConnection{}{}) -> {}:",
+                    func_name, kw_sep, param_list, ret_type
                 );
                 let _ = writeln!(out, "    \"\"\"Execute {} query.\"\"\"", analyzed.name);
                 if params.is_empty() {
@@ -257,8 +265,7 @@ impl CodegenBackend for PythonPsycopg3Backend {
                     let _ = writeln!(out, "    )");
                 }
                 let _ = writeln!(out, "    row = await cur.fetchone()");
-                let _ = writeln!(out, "    if row is None:");
-                let _ = writeln!(out, "        return None");
+                write_missing_row_guard(&mut out, "    ", "row", is_one, &analyzed.name);
                 let field_assignments: Vec<String> = columns
                     .iter()
                     .enumerate()

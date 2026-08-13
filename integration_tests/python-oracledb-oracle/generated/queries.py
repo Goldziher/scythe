@@ -7,6 +7,10 @@ from enum import Enum  # noqa: F401
 import oracledb  # noqa: F401
 
 
+class ScytheNoRowsError(Exception):
+    """Raised by a `:one` query when no row matches."""
+
+
 
 @dataclass(frozen=True, slots=True)
 class CreateAttachmentRow:
@@ -17,7 +21,7 @@ class CreateAttachmentRow:
     filename: str
 
 
-async def create_attachment(conn: oracledb.AsyncConnection, *, order_id: int, filename: str, payload: bytes, description: str | None) -> CreateAttachmentRow | None:
+async def create_attachment(conn: oracledb.AsyncConnection, *, order_id: int, filename: str, payload: bytes, description: str | None) -> CreateAttachmentRow:
     """Execute CreateAttachment query."""
     async with conn.cursor() as cur:
         out_id = cur.var(oracledb.NUMBER)
@@ -104,7 +108,7 @@ class CreateOrderRow:
     created_at: datetime.datetime
 
 
-async def create_order(conn: oracledb.AsyncConnection, *, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow | None:
+async def create_order(conn: oracledb.AsyncConnection, *, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow:
     """Execute CreateOrder query."""
     async with conn.cursor() as cur:
         out_id = cur.var(oracledb.NUMBER)
@@ -153,7 +157,7 @@ class GetOrderTotalRow:
     total_sum: decimal.Decimal | None
 
 
-async def get_order_total(conn: oracledb.AsyncConnection, *, user_id: int) -> GetOrderTotalRow | None:
+async def get_order_total(conn: oracledb.AsyncConnection, *, user_id: int) -> GetOrderTotalRow:
     """Execute GetOrderTotal query."""
     async with conn.cursor() as cur:
         await cur.execute(
@@ -162,7 +166,7 @@ async def get_order_total(conn: oracledb.AsyncConnection, *, user_id: int) -> Ge
         )
         row = await cur.fetchone()
         if row is None:
-            return None
+            raise ScytheNoRowsError("GetOrderTotal: no rows returned")
         return GetOrderTotalRow(total_sum=row[0])
 
 
@@ -184,7 +188,7 @@ class GetUserByIdRow:
     created_at: datetime.datetime
 
 
-async def get_user_by_id(conn: oracledb.AsyncConnection, *, id: int) -> GetUserByIdRow | None:
+async def get_user_by_id(conn: oracledb.AsyncConnection, *, id: int) -> GetUserByIdRow:
     """Execute GetUserById query."""
     async with conn.cursor() as cur:
         await cur.execute(
@@ -193,7 +197,7 @@ async def get_user_by_id(conn: oracledb.AsyncConnection, *, id: int) -> GetUserB
         )
         row = await cur.fetchone()
         if row is None:
-            return None
+            raise ScytheNoRowsError("GetUserById: no rows returned")
         return GetUserByIdRow(
             id=row[0],
             name=row[1],
@@ -231,7 +235,7 @@ class CreateUserRow:
     created_at: datetime.datetime
 
 
-async def create_user(conn: oracledb.AsyncConnection, *, name: str, email: str | None, active: int) -> CreateUserRow | None:
+async def create_user(conn: oracledb.AsyncConnection, *, name: str, email: str | None, active: int) -> CreateUserRow:
     """Execute CreateUser query."""
     async with conn.cursor() as cur:
         out_id = cur.var(oracledb.NUMBER)

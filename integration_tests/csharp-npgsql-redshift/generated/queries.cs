@@ -13,13 +13,13 @@ public record CreateOrderRow(
     DateTimeOffset CreatedAt
 );
 
-public static async Task<CreateOrderRow?> CreateOrder(NpgsqlConnection conn, int user_id, decimal total, string? notes) {
+public static async Task<CreateOrderRow> CreateOrder(NpgsqlConnection conn, int user_id, decimal total, string? notes) {
     await using var cmd = new NpgsqlCommand(@"INSERT INTO orders (user_id, total, notes) VALUES (@p1, @p2, @p3) RETURNING id, user_id, total, notes, created_at", conn);
     cmd.Parameters.AddWithValue("p1", user_id);
     cmd.Parameters.AddWithValue("p2", total);
     cmd.Parameters.AddWithValue("p3", notes);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("CreateOrder expected exactly one row but found none");
     return new CreateOrderRow(
         reader.GetInt32(0),
         reader.GetInt32(1),
@@ -56,11 +56,11 @@ public record GetOrderTotalRow(
     decimal? TotalSum
 );
 
-public static async Task<GetOrderTotalRow?> GetOrderTotal(NpgsqlConnection conn, int user_id) {
+public static async Task<GetOrderTotalRow> GetOrderTotal(NpgsqlConnection conn, int user_id) {
     await using var cmd = new NpgsqlCommand(@"SELECT SUM(total) AS total_sum FROM orders WHERE user_id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", user_id);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetOrderTotal expected exactly one row but found none");
     return new GetOrderTotalRow(
         reader.IsDBNull(0) ? null : reader.GetDecimal(0)
     );
@@ -80,11 +80,11 @@ public record GetUserByIdRow(
     DateTimeOffset CreatedAt
 );
 
-public static async Task<GetUserByIdRow?> GetUserById(NpgsqlConnection conn, int id) {
+public static async Task<GetUserByIdRow> GetUserById(NpgsqlConnection conn, int id) {
     await using var cmd = new NpgsqlCommand(@"SELECT id, name, email, status, created_at FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", id);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserById expected exactly one row but found none");
     return new GetUserByIdRow(
         reader.GetInt32(0),
         reader.GetString(1),
@@ -123,13 +123,13 @@ public record CreateUserRow(
     DateTimeOffset CreatedAt
 );
 
-public static async Task<CreateUserRow?> CreateUser(NpgsqlConnection conn, string name, string? email, string status) {
+public static async Task<CreateUserRow> CreateUser(NpgsqlConnection conn, string name, string? email, string status) {
     await using var cmd = new NpgsqlCommand(@"INSERT INTO users (name, email, status) VALUES (@p1, @p2, @p3) RETURNING id, name, email, status, created_at", conn);
     cmd.Parameters.AddWithValue("p1", name);
     cmd.Parameters.AddWithValue("p2", email);
     cmd.Parameters.AddWithValue("p3", status);
     await using var reader = await cmd.ExecuteReaderAsync();
-    if (!await reader.ReadAsync()) return null;
+    if (!await reader.ReadAsync()) throw new InvalidOperationException("CreateUser expected exactly one row but found none");
     return new CreateUserRow(
         reader.GetInt32(0),
         reader.GetString(1),

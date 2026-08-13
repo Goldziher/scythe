@@ -346,7 +346,29 @@ impl CodegenBackend for KotlinExposedBackend {
                 let _ = writeln!(out, "    }}");
             }
             QueryCommand::One | QueryCommand::Opt => {
-                let ret = format!(": {}?", struct_name);
+                // ~keep #192: see java-jdbc's generate_query_fn for the full
+                // reasoning -- this shared arm used to render byte-identical
+                // code for :one and :opt, so :one silently returned null on a
+                // missing row instead of erroring. `is_one` is the only
+                // difference from here down. The `rs.next()` if/else itself
+                // -- including its `null` branch -- stays identical between
+                // :one and :opt: `Transaction.exec(sql) { rs -> T }` returns
+                // `T?` regardless of what the lambda's branches do, so a
+                // throw *inside* the lambda would not change the static
+                // nullability of the `exec(...)` call it's nested in, and
+                // `: {Struct}` (no `?`) would not type-check against it. The
+                // fallback instead sits on the *outer* call, as `exec(...) {
+                // ... } ?: throw NoSuchElementException(...)` -- turning the
+                // nullable result non-null the same way it would for a
+                // driver-level absent-ResultSet null, not only the
+                // rs.next()-false case (`kotlin.NoSuchElementException` is in
+                // Kotlin's default imports, so no import is needed).
+                let is_one = matches!(analyzed.command, QueryCommand::One);
+                let ret = if is_one {
+                    format!(": {}", struct_name)
+                } else {
+                    format!(": {}?", struct_name)
+                };
                 write_fn_sig(&mut out, &func_name, &ret, params);
                 let args = build_args(params);
                 let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
@@ -365,7 +387,15 @@ impl CodegenBackend for KotlinExposedBackend {
                 let _ = writeln!(out, "            }} else {{");
                 let _ = writeln!(out, "                null");
                 let _ = writeln!(out, "            }}");
-                let _ = writeln!(out, "        }}");
+                if is_one {
+                    let _ = writeln!(
+                        out,
+                        "        }} ?: throw NoSuchElementException(\"{}: no rows returned\")",
+                        func_name
+                    );
+                } else {
+                    let _ = writeln!(out, "        }}");
+                }
                 let _ = writeln!(out, "    }}");
             }
             QueryCommand::Batch => {

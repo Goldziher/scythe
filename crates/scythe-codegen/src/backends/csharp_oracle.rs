@@ -227,7 +227,8 @@ impl CodegenBackend for CsharpOracleBackend {
         }
 
         let return_type = match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => format!("{}?", struct_name),
+            QueryCommand::One => struct_name.to_string(),
+            QueryCommand::Opt => format!("{}?", struct_name),
             QueryCommand::Many => format!("List<{}>", struct_name),
             QueryCommand::Exec => "void".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "int".to_string(),
@@ -294,7 +295,15 @@ impl CodegenBackend for CsharpOracleBackend {
                              OracleDbType = {db_type},{size_part} Direction = System.Data.ParameterDirection.Output }});"
                         );
                     }
-                    let _ = writeln!(out, "    await cmd.ExecuteNonQueryAsync();");
+                    let _ = writeln!(out, "    var rowsAffected = await cmd.ExecuteNonQueryAsync();");
+                    if matches!(analyzed.command, QueryCommand::One) {
+                        let _ = writeln!(
+                            out,
+                            "    if (rowsAffected == 0) throw new InvalidOperationException(\"{func_name} expected exactly one row but found none\");"
+                        );
+                    } else {
+                        let _ = writeln!(out, "    if (rowsAffected == 0) return null;");
+                    }
                     let _ = writeln!(out, "    return new {}(", struct_name);
                     for (i, col) in columns.iter().enumerate() {
                         let param_expr = format!("cmd.Parameters[\"out{i}\"].Value");
@@ -305,7 +314,14 @@ impl CodegenBackend for CsharpOracleBackend {
                     let _ = writeln!(out, "    );");
                 } else {
                     let _ = writeln!(out, "    using var reader = await cmd.ExecuteReaderAsync();");
-                    let _ = writeln!(out, "    if (!await reader.ReadAsync()) return null;");
+                    if matches!(analyzed.command, QueryCommand::One) {
+                        let _ = writeln!(
+                            out,
+                            "    if (!await reader.ReadAsync()) throw new InvalidOperationException(\"{func_name} expected exactly one row but found none\");"
+                        );
+                    } else {
+                        let _ = writeln!(out, "    if (!await reader.ReadAsync()) return null;");
+                    }
                     let _ = writeln!(out, "    return new {}(", struct_name);
                     for (i, col) in columns.iter().enumerate() {
                         let method = reader_method(&col.neutral_type, &col.lang_type);

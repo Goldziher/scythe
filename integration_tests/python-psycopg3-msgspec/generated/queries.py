@@ -9,6 +9,10 @@ import msgspec
 from psycopg import AsyncConnection  # noqa: F401
 
 
+class ScytheNoRowsError(Exception):
+    """Raised by a `:one` query when no row matches."""
+
+
 
 class UserStatus(str, Enum):
     """Database enum type user_status."""
@@ -28,7 +32,7 @@ class CreateOrderRow(msgspec.Struct):
     created_at: datetime.datetime
 
 
-async def create_order(conn: AsyncConnection, *, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow | None:
+async def create_order(conn: AsyncConnection, *, user_id: int, total: decimal.Decimal, notes: str | None) -> CreateOrderRow:
     """Execute CreateOrder query."""
     cur = await conn.execute(
         """INSERT INTO orders (user_id, total, notes) VALUES (%(user_id)s, %(total)s, %(notes)s) RETURNING id, user_id, total, notes, created_at""",
@@ -36,7 +40,7 @@ async def create_order(conn: AsyncConnection, *, user_id: int, total: decimal.De
     )
     row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("CreateOrder: no rows returned")
     return CreateOrderRow(
         id=row[0],
         user_id=row[1],
@@ -79,7 +83,7 @@ class GetOrderTotalRow(msgspec.Struct):
     total_sum: decimal.Decimal | None
 
 
-async def get_order_total(conn: AsyncConnection, *, user_id: int) -> GetOrderTotalRow | None:
+async def get_order_total(conn: AsyncConnection, *, user_id: int) -> GetOrderTotalRow:
     """Execute GetOrderTotal query."""
     cur = await conn.execute(
         """SELECT SUM(total) AS total_sum FROM orders WHERE user_id = %(user_id)s""",
@@ -87,7 +91,7 @@ async def get_order_total(conn: AsyncConnection, *, user_id: int) -> GetOrderTot
     )
     row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetOrderTotal: no rows returned")
     return GetOrderTotalRow(total_sum=row[0])
 
 
@@ -97,7 +101,7 @@ class GetOrderWeightTotalRow(msgspec.Struct):
     weight_total: float | None
 
 
-async def get_order_weight_total(conn: AsyncConnection, *, user_id: int) -> GetOrderWeightTotalRow | None:
+async def get_order_weight_total(conn: AsyncConnection, *, user_id: int) -> GetOrderWeightTotalRow:
     """Execute GetOrderWeightTotal query."""
     cur = await conn.execute(
         """SELECT SUM(weight_kg) AS weight_total FROM orders WHERE user_id = %(user_id)s""",
@@ -105,7 +109,7 @@ async def get_order_weight_total(conn: AsyncConnection, *, user_id: int) -> GetO
     )
     row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetOrderWeightTotal: no rows returned")
     return GetOrderWeightTotalRow(weight_total=row[0])
 
 
@@ -128,7 +132,7 @@ class GetUserByIdRow(msgspec.Struct):
     created_at: datetime.datetime
 
 
-async def get_user_by_id(conn: AsyncConnection, *, id: int) -> GetUserByIdRow | None:
+async def get_user_by_id(conn: AsyncConnection, *, id: int) -> GetUserByIdRow:
     """Execute GetUserById query."""
     cur = await conn.execute(
         """SELECT id, name, email, status, created_at FROM users WHERE id = %(id)s""",
@@ -136,7 +140,7 @@ async def get_user_by_id(conn: AsyncConnection, *, id: int) -> GetUserByIdRow | 
     )
     row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("GetUserById: no rows returned")
     return GetUserByIdRow(
         id=row[0],
         name=row[1],
@@ -174,7 +178,7 @@ class CreateUserRow(msgspec.Struct):
     created_at: datetime.datetime
 
 
-async def create_user(conn: AsyncConnection, *, name: str, email: str | None, status: UserStatus) -> CreateUserRow | None:
+async def create_user(conn: AsyncConnection, *, name: str, email: str | None, status: UserStatus) -> CreateUserRow:
     """Execute CreateUser query."""
     cur = await conn.execute(
         """INSERT INTO users (name, email, status) VALUES (%(name)s, %(email)s, %(status)s) RETURNING id, name, email, status, created_at""",
@@ -182,7 +186,7 @@ async def create_user(conn: AsyncConnection, *, name: str, email: str | None, st
     )
     row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("CreateUser: no rows returned")
     return CreateUserRow(
         id=row[0],
         name=row[1],
@@ -237,7 +241,7 @@ class CountUsersByStatusRow(msgspec.Struct):
     user_count: int
 
 
-async def count_users_by_status(conn: AsyncConnection, *, status: UserStatus) -> CountUsersByStatusRow | None:
+async def count_users_by_status(conn: AsyncConnection, *, status: UserStatus) -> CountUsersByStatusRow:
     """Execute CountUsersByStatus query."""
     cur = await conn.execute(
         """SELECT status, COUNT(*) AS user_count FROM users GROUP BY status HAVING status = %(status)s""",
@@ -245,7 +249,7 @@ async def count_users_by_status(conn: AsyncConnection, *, status: UserStatus) ->
     )
     row = await cur.fetchone()
     if row is None:
-        return None
+        raise ScytheNoRowsError("CountUsersByStatus: no rows returned")
     return CountUsersByStatusRow(status=row[0], user_count=row[1])
 
 

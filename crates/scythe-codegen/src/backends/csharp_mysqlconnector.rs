@@ -207,7 +207,8 @@ impl CodegenBackend for CsharpMysqlConnectorBackend {
         }
 
         let return_type = match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => format!("{}?", struct_name),
+            QueryCommand::One => struct_name.to_string(),
+            QueryCommand::Opt => format!("{}?", struct_name),
             QueryCommand::Many => {
                 format!("List<{}>", struct_name)
             }
@@ -245,7 +246,14 @@ impl CodegenBackend for CsharpMysqlConnectorBackend {
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "    await using var reader = await cmd.ExecuteReaderAsync();");
-                let _ = writeln!(out, "    if (!await reader.ReadAsync()) return null;");
+                if matches!(analyzed.command, QueryCommand::One) {
+                    let _ = writeln!(
+                        out,
+                        "    if (!await reader.ReadAsync()) throw new InvalidOperationException(\"{func_name} expected exactly one row but found none\");"
+                    );
+                } else {
+                    let _ = writeln!(out, "    if (!await reader.ReadAsync()) return null;");
+                }
                 let _ = writeln!(out, "    return new {}(", struct_name);
                 for (i, col) in columns.iter().enumerate() {
                     let expr = column_read_expr(col, i);

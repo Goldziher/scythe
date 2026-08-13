@@ -78,7 +78,7 @@ impl CodegenBackend for RubySqlite3Backend {
     }
 
     fn file_header(&self) -> String {
-        "module Queries".to_string()
+        format!("module Queries\n{}", super::ruby_rbs::RECORD_NOT_FOUND_CLASS)
     }
 
     fn file_footer(&self) -> String {
@@ -139,7 +139,30 @@ impl CodegenBackend for RubySqlite3Backend {
         };
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
+                let _ = writeln!(out, "    row = db.get_first_row(\"{}\", {})", sql, param_array);
+                let _ = writeln!(
+                    out,
+                    "    raise RecordNotFound, \"{}: no row found\" if row.nil?",
+                    func_name
+                );
+
+                let fields = columns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, c)| {
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
+                        if c.nullable {
+                            format!("{}: row[{}]&.then {{ |v| v{} }}", c.field_name, i, coercion)
+                        } else {
+                            format!("{}: row[{}]{}", c.field_name, i, coercion)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let _ = writeln!(out, "    {}.new({})", struct_name, fields);
+            }
+            QueryCommand::Opt => {
                 let _ = writeln!(out, "    row = db.get_first_row(\"{}\", {})", sql, param_array);
                 let _ = writeln!(out, "    return nil if row.nil?");
 

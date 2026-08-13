@@ -14,7 +14,7 @@ use crate::backends::typescript_common::{
     TsFieldCase, TsRowShape, TsRowType, escape_ts_double_quoted_literal, escape_ts_template_literal,
     generate_grouped_interface_structs, generate_ts_grouped_fold_body, generate_ts_interface_row_struct,
     generate_ts_union_row_struct, generate_zod_grouped_structs, generate_zod_row_struct, generate_zod_union_row_struct,
-    parse_bool_option, ts_index_access, ts_property_key,
+    parse_bool_option, ts_index_access, ts_property_key, ts_row_not_found_throw,
 };
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-oracledb.toml");
@@ -221,84 +221,97 @@ impl CodegenBackend for TypescriptOracledbBackend {
 
         let mut out = String::new();
 
-        match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+        // ~keep Shared by the `:one`/`:opt` arms below: both read a row through the
+        // same `has_returning` / `OUT_FORMAT_OBJECT` split and differ only in the
+        // declared return type and in what the missing-row branch does (#192)
+        // -- `missing_stmt` is `throw new Error(...)` for `:one`, `return null;`
+        // for `:opt`. Extracted rather than duplicated so the two paths cannot
+        // drift on the read logic itself.
+        let write_one_or_opt = |out: &mut String, promise_ret: &str, missing_stmt: &str| {
+            let _ = writeln!(
+                out,
+                "export async function {}(conn: oracledb.Connection{}{}): Promise<{}> {{",
+                func_name, sep, param_list, promise_ret
+            );
+
+            if has_returning {
+                let out_bind_entries: Vec<String> = columns
+                    .iter()
+                    .map(|col| {
+                        let nt = col.neutral_type.as_str();
+                        let oratype = match nt {
+                            "int32" | "int64" | "float32" | "float64" | "decimal" => "oracledb.NUMBER",
+                            "date" | "datetime" | "datetime_tz" | "time" | "time_tz" => "oracledb.DATE",
+                            _ => "oracledb.STRING",
+                        };
+                        format!("{{ dir: oracledb.BIND_OUT, type: {} }}", oratype)
+                    })
+                    .collect();
+                let into_clause = columns
+                    .iter()
+                    .enumerate()
+                    .map(|(i, _)| format!(":{}", params.len() + i + 1))
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                let full_sql = format!("{} INTO {}", sql, into_clause);
+                let all_binds = if params.is_empty() {
+                    format!("[{}]", out_bind_entries.join(", "))
+                } else {
+                    let input_names: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
+                    format!("[{}, {}]", input_names.join(", "), out_bind_entries.join(", "))
+                };
                 let _ = writeln!(
                     out,
-                    "export async function {}(conn: oracledb.Connection{}{}): Promise<{} | null> {{",
-                    func_name, sep, param_list, struct_name
+                    "\tconst result = await conn.execute(\"{}\", {});",
+                    full_sql, all_binds
                 );
-
-                if has_returning {
-                    let out_bind_entries: Vec<String> = columns
-                        .iter()
-                        .map(|col| {
-                            let nt = col.neutral_type.as_str();
-                            let oratype = match nt {
-                                "int32" | "int64" | "float32" | "float64" | "decimal" => "oracledb.NUMBER",
-                                "date" | "datetime" | "datetime_tz" | "time" | "time_tz" => "oracledb.DATE",
-                                _ => "oracledb.STRING",
-                            };
-                            format!("{{ dir: oracledb.BIND_OUT, type: {} }}", oratype)
-                        })
-                        .collect();
-                    let into_clause = columns
-                        .iter()
-                        .enumerate()
-                        .map(|(i, _)| format!(":{}", params.len() + i + 1))
-                        .collect::<Vec<_>>()
-                        .join(", ");
-                    let full_sql = format!("{} INTO {}", sql, into_clause);
-                    let all_binds = if params.is_empty() {
-                        format!("[{}]", out_bind_entries.join(", "))
-                    } else {
-                        let input_names: Vec<String> = params.iter().map(|p| p.field_name.clone()).collect();
-                        format!("[{}, {}]", input_names.join(", "), out_bind_entries.join(", "))
-                    };
+                let _ = writeln!(out, "\tif (!result.outBinds) {{");
+                let _ = writeln!(out, "\t\t{}", missing_stmt);
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tconst outBinds = result.outBinds as unknown[][];");
+                let _ = writeln!(out, "\treturn {{");
+                for (i, col) in columns.iter().enumerate() {
                     let _ = writeln!(
                         out,
-                        "\tconst result = await conn.execute(\"{}\", {});",
-                        full_sql, all_binds
+                        "\t\t{}: (outBinds[{}] ?? [])[0] as {},",
+                        ts_property_key(&col.field_name),
+                        i,
+                        row_shape.cast_type(col)
                     );
-                    let _ = writeln!(out, "\tif (!result.outBinds) {{");
-                    let _ = writeln!(out, "\t\treturn null;");
-                    let _ = writeln!(out, "\t}}");
-                    let _ = writeln!(out, "\tconst outBinds = result.outBinds as unknown[][];");
-                    let _ = writeln!(out, "\treturn {{");
-                    for (i, col) in columns.iter().enumerate() {
-                        let _ = writeln!(
-                            out,
-                            "\t\t{}: (outBinds[{}] ?? [])[0] as {},",
-                            ts_property_key(&col.field_name),
-                            i,
-                            row_shape.cast_type(col)
-                        );
-                    }
-                    let _ = writeln!(out, "\t}};");
-                    let _ = write!(out, "}}");
-                } else {
-                    let _ = writeln!(
-                        out,
-                        "\tconst result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
-                        sql, bind_array
-                    );
-                    let _ = writeln!(out, "\tif (!result.rows || result.rows.length === 0) {{");
-                    let _ = writeln!(out, "\t\treturn null;");
-                    let _ = writeln!(out, "\t}}");
-                    let _ = writeln!(out, "\tconst row = result.rows[0] as Record<string, unknown>;");
-                    let _ = writeln!(out, "\treturn {{");
-                    for col in columns {
-                        let _ = writeln!(
-                            out,
-                            "\t\t{}: row[\"{}\"] as {},",
-                            ts_property_key(&col.field_name),
-                            oracle_row_key(&col.name),
-                            row_shape.cast_type(col)
-                        );
-                    }
-                    let _ = writeln!(out, "\t}};");
-                    let _ = write!(out, "}}");
                 }
+                let _ = writeln!(out, "\t}};");
+                let _ = write!(out, "}}");
+            } else {
+                let _ = writeln!(
+                    out,
+                    "\tconst result = await conn.execute(\"{}\", {}, {{ outFormat: oracledb.OUT_FORMAT_OBJECT }});",
+                    sql, bind_array
+                );
+                let _ = writeln!(out, "\tif (!result.rows || result.rows.length === 0) {{");
+                let _ = writeln!(out, "\t\t{}", missing_stmt);
+                let _ = writeln!(out, "\t}}");
+                let _ = writeln!(out, "\tconst row = result.rows[0] as Record<string, unknown>;");
+                let _ = writeln!(out, "\treturn {{");
+                for col in columns {
+                    let _ = writeln!(
+                        out,
+                        "\t\t{}: row[\"{}\"] as {},",
+                        ts_property_key(&col.field_name),
+                        oracle_row_key(&col.name),
+                        row_shape.cast_type(col)
+                    );
+                }
+                let _ = writeln!(out, "\t}};");
+                let _ = write!(out, "}}");
+            }
+        };
+
+        match &analyzed.command {
+            QueryCommand::One => {
+                write_one_or_opt(&mut out, struct_name, &ts_row_not_found_throw(&analyzed.name));
+            }
+            QueryCommand::Opt => {
+                write_one_or_opt(&mut out, &format!("{} | null", struct_name), "return null;");
             }
             QueryCommand::Many => {
                 let _ = writeln!(

@@ -22,6 +22,24 @@ use scythe_core::errors::{ErrorCode, ScytheError};
 
 use crate::backend_trait::{ResolvedColumn, ResolvedParam};
 
+/// Class name of the exception every php-* backend throws for a `:one` query whose database
+/// returns no row.
+///
+/// `:one` means "exactly one row, error if absent" -- unlike `:opt`, which returns `null` for a
+/// legitimately absent row. `RuntimeException` is the idiomatic PHP base for an
+/// application-specific exception (this project's php-conventions: "specific exceptions
+/// extending RuntimeException"), matching the `throw new RuntimeException(...)` the generated
+/// integration-test harness (`tools/integration-test-generator/templates/php.php.jinja`)
+/// already uses for its own assertion failures.
+pub(crate) const RECORD_NOT_FOUND_EXCEPTION_CLASS: &str = "RecordNotFoundException";
+
+/// The `RecordNotFoundException` class declaration, written once per generated file (see
+/// `PhpPdoBackend::file_header`/`PhpAmphpBackend::file_header`) alongside the row classes and
+/// query methods that reference it.
+pub(crate) fn record_not_found_exception_class_def() -> String {
+    format!("final class {RECORD_NOT_FOUND_EXCEPTION_CLASS} extends \\RuntimeException {{}}\n")
+}
+
 /// The docblock type for a value already rendered as `native` in a native
 /// position, or `None` when the two are the same string.
 ///
