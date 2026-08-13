@@ -28,7 +28,26 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   (`check-constraint-always-true`), where `NULL` genuinely does satisfy a CHECK constraint, is
   unaffected. (#139)
 
+### Added
+
+- **`scythe generate --validate-output`** runs the generated code through the real compiler or linter
+  for its language and reports, per target, whether it was `VALIDATED`, `SKIPPED`, or `FAILED`.
+  `validate_generated_code` previously had no production caller at all — every call site outside
+  `validation.rs` was a test — so `generate` never checked its own output. Off by default because it
+  shells out to toolchains that may not be installed. A run where the validator found no tool to
+  invoke is reported as `SKIPPED`, never as success: reporting it as validated would recreate the
+  unfalsifiable gate the flag exists to close. A `FAILED` target exits 2, matching the exit-code
+  contract `check`/`lint`/`fmt --check` follow, where exit 1 stays reserved for operational failure.
+  (#187)
+
 ### Fixed
+
+- **`check` printed "All queries valid." for a query file it had not checked at all.** A file whose
+  annotations were never recognised — a mistyped `--name:`, or every statement commented out — yields
+  zero query blocks, and `has_unannotated_sql` deliberately ignores it, so the run reported success
+  having examined nothing. A non-empty file that produces no query blocks is now an `SC-PRV10` error
+  naming the file. A genuinely empty or whitespace-only file is still accepted: there is nothing there
+  that could have been misrecognised. (#186)
 
 - **`VARBINARY(MAX)` resolved to the invalid neutral type `varbinary(max)`, which no manifest maps.**
   SQL Server's unbounded binary type parses to `DataType::Varbinary(Some(BinaryLength::Max))`, for

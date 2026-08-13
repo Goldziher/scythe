@@ -22,6 +22,18 @@ enum Commands {
         /// written.
         #[arg(long)]
         allow_output_escape: bool,
+        /// Validate each target's generated output with the real
+        /// compiler/linter for its language (`poly`, `tsc`, `javac`,
+        /// `kotlinc`, `gofmt`, `ruby`, ...), reporting per target whether it
+        /// was validated, skipped (no validator for that language, or the
+        /// tool it needs is not installed), or failed. Exits 2 -- not 1 --
+        /// if any target fails.
+        ///
+        /// Off by default: it shells out to external toolchains that may not
+        /// be installed, so making it the default would break `generate` for
+        /// anyone missing one.
+        #[arg(long)]
+        validate_output: bool,
     },
     /// Migrate from sqlc to scythe format
     Migrate {
@@ -197,7 +209,8 @@ fn main() {
         Commands::Generate {
             config,
             allow_output_escape,
-        } => commands::generate::run_generate(&config, allow_output_escape),
+            validate_output,
+        } => commands::generate::run_generate(&config, allow_output_escape, validate_output),
         Commands::Migrate { sqlc_config } => commands::migrate::run_migrate(std::path::Path::new(&sqlc_config))
             .map_err(|e| Box::new(e) as Box<dyn std::error::Error>),
         Commands::Check {

@@ -19,6 +19,12 @@
 //!    used for an operational failure (bad config, unreadable file). #212
 //!    already draws this line for `lint`/`check` (exit 2 for findings, exit
 //!    1 for operational failure); `fmt --check` did not follow it.
+//! 5. (#186) `scythe check` printed "All queries valid." (and exited 0) on a
+//!    query file that is entirely `--` comments -- `has_unannotated_sql`
+//!    deliberately does not flag a comment-only file (see its doc comment:
+//!    "nothing there to silently drop"), but a non-empty file that still
+//!    produces zero query blocks is exactly what `check` exists to catch,
+//!    not a case to pass through to the unconditional success message.
 //!
 //! Every test drives the compiled binary via
 //! `Command::new(env!("CARGO_BIN_EXE_scythe"))`.
@@ -195,5 +201,63 @@ fn fmt_check_operational_failure_still_exits_one() {
         Some(1),
         "an operational failure (unreadable file) must remain exit 1, distinct from exit 2 \
          for 'needs formatting'; stderr: {err}"
+    );
+}
+
+/// Item 5 (#186): a query file that is entirely `--` comments (no real
+/// statement, no `-- name:`/`-- @name` annotation) must be reported, not
+/// passed through to the unconditional "All queries valid." message.
+///
+/// Before the fix: `has_unannotated_sql` returns `false` for this content
+/// (by design -- see its doc comment, "a comment-only file ... has nothing
+/// to silently drop"), so `run_check` never took the `has_unannotated_sql`
+/// error path at all; `split_query_file` then produced zero blocks for this
+/// file, and with nothing else in the config to raise an error-severity
+/// finding, `check` printed `[main] All queries valid.` to stderr and
+/// exited 0 -- a config whose entire query file never got recognised as
+/// containing any queries at all was reported clean.
+#[test]
+fn check_reports_a_comment_only_query_file_instead_of_claiming_validity() {
+    let dir = TempDir::new().unwrap();
+    std::fs::write(
+        dir.path().join("schema.sql"),
+        "CREATE TABLE widgets (id bigint PRIMARY KEY, name text NOT NULL);\n",
+    )
+    .unwrap();
+    let query_path = dir.path().join("queries.sql");
+    std::fs::write(
+        &query_path,
+        "-- TODO: write the real queries here\n-- see ticket SCY-42\n",
+    )
+    .unwrap();
+
+    let config = "[scythe]\nversion = \"1\"\n\n\
+        [[sql]]\nname = \"main\"\nengine = \"postgresql\"\n\
+        schema = [\"schema.sql\"]\nqueries = [\"queries.sql\"]\n";
+    let config_path = dir.path().join("scythe.toml");
+    std::fs::write(&config_path, config).unwrap();
+
+    let output = scythe_bin()
+        .args(["check", "--config", config_path.to_str().unwrap()])
+        .output()
+        .expect("run scythe check");
+
+    let out = stdout(&output);
+    let err = stderr(&output);
+    assert_eq!(
+        output.status.code(),
+        Some(2),
+        "a comment-only query file must move check's exit code exactly like any other \
+         error-severity finding (SC-PRV10), not the exit 0 a clean run gets; stdout: {out}, \
+         stderr: {err}"
+    );
+    assert!(
+        out.contains("SC-PRV10"),
+        "must report the specific finding naming the rule, not just fail silently; stdout: {out}"
+    );
+    assert!(
+        !err.contains("All queries valid."),
+        "must not claim validity for a file check never actually examined any content from; \
+         stderr: {err}"
     );
 }

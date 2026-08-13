@@ -6,6 +6,7 @@ use serde::Deserialize;
 use ahash::{AHashMap, AHashSet};
 
 use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, row_struct_name, to_pascal_case};
+use scythe_codegen::validation::{ValidationOutcome, validate_generated_code};
 use scythe_codegen::{
     CodegenBackend, RbsEnumInfo, RbsGenerationContext, RbsQueryInfo, TypeOverride, degrade_unsupported_nested_structs,
     generate_single_enum_def_with_backend, generate_with_backend_and_overrides, get_backend,
@@ -412,10 +413,21 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
     }
 }
 
-pub fn run_generate(config_path: &str, allow_output_escape: bool) -> Result<(), Box<dyn std::error::Error>> {
+pub fn run_generate(
+    config_path: &str,
+    allow_output_escape: bool,
+    validate_output: bool,
+) -> Result<(), Box<dyn std::error::Error>> {
     let mut written: Vec<String> = Vec::new();
+    let mut validation_failed = false;
 
-    let result = run_generate_inner(config_path, allow_output_escape, &mut written);
+    let result = run_generate_inner(
+        config_path,
+        allow_output_escape,
+        validate_output,
+        &mut written,
+        &mut validation_failed,
+    );
 
     if result.is_err() && !written.is_empty() {
         // Generation is not transactional -- a failure on a later `[[sql]]`
@@ -438,13 +450,29 @@ pub fn run_generate(config_path: &str, allow_output_escape: bool) -> Result<(), 
         eprintln!("Done.");
     }
 
+    // Exit 2, not a plain `Err` (which `main` turns into exit 1) -- matching
+    // the #212 contract `check`/`lint`/`fmt --check` already follow: exit 1
+    // stays reserved for an operational failure (bad config, unreadable
+    // file), exit 2 means "a finding is present". A `--validate-output`
+    // failure is a finding about the generated code itself, not an
+    // operational failure, so it gets `check`'s exit code, not `main`'s
+    // generic one. Checked only when generation itself succeeded: an
+    // operational failure already exits 1 below, and whatever validation
+    // this run got through before that failure is moot.
+    if result.is_ok() && validate_output && validation_failed {
+        eprintln!("generate: one or more backends failed generated-code validation (see above)");
+        std::process::exit(2);
+    }
+
     result
 }
 
 fn run_generate_inner(
     config_path: &str,
     allow_output_escape: bool,
+    validate_output: bool,
     written: &mut Vec<String>,
+    validation_failed: &mut bool,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let config_str =
         std::fs::read_to_string(config_path).map_err(|e| format!("failed to read config '{}': {}", config_path, e))?;
@@ -593,7 +621,7 @@ fn run_generate_inner(
         }
 
         for (_target, backend, output_dir) in &resolved {
-            generate_for_backend(
+            let target_validation_failed = generate_for_backend(
                 &sql_config.name,
                 backend.as_ref(),
                 &analyzed_queries,
@@ -604,7 +632,11 @@ fn run_generate_inner(
                     schema: &schema_fingerprint,
                     queries: &queries_fingerprint,
                 },
+                validate_output,
             )?;
+            if target_validation_failed {
+                *validation_failed = true;
+            }
             written.push(
                 Path::new(output_dir)
                     .join(output_filename(backend.as_ref()))
@@ -1021,7 +1053,10 @@ struct ProvenanceFields<'a> {
 /// Generate output for a single backend target.
 ///
 /// `provenance` is threaded through to [`assemble_output`] for the header
-/// line every generated file now carries.
+/// line every generated file now carries. Returns whether
+/// `--validate-output` (`validate_output`) found a real problem in this
+/// target's generated code -- `false` whenever `validate_output` is `false`,
+/// since nothing was checked to fail.
 fn generate_for_backend(
     config_name: &str,
     backend: &dyn CodegenBackend,
@@ -1029,7 +1064,8 @@ fn generate_for_backend(
     output_dir: &str,
     overrides: &[TypeOverride],
     provenance: ProvenanceFields<'_>,
-) -> Result<(), Box<dyn std::error::Error>> {
+    validate_output: bool,
+) -> Result<bool, Box<dyn std::error::Error>> {
     let ProvenanceFields {
         engine,
         schema,
@@ -1128,9 +1164,102 @@ fn generate_for_backend(
         output_file.display()
     );
 
+    let validation_failed = if validate_output {
+        report_generated_code_validation(config_name, &output_file, backend.name(), &output_content)
+    } else {
+        false
+    };
+
     generate_rbs_if_supported(config_name, backend, analyzed_queries, overrides, out_path, provenance)?;
 
-    Ok(())
+    Ok(validation_failed)
+}
+
+/// Report the outcome of validating one target's generated output against
+/// its real compiler/linter (`scythe_codegen::validation::validate_generated_code`),
+/// and say whether it counts as a failure that should move `generate`'s exit
+/// code.
+///
+/// Surfaces the same three states [`ValidationOutcome`] distinguishes,
+/// rather than collapsing any pair of them:
+///
+/// - `VALIDATED` -- a real tool ran to completion and found nothing wrong.
+/// - `SKIPPED` -- nothing was actually checked, either because this
+///   backend's language has no tool-based validator at all
+///   ([`ValidationOutcome::Unsupported`]), or because every tool this
+///   validator would have used is not installed. The latter is
+///   [`ValidationOutcome::Passed`] with an empty `tools_run` -- that
+///   variant's own default policy calls it a pass, but reporting a run that
+///   inspected nothing as "validated" would recreate the exact unfalsifiable
+///   gate `--validate-output` exists to close, so it is reported as a skip
+///   here instead.
+/// - `FAILED` -- a real tool ran and found a problem, or the harness itself
+///   could not drive an installed tool.
+///
+/// Only `FAILED` returns `true`; `SKIPPED` never moves `generate`'s exit
+/// code, matching [`ValidationOutcome::is_failure`]'s own non-strict policy.
+fn report_generated_code_validation(config_name: &str, output_file: &Path, backend_name: &str, code: &str) -> bool {
+    let display_path = output_file.display();
+
+    match validate_generated_code(code, backend_name) {
+        ValidationOutcome::Unsupported => {
+            eprintln!(
+                "[{config_name}] {display_path}: generated-code validation SKIPPED (no tool-based validator for \
+                 backend '{backend_name}')"
+            );
+            false
+        }
+        ValidationOutcome::Passed {
+            tools_run,
+            tools_missing,
+        } if tools_run.is_empty() => {
+            eprintln!(
+                "[{config_name}] {display_path}: generated-code validation SKIPPED ({} not installed; nothing \
+                 was verified)",
+                tools_missing.join(", ")
+            );
+            false
+        }
+        ValidationOutcome::Passed {
+            tools_run,
+            tools_missing,
+        } => {
+            if tools_missing.is_empty() {
+                eprintln!(
+                    "[{config_name}] {display_path}: generated-code validation VALIDATED ({})",
+                    tools_run.join(", ")
+                );
+            } else {
+                eprintln!(
+                    "[{config_name}] {display_path}: generated-code validation VALIDATED ({}); SKIPPED ({} not \
+                     installed)",
+                    tools_run.join(", "),
+                    tools_missing.join(", ")
+                );
+            }
+            false
+        }
+        ValidationOutcome::Failed {
+            tools_run,
+            tools_missing,
+            errors,
+        } => {
+            eprintln!(
+                "[{config_name}] {display_path}: generated-code validation FAILED ({})",
+                tools_run.join(", ")
+            );
+            for error in &errors {
+                eprintln!("  {error}");
+            }
+            if !tools_missing.is_empty() {
+                eprintln!(
+                    "[{config_name}] {display_path}: generated-code validation SKIPPED ({} not installed)",
+                    tools_missing.join(", ")
+                );
+            }
+            true
+        }
+    }
 }
 
 /// Determine the struct name for a query, matching the logic in scythe_codegen.
@@ -1432,6 +1561,27 @@ pub fn run_check(opts: RunCheckOpts) -> Result<(), Box<dyn std::error::Error>> {
                 .into());
             }
             let blocks = split_query_file(&content);
+            // A file with real content (a license header, a query commented
+            // out by hand, a mistyped annotation like `--name:`) that still
+            // yields zero blocks is, from here, indistinguishable from one
+            // whose annotations were simply never recognised -- exactly what
+            // `check` exists to catch. Reported instead of falling through
+            // to the unconditional "All queries valid." below (#186). A
+            // genuinely empty (or whitespace-only) file is left alone: there
+            // is nothing there that could have been misrecognised.
+            if blocks.is_empty() && !content.trim().is_empty() {
+                all_violations.push(QueryViolation {
+                    query_name: String::new(),
+                    rule_id: Cow::Borrowed("SC-PRV10"),
+                    severity: Severity::Error,
+                    message: format!(
+                        "[{}] query file '{}' has content but produced zero `-- name:` / `-- @name` query \
+                         blocks; nothing in this file was checked. If every statement here is intentionally \
+                         commented out, or this file has no queries, remove it from the `queries` glob",
+                        sql_config.name, query_file
+                    ),
+                });
+            }
             for block in blocks {
                 all_query_blocks.push((query_file.clone(), block));
             }
