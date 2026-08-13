@@ -7,8 +7,6 @@ pub enum BackendError {
     UnknownContainer(String),
     #[error("manifest error: {0}")]
     ManifestError(String),
-    #[error("template error: {0}")]
-    TemplateError(String),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
     #[error(

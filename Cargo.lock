@@ -2216,7 +2216,6 @@ name = "scythe-backend"
 version = "0.14.0"
 dependencies = [
  "ahash 0.8.12",
- "minijinja",
  "serde",
  "thiserror 2.0.19",
  "toml 1.1.4+spec-1.1.0",

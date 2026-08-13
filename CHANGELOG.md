@@ -337,6 +337,11 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   worse than not existing. It had no caller besides its own tautological test, which asserted the
   stub's behavior matched the stub's behavior and could never fail. If catalog-level codegen is
   implemented later it should land as a real implementation, not a reserved name. (#132)
+- **Breaking (`scythe-backend`)**: removed `BackendRenderer`, its jinja fixtures, and the
+  `BackendError::TemplateError` variant, along with the crate's `minijinja` dependency. Code
+  generation is done by the per-language emitters in `scythe-codegen`; the template renderer was a
+  parallel mechanism with no production caller, so it read as a supported extension point that did
+  not exist. Breaking only for a caller matching directly on that error variant.
 - Four `r2dbc` manifests for engines the r2dbc backends never accepted. They were unreachable.
 - **Breaking (`scythe-lint`)**: removed the free functions `sqruff_adapter::validate_config`,
   `lint_sql`, `lint_and_fix_sql` and `format_sql`. Each built a `SqruffLinter` per call, and building
