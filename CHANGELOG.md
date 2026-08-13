@@ -43,6 +43,16 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **`scythe lint <file>` ran no scythe rules at all.** Explicit-file mode built a sqruff linter and
+  never constructed a `LintEngine`, so every `SC-*` rule was skipped — `scythe lint queries.sql`
+  silently checked far less than `scythe lint` with the same config, and the code said so in a
+  comment. It now builds a catalog from the config's first `[[sql]]` block and runs the native rules
+  with suppressions honoured, falling back to sqruff-only when there is genuinely no schema to build
+  from. `scythe fmt <file>` likewise dropped `[lint.sqruff]` entirely, honouring only the dialect
+  half of #206.
+- **`scythe check` green-lit an `output` path that `scythe generate` refuses.** `check` never applied
+  #207's containment rule, so a config could pass the check and then fail the thing the check exists
+  to predict. (#206, #207)
 - **A `CREATE VIEW` with an explicit column list got no types at all.** The branch handling
   `CREATE VIEW v (a, b) AS SELECT …` never ran the analyzer: `sql_type` fell back to the literal
   string `"unknown"` and `nullable` was hardcoded `true`, so the same view declared with and without
@@ -345,6 +355,11 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Changed
 
+- **`scythe fmt --check` exits 2 rather than 1 when files need formatting.** #212 reserves exit 1 for
+  operational failure — an unreadable file, an invalid config — and a distinct code for "the thing
+  you asked about is not satisfied", which is what `lint` and `check` already do. `fmt --check` used
+  a plain error for both, so a CI step could not tell a formatting difference from a broken run.
+  Scripts branching on exit 1 from `fmt --check` need updating.
 - **Breaking (`elixir-ecto`): the backend emits Ecto instead of a Postgrex clone.** Generated
   functions take a `repo` rather than a `conn`, specs change from `Postgrex.conn()` to
   `Ecto.Repo.t()`, queries run through `Ecto.Adapters.SQL.query(repo, sql, args, [])`, and `:batch`

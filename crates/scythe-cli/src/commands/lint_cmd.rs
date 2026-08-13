@@ -99,7 +99,107 @@ pub fn run_lint(opts: RunLintOpts) -> Result<(), Box<dyn std::error::Error>> {
     report_violations(&violations, format, output.as_deref(), exit_zero)
 }
 
-/// Lint specific files using sqruff only (no scythe schema-aware rules).
+/// Schema-aware context for running scythe-native lint rules against
+/// explicitly-listed files, built from `scythe.toml` when one is present and
+/// declares a resolvable schema. See [`load_native_lint_context`].
+struct NativeLintContext {
+    engine: scythe_lint::LintEngine,
+    catalog: scythe_core::catalog::Catalog,
+    sql_dialect: scythe_core::dialect::SqlDialect,
+}
+
+/// Build a [`NativeLintContext`] from `scythe.toml` at `config_path`, when
+/// one is present and its first `[[sql]]` block has a resolvable schema.
+///
+/// Returns `Ok(None)` -- not an error -- when the config file does not
+/// exist, mirroring `dialect_from_config`'s tolerance for a missing config:
+/// explicit-file mode is valid with no config at all (pure sqruff formatting
+/// of arbitrary SQL), and that must keep working exactly as it did before
+/// this function existed. It also returns `Ok(None)` when a config exists
+/// but declares no schema for its first block, for the same reason: no
+/// schema means no catalog to analyze against.
+///
+/// The *first* `[[sql]]` block is used, not every block: explicit-file mode
+/// gives no indication which block (if any) a given file belongs to, so
+/// there is no principled way to pick a schema per file. This matches the
+/// same first-block fallback `dialect_from_config` and the inspect-engine
+/// default already use elsewhere in this module -- on a single-engine
+/// project (the common case) it is exactly right, and on a mixed-engine
+/// project it is the best available default rather than running no native
+/// rules at all.
+///
+/// Before this function existed, explicit-file mode never attempted to
+/// build a catalog or a [`scythe_lint::LintEngine`] at all -- the call site
+/// below hardcoded a comment saying so -- so `scythe lint foo.sql` ran zero
+/// scythe-native rules even when `scythe.toml` (and its schema) sat right
+/// next to `foo.sql`: silently checking far less than a bare `scythe lint`
+/// run against the same project.
+fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContext>, Box<dyn std::error::Error>> {
+    use scythe_core::catalog::Catalog;
+    use scythe_core::dialect::SqlDialect;
+    use scythe_lint::{LintEngine, default_registry};
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct MinConfig {
+        #[serde(default)]
+        sql: Vec<MinSqlConfig>,
+        #[serde(default)]
+        lint: Option<scythe_lint::types::LintConfig>,
+    }
+
+    #[derive(Deserialize)]
+    struct MinSqlConfig {
+        #[serde(default)]
+        engine: Option<String>,
+        #[serde(default)]
+        schema: Vec<String>,
+    }
+
+    let config_str = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("failed to read config '{}': {}", config_path, e).into()),
+    };
+    let config: MinConfig =
+        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{}': {}", config_path, e))?;
+
+    let Some(first) = config.sql.first() else {
+        return Ok(None);
+    };
+
+    let base_dir = config_dir(config_path);
+    let schema_files = resolve_globs(&first.schema, base_dir, "[native lint] schema")?;
+    if schema_files.is_empty() {
+        return Ok(None);
+    }
+
+    let schema_contents: Vec<String> = schema_files
+        .iter()
+        .map(|p| std::fs::read_to_string(p).map_err(|e| format!("failed to read schema file '{}': {}", p, e)))
+        .collect::<Result<_, _>>()?;
+    let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
+
+    let sql_dialect =
+        SqlDialect::from_str(first.engine.as_deref().unwrap_or("postgresql")).unwrap_or(SqlDialect::PostgreSQL);
+    let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
+
+    let mut registry = default_registry();
+    if let Some(ref lint_config) = config.lint {
+        registry.apply_config(lint_config);
+    }
+    let engine = LintEngine::new(registry);
+
+    Ok(Some(NativeLintContext {
+        engine,
+        catalog,
+        sql_dialect,
+    }))
+}
+
+/// Lint specific files using sqruff, plus scythe-native rules when
+/// `scythe.toml` (and a resolvable schema) is present alongside them -- see
+/// [`load_native_lint_context`].
 ///
 /// Also auto-runs inspect when a DB URL is configured via
 /// `[inspect].database_url` (if scythe.toml exists at `config_path`) or the
@@ -113,6 +213,10 @@ fn lint_files(
     config_path: &str,
     database_url: Option<&str>,
 ) -> Result<Vec<FileViolation>, Box<dyn std::error::Error>> {
+    use scythe_core::analyzer::analyze;
+    use scythe_core::parser::parse_query_with_dialect;
+    use scythe_lint::LintContext;
+
     let mut all_violations: Vec<FileViolation> = Vec::new();
 
     // One linter for the whole file list, not one per file: building it
@@ -122,6 +226,24 @@ fn lint_files(
     // mode has never applied the config's rule table.
     let linter = sqruff_adapter::SqruffLinter::new(dialect, None)
         .map_err(|e| format!("sqruff rejected dialect '{}': {}", dialect, e))?;
+
+    // scythe-native rules, run alongside sqruff when a schema is available
+    // to build a catalog from -- see `load_native_lint_context`'s doc
+    // comment for why explicit-file mode previously ran none of these at
+    // all, unlike `lint_from_config`.
+    let native = load_native_lint_context(config_path)?;
+
+    /// One query that parsed and analyzed against the native context's
+    /// catalog, kept alive so `LintEngine::build_report` can borrow every
+    /// `LintContext` at once -- mirrors `lint_from_config`'s own
+    /// `PreparedQuery`.
+    struct PreparedQuery {
+        file: String,
+        query: scythe_core::parser::Query,
+        analyzed: scythe_core::analyzer::AnalyzedQuery,
+        suppressions: SuppressionSet,
+    }
+    let mut prepared: Vec<PreparedQuery> = Vec::new();
 
     for path in files {
         let sql = std::fs::read_to_string(path).map_err(|e| format!("failed to read '{}': {}", path, e))?;
@@ -189,6 +311,114 @@ fn lint_files(
                     cwe: Vec::new(),
                 });
             }
+        }
+
+        if let Some(ctx) = &native {
+            // A file with no `-- name:` / `-- @name` annotation yields zero
+            // blocks here and is silently skipped for native analysis --
+            // unlike `lint_from_config`, this is not treated as a hard
+            // error: explicit-file mode's whole purpose is linting
+            // arbitrary SQL (a bare schema file, a snippet), and it must
+            // keep doing that even when a `scythe.toml` happens to sit
+            // alongside it.
+            for block in split_query_file(&sql) {
+                match parse_query_with_dialect(&block, &ctx.sql_dialect) {
+                    Ok(parsed) => match analyze(&ctx.catalog, &parsed) {
+                        Ok(analyzed) => prepared.push(PreparedQuery {
+                            file: path.clone(),
+                            suppressions: SuppressionSet::parse(&block),
+                            query: parsed,
+                            analyzed,
+                        }),
+                        Err(e) => {
+                            let name = parsed.annotations.name.clone();
+                            all_violations.push(FileViolation {
+                                file: path.clone(),
+                                query_name: Some(name.clone()),
+                                rule_id: Cow::Borrowed("SC-PARSE02"),
+                                severity: Severity::Error,
+                                message: format!(
+                                    "failed to analyze query '{name}': {e} — no lint rule could examine it"
+                                ),
+                                line_no: None,
+                                line_pos: None,
+                                source: None,
+                                cwe: Vec::new(),
+                            });
+                        }
+                    },
+                    Err(e) => {
+                        all_violations.push(FileViolation {
+                            file: path.clone(),
+                            query_name: None,
+                            rule_id: Cow::Borrowed("SC-PARSE01"),
+                            severity: Severity::Error,
+                            message: format!("failed to parse query: {e} — no lint rule could examine it"),
+                            line_no: None,
+                            line_pos: None,
+                            source: None,
+                            cwe: Vec::new(),
+                        });
+                    }
+                }
+            }
+        }
+    }
+
+    if let Some(ctx) = native {
+        // `build_report`, not a hand-rolled `check_query` loop: the
+        // engine's own report is the one place that also runs the
+        // cross-query checks (duplicate `@name` detection, SC-C03),
+        // matching `lint_from_config`.
+        let contexts: Vec<LintContext<'_>> = prepared
+            .iter()
+            .map(|p| LintContext {
+                sql: &p.query.sql,
+                stmt: &p.query.stmt,
+                analyzed: &p.analyzed,
+                catalog: &ctx.catalog,
+                annotations: &p.query.annotations,
+                dialect: ctx.sql_dialect,
+            })
+            .collect();
+        let report = ctx.engine.build_report(contexts.into_iter(), &ctx.catalog);
+
+        eprintln!(
+            "[native] checked {} query(ies) against {} active rule(s)",
+            report.queries_checked, report.rules_active
+        );
+
+        let mut prepared_by_name: ahash::AHashMap<&str, usize> = ahash::AHashMap::new();
+        for (i, p) in prepared.iter().enumerate() {
+            prepared_by_name.entry(p.analyzed.name.as_str()).or_insert(i);
+        }
+
+        for violation in report.violations {
+            let origin = prepared_by_name
+                .get(violation.query_name.as_str())
+                .map(|&i| &prepared[i]);
+
+            // Honour the same `-- scythe-audit: ignore[ID]` annotations
+            // `lint_from_config` and `scythe audit` honour -- see that
+            // function's identical check for why the suppression index is
+            // always 0.
+            if let Some(origin) = origin
+                && origin.suppressions.is_suppressed(&violation.rule_id, 0)
+            {
+                continue;
+            }
+
+            all_violations.push(FileViolation {
+                file: origin.map(|p| p.file.clone()).unwrap_or_default(),
+                query_name: (!violation.query_name.is_empty()).then(|| violation.query_name.clone()),
+                rule_id: violation.rule_id,
+                severity: violation.severity,
+                message: violation.message,
+                line_no: None,
+                line_pos: None,
+                source: None,
+                cwe: Vec::new(),
+            });
         }
     }
 

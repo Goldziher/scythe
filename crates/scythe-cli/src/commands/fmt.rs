@@ -7,7 +7,13 @@ use super::shared::{config_dir, dialect_from_config, engine_to_sqruff_dialect, r
 ///
 /// - If `files` is non-empty, format those files directly.
 /// - If `files` is empty, read query file paths from the scythe config.
-/// - `check_only`: report what would change without modifying files (exit 1 if changes needed).
+/// - `check_only`: report what would change without modifying files. Exits 2
+///   if any file needs formatting, 1 on operational failure (unreadable
+///   file, invalid `[lint.sqruff]` config) -- previously "needs formatting"
+///   was reported as a plain `Err`, which fell through to `main`'s generic
+///   exit(1) path and made that indistinguishable from an operational
+///   failure. `lint`/`check` already draw this line at exit 2 for findings
+///   vs. exit 1 for operational failure (#212); `fmt --check` now matches.
 /// - `diff`: show a unified diff of changes.
 /// - Otherwise: write formatted SQL back to files.
 pub fn run_fmt(
@@ -22,7 +28,15 @@ pub fn run_fmt(
         (resolved.files, resolved.dialect, resolved.sqruff_config)
     } else {
         let config_dialect = dialect_from_config(config_path)?;
-        (files.to_vec(), config_dialect, None)
+        // Explicit-file mode used to hardcode `None` here, which silently
+        // dropped a user's `[lint.sqruff]` table -- only the *dialect* half
+        // of #206 was fixed. `sqruff_config_from_config` mirrors
+        // `dialect_from_config`'s own tolerance for a missing config file
+        // (explicit-file mode with no `scythe.toml` at all remains valid
+        // and unaffected), so the real config is threaded through exactly
+        // as the config-file path already does via `resolve_files_from_config`.
+        let sqruff_config = sqruff_config_from_config(config_path)?;
+        (files.to_vec(), config_dialect, sqruff_config)
     };
 
     // `--dialect` is validated before it can reach sqruff-lib, which panics
@@ -84,7 +98,13 @@ pub fn run_fmt(
     }
 
     if check_only && needs_formatting {
-        return Err("Some files need formatting.".into());
+        // Exit 2, not a plain `Err` (which `main` turns into exit 1) -- see
+        // this function's doc comment. `fmt --check` has no `--exit-zero`
+        // escape hatch (unlike `lint`/`check`), so this is unconditional:
+        // "some file(s) need formatting" always moves the exit code once
+        // `check_only` is set.
+        eprintln!("fmt: some file(s) need formatting");
+        std::process::exit(2);
     }
 
     if !check_only && !diff && !needs_formatting {
@@ -167,6 +187,37 @@ fn resolve_files_from_config(config_path: &str) -> Result<ResolvedConfig, Box<dy
         dialect,
         sqruff_config,
     })
+}
+
+/// Read `[lint.sqruff]` out of `scythe.toml` for explicit-file mode, when a
+/// config file is present.
+///
+/// Returns `Ok(None)` -- not an error -- when `config_path` does not exist,
+/// mirroring `dialect_from_config`'s own tolerance for a missing config:
+/// `scythe fmt some/file.sql` with no `scythe.toml` at all is a valid,
+/// unaffected mode, and must keep behaving exactly as it did before this
+/// function existed. When the config *does* exist, only its top-level
+/// `[lint]` table is required -- unlike `resolve_files_from_config`, this
+/// has no need of `[[sql]]` at all, since `[lint.sqruff]` is not scoped to a
+/// block.
+fn sqruff_config_from_config(config_path: &str) -> Result<Option<SqruffConfig>, String> {
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct MinConfig {
+        #[serde(default)]
+        lint: Option<scythe_lint::types::LintConfig>,
+    }
+
+    let config_str = match std::fs::read_to_string(config_path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(None),
+        Err(e) => return Err(format!("failed to read config '{config_path}': {e}")),
+    };
+    let config: MinConfig =
+        toml::from_str(&config_str).map_err(|e| format!("failed to parse config '{config_path}': {e}"))?;
+
+    Ok(config.lint.and_then(|lc| lc.sqruff))
 }
 
 /// Print a simple unified diff between original and formatted content.

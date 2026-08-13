@@ -752,12 +752,32 @@ fn validate_gen_targets_constructible(sql_config: &SqlConfig, base_dir: &Path) -
             && let Err(e) = backend.apply_options(&target.options)
         {
             violations.push(QueryViolation {
-                query_name: target_label,
+                query_name: target_label.clone(),
                 rule_id: Cow::Borrowed("SC-PRV09"),
                 severity: Severity::Error,
                 message: format!(
                     "backend options could not be applied: {e} (run `scythe generate` for the full diagnosis)"
                 ),
+            });
+        }
+
+        // `scythe generate` refuses (by default, i.e. without
+        // `--allow-output-escape`) to write outside the project root -- see
+        // `resolve_contained_output` and #207. `check` has no equivalent
+        // flag of its own, so it validates under that same strict default:
+        // an `output` that would be rejected without `--allow-output-escape`
+        // is reported here too. Before this, `check` never called
+        // `resolve_contained_output` at all, so a config with a
+        // path-traversing `output` (e.g. `output = "../../ESCAPED"`) passed
+        // `scythe check` cleanly and was only ever refused once `scythe
+        // generate` actually ran against it -- a check that is green where
+        // generate is red is worse than no check.
+        if let Err(e) = resolve_contained_output(base_dir, &target.output, &target.backend, false) {
+            violations.push(QueryViolation {
+                query_name: target_label,
+                rule_id: Cow::Borrowed("SC-PRV09"),
+                severity: Severity::Error,
+                message: format!("{e} (run `scythe generate` for the full diagnosis)"),
             });
         }
     }
@@ -4182,5 +4202,49 @@ backend = \"rust-sqlx\"
             "an unconstructable gen target must be an error, unlike SC-PRV07's Warn default, so it moves check's exit code"
         );
         assert!(violations[0].message.contains("rust-sqlx-typo"));
+    }
+
+    /// #207: `scythe generate` refuses (by default) to write to an `output`
+    /// that escapes the project root, via `resolve_contained_output` inside
+    /// `run_generate_inner`. Before this test's fix,
+    /// `validate_gen_targets_constructible` never called
+    /// `resolve_contained_output` at all, so `scythe check` reported a
+    /// config with `output = "../../ESCAPED"` as clean -- green where
+    /// `scythe generate` on the very same config is red. This pins that
+    /// `check` now reports the same containment violation `generate` would
+    /// refuse, as an SC-PRV09 error.
+    #[test]
+    fn check_reports_a_gen_target_output_that_escapes_the_project_root() {
+        let violations = validate_gen_targets_constructible(
+            &SqlConfig {
+                name: "main".to_string(),
+                engine: "postgresql".to_string(),
+                schema: Vec::new(),
+                queries: Vec::new(),
+                output: None,
+                gen_config: Some(GenTargets::Array(vec![GenTarget {
+                    backend: "rust-sqlx".to_string(),
+                    output: "../../ESCAPED".to_string(),
+                    manifest: None,
+                    options: std::collections::HashMap::new(),
+                }])),
+                type_overrides: None,
+            },
+            std::path::Path::new("proj"),
+        );
+
+        assert_eq!(
+            violations.len(),
+            1,
+            "an output escaping the project root must be its own SC-PRV09 finding, matching what \
+             `scythe generate` refuses by default: {violations:?}"
+        );
+        assert_eq!(violations[0].rule_id, "SC-PRV09");
+        assert_eq!(violations[0].severity, scythe_lint::Severity::Error);
+        assert!(
+            violations[0].message.contains("escapes the project root"),
+            "message should explain the containment rejection: {}",
+            violations[0].message
+        );
     }
 }
