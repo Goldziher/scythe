@@ -30,6 +30,16 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **`VARBINARY(MAX)` resolved to the invalid neutral type `varbinary(max)`, which no manifest maps.**
+  SQL Server's unbounded binary type parses to `DataType::Varbinary(Some(BinaryLength::Max))`, for
+  which `normalize_data_type` had no arm at all, so it fell to the catch-all that stringifies through
+  `Display`. `strip_precision` only strips a trailing `(<digits>)`, so `max` survived, never matched
+  the bare `varbinary` arm, and the column resolved to a type name rather than `bytes`. The sibling
+  `VARCHAR(MAX)`/`NVARCHAR(MAX)` spellings were already correct — their arms route
+  `CharacterLength::Max` through a `_ => "text"` fallback — and all ten mssql-capable manifests
+  already mapped `bytes`, so no manifest changed. `BINARY` needs no equivalent arm: sqlparser types
+  it `Option<u64>`, making `BINARY(MAX)` unrepresentable. (#174)
+
 - **A literal `%` in SQL broke every `%`-paramstyle Python driver at execute time.** `WHERE name LIKE
   'a%'` reaches psycopg3 and aiomysql as a format string, and `%'` is not a valid placeholder, so the
   driver raised before the statement was ever sent. The `%` is now doubled — but only for a query that

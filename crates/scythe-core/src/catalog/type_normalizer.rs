@@ -122,6 +122,24 @@ pub(crate) fn normalize_data_type(
             }
             _ => ("text".to_string(), false),
         },
+
+        // ~keep T-SQL's unbounded `VARBINARY(MAX)`. Without this arm it fell to the
+        // generic `other => other.to_string().to_lowercase()` branch below, which
+        // renders `BinaryLength::Max` as the literal `"varbinary(max)"`.
+        // `sql_type_to_neutral`'s `strip_precision` only strips a trailing
+        // `(<digits>)`, so that survives intact, never matches the bare
+        // `"varbinary"` arm, and resolves to the invalid neutral type
+        // `"varbinary(max)"` rather than `"bytes"`. The `Varchar`/`Nvarchar` arms
+        // above are unaffected because their `_` catch-all already routes
+        // `CharacterLength::Max` to `"text"`.
+        //
+        // `DataType::Binary` needs no equivalent arm: sqlparser types it
+        // `Option<u64>`, so `BINARY(MAX)` is unrepresentable and the bounded form
+        // already round-trips through `strip_precision`.
+        DataType::Varbinary(len) => match len {
+            Some(sqlparser::ast::BinaryLength::IntegerLength { length }) => (format!("varbinary({})", length), false),
+            _ => ("varbinary".to_string(), false),
+        },
         DataType::Numeric(info) | DataType::Decimal(info) | DataType::Dec(info) => {
             use sqlparser::ast::ExactNumberInfo;
             match info {
