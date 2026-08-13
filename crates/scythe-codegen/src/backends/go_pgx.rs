@@ -10,7 +10,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::GeneratedCode;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
-use crate::backends::go_common::{generated_code_uses_decimal, generated_code_uses_time, go_file_header};
+use crate::backends::go_common::go_file_header;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/go-pgx.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/go-pgx.redshift.toml");
@@ -68,8 +68,8 @@ impl CodegenBackend for GoPgxBackend {
             PGX_HEADER_PREAMBLE,
             &["context"],
             &["github.com/jackc/pgx/v5/pgxpool"],
-            false,
-            false,
+            &self.manifest,
+            &[],
         )
     }
 
@@ -78,8 +78,8 @@ impl CodegenBackend for GoPgxBackend {
             PGX_HEADER_PREAMBLE,
             &["context"],
             &["github.com/jackc/pgx/v5/pgxpool"],
-            generated_code_uses_time(generated),
-            generated_code_uses_decimal(generated),
+            &self.manifest,
+            generated,
         )
     }
 

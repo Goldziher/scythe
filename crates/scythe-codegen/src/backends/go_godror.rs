@@ -10,7 +10,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::GeneratedCode;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
-use crate::backends::go_common::{generated_code_uses_time, go_file_header};
+use crate::backends::go_common::go_file_header;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/go-godror.toml");
 
@@ -119,7 +119,13 @@ impl CodegenBackend for GoGodrorBackend {
     }
 
     fn file_header(&self) -> String {
-        go_file_header(GODROR_HEADER_PREAMBLE, &["context", "database/sql"], &[], false, false)
+        go_file_header(
+            GODROR_HEADER_PREAMBLE,
+            &["context", "database/sql"],
+            &[],
+            &self.manifest,
+            &[],
+        )
     }
 
     fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
@@ -127,8 +133,8 @@ impl CodegenBackend for GoGodrorBackend {
             GODROR_HEADER_PREAMBLE,
             &["context", "database/sql"],
             &[],
-            generated_code_uses_time(generated),
-            false,
+            &self.manifest,
+            generated,
         )
     }
 

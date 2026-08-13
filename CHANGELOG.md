@@ -43,6 +43,14 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **`go-pgx` emitted a static import block that omitted imports its own types needed.** A query
+  selecting a `json` or `uuid` column produced `*json.RawMessage` and `uuid.UUID` with neither import,
+  so the file did not compile; the generated header conceded as much by advising `goimports -w .`.
+  #100 fixed the opposite direction — an import emitted but unused. Imports are now derived from the
+  types actually emitted, via the `[imports.rules]` table every Go manifest already declared and
+  nothing read. `go-pgx` consequently passes the torture gate and has been removed from the
+  expected-failure allowlist. The PHP casts likewise come from the manifest instead of a hardcoded
+  table that contradicted it. (#198)
 - **A JVM enum whose SQL spelling was not the uppercase of its variant threw on every read.** Binding
   emitted `.getValue()` / `.value` — the SQL value — while reading emitted
   `valueOf(rs.getString(col).toUpperCase())` — the variant *name*. For a value like `in-active` with

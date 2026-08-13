@@ -12,6 +12,16 @@
 #     hand-edit; the provenance header alone exceeds ruff's 88-column default,
 #     which is why it carries `# noqa: E501`. Wrapping decisions belong to the
 #     backends and to `scythe fmt`, not to a linter run over their output.
+#   * Two mago rules are ignored for PHP because they are structurally
+#     inapplicable to this output rather than merely inconvenient:
+#     `single-class-per-file` — a generated PHP file is one module holding the
+#     enum, the composite classes, every row class and `Queries`, which is the
+#     documented shape, not an accident — and `excessive-parameter-list`, since
+#     a row struct's promoted constructor takes exactly one parameter per
+#     selected column, so the user's schema decides the count and no backend
+#     choice can change it. Note this means a consumer running mago over
+#     scythe's PHP output with default rules will see both; that belongs in the
+#     PHP guide, not in a suppression here.
 #
 # Passed explicitly via `--config` from `validation.rs::poly_check`. Without it
 # poly would resolve config by walking up from the temporary file it is handed,
@@ -25,3 +35,6 @@ line_ending = "lf"
 [lint.python.ruff]
 target_version = "py310"
 line_length = 200
+
+[lint.php.mago]
+ignore = ["single-class-per-file", "excessive-parameter-list"]

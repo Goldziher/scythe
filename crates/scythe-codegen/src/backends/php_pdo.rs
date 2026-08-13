@@ -48,14 +48,39 @@ impl PhpPdoBackend {
     }
 }
 
-/// Map a neutral type to a PHP cast expression.
-fn php_cast(neutral_type: &str) -> &'static str {
-    match neutral_type {
-        "int16" | "int32" | "int64" => "(int) ",
-        "float32" | "float64" => "(float) ",
-        "bool" => "(bool) ",
-        "string" | "json" | "inet" | "interval" | "uuid" | "decimal" | "bytes" => "(string) ",
-        _ => "",
+/// Build the PHP expression that converts a raw PDO column value to the type
+/// the manifest declares for it.
+///
+/// Keyed on `lang_type` -- the manifest's own declaration for this column --
+/// rather than on `neutral_type`. The previous table matched on
+/// `neutral_type` and hardcoded `json` and `decimal` into the `(string) `
+/// arm, which held only by coincidence: `php-pdo.toml` declares
+/// `json = "array"` while `php-pdo.mysql.toml` declares `json = "string"`,
+/// and `php-pdo.sqlite.toml` declares `decimal = "float"` while every other
+/// PHP manifest declares it `"string"`. A cast keyed on the neutral type
+/// alone cannot see that difference -- it produced a `(string) ` cast against
+/// a property the same manifest had just declared `array` or `float`. See
+/// #198.
+///
+/// Container types (`array<...>`, `range<...>`, `json_typed<...>`) resolve
+/// `lang_type` to the same base string a scalar could (a bare PDO/PostgreSQL
+/// array column and the `json` scalar both resolve to `"array"`), so they are
+/// excluded up front by `neutral_type` rather than by `lang_type`: nothing
+/// here parses a PostgreSQL array literal or unpacks a manifest-declared
+/// struct, so no cast or decode of a container column can be correct in
+/// general, and guessing from `lang_type` alone would decode a real array
+/// column's `{a,b,c}` literal as JSON and silently get back `null`.
+fn php_convert_column(neutral_type: &str, lang_type: &str, value_expr: &str) -> String {
+    if neutral_type.contains('<') {
+        return value_expr.to_string();
+    }
+    match lang_type {
+        "int" => format!("(int) {value_expr}"),
+        "float" => format!("(float) {value_expr}"),
+        "bool" => format!("(bool) {value_expr}"),
+        "string" => format!("(string) {value_expr}"),
+        "array" => format!("json_decode({value_expr}, true)"),
+        _ => value_expr.to_string(),
     }
 }
 
@@ -89,11 +114,12 @@ fn php_row_expr(c: &ResolvedColumn) -> String {
             format!("new \\DateTimeImmutable($row['{}'])", c.name)
         }
     } else {
-        let cast = php_cast(&c.neutral_type);
+        let value_expr = format!("$row['{}']", c.name);
+        let converted = php_convert_column(&c.neutral_type, &c.lang_type, &value_expr);
         if c.nullable {
-            format!("$row['{}'] !== null ? {}$row['{}'] : null", c.name, cast, c.name)
+            format!("$row['{}'] !== null ? {} : null", c.name, converted)
         } else {
-            format!("{}$row['{}']", cast, c.name)
+            converted
         }
     }
 }
@@ -142,19 +168,16 @@ fn write_php_from_row_method(out: &mut String, columns: &[ResolvedColumn]) {
                 );
             }
         } else {
-            let cast = php_cast(&c.neutral_type);
+            let value_expr = format!("$row['{}']", c.name);
+            let converted = php_convert_column(&c.neutral_type, &c.lang_type, &value_expr);
             if c.nullable {
                 let _ = writeln!(
                     out,
-                    "            {}: $row['{}'] !== null ? {}{} : null{}",
-                    c.field_name,
-                    c.name,
-                    cast,
-                    format_args!("$row['{}']", c.name),
-                    sep
+                    "            {}: $row['{}'] !== null ? {} : null{}",
+                    c.field_name, c.name, converted, sep
                 );
             } else {
-                let _ = writeln!(out, "            {}: {}$row['{}']{}", c.field_name, cast, c.name, sep);
+                let _ = writeln!(out, "            {}: {}{}", c.field_name, converted, sep);
             }
         }
     }
@@ -272,19 +295,16 @@ impl CodegenBackend for PhpPdoBackend {
                     );
                 }
             } else {
-                let cast = php_cast(&c.neutral_type);
+                let value_expr = format!("$row['{}']", c.name);
+                let converted = php_convert_column(&c.neutral_type, &c.lang_type, &value_expr);
                 if c.nullable {
                     let _ = writeln!(
                         out,
-                        "            {}: $row['{}'] !== null ? {}{} : null{}",
-                        c.field_name,
-                        c.name,
-                        cast,
-                        format_args!("$row['{}']", c.name),
-                        sep
+                        "            {}: $row['{}'] !== null ? {} : null{}",
+                        c.field_name, c.name, converted, sep
                     );
                 } else {
-                    let _ = writeln!(out, "            {}: {}$row['{}']{}", c.field_name, cast, c.name, sep);
+                    let _ = writeln!(out, "            {}: {}{}", c.field_name, converted, sep);
                 }
             }
         }

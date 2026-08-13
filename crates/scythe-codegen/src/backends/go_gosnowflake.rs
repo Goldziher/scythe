@@ -10,7 +10,7 @@ use scythe_core::parser::QueryCommand;
 
 use crate::GeneratedCode;
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
-use crate::backends::go_common::{generated_code_uses_time, go_file_header};
+use crate::backends::go_common::go_file_header;
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/go-gosnowflake.toml");
 
@@ -58,8 +58,8 @@ impl CodegenBackend for GoGosnowflakeBackend {
             GOSNOWFLAKE_HEADER_PREAMBLE,
             &["context", "database/sql"],
             &[],
-            false,
-            false,
+            &self.manifest,
+            &[],
         )
     }
 
@@ -68,8 +68,8 @@ impl CodegenBackend for GoGosnowflakeBackend {
             GOSNOWFLAKE_HEADER_PREAMBLE,
             &["context", "database/sql"],
             &[],
-            generated_code_uses_time(generated),
-            false,
+            &self.manifest,
+            generated,
         )
     }
 

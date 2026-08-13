@@ -42,17 +42,18 @@ rust-sqlx : Cargo.toml declares neither serde_json nor uuid, which the torture s
 rust-sqlx-nested-json : same as rust-sqlx -- shares the scaffolding and the missing deps (unfiled)
 rust-tokio-postgres : same defect, tokio-postgres project scaffolding (unfiled)
 
-# --- Class 2: a real generated-code defect, but not the one previously
-# recorded here. go-pgx emits a static import block that omits the imports
-# the emitted types need:
+# --- Class 2 is now empty, and the entry it held is worth keeping as a
+# record. go-pgx emitted a static import block that omitted the imports its
+# own emitted types needed:
 #
 #   generated/queries.go:38:12: undefined: json    (from *json.RawMessage)
 #   generated/queries.go:39:13: undefined: uuid    (from uuid.UUID)
 #
-# The generated header even concedes it -- "Run `goimports -w .` to fix
-# imports". #100 fixed the opposite direction (an import emitted but unused);
-# this is the same static block failing when an import is *needed*.
-go-pgx : import block omits encoding/json and google/uuid while the emitted types reference both (#198)
+# The generated header even conceded it -- "Run `goimports -w .` to fix
+# imports". The import set is now derived from the types actually emitted, so
+# this passes and the line is deleted rather than kept "just in case": a
+# listed project that passes fails the run, which is the whole point of the
+# both-directions rule above.
 
 # --- Class 3: a composite-typed parameter cannot be bound by postgres.js.
 # The torture schema's home_address column is a composite type, and the
