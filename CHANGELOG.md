@@ -43,6 +43,18 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **A `:grouped` query's `.rbs` described a class the `.rb` file never defines.** The RBS producer
+  resolved the flat column list where the Ruby producer splits parent from child, so the signature
+  declared one class with neither the `children` reader nor the child class `Data.define` actually
+  emits — `steep check` against a correct `.rb` failed on the signature, not the code. The RBS path
+  now performs the same split. `RbsQueryInfo` carries the child columns in their own field; an
+  earlier revision smuggled them through a sentinel in `ResolvedColumn.full_type`, which is the shape
+  that leaked `__unknown_col__` into user-visible output in #173. (#203)
+- **Eight `.rbs` files were rejected outright by `rbs parse`.** The Ruby backend emitted
+  `library "bigdecimal"` ahead of any signature referencing `BigDecimal`, but `library` is Steepfile
+  and CLI syntax, not an RBS declaration, so the parser failed at the first token with "cannot start
+  a declaration". A signature naming `BigDecimal` needs no directive at all. The `.rb` side keeps its
+  `require "bigdecimal/util"`, which is genuinely needed for `.to_d`.
 - `elixir-exqlite` releases its prepared statement on every exit path, not just the success one;
   `elixir-tds` types `bytes` and `time`/`time_tz` parameters instead of falling through to `:string`;
   and a `:grouped` query with no parent columns no longer emits `defstruct [, :children]`, which is

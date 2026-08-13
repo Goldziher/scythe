@@ -6,6 +6,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::GeneratedCode;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, RbsGenerationContext, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-trilogy.toml");
@@ -31,11 +32,22 @@ impl RubyTrilogyBackend {
 }
 
 /// Map a neutral type to a Ruby type coercion method for trilogy.
-fn ruby_coercion(neutral_type: &str) -> &'static str {
-    match neutral_type {
-        "int16" | "int32" | "int64" => ".to_i",
-        "float32" | "float64" => ".to_f",
-        "bool" => " == 1",
+///
+/// Derived from the manifest's own declared Ruby type for `neutral_type`, not a parallel
+/// hardcoded table -- see `ruby_pg.rs`'s `ruby_coercion` for why (#198). Unlike mysql2,
+/// trilogy's C extension does *not* cast `DECIMAL`/`NEWDECIMAL` columns to `BigDecimal`:
+/// verified against the installed trilogy 2.12.3 gem's `ext/trilogy-ruby/trilogy.c`, which
+/// reads both types through the same raw-string-buffer path as `VARCHAR`/`STRING`. So a
+/// `decimal` column previously came back as a plain `String` here with no arm at all
+/// covering it in the old table, while the manifest (and the `.rbs` it drives) declared
+/// `BigDecimal` (#198) -- `.to_d` (`require "bigdecimal/util"`) is a real conversion for
+/// trilogy, not the no-op it is for mysql2.
+fn ruby_coercion(neutral_type: &str, manifest: &BackendManifest) -> &'static str {
+    match manifest.types.scalars.get(neutral_type).map(String::as_str) {
+        Some("Integer") => ".to_i",
+        Some("Float") => ".to_f",
+        Some("BigDecimal") => ".to_d",
+        Some("Boolean") => " == 1",
         _ => "",
     }
 }
@@ -110,6 +122,18 @@ impl CodegenBackend for RubyTrilogyBackend {
         "require \"json\"\n\nmodule Queries".to_string()
     }
 
+    fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
+        // See `ruby_pg.rs`'s identical override: `require "bigdecimal/util"` only when this
+        // file's generated code actually calls `.to_d`. `require "json"` is left exactly as
+        // `file_header` already emitted it unconditionally -- that predates this fix and is
+        // out of scope for it; only the new `bigdecimal/util` requirement is conditional.
+        if super::ruby_rbs::ruby_generated_code_needs_bigdecimal_util(generated) {
+            "require \"json\"\nrequire \"bigdecimal/util\"\n\nmodule Queries".to_string()
+        } else {
+            self.file_header()
+        }
+    }
+
     fn file_footer(&self) -> String {
         "end".to_string()
     }
@@ -175,7 +199,7 @@ impl CodegenBackend for RubyTrilogyBackend {
                     .iter()
                     .enumerate()
                     .map(|(i, c)| {
-                        let coercion = ruby_coercion(&c.neutral_type);
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
                             format!("{}: row[{}]&.then {{ |v| v{} }}", c.field_name, i, coercion)
                         } else {
@@ -235,7 +259,7 @@ impl CodegenBackend for RubyTrilogyBackend {
                     .iter()
                     .enumerate()
                     .map(|(i, c)| {
-                        let coercion = ruby_coercion(&c.neutral_type);
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
                             format!("{}: row[{}]&.then {{ |v| v{} }}", c.field_name, i, coercion)
                         } else {
@@ -343,7 +367,7 @@ impl CodegenBackend for RubyTrilogyBackend {
             .find(|c| c.name == key_column)
             .map(|c| c.neutral_type.as_str())
             .unwrap_or("string");
-        let key_coercion = ruby_coercion(key_neutral_type);
+        let key_coercion = ruby_coercion(key_neutral_type, &self.manifest);
 
         let mut out = String::new();
         let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
@@ -357,7 +381,7 @@ impl CodegenBackend for RubyTrilogyBackend {
         let _ = writeln!(out, "        _entries << {{");
         for col in parent_columns {
             let col_idx = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
-            let coercion = ruby_coercion(&col.neutral_type);
+            let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
             if col.nullable && !coercion.is_empty() {
                 let _ = writeln!(
                     out,
@@ -378,7 +402,7 @@ impl CodegenBackend for RubyTrilogyBackend {
         );
         for col in child_columns {
             let col_idx = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
-            let coercion = ruby_coercion(&col.neutral_type);
+            let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
             if col.nullable && !coercion.is_empty() {
                 let _ = writeln!(
                     out,

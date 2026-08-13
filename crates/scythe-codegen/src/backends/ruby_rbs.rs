@@ -3,6 +3,7 @@ use std::fmt::Write;
 use scythe_backend::manifest::BackendManifest;
 use scythe_core::parser::QueryCommand;
 
+use crate::GeneratedCode;
 use crate::backend_trait::{RbsGenerationContext, RbsQueryInfo, ResolvedColumn};
 
 /// Generate child and parent `Data.define` structs for a `:grouped` Ruby query.
@@ -31,6 +32,83 @@ pub(crate) fn generate_grouped_structs_ruby(
     let _ = writeln!(out, "  {parent_struct_name} = Data.define({parent_fields})");
 
     out
+}
+
+/// Derive a `:grouped` query's child struct name from its parent struct name.
+///
+/// Mirrors `crates/scythe-codegen/src/lib.rs`'s `generate_with_backend_and_overrides` (the
+/// `.rb` code path, run for the same query before this RBS path): `{base}Child{row_suffix}`
+/// where `base` is the parent name with the naming convention's row suffix stripped. Both
+/// derivations read only the parent struct name and `manifest.naming.row_suffix`, so there
+/// is nothing for the two copies to independently diverge on.
+fn grouped_child_struct_name(parent_struct_name: &str, manifest: &BackendManifest) -> String {
+    let suffix = &manifest.naming.row_suffix;
+    let base = parent_struct_name.trim_end_matches(suffix.as_str());
+    format!("{base}Child{suffix}")
+}
+
+/// Write RBS class definitions for a `:grouped` query's parent and child structs.
+///
+/// Mirrors the `.rb` shape [`generate_grouped_structs_ruby`] emits: the child class is
+/// written first (avoiding a forward reference), then the parent class with all parent
+/// columns plus a synthesized `children: Array[{child_struct_name}]` reader -- matching the
+/// `:children` field every `generate_grouped_structs` implementation appends to the `.rb`
+/// `Data.define` parent struct (see `ruby_pg.rs`'s literal `children: []` in
+/// `generate_grouped_query_fn`).
+fn write_rbs_grouped_classes(
+    out: &mut String,
+    parent_struct_name: &str,
+    child_struct_name: &str,
+    parent_columns: &[ResolvedColumn],
+    child_columns: &[ResolvedColumn],
+    manifest: &BackendManifest,
+) {
+    write_rbs_data_class(out, child_struct_name, child_columns, manifest);
+    let _ = writeln!(out);
+
+    let _ = writeln!(out, "  class {}", parent_struct_name);
+    for col in parent_columns {
+        let rbs_type = neutral_to_rbs(&col.neutral_type, col.nullable, manifest);
+        let _ = writeln!(out, "    attr_reader {}: {}", col.field_name, rbs_type);
+    }
+    let _ = writeln!(out, "    attr_reader children: Array[{}]", child_struct_name);
+
+    let mut ctor_params: Vec<String> = parent_columns
+        .iter()
+        .map(|col| {
+            let rbs_type = neutral_to_rbs(&col.neutral_type, col.nullable, manifest);
+            format!("{}: {}", col.field_name, rbs_type)
+        })
+        .collect();
+    ctor_params.push(format!("children: Array[{}]", child_struct_name));
+    let _ = writeln!(
+        out,
+        "    def self.new: ({}) -> {}",
+        ctor_params.join(", "),
+        parent_struct_name
+    );
+    let _ = writeln!(out, "  end");
+}
+
+/// Whether any of a query's generated `.rb` code (row struct, query function, or model
+/// struct) applies the `.to_d` coercion that `ruby_pg.rs`, `ruby_mysql2.rs`, and
+/// `ruby_trilogy.rs` emit for a `decimal` column whose manifest declares it `BigDecimal`.
+///
+/// Used by those three backends' `file_header_for_results` to add
+/// `require "bigdecimal/util"` only to files that actually reference it. The `.rbs` side
+/// needs no counterpart: see [`generate_rbs_content`] for why a signature naming
+/// `BigDecimal` carries no directive at all.
+pub(crate) fn ruby_generated_code_needs_bigdecimal_util(generated: &[GeneratedCode]) -> bool {
+    generated.iter().any(|code| {
+        [
+            code.row_struct.as_deref(),
+            code.query_fn.as_deref(),
+            code.model_struct.as_deref(),
+        ]
+        .into_iter()
+        .flatten()
+        .any(|s| s.contains(".to_d"))
+    })
 }
 
 /// Translate a manifest scalar's Ruby documentation name (e.g. `"Hash"`, `"Boolean"`,
@@ -131,7 +209,19 @@ pub fn generate_rbs_content(
         if let Some(ref struct_name) = query.struct_name
             && !query.columns.is_empty()
         {
-            write_rbs_data_class(&mut out, struct_name, &query.columns, manifest);
+            if query.command == QueryCommand::Grouped {
+                let child_struct_name = grouped_child_struct_name(struct_name, manifest);
+                write_rbs_grouped_classes(
+                    &mut out,
+                    struct_name,
+                    &child_struct_name,
+                    &query.columns,
+                    &query.child_columns,
+                    manifest,
+                );
+            } else {
+                write_rbs_data_class(&mut out, struct_name, &query.columns, manifest);
+            }
             let _ = writeln!(out);
         }
 
@@ -141,6 +231,16 @@ pub fn generate_rbs_content(
 
     let _ = write!(out, "end");
     out.push('\n');
+
+    // Deliberately no `library "bigdecimal"` line here. `library` is not RBS declaration
+    // syntax -- it is a Steepfile / `rbs` CLI directive -- and emitting it into the signature
+    // makes the whole file unparseable: `rbs parse` rejects it with "cannot start a
+    // declaration, token=`library`". Naming `BigDecimal` in a signature needs no directive at
+    // all; `rbs parse` resolves it fine on its own, and which stdlib signatures are loaded is
+    // the consumer's decision, made in their Steepfile or `rbs_collection.yaml`, not
+    // something a generated `.rbs` can or should assert. The `.rb` side is different and does
+    // still emit `require "bigdecimal/util"`, because `.to_d` genuinely is not available
+    // without it -- see `ruby_generated_code_needs_bigdecimal_util`.
     out
 }
 
@@ -363,6 +463,7 @@ mod tests {
                     col("event_time", "time", false),
                     col("created_at", "datetime", false),
                 ],
+                child_columns: Vec::new(),
                 params: vec![],
                 command: QueryCommand::One,
             }],
@@ -384,6 +485,7 @@ mod tests {
                 func_name: "get_event".to_string(),
                 struct_name: Some("GetEventRow".to_string()),
                 columns: vec![col("created_at", "date", false)],
+                child_columns: Vec::new(),
                 params: vec![],
                 command: QueryCommand::One,
             }],
@@ -475,6 +577,7 @@ mod tests {
                     col("name", "string", false),
                     col("email", "string", true),
                 ],
+                child_columns: Vec::new(),
                 params: vec![param("id", "int32", false)],
                 command: QueryCommand::One,
             }],
@@ -499,6 +602,7 @@ mod tests {
                 func_name: "list_users".to_string(),
                 struct_name: Some("ListUsersRow".to_string()),
                 columns: vec![col("id", "int32", false), col("name", "string", false)],
+                child_columns: Vec::new(),
                 params: vec![],
                 command: QueryCommand::Many,
             }],
@@ -516,6 +620,7 @@ mod tests {
                 func_name: "delete_user".to_string(),
                 struct_name: None,
                 columns: vec![],
+                child_columns: Vec::new(),
                 params: vec![param("id", "int32", false)],
                 command: QueryCommand::Exec,
             }],
@@ -533,6 +638,7 @@ mod tests {
                 func_name: "delete_user".to_string(),
                 struct_name: None,
                 columns: vec![],
+                child_columns: Vec::new(),
                 params: vec![param("id", "int32", false)],
                 command: QueryCommand::ExecRows,
             }],
@@ -550,6 +656,7 @@ mod tests {
                 func_name: "insert_user".to_string(),
                 struct_name: None,
                 columns: vec![],
+                child_columns: Vec::new(),
                 params: vec![param("name", "string", false), param("email", "string", true)],
                 command: QueryCommand::Batch,
             }],
@@ -584,6 +691,7 @@ mod tests {
                 func_name: "get_user".to_string(),
                 struct_name: Some("GetUserRow".to_string()),
                 columns: vec![col("id", "int32", false)],
+                child_columns: Vec::new(),
                 params: vec![param("id", "int32", false)],
                 command: QueryCommand::One,
             }],
@@ -601,6 +709,7 @@ mod tests {
                 func_name: "get_user".to_string(),
                 struct_name: Some("GetUserRow".to_string()),
                 columns: vec![col("id", "int32", false)],
+                child_columns: Vec::new(),
                 params: vec![param("id", "int32", false)],
                 command: QueryCommand::One,
             }],
@@ -618,6 +727,7 @@ mod tests {
                 func_name: "get_user".to_string(),
                 struct_name: Some("GetUserRow".to_string()),
                 columns: vec![col("id", "int32", false)],
+                child_columns: Vec::new(),
                 params: vec![param("id", "int32", false)],
                 command: QueryCommand::One,
             }],
@@ -638,6 +748,7 @@ mod tests {
                 func_name: "get_settings".to_string(),
                 struct_name: Some("GetSettingsRow".to_string()),
                 columns: vec![col("payload", "json", false)],
+                child_columns: Vec::new(),
                 params: vec![],
                 command: QueryCommand::One,
             }],
@@ -664,6 +775,7 @@ mod tests {
                 func_name: "get_settings".to_string(),
                 struct_name: Some("GetSettingsRow".to_string()),
                 columns: vec![col("payload", "json", false)],
+                child_columns: Vec::new(),
                 params: vec![],
                 command: QueryCommand::One,
             }],

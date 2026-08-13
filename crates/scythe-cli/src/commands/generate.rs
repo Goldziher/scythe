@@ -1161,50 +1161,103 @@ fn generate_rbs_if_supported(
 
     for analyzed in analyzed_queries {
         let source_table = analyzed.source_table.as_deref().unwrap_or("");
-
-        // Same degradation pass generate_with_backend_and_overrides runs
-        // before resolving columns for the .rb file -- this .rbs signature
-        // path resolves columns independently and would otherwise reference
-        // a nested-struct type name the backend never defines anywhere, for
-        // any backend that hasn't opted in. Skipped when nested_structs is
-        // empty (the common case) for the same zero-copy reason as the main
-        // path.
-        let degraded_columns = if analyzed.nested_structs.is_empty() {
-            None
-        } else {
-            let (cols, _defs) =
-                degrade_unsupported_nested_structs(&analyzed.columns, &analyzed.nested_structs, backend)?;
-            Some(cols)
-        };
-        let columns = scythe_codegen::resolve::resolve_columns(
-            degraded_columns.as_deref().unwrap_or(&analyzed.columns),
-            manifest,
-            overrides,
-            source_table,
-        )?;
-        let params = scythe_codegen::resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
-
         let func = fn_name(&analyzed.name, naming);
-        let struct_name = determine_struct_name(analyzed, naming);
 
-        let needs_struct = matches!(
-            analyzed.command,
-            QueryCommand::One | QueryCommand::Many | QueryCommand::Grouped
-        ) && !analyzed.columns.is_empty();
+        if analyzed.command == QueryCommand::Grouped {
+            // A `:grouped` query's RBS needs the same parent/child column split as its `.rb`
+            // counterpart (`scythe_codegen::generate_with_backend_and_overrides`'s own
+            // `QueryCommand::Grouped` branch), not the flat `analyzed.columns` the branch
+            // below resolves -- resolving the flat list here is GH #203: the emitted `.rbs`
+            // described one class with neither the `children` field nor the child class the
+            // `.rb` `Data.define`s actually declare. `group_by` is guaranteed `Some` by the
+            // time we get here in practice (the `.rb` path runs first for every query in
+            // `generate_for_backend` and returns the identical "missing @group_by" error if
+            // it isn't, aborting the whole `generate` command before this RBS path runs), but
+            // this is handled as a real error rather than `unwrap`/`expect` regardless.
+            let group_by = analyzed.group_by.as_ref().ok_or_else(|| {
+                format!(
+                    "query '{}' is :grouped but is missing @group_by annotation",
+                    analyzed.name
+                )
+            })?;
 
-        let command = if analyzed.command == QueryCommand::Grouped {
-            QueryCommand::Many
+            let parent_struct_name = row_struct_name(&analyzed.name, naming);
+
+            // Same degradation pass as the non-grouped branch below, run separately against
+            // each half of the split (mirroring `generate_with_backend_and_overrides`) since a
+            // :grouped query's parent/child columns are a distinct copy of `analyzed.columns`.
+            let (degraded_parent, degraded_child) = if analyzed.nested_structs.is_empty() {
+                (None, None)
+            } else {
+                let (dp, _) =
+                    degrade_unsupported_nested_structs(&group_by.parent_columns, &analyzed.nested_structs, backend)?;
+                let (dc, _) =
+                    degrade_unsupported_nested_structs(&group_by.child_columns, &analyzed.nested_structs, backend)?;
+                (Some(dp), Some(dc))
+            };
+            let parent_cols = scythe_codegen::resolve::resolve_columns(
+                degraded_parent.as_deref().unwrap_or(&group_by.parent_columns),
+                manifest,
+                overrides,
+                source_table,
+            )?;
+            let child_cols = scythe_codegen::resolve::resolve_columns(
+                degraded_child.as_deref().unwrap_or(&group_by.child_columns),
+                manifest,
+                overrides,
+                source_table,
+            )?;
+            let params = scythe_codegen::resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
+
+            let needs_struct = !analyzed.columns.is_empty();
+
+            rbs_queries.push(RbsQueryInfo {
+                func_name: func,
+                struct_name: if needs_struct { Some(parent_struct_name) } else { None },
+                columns: parent_cols,
+                child_columns: child_cols,
+                params,
+                // Kept as `Grouped` (not rewritten to `Many`) so `ruby_rbs.rs` can tell a
+                // grouped query apart from a flat `:many` one and emits both the parent and
+                // the child class instead of one flat class (#203).
+                command: QueryCommand::Grouped,
+            });
         } else {
-            analyzed.command.clone()
-        };
+            // This path resolves columns independently of the `.rb` file (rather than reusing
+            // its output) and would otherwise reference a nested-struct type name the backend
+            // never defines anywhere, for any backend that hasn't opted in. Skipped when
+            // nested_structs is empty (the common case) for the same zero-copy reason as the
+            // grouped branch above.
+            let degraded_columns = if analyzed.nested_structs.is_empty() {
+                None
+            } else {
+                let (cols, _defs) =
+                    degrade_unsupported_nested_structs(&analyzed.columns, &analyzed.nested_structs, backend)?;
+                Some(cols)
+            };
+            let columns = scythe_codegen::resolve::resolve_columns(
+                degraded_columns.as_deref().unwrap_or(&analyzed.columns),
+                manifest,
+                overrides,
+                source_table,
+            )?;
+            let params = scythe_codegen::resolve::resolve_params(&analyzed.params, manifest, overrides, source_table)?;
 
-        rbs_queries.push(RbsQueryInfo {
-            func_name: func,
-            struct_name: if needs_struct { Some(struct_name) } else { None },
-            columns,
-            params,
-            command,
-        });
+            let struct_name = determine_struct_name(analyzed, naming);
+            let needs_struct =
+                matches!(analyzed.command, QueryCommand::One | QueryCommand::Many) && !analyzed.columns.is_empty();
+
+            rbs_queries.push(RbsQueryInfo {
+                func_name: func,
+                struct_name: if needs_struct { Some(struct_name) } else { None },
+                columns,
+                // Only a `:grouped` query has child columns; the branch above
+                // is the one that fills this.
+                child_columns: Vec::new(),
+                params,
+                command: analyzed.command.clone(),
+            });
+        }
 
         for enum_info in &analyzed.enums {
             if seen_enums.insert(enum_info.sql_name.clone()) {

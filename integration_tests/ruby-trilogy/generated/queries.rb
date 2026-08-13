@@ -2,6 +2,7 @@
 # scythe:provenance v=0.14.0 backend=ruby-trilogy engine=mysql schema=sch1:4332a9c33cb39297 queries=q1:f928696deb211f90
 
 require "json"
+require "bigdecimal/util"
 
 module Queries
 
@@ -24,7 +25,7 @@ module Queries
     results = client.query("SELECT id, user_id, total, notes, created_at FROM orders WHERE id = LAST_INSERT_ID()")
     row = results.first
     return nil if row.nil?
-    GetLastInsertOrderRow.new(id: row[0].to_i, user_id: row[1].to_i, total: row[2], notes: row[3]&.then { |v| v }, created_at: row[4])
+    GetLastInsertOrderRow.new(id: row[0].to_i, user_id: row[1].to_i, total: row[2].to_d, notes: row[3]&.then { |v| v }, created_at: row[4])
   end
 
   GetOrdersByUserRow = Data.define(:id, :total, :notes, :created_at)
@@ -33,7 +34,7 @@ module Queries
   def self.get_orders_by_user(client, user_id)
     results = client.query("SELECT id, total, notes, created_at FROM orders WHERE user_id = #{user_id} ORDER BY created_at DESC")
     results.map do |row|
-      GetOrdersByUserRow.new(id: row[0].to_i, total: row[1], notes: row[2]&.then { |v| v }, created_at: row[3])
+      GetOrdersByUserRow.new(id: row[0].to_i, total: row[1].to_d, notes: row[2]&.then { |v| v }, created_at: row[3])
     end
   end
 
@@ -44,7 +45,7 @@ module Queries
     results = client.query("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = #{user_id}")
     row = results.first
     return nil if row.nil?
-    GetOrderTotalRow.new(total_sum: row[0]&.then { |v| v })
+    GetOrderTotalRow.new(total_sum: row[0]&.then { |v| v.to_d })
   end
 
   def self.delete_orders_by_user(client, user_id)

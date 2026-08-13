@@ -31,11 +31,19 @@ impl RubySqlite3Backend {
 }
 
 /// Map a neutral type to a Ruby type coercion method for sqlite3.
-fn ruby_coercion(neutral_type: &str) -> &'static str {
-    match neutral_type {
-        "int16" | "int32" | "int64" => ".to_i",
-        "float32" | "float64" | "decimal" => ".to_f",
-        "bool" => " == 1",
+///
+/// Derived from the manifest's own declared Ruby type for `neutral_type`, not a parallel
+/// hardcoded table -- see `ruby_pg.rs`'s `ruby_coercion` for why (#198). `ruby-sqlite3.toml`
+/// declares `decimal = "Float"` (SQLite has no native arbitrary-precision decimal storage
+/// class, so the driver hands back a plain `Float`, not `BigDecimal`), which the old table
+/// already special-cased correctly -- this keeps that behavior but makes it impossible for
+/// the two to drift apart again, since there is now only one place (`ruby-sqlite3.toml`)
+/// that says what `decimal` coerces to.
+fn ruby_coercion(neutral_type: &str, manifest: &BackendManifest) -> &'static str {
+    match manifest.types.scalars.get(neutral_type).map(String::as_str) {
+        Some("Integer") => ".to_i",
+        Some("Float") => ".to_f",
+        Some("Boolean") => " == 1",
         _ => "",
     }
 }
@@ -139,7 +147,7 @@ impl CodegenBackend for RubySqlite3Backend {
                     .iter()
                     .enumerate()
                     .map(|(i, c)| {
-                        let coercion = ruby_coercion(&c.neutral_type);
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
                             format!("{}: row[{}]&.then {{ |v| v{} }}", c.field_name, i, coercion)
                         } else {
@@ -174,7 +182,7 @@ impl CodegenBackend for RubySqlite3Backend {
                     .iter()
                     .enumerate()
                     .map(|(i, c)| {
-                        let coercion = ruby_coercion(&c.neutral_type);
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
                             format!("{}: row[{}]&.then {{ |v| v{} }}", c.field_name, i, coercion)
                         } else {
@@ -259,7 +267,7 @@ impl CodegenBackend for RubySqlite3Backend {
             .find(|c| c.name == key_column)
             .map(|c| c.neutral_type.as_str())
             .unwrap_or("string");
-        let key_coercion = ruby_coercion(key_neutral_type);
+        let key_coercion = ruby_coercion(key_neutral_type, &self.manifest);
 
         let mut out = String::new();
         let _ = writeln!(out, "  def self.{}(db{}{})", func_name, sep, param_list);
@@ -273,7 +281,7 @@ impl CodegenBackend for RubySqlite3Backend {
         let _ = writeln!(out, "        _entries << {{");
         for col in parent_columns {
             let col_idx = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
-            let coercion = ruby_coercion(&col.neutral_type);
+            let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
             if col.nullable && !coercion.is_empty() {
                 let _ = writeln!(
                     out,
@@ -294,7 +302,7 @@ impl CodegenBackend for RubySqlite3Backend {
         );
         for col in child_columns {
             let col_idx = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
-            let coercion = ruby_coercion(&col.neutral_type);
+            let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
             if col.nullable && !coercion.is_empty() {
                 let _ = writeln!(
                     out,

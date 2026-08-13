@@ -12,11 +12,21 @@ pub struct RbsGenerationContext {
 }
 
 /// Per-query info for RBS generation.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct RbsQueryInfo {
     pub func_name: String,
     pub struct_name: Option<String>,
+    /// The row's columns. For a `:grouped` query this holds the *parent*
+    /// columns only; the children live in [`Self::child_columns`].
     pub columns: Vec<ResolvedColumn>,
+    /// A `:grouped` query's child-row columns, empty for every other command.
+    ///
+    /// Carried as its own field rather than packed into `columns` behind an
+    /// in-band marker: a sentinel smuggled through a data field is how #173
+    /// leaked `__unknown_col__` into user-visible output, and a `full_type`
+    /// that means "this is a child" rather than a type is the same shape of
+    /// mistake one refactor away from being read as a type.
+    pub child_columns: Vec<ResolvedColumn>,
     pub params: Vec<ResolvedParam>,
     pub command: scythe_core::parser::QueryCommand,
 }

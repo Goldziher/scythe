@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 # scythe:provenance v=0.14.0 backend=ruby-mysql2 engine=mariadb schema=sch1:262bec5a0954c973 queries=q1:2f37bd0f0a685c79
 
+require "bigdecimal/util"
+
 module Queries
 
   module UsersStatus
@@ -18,7 +20,7 @@ module Queries
     results = stmt.execute(user_id, total, notes)
     row = results.first
     return nil if row.nil?
-    CreateOrderRow.new(id: row["id"].to_i, user_id: row["user_id"], total: row["total"], notes: row["notes"]&.then { |v| v }, created_at: row["created_at"])
+    CreateOrderRow.new(id: row["id"].to_i, user_id: row["user_id"], total: row["total"].to_d, notes: row["notes"]&.then { |v| v }, created_at: row["created_at"])
   end
 
   GetOrdersByUserRow = Data.define(:id, :total, :notes, :created_at)
@@ -28,7 +30,7 @@ module Queries
     stmt = client.prepare("SELECT id, total, notes, created_at FROM orders WHERE user_id = ? ORDER BY created_at DESC")
     results = stmt.execute(user_id)
     results.map do |row|
-      GetOrdersByUserRow.new(id: row["id"].to_i, total: row["total"], notes: row["notes"]&.then { |v| v }, created_at: row["created_at"])
+      GetOrdersByUserRow.new(id: row["id"].to_i, total: row["total"].to_d, notes: row["notes"]&.then { |v| v }, created_at: row["created_at"])
     end
   end
 
@@ -40,7 +42,7 @@ module Queries
     results = stmt.execute(user_id)
     row = results.first
     return nil if row.nil?
-    GetOrderTotalRow.new(total_sum: row["total_sum"]&.then { |v| v })
+    GetOrderTotalRow.new(total_sum: row["total_sum"]&.then { |v| v.to_d })
   end
 
   def self.delete_orders_by_user(client, user_id)

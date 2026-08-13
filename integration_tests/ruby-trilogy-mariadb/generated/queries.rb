@@ -2,6 +2,7 @@
 # scythe:provenance v=0.14.0 backend=ruby-trilogy engine=mariadb schema=sch1:262bec5a0954c973 queries=q1:2f37bd0f0a685c79
 
 require "json"
+require "bigdecimal/util"
 
 module Queries
 
@@ -19,7 +20,7 @@ module Queries
     results = client.query("INSERT INTO orders (user_id, total, notes) VALUES ('#{client.escape(user_id.to_s)}', #{total}, '#{client.escape(notes.to_s)}') RETURNING id, user_id, total, notes, created_at")
     row = results.first
     return nil if row.nil?
-    CreateOrderRow.new(id: row[0].to_i, user_id: row[1], total: row[2], notes: row[3]&.then { |v| v }, created_at: row[4])
+    CreateOrderRow.new(id: row[0].to_i, user_id: row[1], total: row[2].to_d, notes: row[3]&.then { |v| v }, created_at: row[4])
   end
 
   GetOrdersByUserRow = Data.define(:id, :total, :notes, :created_at)
@@ -28,7 +29,7 @@ module Queries
   def self.get_orders_by_user(client, user_id)
     results = client.query("SELECT id, total, notes, created_at FROM orders WHERE user_id = '#{client.escape(user_id.to_s)}' ORDER BY created_at DESC")
     results.map do |row|
-      GetOrdersByUserRow.new(id: row[0].to_i, total: row[1], notes: row[2]&.then { |v| v }, created_at: row[3])
+      GetOrdersByUserRow.new(id: row[0].to_i, total: row[1].to_d, notes: row[2]&.then { |v| v }, created_at: row[3])
     end
   end
 
@@ -39,7 +40,7 @@ module Queries
     results = client.query("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = '#{client.escape(user_id.to_s)}'")
     row = results.first
     return nil if row.nil?
-    GetOrderTotalRow.new(total_sum: row[0]&.then { |v| v })
+    GetOrderTotalRow.new(total_sum: row[0]&.then { |v| v.to_d })
   end
 
   def self.delete_orders_by_user(client, user_id)

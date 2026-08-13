@@ -6,6 +6,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::GeneratedCode;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, RbsGenerationContext, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-pg.toml");
@@ -32,12 +33,24 @@ impl RubyPgBackend {
     }
 }
 
-/// Map a neutral type to a Ruby type coercion method.
-fn ruby_coercion(neutral_type: &str) -> &'static str {
-    match neutral_type {
-        "int16" | "int32" | "int64" => ".to_i",
-        "float32" | "float64" => ".to_f",
-        "bool" => " == \"t\"",
+/// Map a neutral type to a Ruby type coercion method for pg.
+///
+/// Derived from the manifest's own declared Ruby type for `neutral_type`
+/// (`manifest.types.scalars`) rather than matching `neutral_type` directly, so this table
+/// can never silently diverge from what `ruby-pg.toml` (or a `manifest = "..."` overlay)
+/// actually declares -- the failure mode from #198: the old table had no `"decimal"` arm at
+/// all, so a `decimal` column came back as `pg`'s raw wire `String` while the `.rbs` this
+/// same manifest drives said `BigDecimal`. `pg` does no client-side type casting of its own
+/// -- every column value is the wire-format text `pg` received from the server -- so every
+/// declared type below needs an explicit conversion; `BigDecimal` uses `.to_d`
+/// (`require "bigdecimal/util"`, added to the file header by `file_header_for_results`
+/// only when a generated file actually calls it).
+fn ruby_coercion(neutral_type: &str, manifest: &BackendManifest) -> &'static str {
+    match manifest.types.scalars.get(neutral_type).map(String::as_str) {
+        Some("Integer") => ".to_i",
+        Some("Float") => ".to_f",
+        Some("BigDecimal") => ".to_d",
+        Some("Boolean") => " == \"t\"",
         _ => "",
     }
 }
@@ -73,6 +86,20 @@ impl CodegenBackend for RubyPgBackend {
 
     fn file_header(&self) -> String {
         "module Queries".to_string()
+    }
+
+    fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
+        // `require "bigdecimal/util"` only when this file's generated code actually calls
+        // the `.to_d` coercion `ruby_coercion` emits for a `decimal` column -- most files
+        // never touch `BigDecimal` at all, and an unconditional `require` here would add a
+        // stdlib dependency the file never uses. The `.rbs` file needs no counterpart --
+        // see `ruby_rbs.rs`'s `generate_rbs_content` for why a signature naming `BigDecimal`
+        // carries no directive at all.
+        if super::ruby_rbs::ruby_generated_code_needs_bigdecimal_util(generated) {
+            "require \"bigdecimal/util\"\n\nmodule Queries".to_string()
+        } else {
+            self.file_header()
+        }
     }
 
     fn file_footer(&self) -> String {
@@ -143,7 +170,7 @@ impl CodegenBackend for RubyPgBackend {
                 let fields = columns
                     .iter()
                     .map(|c| {
-                        let coercion = ruby_coercion(&c.neutral_type);
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
                             format!("{}: row[\"{}\"]&.then {{ |v| v{} }}", c.field_name, c.name, coercion)
                         } else {
@@ -177,7 +204,7 @@ impl CodegenBackend for RubyPgBackend {
                 let fields = columns
                     .iter()
                     .map(|c| {
-                        let coercion = ruby_coercion(&c.neutral_type);
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
                             format!("{}: row[\"{}\"]&.then {{ |v| v{} }}", c.field_name, c.name, coercion)
                         } else {
@@ -261,7 +288,7 @@ impl CodegenBackend for RubyPgBackend {
             .find(|c| c.name == key_column)
             .map(|c| c.neutral_type.as_str())
             .unwrap_or("string");
-        let key_coercion = ruby_coercion(key_neutral_type);
+        let key_coercion = ruby_coercion(key_neutral_type, &self.manifest);
 
         let mut out = String::new();
         let _ = writeln!(out, "  def self.{}(conn{}{})", func_name, sep, param_list);
@@ -274,7 +301,7 @@ impl CodegenBackend for RubyPgBackend {
         let _ = writeln!(out, "        _index[key] = _entries.size");
         let _ = writeln!(out, "        _entries << {{");
         for col in parent_columns {
-            let coercion = ruby_coercion(&col.neutral_type);
+            let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
             if col.nullable && !coercion.is_empty() {
                 let _ = writeln!(
                     out,
@@ -294,7 +321,7 @@ impl CodegenBackend for RubyPgBackend {
             child_struct_name
         );
         for col in child_columns {
-            let coercion = ruby_coercion(&col.neutral_type);
+            let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
             if col.nullable && !coercion.is_empty() {
                 let _ = writeln!(
                     out,

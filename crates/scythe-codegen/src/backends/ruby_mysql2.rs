@@ -6,6 +6,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::GeneratedCode;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, RbsGenerationContext, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-mysql2.toml");
@@ -31,11 +32,24 @@ impl RubyMysql2Backend {
 }
 
 /// Map a neutral type to a Ruby type coercion method for mysql2.
-fn ruby_coercion(neutral_type: &str) -> &'static str {
-    match neutral_type {
-        "int16" | "int32" | "int64" => ".to_i",
-        "float32" | "float64" => ".to_f",
-        "bool" => " == 1",
+///
+/// Derived from the manifest's own declared Ruby type for `neutral_type`, not a parallel
+/// hardcoded table -- see `ruby_pg.rs`'s `ruby_coercion` for why (#198). The mysql2 C
+/// extension already casts `DECIMAL`/`NEWDECIMAL` columns to `BigDecimal` itself (verified
+/// against the installed mysql2 0.5.7 gem's `ext/mysql2/result.c`, which calls
+/// `Kernel#BigDecimal` on the raw column bytes for both types), so `.to_d` below is a
+/// same-type no-op here (`BigDecimal#to_d` returns `self`) rather than a real conversion --
+/// unlike `pg` and `trilogy`, where the driver hands back a `String` and `.to_d` does the
+/// actual work. Applying it unconditionally anyway keeps this function agreeing with the
+/// manifest by construction instead of by a second per-driver judgment call, matching how
+/// `.to_i`/`.to_f` were already applied unconditionally here even though mysql2 also
+/// natively returns `Integer`/`Float` for those.
+fn ruby_coercion(neutral_type: &str, manifest: &BackendManifest) -> &'static str {
+    match manifest.types.scalars.get(neutral_type).map(String::as_str) {
+        Some("Integer") => ".to_i",
+        Some("Float") => ".to_f",
+        Some("BigDecimal") => ".to_d",
+        Some("Boolean") => " == 1",
         _ => "",
     }
 }
@@ -71,6 +85,16 @@ impl CodegenBackend for RubyMysql2Backend {
 
     fn file_header(&self) -> String {
         "module Queries".to_string()
+    }
+
+    fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
+        // See `ruby_pg.rs`'s identical override: `require "bigdecimal/util"` only when this
+        // file's generated code actually calls `.to_d`.
+        if super::ruby_rbs::ruby_generated_code_needs_bigdecimal_util(generated) {
+            "require \"bigdecimal/util\"\n\nmodule Queries".to_string()
+        } else {
+            self.file_header()
+        }
     }
 
     fn file_footer(&self) -> String {
@@ -144,7 +168,7 @@ impl CodegenBackend for RubyMysql2Backend {
                 let fields = columns
                     .iter()
                     .map(|c| {
-                        let coercion = ruby_coercion(&c.neutral_type);
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
                             format!("{}: row[\"{}\"]&.then {{ |v| v{} }}", c.field_name, c.name, coercion)
                         } else {
@@ -182,7 +206,7 @@ impl CodegenBackend for RubyMysql2Backend {
                 let fields = columns
                     .iter()
                     .map(|c| {
-                        let coercion = ruby_coercion(&c.neutral_type);
+                        let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
                             format!("{}: row[\"{}\"]&.then {{ |v| v{} }}", c.field_name, c.name, coercion)
                         } else {
@@ -269,7 +293,7 @@ impl CodegenBackend for RubyMysql2Backend {
             .find(|c| c.name == key_column)
             .map(|c| c.neutral_type.as_str())
             .unwrap_or("string");
-        let key_coercion = ruby_coercion(key_neutral_type);
+        let key_coercion = ruby_coercion(key_neutral_type, &self.manifest);
 
         let mut out = String::new();
         let _ = writeln!(out, "  def self.{}(client{}{})", func_name, sep, param_list);
@@ -283,7 +307,7 @@ impl CodegenBackend for RubyMysql2Backend {
         let _ = writeln!(out, "        _index[key] = _entries.size");
         let _ = writeln!(out, "        _entries << {{");
         for col in parent_columns {
-            let coercion = ruby_coercion(&col.neutral_type);
+            let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
             if col.nullable && !coercion.is_empty() {
                 let _ = writeln!(
                     out,
@@ -303,7 +327,7 @@ impl CodegenBackend for RubyMysql2Backend {
             child_struct_name
         );
         for col in child_columns {
-            let coercion = ruby_coercion(&col.neutral_type);
+            let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
             if col.nullable && !coercion.is_empty() {
                 let _ = writeln!(
                     out,

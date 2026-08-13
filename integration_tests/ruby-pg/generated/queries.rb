@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 # scythe:provenance v=0.14.0 backend=ruby-pg engine=postgresql schema=sch1:2e813606acee8b51 queries=q1:03c2db16665ee046
 
+require "bigdecimal/util"
+
 module Queries
 
   module UserStatus
@@ -17,7 +19,7 @@ module Queries
     result = conn.exec_params("INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3) RETURNING id, user_id, total, notes, created_at", [user_id, total, notes])
     return nil if result.ntuples.zero?
     row = result[0]
-    CreateOrderRow.new(id: row["id"].to_i, user_id: row["user_id"].to_i, total: row["total"], notes: row["notes"]&.then { |v| v }, created_at: row["created_at"])
+    CreateOrderRow.new(id: row["id"].to_i, user_id: row["user_id"].to_i, total: row["total"].to_d, notes: row["notes"]&.then { |v| v }, created_at: row["created_at"])
   end
 
   GetOrdersByUserRow = Data.define(:id, :total, :notes, :created_at)
@@ -26,7 +28,7 @@ module Queries
   def self.get_orders_by_user(conn, user_id)
     result = conn.exec_params("SELECT id, total, notes, created_at FROM orders WHERE user_id = $1 ORDER BY created_at DESC", [user_id])
     result.map do |row|
-      GetOrdersByUserRow.new(id: row["id"].to_i, total: row["total"], notes: row["notes"]&.then { |v| v }, created_at: row["created_at"])
+      GetOrdersByUserRow.new(id: row["id"].to_i, total: row["total"].to_d, notes: row["notes"]&.then { |v| v }, created_at: row["created_at"])
     end
   end
 
@@ -37,7 +39,7 @@ module Queries
     result = conn.exec_params("SELECT SUM(total) AS total_sum FROM orders WHERE user_id = $1", [user_id])
     return nil if result.ntuples.zero?
     row = result[0]
-    GetOrderTotalRow.new(total_sum: row["total_sum"]&.then { |v| v })
+    GetOrderTotalRow.new(total_sum: row["total_sum"]&.then { |v| v.to_d })
   end
 
   GetOrderWeightTotalRow = Data.define(:weight_total)
@@ -104,7 +106,7 @@ FROM users u
 LEFT JOIN orders o ON u.id = o.user_id
 WHERE u.status = $1", [status])
     result.map do |row|
-      GetUserOrdersRow.new(id: row["id"].to_i, name: row["name"], total: row["total"]&.then { |v| v }, notes: row["notes"]&.then { |v| v })
+      GetUserOrdersRow.new(id: row["id"].to_i, name: row["name"], total: row["total"]&.then { |v| v.to_d }, notes: row["notes"]&.then { |v| v })
     end
   end
 
