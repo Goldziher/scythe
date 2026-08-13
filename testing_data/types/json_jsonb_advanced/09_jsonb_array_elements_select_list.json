@@ -1,0 +1,29 @@
+{
+  "category": "types/json_jsonb_advanced",
+  "description": "Test jsonb_array_elements in select-list position: unlike jsonb_each, this is SETOF jsonb (a scalar per row), so the column really is json",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "item",
+          "nullable": true,
+          "type": "json"
+        }
+      ],
+      "command": "many",
+      "name": "GetDocItemsSelectList",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "jsonb_array_elements_select_list",
+  "query_sql": "-- @name GetDocItemsSelectList\n-- @returns :many\nSELECT id, jsonb_array_elements(data->'items') AS item FROM documents",
+  "schema_sql": ["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"],
+  "source": "original",
+  "tags": ["jsonb", "set_returning_function", "array_elements", "select_list"]
+}

@@ -854,12 +854,40 @@ impl<'a> Analyzer<'a> {
             // ~keep Strict, returns `text`; the pretty-printed rendering of a
             // non-NULL document is never SQL NULL.
             "jsonb_pretty" => TypeInfo::new("string", first_arg_nullable),
-            "json_each" | "jsonb_each" | "json_each_text" | "jsonb_each_text" => TypeInfo::new("string", true),
+            // ~keep In FROM position (`FROM json_each(j) AS kv`) these expand into
+            // two real columns -- see the `known_functions` match in
+            // `scope.rs`, which types `key` as `string` and `value` as
+            // `json`/`string`. In *select-list* position
+            // (`SELECT json_each(j) FROM t`), PostgreSQL's SRF-in-target-list
+            // extension instead yields a single column of the pseudo-type
+            // `record` -- an anonymous composite, not a scalar. The neutral
+            // type vocabulary can name a *catalog* composite
+            // (`composite::{name}`) or a *synthesized* one for
+            // `json_agg`/`row_to_json` (`json_nested<...>`, which tells every
+            // backend "decode this value as embedded JSON"), but neither fits
+            // here: there is no catalog entry to point `composite::` at, and
+            // the value on the wire is a native PostgreSQL record, not JSON
+            // text, so `json_nested<...>` would tell backends to decode it
+            // the wrong way. `string` was worse still -- a silent wrong
+            // answer, not merely an imprecise one. `unknown` is the same
+            // honest fallback already used a few lines down for
+            // `json_populate_record`/`jsonb_populate_recordset`, another
+            // record-shaped result the vocabulary cannot name.
+            "json_each" | "jsonb_each" | "json_each_text" | "jsonb_each_text" => TypeInfo::new("unknown", true),
             "json_object_keys" | "jsonb_object_keys" => TypeInfo::new("string", false),
             "json_populate_record"
             | "jsonb_populate_record"
             | "json_populate_recordset"
             | "jsonb_populate_recordset" => TypeInfo::new("unknown", true),
+            // ~keep Unlike `json_each`, these are `SETOF json`/`SETOF jsonb` --
+            // one scalar JSON value per row, not a record -- so in
+            // select-list position (`SELECT json_array_elements(j) FROM t`)
+            // the column genuinely is `json`, matching the `value` column
+            // FROM position already assigns in `scope.rs`. Previously
+            // unhandled here, these fell through to the catch-all arm below
+            // and were reported as an unknown-function error rather than
+            // resolved.
+            "json_array_elements" | "jsonb_array_elements" => TypeInfo::new("json", true),
 
             "array_length" | "array_ndims" | "array_lower" | "array_upper" | "cardinality" => {
                 TypeInfo::new("int32", true)

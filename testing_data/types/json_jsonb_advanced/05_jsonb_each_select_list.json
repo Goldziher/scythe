@@ -1,0 +1,30 @@
+{
+  "category": "types/json_jsonb_advanced",
+  "description": "Test jsonb_each in select-list position (PostgreSQL SRF-in-target-list): the result is a single anonymous record column, not text",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "kv",
+          "note": "jsonb_each in select-list position yields an anonymous (key, value) record, which the neutral type vocabulary cannot name -- unknown, not string",
+          "nullable": true,
+          "type": "unknown"
+        }
+      ],
+      "command": "many",
+      "name": "GetDocEntries",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "jsonb_each_select_list",
+  "query_sql": "-- @name GetDocEntries\n-- @returns :many\nSELECT id, jsonb_each(data) AS kv FROM documents",
+  "schema_sql": ["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"],
+  "source": "original",
+  "tags": ["jsonb", "set_returning_function", "each", "select_list"]
+}

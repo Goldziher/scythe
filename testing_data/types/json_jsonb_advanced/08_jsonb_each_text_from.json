@@ -1,0 +1,34 @@
+{
+  "category": "types/json_jsonb_advanced",
+  "description": "Test jsonb_each_text in FROM position, which expands into two text columns: key and value",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "key",
+          "nullable": false,
+          "type": "string"
+        },
+        {
+          "name": "value",
+          "nullable": true,
+          "type": "string"
+        }
+      ],
+      "command": "many",
+      "name": "GetDocEntryText",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "jsonb_each_text_from",
+  "query_sql": "-- @name GetDocEntryText\n-- @returns :many\nSELECT id, kv.key, kv.value FROM documents, jsonb_each_text(data) AS kv",
+  "schema_sql": ["CREATE TABLE documents (id SERIAL PRIMARY KEY, data JSONB NOT NULL, metadata JSONB);"],
+  "source": "original",
+  "tags": ["jsonb", "set_returning_function", "each_text", "from_clause"]
+}

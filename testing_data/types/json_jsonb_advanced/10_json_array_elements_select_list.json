@@ -1,0 +1,29 @@
+{
+  "category": "types/json_jsonb_advanced",
+  "description": "Test the json_ (not jsonb_) variant of json_array_elements in select-list position, using a native json column",
+  "expected": {
+    "query": {
+      "columns": [
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
+        {
+          "name": "item",
+          "nullable": true,
+          "type": "json"
+        }
+      ],
+      "command": "many",
+      "name": "GetPayloadItemsSelectList",
+      "params": []
+    },
+    "success": true
+  },
+  "name": "json_array_elements_select_list",
+  "query_sql": "-- @name GetPayloadItemsSelectList\n-- @returns :many\nSELECT id, json_array_elements(payload->'items') AS item FROM payloads",
+  "schema_sql": ["CREATE TABLE payloads (id SERIAL PRIMARY KEY, payload JSON NOT NULL);"],
+  "source": "original",
+  "tags": ["json", "set_returning_function", "array_elements", "select_list"]
+}

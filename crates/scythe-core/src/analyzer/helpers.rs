@@ -898,7 +898,9 @@ mod tests {
 
     #[test]
     fn test_literal_number_neutral_type_small_integer_is_int32() {
-        // Matches PostgreSQL: `SELECT pg_typeof(1)` is `integer`, not `bigint`.
+        // ~keep Matches PostgreSQL: `SELECT pg_typeof(1)` is `integer`, not `bigint`.
+        // The citation is the justification for these exact boundaries; without it
+        // the i32 limits below read as arbitrary and invite "simplification" to i64.
         assert_eq!(literal_number_neutral_type("1"), "int32");
         assert_eq!(literal_number_neutral_type("42"), "int32");
         assert_eq!(literal_number_neutral_type("-2147483648"), "int32");
