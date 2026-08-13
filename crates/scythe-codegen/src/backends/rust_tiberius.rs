@@ -290,7 +290,8 @@ impl CodegenBackend for RustTiberiusBackend {
         }
 
         let return_type = match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => struct_name.to_string(),
+            QueryCommand::One => struct_name.to_string(),
+            QueryCommand::Opt => format!("Option<{}>", struct_name),
             QueryCommand::Many => format!("Vec<{}>", struct_name),
             QueryCommand::Exec => "()".to_string(),
             QueryCommand::ExecResult | QueryCommand::ExecRows => "u64".to_string(),
@@ -332,13 +333,18 @@ impl CodegenBackend for RustTiberiusBackend {
         };
 
         match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => {
+            QueryCommand::One => {
                 let _ = writeln!(out, "    let stream = client.query({}, {}).await?;", sql, param_slice);
                 let _ = writeln!(
                     out,
                     "    let row = stream.into_row().await?.expect(\"expected one row\");"
                 );
                 let _ = writeln!(out, "    Ok({}::from_row(&row)?)", struct_name);
+            }
+            QueryCommand::Opt => {
+                let _ = writeln!(out, "    let stream = client.query({}, {}).await?;", sql, param_slice);
+                let _ = writeln!(out, "    let row = stream.into_row().await?;");
+                let _ = writeln!(out, "    row.map(|r| {}::from_row(&r)).transpose()", struct_name);
             }
             QueryCommand::Many => {
                 let _ = writeln!(out, "    let stream = client.query({}, {}).await?;", sql, param_slice);

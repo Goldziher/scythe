@@ -183,6 +183,7 @@ impl CodegenBackend for SqlxBackend {
 
         for col in columns {
             let field_type = self.row_field_type(col);
+            write_sqlx_rename_attr(&mut out, col);
             let _ = writeln!(out, "    pub {}: {},", col.field_name, field_type);
         }
 
@@ -309,7 +310,16 @@ impl CodegenBackend for SqlxBackend {
         }
 
         let return_type = match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => struct_name.to_string(),
+            QueryCommand::One => struct_name.to_string(),
+            // `:opt` is "zero or one row", so it returns `Option<T>` and fetches
+            // with `.fetch_optional`. Sharing `:one`'s arm produced generated code
+            // that could not compile at all, not merely code that was too strict:
+            // the return type said `{struct_name}` while `has_row_struct` below
+            // excluded `Opt`, so the body emitted the anonymous-record
+            // `sqlx::query!` instead of `sqlx::query_as!` and handed back a type
+            // that was not `{struct_name}`. The declared type and the produced
+            // type disagreed on every `:opt` query rust-sqlx has ever emitted.
+            QueryCommand::Opt => format!("Option<{}>", struct_name),
             QueryCommand::Many => format!("Vec<{}>", struct_name),
             QueryCommand::Exec => "()".to_string(),
             QueryCommand::ExecResult => self.query_result_type().to_string(),
@@ -328,7 +338,13 @@ impl CodegenBackend for SqlxBackend {
             return_type
         );
 
-        let has_row_struct = matches!(analyzed.command, QueryCommand::One | QueryCommand::Many);
+        // `Opt` belongs here with `One`/`Many`: it returns rows, so it needs
+        // `sqlx::query_as!` and the row struct. Omitting it is what made the
+        // declared return type unreachable -- see the `Opt` arm above.
+        let has_row_struct = matches!(
+            analyzed.command,
+            QueryCommand::One | QueryCommand::Many | QueryCommand::Opt
+        );
 
         let is_exec_rows = matches!(analyzed.command, QueryCommand::ExecRows);
 
@@ -351,7 +367,8 @@ impl CodegenBackend for SqlxBackend {
         let _ = writeln!(out);
 
         let fetch_method = match &analyzed.command {
-            QueryCommand::One | QueryCommand::Opt => ".fetch_one(pool)",
+            QueryCommand::One => ".fetch_one(pool)",
+            QueryCommand::Opt => ".fetch_optional(pool)",
             QueryCommand::Many => ".fetch_all(pool)",
             QueryCommand::Exec => ".execute(pool)",
             QueryCommand::ExecResult => ".execute(pool)",
@@ -429,12 +446,17 @@ impl CodegenBackend for SqlxBackend {
         let _ = writeln!(out, "pub struct {child_struct_name} {{");
         for col in child_columns {
             let field_type = self.row_field_type(col);
+            write_sqlx_rename_attr(&mut out, col);
             let _ = writeln!(out, "    pub {}: {field_type},", col.field_name);
         }
         let _ = writeln!(out, "}}");
 
         let _ = writeln!(out);
 
+        // ~keep The parent struct here is plain Debug/Clone, not sqlx::FromRow --
+        // it is assembled field-by-field from `row.<field_name>` (see
+        // generate_grouped_query_fn), never decoded by sqlx itself, so it has
+        // no FromRow name-lookup to protect and gets no #[sqlx(rename)].
         let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone"]));
         let _ = writeln!(out, "pub struct {parent_struct_name} {{");
         for col in parent_columns {
@@ -705,6 +727,25 @@ pub(crate) fn add_serde_to_enum(rendered: &str, enum_info: &EnumInfo, manifest: 
         }
     }
     out
+}
+
+/// Emit a `#[sqlx(rename = "...")]` line ahead of a row-struct field whose
+/// generated identifier differs from its SQL column name.
+///
+/// `sqlx::FromRow` (derived on every row struct this backend emits) looks a
+/// column up *by the Rust field's own name* unless told otherwise.
+/// `sanitize_field_names` (on in every rust-sqlx manifest) turns a column
+/// like `my col` into the field `my_col` so the struct compiles, but without
+/// this attribute that silently breaks the FromRow lookup: at runtime it
+/// searches the row for a column literally named `my_col`, which does not
+/// exist, producing a `ColumnNotFound` error (or, if a column happens to
+/// share that sanitized name, a wrong value entirely) despite the generated
+/// code compiling cleanly. The rename attribute keeps the FromRow lookup on
+/// the original SQL name while the Rust-visible field stays sanitized.
+fn write_sqlx_rename_attr(out: &mut String, col: &ResolvedColumn) {
+    if col.field_name != col.name {
+        let _ = writeln!(out, "    #[sqlx(rename = \"{}\")]", col.name);
+    }
 }
 
 /// Rewrite SQL to add enum type annotations for sqlx.

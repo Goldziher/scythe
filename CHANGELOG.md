@@ -43,6 +43,27 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 - **`python-aiomysql` rewrote a `?` inside a SQL string literal.** A blind `.replace('?', "%s")` ran
   *after* the literal-aware `rewrite_pg_placeholders`, so `WHERE note = 'really?'` became
   `'really%s'` — a silent wrong answer, not an error. GH #153 was closed with this half unfixed.
+- **`rust-sqlx`'s `:opt` output never compiled.** The return type said `{Struct}` while the body's
+  `has_row_struct` guard excluded `Opt`, so it emitted the anonymous-record `sqlx::query!` instead of
+  `sqlx::query_as!` — the declared type and the produced type disagreed on every `:opt` query the
+  backend has ever generated. `:opt` now returns `Option<{Struct}>` and fetches with
+  `.fetch_optional`, which is what the command means. `rust-tiberius`'s `:opt` likewise stopped
+  emitting `.expect("expected one row")`, a panic in generated code on exactly the absent row `:opt`
+  exists to handle. (#197)
+- **`rust-sqlx` mapped a mangled field back to the wrong column.** The backend derives
+  `sqlx::FromRow`, which looks a column up *by the Rust field name*, and #215's
+  `sanitize_field_names` renames any non-identifier column — so `my col` became a field `my_col` that
+  `FromRow` then searched for under that name and could not find. A compile fix bought at the cost of
+  a runtime one. Fields whose generated name differs from the SQL column now carry
+  `#[sqlx(rename = "…")]`. The other Rust backends were checked and are unaffected: tokio-postgres
+  and tiberius look up by the raw SQL name, sibyl reads positionally.
+- **`typescript-duckdb` typed a `bytes` column as something the driver never returns.** The manifest
+  declared `Uint8Array`; `@duckdb/node-api` hands a BLOB back as `DuckDBBlobValue`. Verified against
+  the published package rather than inferred — 1.5.5-r.4 ships
+  `class DuckDBBlobValue { readonly bytes: Uint8Array }` and lists it in the `DuckDBValue` union. The
+  read direction had no test at all, which is why this survived. Note the manifest has no read/bind
+  split, so the bind-position type changed too: construct one with the driver's
+  `blobValue(Uint8Array | string)`.
 - **The tool-validation schemas contained no container or user-defined type.** The ~20 PostgreSQL
   backend tests that compile generated code with a real compiler — the strongest gate in the project
   — never asked one to accept an array, an enum, an array of enums, a composite, a `uuid` or a
