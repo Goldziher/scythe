@@ -6,7 +6,25 @@ edition = "2024"
 [workspace]
 
 [dependencies]
-sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal", "json", "uuid"] }
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = "1"
+serde_json = "1"
+uuid = "1"
+
+# cargo-machete reports both of the above as unused, and by its own lights it is
+# right: the committed generated code here is built against sql/pg/schema.sql,
+# which has no json or uuid column, so nothing in the checked-in tree names
+# either crate. They exist for scripts/check-generated-backends.py, which
+# regenerates this project against sql/torture/schema.sql -- that schema does
+# have `metadata JSONB` and `external_id UUID`, and the manifests map them to
+# `serde_json::Value` and `uuid::Uuid`.
+#
+# Without these, the torture gate fails on a missing crate rather than on
+# anything scythe emitted, which made all three rust-* entries on its
+# expected-failure list unfalsifiable: no change to the generated code could
+# ever clear them, so the list's stale-entry direction could never fire and the
+# Rust backends had no regression coverage from that gate at all.
+[package.metadata.cargo-machete]
+ignored = ["serde_json", "uuid"]

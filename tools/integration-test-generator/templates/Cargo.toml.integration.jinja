@@ -7,13 +7,13 @@ edition = "2024"
 
 [dependencies]
 {% if driver == "sqlx" -%}
-sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal", "json", "uuid"] }
 {%- elif driver == "sqlx-mysql" or driver == "sqlx-mariadb" -%}
 sqlx = { version = "0.9", features = ["runtime-tokio", "mysql", "chrono", "rust_decimal"] }
 {%- elif driver == "sqlx-sqlite" -%}
 sqlx = { version = "0.9", features = ["runtime-tokio", "sqlite", "chrono", "rust_decimal"] }
 {%- elif driver == "tokio-postgres" -%}
-tokio-postgres = { version = "0.7", features = ["with-chrono-0_4"] }
+tokio-postgres = { version = "0.7", features = ["with-chrono-0_4", "with-serde_json-1", "with-uuid-1"] }
 {%- elif driver == "tiberius" -%}
 tiberius = { version = "0.12", default-features = false, features = ["tds73", "rustls", "rust_decimal", "chrono"] }
 tokio-util = { version = "0.7", features = ["compat"] }
@@ -34,4 +34,24 @@ rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
 rust_decimal = "1"
 {%- elif driver != "sibyl" %}
 rust_decimal = "1"
+{%- endif %}
+{%- if driver == "sqlx" or driver == "tokio-postgres" %}
+serde_json = "1"
+uuid = "1"
+
+# cargo-machete reports both of the above as unused, and by its own lights it is
+# right: the committed generated code here is built against sql/pg/schema.sql,
+# which has no json or uuid column, so nothing in the checked-in tree names
+# either crate. They exist for scripts/check-generated-backends.py, which
+# regenerates this project against sql/torture/schema.sql -- that schema does
+# have `metadata JSONB` and `external_id UUID`, and the manifests map them to
+# `serde_json::Value` and `uuid::Uuid`.
+#
+# Without these, the torture gate fails on a missing crate rather than on
+# anything scythe emitted, which made all three rust-* entries on its
+# expected-failure list unfalsifiable: no change to the generated code could
+# ever clear them, so the list's stale-entry direction could never fire and the
+# Rust backends had no regression coverage from that gate at all.
+[package.metadata.cargo-machete]
+ignored = ["serde_json", "uuid"]
 {%- endif %}
