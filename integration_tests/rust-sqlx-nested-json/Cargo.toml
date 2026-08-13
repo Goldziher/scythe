@@ -10,8 +10,26 @@ edition = "2024"
 # resolves `json_nested<T>` to; `serde` supplies the derives on the generated
 # nested structs it wraps, and `rust_decimal`/`chrono` need their own `serde`
 # features because a nested struct field can be either type.
-sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal", "json"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "postgres", "chrono", "rust_decimal", "json", "uuid"] }
 tokio = { version = "1", features = ["full"] }
 chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["serde"] }
 serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+uuid = "1"
+
+# ~keep: cargo-machete is right that both are unused by the committed generated
+# code here -- this project's own schema has no plain-json or uuid column. They
+# are for scripts/check-generated-backends.py, which regenerates this project
+# against sql/torture/schema.sql, where `metadata JSONB` and `external_id UUID`
+# map to `serde_json::Value` and `uuid::Uuid`. Without them the torture gate
+# fails on a missing crate rather than on anything scythe emitted, which is what
+# made this project's expected-failure entry impossible for any codegen change
+# to clear.
+#
+# `serde_json` is needed despite sqlx's `json` feature and the `serde` crate
+# already being present: the feature only enables `sqlx::types::Json<T>`, which
+# the manifest uses for `json_nested` columns, and plain `jsonb` resolves to
+# `serde_json::Value`, which the generated code names directly.
+[package.metadata.cargo-machete]
+ignored = ["serde_json", "uuid"]
