@@ -28,20 +28,47 @@
 # that survived v0.6.0 -> 0.14.0 because its backend ran nowhere). Each entry
 # therefore records the infrastructure the project needs, not just "TODO".
 
-# R2DBC (reactive) across Java and Kotlin. The java.java.jinja and kotlin.kt.jinja
-# harness templates emit blocking JDBC code exclusively; a reactive harness has
-# to await a Publisher/Mono and is a new template branch per language, not a new
-# BackendConfig row. This is the group where string-matching unit tests are
-# weakest: they cannot see a harness that never subscribes, or positional binds
-# where the driver wants named markers.
-java-r2dbc|postgresql : needs a reactive (Publisher/Mono) harness branch in java.java.jinja plus a CI job
-java-r2dbc|mysql : needs a reactive (Publisher/Mono) harness branch in java.java.jinja plus a CI job
-java-r2dbc|mariadb : needs a reactive (Publisher/Mono) harness branch in java.java.jinja plus a CI job
-java-r2dbc|sqlite : needs a reactive (Publisher/Mono) harness branch in java.java.jinja plus a CI job
-kotlin-r2dbc|postgresql : needs a reactive (Publisher/Mono) harness branch in kotlin.kt.jinja plus a CI job
-kotlin-r2dbc|mysql : needs a reactive (Publisher/Mono) harness branch in kotlin.kt.jinja plus a CI job
-kotlin-r2dbc|mariadb : needs a reactive (Publisher/Mono) harness branch in kotlin.kt.jinja plus a CI job
-kotlin-r2dbc|sqlite : needs a reactive (Publisher/Mono) harness branch in kotlin.kt.jinja plus a CI job
+# R2DBC (reactive) across Java and Kotlin. The postgresql pair is closed:
+# java.java.jinja and kotlin.kt.jinja now carry reactive harness branches that
+# terminate every publisher in .block()/.collectList().block() (java) or await
+# it inside runBlocking (kotlin), and both projects run 12 assertions in CI.
+#
+# The harness-branch mechanism therefore exists, and none of the four entries
+# below is waiting on it any more. Each was generated, built and run against a
+# live database, and each failed for its own driver-level reason:
+#
+# mysql -- LAST_INSERT_ID() is scoped to the connection that ran the INSERT,
+# and the generated API takes a ConnectionFactory and wraps every query in
+# `Mono.usingWhen(cf.create(), ..., conn::close)`, so each call gets a fresh
+# connection and the follow-up SELECT sees no row. Measured: CreateUser ->
+# "getLastInsertUser: no rows returned", then five cascading failures. The
+# mysql fixture has no by-email lookup to substitute, so GetLastInsertUser and
+# GetLastInsertOrder are simply not expressible against this API shape. This is
+# a design question about the backend, not a missing harness branch. (The same
+# LAST_INSERT_ID/pooling trap bit php-amphp on MySQL -- fixed there by narrowing
+# the handle type, which has no analogue here.)
+#
+# mariadb -- the harness uses io.asyncer:r2dbc-mysql, which has no UUID codec,
+# while the mariadb manifest maps `uuid` to java.util.UUID. Measured:
+# "Cannot decode class java.util.UUID for VARCHAR" on the first query and
+# "value must not be null" on every one after. The official, separately
+# maintained org.mariadb:r2dbc-mariadb driver is the likely fix, but it needs
+# its own MariadbConnectionConfiguration branch in both harness templates and
+# a re-verification run -- not a dependency swap.
+#
+# sqlite -- there is no io.r2dbc:r2dbc-sqlite artifact published on Maven
+# Central at all (verified 2026-08-14), and the one known community
+# implementation, com.gitee.n__n:r2dbc-sqlite, is JitPack-distributed and
+# untested here. Substituting r2dbc-h2 would not be a like-for-like swap: it is
+# a different engine with a different dialect, so it would exercise neither the
+# sqlite manifest's type mappings nor the sqlite schema fixture, and a green
+# result would say nothing about the pair this line covers.
+java-r2dbc|mysql : generated and run; LAST_INSERT_ID() cannot survive the per-query ConnectionFactory the generated API opens, so GetLastInsertUser returns no row
+kotlin-r2dbc|mysql : generated and run; LAST_INSERT_ID() cannot survive the per-query ConnectionFactory the generated API opens, so GetLastInsertUser returns no row
+java-r2dbc|mariadb : generated and run; io.asyncer:r2dbc-mysql has no UUID codec and the mariadb manifest maps uuid to java.util.UUID -- needs org.mariadb:r2dbc-mariadb and its own config branch
+kotlin-r2dbc|mariadb : generated and run; io.asyncer:r2dbc-mysql has no UUID codec and the mariadb manifest maps uuid to java.util.UUID -- needs org.mariadb:r2dbc-mariadb and its own config branch
+java-r2dbc|sqlite : no io.r2dbc:r2dbc-sqlite artifact exists on Maven Central; the harness branch is no longer the blocker
+kotlin-r2dbc|sqlite : no io.r2dbc:r2dbc-sqlite artifact exists on Maven Central; the harness branch is no longer the blocker
 
 # Exposed is a DSL, not a driver: the harness reads results through Exposed's
 # own column types rather than java.sql, so it needs its own kotlin.kt.jinja

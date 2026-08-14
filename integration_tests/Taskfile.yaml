@@ -304,6 +304,18 @@ tasks:
     cmds:
       - gradle run --quiet
 
+  test:java-r2dbc:
+    desc: Run java-r2dbc integration test
+    dir: java-r2dbc
+    cmds:
+      - mvn -q compile exec:java
+
+  test:kotlin-r2dbc:
+    desc: Run kotlin-r2dbc integration test
+    dir: kotlin-r2dbc
+    cmds:
+      - gradle run --quiet
+
   test:csharp-npgsql:
     desc: Run csharp-npgsql integration test
     dir: csharp-npgsql
@@ -974,6 +986,8 @@ tasks:
       - task: test:typescript-kysely
       - task: test:java-jdbc
       - task: test:kotlin-jdbc
+      - task: test:java-r2dbc
+      - task: test:kotlin-r2dbc
       - task: test:csharp-npgsql
       - task: test:elixir-postgrex
       - task: test:elixir-ecto

@@ -257,6 +257,14 @@ jobs:
         working-directory: integration_tests/kotlin-jdbc
         run: gradle run --quiet
 
+      - name: Test java-r2dbc
+        working-directory: integration_tests/java-r2dbc
+        run: mvn -q compile exec:java
+
+      - name: Test kotlin-r2dbc
+        working-directory: integration_tests/kotlin-r2dbc
+        run: gradle run --quiet
+
       - name: Test kotlin-jdbc-ext
         working-directory: integration_tests/kotlin-jdbc-ext
         run: gradle run --quiet

@@ -654,6 +654,31 @@ fn backend_variants() -> Vec<BackendConfig> {
             options: HashMap::new(),
         },
         BackendConfig {
+            name: "java-r2dbc".into(),
+            language: "java".into(),
+            engine: "postgresql".into(),
+            driver: "r2dbc".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "java-r2dbc".into(),
+            options: HashMap::new(),
+        },
+        // java-r2dbc-sqlite/kotlin-r2dbc-sqlite are intentionally not wired here: no
+        // io.r2dbc:r2dbc-sqlite artifact exists on Maven Central (verified 2026-08-14),
+        // and the only known community implementation (com.gitee.n__n:r2dbc-sqlite) is
+        // distributed via JitPack, not Central, and untested against this generator's
+        // SQLite-dialect schema.sql. Substituting r2dbc-h2 is not a like-for-like swap --
+        // H2 is a different SQL dialect and would silently run a different database than
+        // every other sqlite integration project in this list. See board #212's report.
+        BackendConfig {
+            name: "kotlin-r2dbc".into(),
+            language: "kotlin".into(),
+            engine: "postgresql".into(),
+            driver: "r2dbc".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "kotlin-r2dbc".into(),
+            options: HashMap::new(),
+        },
+        BackendConfig {
             name: "csharp-npgsql".into(),
             language: "csharp".into(),
             engine: "postgresql".into(),

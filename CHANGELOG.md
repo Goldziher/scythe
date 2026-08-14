@@ -30,6 +30,15 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Added
 
+- **`java-r2dbc` and `kotlin-r2dbc` have running integration projects on PostgreSQL.** Both backends
+  shipped with nothing executing their output, and running them found defects no string-matching
+  test could see: an enum parameter was bound as the Java/Kotlin enum object, which
+  r2dbc-postgresql cannot encode, and once bound as its SQL spelling the server rejected the
+  untyped `character varying` against a `user_status` column. Enum placeholders now carry an
+  explicit `::<enum type>` cast on PostgreSQL, so the generated code needs no `EnumCodec`
+  registration from the caller. The MySQL, MariaDB and SQLite pairs stay uncovered, each with a
+  measured reason recorded in `tools/integration-test-generator/coverage-exemptions.txt`.
+
 - **`php-amphp` on MySQL and `typescript-kysely` on Redshift now have integration projects that
   actually run in CI.** Both manifests shipped with nothing exercising them. `php-amphp-mysql`
   immediately found two real defects — the harness's `MysqlConfig::fromArray()` does not exist, and

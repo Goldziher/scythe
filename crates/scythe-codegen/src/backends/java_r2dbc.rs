@@ -367,6 +367,72 @@ fn java_annotated_param(param: &ResolvedParam) -> String {
     }
 }
 
+/// ~keep The expression bound at an R2DBC placeholder for `param`.
+///
+/// An enum parameter must be bound as its SQL spelling, not as the Java enum object:
+/// r2dbc-postgresql has no codec for a user enum type and fails the whole statement with
+/// "Cannot encode parameter of type generated.Queries$UserStatus (ACTIVE)". `getValue()`
+/// is the accessor `generate_enum_def` already emits, and it is the exact inverse of the
+/// `fromValue(...)` the read path uses, so a value round-trips even when its SQL spelling
+/// is not the uppercase of its variant name.
+fn r2dbc_bind_expr(param: &ResolvedParam) -> String {
+    if param.neutral_type.starts_with("enum::") {
+        format!("{}.getValue()", param.field_name)
+    } else {
+        param.field_name.clone()
+    }
+}
+
+/// ~keep Append an explicit `::<enum type>` cast to each PostgreSQL placeholder whose parameter
+/// is an enum.
+///
+/// R2DBC is stricter than JDBC here. A JDBC `setObject` sends the value untyped and lets the
+/// server infer it, so `WHERE status = $1` against a `user_status` column just works. The
+/// r2dbc-postgresql driver instead sends a *typed* parameter, and since the bind expression is
+/// the enum's SQL spelling (a String -- see `r2dbc_bind_expr`), the server receives
+/// `character varying` and refuses: "column \"status\" is of type user_status but expression is
+/// of type character varying", or "operator does not exist: user_status = character varying" in
+/// a predicate. Casting at the placeholder keeps the generated code self-sufficient -- the
+/// alternative, registering an `EnumCodec` on the ConnectionFactory, would push the requirement
+/// onto every caller and silently break the ones who did not.
+///
+/// Only for PostgreSQL: MySQL enums are already strings on the wire.
+fn add_pg_enum_casts(sql: &str, params: &[ResolvedParam], is_pg: bool) -> String {
+    if !is_pg || !params.iter().any(|p| p.neutral_type.starts_with("enum::")) {
+        return sql.to_string();
+    }
+    let mut result = String::with_capacity(sql.len());
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch != '$' || !chars.peek().is_some_and(|c| c.is_ascii_digit()) {
+            result.push(ch);
+            continue;
+        }
+        let mut digits = String::new();
+        while let Some(c) = chars.peek().copied() {
+            if !c.is_ascii_digit() {
+                break;
+            }
+            digits.push(c);
+            chars.next();
+        }
+        result.push('$');
+        result.push_str(&digits);
+        // Placeholders are 1-based; `params` is 0-based and in placeholder order.
+        let enum_type = digits
+            .parse::<usize>()
+            .ok()
+            .and_then(|n| n.checked_sub(1))
+            .and_then(|idx| params.get(idx))
+            .and_then(|p| p.neutral_type.strip_prefix("enum::"));
+        if let Some(enum_type) = enum_type {
+            result.push_str("::");
+            result.push_str(enum_type);
+        }
+    }
+    result
+}
+
 impl CodegenBackend for JavaR2dbcBackend {
     fn name(&self) -> &str {
         "java-r2dbc"
@@ -406,7 +472,9 @@ impl CodegenBackend for JavaR2dbcBackend {
     /// `java-jdbc` already does and needs no name coordination with the file
     /// the CLI writes (`Queries.java`).
     fn file_header(&self) -> String {
-        "import io.r2dbc.spi.ConnectionFactory;\n\
+        "package generated;\n\
+         \n\
+         import io.r2dbc.spi.ConnectionFactory;\n\
          import io.r2dbc.spi.Row;\n\
          import io.r2dbc.spi.RowMetadata;\n\
          import java.math.BigDecimal;\n\
@@ -463,7 +531,11 @@ impl CodegenBackend for JavaR2dbcBackend {
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = crate::sql_literal::escape_java_string(&pg_to_r2dbc_params(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            &add_pg_enum_casts(
+                &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+                params,
+                self.is_pg,
+            ),
             self.is_pg,
         ));
 
@@ -474,7 +546,7 @@ impl CodegenBackend for JavaR2dbcBackend {
 
         let write_binds = |out: &mut String, indent: &str| {
             for (i, param) in params.iter().enumerate() {
-                let _ = writeln!(out, "{}.bind({}, {});", indent, i, param.field_name);
+                let _ = writeln!(out, "{}.bind({}, {});", indent, i, r2dbc_bind_expr(param));
             }
         };
 
@@ -869,7 +941,11 @@ impl CodegenBackend for JavaR2dbcBackend {
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
         let sql = crate::sql_literal::escape_java_string(&pg_to_r2dbc_params(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+            &add_pg_enum_casts(
+                &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
+                params,
+                self.is_pg,
+            ),
             self.is_pg,
         ));
 
@@ -892,7 +968,7 @@ impl CodegenBackend for JavaR2dbcBackend {
         let _ = writeln!(out, "        conn -> {{");
         let _ = writeln!(out, "            var stmt = conn.createStatement(\"{sql}\");");
         for (i, param) in params.iter().enumerate() {
-            let _ = writeln!(out, "            stmt.bind({i}, {});", param.field_name);
+            let _ = writeln!(out, "            stmt.bind({i}, {});", r2dbc_bind_expr(param));
         }
         let _ = writeln!(out, "            return Flux.from(stmt.execute())");
         let _ = writeln!(
