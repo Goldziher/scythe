@@ -1281,7 +1281,7 @@ fn test_live_right_side_not_null_becomes_nullable() {
 #[test]
 fn test_live_power_sqrt_on_nullable_operand_is_null() {
     // From: testing_data/nullability_live/math_functions/live_power_sqrt_on_nullable_operand_is_null.json
-    // "POWER and SQRT over a nullable operand are observed NULL against live engines, not merely asserted from the model -- the #163 gap: no live fixture exercised either function, so a fix that only changed the analyzer's model could regress silently"
+    // "POWER and SQRT over a nullable operand are observed NULL against live engines, not merely asserted from the model -- the #163 gap: no live fixture exercised either function, so a fix that only changed the analyzer's model could regress silently. SQLite is excluded: this suite's SQLite leg links rusqlite's bundled amalgamation, and libsqlite3-sys's build.rs does not pass -DSQLITE_ENABLE_MATH_FUNCTIONS, so SQRT/POWER are compiled out there too, not merely absent from the system sqlite3 binary -- see the sqlite_leg_lacks_math_functions regression test in crates/scythe-conformance/tests/live.rs, which fails the build if that ever stops being true."
     let schema_sql = &["CREATE TABLE measurements (id SERIAL PRIMARY KEY, value DOUBLE PRECISION);"];
 
     let query_sql = "-- @name PowerSqrtLive\n-- @returns :many\nSELECT id, POWER(value, 2) AS squared, SQRT(value) AS root FROM measurements ORDER BY id";
