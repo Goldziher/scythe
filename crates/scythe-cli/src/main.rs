@@ -166,7 +166,8 @@ enum Commands {
     },
     /// Inspect a live database for operational issues (missing FK indexes,
     /// disabled RLS with policies, duplicate indexes). Connects via
-    /// tokio-postgres. Exits 2 on error-severity findings unless --exit-zero.
+    /// tokio-postgres or mysql_async, chosen by the resolved dialect.
+    /// Exits 2 on error-severity findings unless --exit-zero.
     ///
     /// Connection URL is resolved in order: positional argument, then
     /// $DATABASE_URL, then $SCYTHE_DATABASE_URL, then [inspect].database_url
@@ -192,7 +193,7 @@ enum Commands {
         /// Write reporter output to file instead of stdout
         #[arg(short, long, value_name = "PATH")]
         output: Option<String>,
-        /// Engine to target (postgres only at Phase 0; mysql is stubbed).
+        /// Engine to target: postgres|postgresql or mysql|mariadb.
         /// Default: parsed from URL scheme.
         #[arg(long)]
         dialect: Option<String>,

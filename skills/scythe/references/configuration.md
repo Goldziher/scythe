@@ -15,7 +15,6 @@ name = "main"                          # Block name
 engine = "postgresql"                  # postgresql, mysql, sqlite, duckdb, cockroachdb, mssql, oracle, mariadb, redshift, snowflake
 schema = ["sql/schema/*.sql"]          # Glob patterns for DDL files
 queries = ["sql/queries/*.sql"]        # Glob patterns for query files
-output = "src/generated"               # Output directory
 
 # Code generation backends (multiple allowed)
 [[sql.gen]]
@@ -60,7 +59,7 @@ style = "off"
 | `engine` | string | yes | Database dialect. |
 | `schema` | string[] | yes | Glob patterns for schema DDL files. |
 | `queries` | string[] | yes | Glob patterns for annotated query files. |
-| `output` | string | yes | Output directory for generated code. |
+| `output` | string | no | **Legacy.** Default output directory for the legacy `[sql.gen.<lang>]` table form only -- ignored by `[[sql.gen]]` array entries, which each need their own `output` key. |
 | `gen` | array | no | Code generation backend configurations. |
 | `type_overrides` | array | no | Type mapping overrides. |
 
