@@ -1121,6 +1121,54 @@ fn backend_variants() -> Vec<BackendConfig> {
             backend: "php-pdo".into(),
             options: HashMap::new(),
         },
+        // DuckDB (issue #126): embedded, no service container. Modelled on the
+        // sqlite variants above, not the postgres ones -- DuckDB is the other
+        // embedded engine here.
+        BackendConfig {
+            name: "go-database-sql-duckdb".into(),
+            language: "go".into(),
+            engine: "duckdb".into(),
+            driver: "database-sql".into(),
+            connection_env: "DUCKDB_PATH".into(),
+            backend: "go-database-sql".into(),
+            options: HashMap::new(),
+        },
+        BackendConfig {
+            name: "java-jdbc-duckdb".into(),
+            language: "java".into(),
+            engine: "duckdb".into(),
+            driver: "jdbc".into(),
+            connection_env: "DUCKDB_PATH".into(),
+            backend: "java-jdbc".into(),
+            options: HashMap::new(),
+        },
+        BackendConfig {
+            name: "kotlin-jdbc-duckdb".into(),
+            language: "kotlin".into(),
+            engine: "duckdb".into(),
+            driver: "jdbc".into(),
+            connection_env: "DUCKDB_PATH".into(),
+            backend: "kotlin-jdbc".into(),
+            options: HashMap::new(),
+        },
+        BackendConfig {
+            name: "python-duckdb".into(),
+            language: "python".into(),
+            engine: "duckdb".into(),
+            driver: "duckdb".into(),
+            connection_env: "DUCKDB_PATH".into(),
+            backend: "python-duckdb".into(),
+            options: HashMap::new(),
+        },
+        BackendConfig {
+            name: "typescript-duckdb".into(),
+            language: "typescript".into(),
+            engine: "duckdb".into(),
+            driver: "duckdb".into(),
+            connection_env: "DUCKDB_PATH".into(),
+            backend: "typescript-duckdb".into(),
+            options: HashMap::new(),
+        },
     ]
 }
 

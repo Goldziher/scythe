@@ -53,6 +53,11 @@ website/.astro/
 # snowflake-sdk writes this on every run
 snowflake.log
 
+# The go-database-sql duckdb harness opens a file-backed database next to itself
+# rather than :memory:, because database/sql pools connections and each pooled
+# connection would otherwise get its own empty in-memory database.
+*.duckdb
+
 # The BEUM VM dumps this at the repo root when an elixir harness crashes -- a few MB
 # of run artifact that trips the large-file pre-commit hook if it is ever staged.
 erl_crash.dump

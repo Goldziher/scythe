@@ -32,6 +32,8 @@
 		"kysely": "^0.28.17"
 {%- elif driver == "wasm-sqlite" %}
 		"@sqlite.org/sqlite-wasm": "^3.53.0-build1"
+{%- elif driver == "duckdb" %}
+		"@duckdb/node-api": "^1.5.5-r.4"
 {%- elif driver == "oracledb" %}
 		"oracledb": "^6.10.0"
 {%- elif driver == "mssql" %}

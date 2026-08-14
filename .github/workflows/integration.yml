@@ -890,6 +890,60 @@ jobs:
         working-directory: integration_tests/php-pdo-mssql
         run: php test_integration.php
 
+  integration-duckdb:
+    name: DuckDB Integration Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    # No service container: DuckDB is embedded. That is why this group was the
+    # cheapest of the orphan-manifest sets to close (issue #126).
+    #
+    # No DATABASE_URL either -- each harness opens its own in-memory database,
+    # except the Go one, which uses a file because database/sql pools
+    # connections and each pooled connection would get its own empty
+    # in-memory database.
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "22"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - run: pip install uv
+      - uses: pnpm/setup@v2
+        with:
+          version: "11"
+          install: false
+          cache: true
+          cache-dependency-path: integration_tests/*/pnpm-lock.yaml
+
+      - name: Test python-duckdb
+        working-directory: integration_tests/python-duckdb
+        run: uv run python test_integration.py
+
+      - name: Test typescript-duckdb
+        working-directory: integration_tests/typescript-duckdb
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm exec tsc --noEmit
+          pnpm exec tsx test.ts
+
+      - name: Test java-jdbc-duckdb
+        working-directory: integration_tests/java-jdbc-duckdb
+        run: mvn -q compile exec:java
+
+      - name: Test kotlin-jdbc-duckdb
+        working-directory: integration_tests/kotlin-jdbc-duckdb
+        run: gradle run --quiet
+
   integration-sqlite:
     name: SQLite Integration Tests
     runs-on: ubuntu-latest

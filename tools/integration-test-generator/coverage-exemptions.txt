@@ -28,15 +28,6 @@
 # that survived v0.6.0 -> 0.14.0 because its backend ran nowhere). Each entry
 # therefore records the infrastructure the project needs, not just "TODO".
 
-# DuckDB: no integration_tests/sql/duckdb schema or query set exists, and no
-# CI job. DuckDB is embedded, so the job needs no service container -- this is
-# the cheapest of the four groups here and should go first (issue #126).
-go-database-sql|duckdb : needs integration_tests/sql/duckdb/* and an integration-duckdb CI job
-java-jdbc|duckdb : needs integration_tests/sql/duckdb/* and an integration-duckdb CI job
-kotlin-jdbc|duckdb : needs integration_tests/sql/duckdb/* and an integration-duckdb CI job
-python-duckdb|duckdb : needs integration_tests/sql/duckdb/* and an integration-duckdb CI job
-typescript-duckdb|duckdb : needs integration_tests/sql/duckdb/* and an integration-duckdb CI job (issue #99)
-
 # R2DBC (reactive) across Java and Kotlin. The java.java.jinja and kotlin.kt.jinja
 # harness templates emit blocking JDBC code exclusively; a reactive harness has
 # to await a Publisher/Mono and is a new template branch per language, not a new
@@ -109,4 +100,12 @@ typescript-kysely|redshift : needs redshift branches in typescript.ts.jinja's ky
 # resulting pdo_snowflake.so and a cacert.pem into place by hand. That is a
 # CI-infrastructure project in its own right, not a step modeled on a sibling
 # -- this job has no sibling that builds a driver from source.
+# go-database-sql-duckdb has its project, harness and Taskfile target; what is
+# missing is a generated-code fix, not a step. go-duckdb v2.3.3 cannot bind a nil
+# pointer ("could not bind parameter / unsupported data type: unknown type") and
+# the backend emits `*T` for a nullable parameter, so any NULL argument fails at
+# runtime. Measured against the driver: a non-nil *string binds, a nil one does
+# not, sql.NullString does. Board #228. The other four duckdb projects run in the
+# integration-duckdb job.
+go-database-sql-duckdb : board #228 -- go-duckdb cannot bind a nil pointer, so generated code fails on any NULL argument; step returns with the fix
 php-pdo-snowflake : issue #118 -- pdo_snowflake has no PECL/apt package; it must be built from source against Snowflake's C driver (see snowflakedb/pdo_snowflake), which is real infrastructure work, not a missing step

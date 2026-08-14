@@ -1,0 +1,12 @@
+[scythe]
+version = "1"
+
+[[sql]]
+name = "main"
+engine = "duckdb"
+schema = ["../sql/duckdb/schema.sql"]
+queries = ["../sql/duckdb/queries/*.sql"]
+
+[[sql.gen]]
+backend = "kotlin-jdbc"
+output = "src/main/kotlin/generated"

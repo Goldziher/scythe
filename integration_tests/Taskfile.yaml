@@ -6,6 +6,13 @@ vars:
   MARIADB_URL: "mysql://scythe:scythe@127.0.0.1:3308/scythe_test"
   ORACLE_URL: "oracle://scythe:scythe@localhost:1521/XEPDB1"
   SQLITE_PATH: "/tmp/scythe_test.db"
+  # DuckDB is embedded like SQLite, but every harness opens its own
+  # in-memory (":memory:") connection instead of a shared file -- the
+  # schema's unconditional CREATE SEQUENCE statements would fail on a
+  # second run against the same on-disk file. This var exists for parity
+  # with the other embedded engines and so a harness can still be pointed
+  # at a real file for local debugging.
+  DUCKDB_PATH: ":memory:"
   MSSQL_URL: "sqlserver://sa:Scythe_Test1@localhost:1433?database=master"
   # Points at the `redshift-pg-compat` compose service, i.e. PostgreSQL with a
   # substituted schema -- not Redshift. See docker-compose.yml.
@@ -23,6 +30,7 @@ env:
   ORACLE_URL: "{{.ORACLE_URL}}"
   SQLITE_PATH: "{{.SQLITE_PATH}}"
   DATABASE_PATH: "{{.SQLITE_PATH}}"
+  DUCKDB_PATH: "{{.DUCKDB_PATH}}"
   MSSQL_URL: "{{.MSSQL_URL}}"
   REDSHIFT_URL: "{{.REDSHIFT_URL}}"
   SNOWFLAKE_URL: "{{.SNOWFLAKE_URL}}"
@@ -686,6 +694,38 @@ tasks:
       - pnpm exec tsc --noEmit
       - pnpm exec tsx test.ts
 
+  test:go-database-sql-duckdb:
+    desc: Run go-database-sql-duckdb integration test
+    dir: go-database-sql-duckdb
+    cmds:
+      - go run .
+
+  test:python-duckdb:
+    desc: Run python-duckdb integration test
+    dir: python-duckdb
+    cmds:
+      - uv run python test_integration.py
+
+  test:typescript-duckdb:
+    desc: Run typescript-duckdb integration test
+    dir: typescript-duckdb
+    cmds:
+      - pnpm install --frozen-lockfile
+      - pnpm exec tsc --noEmit
+      - pnpm exec tsx test.ts
+
+  test:java-jdbc-duckdb:
+    desc: Run java-jdbc-duckdb integration test
+    dir: java-jdbc-duckdb
+    cmds:
+      - mvn -q compile exec:java
+
+  test:kotlin-jdbc-duckdb:
+    desc: Run kotlin-jdbc-duckdb integration test
+    dir: kotlin-jdbc-duckdb
+    cmds:
+      - gradle run --quiet
+
   test:php-pdo-sqlite:
     desc: Run php-pdo-sqlite integration test
     dir: php-pdo-sqlite
@@ -975,6 +1015,12 @@ tasks:
       - task: test:elixir-exqlite
       - task: test:ruby-sqlite3
       - task: test:php-pdo-sqlite
+      # DuckDB
+      - task: test:go-database-sql-duckdb
+      - task: test:python-duckdb
+      - task: test:typescript-duckdb
+      - task: test:java-jdbc-duckdb
+      - task: test:kotlin-jdbc-duckdb
       # MSSQL
       - task: test:elixir-tds-mssql
       - task: test:typescript-kysely-mssql

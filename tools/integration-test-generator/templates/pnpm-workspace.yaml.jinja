@@ -3,5 +3,7 @@ allowBuilds:
   better-sqlite3: true
 {%- elif driver == "oracledb" %}
   oracledb: true
+{%- elif driver == "duckdb" %}
+  "@duckdb/node-api": true
 {%- endif %}
   esbuild: true

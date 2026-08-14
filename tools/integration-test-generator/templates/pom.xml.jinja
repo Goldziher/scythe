@@ -36,6 +36,12 @@
         <artifactId>sqlite-jdbc</artifactId>
         <version>3.45.1.0</version>
       </dependency>
+    {%- elif engine == "duckdb" %}
+      <dependency>
+        <groupId>org.duckdb</groupId>
+        <artifactId>duckdb_jdbc</artifactId>
+        <version>1.5.5.1</version>
+      </dependency>
     {%- elif engine == "oracle" %}
       <dependency>
         <groupId>com.oracle.database.jdbc</groupId>

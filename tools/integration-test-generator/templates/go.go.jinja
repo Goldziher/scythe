@@ -18,6 +18,10 @@ import (
 	"database/sql"
 
 	_ "github.com/mattn/go-sqlite3"
+{%- elif driver == "database-sql" and engine == "duckdb" %}
+	"database/sql"
+
+	_ "github.com/marcboeker/go-duckdb/v2"
 {%- elif driver == "database-sql" and engine == "mssql" %}
 	"database/sql"
 	"strings"
@@ -61,10 +65,14 @@ func assertf(name string, condition bool, format string, args ...interface{}) bo
 }
 
 func main() {
-{%- if engine == "sqlite" %}
+{%- if engine == "sqlite" or engine == "duckdb" %}
 	databasePath := os.Getenv("{{ connection_env }}")
 	if databasePath == "" {
+{%- if engine == "sqlite" %}
 		databasePath = "test.db"
+{%- else %}
+		databasePath = "test.duckdb"
+{%- endif %}
 	}
 {%- else %}
 	databaseURL := os.Getenv("{{ connection_env }}")
@@ -120,6 +128,8 @@ func main() {
 	db, err := sql.Open("mysql", mysqlDSN)
 {%- elif engine == "sqlite" %}
 	db, err := sql.Open("sqlite3", databasePath)
+{%- elif engine == "duckdb" %}
+	db, err := sql.Open("duckdb", databasePath)
 {%- elif engine == "mssql" %}
 	db, err := sql.Open("sqlserver", databaseURL)
 {%- elif engine == "snowflake" %}
@@ -642,6 +652,37 @@ func runMigration(ctx context.Context, db *sql.DB) error {
 
 	return nil
 }
+{%- elif engine == "duckdb" %}
+func runMigration(ctx context.Context, db *sql.DB) error {
+	_, thisFile, _, _ := runtime.Caller(0)
+	schemaPath := filepath.Join(filepath.Dir(thisFile), "..", "sql", "duckdb", "schema.sql")
+
+	schema, err := os.ReadFile(schemaPath)
+	if err != nil {
+		return fmt.Errorf("reading schema file at %s: %w", schemaPath, err)
+	}
+
+	dropStatements := []string{
+		"DROP TABLE IF EXISTS user_tags",
+		"DROP TABLE IF EXISTS tags",
+		"DROP TABLE IF EXISTS orders",
+		"DROP TABLE IF EXISTS users",
+		"DROP SEQUENCE IF EXISTS tags_id_seq",
+		"DROP SEQUENCE IF EXISTS orders_id_seq",
+		"DROP SEQUENCE IF EXISTS users_id_seq",
+	}
+	for _, stmt := range dropStatements {
+		if _, err := db.ExecContext(ctx, stmt); err != nil {
+			return fmt.Errorf("dropping tables: %w", err)
+		}
+	}
+
+	if _, err := db.ExecContext(ctx, string(schema)); err != nil {
+		return fmt.Errorf("creating schema: %w", err)
+	}
+
+	return nil
+}
 {%- elif engine == "snowflake" %}
 func runMigration(ctx context.Context, db *sql.DB) error {
 	_, thisFile, _, _ := runtime.Caller(0)
@@ -686,7 +727,7 @@ var createdUserID int64
     are int64 like SQLite's and Oracle's, not int32 like MySQL's and MSSQL's. -#}
 {%- elif engine == "snowflake" -%}
 var createdUserID int64
-{%- elif engine == "mysql" or engine == "mssql" -%}
+{%- elif engine == "mysql" or engine == "mssql" or engine == "duckdb" -%}
 var createdUserID int32
 {%- else -%}
 var createdUserID int64
@@ -733,7 +774,7 @@ func testCreateUser(ctx context.Context, db *sql.DB) {
 		return
 	}
 	createdUserID = user.Id
-{%- elif engine == "sqlite" %}
+{%- elif engine == "sqlite" or engine == "duckdb" %}
 	if err := queries.CreateUser(ctx, db, "Alice", &email, "active"); err != nil {
 		fail(name, err)
 		return
@@ -797,7 +838,7 @@ func testCreateOrder(ctx context.Context, db *sql.DB) {
 	if !assertf(name, order.UserId == createdUserID, "expected user_id %d, got %d", createdUserID, order.UserId) {
 		return
 	}
-{%- elif engine == "sqlite" %}
+{%- elif engine == "sqlite" or engine == "duckdb" %}
 	if err := queries.CreateOrder(ctx, db, createdUserID, 99.99, &notes); err != nil {
 		fail(name, err)
 		return
@@ -866,7 +907,7 @@ func testGetOrdersByUser(ctx context.Context, db *sql.DB) {
 
 func testListActiveUsers(ctx context.Context, db *sql.DB) {
 	name := "ListActiveUsers"
-	users, err := queries.ListActiveUsers(ctx, db{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mysql" or engine == "mariadb" %}, queries.UsersStatusActive{% elif engine == "sqlite" %}, "active"{% endif %})
+	users, err := queries.ListActiveUsers(ctx, db{% if engine == "postgresql" %}, queries.UserStatusActive{% elif engine == "mysql" or engine == "mariadb" %}, queries.UsersStatusActive{% elif engine == "sqlite" or engine == "duckdb" %}, "active"{% endif %})
 	if err != nil {
 		fail(name, err)
 		return

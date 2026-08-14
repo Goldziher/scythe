@@ -82,6 +82,15 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   contract `check`/`lint`/`fmt --check` follow, where exit 1 stays reserved for operational failure.
   (unfiled)
 
+### Added
+
+- **DuckDB integration coverage.** `python-duckdb`, `typescript-duckdb`, `java-jdbc-duckdb` and
+  `kotlin-jdbc-duckdb` now run in a new `integration-duckdb` CI job, against the schema and query
+  set added earlier in this release. DuckDB is embedded, so the job needs no service container.
+  `go-database-sql-duckdb` exists and its harness is written, but stays exempt: `go-duckdb` cannot
+  bind a nil pointer, and the backend emits `*T` for a nullable parameter, so any NULL argument
+  fails at runtime — measured against the driver, tracked as board #228. (#126)
+
 ### Fixed
 
 - **`ruby-oci8` handed back a LOB locator where the generated row type declared a `String`.**

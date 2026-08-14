@@ -95,6 +95,8 @@ import Database from "better-sqlite3";
 import { DatabaseSync } from "node:sqlite";
 {%- elif driver == "wasm-sqlite" -%}
 import sqlite3InitModule from "@sqlite.org/sqlite-wasm";
+{%- elif driver == "duckdb" -%}
+import { DuckDBInstance } from "@duckdb/node-api";
 {%- elif driver == "oracledb" -%}
 import oracledb from "oracledb";
 {%- elif driver == "mssql" -%}
@@ -158,7 +160,7 @@ import {
 
 const DATABASE_URL =
 	process.env["{{ connection_env }}"] ??
-	"{% if engine == "postgresql" %}postgres://scythe:scythe@localhost:5432/scythe_test{% elif engine == "mysql" or engine == "mariadb" %}mysql://root@localhost:3306/scythe_test{% elif engine == "sqlite" %}test.db{% elif engine == "oracle" %}oracle://scythe:scythe@localhost:1521/XEPDB1{% elif engine == "mssql" %}sqlserver://sa:Scythe_Test1@localhost:1433?database=scythe_test{% elif engine == "snowflake" %}snowflake://account:password@host/database/schema{% endif %}";
+	"{% if engine == "postgresql" %}postgres://scythe:scythe@localhost:5432/scythe_test{% elif engine == "mysql" or engine == "mariadb" %}mysql://root@localhost:3306/scythe_test{% elif engine == "sqlite" %}test.db{% elif engine == "duckdb" %}:memory:{% elif engine == "oracle" %}oracle://scythe:scythe@localhost:1521/XEPDB1{% elif engine == "mssql" %}sqlserver://sa:Scythe_Test1@localhost:1433?database=scythe_test{% elif engine == "snowflake" %}snowflake://account:password@host/database/schema{% endif %}";
 {% if driver == "pg" %}
 const pool = new pg.Pool({ connectionString: DATABASE_URL });
 {%- elif driver == "kysely-pg" %}
@@ -182,6 +184,9 @@ const db = new DatabaseSync(DATABASE_URL);
 {%- elif driver == "wasm-sqlite" %}
 const sqlite3 = await sqlite3InitModule();
 const db = new sqlite3.oo1.DB(DATABASE_URL, "c");
+{%- elif driver == "duckdb" %}
+const duckdbInstance = await DuckDBInstance.create(DATABASE_URL);
+const db = await duckdbInstance.connect();
 {%- elif driver == "kysely-mssql" %}
 const mssqlUrl = new URL(DATABASE_URL);
 const db = new Kysely<any>({
@@ -1798,6 +1803,103 @@ async function main(): Promise<void> {
 		}
 	} finally {
 		db.close();
+	}
+{%- elif driver == "duckdb" %}
+	try {
+		// Fresh in-memory database each run: nothing to drop, and no leftover
+		// sequence state to conflict with the schema's unconditional
+		// CREATE SEQUENCE statements.
+		const schemaPath = new URL("../sql/duckdb/schema.sql", import.meta.url).pathname;
+		const { readFile } = await import("node:fs/promises");
+		const schemaSql = await readFile(schemaPath, "utf8");
+		for (const stmt of splitSqlStatements(schemaSql)) {
+			await db.run(stmt);
+		}
+
+		// Test: CreateUser
+		await createUser(db, "Alice", "alice@example.com", "active");
+		// Fresh in-memory database, sequence-backed id: the first row is 1.
+		const user = await getUserById(db, 1);
+		assert(user !== null, "CreateUser", "user should not be null");
+		assert(
+			user!.name === "Alice",
+			"CreateUser",
+			`expected name Alice, got ${user!.name}`,
+		);
+		assert(
+			user!.email === "alice@example.com",
+			"CreateUser",
+			`expected email alice@example.com`,
+		);
+		const userId = user!.id;
+		pass("CreateUser");
+
+		// Test: GetUserById
+		const fetched = await getUserById(db, userId);
+		assert(fetched !== null, "GetUserById", "user should not be null");
+		assert(fetched!.id === userId, "GetUserById", `expected id ${userId}`);
+		assert(fetched!.name === "Alice", "GetUserById", `expected name Alice`);
+		pass("GetUserById");
+
+		// Test: ListActiveUsers
+		const activeUsers = await listActiveUsers(db, "active");
+		assert(
+			activeUsers.length > 0,
+			"ListActiveUsers",
+			"should have at least one user",
+		);
+		assert(
+			activeUsers[0]!.name === "Alice",
+			"ListActiveUsers",
+			"first user should be Alice",
+		);
+		pass("ListActiveUsers");
+
+		// Test: CreateOrder
+		await createOrder(db, userId, 99.95, "first order");
+		pass("CreateOrder");
+
+		// Test: GetOrdersByUser
+		const orders = await getOrdersByUser(db, userId);
+		assert(
+			orders.length === 1,
+			"GetOrdersByUser",
+			`expected 1 order, got ${orders.length}`,
+		);
+		assert(
+			Number(orders[0]!.total) === 99.95,
+			"GetOrdersByUser",
+			`expected total 99.95`,
+		);
+		pass("GetOrdersByUser");
+
+		// Test: DeleteUser
+		const deletedOrders = await deleteOrdersByUser(db, userId);
+		assert(
+			deletedOrders === 1,
+			"DeleteUser",
+			`expected 1 deleted order, got ${deletedOrders}`,
+		);
+		await deleteUser(db, userId);
+		// GetUserById is `:one`, which errors on a missing row rather than
+		// returning null. Absence is therefore observed as a throw, and
+		// `gone === null` would never be reached. The flag is what makes the
+		// assertion positive: a bare try/catch would pass whether or not
+		// anything was thrown.
+		let goneThrew = false;
+		try {
+			await getUserById(db, userId);
+		} catch {
+			goneThrew = true;
+		}
+		assert(goneThrew, "DeleteUser", "user should not be found after deletion");
+		pass("DeleteUser");
+
+		if (exitCode === 0) {
+			console.log("ALL TESTS PASSED");
+		}
+	} finally {
+		db.closeSync();
 	}
 {%- elif driver == "oracledb" %}
 	const { URL } = await import("node:url");

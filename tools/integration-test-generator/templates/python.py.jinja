@@ -24,6 +24,9 @@ import oracledb
 {%- elif driver == "pyodbc" %}
 
 import pyodbc
+{%- elif driver == "duckdb" %}
+
+import duckdb
 {%- elif driver == "snowflake" %}
 
 import snowflake.connector
@@ -76,6 +79,8 @@ SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mysql" / "schema.sql"
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "mariadb" / "schema.sql"
 {%- elif engine == "sqlite" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "sqlite" / "schema.sql"
+{%- elif engine == "duckdb" -%}
+SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "duckdb" / "schema.sql"
 {%- elif engine == "oracle" -%}
 SCHEMA_PATH = Path(__file__).parent.parent / "sql" / "oracle" / "schema_full.sql"
 {%- elif engine == "mssql" -%}
@@ -258,6 +263,15 @@ def setup_schema(conn: pyodbc.Connection) -> None:
     for stmt in split_sql_statements(schema_sql):
         cursor.execute(stmt)
     conn.commit()
+{%- elif driver == "duckdb" -%}
+def setup_schema(conn: duckdb.DuckDBPyConnection) -> None:
+    """Create schema from SQL file (fresh in-memory database each run, so
+    there is nothing to drop -- unlike the on-disk engines, the CREATE
+    SEQUENCE statements in the schema would fail on a second run against the
+    same file)."""
+    schema_sql = SCHEMA_PATH.read_text()
+    for stmt in split_sql_statements(schema_sql):
+        conn.execute(stmt)
 {%- elif driver == "snowflake" -%}
 def setup_schema(conn) -> None:
     """Drop all tables and recreate schema from SQL file."""
@@ -296,6 +310,8 @@ async def test_create_user(conn: asyncpg.Connection) -> int:
 def test_create_user(conn: pyodbc.Connection) -> int:
 {%- elif driver == "snowflake" %}
 def test_create_user(conn) -> int:
+{%- elif driver == "duckdb" %}
+def test_create_user(conn: duckdb.DuckDBPyConnection) -> int:
 {%- elif engine == "mariadb" %}
 async def test_create_user(conn) -> str:
 {%- else %}
@@ -325,6 +341,10 @@ async def test_create_user(conn) -> int:
     max_id_row = cursor.fetchone()
     user_id = max_id_row[0] if max_id_row and max_id_row[0] else 1
     user = get_user_by_id(conn, id=user_id)
+{%- elif engine == "duckdb" %}
+    create_user(conn, name="Alice", email="alice@example.com", status="active")
+    # Fresh in-memory database, sequence-backed id: the first row is 1.
+    user = get_user_by_id(conn, id=1)
 {%- elif engine == "redshift" %}
     user = await create_user(
         conn, name="Alice", email="alice@example.com", status="active"
@@ -367,13 +387,15 @@ async def test_get_user_by_id(conn: asyncpg.Connection, user_id: int) -> None:
 def test_get_user_by_id(conn: pyodbc.Connection, user_id: int) -> None:
 {%- elif driver == "snowflake" -%}
 def test_get_user_by_id(conn, user_id: int) -> None:
+{%- elif driver == "duckdb" -%}
+def test_get_user_by_id(conn: duckdb.DuckDBPyConnection, user_id: int) -> None:
 {%- elif engine == "mariadb" -%}
 async def test_get_user_by_id(conn, user_id: str) -> None:
 {%- else -%}
 async def test_get_user_by_id(conn, user_id: int) -> None:
 {%- endif %}
     """Test GetUserById query."""
-{%- if driver != "pyodbc" and driver != "snowflake" %}
+{%- if driver != "pyodbc" and driver != "snowflake" and driver != "duckdb" %}
     user = await get_user_by_id(conn, id=user_id)
 {%- else %}
     user = get_user_by_id(conn, id=user_id)
@@ -394,12 +416,16 @@ async def test_list_active_users(conn: asyncpg.Connection) -> None:
 def test_list_active_users(conn: pyodbc.Connection) -> None:
 {%- elif driver == "snowflake" -%}
 def test_list_active_users(conn) -> None:
+{%- elif driver == "duckdb" -%}
+def test_list_active_users(conn: duckdb.DuckDBPyConnection) -> None:
 {%- else -%}
 async def test_list_active_users(conn) -> None:
 {%- endif %}
     """Test ListActiveUsers query."""
-{%- if driver != "pyodbc" and driver != "snowflake" %}
+{%- if driver != "pyodbc" and driver != "snowflake" and driver != "duckdb" %}
     users = await list_active_users(conn{% if engine == "postgresql" and engine != "redshift" %}, status=UserStatus.ACTIVE{% elif engine == "redshift" %}, status="active"{% elif engine == "mysql" or engine == "mariadb" %}, status=UsersStatus.ACTIVE{% elif engine == "sqlite" %}, status="active"{% endif %})
+{%- elif driver == "duckdb" %}
+    users = list_active_users(conn, status="active")
 {%- else %}
     users = list_active_users(conn)
 {%- endif %}
@@ -420,6 +446,8 @@ async def test_create_order(conn: asyncpg.Connection, user_id: int) -> int:
 def test_create_order(conn: pyodbc.Connection, user_id: int) -> int:
 {%- elif driver == "snowflake" -%}
 def test_create_order(conn, user_id: int) -> int:
+{%- elif driver == "duckdb" -%}
+def test_create_order(conn: duckdb.DuckDBPyConnection, user_id: int) -> int:
 {%- elif engine == "mariadb" -%}
 async def test_create_order(conn, user_id: str) -> int:
 {%- else -%}
@@ -434,6 +462,10 @@ async def test_create_order(conn, user_id: int) -> int:
 {%- elif engine == "sqlite" %}
     await create_order(conn, user_id=user_id, total=49.99, notes="Test order")
     orders = await get_orders_by_user(conn, user_id=user_id)
+    order = orders[0] if orders else None
+{%- elif engine == "duckdb" %}
+    create_order(conn, user_id=user_id, total=Decimal("49.99"), notes="Test order")
+    orders = get_orders_by_user(conn, user_id=user_id)
     order = orders[0] if orders else None
 {%- elif engine == "oracle" %}
     order = await create_order(conn, user_id=user_id, total=9999, notes="Test order")
@@ -452,7 +484,7 @@ async def test_create_order(conn, user_id: int) -> int:
 {%- if options.row_type == "pydantic" %}
     assert isinstance(order, BaseModel), f"Expected BaseModel instance, got {type(order)}"
 {%- endif %}
-{%- if engine != "sqlite" and engine != "snowflake" %}
+{%- if engine != "sqlite" and engine != "snowflake" and engine != "duckdb" %}
     assert order.user_id == user_id, f"Expected user_id {user_id}, got {order.user_id}"
 {%- endif %}
     assert order.notes == "Test order", f"Expected notes 'Test order', got '{order.notes}'"
@@ -473,13 +505,15 @@ async def test_get_orders_by_user(conn: asyncpg.Connection, user_id: int) -> Non
 def test_get_orders_by_user(conn: pyodbc.Connection, user_id: int) -> None:
 {%- elif driver == "snowflake" -%}
 def test_get_orders_by_user(conn, user_id: int) -> None:
+{%- elif driver == "duckdb" -%}
+def test_get_orders_by_user(conn: duckdb.DuckDBPyConnection, user_id: int) -> None:
 {%- elif engine == "mariadb" -%}
 async def test_get_orders_by_user(conn, user_id: str) -> None:
 {%- else -%}
 async def test_get_orders_by_user(conn, user_id: int) -> None:
 {%- endif %}
     """Test GetOrdersByUser query."""
-{%- if driver != "pyodbc" and driver != "snowflake" %}
+{%- if driver != "pyodbc" and driver != "snowflake" and driver != "duckdb" %}
     orders = await get_orders_by_user(conn, user_id=user_id)
 {%- else %}
     orders = get_orders_by_user(conn, user_id=user_id)
@@ -511,6 +545,8 @@ async def test_delete_user(conn: asyncpg.Connection, user_id: int) -> None:
 def test_delete_user(conn: pyodbc.Connection, user_id: int) -> None:
 {%- elif driver == "snowflake" -%}
 def test_delete_user(conn, user_id: int) -> None:
+{%- elif driver == "duckdb" -%}
+def test_delete_user(conn: duckdb.DuckDBPyConnection, user_id: int) -> None:
 {%- elif engine == "mariadb" -%}
 async def test_delete_user(conn, user_id: str) -> None:
 {%- else -%}
@@ -518,7 +554,7 @@ async def test_delete_user(conn, user_id: int) -> None:
 {%- endif %}
     """Test DeleteUser query."""
     # Delete orders first due to FK constraint
-{%- if driver != "pyodbc" and driver != "snowflake" %}
+{%- if driver != "pyodbc" and driver != "snowflake" and driver != "duckdb" %}
     await delete_orders_by_user(conn, user_id=user_id)
     await delete_user(conn, id=user_id)
 {%- else %}
@@ -530,7 +566,7 @@ async def test_delete_user(conn, user_id: int) -> None:
 {%- elif driver == "pyodbc" or driver == "snowflake" %}
     conn.commit()
 {%- endif %}
-{%- if driver != "pyodbc" and driver != "snowflake" %}
+{%- if driver != "pyodbc" and driver != "snowflake" and driver != "duckdb" %}
     try:
         user = await get_user_by_id(conn, id=user_id)
     except ScytheNoRowsError:
@@ -548,13 +584,13 @@ async def test_delete_user(conn, user_id: int) -> None:
     print("PASS: DeleteUser")
 
 
-{% if driver != "pyodbc" and driver != "snowflake" -%}
+{% if driver != "pyodbc" and driver != "snowflake" and driver != "duckdb" -%}
 async def run_tests() -> None:
 {%- else -%}
 def run_tests() -> None:
 {%- endif %}
     """Run all integration tests."""
-{%- if driver != "snowflake" %}
+{%- if driver != "snowflake" and driver != "duckdb" %}
     database_url = get_database_url()
 {%- endif %}
 {%- if driver == "psycopg3" %}
@@ -637,6 +673,22 @@ def run_tests() -> None:
         await test_delete_user(conn, user_id)
     finally:
         await conn.close()
+{%- elif driver == "duckdb" %}
+    # Fresh in-memory database each run: nothing to drop and no leftover
+    # sequence state to conflict with the schema's unconditional
+    # CREATE SEQUENCE statements.
+    conn = duckdb.connect(":memory:")
+    try:
+        setup_schema(conn)
+
+        user_id = test_create_user(conn)
+        test_get_user_by_id(conn, user_id)
+        test_list_active_users(conn)
+        order_id = test_create_order(conn, user_id)
+        test_get_orders_by_user(conn, user_id)
+        test_delete_user(conn, user_id)
+    finally:
+        conn.close()
 {%- elif driver == "pyodbc" %}
     from urllib.parse import urlparse
     parsed = urlparse(database_url)
@@ -720,7 +772,7 @@ def run_tests() -> None:
 
 if __name__ == "__main__":
     try:
-{%- if driver != "pyodbc" and driver != "snowflake" %}
+{%- if driver != "pyodbc" and driver != "snowflake" and driver != "duckdb" %}
         asyncio.run(run_tests())
 {%- else %}
         run_tests()
