@@ -22,25 +22,45 @@
 # fiction while the gate stays green, because the gate only checks pass/fail --
 # it cannot check *why*. Re-derive before editing.
 
-# --- Class 1: the harness project does not declare a dependency the torture
-# schema's column types require. The generated code is correct; the project
-# it is generated into cannot build it. integration_tests/rust-*/Cargo.toml
-# is scaffolding produced by tools/integration-test-generator, so the fix is
-# a generator change, not a hand-edit -- and it is genuinely a harness gap,
-# not a scythe defect, which is why these are grouped away from Class 3.
-# Marked "unfiled" deliberately: no open issue covers it, and an invented
-# issue reference is worse than an honest blank.
+# --- Class 1 is now empty, and what it held is worth keeping as a record.
+# rust-sqlx and rust-sqlx-nested-json failed because their Cargo.toml declared
+# neither serde_json nor uuid, which the torture schema's json/uuid columns
+# require:
 #
 #   error[E0433]: cannot find module or crate `serde_json`
 #     --> src/queries.rs:36:26  |  pub metadata: Option<serde_json::Value>,
 #   error[E0433]: cannot find module or crate `uuid`
 #     --> src/queries.rs:37:22  |  pub external_id: uuid::Uuid,
 #
-# The torture schema adds json and uuid columns that these projects' own
-# queries never used, so their Cargo.toml never needed either crate.
-rust-sqlx : Cargo.toml declares neither serde_json nor uuid, which the torture schema's json/uuid columns require (unfiled)
-rust-sqlx-nested-json : same as rust-sqlx -- shares the scaffolding and the missing deps (unfiled)
-rust-tokio-postgres : same defect, tokio-postgres project scaffolding (unfiled)
+# Both now declare those deps and both PASS, so their lines are deleted rather
+# than kept "just in case" -- a listed project that passes fails the run.
+#
+# rust-tokio-postgres was listed here too, under "same defect, project
+# scaffolding". That reason was wrong. Re-derived from the compiler on
+# 2026-08-14: its dependencies are fine and it fails on something else
+# entirely, so it moves to its own class below. This is the third time an
+# entry in this file has been found misattributed; re-derive before editing.
+
+# --- Class 2 is now empty, and the entry it briefly held is worth keeping as a
+# record, because it is the only one this file has ever caught *while it was
+# still true*. rust-tokio-postgres emitted composite structs deriving neither
+# of the traits tokio-postgres moves user types with:
+#
+#   error[E0277]: the trait bound `TortureAddress: FromSql<'_>` is not satisfied
+#      --> src/queries.rs:109:31  |  home_address: row.get("home_address"),
+#   = note: required for `Option<&TortureAddress>` to implement `ToSql`
+#
+# The struct now derives `postgres_types::ToSql`/`FromSql` and carries
+# `#[postgres(name = "...")]`, since postgres-derive matches the Postgres type
+# name exactly and scythe PascalCases it. The project passes and the line is
+# deleted rather than kept "just in case".
+#
+# Note the dependency edge that made this invisible: postgres-types is already
+# a transitive dependency of tokio-postgres, but tokio-postgres does not
+# forward its `derive` feature, so the macros were not in scope. The direct
+# declaration lives in the scaffolding template, not in the generated
+# Cargo.toml -- hand-editing the latter is silently reverted on the next
+# `generate:scaffolding`.
 
 # --- Class 2 is now empty, and the entry it held is worth keeping as a
 # record. go-pgx emitted a static import block that omitted the imports its

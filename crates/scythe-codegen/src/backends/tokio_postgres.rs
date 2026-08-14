@@ -75,6 +75,26 @@ impl TokioPostgresBackend {
         }
         format!("#[derive({})]", derives.join(", "))
     }
+
+    /// Build the derive line for composite structs.
+    ///
+    /// ~keep Unlike a row struct (read off `tokio_postgres::Row` field-by-field via
+    /// `row.get`), a composite value crosses the wire as a single column and needs its
+    /// own `ToSql`/`FromSql` impl. `postgres_types::{ToSql, FromSql}` (re-exported from
+    /// `postgres-derive` behind postgres-types' `derive` feature) supply exactly that;
+    /// see the crate's composite/naming doc examples for the derive plus
+    /// `#[postgres(name = "...")]` shape this mirrors.
+    fn composite_derives(&self) -> String {
+        let mut derives = vec!["Debug", "Clone", "postgres_types::ToSql", "postgres_types::FromSql"];
+        if self.serde {
+            derives.push("serde::Serialize");
+            derives.push("serde::Deserialize");
+        }
+        for d in &self.extra_derives {
+            derives.push(d);
+        }
+        format!("#[derive({})]", derives.join(", "))
+    }
 }
 
 const CLIENT_PARAM: &str = "client: &(impl tokio_postgres::GenericClient + Sync)";
@@ -483,7 +503,8 @@ impl CodegenBackend for TokioPostgresBackend {
         let struct_name = to_pascal_case(&composite.sql_name).into_owned();
         let mut out = String::new();
 
-        let _ = writeln!(out, "{}", self.struct_derives());
+        let _ = writeln!(out, "{}", self.composite_derives());
+        let _ = writeln!(out, "#[postgres(name = \"{}\")]", composite.sql_name);
         let _ = writeln!(out, "pub struct {} {{", struct_name);
         for field in &composite.fields {
             let rust_type = resolve_type(&field.neutral_type, &self.manifest, false)

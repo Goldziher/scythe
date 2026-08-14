@@ -12,6 +12,11 @@ chrono = { version = "0.4", features = ["serde"] }
 rust_decimal = { version = "1", features = ["db-tokio-postgres"] }
 serde_json = "1"
 uuid = "1"
+# postgres-types is already a transitive dependency of tokio-postgres, but
+# without its `derive` feature it does not re-export the `ToSql`/`FromSql`
+# derive macros that a generated composite struct needs, and tokio-postgres
+# does not forward that feature. Hence the direct declaration.
+postgres-types = { version = "0.2", features = ["derive"] }
 
 # cargo-machete reports both of the above as unused, and by its own lights it is
 # right: the committed generated code here is built against sql/pg/schema.sql,
@@ -27,4 +32,4 @@ uuid = "1"
 # ever clear them, so the list's stale-entry direction could never fire and the
 # Rust backends had no regression coverage from that gate at all.
 [package.metadata.cargo-machete]
-ignored = ["serde_json", "uuid"]
+ignored = ["serde_json", "uuid", "postgres-types"]
