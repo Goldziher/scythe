@@ -1568,12 +1568,14 @@ mod tests {
                     neutral_type: "string".to_string(),
                     nullable: false,
                     position: 1,
+                    source_relation: None,
                 },
                 AnalyzedParam {
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
                     position: 2,
+                    source_relation: None,
                 },
             ],
         );
@@ -1612,6 +1614,7 @@ mod tests {
                 neutral_type: "json".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
 
@@ -1659,6 +1662,7 @@ mod tests {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }];
             q.deprecated = None;
             q.source_table = None;
@@ -1820,12 +1824,14 @@ mod tests {
                 neutral_type: "string".to_string(),
                 nullable: true,
                 position: 1,
+                source_relation: None,
             },
             AnalyzedParam {
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 2,
+                source_relation: None,
             },
         ];
         let result = crate::generate_with_backend(&query, &backend).unwrap();
@@ -1852,6 +1858,7 @@ mod tests {
             neutral_type: "int32".to_string(),
             nullable: false,
             position: 1,
+            source_relation: None,
         }];
         let result = crate::generate_with_backend(&query, &backend).unwrap();
         let query_fn = result.query_fn.as_deref().unwrap();
@@ -1942,12 +1949,14 @@ mod tests {
                     neutral_type: "string".to_string(),
                     nullable: false,
                     position: 1,
+                    source_relation: None,
                 },
                 AnalyzedParam {
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
                     position: 2,
+                    source_relation: None,
                 },
             ],
         );

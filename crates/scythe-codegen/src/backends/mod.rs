@@ -1114,6 +1114,7 @@ mod tests {
             neutral_type: "string".to_string(),
             nullable: true,
             position,
+            source_relation: None,
         }
     }
 

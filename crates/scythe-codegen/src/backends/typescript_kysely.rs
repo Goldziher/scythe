@@ -847,6 +847,7 @@ mod tests {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
         let result = crate::generate_with_backend(&query, &backend).unwrap();
@@ -927,6 +928,7 @@ mod tests {
                     neutral_type: "int32".to_string(),
                     nullable: false,
                     position: 1,
+                    source_relation: None,
                 }],
             );
             let result = crate::generate_with_backend(&query, &backend).unwrap();
@@ -968,6 +970,7 @@ mod tests {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
         let result = crate::generate_with_backend(&query, &backend).unwrap();
@@ -1009,6 +1012,7 @@ mod tests {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
         query.command = QueryCommand::ExecRows;
@@ -1030,6 +1034,7 @@ mod tests {
                 neutral_type: "string".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
         query.command = QueryCommand::Batch;
@@ -1067,12 +1072,14 @@ mod tests {
                     neutral_type: "string".to_string(),
                     nullable: false,
                     position: 1,
+                    source_relation: None,
                 },
                 AnalyzedParam {
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
                     position: 2,
+                    source_relation: None,
                 },
             ],
         );
@@ -1098,6 +1105,7 @@ mod tests {
                 neutral_type: "string".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
         single_query.command = QueryCommand::Batch;

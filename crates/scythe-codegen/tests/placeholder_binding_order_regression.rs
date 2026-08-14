@@ -43,12 +43,14 @@ fn two_param_query(sql: &str, optional_params: Vec<String>) -> AnalyzedQuery {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             },
             AnalyzedParam {
                 name: "b".to_string(),
                 neutral_type: "string".to_string(),
                 nullable: false,
                 position: 2,
+                source_relation: None,
             },
         ];
         q.optional_params = optional_params;
@@ -67,6 +69,7 @@ fn one_param_query(sql: &str, optional_params: Vec<String>) -> AnalyzedQuery {
             neutral_type: "string".to_string(),
             nullable: false,
             position: 1,
+            source_relation: None,
         }];
         q.optional_params = optional_params;
     })

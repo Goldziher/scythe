@@ -1022,12 +1022,14 @@ mod tests {
                     neutral_type: "string".to_string(),
                     nullable: false,
                     position: 1,
+                    source_relation: None,
                 },
                 AnalyzedParam {
                     name: "email".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: false,
                     position: 2,
+                    source_relation: None,
                 },
             ],
         );
@@ -1066,6 +1068,7 @@ mod tests {
                 neutral_type: "json".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
 

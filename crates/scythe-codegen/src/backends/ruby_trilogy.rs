@@ -531,6 +531,7 @@ mod tests {
                 neutral_type: neutral_type.to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }];
         })
     }

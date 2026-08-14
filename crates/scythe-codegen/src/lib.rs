@@ -223,17 +223,21 @@ pub fn generate_with_backend_and_overrides(
     }
 
     let mut extra_defs = String::new();
+    let reachable_composites = reachable_composite_names(analyzed, &nested_refs);
     for comp in &analyzed.composites {
         // `analyzed.composites` covers types reachable from the top-level
-        // columns *and* from nested-aggregate fields. A composite reachable
-        // only through a nested struct this backend degraded away would be
-        // an unused definition that did not exist before nested-aggregate
-        // inference, even though the degraded output has no generated type
-        // that could reference it.
-        let from_nested = nested_refs.composites.contains(comp.sql_name.as_str());
-        if !from_nested && !type_referenced_by_columns(analyzed, "composite::", &comp.sql_name) {
+        // columns, from nested-aggregate fields, and (recursively) from
+        // another reachable composite's own field list --
+        // `reachable_composite_names` walks that last edge, which neither
+        // `nested_refs` nor `type_referenced_by_columns` follows on its own
+        // (unfiled). A composite reachable only through a nested struct this
+        // backend degraded away would be an unused definition that did not
+        // exist before nested-aggregate inference, even though the degraded
+        // output has no generated type that could reference it.
+        if !reachable_composites.contains(comp.sql_name.as_str()) {
             continue;
         }
+        let from_nested = nested_refs.composites.contains(comp.sql_name.as_str());
         if !extra_defs.is_empty() {
             extra_defs.push_str("\n\n");
         }
@@ -434,6 +438,51 @@ fn type_referenced_by_columns(analyzed: &AnalyzedQuery, prefix: &str, sql_name: 
             .params
             .iter()
             .any(|param| unwrap_containers(&param.neutral_type) == neutral)
+}
+
+/// Every composite `sql_name` this query's generated output actually needs a
+/// definition for: reached directly from a column/param neutral type, from a
+/// nested-aggregate struct's field list (`nested_refs`), or transitively
+/// through another reachable composite's own field list.
+///
+/// `CREATE TYPE outer AS (inner_field inner_type)` selected only as `outer`
+/// needs `inner`'s definition too, but neither `type_referenced_by_columns`
+/// nor `NestedTypeRefs::collect` looks inside a composite's own fields --
+/// without this walk `inner` stays in `analyzed.composites` (scythe-core
+/// recurses to collect it) with its definition silently skipped here
+/// (unfiled, found alongside the JVM composite `fromText` fix in ddb7bb00).
+/// `analyzed.composites` already holds at most one entry per name (deduped by
+/// the analyzer), so this only decides which of those entries are reachable
+/// -- it does not need its own diamond guard beyond that.
+fn reachable_composite_names<'a>(
+    analyzed: &'a AnalyzedQuery,
+    nested_refs: &NestedTypeRefs,
+) -> ahash::AHashSet<&'a str> {
+    let mut reachable: ahash::AHashSet<&str> = ahash::AHashSet::new();
+    let mut worklist: Vec<&str> = analyzed
+        .composites
+        .iter()
+        .filter(|comp| {
+            nested_refs.composites.contains(comp.sql_name.as_str())
+                || type_referenced_by_columns(analyzed, "composite::", &comp.sql_name)
+        })
+        .map(|comp| comp.sql_name.as_str())
+        .collect();
+
+    while let Some(name) = worklist.pop() {
+        if !reachable.insert(name) {
+            continue;
+        }
+        let Some(comp) = analyzed.composites.iter().find(|c| c.sql_name == name) else {
+            continue;
+        };
+        for field in &comp.fields {
+            if let Some(nested_name) = unwrap_containers(&field.neutral_type).strip_prefix("composite::") {
+                worklist.push(nested_name);
+            }
+        }
+    }
+    reachable
 }
 
 /// Whether `sql_name` is reachable from a nested-aggregate struct the
@@ -856,6 +905,7 @@ mod tests {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
 
@@ -880,6 +930,7 @@ mod tests {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
 
@@ -918,6 +969,7 @@ mod tests {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
 
@@ -1337,6 +1389,7 @@ mod tests {
                 neutral_type: "uuid".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
 
@@ -1380,6 +1433,7 @@ mod tests {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }],
         );
 
@@ -1767,6 +1821,75 @@ mod tests {
         assert!(
             model.contains("pub struct Address"),
             "expected an Address composite definition; got:\n{model}"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // Unfiled: a composite reachable only as another composite's field --
+    // found alongside the JVM composite `fromText` fix in ddb7bb00.
+    // -----------------------------------------------------------------
+
+    /// Must fail before the fix: `outer_shape` is selected directly (so its own definition was
+    /// already emitted before this fix), but `inner_point` -- the type of `outer_shape`'s own
+    /// `origin` field -- is referenced by no column or param directly. Before the reachability
+    /// walk, `reachable_composite_names` didn't exist and the loop only checked
+    /// `type_referenced_by_columns`/`nested_refs`, so `inner_point`'s definition was silently
+    /// skipped even though `analyzed.composites` already carried it.
+    #[test]
+    fn test_composite_reachable_only_through_another_composites_field_is_emitted() {
+        use scythe_core::analyzer::{CompositeFieldInfo, CompositeInfo};
+
+        let backend = get_backend("rust-sqlx", "postgresql").unwrap();
+        let mut query = make_query(
+            "GetShape",
+            QueryCommand::One,
+            "SELECT id, bounds FROM shapes",
+            vec![
+                AnalyzedColumn {
+                    name: "id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+                AnalyzedColumn {
+                    name: "bounds".to_string(),
+                    neutral_type: "composite::outer_shape".to_string(),
+                    nullable: false,
+                    ..Default::default()
+                },
+            ],
+            vec![],
+        );
+        query.composites = vec![
+            CompositeInfo {
+                sql_name: "outer_shape".to_string(),
+                fields: vec![CompositeFieldInfo {
+                    name: "origin".to_string(),
+                    neutral_type: "composite::inner_point".to_string(),
+                }],
+            },
+            CompositeInfo {
+                sql_name: "inner_point".to_string(),
+                fields: vec![CompositeFieldInfo {
+                    name: "x".to_string(),
+                    neutral_type: "int32".to_string(),
+                }],
+            },
+        ];
+
+        let result = generate_with_backend(&query, &*backend).unwrap();
+        let model = result
+            .model_struct
+            .expect("outer_shape, selected directly, must get a definition emitted");
+
+        assert!(
+            model.contains("pub struct OuterShape"),
+            "expected an OuterShape composite definition; got:\n{model}"
+        );
+        assert!(
+            model.contains("pub struct InnerPoint"),
+            "inner_point, reachable only through outer_shape's own field list, must also get a \
+             definition emitted; got:\n{model}"
         );
     }
 

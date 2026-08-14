@@ -50,7 +50,7 @@ impl<'a> Analyzer<'a> {
                     TypeInfo::new("unknown", true)
                 } else if let Some(p) = value_is_placeholder(vws) {
                     if let Some(pos) = parse_placeholder(p) {
-                        self.register_param(pos, None, None, false);
+                        self.register_param(pos, None, None, false, None);
                     }
                     TypeInfo::unknown()
                 } else {
@@ -148,7 +148,7 @@ impl<'a> Analyzer<'a> {
                         && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                     {
                         let col_name = expr_to_name(col_expr);
-                        self.register_param(pos, Some(col_name), Some(col_ti.neutral_type.clone()), false);
+                        self.register_param(pos, Some(col_name), Some(col_ti.neutral_type.clone()), false, None);
                     }
                 }
                 // `NULL IN (1, 2)` is NULL, not false (#119).
@@ -219,10 +219,16 @@ impl<'a> Analyzer<'a> {
                         match &operand_ti {
                             Some(op_ti) => {
                                 let name = operand.as_ref().map(|op| expr_to_name(op));
-                                self.register_param(pos, name, Some(op_ti.neutral_type.clone()), false);
+                                self.register_param(pos, name, Some(op_ti.neutral_type.clone()), false, None);
                             }
                             None => {
-                                self.register_param(pos, Some("flag".to_string()), Some("bool".to_string()), false);
+                                self.register_param(
+                                    pos,
+                                    Some("flag".to_string()),
+                                    Some("bool".to_string()),
+                                    false,
+                                    None,
+                                );
                             }
                         }
                     }
@@ -280,7 +286,7 @@ impl<'a> Analyzer<'a> {
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&expr_to_name(left));
-                    self.register_param(pos, Some(name), Some(array_type), false);
+                    self.register_param(pos, Some(name), Some(array_type), false, None);
                 }
                 self.collect_param_from_any(right, &left_ti, &expr_to_name(left));
                 TypeInfo::new("bool", false)
@@ -294,7 +300,7 @@ impl<'a> Analyzer<'a> {
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&expr_to_name(left));
-                    self.register_param(pos, Some(name), Some(array_type), false);
+                    self.register_param(pos, Some(name), Some(array_type), false, None);
                 }
                 TypeInfo::new("bool", false)
             }
@@ -567,7 +573,7 @@ impl<'a> Analyzer<'a> {
                         } else {
                             None
                         };
-                        self.register_param(pos, coalesce_name.clone(), param_type, true);
+                        self.register_param(pos, coalesce_name.clone(), param_type, true, None);
                     }
                 }
 

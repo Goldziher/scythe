@@ -69,6 +69,16 @@ pub fn resolve_columns(
 ///
 /// When `overrides` is non-empty, each param is checked against the override
 /// list before the normal type-resolution path.
+///
+/// `column_match` prefers [`AnalyzedParam::source_relation`] -- the real relation a direct
+/// `WHERE table.column = $N` comparison bound this parameter against -- over the query-level
+/// `source_table` fallback. `source_table` only ever comes from `detect_select_star_source`
+/// (a single-table `SELECT *`), so before `AnalyzedParam` carried its own relation, a
+/// qualified `column = "table.col"` override on a parameter was a silent no-op for any other
+/// projection -- the parameter half of #189, left tracked when the column half was fixed in
+/// 99227e8e. `source_table` stays as the fallback (rather than being removed) so a parameter
+/// with no traceable owning column -- `IN` list, `LIKE`, a literal comparison -- keeps
+/// resolving the same way it did before this field existed.
 pub fn resolve_params(
     params: &[AnalyzedParam],
     manifest: &BackendManifest,
@@ -78,10 +88,10 @@ pub fn resolve_params(
     let resolved: Vec<ResolvedParam> = params
         .iter()
         .map(|param| {
-            let column_match = if source_table.is_empty() {
-                String::new()
-            } else {
-                format!("{}.{}", source_table, param.name)
+            let column_match = match param.source_relation {
+                Some(ref relation) => format!("{relation}.{}", param.name),
+                None if !source_table.is_empty() => format!("{}.{}", source_table, param.name),
+                None => String::new(),
             };
             let effective_neutral_type =
                 find_override(overrides, &column_match, &param.neutral_type).unwrap_or(&param.neutral_type);
@@ -114,6 +124,30 @@ pub fn resolve_params(
     )?;
 
     Ok(resolved)
+}
+
+/// Every `"table.column"` reference actually present across a set of analyzed params, keyed
+/// on [`AnalyzedParam::source_relation`] -- the parameter counterpart of
+/// [`crate::overrides::column_references`], which does the same job for
+/// [`AnalyzedColumn::source_relation`]. A param with no single owning relation (`IN` list,
+/// `LIKE` pattern, literal comparison: `source_relation: None`) contributes nothing, which is
+/// exactly what a qualified `column` override can never legitimately target either.
+///
+/// Not wired into the CLI's unmatched-override preflight
+/// ([`crate::overrides::unmatched_column_overrides`]) by this change -- that call site
+/// (`scythe-cli`'s `check_type_overrides_resolve`) needs to chain this alongside
+/// `column_references` into the `known` set it already builds; this function is the
+/// primitive that closing gap needs, reusing the existing diagnostic rather than adding a
+/// second one (#189's remainder).
+pub fn param_references<'a>(params: impl Iterator<Item = &'a AnalyzedParam>) -> ahash::AHashSet<String> {
+    params
+        .filter_map(|param| {
+            param
+                .source_relation
+                .as_deref()
+                .map(|relation| format!("{relation}.{}", param.name))
+        })
+        .collect()
 }
 
 /// Reject two SQL identifiers in the same column list or param list that
@@ -322,6 +356,21 @@ mod tests {
             neutral_type: "string".to_string(),
             nullable: false,
             position,
+            source_relation: None,
+        }
+    }
+
+    /// A param with a real owning relation, the way the analyzer populates it for a direct
+    /// `col = $N` comparison (`try_bind_param_from_comparison`) -- unlike `test_param` above,
+    /// whose `source_relation` defaults to `None`, the shape an `IN` list, a `LIKE` pattern, or
+    /// a literal comparison gets (#189's remainder).
+    fn test_param_with_relation(name: &str, position: i64, relation: &str) -> AnalyzedParam {
+        AnalyzedParam {
+            name: name.to_string(),
+            neutral_type: "string".to_string(),
+            nullable: false,
+            position,
+            source_relation: Some(relation.to_string()),
         }
     }
 
@@ -482,6 +531,58 @@ mod tests {
         assert_eq!(resolved[0].neutral_type, "int32");
     }
 
+    /// Must fail before the fix: `resolve_params`'s `column_match` was built once, for the
+    /// whole query, from a `source_table: &str` argument -- which `detect_select_star_source`
+    /// only ever populates for a single-table `SELECT *`. For `SELECT id FROM users WHERE
+    /// email = $1` (an explicit select list), `source_table` was empty, so `column_match` was
+    /// `""` for every param and `"users.email"` could never match it -- the override silently
+    /// never fired (#189's remainder). Building `column_match` from
+    /// `AnalyzedParam::source_relation` first fixes it because the analyzer now populates that
+    /// field from the column a direct comparison bound the parameter against, regardless of
+    /// whether the query is `SELECT *`.
+    #[test]
+    fn test_resolve_params_applies_qualified_override_on_explicit_select_list() {
+        let manifest = test_manifest("snake_case");
+        let overrides = vec![TypeOverride {
+            column: Some("users.email".to_string()),
+            db_type: None,
+            neutral_type: Some("int32".to_string()),
+        }];
+        let resolved = resolve_params(
+            &[test_param_with_relation("email", 1, "users")],
+            &manifest,
+            &overrides,
+            "",
+        )
+        .unwrap();
+        assert_eq!(resolved[0].neutral_type, "int32");
+        // ~keep Assert the resolved language type too: the override has to survive
+        // `resolve_type`, not merely relabel the neutral type on the way past it.
+        assert_eq!(resolved[0].lang_type, "i32");
+    }
+
+    /// A parameter with no single owning column -- an `IN` list, a `LIKE` pattern, a literal
+    /// comparison -- keeps `source_relation: None`. A qualified override naming a table and
+    /// column therefore cannot match it via `resolve_params` alone (#189's remainder says this
+    /// case must be *reported*, not silently accepted as a match; that diagnostic is built
+    /// from [`crate::overrides::column_references`]/`unmatched_column_overrides` plus this
+    /// param's own qualified reference -- see the module doc on why `resolve_params` itself
+    /// only ever silently falls through here rather than erroring).
+    #[test]
+    fn test_resolve_params_qualified_override_does_not_match_param_with_no_relation() {
+        let manifest = test_manifest("snake_case");
+        let overrides = vec![TypeOverride {
+            column: Some("users.email".to_string()),
+            db_type: None,
+            neutral_type: Some("int32".to_string()),
+        }];
+        let resolved = resolve_params(&[test_param("email", 1)], &manifest, &overrides, "").unwrap();
+        assert_eq!(
+            resolved[0].neutral_type, "string",
+            "no source_relation means the qualified override cannot legitimately target this param"
+        );
+    }
+
     #[test]
     fn test_resolve_columns_no_collision_when_names_differ() {
         let manifest = test_manifest("camelCase");
@@ -530,5 +631,50 @@ mod tests {
     fn test_check_type_name_collisions_message_has_no_field_case_suggestion() {
         let err = check_type_name_collisions([("a", "X"), ("b", "X")].into_iter(), "enums").unwrap_err();
         assert!(!err.to_string().contains("field_case"), "{err}");
+    }
+
+    #[test]
+    fn test_param_references_collects_qualified_names() {
+        let params = [test_param_with_relation("email", 1, "users"), test_param("total", 2)];
+        let refs = param_references(params.iter());
+        assert_eq!(refs.len(), 1);
+        assert!(refs.contains("users.email"));
+    }
+
+    /// Must fail before the fix existed (there was no `AnalyzedParam::source_relation` to
+    /// build this set from at all): a `column` override naming a table/column that no
+    /// parameter's `source_relation` reaches is unmatched, the same way an unmatched column
+    /// override is caught by `crate::overrides::unmatched_column_overrides` today. Composing
+    /// `param_references` with that existing function (rather than a parallel "unmatched
+    /// param override" check) is the extension #189's remainder asks for.
+    #[test]
+    fn test_unmatched_column_overrides_reports_qualified_param_override_that_matches_nothing() {
+        use crate::overrides::unmatched_column_overrides;
+
+        let known = param_references([test_param_with_relation("email", 1, "users")].iter());
+        let overrides = vec![
+            TypeOverride {
+                column: Some("users.email".to_string()),
+                db_type: None,
+                neutral_type: Some("json".to_string()),
+            },
+            TypeOverride {
+                column: Some("users.emial".to_string()),
+                db_type: None,
+                neutral_type: Some("json".to_string()),
+            },
+        ];
+        let unmatched = unmatched_column_overrides(&overrides, &known);
+        assert_eq!(unmatched.len(), 1);
+        assert_eq!(unmatched[0].column.as_deref(), Some("users.emial"));
+    }
+
+    /// A param with no owning column contributes nothing to `param_references`, mirroring
+    /// `column_references`'s handling of a computed/literal column.
+    #[test]
+    fn test_param_references_skips_params_with_no_source_relation() {
+        let params = [test_param("total", 1)];
+        let refs = param_references(params.iter());
+        assert!(refs.is_empty());
     }
 }

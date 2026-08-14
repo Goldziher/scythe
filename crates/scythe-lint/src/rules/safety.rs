@@ -764,6 +764,7 @@ mod tests {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 2,
+                source_relation: None,
             }];
         });
         let ctx = LintContext {

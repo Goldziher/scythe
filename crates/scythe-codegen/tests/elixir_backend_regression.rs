@@ -138,6 +138,7 @@ fn one_param_query(param_neutral_type: &str) -> AnalyzedQuery {
             neutral_type: param_neutral_type.to_string(),
             nullable: false,
             position: 1,
+            source_relation: None,
         }];
     })
 }
@@ -213,6 +214,7 @@ fn many_param_query() -> AnalyzedQuery {
             neutral_type: "string".to_string(),
             nullable: false,
             position: 1,
+            source_relation: None,
         }];
     })
 }
@@ -228,6 +230,7 @@ fn batch_query() -> AnalyzedQuery {
             neutral_type: "string".to_string(),
             nullable: false,
             position: 1,
+            source_relation: None,
         }];
     })
 }
@@ -377,12 +380,14 @@ fn exqlite_query(command: QueryCommand) -> AnalyzedQuery {
                 neutral_type: "string".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             },
             AnalyzedParam {
                 name: "id".to_string(),
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 2,
+                source_relation: None,
             },
         ];
     })

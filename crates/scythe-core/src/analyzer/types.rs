@@ -231,13 +231,31 @@ impl AnalyzedColumn {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Serialize, serde::Deserialize))]
 pub struct AnalyzedParam {
     pub name: String,
     pub neutral_type: String,
     pub nullable: bool,
     pub position: i64,
+    /// The table (or CTE/derived-relation alias) this parameter's bound value is compared
+    /// against directly, e.g. `"users"` for `WHERE users.email = $1`. `None` when the
+    /// parameter has no single owning column -- a literal comparison with no column context,
+    /// a `BETWEEN`/`LIKE`/`IN`-list/array binding, a function argument, a `CASE` branch --
+    /// which is exactly the case a qualified `column = "table.col"` type override can never
+    /// legitimately target (#189's remainder: [`AnalyzedColumn`] got this in 99227e8e,
+    /// `AnalyzedParam` did not).
+    ///
+    /// Populated only for a direct binary comparison (`try_bind_param_from_comparison`), the
+    /// one shape where "the column this parameter is compared against" is unambiguous. Every
+    /// other binding site keeps `None` deliberately rather than guessing at a relation the
+    /// parameter doesn't have one true owner for.
+    ///
+    /// `#[serde(default)]` so payloads serialized before this field existed keep
+    /// deserializing -- but adding this key changes any content hash computed over the
+    /// serialized `AnalyzedQuery`.
+    #[cfg_attr(feature = "serde", serde(default))]
+    pub source_relation: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -300,6 +318,8 @@ pub(super) struct ParamInfo {
     pub(super) name: Option<String>,
     pub(super) neutral_type: Option<String>,
     pub(super) nullable: bool,
+    /// See [`AnalyzedParam::source_relation`]; carried through unchanged into the public type.
+    pub(super) source_relation: Option<String>,
 }
 
 /// Result of inferring an expression's type

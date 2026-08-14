@@ -14,6 +14,8 @@ pub use types::{
     NestedFieldInfo, NestedStructInfo,
 };
 
+use std::collections::VecDeque;
+
 use ahash::{AHashMap, AHashSet};
 
 use crate::catalog::Catalog;
@@ -87,6 +89,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
                 neutral_type,
                 nullable: p.nullable,
                 position: p.position,
+                source_relation: p.source_relation.clone(),
             }
         })
         .collect();
@@ -130,27 +133,56 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
 
     let mut composites = Vec::new();
     let mut seen_composites: AHashSet<String> = AHashSet::new();
-    for neutral_type in columns
+    // Field types discovered while walking composites, fed into the enum scan
+    // below so `CREATE TYPE outer AS (status order_status)` -- an enum reachable
+    // only through a composite field -- is not left with the same gap this
+    // recursion exists to close.
+    let mut composite_field_types: Vec<String> = Vec::new();
+    let mut composite_worklist: VecDeque<String> = columns
         .iter()
         .map(|c| c.neutral_type.as_str())
         .chain(nested_field_types.iter().copied())
-    {
-        if let Some(comp_name) = neutral_type.strip_prefix("composite::")
-            && seen_composites.insert(comp_name.to_string())
-            && let Some(comp) = catalog.get_composite(comp_name)
-        {
-            composites.push(CompositeInfo {
-                sql_name: comp_name.to_string(),
-                fields: comp
-                    .fields
-                    .iter()
-                    .map(|f| CompositeFieldInfo {
-                        name: f.name.clone(),
-                        neutral_type: sql_type_to_neutral(&f.sql_type, catalog).into_owned(),
-                    })
-                    .collect(),
-            });
+        .filter_map(|nt| nt.strip_prefix("composite::"))
+        .filter(|name| seen_composites.insert((*name).to_string()))
+        .map(str::to_string)
+        .collect();
+
+    // ~keep A composite field can itself name another composite --
+    // `CREATE TYPE outer AS (inner_field inner_type)` -- so walking only the
+    // query's own columns/params/nested-struct fields misses `inner` entirely:
+    // selecting `outer` alone would reference `Inner` in generated code with no
+    // definition ever emitted (unfiled; found alongside the JVM composite
+    // `fromText` fix in ddb7bb00, which recurses into nested composite fields at
+    // the codegen level and needs this analyzer-level definition to exist).
+    // `seen_composites` both dedupes a diamond -- two fields naming the same
+    // nested composite -- down to one definition, and stops a true cycle from
+    // looping forever; PostgreSQL rejects a real composite cycle at `CREATE
+    // TYPE` time, but nothing here should assume that has actually been
+    // enforced against every catalog this analyzer might see.
+    while let Some(comp_name) = composite_worklist.pop_front() {
+        let Some(comp) = catalog.get_composite(&comp_name) else {
+            continue;
+        };
+        let fields: Vec<CompositeFieldInfo> = comp
+            .fields
+            .iter()
+            .map(|f| CompositeFieldInfo {
+                name: f.name.clone(),
+                neutral_type: sql_type_to_neutral(&f.sql_type, catalog).into_owned(),
+            })
+            .collect();
+        for field in &fields {
+            composite_field_types.push(field.neutral_type.clone());
+            if let Some(nested_name) = field.neutral_type.strip_prefix("composite::")
+                && seen_composites.insert(nested_name.to_string())
+            {
+                composite_worklist.push_back(nested_name.to_string());
+            }
         }
+        composites.push(CompositeInfo {
+            sql_name: comp_name,
+            fields,
+        });
     }
 
     let mut enums = Vec::new();
@@ -160,6 +192,7 @@ pub fn analyze(catalog: &Catalog, query: &Query) -> Result<AnalyzedQuery, Scythe
         .map(|c| c.neutral_type.as_str())
         .chain(params.iter().map(|p| p.neutral_type.as_str()))
         .chain(nested_field_types.iter().copied())
+        .chain(composite_field_types.iter().map(String::as_str))
         .collect();
     for nt in &all_types {
         if let Some(enum_name) = nt.strip_prefix("enum::")
@@ -1758,5 +1791,98 @@ SELECT * FROM (SELECT id, age FROM users WHERE age > ?) sub WHERE sub.id > ?;",
             result.params[1].position, 2,
             "the outer placeholder must continue numbering after it"
         );
+    }
+
+    // Regression tests for the unfiled defect found alongside the JVM composite `fromText`
+    // fix (ddb7bb00): `analyzed.composites` was built by scanning selected columns' neutral
+    // types, never by walking into a composite's own field list, so a composite reachable
+    // only as another composite's field was never collected -- and its definition was never
+    // emitted -- even though the outer composite that references it was selected directly.
+
+    /// Must fail before the fix: selecting only `bounds` (typed `outer_shape`) must still
+    /// collect `inner_point`, the type of `outer_shape`'s own `origin` field, even though no
+    /// column in the query is directly typed `inner_point`.
+    #[test]
+    fn test_composites_recurse_into_nested_composite_fields() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TYPE inner_point AS (x INTEGER, y INTEGER);",
+            "CREATE TYPE outer_shape AS (label TEXT, origin inner_point);",
+            "CREATE TABLE shapes (id SERIAL PRIMARY KEY, bounds outer_shape NOT NULL);",
+        ])
+        .unwrap();
+        let query = parse_query(
+            "-- @name GetShape
+-- @returns :one
+SELECT id, bounds FROM shapes WHERE id = $1;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        assert!(
+            result.composites.iter().any(|c| c.sql_name == "outer_shape"),
+            "the directly-selected composite must still be collected"
+        );
+        let inner = result
+            .composites
+            .iter()
+            .find(|c| c.sql_name == "inner_point")
+            .expect("inner_point is reachable only through outer_shape's own field list");
+        assert_eq!(inner.fields.len(), 2);
+        assert!(inner.fields.iter().any(|f| f.name == "x" && f.neutral_type == "int32"));
+        assert!(inner.fields.iter().any(|f| f.name == "y" && f.neutral_type == "int32"));
+    }
+
+    /// Two fields of `outer_shape` both name `inner_point` -- a diamond. Must fail before the
+    /// fix existed (there was no recursion to produce even a duplicate); after the fix,
+    /// `seen_composites` must collapse the diamond to exactly one `CompositeInfo`, not two.
+    #[test]
+    fn test_composites_diamond_field_emits_exactly_one_definition() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TYPE inner_point AS (x INTEGER, y INTEGER);",
+            "CREATE TYPE outer_shape AS (top_left inner_point, bottom_right inner_point);",
+            "CREATE TABLE shapes (id SERIAL PRIMARY KEY, bounds outer_shape NOT NULL);",
+        ])
+        .unwrap();
+        let query = parse_query(
+            "-- @name GetShape
+-- @returns :one
+SELECT id, bounds FROM shapes WHERE id = $1;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        let inner_count = result.composites.iter().filter(|c| c.sql_name == "inner_point").count();
+        assert_eq!(
+            inner_count, 1,
+            "a composite reached through two sibling fields of the same name must be collected once"
+        );
+    }
+
+    /// A composite two levels deep (`outer` -> `middle` -> `inner`) must all be collected, not
+    /// just the immediate nesting -- proves the walk is a real transitive closure, not a
+    /// single extra hop hand-coded for the one-level case.
+    #[test]
+    fn test_composites_recurse_transitively_two_levels_deep() {
+        let catalog = Catalog::from_ddl(&[
+            "CREATE TYPE innermost AS (v INTEGER);",
+            "CREATE TYPE middle_layer AS (core innermost);",
+            "CREATE TYPE outer_layer AS (mid middle_layer);",
+            "CREATE TABLE boxes (id SERIAL PRIMARY KEY, contents outer_layer NOT NULL);",
+        ])
+        .unwrap();
+        let query = parse_query(
+            "-- @name GetBox
+-- @returns :one
+SELECT id, contents FROM boxes WHERE id = $1;",
+        )
+        .unwrap();
+        let result = analyze(&catalog, &query).unwrap();
+
+        for expected in ["outer_layer", "middle_layer", "innermost"] {
+            assert!(
+                result.composites.iter().any(|c| c.sql_name == expected),
+                "{expected} must be collected"
+            );
+        }
     }
 }

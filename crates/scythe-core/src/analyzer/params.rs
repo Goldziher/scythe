@@ -56,6 +56,7 @@ impl<'a> Analyzer<'a> {
         name: Option<String>,
         neutral_type: Option<String>,
         nullable: bool,
+        source_relation: Option<String>,
     ) {
         if let Some(existing) = self.params.iter_mut().find(|p| p.position == position) {
             if existing.name.is_none() && name.is_some() {
@@ -64,12 +65,16 @@ impl<'a> Analyzer<'a> {
             if existing.neutral_type.is_none() && neutral_type.is_some() {
                 existing.neutral_type = neutral_type;
             }
+            if existing.source_relation.is_none() && source_relation.is_some() {
+                existing.source_relation = source_relation;
+            }
         } else {
             self.params.push(ParamInfo {
                 position,
                 name,
                 neutral_type,
                 nullable,
+                source_relation,
             });
         }
     }
@@ -155,7 +160,11 @@ impl<'a> Analyzer<'a> {
                         && let Some(p) = value_is_placeholder(vws)
                         && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                     {
-                        self.register_param(pos, Some(col_name.clone()), Some(col_ti.neutral_type.clone()), false);
+                        // No `source_relation`: each `$N` in the list stands for one element
+                        // of a set the column is tested against, not a single bound value
+                        // compared to that column the way `col = $N` is.
+                        let neutral_type = Some(col_ti.neutral_type.clone());
+                        self.register_param(pos, Some(col_name.clone()), neutral_type, false, None);
                     }
                 }
             }
@@ -177,7 +186,7 @@ impl<'a> Analyzer<'a> {
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(&expr_to_name(left));
-                    self.register_param(pos, Some(name), Some(array_type), false);
+                    self.register_param(pos, Some(name), Some(array_type), false, None);
                 }
                 self.collect_param_from_any(right, &left_ti, &expr_to_name(left));
             }
@@ -238,7 +247,17 @@ impl<'a> Analyzer<'a> {
                     let col_ti = self.infer_expr_type(col_side, scope);
                     let col_name = expr_to_name(col_side);
                     let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
-                    self.register_param(pos, Some(param_name), Some(col_ti.neutral_type), false);
+                    // The one shape where "the column this parameter is bound against" is
+                    // unambiguous -- `col_side`'s own `source_relation`, the same field
+                    // `AnalyzedColumn` carries for the same reason (#189). Everywhere else
+                    // `register_param` is called from, the relation stays `None`.
+                    self.register_param(
+                        pos,
+                        Some(param_name),
+                        Some(col_ti.neutral_type),
+                        false,
+                        col_ti.source_relation,
+                    );
                 }
             }
             Expr::Cast {
@@ -249,9 +268,10 @@ impl<'a> Analyzer<'a> {
                     && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                 {
                     let neutral = datatype_to_neutral(data_type, self.catalog);
+                    let col_ti = self.infer_expr_type(col_side, scope);
                     let col_name = expr_to_name(col_side);
                     let param_name = derive_param_name_from_comparison(&col_name, col_side, param_side, op);
-                    self.register_param(pos, Some(param_name), Some(neutral), false);
+                    self.register_param(pos, Some(param_name), Some(neutral), false, col_ti.source_relation);
                 }
             }
             _ => {}
@@ -263,7 +283,7 @@ impl<'a> Analyzer<'a> {
             if let Some(p) = value_is_placeholder(vws)
                 && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
             {
-                self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), false);
+                self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), false, None);
             }
         } else if let Expr::Cast {
             expr: inner, data_type, ..
@@ -273,7 +293,7 @@ impl<'a> Analyzer<'a> {
             && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
         {
             let neutral = datatype_to_neutral(data_type, self.catalog);
-            self.register_param(pos, Some(name.to_string()), Some(neutral), false);
+            self.register_param(pos, Some(name.to_string()), Some(neutral), false, None);
         }
     }
 
@@ -293,7 +313,7 @@ impl<'a> Analyzer<'a> {
                 if let Some(p) = value_is_placeholder(vws)
                     && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                 {
-                    self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), nullable);
+                    self.register_param(pos, Some(name.to_string()), Some(type_str.to_string()), nullable, None);
                 }
             }
             Expr::Cast {
@@ -304,7 +324,7 @@ impl<'a> Analyzer<'a> {
                     && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                 {
                     let neutral = datatype_to_neutral(data_type, self.catalog);
-                    self.register_param(pos, Some(name.to_string()), Some(neutral), nullable);
+                    self.register_param(pos, Some(name.to_string()), Some(neutral), nullable, None);
                 } else {
                     self.collect_param_from_expr_with_type_nullable(inner, type_str, name, nullable);
                 }
@@ -354,7 +374,7 @@ impl<'a> Analyzer<'a> {
                 "interval" => Some("duration".to_string()),
                 _ => None,
             };
-            self.register_param(pos, name, Some(neutral_type.to_string()), false);
+            self.register_param(pos, name, Some(neutral_type.to_string()), false, None);
         }
     }
 
@@ -366,7 +386,7 @@ impl<'a> Analyzer<'a> {
                 {
                     let array_type = format!("array<{}>", left_ti.neutral_type);
                     let name = pluralize(left_name);
-                    self.register_param(pos, Some(name), Some(array_type), false);
+                    self.register_param(pos, Some(name), Some(array_type), false, None);
                 }
             }
             Expr::Cast {
@@ -377,7 +397,7 @@ impl<'a> Analyzer<'a> {
                     && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                 {
                     let neutral = datatype_to_neutral(data_type, self.catalog);
-                    self.register_param(pos, None, Some(neutral), false);
+                    self.register_param(pos, None, Some(neutral), false, None);
                 }
             }
             Expr::Nested(inner) => self.collect_param_from_any(inner, left_ti, left_name),
@@ -388,7 +408,7 @@ impl<'a> Analyzer<'a> {
                         && let Some(pos) = self.resolve_placeholder_position(p, vws.span)
                     {
                         let name = format!("{}{}", left_name, i + 1);
-                        self.register_param(pos, Some(name), Some(left_ti.neutral_type.clone()), false);
+                        self.register_param(pos, Some(name), Some(left_ti.neutral_type.clone()), false, None);
                     }
                 }
             }
@@ -446,7 +466,7 @@ mod tests {
     fn test_register_param_new() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false);
+        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false, None);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].position, 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
@@ -458,12 +478,12 @@ mod tests {
     fn test_register_param_dedup_fills_missing() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, None, None, false);
+        analyzer.register_param(1, None, None, false, None);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, None);
         assert_eq!(analyzer.params[0].neutral_type, None);
 
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false);
+        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false, None);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
         assert_eq!(analyzer.params[0].neutral_type, Some("int32".to_string()));
@@ -473,19 +493,60 @@ mod tests {
     fn test_register_param_does_not_overwrite_existing() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false);
-        analyzer.register_param(1, Some("new_name".to_string()), Some("string".to_string()), true);
+        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false, None);
+        analyzer.register_param(1, Some("new_name".to_string()), Some("string".to_string()), true, None);
         assert_eq!(analyzer.params.len(), 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
         assert_eq!(analyzer.params[0].neutral_type, Some("int32".to_string()));
     }
 
     #[test]
+    fn test_register_param_fills_missing_source_relation() {
+        // Same fill-in-the-blank merge as name/neutral_type: a first registration with no
+        // relation (e.g. from `collect_param_from_expr`) must not permanently lock the
+        // param out of later picking one up from a comparison site.
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        analyzer.register_param(1, Some("id".to_string()), Some("int32".to_string()), false, None);
+        assert_eq!(analyzer.params[0].source_relation, None);
+        analyzer.register_param(
+            1,
+            Some("id".to_string()),
+            Some("int32".to_string()),
+            false,
+            Some("users".to_string()),
+        );
+        assert_eq!(analyzer.params.len(), 1, "still one param, not a second entry");
+        assert_eq!(analyzer.params[0].source_relation, Some("users".to_string()));
+    }
+
+    #[test]
+    fn test_register_param_does_not_overwrite_existing_source_relation() {
+        let catalog = empty_catalog();
+        let mut analyzer = make_analyzer(&catalog);
+        analyzer.register_param(
+            1,
+            Some("id".to_string()),
+            Some("int32".to_string()),
+            false,
+            Some("users".to_string()),
+        );
+        analyzer.register_param(
+            1,
+            Some("id".to_string()),
+            Some("int32".to_string()),
+            false,
+            Some("orders".to_string()),
+        );
+        assert_eq!(analyzer.params[0].source_relation, Some("users".to_string()));
+    }
+
+    #[test]
     fn test_register_multiple_params() {
         let catalog = empty_catalog();
         let mut analyzer = make_analyzer(&catalog);
-        analyzer.register_param(1, Some("name".to_string()), Some("string".to_string()), false);
-        analyzer.register_param(2, Some("age".to_string()), Some("int32".to_string()), false);
+        analyzer.register_param(1, Some("name".to_string()), Some("string".to_string()), false, None);
+        analyzer.register_param(2, Some("age".to_string()), Some("int32".to_string()), false, None);
         assert_eq!(analyzer.params.len(), 2);
         assert_eq!(analyzer.params[0].position, 1);
         assert_eq!(analyzer.params[1].position, 2);
@@ -524,6 +585,87 @@ mod tests {
         assert_eq!(analyzer.params[0].position, 1);
         assert_eq!(analyzer.params[0].name, Some("id".to_string()));
         assert_eq!(analyzer.params[0].neutral_type, Some("int32".to_string()));
+        assert_eq!(
+            analyzer.params[0].source_relation,
+            Some("users".to_string()),
+            "a direct `col = $N` comparison must carry the column's owning relation, the same \
+             way AnalyzedColumn::source_relation does (#189)"
+        );
+    }
+
+    /// The core of #189's remainder: `WHERE u.id = $1` must resolve `source_relation` to the
+    /// real table name (`users`), not the query alias (`u`) -- exactly the distinction
+    /// `AnalyzedColumn::source_relation` already makes (99227e8e). Must fail before the fix:
+    /// `AnalyzedParam` carried no `source_relation` field at all, so a qualified `users.id`
+    /// override on a parameter matched nothing outside `SELECT *`.
+    #[test]
+    fn test_try_bind_param_from_comparison_uses_real_table_name_not_alias() {
+        let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER NOT NULL);"]).unwrap();
+        let mut analyzer = Analyzer {
+            catalog: &catalog,
+            params: Vec::new(),
+            ctes: AHashMap::new(),
+            type_errors: Vec::new(),
+            positional_param_counter: 0,
+            pending_nested: Vec::new(),
+            next_nested_id: 0,
+            resolved_placeholders: AHashMap::new(),
+        };
+        let scope = Scope {
+            sources: vec![ScopeSource {
+                alias: "u".to_string(),
+                table_name: "users".to_string(),
+                columns: vec![ScopeColumn::new("id", "int32", false)],
+                nullable_from_join: false,
+            }],
+        };
+
+        let param_side = placeholder_expr("$1");
+        let col_side = Expr::CompoundIdentifier(vec![Ident::new("u"), Ident::new("id")]);
+        analyzer.try_bind_param_from_comparison(&param_side, &col_side, &scope, Some(&BinaryOperator::Eq));
+
+        assert_eq!(
+            analyzer.params[0].source_relation,
+            Some("users".to_string()),
+            "must resolve to the real table name, not the `u` alias"
+        );
+    }
+
+    /// A param bound through an `IN` list has a column it is tested against, but not a single
+    /// bound value compared to it the way `col = $N` is -- per #189's remainder, this must
+    /// stay `None` rather than guess at a relation.
+    #[test]
+    fn test_collect_params_from_where_in_list_has_no_source_relation() {
+        let catalog = Catalog::from_ddl(&["CREATE TABLE users (id INTEGER NOT NULL);"]).unwrap();
+        let mut analyzer = Analyzer {
+            catalog: &catalog,
+            params: Vec::new(),
+            ctes: AHashMap::new(),
+            type_errors: Vec::new(),
+            positional_param_counter: 0,
+            pending_nested: Vec::new(),
+            next_nested_id: 0,
+            resolved_placeholders: AHashMap::new(),
+        };
+        let scope = Scope {
+            sources: vec![ScopeSource {
+                alias: "users".to_string(),
+                table_name: "users".to_string(),
+                columns: vec![ScopeColumn::new("id", "int32", false)],
+                nullable_from_join: false,
+            }],
+        };
+        let expr = Expr::InList {
+            expr: Box::new(Expr::Identifier(Ident::new("id"))),
+            list: vec![placeholder_expr("$1")],
+            negated: false,
+        };
+        analyzer.collect_params_from_where(&expr, &scope);
+        assert_eq!(analyzer.params.len(), 1);
+        assert_eq!(
+            analyzer.params[0].source_relation, None,
+            "an IN-list binding has no single owning column to target with a qualified override"
+        );
     }
 
     #[test]

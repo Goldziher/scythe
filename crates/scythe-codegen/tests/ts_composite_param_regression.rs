@@ -57,6 +57,7 @@ fn composite_param_query() -> AnalyzedQuery {
             neutral_type: "composite::address".to_string(),
             nullable: true,
             position: 1,
+            source_relation: None,
         }];
         query.composites = vec![address_composite()];
     })
@@ -142,12 +143,14 @@ fn typescript_postgres_binds_a_composite_field_in_a_multi_param_batch_item() {
             neutral_type: "string".to_string(),
             nullable: false,
             position: 1,
+            source_relation: None,
         },
         AnalyzedParam {
             name: "home_address".to_string(),
             neutral_type: "composite::address".to_string(),
             nullable: true,
             position: 2,
+            source_relation: None,
         },
     ];
     let result = generate_with_backend(&query, &*backend).expect("codegen must not fail on a composite param");

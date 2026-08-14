@@ -626,18 +626,21 @@ mod tests {
                     neutral_type: "int32".to_string(),
                     nullable: false,
                     position: 1,
+                    source_relation: None,
                 },
                 scythe_core::analyzer::AnalyzedParam {
                     name: "total".to_string(),
                     neutral_type: "decimal".to_string(),
                     nullable: false,
                     position: 2,
+                    source_relation: None,
                 },
                 scythe_core::analyzer::AnalyzedParam {
                     name: "notes".to_string(),
                     neutral_type: "string".to_string(),
                     nullable: true,
                     position: 3,
+                    source_relation: None,
                 },
             ];
             aq.deprecated = None;

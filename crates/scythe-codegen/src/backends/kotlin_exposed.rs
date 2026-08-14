@@ -1050,6 +1050,7 @@ mod tests {
                 neutral_type: "int32".to_string(),
                 nullable: false,
                 position: 1,
+                source_relation: None,
             }];
             q.deprecated = None;
             q.source_table = None;
