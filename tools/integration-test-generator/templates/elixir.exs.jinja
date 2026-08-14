@@ -30,14 +30,25 @@ database = String.trim_leading(uri.path, "/")
   )
 {%- elif driver == "ecto" %}
 
-{:ok, conn} =
-  Postgrex.start_link(
+{#- elixir-ecto generates `Ecto.Adapters.SQL.query(repo, ...)`, which resolves
+    its argument through Ecto.Repo.Registry. A bare Postgrex pid is not
+    registered there and fails with `ArgumentError: 2nd argument: not a key
+    that exists in the table`, so the harness has to start a real repo. `conn`
+    stays the variable name so the rest of this template is unchanged. #}
+defmodule Scythe.IntegrationRepo do
+  use Ecto.Repo, otp_app: :scythe_integration_test, adapter: Ecto.Adapters.Postgres
+end
+
+{:ok, _pid} =
+  Scythe.IntegrationRepo.start_link(
     hostname: uri.host,
     port: uri.port || {% if engine == "redshift" %}5439{% else %}5432{% endif %},
     username: username,
     password: password,
     database: database
   )
+
+conn = Scythe.IntegrationRepo
 {%- endif %}
 {%- elif engine == "mysql" %}
 database_url =
@@ -178,12 +189,15 @@ schema_sql
 |> Enum.filter(&(&1 != ""))
 |> Enum.each(fn stmt -> Postgrex.query!(conn, stmt, []) end)
 {%- elif driver == "ecto" %}
-Postgrex.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
-Postgrex.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
-Postgrex.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
-Postgrex.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
+{#- `conn` is an Ecto repo here, not a Postgrex pid, so setup has to go
+    through the adapter too -- Postgrex.query! would fail the same way the
+    generated code did. #}
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
 {%- if engine == "postgresql" %}
-Postgrex.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
 {%- endif %}
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "{% if engine == "redshift" %}redshift/schema_pg_compat{% else %}pg/schema{% endif %}.sql"]))
@@ -191,7 +205,7 @@ schema_sql
 |> String.split(";")
 |> Enum.map(&String.trim/1)
 |> Enum.filter(&(&1 != ""))
-|> Enum.each(fn stmt -> Postgrex.query!(conn, stmt, []) end)
+|> Enum.each(fn stmt -> Ecto.Adapters.SQL.query!(conn, stmt, []) end)
 {%- endif %}
 {%- elif engine == "mysql" -%}
 {% if driver == "myxql" -%}

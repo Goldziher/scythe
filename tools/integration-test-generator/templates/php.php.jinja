@@ -490,7 +490,17 @@ function test_list_active_users({% if driver == "pdo" or driver == "pdo-mysql" o
     $users = iterator_to_array(Queries::listActiveUsers($pdo, "active"));
     {%- elif engine == "mysql" or engine == "mariadb" %}
     $users = iterator_to_array(Queries::listActiveUsers($pdo, UsersStatus::ACTIVE));
+    {%- elif engine == "sqlite" %}
+    {#- sqlite declares status as TEXT, so the bound value is a plain string
+        rather than a generated enum. This argument only started being required
+        once 46142c63 stopped dropping the placeholder from the signature. #}
+    $users = iterator_to_array(Queries::listActiveUsers($pdo, "active"));
     {%- else %}
+    {#- mssql and snowflake still emit no `$status` parameter even though their
+        query text carries a placeholder -- the same dropped-parameter defect,
+        still live on those two engines. When it is fixed they will need an
+        argument here too, and this call will fail loudly rather than silently
+        passing the wrong thing. #}
     $users = iterator_to_array(Queries::listActiveUsers($pdo));
     {%- endif %}
     assert_true(count($users) >= 1, "Expected at least 1 active user, got " . count($users));

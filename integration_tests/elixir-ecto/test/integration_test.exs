@@ -6,9 +6,12 @@ database_url =
 uri = URI.parse(database_url)
 [username, password] = String.split(uri.userinfo, ":")
 database = String.trim_leading(uri.path, "/")
+defmodule Scythe.IntegrationRepo do
+  use Ecto.Repo, otp_app: :scythe_integration_test, adapter: Ecto.Adapters.Postgres
+end
 
-{:ok, conn} =
-  Postgrex.start_link(
+{:ok, _pid} =
+  Scythe.IntegrationRepo.start_link(
     hostname: uri.host,
     port: uri.port || 5432,
     username: username,
@@ -16,20 +19,22 @@ database = String.trim_leading(uri.path, "/")
     database: database
   )
 
+conn = Scythe.IntegrationRepo
+
 # Clean slate
 
-Postgrex.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
-Postgrex.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
-Postgrex.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
-Postgrex.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
-Postgrex.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags CASCADE", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS tags CASCADE", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS orders CASCADE", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users CASCADE", [])
+Ecto.Adapters.SQL.query!(conn, "DROP TYPE IF EXISTS user_status CASCADE", [])
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "pg/schema.sql"]))
 schema_sql
 |> String.split(";")
 |> Enum.map(&String.trim/1)
 |> Enum.filter(&(&1 != ""))
-|> Enum.each(fn stmt -> Postgrex.query!(conn, stmt, []) end)
+|> Enum.each(fn stmt -> Ecto.Adapters.SQL.query!(conn, stmt, []) end)
 
 exit_code = 0
 

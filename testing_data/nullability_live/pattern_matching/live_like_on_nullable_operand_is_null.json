@@ -1,7 +1,7 @@
 {
   "name": "live_like_on_nullable_operand_is_null",
   "category": "nullability_live/pattern_matching",
-  "description": "LIKE over a nullable column is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised LIKE at all, so a fix that only changed the analyzer's model of NULL LIKE 'x' could regress silently",
+  "description": "LIKE over a nullable column is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised LIKE at all, so a fix that only changed the analyzer's model of NULL LIKE 'x' could regress silently. Restricted to the engines where a LIKE predicate is a legal value expression in a select list: T-SQL and Oracle have no boolean type there, so MSSQL fails with 'Incorrect syntax near the keyword LIKE' and Oracle with ORA-00923 before any nullability is observed. Covering them needs a CASE wrapper, and the harness runs one literal query_sql per engine with no per-engine rewrite.",
   "tags": ["nullability", "pattern_matching", "like", "live"],
   "schema_sql": [
     "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())"
@@ -14,7 +14,11 @@
       "command": "many",
       "params": [],
       "columns": [
-        { "name": "id", "nullable": false, "type": "int32" },
+        {
+          "name": "id",
+          "nullable": false,
+          "type": "int32"
+        },
         {
           "name": "starts_with_a",
           "nullable": true,
@@ -27,7 +31,7 @@
   "source": "original",
   "live": {
     "schema_profile": "users_orders",
-    "engines": ["postgresql", "mysql", "mariadb", "sqlite", "mssql", "oracle"],
+    "engines": ["postgresql", "mysql", "mariadb", "sqlite"],
     "runs": [
       {
         "name": "one_matching_one_null_email",
@@ -38,8 +42,14 @@
           ]
         },
         "rows": [
-          { "non_null": ["id", "starts_with_a"], "null": [] },
-          { "non_null": ["id"], "null": ["starts_with_a"] }
+          {
+            "non_null": ["id", "starts_with_a"],
+            "null": []
+          },
+          {
+            "non_null": ["id"],
+            "null": ["starts_with_a"]
+          }
         ]
       }
     ]
