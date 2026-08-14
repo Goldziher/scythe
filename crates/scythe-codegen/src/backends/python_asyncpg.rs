@@ -515,7 +515,11 @@ impl CodegenBackend for PythonAsyncpgBackend {
 
         let _ = writeln!(out);
         let _ = writeln!(out, "    @classmethod");
-        let _ = writeln!(out, "    def _from_record(cls, record) -> \"{} | None\":", name);
+        // ~keep `Any`, not `asyncpg.Record`: the generated module does not import asyncpg (the
+        // connection arrives as a parameter), and pyrefly rejects a bare unannotated parameter
+        // outright -- the "Validate: Generated Type Checking" job holds every python backend to
+        // zero errors.
+        let _ = writeln!(out, "    def _from_record(cls, record: Any) -> \"{} | None\":", name);
         let _ = writeln!(
             out,
             "        \"\"\"~keep board #204: asyncpg decodes a composite column to its own"

@@ -307,7 +307,7 @@ fn asyncpg_composite_from_record_returns_none_for_a_null_column() {
     assert_contains(
         "python-asyncpg",
         &code,
-        "def _from_record(cls, record) -> \"WidgetAddress | None\":",
+        "def _from_record(cls, record: Any) -> \"WidgetAddress | None\":",
         "the classmethod must accept and be able to return None",
     );
     assert_contains(

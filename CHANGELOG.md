@@ -121,6 +121,14 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   `elixir-ecto`, `php-pdo`, `php-amphp` and `csharp-npgsql`. `php-pdo`, `php-amphp` and
   `csharp-npgsql` fail loudly there; the rest hand back a wrong-typed value. (#204)
 
+- **The generated python composite parser did not type-check, and cast a NULL sub-field away.**
+  `_from_text` fed `_parse_composite_fields`' `str | None` tokens straight into fields declared
+  `str`, which pyrefly rejects — and PostgreSQL does permit a NULL sub-field, so the value really
+  can arrive. Silencing the checker with a cast would have traded a type error for a value that
+  lies at runtime, so the str-typed fields now route through a `_require_composite_field` guard that
+  raises naming the field that was NULL. asyncpg's `_from_record` also gained an `Any` annotation on
+  its `record` parameter, which pyrefly rejected outright as unannotated. (#204)
+
 - **A composite whose field named another composite emitted the two definitions in the wrong order.**
   The analyzer discovers composites breadth-first, so a type reached only through another composite's
   field list landed *after* the type that references it. Languages whose declarations hoist never

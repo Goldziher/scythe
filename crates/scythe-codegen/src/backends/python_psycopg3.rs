@@ -114,8 +114,32 @@ const PY_PARSE_COMPOSITE_OFFSET_TIME_METHOD: &str = r#"    @staticmethod
         return datetime.time.fromisoformat(s)
 "#;
 
+/// Guard for a composite field whose declared Python type is `str` but whose parsed token is
+/// `str | None`, because PostgreSQL permits a NULL sub-field that `CompositeFieldInfo` has no
+/// way to declare. Emitted only when a composite has at least one such field.
+const PY_REQUIRE_COMPOSITE_FIELD_METHOD: &str = r#"    @staticmethod
+    def _require_composite_field(raw: str | None, field: str) -> str:
+        """~keep A composite's fields are all declared non-nullable -- CompositeFieldInfo
+        carries no per-field nullability -- but PostgreSQL happily stores a NULL sub-field,
+        which arrives here as None. Raising names the field that was NULL; returning None
+        through an annotation that says `str` would hand the caller a value its own type
+        says is impossible."""
+        if raw is None:
+            raise ValueError(f"composite field {field!r} is NULL, which its generated type cannot represent")
+        return raw
+"#;
+
 fn py_composite_needs_bytes_helper(composite: &CompositeInfo) -> bool {
     composite.fields.iter().any(|f| f.neutral_type == "bytes")
+}
+
+/// Whether any field falls through [`py_composite_field_from_text`]'s final arm -- the only one
+/// that emits a `_require_composite_field` call.
+fn py_composite_needs_require_helper(composite: &CompositeInfo) -> bool {
+    composite
+        .fields
+        .iter()
+        .any(|f| py_composite_field_from_text(&f.neutral_type, "", "raw", &f.name).contains("_require_composite_field"))
 }
 
 fn py_composite_needs_offset_datetime_helper(composite: &CompositeInfo) -> bool {
@@ -133,10 +157,14 @@ fn py_composite_needs_offset_time_helper(composite: &CompositeInfo) -> bool {
 ///
 /// A field's own declared type is always non-nullable (`generate_composite_def` resolves
 /// every field with `nullable: false` -- `CompositeFieldInfo` carries no per-field
-/// nullability), so a genuinely NULL sub-field converted through a scalar arm (`int(None)`,
-/// ...) raises `TypeError`. That mirrors the same pre-existing gap in `java_jdbc.rs`'s
-/// `composite_field_from_text` -- not one this fix introduces or can close from here.
-fn py_composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str) -> String {
+/// nullability), but PostgreSQL does allow a NULL sub-field, so the token really can be
+/// `None`. The str-typed arm therefore routes through `_require_composite_field`, which
+/// raises with the field's name instead of handing `None` back through an annotation that
+/// says `str`: pyrefly rejects the unguarded version outright (`str | None` is not
+/// assignable to `str`), and silencing it with a cast would trade a type error for a value
+/// that lies at runtime. The converting arms below (`int(...)`, `uuid.UUID(...)`, ...) raise
+/// on `None` of their own accord.
+fn py_composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str, field_name: &str) -> String {
     if neutral_type.starts_with("composite::") {
         return format!("{field_type}._from_text({raw})");
     }
@@ -156,10 +184,11 @@ fn py_composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str)
         "time_tz" => format!("cls._parse_composite_offset_time({raw})"),
         "bytes" => format!("cls._parse_composite_bytes({raw})"),
         // "string"/"json"/"inet"/"interval" all resolve to Python `str`, so the already-parsed
-        // text needs no further conversion. Any neutral type not named above (e.g. an
-        // array-typed composite field) falls through here too; passing the raw text through is
-        // the least-wrong fallback available at generate time rather than a hard error.
-        _ => raw.to_string(),
+        // text needs no conversion -- only the NULL guard, since the declared field type is
+        // `str`. Any neutral type not named above (e.g. an array-typed composite field) falls
+        // through here too; handing the raw text back is the least-wrong fallback available at
+        // generate time rather than a hard error.
+        _ => format!("cls._require_composite_field({raw}, \"{field_name}\")"),
     }
 }
 
@@ -652,12 +681,16 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let _ = writeln!(out, "        return cls(");
         for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
             let raw = format!("f[{i}]");
-            let value_expr = py_composite_field_from_text(&field.neutral_type, field_type, &raw);
+            let value_expr = py_composite_field_from_text(&field.neutral_type, field_type, &raw, &field.name);
             let _ = writeln!(out, "            {}={value_expr},", to_snake_case(&field.name));
         }
         let _ = writeln!(out, "        )");
         let _ = writeln!(out);
         out.push_str(PY_PARSE_COMPOSITE_FIELDS_METHOD);
+        if py_composite_needs_require_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(PY_REQUIRE_COMPOSITE_FIELD_METHOD);
+        }
         if py_composite_needs_bytes_helper(composite) {
             let _ = writeln!(out);
             out.push_str(PY_PARSE_COMPOSITE_BYTES_METHOD);

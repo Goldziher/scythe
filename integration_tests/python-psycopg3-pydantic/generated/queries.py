@@ -309,9 +309,9 @@ class UserAddress(BaseModel):
             return None
         f = cls._parse_composite_fields(text)
         return cls(
-            street=f[0],
-            city=f[1],
-            zip=f[2],
+            street=cls._require_composite_field(f[0], "street"),
+            city=cls._require_composite_field(f[1], "city"),
+            zip=cls._require_composite_field(f[2], "zip"),
         )
 
     @staticmethod
@@ -364,6 +364,17 @@ class UserAddress(BaseModel):
                 continue
             break
         return fields
+
+    @staticmethod
+    def _require_composite_field(raw: str | None, field: str) -> str:
+        """~keep A composite's fields are all declared non-nullable -- CompositeFieldInfo
+        carries no per-field nullability -- but PostgreSQL happily stores a NULL sub-field,
+        which arrives here as None. Raising names the field that was NULL; returning None
+        through an annotation that says `str` would hand the caller a value its own type
+        says is impossible."""
+        if raw is None:
+            raise ValueError(f"composite field {field!r} is NULL, which its generated type cannot represent")
+        return raw
 
 
 class GetUserProfileRow(BaseModel):

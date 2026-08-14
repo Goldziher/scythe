@@ -327,7 +327,7 @@ class UserAddress:
     zip: str
 
     @classmethod
-    def _from_record(cls, record) -> "UserAddress | None":
+    def _from_record(cls, record: Any) -> "UserAddress | None":
         """~keep board #204: asyncpg decodes a composite column to its own
         `Record` (tuple-like, not our declared type) -- wrap it into this class."""
         if record is None:
