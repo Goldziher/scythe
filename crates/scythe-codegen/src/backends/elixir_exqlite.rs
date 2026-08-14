@@ -1,5 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_pascal_case, to_snake_case};
+use scythe_backend::naming::{composite_type_name, enum_type_name, enum_variant_name, fn_name, to_snake_case};
 use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -402,7 +402,7 @@ impl CodegenBackend for ElixirExqliteBackend {
     }
 
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
-        let name = to_pascal_case(&composite.sql_name);
+        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "defmodule {} do", name);
         let _ = writeln!(out, "  @moduledoc \"Composite type for {}.\"", composite.sql_name);

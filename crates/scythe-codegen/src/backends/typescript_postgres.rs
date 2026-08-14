@@ -1,5 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_camel_case, to_pascal_case};
+use scythe_backend::naming::{composite_type_name, enum_type_name, enum_variant_name, fn_name, to_camel_case};
 use scythe_backend::types::resolve_type;
 use std::fmt::Write;
 
@@ -623,7 +623,7 @@ impl CodegenBackend for TypescriptPostgresBackend {
         if self.js_mode {
             return self.generate_composite_def_js(composite);
         }
-        let name = to_pascal_case(&composite.sql_name);
+        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = writeln!(out, "/** Composite type {}. */", composite.sql_name);
         let _ = writeln!(out, "export interface {} {{", name);
@@ -1014,7 +1014,7 @@ impl TypescriptPostgresBackend {
 
     /// JSDoc-mode counterpart of `generate_composite_def`.
     fn generate_composite_def_js(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
-        let name = to_pascal_case(&composite.sql_name);
+        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut fields = Vec::with_capacity(composite.fields.len());
         for field in &composite.fields {
             let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)

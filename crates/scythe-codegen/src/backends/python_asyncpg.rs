@@ -1,5 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_pascal_case, to_snake_case};
+use scythe_backend::naming::{composite_type_name, enum_type_name, enum_variant_name, fn_name, to_snake_case};
 use scythe_backend::types::resolve_type;
 use std::collections::HashMap;
 use std::fmt::Write;
@@ -433,7 +433,7 @@ impl CodegenBackend for PythonAsyncpgBackend {
     }
 
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
-        let name = to_pascal_case(&composite.sql_name);
+        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let _ = write!(out, "{}", self.row_type.decorator());
         let _ = writeln!(out, "{}", self.row_type.class_def(&name));

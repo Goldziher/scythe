@@ -2,7 +2,7 @@ use std::borrow::Cow;
 
 use crate::errors::BackendError;
 use crate::manifest::BackendManifest;
-use crate::naming::to_pascal_case;
+use crate::naming::{composite_type_name, enum_type_name};
 
 /// Which syntactic position a resolved type is destined for.
 ///
@@ -120,12 +120,20 @@ fn resolve_base_type_at<'a>(
         return Ok(Cow::Owned(resolved));
     }
 
+    // ~keep This is the *reference* side: the type as it appears in a column, param or
+    // composite-field annotation. It must spell the name exactly as the declaration side does,
+    // and the declaration side is `enum_type_name`/`composite_type_name`. Calling
+    // `to_pascal_case` here instead disagreed with both in two ways -- it never removed the `.`
+    // in a schema-qualified name (`app.point` -> `App.point`, which no target language accepts
+    // in a type position), and it hardcoded PascalCase rather than honouring the manifest's
+    // `struct_case`. The first was live; the second is latent only because all 102 manifests
+    // currently set `struct_case = "PascalCase"`. Same defect class as GH #164 and board #199.
     if let Some(sql_name) = neutral.strip_prefix("enum::") {
-        return Ok(Cow::Owned(to_pascal_case(sql_name).into_owned()));
+        return Ok(Cow::Owned(enum_type_name(sql_name, &manifest.naming)));
     }
 
     if let Some(sql_name) = neutral.strip_prefix("composite::") {
-        return Ok(Cow::Owned(to_pascal_case(sql_name).into_owned()));
+        return Ok(Cow::Owned(composite_type_name(sql_name, &manifest.naming)));
     }
 
     if let Some(lang_type) = manifest.types.scalars.get(neutral) {
@@ -286,6 +294,33 @@ mod tests {
     fn test_composite_type() {
         let m = test_manifest();
         assert_eq!(resolve_type("composite::address", &m, false).unwrap(), "Address");
+    }
+
+    /// Regression for board #199's reference side. The declaration side spells a
+    /// schema-qualified type through `enum_type_name`/`composite_type_name`, which
+    /// sanitize the `.` away; this path used to call `to_pascal_case` directly and
+    /// produced `"Public.userStatus"` / `"App.point"` -- a `.` in a type position,
+    /// which no target language parses, and a name that disagreed with the very
+    /// declaration it referred to.
+    #[test]
+    fn schema_qualified_enum_and_composite_references_match_their_declarations() {
+        let m = test_manifest();
+        assert_eq!(
+            resolve_type("enum::public.user_status", &m, false).unwrap(),
+            "PublicUserStatus"
+        );
+        assert_eq!(resolve_type("composite::app.point", &m, false).unwrap(), "AppPoint");
+    }
+
+    /// The same names must survive container recursion -- an array of a
+    /// schema-qualified composite resolves its element through the same arm.
+    #[test]
+    fn schema_qualified_composite_stays_sanitized_inside_an_array() {
+        let m = test_manifest();
+        assert_eq!(
+            resolve_type("array<composite::app.point>", &m, false).unwrap(),
+            "Vec<AppPoint>"
+        );
     }
 
     #[test]

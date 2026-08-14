@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_camel_case, to_pascal_case};
+use scythe_backend::naming::{
+    composite_type_name, enum_type_name, enum_variant_name, fn_name, to_camel_case, to_pascal_case,
+};
 use scythe_backend::types::resolve_type;
 
 use scythe_core::SqlDialect;
@@ -316,9 +318,18 @@ fn composite_needs_offset_time_helper(composite: &CompositeInfo) -> bool {
 /// `java_jdbc.rs`'s twin function for the reasoning behind the `!!` non-null assertions: a
 /// composite field's declared type is always non-nullable (no per-field nullability is
 /// tracked), a pre-existing gap this fix does not close.
-fn composite_field_from_text_kotlin(neutral_type: &str, field_type: &str, raw: &str) -> String {
+fn composite_field_from_text_kotlin(
+    neutral_type: &str,
+    field_type: &str,
+    raw: &str,
+    manifest: &BackendManifest,
+) -> String {
     if let Some(sql_name) = neutral_type.strip_prefix("composite::") {
-        return format!("{}.fromText({})!!", to_pascal_case(sql_name), raw);
+        return format!(
+            "{}.fromText({})!!",
+            composite_type_name(sql_name, &manifest.naming),
+            raw
+        );
     }
     if neutral_type.starts_with("enum::") {
         return format!("{}.fromValue({}!!)", field_type, raw);
@@ -1035,7 +1046,7 @@ impl CodegenBackend for KotlinJdbcBackend {
     }
 
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
-        let name = to_pascal_case(&composite.sql_name);
+        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
         let field_types: Vec<String> = composite
             .fields
@@ -1084,7 +1095,7 @@ impl CodegenBackend for KotlinJdbcBackend {
         let _ = writeln!(out, "            return {}(", name);
         for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
             let raw = format!("f[{}]", i);
-            let expr = composite_field_from_text_kotlin(&field.neutral_type, field_type, &raw);
+            let expr = composite_field_from_text_kotlin(&field.neutral_type, field_type, &raw, &self.manifest);
             let _ = writeln!(out, "                {},", expr);
         }
         let _ = writeln!(out, "            )");

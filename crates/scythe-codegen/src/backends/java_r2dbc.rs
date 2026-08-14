@@ -2,7 +2,9 @@ use std::collections::HashMap;
 use std::fmt::Write;
 
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_camel_case, to_pascal_case};
+use scythe_backend::naming::{
+    composite_type_name, enum_type_name, enum_variant_name, fn_name, to_camel_case, to_pascal_case,
+};
 
 use scythe_backend::types::resolve_type;
 
@@ -253,9 +255,9 @@ fn composite_needs_offset_time_helper(composite: &CompositeInfo) -> bool {
 /// the inverse of what PostgreSQL's composite output function wrote for that field. See
 /// `java_jdbc.rs`'s twin function for the full reasoning, including why a genuinely NULL
 /// sub-field converted through a primitive arm is a pre-existing, out-of-scope gap.
-fn composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str) -> String {
+fn composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str, manifest: &BackendManifest) -> String {
     if let Some(sql_name) = neutral_type.strip_prefix("composite::") {
-        return format!("{}.fromText({})", to_pascal_case(sql_name), raw);
+        return format!("{}.fromText({})", composite_type_name(sql_name, &manifest.naming), raw);
     }
     if neutral_type.starts_with("enum::") {
         return format!("{}.fromValue({})", field_type, raw);
@@ -740,7 +742,7 @@ impl CodegenBackend for JavaR2dbcBackend {
     }
 
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
-        let name = to_pascal_case(&composite.sql_name);
+        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
         // ~keep board #196: a composite with zero fields cannot exist in PostgreSQL (`CREATE
         // TYPE ... AS ()` is rejected), so there is no reachable runtime value that would need
@@ -790,7 +792,7 @@ impl CodegenBackend for JavaR2dbcBackend {
         let _ = writeln!(out, "        return new {}(", name);
         for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
             let raw = format!("f.get({})", i);
-            let value_expr = composite_field_from_text(&field.neutral_type, field_type, &raw);
+            let value_expr = composite_field_from_text(&field.neutral_type, field_type, &raw, &self.manifest);
             let sep = if i + 1 < composite.fields.len() { "," } else { "" };
             let _ = writeln!(out, "            {}{}", value_expr, sep);
         }

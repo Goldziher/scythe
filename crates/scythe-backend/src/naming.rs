@@ -248,6 +248,26 @@ pub fn enum_type_name(sql_name: &str, naming: &NamingConfig) -> String {
     apply_case(&sanitized, &naming.struct_case).into_owned()
 }
 
+/// Generate the type name for a composite from its SQL name.
+///
+/// E.g., sql name "address" with PascalCase -> "Address".
+///
+/// The declaration and reference-side counterpart of [`enum_type_name`],
+/// fixing the identical defect (board #199): a schema-qualified composite
+/// (`CREATE TYPE app.point AS (...)`) carries its qualifying `.` straight
+/// into `CompositeInfo::sql_name`, and every backend used to call
+/// `to_pascal_case(&composite.sql_name)` directly -- `to_pascal_case`
+/// alone does not remove a character an identifier cannot hold, so
+/// `to_pascal_case("app.point")` was `"App.point"`, a `.` inside `pub
+/// struct App.point` (or the target's equivalent) in every one of the ~56
+/// call sites that inlined this instead of sharing one place. Routed
+/// through the same [`sanitize_for_identifier`] [`enum_type_name`] already
+/// uses, so the `.` becomes `_` before casing runs.
+pub fn composite_type_name(sql_name: &str, naming: &NamingConfig) -> String {
+    let sanitized = sanitize_for_identifier(sql_name);
+    apply_case(&sanitized, &naming.struct_case).into_owned()
+}
+
 /// Generate a field name (column or param) from its SQL name.
 ///
 /// E.g., sql name "user_id" with camelCase -> "userId". Defaults to
@@ -628,6 +648,24 @@ mod tests {
     fn test_enum_type_name() {
         let config = test_config();
         assert_eq!(enum_type_name("user_status", &config), "UserStatus");
+    }
+
+    #[test]
+    fn test_composite_type_name() {
+        let config = test_config();
+        assert_eq!(composite_type_name("address", &config), "Address");
+    }
+
+    /// Regression for board #199: a schema-qualified composite's `.` must not reach
+    /// the generated type name. Before the fix, every backend called
+    /// `to_pascal_case(&composite.sql_name)` directly, and
+    /// `to_pascal_case("app.point")` under `struct_case = "PascalCase"`
+    /// returns `"App.point"` -- a `.` inside the generated struct/class/type
+    /// name, a syntax error in every target language.
+    #[test]
+    fn test_composite_type_name_sanitizes_a_schema_qualified_dot() {
+        let config = test_config();
+        assert_eq!(composite_type_name("app.point", &config), "AppPoint");
     }
 
     #[test]

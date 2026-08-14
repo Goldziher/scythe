@@ -1,5 +1,7 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_pascal_case, to_snake_case};
+use scythe_backend::naming::{
+    composite_type_name, enum_type_name, enum_variant_name, fn_name, to_pascal_case, to_snake_case,
+};
 use std::fmt::Write;
 
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
@@ -565,7 +567,7 @@ impl CodegenBackend for SqlxBackend {
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         use scythe_backend::types::resolve_type;
 
-        let struct_name = to_pascal_case(&composite.sql_name).into_owned();
+        let struct_name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
 
         let _ = writeln!(out, "{}", self.derive_line(&["Debug", "Clone", "sqlx::Type"]));
