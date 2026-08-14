@@ -2,6 +2,7 @@
 
 import asyncio
 import os
+import re
 import sys
 from decimal import Decimal
 from pathlib import Path
@@ -32,6 +33,86 @@ def get_database_url() -> str:
         print("ERROR: DATABASE_URL environment variable is not set", file=sys.stderr)
         sys.exit(1)
     return url
+
+
+def split_sql_statements(sql: str) -> list[str]:
+    """Split a SQL script into statements on top-level ';' only.
+
+    A naive `sql.split(";")` breaks on a ';' inside a string literal, a
+    PostgreSQL `$$ ... $$` dollar-quoted function body, or a '--' line
+    comment (an apostrophe in a comment must not open a phantom string --
+    board #224 follow-up). This tracks that state instead so none of those
+    split the statement in half. '/* ... */' block comments are not
+    handled -- no schema under integration_tests/sql/ uses them today.
+    """
+    statements: list[str] = []
+    current: list[str] = []
+    in_single = False
+    in_double = False
+    in_line_comment = False
+    dollar_tag: str | None = None
+    i = 0
+    length = len(sql)
+    while i < length:
+        ch = sql[i]
+        if in_line_comment:
+            current.append(ch)
+            if ch == "\n":
+                in_line_comment = False
+            i += 1
+            continue
+        if dollar_tag is not None:
+            current.append(ch)
+            if ch == "$" and sql.startswith(dollar_tag, i):
+                current.append(dollar_tag[1:])
+                i += len(dollar_tag)
+                continue
+            i += 1
+            continue
+        if in_single:
+            current.append(ch)
+            if ch == "'":
+                in_single = False
+            i += 1
+            continue
+        if in_double:
+            current.append(ch)
+            if ch == '"':
+                in_double = False
+            i += 1
+            continue
+        if ch == "-" and sql[i + 1 : i + 2] == "-":
+            in_line_comment = True
+            current.append(ch)
+            i += 1
+            continue
+        if ch == "'":
+            in_single = True
+            current.append(ch)
+            i += 1
+            continue
+        if ch == '"':
+            in_double = True
+            current.append(ch)
+            i += 1
+            continue
+        if ch == "$":
+            match = re.match(r"\$[A-Za-z0-9_]*\$", sql[i:])
+            if match:
+                dollar_tag = match.group(0)
+                current.append(dollar_tag)
+                i += len(dollar_tag)
+                continue
+        if ch == ";":
+            statements.append("".join(current))
+            current = []
+            i += 1
+            continue
+        current.append(ch)
+        i += 1
+    if "".join(current).strip():
+        statements.append("".join(current))
+    return [s.strip() for s in statements if s.strip()]
 
 
 async def setup_schema(conn: psycopg.AsyncConnection) -> None:

@@ -26,6 +26,103 @@ function get_database_url(): string
     return $url;
 }
 
+/**
+ * Splits a SQL script into statements on top-level ';' only -- unlike a
+ * naive `explode(';', $sql)`, this tracks single- and double-quoted spans,
+ * PostgreSQL dollar-quoted bodies, and '--' line comments (an apostrophe in
+ * a comment must not open a phantom string -- board #224 follow-up) so a
+ * ';' inside a string literal, a `$$ ... $$` function body, or a comment
+ * does not split the statement in half. '/* ... *' + '/' block comments are
+ * not handled -- no schema under integration_tests/sql/ uses them today.
+ *
+ * @return array<string>
+ */
+function split_sql_statements(string $sql): array
+{
+    $statements = [];
+    $current = '';
+    $inSingle = false;
+    $inDouble = false;
+    $inLineComment = false;
+    $dollarTag = null;
+    $length = strlen($sql);
+    $i = 0;
+    while ($i < $length) {
+        $ch = $sql[$i];
+        if ($inLineComment) {
+            $current .= $ch;
+            if ($ch === "\n") {
+                $inLineComment = false;
+            }
+            $i++;
+            continue;
+        }
+        if ($dollarTag !== null) {
+            $current .= $ch;
+            if ($ch === '$' && substr($sql, $i, strlen($dollarTag)) === $dollarTag) {
+                $current .= substr($dollarTag, 1);
+                $i += strlen($dollarTag);
+                $dollarTag = null;
+                continue;
+            }
+            $i++;
+            continue;
+        }
+        if ($inSingle) {
+            $current .= $ch;
+            if ($ch === "'") {
+                $inSingle = false;
+            }
+            $i++;
+            continue;
+        }
+        if ($inDouble) {
+            $current .= $ch;
+            if ($ch === '"') {
+                $inDouble = false;
+            }
+            $i++;
+            continue;
+        }
+        if ($ch === "'") {
+            $inSingle = true;
+            $current .= $ch;
+            $i++;
+            continue;
+        }
+        if ($ch === '"') {
+            $inDouble = true;
+            $current .= $ch;
+            $i++;
+            continue;
+        }
+        if ($ch === '-' && ($sql[$i + 1] ?? '') === '-') {
+            $inLineComment = true;
+            $current .= $ch;
+            $i++;
+            continue;
+        }
+        if ($ch === '$' && preg_match('/\G\$[A-Za-z0-9_]*\$/', $sql, $matches, 0, $i) === 1) {
+            $dollarTag = $matches[0];
+            $current .= $dollarTag;
+            $i += strlen($dollarTag);
+            continue;
+        }
+        if ($ch === ';') {
+            $statements[] = $current;
+            $current = '';
+            $i++;
+            continue;
+        }
+        $current .= $ch;
+        $i++;
+    }
+    if (trim($current) !== '') {
+        $statements[] = $current;
+    }
+    return array_values(array_filter(array_map('trim', $statements), static fn (string $stmt): bool => $stmt !== ''));
+}
+
 function parse_database_url(string $url): array
 {
     $parts = parse_url($url);
@@ -74,11 +171,8 @@ function setup_schema(PDO $pdo): void
     if ($schema_sql === false) {
         throw new RuntimeException("Failed to read schema file: {$schema_path}");
     }
-    foreach (explode(';', $schema_sql) as $stmt) {
-        $stmt = trim($stmt);
-        if ($stmt !== '') {
-            $pdo->exec($stmt);
-        }
+    foreach (split_sql_statements($schema_sql) as $stmt) {
+        $pdo->exec($stmt);
     }
 }
 

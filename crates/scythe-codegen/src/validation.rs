@@ -1439,7 +1439,7 @@ fn elixir_stub_paths() -> Result<Vec<String>, ToolOutcome> {
             reason: format!("{TOOL}: no stub modules found in {}", dir.display()),
         });
     }
-    // Deterministic argument order, so a failure reproduces identically run to run.
+    // ~keep Deterministic argument order, so a failure reproduces identically run to run.
     paths.sort();
     Ok(paths)
 }

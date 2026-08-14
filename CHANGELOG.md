@@ -82,17 +82,34 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   contract `check`/`lint`/`fmt --check` follow, where exit 1 stays reserved for operational failure.
   (unfiled)
 
-### Known issues
-
-- **`ruby-oci8` hands back an `OCI8::CLOB` where the generated row type declares a `String`.**
-  OCI8 returns a lazy LOB handle for a CLOB column, which has to be `#read` to get its contents;
-  the generated code assigns it straight through, so a CLOB-backed field holds the handle rather
-  than the text. Found by `ruby-oci8-oracle`'s first CI run that got far enough to execute queries.
-  Its CI step is out again while this stands, because `rust-sibyl-oracle` runs after it and never
-  executes while it fails — the step returns with the fix. Tracked as board #225. `BLOB` almost
-  certainly has the same shape and should be checked alongside it.
-
 ### Fixed
+
+- **`ruby-oci8` handed back a LOB locator where the generated row type declared a `String`.**
+  OCI8 returns a lazy `OCI8::CLOB` / `NCLOB` / `BLOB` / `BFILE` handle rather than a materialized
+  value, so a LOB-backed field held the locator instead of its contents. Both CLOB and VARCHAR2
+  resolve to the neutral type `string` (and BLOB and RAW to `bytes`), so nothing at the neutral
+  level could tell them apart — the fix dispatches on the column's raw `sql_type`, matching what
+  `rust_sibyl.rs` already does for the same problem on the same engine. Applied at all seven
+  column-read sites, deliberately **not** to the grouped-query grouping key: a LOB's read position
+  hits EOF after the first `#read`, so wrapping the key would blank the field read afterwards.
+  Found by `ruby-oci8-oracle`'s first CI run that got far enough to execute queries. Its step is
+  restored and now runs last in the Oracle job, so a failure there costs only its own coverage.
+  (#225)
+
+- **A harness executing the shared schema could send several statements as one.** Every generated
+  harness splits `schema.sql` on `;` and runs the fragments; the split was not SQL-aware, so a
+  semicolon inside a string literal or a `$$`-quoted body split mid-statement. All eight templates
+  now split with a small state machine that tracks `'...'`, `"..."`, `$$...$$` **and `--` line
+  comments** — the last of those is not optional: without it an apostrophe in a comment
+  (`schema.sql's`) opens a phantom literal and swallows every following semicolon, which is
+  strictly worse than the naive split it replaced. Block comments are not handled, and each
+  splitter says so; no schema under `integration_tests/sql/` uses them. (#224)
+
+- **`csharp` and `elixir` harnesses printed `PASS` for a test whose assertions had just failed.**
+  Same defect fixed for typescript in this release. `python`, `php` and `ruby` turned out **not**
+  to share it — their assertion helpers raise or throw, so the `PASS` line after a failure is
+  unreachable — and `go`, `java` and `kotlin` already use a passed/failed counter. In every case
+  the run still exited non-zero; the damage was to whoever reads the log. (#227)
 
 - **`elixir-jamdb` generated code could not run at all.** Four independent defects, each hidden
   behind the last, found by giving `elixir-jamdb-oracle` its first CI step and then fixed and

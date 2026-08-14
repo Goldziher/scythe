@@ -81,6 +81,99 @@ fun main() {
     println("ALL TESTS PASSED")
 }
 
+// Splits a SQL script into statements on top-level ';' only -- unlike a
+// naive `schema.split(";")`, this tracks single- and double-quoted spans,
+// PostgreSQL dollar-quoted bodies, and "--" line comments (an apostrophe
+// in a comment must not open a phantom string -- board #224 follow-up) so
+// a ';' inside a string literal, a `$$ ... $$` function body, or a
+// comment does not split the statement in half. "/* ... */" block
+// comments are not handled -- no schema under integration_tests/sql/ uses
+// them today.
+fun splitSqlStatements(sql: String): List<String> {
+    val statements = mutableListOf<String>()
+    val current = StringBuilder()
+    var inSingle = false
+    var inDouble = false
+    var inLineComment = false
+    var dollarTag: String? = null
+    var i = 0
+    while (i < sql.length) {
+        val ch = sql[i]
+        val tag = dollarTag
+        if (inLineComment) {
+            current.append(ch)
+            if (ch == '\n') inLineComment = false
+            i++
+            continue
+        }
+        if (tag != null) {
+            current.append(ch)
+            if (ch == '$' && sql.regionMatches(i, tag, 0, tag.length)) {
+                current.append(tag.substring(1))
+                i += tag.length
+                dollarTag = null
+                continue
+            }
+            i++
+            continue
+        }
+        if (inSingle) {
+            current.append(ch)
+            if (ch == '\'') inSingle = false
+            i++
+            continue
+        }
+        if (inDouble) {
+            current.append(ch)
+            if (ch == '"') inDouble = false
+            i++
+            continue
+        }
+        if (ch == '-' && i + 1 < sql.length && sql[i + 1] == '-') {
+            inLineComment = true
+            current.append(ch)
+            i++
+            continue
+        }
+        when {
+            ch == '\'' -> {
+                inSingle = true
+                current.append(ch)
+                i++
+            }
+            ch == '"' -> {
+                inDouble = true
+                current.append(ch)
+                i++
+            }
+            ch == '$' -> {
+                val match = Regex("^\\$[A-Za-z0-9_]*\\$").find(sql.substring(i))
+                if (match != null) {
+                    dollarTag = match.value
+                    current.append(match.value)
+                    i += match.value.length
+                } else {
+                    current.append(ch)
+                    i++
+                }
+            }
+            ch == ';' -> {
+                statements.add(current.toString())
+                current.setLength(0)
+                i++
+            }
+            else -> {
+                current.append(ch)
+                i++
+            }
+        }
+    }
+    if (current.toString().isNotBlank()) {
+        statements.add(current.toString())
+    }
+    return statements.map { it.trim() }.filter { it.isNotEmpty() }
+}
+
 fun runMigration(conn: java.sql.Connection) {
     val schemaPath = Path.of(System.getProperty("user.dir"))
         .resolve("../sql/snowflake/schema.sql")
@@ -95,12 +188,9 @@ fun runMigration(conn: java.sql.Connection) {
     }
 
     // Snowflake requires executing statements one at a time
-    for (sql in schema.split(";")) {
-        val trimmed = sql.trim()
-        if (trimmed.isNotEmpty()) {
-            conn.createStatement().use { stmt ->
-                stmt.execute(trimmed)
-            }
+    for (sql in splitSqlStatements(schema)) {
+        conn.createStatement().use { stmt ->
+            stmt.execute(sql)
         }
     }
 }

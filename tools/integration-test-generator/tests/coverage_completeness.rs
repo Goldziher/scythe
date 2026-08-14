@@ -358,7 +358,7 @@ fn schema_sql_comments_contain_no_semicolon() {
             }
             files_scanned += 1;
             for (index, line) in read_to_string(&path).lines().enumerate() {
-                // Only a whole-line `--` comment can strand its tail as SQL. A trailing comment
+                // ~keep Only a whole-line `--` comment can strand its tail as SQL. A trailing comment
                 // after a statement is preceded by that statement's own text, and a `;` inside a
                 // string literal is a genuine statement terminator question this does not touch.
                 let trimmed = line.trim_start();
@@ -374,7 +374,7 @@ fn schema_sql_comments_contain_no_semicolon() {
         }
     }
 
-    // A zero-file scan would make this pass vacuously — the same shape the `[ci-steps]` ratchet
+    // ~keep A zero-file scan would make this pass vacuously — the same shape the `[ci-steps]` ratchet
     // guards against. `integration_tests/sql` has never been empty.
     assert!(
         files_scanned > 0,

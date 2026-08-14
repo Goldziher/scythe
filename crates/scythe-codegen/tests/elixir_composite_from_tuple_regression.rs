@@ -58,7 +58,7 @@ fn generated_file(backend_name: &str) -> String {
 
     let mut body = backend.file_header_for_results(all);
     body.push('\n');
-    // Types first, then the query function *inside* the module `query_class_header` opens.
+    // ~keep Types first, then the query function *inside* the module `query_class_header` opens.
     // `file_footer` is the `end` that closes that module, so assembling the two without the
     // header between them leaves a stray `end` and elixirc reports
     // "unexpected reserved word: end" -- a defect in this test's own assembly rather than in

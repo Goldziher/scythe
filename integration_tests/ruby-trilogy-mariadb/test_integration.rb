@@ -16,15 +16,95 @@ def get_database_url
   url
 end
 
+# Splits a SQL script into statements on top-level ';' only -- unlike a
+# naive `sql.split(";")`, this tracks single- and double-quoted spans,
+# PostgreSQL dollar-quoted bodies, and '--' line comments (an apostrophe in
+# a comment must not open a phantom string -- board #224 follow-up) so a
+# ';' inside a string literal, a `$$ ... $$` function body, or a comment
+# does not split the statement in half. '/* ... */' block comments are not
+# handled -- no schema under integration_tests/sql/ uses them today.
+def split_sql_statements(sql)
+  statements = []
+  current = +""
+  in_single = false
+  in_double = false
+  in_line_comment = false
+  dollar_tag = nil
+  i = 0
+  length = sql.length
+  while i < length
+    ch = sql[i]
+    if in_line_comment
+      current << ch
+      in_line_comment = false if ch == "\n"
+      i += 1
+      next
+    end
+    if dollar_tag
+      current << ch
+      if ch == "$" && sql[i, dollar_tag.length] == dollar_tag
+        current << dollar_tag[1..]
+        i += dollar_tag.length
+        dollar_tag = nil
+        next
+      end
+      i += 1
+      next
+    end
+    if in_single
+      current << ch
+      in_single = false if ch == "'"
+      i += 1
+      next
+    end
+    if in_double
+      current << ch
+      in_double = false if ch == '"'
+      i += 1
+      next
+    end
+    if ch == "-" && sql[i + 1] == "-"
+      in_line_comment = true
+      current << ch
+      i += 1
+      next
+    end
+    case ch
+    when "'"
+      in_single = true
+      current << ch
+    when '"'
+      in_double = true
+      current << ch
+    when "$"
+      if (match = /\$[A-Za-z0-9_]*\$/.match(sql[i..]))&.begin(0) == 0
+        dollar_tag = match[0]
+        current << dollar_tag
+        i += dollar_tag.length
+        next
+      else
+        current << ch
+      end
+    when ";"
+      statements << current
+      current = +""
+    else
+      current << ch
+    end
+    i += 1
+  end
+  statements << current unless current.strip.empty?
+  statements.map(&:strip).reject(&:empty?)
+end
+
 def setup_schema(conn)
   conn.query("DROP TABLE IF EXISTS user_tags")
   conn.query("DROP TABLE IF EXISTS tags")
   conn.query("DROP TABLE IF EXISTS orders")
   conn.query("DROP TABLE IF EXISTS users")
   schema_sql = File.read(SCHEMA_PATH)
-  schema_sql.split(";").each do |stmt|
-    stmt = stmt.strip
-    conn.query(stmt) unless stmt.empty?
+  split_sql_statements(schema_sql).each do |stmt|
+    conn.query(stmt)
   end
 end
 

@@ -396,7 +396,7 @@ fn resolve_gen_targets(sql_config: &SqlConfig) -> Result<Vec<ResolvedGenTarget>,
                     options: std::collections::HashMap::new(),
                 });
             }
-            // An explicit `[sql.gen]` table that names none of the five legacy language
+            // ~keep An explicit `[sql.gen]` table that names none of the five legacy language
             // keys (and no unrecognized key either, or `unsupported` would already have
             // errored above) is not "no `gen` configured" -- that's the `None` arm below,
             // reached only when the `gen` key is absent entirely. A present-but-empty

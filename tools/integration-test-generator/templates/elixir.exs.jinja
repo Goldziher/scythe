@@ -1,5 +1,57 @@
 alias Scythe.Queries
 
+# Splits a SQL script into statements on top-level ';' only -- unlike a naive
+# `String.split(sql, ";")`, this tracks single- and double-quoted spans,
+# PostgreSQL bare `$$ ... $$` dollar-quoted bodies (the tagged `$tag$ ... $tag$`
+# form is not detected -- this is a script, not a module, so the splitter has
+# to be a single-pass Enum.reduce without lookahead, and none of the fixture
+# schemas use a tagged delimiter), and '--' line comments (an apostrophe in a
+# comment must not open a phantom string -- board #224 follow-up) so a ';'
+# inside a string literal, a function body, or a comment does not split the
+# statement in half. '/* ... */' block comments are not handled -- no schema
+# under integration_tests/sql/ uses them today.
+split_sql_statements = fn sql ->
+  {statements, current, _mode, _prev} =
+    sql
+    |> String.graphemes()
+    |> Enum.reduce({[], "", :normal, ""}, fn ch, {stmts, cur, mode, prev} ->
+      new_cur = cur <> ch
+
+      case mode do
+        :line_comment ->
+          {stmts, new_cur, (if ch == "\n", do: :normal, else: :line_comment), ch}
+
+        :dollar ->
+          if prev == "$" and ch == "$" do
+            {stmts, new_cur, :normal, ch}
+          else
+            {stmts, new_cur, :dollar, ch}
+          end
+
+        :single ->
+          {stmts, new_cur, (if ch == "'", do: :normal, else: :single), ch}
+
+        :double ->
+          {stmts, new_cur, (if ch == "\"", do: :normal, else: :double), ch}
+
+        :normal ->
+          cond do
+            ch == "'" -> {stmts, new_cur, :single, ch}
+            ch == "\"" -> {stmts, new_cur, :double, ch}
+            ch == "$" and prev == "$" -> {stmts, new_cur, :dollar, ch}
+            ch == "-" and prev == "-" -> {stmts, new_cur, :line_comment, ch}
+            ch == ";" -> {[cur | stmts], "", :normal, ch}
+            true -> {stmts, new_cur, :normal, ch}
+          end
+      end
+    end)
+
+  [current | statements]
+  |> Enum.reverse()
+  |> Enum.map(&String.trim/1)
+  |> Enum.filter(&(&1 != ""))
+end
+
 {% if engine == "postgresql" or engine == "redshift" -%}
 database_url =
   System.get_env("{{ connection_env }}", "postgres://scythe:scythe@localhost:5432/scythe_test")
@@ -185,9 +237,7 @@ Postgrex.query!(conn, "DROP TYPE IF EXISTS user_address CASCADE", [])
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "{% if engine == "redshift" %}redshift/schema_pg_compat{% else %}pg/schema{% endif %}.sql"]))
 schema_sql
-|> String.split(";")
-|> Enum.map(&String.trim/1)
-|> Enum.filter(&(&1 != ""))
+|> split_sql_statements.()
 |> Enum.each(fn stmt -> Postgrex.query!(conn, stmt, []) end)
 {%- elif driver == "ecto" %}
 {#- `conn` is an Ecto repo here, not a Postgrex pid, so setup has to go
@@ -204,9 +254,7 @@ Ecto.Adapters.SQL.query!(conn, "DROP TYPE IF EXISTS user_address CASCADE", [])
 
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "{% if engine == "redshift" %}redshift/schema_pg_compat{% else %}pg/schema{% endif %}.sql"]))
 schema_sql
-|> String.split(";")
-|> Enum.map(&String.trim/1)
-|> Enum.filter(&(&1 != ""))
+|> split_sql_statements.()
 |> Enum.each(fn stmt -> Ecto.Adapters.SQL.query!(conn, stmt, []) end)
 {%- endif %}
 {%- elif engine == "mysql" -%}
@@ -219,9 +267,7 @@ MyXQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mysql", "schema.sql"]))
 
 schema_sql
-|> String.split(";")
-|> Enum.map(&String.trim/1)
-|> Enum.filter(&(&1 != ""))
+|> split_sql_statements.()
 |> Enum.each(fn stmt -> MyXQL.query!(conn, stmt, []) end)
 {%- elif driver == "ecto" %}
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags", [])
@@ -232,9 +278,7 @@ Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mysql", "schema.sql"]))
 
 schema_sql
-|> String.split(";")
-|> Enum.map(&String.trim/1)
-|> Enum.filter(&(&1 != ""))
+|> split_sql_statements.()
 |> Enum.each(fn stmt -> Ecto.Adapters.SQL.query!(conn, stmt, []) end)
 {%- endif %}
 {%- elif engine == "mariadb" -%}
@@ -247,9 +291,7 @@ MyXQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mariadb", "schema.sql"]))
 
 schema_sql
-|> String.split(";")
-|> Enum.map(&String.trim/1)
-|> Enum.filter(&(&1 != ""))
+|> split_sql_statements.()
 |> Enum.each(fn stmt -> MyXQL.query!(conn, stmt, []) end)
 {%- elif driver == "ecto" %}
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags", [])
@@ -260,9 +302,7 @@ Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "mariadb", "schema.sql"]))
 
 schema_sql
-|> String.split(";")
-|> Enum.map(&String.trim/1)
-|> Enum.filter(&(&1 != ""))
+|> split_sql_statements.()
 |> Enum.each(fn stmt -> Ecto.Adapters.SQL.query!(conn, stmt, []) end)
 {%- endif %}
 {%- elif engine == "sqlite" -%}
@@ -275,9 +315,7 @@ schema_sql
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "sqlite", "schema.sql"]))
 
 schema_sql
-|> String.split(";")
-|> Enum.map(&String.trim/1)
-|> Enum.filter(&(&1 != ""))
+|> split_sql_statements.()
 |> Enum.each(fn stmt -> :ok = Exqlite.Sqlite3.execute(conn, stmt) end)
 {%- elif driver == "ecto" %}
 Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS user_tags", [])
@@ -288,9 +326,7 @@ Ecto.Adapters.SQL.query!(conn, "DROP TABLE IF EXISTS users", [])
 schema_sql = File.read!(Path.join([__DIR__, "..", "..", "sql", "sqlite", "schema.sql"]))
 
 schema_sql
-|> String.split(";")
-|> Enum.map(&String.trim/1)
-|> Enum.filter(&(&1 != ""))
+|> split_sql_statements.()
 |> Enum.each(fn stmt -> Ecto.Adapters.SQL.query!(conn, stmt, []) end)
 {%- endif %}
 {%- elif engine == "mssql" -%}
@@ -350,10 +386,18 @@ assert = fn condition, test_name, detail ->
   unless condition do
     IO.puts(:stderr, "FAIL: #{test_name}: #{detail}")
     Process.put(:exit_code, 1)
+    Process.put(:failed_tests, MapSet.put(Process.get(:failed_tests, MapSet.new()), test_name))
+  end
+end
+
+pass = fn test_name, label ->
+  unless MapSet.member?(Process.get(:failed_tests, MapSet.new()), test_name) do
+    IO.puts("PASS: #{label}")
   end
 end
 
 Process.put(:exit_code, 0)
+Process.put(:failed_tests, MapSet.new())
 
 # Test: CreateUser
 {%- if engine == "mysql" %}
@@ -378,21 +422,21 @@ assert.(user.status == "active", "CreateUser", "expected status active, got #{us
 {%- if not (engine == "sqlite" and driver == "exqlite") %}
 user_id = user.id
 {%- endif %}
-IO.puts("PASS: CreateUser")
+pass.("CreateUser", "CreateUser")
 
 # Test: GetUserById
 {:ok, fetched} = Queries.get_user_by_id(conn, user_id)
 assert.(fetched.id == user_id, "GetUserById", "expected id #{user_id}")
 assert.(fetched.name == "Alice", "GetUserById", "expected name Alice")
 assert.(fetched.email == "alice@example.com", "GetUserById", "expected email alice@example.com")
-IO.puts("PASS: GetUserById")
+pass.("GetUserById", "GetUserById")
 
 # Test: ListActiveUsers
 {:ok, active_users} = Queries.list_active_users(conn{% if engine == "postgresql" or engine == "redshift" or engine == "sqlite" %}, "active"{% elif engine == "mysql" or engine == "mariadb" %}, UsersStatus.active(){% endif %})
 assert.(length(active_users) > 0, "ListActiveUsers", "should have at least one user")
 first = List.first(active_users)
 assert.(first.name == "Alice", "ListActiveUsers", "first user should be Alice")
-IO.puts("PASS: ListActiveUsers")
+pass.("ListActiveUsers", "ListActiveUsers")
 
 # Test: CreateOrder
 {%- if engine == "mysql" %}
@@ -420,7 +464,7 @@ assert.(abs(order.total - 99.95) < 0.001, "CreateOrder", "expected total 99.95, 
 assert.(Decimal.equal?(order.total, Decimal.new("99.95")), "CreateOrder", "expected total 99.95, got #{order.total}")
 {%- endif %}
 assert.(order.notes == "first order", "CreateOrder", "expected notes 'first order'")
-IO.puts("PASS: CreateOrder")
+pass.("CreateOrder", "CreateOrder")
 
 # Test: GetOrdersByUser
 {:ok, orders} = Queries.get_orders_by_user(conn, user_id)
@@ -433,7 +477,7 @@ assert.(abs(first_order.total - 99.95) < 0.001, "GetOrdersByUser", "expected tot
 {%- else %}
 assert.(Decimal.equal?(first_order.total, Decimal.new("99.95")), "GetOrdersByUser", "expected total 99.95")
 {%- endif %}
-IO.puts("PASS: GetOrdersByUser")
+pass.("GetOrdersByUser", "GetOrdersByUser")
 
 {%- if engine == "postgresql" %}
 # Test: GetUserProfile (board #197/#204) -- a nullable enum and a nullable
@@ -491,7 +535,7 @@ assert.(quoted_profile.address.zip == "10115", "GetUserProfile", "expected addre
 :ok = Queries.delete_user(conn, present_id)
 :ok = Queries.delete_user(conn, absent_id)
 :ok = Queries.delete_user(conn, quoted_id)
-IO.puts("PASS: GetUserProfile")
+pass.("GetUserProfile", "GetUserProfile")
 {%- endif %}
 
 # Test: DeleteUser (delete orders first due to FK)
@@ -500,7 +544,7 @@ assert.(deleted_orders == 1, "DeleteUser", "expected 1 deleted order, got #{dele
 :ok = Queries.delete_user(conn, user_id)
 result = Queries.get_user_by_id(conn, user_id)
 assert.(result == {:error, :not_found}, "DeleteUser", "user should not exist after deletion")
-IO.puts("PASS: DeleteUser")
+pass.("DeleteUser", "DeleteUser")
 
 final_exit_code = Process.get(:exit_code, 0)
 

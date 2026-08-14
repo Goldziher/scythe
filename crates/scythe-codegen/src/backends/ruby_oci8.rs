@@ -6,9 +6,68 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::GeneratedCode;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, RbsGenerationContext, ResolvedColumn, ResolvedParam};
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/ruby-oci8.toml");
+
+/// Board #225: oci8 hands back a lazy `OCI8::CLOB`/`OCI8::NCLOB`/`OCI8::BLOB`/`OCI8::BFILE`
+/// locator for a LOB column, not the `String` the manifest declares (`clob`/`nclob` -> the
+/// scalar `string`, `blob`/`bfile` -> `bytes`, both mapped to Ruby `String` in
+/// `ruby-oci8.toml`) -- the row struct promises `String` but a raw `row[N]`/`cursor[N]` read
+/// hands the caller the locator object untouched.
+///
+/// Which columns need this is decided statically, by `is_lob_sql_type` matching the schema's
+/// declared `sql_type` (see that function) -- not by a runtime `respond_to?(:read)` duck type
+/// on every string/bytes column. The helper itself still needs a runtime nil check, since a
+/// NULL LOB column is legitimate and must stay `nil`, not become a `NoMethodError`.
+///
+/// Verified against the vendored `ruby-oci8` 2.2.14 gem source
+/// (`~/.gem/gems/ruby-oci8-2.2.14/ext/oci8/lob.c`), not documentation alone:
+/// - `OCI8::CLOB`, `OCI8::NCLOB`, `OCI8::BLOB`, and `OCI8::BFILE` all subclass `OCI8::LOB`
+///   (`lob.c`, `oci8_Init_OCI8LOB`: `rb_define_class_under(cOCI8, "CLOB", cOCI8LOB)` etc.),
+///   and only `OCI8::LOB` defines `#read` (`rb_define_method(cOCI8LOB, "read", ...)`). oci8
+///   converts every other column type client-side to `String`, `Integer`, `Float`,
+///   `BigDecimal`, `Time`, or `Date`, and none of those classes define `#read` either -- so
+///   even a `respond_to?(:read)` duck type (which this code does not use) would not be overly
+///   broad; the static `sql_type` match is simply the more precise, zero-overhead choice,
+///   already established for the identical CLOB-vs-VARCHAR2 problem in the sibling
+///   `rust_sibyl.rs` backend.
+/// - `oci8_lob_read`'s rdoc (`lob.c`, `@overload read`) and its implementation: called with
+///   no argument (`length` `nil`), it reads from the current position until EOF and returns
+///   the full contents as a `String` -- an empty (but non-null) LOB returns `""` rather than
+///   `nil`, which only signals EOF-at-start on a second read.
+/// - A NULL LOB column is never handed to the LOB wrapper at all: `oci8_bind_get`
+///   (`ext/oci8/bind.c`) checks the OCI null indicator and returns `Qnil` directly, before
+///   `bind_lob_get`'s `oci8_lob_clone` ever runs. `cursor.fetch`/`cursor[key]` both resolve
+///   through this same `get_data` -> `get` path (`lib/oci8/cursor.rb`, `ext/oci8/bind.c`), so
+///   a NULL CLOB/BLOB is plain Ruby `nil`, not a handle whose `#read` returns `nil` -- the
+///   helper must pass `nil` through untouched rather than calling `#read` on it.
+///
+/// This cannot be verified against a live OCI8 driver on this machine (no Oracle Instant
+/// Client for macOS ARM64); the source evidence above stands in for a driver run.
+const READ_LOB_METHOD: &str = "  def self.read_lob(value)\n    value.nil? ? nil : value.read\n  end";
+
+/// Whether a column's declared SQL type is an Oracle LOB that oci8 returns as a lazy locator
+/// rather than a materialized value. `neutral_type` alone can't distinguish this -- CLOB and
+/// VARCHAR2 both resolve to `"string"`, BLOB and RAW both resolve to `"bytes"` -- so this
+/// matches `sql_type`, the raw source SQL type (see `AnalyzedColumn::sql_type`), the same
+/// seam `rust_sibyl.rs::emit_row_get` uses for the identical problem in the sibling Oracle
+/// backend.
+fn is_lob_sql_type(sql_type: &str) -> bool {
+    matches!(sql_type, "clob" | "nclob" | "blob" | "bfile")
+}
+
+/// Wrap a raw column-read expression (`row[N]` or `cursor[N]`) in `read_lob` when the
+/// column's declared type is a LOB, so the emitted `String`/`bytes` field actually holds the
+/// LOB's contents instead of the locator object.
+fn column_read_expr(col: &ResolvedColumn, raw: &str) -> String {
+    if is_lob_sql_type(&col.sql_type) {
+        format!("read_lob({raw})")
+    } else {
+        raw.to_string()
+    }
+}
 
 pub struct RubyOci8Backend {
     manifest: BackendManifest,
@@ -60,6 +119,31 @@ impl CodegenBackend for RubyOci8Backend {
             "require 'oci8'\n\nmodule Queries\n{}",
             super::ruby_rbs::RECORD_NOT_FOUND_CLASS
         )
+    }
+
+    fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
+        // `read_lob` only when this file's generated code actually calls it -- most files
+        // never touch a LOB column, and an unconditional method definition would add dead
+        // code to every generated file for a case only Oracle LOB columns hit. ~keep
+        let needs_read_lob = generated.iter().any(|code| {
+            [
+                code.row_struct.as_deref(),
+                code.query_fn.as_deref(),
+                code.model_struct.as_deref(),
+            ]
+            .into_iter()
+            .flatten()
+            .any(|s| s.contains("read_lob("))
+        });
+        if needs_read_lob {
+            format!(
+                "require 'oci8'\n\nmodule Queries\n{}\n{}",
+                super::ruby_rbs::RECORD_NOT_FOUND_CLASS,
+                READ_LOB_METHOD
+            )
+        } else {
+            self.file_header()
+        }
     }
 
     fn file_footer(&self) -> String {
@@ -160,7 +244,10 @@ impl CodegenBackend for RubyOci8Backend {
                     let fields = columns
                         .iter()
                         .enumerate()
-                        .map(|(i, c)| format!("{}: cursor[{}]", c.field_name, params.len() + i + 1))
+                        .map(|(i, c)| {
+                            let raw = format!("cursor[{}]", params.len() + i + 1);
+                            format!("{}: {}", c.field_name, column_read_expr(c, &raw))
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
                     let _ = writeln!(out, "    {}.new({})", struct_name, fields);
@@ -175,7 +262,10 @@ impl CodegenBackend for RubyOci8Backend {
                     let fields = columns
                         .iter()
                         .enumerate()
-                        .map(|(i, c)| format!("{}: row[{}]", c.field_name, i))
+                        .map(|(i, c)| {
+                            let raw = format!("row[{}]", i);
+                            format!("{}: {}", c.field_name, column_read_expr(c, &raw))
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
                     let _ = writeln!(out, "    {}.new({})", struct_name, fields);
@@ -213,7 +303,10 @@ impl CodegenBackend for RubyOci8Backend {
                     let fields = columns
                         .iter()
                         .enumerate()
-                        .map(|(i, c)| format!("{}: cursor[{}]", c.field_name, params.len() + i + 1))
+                        .map(|(i, c)| {
+                            let raw = format!("cursor[{}]", params.len() + i + 1);
+                            format!("{}: {}", c.field_name, column_read_expr(c, &raw))
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
                     let _ = writeln!(out, "    {}.new({})", struct_name, fields);
@@ -224,7 +317,10 @@ impl CodegenBackend for RubyOci8Backend {
                     let fields = columns
                         .iter()
                         .enumerate()
-                        .map(|(i, c)| format!("{}: row[{}]", c.field_name, i))
+                        .map(|(i, c)| {
+                            let raw = format!("row[{}]", i);
+                            format!("{}: {}", c.field_name, column_read_expr(c, &raw))
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
                     let _ = writeln!(out, "    {}.new({})", struct_name, fields);
@@ -237,7 +333,10 @@ impl CodegenBackend for RubyOci8Backend {
                 let fields = columns
                     .iter()
                     .enumerate()
-                    .map(|(i, c)| format!("{}: row[{}]", c.field_name, i))
+                    .map(|(i, c)| {
+                        let raw = format!("row[{}]", i);
+                        format!("{}: {}", c.field_name, column_read_expr(c, &raw))
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
                 let _ = writeln!(out, "      results << {}.new({})", struct_name, fields);
@@ -333,13 +432,19 @@ impl CodegenBackend for RubyOci8Backend {
         let _ = writeln!(out, "    _index = {{}}");
         let _ = writeln!(out, "    _entries = []");
         let _ = writeln!(out, "    while (row = cursor.fetch)");
+        // The grouping key is read raw, not through `column_read_expr` -- a LOB group key is
+        // both nonsensical (grouping rows by full LOB content) and, since the key column is
+        // typically also one of `parent_columns`, would call `#read` on the same handle
+        // twice; a LOB's read position advances past EOF after the first call, so the second
+        // read (building the parent-row field below) would silently come back empty. ~keep
         let _ = writeln!(out, "      key = row[{}]", key_idx);
         let _ = writeln!(out, "      unless _index.key?(key)");
         let _ = writeln!(out, "        _index[key] = _entries.size");
         let _ = writeln!(out, "        _entries << {{");
         for col in parent_columns {
             let col_idx = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
-            let _ = writeln!(out, "          {}: row[{}],", col.field_name, col_idx);
+            let raw = format!("row[{}]", col_idx);
+            let _ = writeln!(out, "          {}: {},", col.field_name, column_read_expr(col, &raw));
         }
         let _ = writeln!(out, "          children: []");
         let _ = writeln!(out, "        }}");
@@ -351,7 +456,8 @@ impl CodegenBackend for RubyOci8Backend {
         );
         for col in child_columns {
             let col_idx = all_columns.iter().position(|c| c.name == col.name).unwrap_or(0);
-            let _ = writeln!(out, "        {}: row[{}],", col.field_name, col_idx);
+            let raw = format!("row[{}]", col_idx);
+            let _ = writeln!(out, "        {}: {},", col.field_name, column_read_expr(col, &raw));
         }
         let _ = writeln!(out, "      )");
         let _ = writeln!(out, "    end");
@@ -403,6 +509,50 @@ mod tests {
     use super::*;
     use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
+
+    /// Board #225: all four Oracle LOB `sql_type`s -- not just `clob`, the one that showed up
+    /// in the CI failure -- must be routed through `read_lob`. `nclob` matches
+    /// `attachments.description NCLOB` and `bfile` matches no current schema column but is
+    /// covered because `sql_type_to_neutral` (scythe-core) maps it to `bytes` the same as
+    /// `blob`, and `rust_sibyl.rs`'s sibling fix treats it identically.
+    #[test]
+    fn is_lob_sql_type_matches_all_four_lob_kinds_and_rejects_non_lob_types() {
+        for lob_type in ["clob", "nclob", "blob", "bfile"] {
+            assert!(is_lob_sql_type(lob_type), "{lob_type} must be treated as a LOB");
+        }
+        for non_lob_type in ["varchar2", "number", "integer", "string", "bytes", "date"] {
+            assert!(
+                !is_lob_sql_type(non_lob_type),
+                "{non_lob_type} must not be treated as a LOB"
+            );
+        }
+    }
+
+    #[test]
+    fn column_read_expr_wraps_lob_columns_and_passes_non_lob_columns_through_raw() {
+        let clob_column = ResolvedColumn {
+            name: "notes".to_string(),
+            field_name: "notes".to_string(),
+            lang_type: "String".to_string(),
+            full_type: "String".to_string(),
+            neutral_type: "string".to_string(),
+            nullable: true,
+            join_group: None,
+            nullable_before_join: false,
+            sql_type: "clob".to_string(),
+        };
+        assert_eq!(column_read_expr(&clob_column, "row[1]"), "read_lob(row[1])");
+
+        let varchar_column = ResolvedColumn {
+            sql_type: "varchar2".to_string(),
+            ..clob_column.clone()
+        };
+        assert_eq!(
+            column_read_expr(&varchar_column, "row[1]"),
+            "row[1]",
+            "VARCHAR2 shares CLOB's neutral_type (\"string\") but must not be wrapped"
+        );
+    }
 
     fn make_grouped_query() -> AnalyzedQuery {
         let parent_cols = vec![

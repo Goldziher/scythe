@@ -94,15 +94,13 @@ typescript-kysely|redshift : needs redshift branches in typescript.ts.jinja's ky
 # code had never been able to run at all. Fixed under board #223 and verified
 # against a local gvenzl/oracle-xe:21-slim before the step went back.
 #
-# ruby-oci8-oracle went the same way as jamdb and is at the same stage jamdb
-# was: its step ran, and the run found a real defect -- OCI8 hands back an
-# OCI8::CLOB handle for a CLOB column where the generated row type declares a
-# String, so reading `notes` yields the handle rather than its contents (board
-# #225). The step is out again only because `Test rust-sibyl-oracle` runs after
-# it and never executes while it fails, so one more backend goes unverified
-# every run for a defect already recorded. It goes back with the fix.
+# ruby-oci8-oracle is closed the same way jamdb was: its step ran, found a real
+# defect (OCI8 returns a LOB locator where the row type declares String, board
+# #225), and the fix went in with the step restored -- this time ordered last in
+# the Oracle job, so a failure there costs only its own coverage instead of
+# skipping the steps behind it.
 #
-# Two others remain, each for a reason different from "just add a step":
+# Only php-pdo-snowflake remains, for a reason different from "just add a step":
 #
 # php-pdo-snowflake needs the `pdo_snowflake` extension, which ships from
 # snowflakedb/pdo_snowflake as neither a PECL package nor an apt package: it is
@@ -111,5 +109,4 @@ typescript-kysely|redshift : needs redshift branches in typescript.ts.jinja's ky
 # resulting pdo_snowflake.so and a cacert.pem into place by hand. That is a
 # CI-infrastructure project in its own right, not a step modeled on a sibling
 # -- this job has no sibling that builds a driver from source.
-ruby-oci8-oracle : board #225 -- OCI8 returns an OCI8::CLOB handle where the generated row type declares String; step returns with the fix
 php-pdo-snowflake : issue #118 -- pdo_snowflake has no PECL/apt package; it must be built from source against Snowflake's C driver (see snowflakedb/pdo_snowflake), which is real infrastructure work, not a missing step

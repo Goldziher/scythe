@@ -35,6 +35,82 @@ function pass(testName: string, label: string = testName): void {
 	}
 }
 
+// Splits a SQL script into individual statements on top-level `;` only --
+// unlike a naive `.split(";")`, this tracks single-quoted and
+// double-quoted spans, PostgreSQL dollar-quoted bodies, and `--` line
+// comments (an apostrophe in a comment must not open a phantom string --
+// board #224 follow-up) so a `;` inside a string literal, a `$$ ... $$`
+// function body, or a comment does not split the statement in half.
+// `/* ... */` block comments are not handled -- no schema under
+// integration_tests/sql/ uses them today.
+function splitSqlStatements(sql: string): string[] {
+	const statements: string[] = [];
+	let current = "";
+	let inSingle = false;
+	let inDouble = false;
+	let inLineComment = false;
+	let dollarTag: string | null = null;
+	for (let i = 0; i < sql.length; i++) {
+		const ch = sql[i];
+		if (inLineComment) {
+			current += ch;
+			if (ch === "\n") inLineComment = false;
+			continue;
+		}
+		if (dollarTag !== null) {
+			current += ch;
+			if (ch === "$" && sql.startsWith(dollarTag, i)) {
+				current += dollarTag.slice(1);
+				i += dollarTag.length - 1;
+				dollarTag = null;
+			}
+			continue;
+		}
+		if (inSingle) {
+			current += ch;
+			if (ch === "'") inSingle = false;
+			continue;
+		}
+		if (inDouble) {
+			current += ch;
+			if (ch === '"') inDouble = false;
+			continue;
+		}
+		if (ch === "-" && sql[i + 1] === "-") {
+			inLineComment = true;
+			current += ch;
+			continue;
+		}
+		if (ch === "'") {
+			inSingle = true;
+			current += ch;
+			continue;
+		}
+		if (ch === '"') {
+			inDouble = true;
+			current += ch;
+			continue;
+		}
+		if (ch === "$") {
+			const match = /^\$[A-Za-z0-9_]*\$/.exec(sql.slice(i));
+			if (match) {
+				dollarTag = match[0];
+				current += dollarTag;
+				i += dollarTag.length - 1;
+				continue;
+			}
+		}
+		if (ch === ";") {
+			statements.push(current);
+			current = "";
+			continue;
+		}
+		current += ch;
+	}
+	if (current.trim() !== "") statements.push(current);
+	return statements.map((s) => s.trim()).filter(Boolean);
+}
+
 
 async function main(): Promise<void> {
 	try {
@@ -47,7 +123,7 @@ async function main(): Promise<void> {
 		const schemaPath = new URL("../sql/sqlite/schema.sql", import.meta.url).pathname;
 		const { readFile } = await import("node:fs/promises");
 		const schemaSql = await readFile(schemaPath, "utf8");
-		for (const stmt of schemaSql.split(";").map((s) => s.trim()).filter(Boolean)) {
+		for (const stmt of splitSqlStatements(schemaSql)) {
 			await sql.raw(stmt).execute(db);
 		}
 

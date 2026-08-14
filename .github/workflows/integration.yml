@@ -729,6 +729,18 @@ jobs:
         working-directory: integration_tests/rust-sibyl-oracle
         run: cargo run --quiet
 
+      # Deliberately last in this job. ruby-oci8 needs the Oracle Instant Client,
+      # which Oracle ships for no macOS ARM64 -- so this leg cannot be run before
+      # pushing, and CI is its only verification. Ordering it after every other
+      # Oracle step means a failure here costs only its own coverage rather than
+      # silently skipping the steps behind it, which is what happened when it sat
+      # ahead of rust-sibyl-oracle (board #225).
+      - name: Test ruby-oci8-oracle
+        working-directory: integration_tests/ruby-oci8-oracle
+        run: |
+          bundle install
+          bundle exec ruby test_integration.rb
+
   integration-mssql:
     name: MSSQL Integration Tests
     runs-on: ubuntu-latest

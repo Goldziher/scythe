@@ -62,6 +62,101 @@ public class IntegrationTest {
         System.out.println("ALL TESTS PASSED");
     }
 
+    // Splits a SQL script into statements on top-level ';' only -- unlike a
+    // naive `schema.split(";")`, this tracks single- and double-quoted
+    // spans, PostgreSQL dollar-quoted bodies, and "--" line comments (an
+    // apostrophe in a comment must not open a phantom string -- board
+    // #224 follow-up) so a ';' inside a string literal, a `$$ ... $$`
+    // function body, or a comment does not split the statement in half.
+    // "/* ... */" block comments are not handled -- no schema under
+    // integration_tests/sql/ uses them today.
+    private static java.util.List<String> splitSqlStatements(String sql) {
+        java.util.List<String> statements = new java.util.ArrayList<>();
+        StringBuilder current = new StringBuilder();
+        boolean inSingle = false;
+        boolean inDouble = false;
+        boolean inLineComment = false;
+        String dollarTag = null;
+        int i = 0;
+        while (i < sql.length()) {
+            char ch = sql.charAt(i);
+            if (inLineComment) {
+                current.append(ch);
+                if (ch == '\n') inLineComment = false;
+                i++;
+                continue;
+            }
+            if (dollarTag != null) {
+                current.append(ch);
+                if (ch == '$' && sql.regionMatches(i, dollarTag, 0, dollarTag.length())) {
+                    current.append(dollarTag.substring(1));
+                    i += dollarTag.length();
+                    dollarTag = null;
+                    continue;
+                }
+                i++;
+                continue;
+            }
+            if (inSingle) {
+                current.append(ch);
+                if (ch == '\'') inSingle = false;
+                i++;
+                continue;
+            }
+            if (inDouble) {
+                current.append(ch);
+                if (ch == '"') inDouble = false;
+                i++;
+                continue;
+            }
+            if (ch == '-' && i + 1 < sql.length() && sql.charAt(i + 1) == '-') {
+                inLineComment = true;
+                current.append(ch);
+                i++;
+                continue;
+            }
+            if (ch == '\'') {
+                inSingle = true;
+                current.append(ch);
+                i++;
+                continue;
+            }
+            if (ch == '"') {
+                inDouble = true;
+                current.append(ch);
+                i++;
+                continue;
+            }
+            if (ch == '$') {
+                java.util.regex.Matcher matcher =
+                    java.util.regex.Pattern.compile("^\\$[A-Za-z0-9_]*\\$").matcher(sql.substring(i));
+                if (matcher.find()) {
+                    dollarTag = matcher.group();
+                    current.append(dollarTag);
+                    i += dollarTag.length();
+                    continue;
+                }
+            }
+            if (ch == ';') {
+                statements.add(current.toString());
+                current.setLength(0);
+                i++;
+                continue;
+            }
+            current.append(ch);
+            i++;
+        }
+        if (!current.toString().trim().isEmpty()) {
+            statements.add(current.toString());
+        }
+        java.util.List<String> trimmed = new java.util.ArrayList<>();
+        for (String s : statements) {
+            String t = s.trim();
+            if (!t.isEmpty()) trimmed.add(t);
+        }
+        return trimmed;
+    }
+
     private static void runMigration(Connection conn) throws Exception {
         Path schemaPath = Path.of(System.getProperty("user.dir"))
             .resolve("../sql/mssql/schema.sql")
@@ -81,12 +176,9 @@ public class IntegrationTest {
         }
 
         // MSSQL requires executing statements one at a time
-        for (String sql : schema.split(";")) {
-            String trimmed = sql.trim();
-            if (!trimmed.isEmpty()) {
-                try (var stmt = conn.createStatement()) {
-                    stmt.execute(trimmed);
-                }
+        for (String sql : splitSqlStatements(schema)) {
+            try (var stmt = conn.createStatement()) {
+                stmt.execute(sql);
             }
         }
     }

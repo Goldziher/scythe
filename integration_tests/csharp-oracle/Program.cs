@@ -20,6 +20,7 @@ await using var conn = new OracleConnection(GetConnectionString());
 await conn.OpenAsync();
 
 var exitCode = 0;
+var failedTests = new HashSet<string>();
 
 void Assert(bool condition, string testName, string detail)
 {
@@ -27,6 +28,15 @@ void Assert(bool condition, string testName, string detail)
     {
         Console.Error.WriteLine($"FAIL: {testName}: {detail}");
         exitCode = 1;
+        failedTests.Add(testName);
+    }
+}
+
+void Pass(string testName, string? label = null)
+{
+    if (!failedTests.Contains(testName))
+    {
+        Console.WriteLine($"PASS: {label ?? testName}");
     }
 }
 
@@ -73,7 +83,7 @@ Assert(user != null, "CreateUser", "returned null");
 Assert(user!.Name == "Alice", "CreateUser", $"expected name Alice, got {user.Name}");
 Assert(user.Email == "alice@example.com", "CreateUser", $"expected email alice@example.com, got {user.Email}");
 Assert(user.Id > 0, "CreateUser", $"expected positive id, got {user.Id}");
-Console.WriteLine("PASS: CreateUser");
+Pass("CreateUser");
 
 var userId = user!.Id;
 
@@ -83,35 +93,35 @@ Assert(fetched != null, "GetUserById", "returned null");
 Assert(fetched!.Id == userId, "GetUserById", $"expected id {userId}, got {fetched.Id}");
 Assert(fetched.Name == "Alice", "GetUserById", $"expected name Alice, got {fetched.Name}");
 Assert(fetched.Email == "alice@example.com", "GetUserById", $"expected email alice@example.com, got {fetched.Email}");
-Console.WriteLine("PASS: GetUserById");
+Pass("GetUserById");
 
 // Test: ListActiveUsers
 var activeUsers = await Queries.ListActiveUsers(conn);
 Assert(activeUsers.Count >= 1, "ListActiveUsers", $"expected at least 1 user, got {activeUsers.Count}");
 Assert(activeUsers.Any(u => u.Name == "Alice"), "ListActiveUsers", "expected Alice in active users");
-Console.WriteLine("PASS: ListActiveUsers");
+Pass("ListActiveUsers");
 
 // Test: CreateOrder
 var order = await Queries.CreateOrder(conn, userId, 9999L, "Test order");
 Assert(order != null, "CreateOrder", "returned null");
 Assert(order!.UserId == userId, "CreateOrder", $"expected user_id {userId}, got {order.UserId}");
 Assert(order.Total == 9999L, "CreateOrder", $"expected total 9999, got {order.Total}");
-Console.WriteLine("PASS: CreateOrder");
+Pass("CreateOrder");
 
 // Test: GetOrdersByUser
 var orders = await Queries.GetOrdersByUser(conn, userId);
 Assert(orders.Count == 1, "GetOrdersByUser", $"expected 1 order, got {orders.Count}");
-Console.WriteLine("PASS: GetOrdersByUser");
+Pass("GetOrdersByUser");
 
 // Test: GetOrderTotal
 var orderTotal = await Queries.GetOrderTotal(conn, userId);
 Assert(orderTotal != null, "GetOrderTotal", "returned null");
-Console.WriteLine("PASS: GetOrderTotal");
+Pass("GetOrderTotal");
 
 // Test: DeleteOrdersByUser
 var deletedOrders = await Queries.DeleteOrdersByUser(conn, userId);
 Assert(deletedOrders == 1, "DeleteOrdersByUser", $"expected 1 deleted, got {deletedOrders}");
-Console.WriteLine("PASS: DeleteOrdersByUser");
+Pass("DeleteOrdersByUser");
 
 // Test: DeleteUser
 await Queries.DeleteUser(conn, userId);
@@ -125,7 +135,7 @@ catch (InvalidOperationException)
     deletedUserWasFound = false;
 }
 Assert(!deletedUserWasFound, "DeleteUser", "user should not exist after deletion");
-Console.WriteLine("PASS: DeleteUser");
+Pass("DeleteUser");
 
 if (exitCode == 0)
 {

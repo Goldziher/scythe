@@ -43,6 +43,7 @@ conn.ConnectionString = GetConnectionString();
 await conn.OpenAsync();
 
 var exitCode = 0;
+var failedTests = new HashSet<string>();
 
 void Assert(bool condition, string testName, string detail)
 {
@@ -50,7 +51,119 @@ void Assert(bool condition, string testName, string detail)
     {
         Console.Error.WriteLine($"FAIL: {testName}: {detail}");
         exitCode = 1;
+        failedTests.Add(testName);
     }
+}
+
+void Pass(string testName, string? label = null)
+{
+    if (!failedTests.Contains(testName))
+    {
+        Console.WriteLine($"PASS: {label ?? testName}");
+    }
+}
+
+// Splits a SQL script into statements on top-level ';' only -- unlike a
+// naive `schemaText.Split(";")`, this tracks single- and double-quoted
+// spans, PostgreSQL dollar-quoted bodies, and "--" line comments (an
+// apostrophe in a comment must not open a phantom string -- board #224
+// follow-up) so a ';' inside a string literal, a `$$ ... $$` function
+// body, or a comment does not split the statement in half. "/* ... */"
+// block comments are not handled -- no schema under integration_tests/sql/
+// uses them today.
+static IEnumerable<string> SplitSqlStatements(string sql)
+{
+    var statements = new List<string>();
+    var current = new System.Text.StringBuilder();
+    var inSingle = false;
+    var inDouble = false;
+    var inLineComment = false;
+    string? dollarTag = null;
+    var i = 0;
+    while (i < sql.Length)
+    {
+        var ch = sql[i];
+        if (inLineComment)
+        {
+            current.Append(ch);
+            if (ch == '\n') inLineComment = false;
+            i++;
+            continue;
+        }
+        if (dollarTag is not null)
+        {
+            current.Append(ch);
+            if (ch == '$' && string.CompareOrdinal(sql, i, dollarTag, 0, dollarTag.Length) == 0)
+            {
+                current.Append(dollarTag.AsSpan(1));
+                i += dollarTag.Length;
+                dollarTag = null;
+                continue;
+            }
+            i++;
+            continue;
+        }
+        if (inSingle)
+        {
+            current.Append(ch);
+            if (ch == '\'') inSingle = false;
+            i++;
+            continue;
+        }
+        if (inDouble)
+        {
+            current.Append(ch);
+            if (ch == '"') inDouble = false;
+            i++;
+            continue;
+        }
+        if (ch == '\'')
+        {
+            inSingle = true;
+            current.Append(ch);
+            i++;
+            continue;
+        }
+        if (ch == '"')
+        {
+            inDouble = true;
+            current.Append(ch);
+            i++;
+            continue;
+        }
+        if (ch == '-' && i + 1 < sql.Length && sql[i + 1] == '-')
+        {
+            inLineComment = true;
+            current.Append(ch);
+            i++;
+            continue;
+        }
+        if (ch == '$')
+        {
+            var match = System.Text.RegularExpressions.Regex.Match(sql[i..], @"^\$[A-Za-z0-9_]*\$");
+            if (match.Success)
+            {
+                dollarTag = match.Value;
+                current.Append(dollarTag);
+                i += dollarTag.Length;
+                continue;
+            }
+        }
+        if (ch == ';')
+        {
+            statements.Add(current.ToString());
+            current.Clear();
+            i++;
+            continue;
+        }
+        current.Append(ch);
+        i++;
+    }
+    if (current.ToString().Trim() != string.Empty)
+    {
+        statements.Add(current.ToString());
+    }
+    return statements.Select(s => s.Trim()).Where(s => s.Length > 0);
 }
 
 // Clean slate (Snowflake.Data does not support multi-statement text without
@@ -70,14 +183,10 @@ foreach (var dropStatement in new[]
 // Load schema
 var schemaPath = Path.Combine(Directory.GetCurrentDirectory(), "../sql/snowflake", "schema.sql");
 var schemaText = await File.ReadAllTextAsync(schemaPath);
-foreach (var block in schemaText.Split(";"))
+foreach (var stmt in SplitSqlStatements(schemaText))
 {
-    var trimmed = block.Trim();
-    if (!string.IsNullOrEmpty(trimmed))
-    {
-        await using var cmd = new SnowflakeDbCommand(conn) { CommandText = trimmed };
-        await cmd.ExecuteNonQueryAsync();
-    }
+    await using var cmd = new SnowflakeDbCommand(conn) { CommandText = stmt };
+    await cmd.ExecuteNonQueryAsync();
 }
 
 // Test: CreateUser
@@ -87,7 +196,7 @@ Assert(user != null, "CreateUser", "returned null");
 Assert(user!.Name == "Alice", "CreateUser", $"expected name Alice, got {user.Name}");
 Assert(user.Email == "alice@example.com", "CreateUser", $"expected email alice@example.com, got {user.Email}");
 Assert(user.Id == 1, "CreateUser", $"expected id 1, got {user.Id}");
-Console.WriteLine("PASS: CreateUser");
+Pass("CreateUser");
 
 var userId = 1;
 
@@ -97,13 +206,13 @@ Assert(fetched != null, "GetUserById", "returned null");
 Assert(fetched!.Id == userId, "GetUserById", $"expected id {userId}, got {fetched.Id}");
 Assert(fetched.Name == "Alice", "GetUserById", $"expected name Alice, got {fetched.Name}");
 Assert(fetched.Email == "alice@example.com", "GetUserById", $"expected email alice@example.com, got {fetched.Email}");
-Console.WriteLine("PASS: GetUserById");
+Pass("GetUserById");
 
 // Test: ListActiveUsers
 var activeUsers = await Queries.ListActiveUsers(conn);
 Assert(activeUsers.Count >= 1, "ListActiveUsers", $"expected at least 1 user, got {activeUsers.Count}");
 Assert(activeUsers.Any(u => u.Name == "Alice"), "ListActiveUsers", "expected Alice in active users");
-Console.WriteLine("PASS: ListActiveUsers");
+Pass("ListActiveUsers");
 
 // Test: CreateOrder
 await Queries.CreateOrder(conn, userId, 99.95m, "first order");
@@ -112,19 +221,19 @@ Assert(orders.Count == 1, "CreateOrder", $"expected 1 order created, got {orders
 var order = orders[0];
 Assert(order.Total == 99.95m, "CreateOrder", $"expected total 99.95, got {order.Total}");
 Assert(order.Notes == "first order", "CreateOrder", $"expected notes 'first order', got {order.Notes}");
-Console.WriteLine("PASS: CreateOrder");
+Pass("CreateOrder");
 
 // Test: GetOrdersByUser
 var ordersList = await Queries.GetOrdersByUser(conn, userId);
 Assert(ordersList.Count == 1, "GetOrdersByUser", $"expected 1 order, got {ordersList.Count}");
 Assert(ordersList[0].Total == 99.95m, "GetOrdersByUser", $"expected total 99.95, got {ordersList[0].Total}");
 Assert(ordersList[0].Notes == "first order", "GetOrdersByUser", $"expected notes 'first order', got {ordersList[0].Notes}");
-Console.WriteLine("PASS: GetOrdersByUser");
+Pass("GetOrdersByUser");
 
 // Test: DeleteOrdersByUser (delete orders first due to FK)
 var deletedOrders = await Queries.DeleteOrdersByUser(conn, userId);
 Assert(deletedOrders == 1, "DeleteOrdersByUser", $"expected 1 deleted order, got {deletedOrders}");
-Console.WriteLine("PASS: DeleteOrdersByUser");
+Pass("DeleteOrdersByUser");
 
 // Test: DeleteUser
 await Queries.DeleteUser(conn, userId);
@@ -138,7 +247,7 @@ catch (InvalidOperationException)
     deletedUserWasFound = false;
 }
 Assert(!deletedUserWasFound, "DeleteUser", "user should not exist after deletion");
-Console.WriteLine("PASS: DeleteUser");
+Pass("DeleteUser");
 
 if (exitCode == 0)
 {

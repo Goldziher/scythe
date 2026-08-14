@@ -42,7 +42,7 @@ fn generated_text(backend_name: &str) -> String {
     let analyzed = analyze(&catalog, &parsed).expect("query must analyze");
     let code = scythe_codegen::generate_with_backend(&analyzed, &*backend).expect("codegen must succeed");
 
-    // `file_header_for_results` first: `go-pgx` emits its shared `parseCompositeFields` helper
+    // ~keep `file_header_for_results` first: `go-pgx` emits its shared `parseCompositeFields` helper
     // there rather than inside `model_struct` -- a Go package cannot declare the same function
     // name once per composite the way each composite's own parser could as a private per-class
     // method in Java, so the doubled-quote fix lives in the one place it is guaranteed not to
@@ -237,7 +237,7 @@ fn ruby_pg_composite_escaping_generated_file_compiles() {
 
     let mut body = backend.file_header_for_results(all);
     body.push('\n');
-    // Types first, then the query function *inside* the class `query_class_header` opens.
+    // ~keep Types first, then the query function *inside* the class `query_class_header` opens.
     // `file_footer` is the `}` that closes that class, so assembling these two without the
     // header between them emits the query function at file scope and leaves the footer's brace
     // closing nothing -- `mago` then reports `Expected one of Class, found Function`, a parse
