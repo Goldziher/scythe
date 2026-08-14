@@ -54,6 +54,57 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **Every JVM backend read a composite column through `getObject(col, T.class)`, which throws at
+  runtime.** pgjdbc registers no type map for a user-defined composite, so `PSQLException:
+  conversion to class T ... not supported` was raised the first time any generated JVM reader
+  touched one — code that compiled and then failed on first use. Composites now read as text and
+  parse through a generated `fromText` factory implementing PostgreSQL's composite text-form rules:
+  an empty unquoted field is NULL, a field needing quoting is wrapped in `"` with `"` and `\`
+  backslash-escaped inside, and a nested composite arrives quoted and recurses. Five assertions that
+  pinned the broken `getObject` shape as correct were inverted. Still unhandled and documented
+  rather than dropped: array-typed composite fields, per-field NULL into a primitive-typed field,
+  and a composite reachable only as another composite's field, which the analyzer never collects.
+  (unfiled)
+
+- **`rust-tokio-postgres` could not bind or read a composite column at all.** The generated struct
+  derived neither `ToSql` nor `FromSql`, so `row.get` and the bind path both failed to resolve.
+  Composites now derive `postgres_types::ToSql`/`FromSql` with `#[postgres(name = "...")]`, since
+  postgres-derive matches the Postgres type name exactly while scythe PascalCases the identifier.
+  `postgres-types` is a transitive dependency of `tokio-postgres`, but its `derive` feature is not
+  forwarded, so it is now declared directly in the integration scaffolding. (unfiled)
+
+- **A `column = "table.col"` type override was a silent no-op unless the query was `SELECT *`.**
+  Column resolution built one qualified name from a query-level source table populated only for a
+  star expansion, so an explicit select list had nothing to qualify against. Columns now carry their
+  own source relation — the real table name, not the alias — and `None` where there genuinely is
+  one (a computed expression, literal, or function result). Two silent halves went with it: a
+  combined `column` + `db_type` entry returned `false` the moment `column` missed instead of falling
+  through to `db_type`, and an override matching nothing produced no diagnostic whatsoever. It is
+  now a hard error before generation starts. A qualified override on a *parameter* is still inert
+  outside `SELECT *`; that needs analyzer work and is tracked, not quietly half-fixed. (#189)
+
+- **A schema-qualified table emitted a `.` inside its model struct name.** `SELECT * FROM
+  app.widgets` produced `pub struct App.widget`, the same defect fixed for enums earlier. Row struct
+  names are unaffected — `@name` is already restricted to ASCII identifier characters, verified
+  rather than assumed. Separately, two different queries in one output file whose generated types
+  collapse onto one identifier emitted two declarations of that name; collisions are now keyed by
+  name *and* rendered body, so the identical-body case remains the intended dedupe. Composite struct
+  names still carry the dot bug across 56 inlined call sites and are tracked separately. (#136)
+
+- **`scythe migrate` passed a malformed annotation straight through and still reported success.** A
+  wrong-case return-type keyword, a missing return type, or whitespace inside `sqlc.arg( name )`
+  missed the strict pattern and was emitted unconverted. Malformed input is now reported, and the
+  final output is scanned for residual `sqlc.arg(`/`sqlc.narg(`. (#152, partial)
+
+- **`scythe lint` and `scythe audit` accepted an unknown `[[sql]] engine` and silently analyzed it as
+  PostgreSQL.** `SqlDialect::from_str(&engine).unwrap_or(SqlDialect::PostgreSQL)` in both
+  `lint_cmd.rs` (config mode and explicit-file mode, two separate call sites) and `audit.rs`
+  (config mode) turned a typo like `mysql8` into a silent PostgreSQL run — wrong catalog parsing,
+  wrong dialect-gated rule set, no diagnostic — while `scythe generate` already rejected the same
+  config outright. A new `scythe_lint::parse_engine_dialect`, sharing one alias list with
+  `audit --dialect`'s existing validation, now errors naming the offending value and the accepted
+  aliases. (#165, item 3)
+
 - **`scythe check` passed on stale output after a `[[sql.gen]]` option changed.** The provenance
   header fingerprinted the schema and the queries but not the options that decide what is generated
   from them, so switching `row_type` from `pydantic` to `msgspec`, or editing the contents of a
@@ -518,6 +569,21 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   and Dialyzer needs `dialyxir`'s translation layer, which no integration project depends on.
 
 ### Changed
+
+- **Six of the surviving `range` mappings named a type their driver does not produce, and are
+  corrected; a seventh is removed.** Verified by running each real client against a live PostgreSQL
+  instance rather than by reading the manifests. `csharp-npgsql` said `string`, but `GetString`
+  throws `InvalidCastException` — now `NpgsqlTypes.NpgsqlRange<{T}>`. `go-pgx` said `string`, but
+  pgx v5 refuses to scan a range into `*string` at all — now `pgtype.Range[{T}]`. Both Elixir
+  manifests said `String.t()` where Postgrex returns `%Postgrex.Range{}` and rejects a plain string
+  as a bind parameter. Both Python manifests said `tuple[{T}, {T}]`, and neither driver returns a
+  tuple; they now name `asyncpg.Range[{T}]` and `psycopg.types.range.Range[{T}]` respectively,
+  which are genuinely different classes, so the family spelling legitimately diverges.
+  `rust-tokio-postgres` has no usable mapping — `postgres-types` excludes every range OID from
+  `FromSql for String` and ships no range decoder — so its declaration is removed and recorded as a
+  capability exception that fails the gate if anyone re-adds one without justification. Any query
+  selecting a range column on these backends generated code that did not work; it now does, but the
+  host type it names has changed. (#190)
 
 - **The `range` container is now declared only on PostgreSQL manifests — 84 declarations become 19.**
   `range` was mapped in 84 of 102 manifests in seven mutually incompatible spellings, and nothing
