@@ -160,6 +160,43 @@ pub(crate) fn check_field_name_collisions<'a>(
     Ok(())
 }
 
+/// Reject two generated *type* names -- an enum, a query's own row/model
+/// struct -- that collapse onto the same identifier within one generated
+/// file.
+///
+/// The same `ErrorCode::DuplicateAlias` mechanism
+/// [`check_field_name_collisions`] uses, generalized for names cased under
+/// `struct_case` rather than `field_case`: an enum whose SQL name
+/// case-converts to the same spelling as another enum, or as the query's own
+/// row/model type, is two type declarations sharing one name -- `E0428` in
+/// Rust, a redeclaration in every other target (#136). Deliberately not
+/// built by widening `check_field_name_collisions` itself: that function's
+/// error message offers "switch `field_case`" as the fix, which does not
+/// apply here -- every manifest's `struct_case` is PascalCase, so there is
+/// no alternative case to point at instead.
+pub(crate) fn check_type_name_collisions<'a>(
+    items: impl Iterator<Item = (&'a str, &'a str)>,
+    kind: &str,
+) -> Result<(), ScytheError> {
+    let items: Vec<(&str, &str)> = items.collect();
+    for i in 0..items.len() {
+        for j in (i + 1)..items.len() {
+            let (source_a, name_a) = items[i];
+            let (source_b, name_b) = items[j];
+            if name_a == name_b {
+                return Err(ScytheError::new(
+                    ErrorCode::DuplicateAlias,
+                    format!(
+                        "{kind} '{source_a}' and '{source_b}' both resolve to generated name \
+                         '{name_a}' -- rename one of them"
+                    ),
+                ));
+            }
+        }
+    }
+    Ok(())
+}
+
 /// Convert a resolved Rust type to its borrowed form for function parameters.
 /// Copy types (primitives) stay as-is; String becomes &str; other non-Copy types get a & prefix.
 pub fn param_type_to_borrowed(rust_type: &str) -> String {
@@ -368,5 +405,47 @@ mod tests {
         let resolved = resolve_columns(&[test_column("user_id"), test_column("order_id")], &manifest, &[], "").unwrap();
         assert_eq!(resolved[0].field_name, "userId");
         assert_eq!(resolved[1].field_name, "orderId");
+    }
+
+    #[test]
+    fn test_check_type_name_collisions_rejects_two_enums() {
+        let err = check_type_name_collisions(
+            [("order-status", "OrderStatus"), ("order_status", "OrderStatus")].into_iter(),
+            "enums",
+        )
+        .expect_err("order-status and order_status must collide as OrderStatus");
+        assert_eq!(err.code, ErrorCode::DuplicateAlias);
+        let message = err.to_string();
+        assert!(message.contains("order-status"), "{message}");
+        assert!(message.contains("order_status"), "{message}");
+        assert!(message.contains("OrderStatus"), "{message}");
+    }
+
+    #[test]
+    fn test_check_type_name_collisions_rejects_enum_vs_query_type() {
+        let err = check_type_name_collisions(
+            [("user_status", "GetUserRow"), ("<query row/model type>", "GetUserRow")].into_iter(),
+            "enum and query type names",
+        )
+        .expect_err("an enum type name colliding with the query's own row type must be rejected");
+        assert_eq!(err.code, ErrorCode::DuplicateAlias);
+    }
+
+    #[test]
+    fn test_check_type_name_collisions_passes_when_distinct() {
+        check_type_name_collisions(
+            [("user_status", "UserStatus"), ("order_status", "OrderStatus")].into_iter(),
+            "enums",
+        )
+        .expect("distinct generated names must not collide");
+    }
+
+    /// Unlike `check_field_name_collisions`, there is no `field_case`
+    /// alternative to suggest -- `struct_case` has no per-manifest escape
+    /// hatch, so the message must not claim one.
+    #[test]
+    fn test_check_type_name_collisions_message_has_no_field_case_suggestion() {
+        let err = check_type_name_collisions([("a", "X"), ("b", "X")].into_iter(), "enums").unwrap_err();
+        assert!(!err.to_string().contains("field_case"), "{err}");
     }
 }

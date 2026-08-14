@@ -108,6 +108,17 @@ pub fn to_pascal_case(s: &str) -> Cow<'_, str> {
             result.push_str(chars.as_str());
         }
     }
+    // ~keep Reachable only when every `_`-delimited part was itself empty --
+    // `snake` is "_", "__", or a symbols-only value that
+    // `sanitize_for_identifier` turned into a run of underscores (an enum
+    // label of just "!" or "."). Returning "" there emits `pub enum {}` --
+    // a type with no name -- a syntax error in every target language.
+    // `to_camel_case` already falls back this way for the identical shape;
+    // this makes the two agree instead of `to_camel_case` papering over a gap
+    // `to_pascal_case` leaves open.
+    if result.is_empty() && !snake.is_empty() {
+        return Cow::Owned(snake.into_owned());
+    }
     // Keep the borrow when the input was already PascalCase; callers rely on
     // it to avoid an allocation per column and per query name.
     if result == s {
@@ -176,12 +187,10 @@ pub fn to_camel_case(s: &str) -> Cow<'_, str> {
             result.push_str(chars.as_str());
             Cow::Owned(result)
         }
-        // Reachable only when the input held no word characters at all
-        // (e.g. "__", which splits into nothing but empty parts). Returning
-        // the empty string there would emit a field declaration with no
-        // name -- a syntax error in every target language -- so hand back
-        // the original, which at least stays a valid identifier wherever
-        // the raw SQL name was one.
+        // ~keep Reachable only when `s` itself is empty: `to_pascal_case` now
+        // falls back to its sanitized input rather than "" for a
+        // symbols-only value (e.g. "__"), so this arm no longer has to catch
+        // that case too.
         None => Cow::Borrowed(s),
     }
 }
@@ -223,9 +232,20 @@ pub fn fn_name(query_name: &str, naming: &NamingConfig) -> String {
 
 /// Generate the type name for an enum from its SQL name.
 ///
-/// E.g., sql name "user_status" with PascalCase -> "UserStatus"
+/// E.g., sql name "user_status" with PascalCase -> "UserStatus".
+///
+/// The SQL name reaching here is not guaranteed to already be an identifier:
+/// a schema-qualified enum (`CREATE TYPE app.status AS ENUM (...)`) carries
+/// its qualifying `.` straight into `EnumInfo::sql_name`, and `apply_case`
+/// alone does not remove it -- `to_pascal_case("app.status")` was
+/// `"App.status"`, a `.` inside `pub enum App.status` in every backend that
+/// shares this function (#136). Routed through the same
+/// [`sanitize_for_identifier`] [`enum_variant_name`] already uses, so the
+/// `.` becomes `_` before casing runs, exactly like a variant label's `-`/`.`
+/// already do.
 pub fn enum_type_name(sql_name: &str, naming: &NamingConfig) -> String {
-    apply_case(sql_name, &naming.struct_case).into_owned()
+    let sanitized = sanitize_for_identifier(sql_name);
+    apply_case(&sanitized, &naming.struct_case).into_owned()
 }
 
 /// Generate a field name (column or param) from its SQL name.
@@ -781,5 +801,70 @@ mod tests {
     fn test_to_pascal_case_edge_cases() {
         assert_eq!(&*to_pascal_case("_user_status"), "UserStatus");
         assert_eq!(&*to_pascal_case("http_client"), "HttpClient");
+    }
+
+    /// This must fail before the fix: every `_`-delimited part being empty
+    /// (a bare `"_"`, or the run of underscores `sanitize_for_identifier`
+    /// leaves behind for a symbols-only value) made `to_pascal_case` return
+    /// "" -- an empty type name reaches codegen as `pub enum {}`, which does
+    /// not parse in any target language. `to_camel_case` already guards this
+    /// exact shape (see `test_to_camel_case_underscore_edges`); this pins
+    /// `to_pascal_case` agreeing with it instead of returning "".
+    #[test]
+    fn test_to_pascal_case_degenerate_underscores_do_not_collapse_to_empty() {
+        assert_eq!(&*to_pascal_case("_"), "_");
+        assert_eq!(&*to_pascal_case("__"), "__");
+        assert_eq!(&*to_pascal_case("___"), "___");
+    }
+
+    /// Regression for #136: a schema-qualified enum's `.` must not reach the
+    /// generated type name. Before the fix, `enum_type_name("public.status",
+    /// ..)` under `struct_case = "PascalCase"` returned `"Public.status"` --
+    /// `pub enum Public.status` does not parse in any target language, since
+    /// `apply_case` alone never removes a character an identifier cannot
+    /// hold.
+    #[test]
+    fn test_enum_type_name_sanitizes_a_schema_qualified_dot() {
+        let config = test_config();
+        assert_eq!(enum_type_name("public.status", &config), "PublicStatus");
+    }
+
+    /// The same schema-qualification defect under the other two
+    /// `enum_variant_case`/`struct_case` conventions this crate's manifests
+    /// actually declare (see `crates/scythe-codegen/manifests/*.toml`):
+    /// Java/Kotlin/PHP/Python/Ruby use `SCREAMING_SNAKE_CASE` for variants,
+    /// but every one of them still PascalCases the *type* name, so this
+    /// defect was never gated by `enum_variant_case`.
+    #[test]
+    fn test_enum_type_name_sanitizes_a_schema_qualified_dot_regardless_of_variant_case() {
+        let mut config = test_config();
+        config.enum_variant_case = "SCREAMING_SNAKE_CASE".to_string();
+        assert_eq!(enum_type_name("app.status", &config), "AppStatus");
+    }
+
+    /// A degenerate enum label under `PascalCase` -- the convention every
+    /// C#, Go, Rust and TypeScript manifest declares for `enum_variant_case`
+    /// -- must not collapse to an empty variant. Before the fix this printed
+    /// an empty string: `sanitize_for_identifier("!!!")` is `"___"`, and the
+    /// pre-fix `to_pascal_case("___")` returned "", so the generated file
+    /// held a variant declared as nothing at all (`    ,` in Rust, `;` alone
+    /// in C#) -- a syntax error in every one of those four targets.
+    #[test]
+    fn test_enum_variant_name_degenerate_label_does_not_collapse_to_empty() {
+        let config = test_config();
+        assert_eq!(enum_variant_name("!!!", &config), "___");
+    }
+
+    /// Under `SCREAMING_SNAKE_CASE` (Java/Kotlin/PHP/Python/Ruby) and
+    /// `snake_case` (Elixir) the same degenerate label already produced a
+    /// non-empty `"_"`/`"___"` before this fix -- `to_snake_case` does not
+    /// collapse underscores the way `to_pascal_case` did. Pinned here so the
+    /// PascalCase fix above is not mistaken for solving a problem those two
+    /// conventions already avoided.
+    #[test]
+    fn test_enum_variant_name_degenerate_label_under_screaming_snake_case() {
+        let mut config = test_config();
+        config.enum_variant_case = "SCREAMING_SNAKE_CASE".to_string();
+        assert_eq!(enum_variant_name("!!!", &config), "___");
     }
 }

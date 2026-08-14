@@ -184,15 +184,26 @@ pub fn generate_with_backend_and_overrides(
 
     let mut result = GeneratedCode::default();
 
-    let enum_def = generate_enum_defs_via_backend(analyzed, backend, &nested_refs)?;
-    if !enum_def.is_empty() {
-        result.enum_def = Some(enum_def);
-    }
-
+    // Computed here, ahead of enum generation, so the collision check below
+    // can compare an enum's generated name against the same row/model type
+    // name the rest of this function later declares -- not a second,
+    // independent derivation of it.
+    let struct_name = determine_struct_name(analyzed, manifest);
     let needs_row_struct = matches!(
         analyzed.command,
         QueryCommand::One | QueryCommand::Opt | QueryCommand::Many
     );
+    // `:grouped` declares its own parent/child struct names below and never
+    // reaches this one, so passing it into the enum collision check when
+    // `analyzed.columns` is empty (or the command has no row struct at all)
+    // would compare against a name this query never actually declares.
+    let declared_struct_name = (needs_row_struct && !analyzed.columns.is_empty()).then_some(struct_name.as_str());
+
+    let enum_def = generate_enum_defs_via_backend(analyzed, backend, &nested_refs, declared_struct_name)?;
+    if !enum_def.is_empty() {
+        result.enum_def = Some(enum_def);
+    }
+
     if needs_row_struct && !analyzed.columns.is_empty() {
         if let Some(ref table_name) = analyzed.source_table {
             result.model_struct = Some(backend.generate_model_struct(table_name, &columns)?);
@@ -231,8 +242,6 @@ pub fn generate_with_backend_and_overrides(
         }
     }
     result.nested_struct_defs = nested_struct_defs;
-
-    let struct_name = determine_struct_name(analyzed, manifest);
 
     if analyzed.command == QueryCommand::Grouped {
         let group_by = analyzed.group_by.as_ref().ok_or_else(|| {
@@ -445,16 +454,22 @@ pub fn nested_type_is_emitted(
 }
 
 /// Generate enum definitions via the backend trait.
+///
+/// `declared_struct_name` is the query's own row/model type name when this
+/// query actually declares one (`None` for `:grouped`, `:exec`, and any
+/// command with no row struct at all -- see the call site) -- checked
+/// alongside every enum name so a collision with the query's own type is
+/// caught the same way two enums colliding with each other is (#136).
 fn generate_enum_defs_via_backend(
     analyzed: &AnalyzedQuery,
     backend: &dyn CodegenBackend,
     nested_refs: &NestedTypeRefs,
+    declared_struct_name: Option<&str>,
 ) -> Result<String, ScytheError> {
     use ahash::AHashSet;
     use std::fmt::Write;
 
-    let mut out = String::new();
-    let mut seen_enums: AHashSet<String> = AHashSet::new();
+    let naming = &backend.manifest().naming;
 
     let enum_sources: Vec<&str> = analyzed
         .columns
@@ -469,11 +484,32 @@ fn generate_enum_defs_via_backend(
         .chain(nested_refs.enums.iter().map(String::as_str))
         .collect();
 
-    for sql_name in enum_sources {
-        if !seen_enums.insert(sql_name.to_string()) {
-            continue;
-        }
+    let mut seen_enums: AHashSet<&str> = AHashSet::new();
+    let unique_sources: Vec<&str> = enum_sources
+        .into_iter()
+        .filter(|name| seen_enums.insert(*name))
+        .collect();
 
+    // Every enum this query renders, paired with the type name it generates
+    // under `struct_case`, plus the query's own row/model type when it
+    // declares one -- checked against each other before anything is
+    // rendered, the same `ErrorCode::DuplicateAlias` mechanism
+    // `resolve::check_field_name_collisions` applies to columns and params.
+    let generated_names: Vec<(&str, String)> = unique_sources
+        .iter()
+        .map(|sql_name| (*sql_name, scythe_backend::naming::enum_type_name(sql_name, naming)))
+        .collect();
+    let query_type_entry = declared_struct_name.map(|name| ("<query row/model type>", name.to_string()));
+    resolve::check_type_name_collisions(
+        generated_names
+            .iter()
+            .chain(query_type_entry.iter())
+            .map(|(source, name)| (*source, name.as_str())),
+        "enum and query type names",
+    )?;
+
+    let mut out = String::new();
+    for sql_name in unique_sources {
         if !out.is_empty() {
             let _ = writeln!(out);
         }

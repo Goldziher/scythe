@@ -54,6 +54,18 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **A schema-qualified enum emitted a `.` inside the generated type name, and two names colliding in
+  one file went undetected.** `CREATE TYPE app.status AS ENUM (...)` carries its qualifier into
+  `EnumInfo::sql_name`, and case conversion alone does not remove it, so `app.status` became
+  `App.status` — `pub enum App.status`, a syntax error in every target that shares this path. Enum
+  type names now go through the same `sanitize_for_identifier` the variant labels already used.
+  Separately, `to_pascal_case` returned the empty string when every `_`-delimited part was empty (a
+  bare `"_"`, or the underscore run a symbols-only label sanitizes to), emitting a type with no name;
+  it now falls back to its sanitized input, matching what `to_camel_case` already did. Two generated
+  *type* names that collapse onto one identifier — two enums, or an enum and the query's own row type
+  — are now rejected with `DuplicateAlias` instead of emitting two declarations of the same name.
+  (#136)
+
 - **Parameters were bound by declaration order rather than by where they appear in the SQL, so a
   repeated or out-of-order placeholder bound the wrong argument.** `java-jdbc`, `kotlin-jdbc`,
   `kotlin-exposed` and `php-amphp` emitted one `?` per *declared* parameter and then set them
