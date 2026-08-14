@@ -30,6 +30,36 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Added
 
+- **`rust-tokio-postgres` can read and write range columns.** The manifest previously declared no
+  `range` mapping at all, because `postgres-types` ships no `Range<T>` with a `FromSql`/`ToSql`
+  impl the way `sqlx-postgres` does, and the mapping it used to carry (`String`) could not decode:
+  `String`'s `accepts()` matches no range OID, so `row.get` panicked before `from_sql` ran. The
+  backend now emits a hand-rolled `PgRange<T>` built on `postgres_protocol::types::range_from_sql`
+  / `range_to_sql` — the same wire-format primitives `postgres-types` uses internally for arrays —
+  gated on a generated fragment actually naming `PgRange<`, so a file with no range column does not
+  carry it. `Empty` is a distinct variant from a fully-unbounded range rather than collapsed into
+  it, because the two are different values on the wire and collapsing them would make an empty
+  range decode as if it contained everything. Verified against live PostgreSQL across bounded,
+  empty, unbounded and both binding directions; note that no schema in this repository has a range
+  column yet, so no CI job compiles the emitted wrapper. (unfiled)
+
+- **Integration coverage for nullable enum and nullable composite columns.** No integration project
+  had ever selected a composite column, so the entire runtime read path was unexercised while
+  codegen compiled green. The PostgreSQL schema gains a `user_address` composite and two nullable
+  columns, and a `GetUserProfile` query asserts both a present value and a SQL NULL — the shape
+  that catches a reader which decodes NULL as a zero-valued variant or an all-default struct.
+
+  Running it revealed that composite decoding is implemented in only four of the fifteen PostgreSQL
+  backends: `rust-sqlx` and `rust-tokio-postgres`, which get it from their drivers' derive macros,
+  and `java-jdbc` and `kotlin-jdbc`, which parse the composite text form. In the other eleven the
+  generated row type declares the composite struct while the driver's raw value is assigned straight
+  through, so the annotation is wrong at runtime — `php-pdo`, `php-amphp` and `csharp-npgsql` throw,
+  and `python-psycopg3`, `python-asyncpg`, the `typescript-pg` family, `ruby-pg`, `elixir-postgrex`,
+  `elixir-ecto` and `go-pgx` return a raw string, a driver record, or `undefined` with no error at
+  all. The new assertions are therefore scoped to the four backends that work, with each excluded
+  language's template carrying a note to restore them once that backend learns to parse a composite,
+  so the gap is explicit rather than a green suite that proves nothing. (unfiled)
+
 - **`scythe inspect` now has a real MySQL/MariaDB driver.** Live inspection was PostgreSQL-only;
   every other engine fell through to a stub that reported itself as `mysql` regardless of what the
   user asked for. `MySqlDriver` (backed by `mysql_async`) ships four checks driven by its own
@@ -53,6 +83,36 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   (unfiled)
 
 ### Fixed
+
+- **A schema-qualified enum or composite generated two different names for the same type.** The
+  declaration side spelled the type through `enum_type_name` / `composite_type_name`, which strip
+  characters an identifier cannot hold; the reference side — the type as it appears in a column,
+  parameter or composite-field annotation — called `to_pascal_case` directly. So
+  `CREATE TYPE app.point` was declared as `AppPoint` and referred to as `App.point`, a `.` inside
+  a type position that no target language parses, and the reference never matched the declaration
+  it named. Both paths now share one helper. The same call also hardcoded PascalCase instead of
+  honouring the manifest's `struct_case`; that half was latent only because all manifests currently
+  set PascalCase, and is fixed alongside. Separately, the composite declaration itself inlined
+  `to_pascal_case(&composite.sql_name)` in roughly sixty backend call sites rather than sharing one
+  place, including five nested-composite reference sites that disagreed with their own declaration.
+  (unfiled)
+
+- **A composite reachable only as another composite's field was never emitted.** The analyzer
+  collected composites by scanning selected columns and nested field types, and never looked inside
+  a composite's own fields, so selecting a column whose type nests another composite produced code
+  referring to a type that was never defined. Codegen gated emission on the same incomplete check,
+  so collecting it in the analyzer alone would not have been enough. Both now walk the full
+  reachability closure, with a visited set that also serves as the diamond and cycle guard. This
+  was documented as a known gap when the JVM composite reader landed; it is now closed. (unfiled)
+
+- **A qualified `column = "table.col"` type override was silently ignored for parameters outside
+  `SELECT *`.** The per-parameter match key was built from a query-level table name that only ever
+  exists for a single-table `SELECT *`, so on any explicit select list the override matched nothing
+  and was dropped without a word — the parameter half of the defect whose column half was fixed
+  earlier. Parameters bound by a direct `col op $N` comparison now carry their own owning relation,
+  taken from the real table name rather than an alias. Parameters with no single owning column (an
+  `IN` list, a `LIKE` pattern, a literal comparison) deliberately carry none and keep their previous
+  behaviour rather than guessing. (#189)
 
 - **Every JVM backend read a composite column through `getObject(col, T.class)`, which throws at
   runtime.** pgjdbc registers no type map for a user-defined composite, so `PSQLException:
