@@ -84,12 +84,23 @@ typescript-kysely|redshift : needs redshift branches in typescript.ts.jinja's ky
 #
 # These were issue #118. php-pdo-sqlite is closed: integration-sqlite needs no
 # service container and already installs pdo_sqlite, so it only needed the
-# `Test php-pdo-sqlite` step. elixir-jamdb-oracle, ruby-oci8-oracle,
-# kotlin-jdbc-ext and php-pdo-namespace are closed the same way -- each had a
-# `test:*` Taskfile target already and no missing infrastructure, so each only
-# needed its step added to integration-oracle or integration-pg. Only
-# php-pdo-snowflake remains open, and for a reason different from "just add a
-# step":
+# `Test php-pdo-sqlite` step. ruby-oci8-oracle, kotlin-jdbc-ext and
+# php-pdo-namespace are closed the same way -- each had a `test:*` Taskfile
+# target already and no missing infrastructure, so each only needed its step
+# added to integration-oracle or integration-pg. Two remain open, each for a
+# reason different from "just add a step":
+#
+# elixir-jamdb-oracle DID get its step, and the step immediately failed --
+# which is the whole point of adding one. The generated code calls
+# `Jamdb.Oracle.query/3` on what `Jamdb.Oracle.start_link/1` returns, but that
+# is a DBConnection *pool* and `query/3` sends a `{:sql_query, ...}` GenServer
+# call only a raw connection process answers, so every generated function
+# crashes with a FunctionClauseError on first use. Reproduced against a local
+# gvenzl/oracle-xe:21-slim, not just read off CI. The step is removed again
+# only so a permanently-red job cannot mask a *new* regression; it goes back in
+# the same commit that fixes board #223, which carries the full diagnosis
+# including two further findings (DBConnection.execute returns a three-tuple,
+# and RETURNING ... INTO yields rows column-wise rather than row-wise).
 #
 # php-pdo-snowflake needs the `pdo_snowflake` extension, which ships from
 # snowflakedb/pdo_snowflake as neither a PECL package nor an apt package: it is
@@ -98,4 +109,5 @@ typescript-kysely|redshift : needs redshift branches in typescript.ts.jinja's ky
 # resulting pdo_snowflake.so and a cacert.pem into place by hand. That is a
 # CI-infrastructure project in its own right, not a step modeled on a sibling
 # -- this job has no sibling that builds a driver from source.
+elixir-jamdb-oracle : board #223 -- had a step; it failed because the generated code calls Jamdb.Oracle.query/3 on a DBConnection pool, so every query function crashes. Step returns with the fix
 php-pdo-snowflake : issue #118 -- pdo_snowflake has no PECL/apt package; it must be built from source against Snowflake's C driver (see snowflakedb/pdo_snowflake), which is real infrastructure work, not a missing step

@@ -82,6 +82,18 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   contract `check`/`lint`/`fmt --check` follow, where exit 1 stays reserved for operational failure.
   (unfiled)
 
+### Known issues
+
+- **`elixir-jamdb` generated code does not run.** Every generated function calls
+  `Jamdb.Oracle.query/3` on the value `Jamdb.Oracle.start_link/1` returns, but that is a
+  `DBConnection` pool and `query/3` sends a `{:sql_query, ...}` `GenServer` call only a raw
+  connection process answers — so the first call raises `FunctionClauseError` from
+  `DBConnection.ConnectionPool.handle_call/3`. The backend's own `@spec` says
+  `DBConnection.conn()`, which is correct and disagrees with the call being made. Found by giving
+  `elixir-jamdb-oracle` its first CI step and reproduced against a local Oracle 21c; it appears to
+  have never worked. `elixir-postgrex` and `elixir-ecto` are unaffected. Tracked, with the full
+  diagnosis, as board #223.
+
 ### Fixed
 
 - **A composite value containing a double quote came back truncated, with every field after it
