@@ -82,19 +82,31 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   contract `check`/`lint`/`fmt --check` follow, where exit 1 stays reserved for operational failure.
   (unfiled)
 
-### Known issues
-
-- **`elixir-jamdb` generated code does not run.** Every generated function calls
-  `Jamdb.Oracle.query/3` on the value `Jamdb.Oracle.start_link/1` returns, but that is a
-  `DBConnection` pool and `query/3` sends a `{:sql_query, ...}` `GenServer` call only a raw
-  connection process answers — so the first call raises `FunctionClauseError` from
-  `DBConnection.ConnectionPool.handle_call/3`. The backend's own `@spec` says
-  `DBConnection.conn()`, which is correct and disagrees with the call being made. Found by giving
-  `elixir-jamdb-oracle` its first CI step and reproduced against a local Oracle 21c; it appears to
-  have never worked. `elixir-postgrex` and `elixir-ecto` are unaffected. Tracked, with the full
-  diagnosis, as board #223.
-
 ### Fixed
+
+- **`elixir-jamdb` generated code could not run at all.** Four independent defects, each hidden
+  behind the last, found by giving `elixir-jamdb-oracle` its first CI step and then fixed and
+  verified against a local Oracle 21c:
+
+  - Every generated function called `Jamdb.Oracle.query/3` on the value `Jamdb.Oracle.start_link/1`
+    returns. That is a `DBConnection` **pool**, and `query/3` sends a `{:sql_query, ...}`
+    `GenServer` call only a raw connection process answers, so the first call raised
+    `FunctionClauseError`. The backend's own `@spec` already said `DBConnection.conn()`. Queries now
+    execute through `DBConnection.execute/3`.
+  - `DBConnection.execute/3` returns `{:ok, query, result}`, so every result match gained the
+    middle element.
+  - **`RETURNING ... INTO` returns rows column-wise** — one single-element list per OUT parameter.
+    `INSERT ... RETURNING id, name INTO :2, :3` yields `%{rows: [[1], ["Alice"]]}`, not
+    `[[1, "Alice"]]`, so the old `[row | _]` match bound only the first column and destructured it
+    across every field. A plain `SELECT` is row-wise, so only the `RETURNING` path transposes.
+  - jamdb returns an Oracle `NUMBER` as an Elixir **float** whatever its scale — `1.0` for an
+    integer key, `99.99` for a `NUMBER(10,2)` — while the manifest declares those columns
+    `integer()` and `Decimal.t()`. `Decimal.equal?/2` rejects a float outright, which is how this
+    surfaced; the integer case was quieter and merely wrong. Numeric columns are now converted to
+    the type the struct declares.
+
+  `elixir-postgrex` and `elixir-ecto` were unaffected throughout. The CI step is restored, and
+  `elixir-jamdb-oracle` now passes end-to-end. (#223)
 
 - **A composite value containing a double quote came back truncated, with every field after it
   shifted.** PostgreSQL's `record_out` escapes a literal `"` inside a quoted composite field by

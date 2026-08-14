@@ -268,7 +268,11 @@ fn elixir_tds_one_errors_on_missing_row_opt_returns_ok_nil() {
 
 #[test]
 fn elixir_jamdb_one_errors_on_missing_row_opt_returns_ok_nil() {
-    assert_elixir_tagged_tuple_shape_one_errors_opt_does_not("elixir-jamdb", "oracle", "{:ok, %{rows: []}}");
+    // ~keep board #223: jamdb executes through `DBConnection.execute/3`, which returns
+    // `{:ok, query, result}` -- not the two-element tuple `Jamdb.Oracle.query/3` returned.
+    // The contract itself (`{:error, :not_found}` on a missing row) is unchanged; only the
+    // shape it is matched out of moved.
+    assert_elixir_tagged_tuple_shape_one_errors_opt_does_not("elixir-jamdb", "oracle", "{:ok, _query, %{rows: []}}");
 }
 
 // ---------------------------------------------------------------------

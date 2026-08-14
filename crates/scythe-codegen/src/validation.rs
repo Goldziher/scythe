@@ -1399,24 +1399,49 @@ fn validate_kotlin_tools(code: &str) -> Vec<ToolOutcome> {
     )]
 }
 
-/// Paths to the hand-written stub structs `elixirc` needs to resolve the two
-/// `elixir-*` backends that construct or pattern-match on an external
-/// driver's struct (`elixir-myxql`'s `%MyXQL.Result{...}`, `elixir-tds`'s
-/// `%Tds.Parameter{...}`). See `tests/elixir_stubs/myxql_result.ex` for why
-/// these two specifically need a stub when the other four `elixir-*`
-/// backends need none at all.
-fn elixir_stub_paths() -> Result<(String, String), ToolOutcome> {
+/// Every file in `tests/elixir_stubs/`: hand-written stand-ins for the external driver structs
+/// the `elixir-*` backends construct or pattern-match on (`elixir-myxql`'s `%MyXQL.Result{...}`,
+/// `elixir-tds`'s `%Tds.Parameter{...}`, `elixir-jamdb`'s `%Jamdb.Oracle.Query{...}`). See
+/// `tests/elixir_stubs/myxql_result.ex` for why a struct reference needs a stub when a plain
+/// remote call does not.
+///
+/// Read from the directory rather than named one by one: a backend that starts referencing a new
+/// driver struct then needs only the stub file, and cannot fail here because someone added the
+/// file and forgot the corresponding line. Missing or unreadable directory is an error, not an
+/// empty list -- silently validating against no stubs at all would turn every struct reference
+/// into a compile error attributed to the generated code.
+fn elixir_stub_paths() -> Result<Vec<String>, ToolOutcome> {
     const TOOL: &str = "elixirc";
     let dir = std::path::Path::new(concat!(env!("CARGO_MANIFEST_DIR"), "/tests/elixir_stubs"));
-    let myxql = dir.join("myxql_result.ex");
-    let tds = dir.join("tds_parameter.ex");
-    match (myxql.to_str(), tds.to_str()) {
-        (Some(a), Some(b)) => Ok((a.to_string(), b.to_string())),
-        _ => Err(ToolOutcome::Failed {
-            tool: TOOL,
-            reason: format!("{TOOL}: stub struct path is not valid UTF-8"),
-        }),
+    let entries = std::fs::read_dir(dir).map_err(|e| ToolOutcome::Failed {
+        tool: TOOL,
+        reason: format!("{TOOL}: cannot read stub directory {}: {e}", dir.display()),
+    })?;
+    let mut paths: Vec<String> = Vec::new();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.extension().and_then(|e| e.to_str()) != Some("ex") {
+            continue;
+        }
+        match path.to_str() {
+            Some(p) => paths.push(p.to_string()),
+            None => {
+                return Err(ToolOutcome::Failed {
+                    tool: TOOL,
+                    reason: format!("{TOOL}: stub struct path is not valid UTF-8"),
+                });
+            }
+        }
     }
+    if paths.is_empty() {
+        return Err(ToolOutcome::Failed {
+            tool: TOOL,
+            reason: format!("{TOOL}: no stub modules found in {}", dir.display()),
+        });
+    }
+    // Deterministic argument order, so a failure reproduces identically run to run.
+    paths.sort();
+    Ok(paths)
 }
 
 /// Validate generated `elixir-*` code against the real `elixirc` compiler.
@@ -1446,7 +1471,7 @@ fn elixir_stub_paths() -> Result<(String, String), ToolOutcome> {
 /// module compiles to a harmless, un-invoked `.beam` file for the other four
 /// backends.
 fn validate_elixir_tools(code: &str) -> Vec<ToolOutcome> {
-    let (myxql_stub, tds_stub) = match elixir_stub_paths() {
+    let stubs = match elixir_stub_paths() {
         Ok(paths) => paths,
         Err(outcome) => return vec![outcome],
     };
@@ -1456,10 +1481,9 @@ fn validate_elixir_tools(code: &str) -> Vec<ToolOutcome> {
         code,
         ".ex",
         move |source, out| {
-            ["-o", out, source, &myxql_stub, &tds_stub]
-                .iter()
-                .map(|arg| (*arg).to_string())
-                .collect()
+            let mut args = vec!["-o".to_string(), out.to_string(), source.to_string()];
+            args.extend(stubs.iter().cloned());
+            args
         },
         Stream::Both,
         8,

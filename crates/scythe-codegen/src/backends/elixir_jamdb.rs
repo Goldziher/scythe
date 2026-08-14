@@ -29,6 +29,26 @@ impl ElixirJamdbBackend {
     }
 }
 
+/// The Elixir expression converting one column's raw jamdb value into the type the generated
+/// struct declares.
+///
+/// jamdb hands back an Oracle NUMBER as an Elixir **float**, whatever its scale -- probed against
+/// Oracle 21c, a NUMBER primary key arrives as `1.0` and a NUMBER(10,2) as `99.99`. The manifest
+/// declares those columns `integer()` and `Decimal.t()`, so assigning the raw value through
+/// leaves the struct holding a float its own `@type` says is impossible. `Decimal.equal?/2`
+/// refuses it outright ("implicit conversion of 99.99 to Decimal is not allowed"), which is how
+/// this surfaced; the integer case is quieter and merely wrong.
+///
+/// `Decimal.from_float/1` rather than `Decimal.new/1`: `new` rejects a float argument for the
+/// same reason `equal?` does. Both arms guard nil, since a nullable column arrives as nil.
+fn jamdb_column_value_expr(neutral_type: &str, var: &str) -> String {
+    match neutral_type {
+        "int16" | "int32" | "int64" => format!("(if is_float({var}), do: trunc({var}), else: {var})"),
+        "decimal" => format!("(if is_float({var}), do: Decimal.from_float({var}), else: {var})"),
+        _ => var.to_string(),
+    }
+}
+
 impl CodegenBackend for ElixirJamdbBackend {
     fn name(&self) -> &str {
         "elixir-jamdb"
@@ -166,13 +186,21 @@ impl CodegenBackend for ElixirJamdbBackend {
                 if params.len() > 1 {
                     let _ = writeln!(
                         out,
-                        "      Jamdb.Oracle.query(tx_conn, \"{}\", Tuple.to_list(item))",
+                        "      DBConnection.execute(tx_conn, %Jamdb.Oracle.Query{{statement: \"{}\"}}, Tuple.to_list(item))",
                         sql
                     );
                 } else if params.len() == 1 {
-                    let _ = writeln!(out, "      Jamdb.Oracle.query(tx_conn, \"{}\", [item])", sql);
+                    let _ = writeln!(
+                        out,
+                        "      DBConnection.execute(tx_conn, %Jamdb.Oracle.Query{{statement: \"{}\"}}, [item])",
+                        sql
+                    );
                 } else {
-                    let _ = writeln!(out, "      Jamdb.Oracle.query(tx_conn, \"{}\", [])", sql);
+                    let _ = writeln!(
+                        out,
+                        "      DBConnection.execute(tx_conn, %Jamdb.Oracle.Query{{statement: \"{}\"}}, [])",
+                        sql
+                    );
                 }
                 let _ = writeln!(out, "    end)");
                 let _ = writeln!(out, "  end)");
@@ -200,9 +228,9 @@ impl CodegenBackend for ElixirJamdbBackend {
         let _ = writeln!(out, "def {}(conn{}{}) do", func_name, sep, param_list);
 
         let not_found_arm = if matches!(analyzed.command, QueryCommand::Opt) {
-            "    {:ok, %{rows: []}} -> {:ok, nil}"
+            "    {:ok, _query, %{rows: []}} -> {:ok, nil}"
         } else {
-            "    {:ok, %{rows: []}} -> {:error, :not_found}"
+            "    {:ok, _query, %{rows: []}} -> {:error, :not_found}"
         };
 
         match &analyzed.command {
@@ -233,19 +261,32 @@ impl CodegenBackend for ElixirJamdbBackend {
 
                     let _ = writeln!(
                         out,
-                        "  case Jamdb.Oracle.query(conn, \"{}\", {}) do",
+                        "  case DBConnection.execute(conn, %Jamdb.Oracle.Query{{statement: \"{}\"}}, {}) do",
                         full_sql, all_args
                     );
-                    let _ = writeln!(out, "    {{:ok, %{{rows: [row | _]}}}} ->");
+                    // ~keep board #223: `RETURNING ... INTO` comes back COLUMN-wise, one
+                    // single-element list per OUT parameter -- probed against Oracle 21c,
+                    // `INSERT ... RETURNING id, name INTO :2, :3` yields
+                    // `%{rows: [[1], ["Alice"]], num_rows: 2}`, not `[[1, "Alice"]]`. Matching
+                    // `[row | _]` here would bind `row` to `[id]` and destructure the first
+                    // column into every field. A plain SELECT *is* row-wise, which is why only
+                    // this branch transposes.
+                    let _ = writeln!(out, "    {{:ok, _query, %{{rows: rows}}}} when rows != [] ->");
                     let field_vars = columns
                         .iter()
                         .map(|c| c.field_name.clone())
                         .collect::<Vec<_>>()
                         .join(", ");
-                    let _ = writeln!(out, "      [{}] = row", field_vars);
+                    let _ = writeln!(out, "      [{}] = Enum.map(rows, &hd/1)", field_vars);
                     let struct_fields = columns
                         .iter()
-                        .map(|c| format!("{}: {}", c.field_name, c.field_name))
+                        .map(|c| {
+                            format!(
+                                "{}: {}",
+                                c.field_name,
+                                jamdb_column_value_expr(&c.neutral_type, &c.field_name)
+                            )
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
                     let _ = writeln!(out, "      {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
@@ -253,8 +294,12 @@ impl CodegenBackend for ElixirJamdbBackend {
                     let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                     let _ = writeln!(out, "  end");
                 } else {
-                    let _ = writeln!(out, "  case Jamdb.Oracle.query(conn, \"{}\", {}) do", sql, param_args);
-                    let _ = writeln!(out, "    {{:ok, %{{rows: [row | _]}}}} ->");
+                    let _ = writeln!(
+                        out,
+                        "  case DBConnection.execute(conn, %Jamdb.Oracle.Query{{statement: \"{}\"}}, {}) do",
+                        sql, param_args
+                    );
+                    let _ = writeln!(out, "    {{:ok, _query, %{{rows: [row | _]}}}} ->");
 
                     let field_vars = columns
                         .iter()
@@ -265,7 +310,13 @@ impl CodegenBackend for ElixirJamdbBackend {
 
                     let struct_fields = columns
                         .iter()
-                        .map(|c| format!("{}: {}", c.field_name, c.field_name))
+                        .map(|c| {
+                            format!(
+                                "{}: {}",
+                                c.field_name,
+                                jamdb_column_value_expr(&c.neutral_type, &c.field_name)
+                            )
+                        })
                         .collect::<Vec<_>>()
                         .join(", ");
                     let _ = writeln!(out, "      {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
@@ -275,8 +326,12 @@ impl CodegenBackend for ElixirJamdbBackend {
                 }
             }
             QueryCommand::Many => {
-                let _ = writeln!(out, "  case Jamdb.Oracle.query(conn, \"{}\", {}) do", sql, param_args);
-                let _ = writeln!(out, "    {{:ok, %{{rows: rows}}}} ->");
+                let _ = writeln!(
+                    out,
+                    "  case DBConnection.execute(conn, %Jamdb.Oracle.Query{{statement: \"{}\"}}, {}) do",
+                    sql, param_args
+                );
+                let _ = writeln!(out, "    {{:ok, _query, %{{rows: rows}}}} when is_list(rows) ->");
 
                 let field_vars = columns
                     .iter()
@@ -285,7 +340,13 @@ impl CodegenBackend for ElixirJamdbBackend {
                     .join(", ");
                 let struct_fields = columns
                     .iter()
-                    .map(|c| format!("{}: {}", c.field_name, c.field_name))
+                    .map(|c| {
+                        format!(
+                            "{}: {}",
+                            c.field_name,
+                            jamdb_column_value_expr(&c.neutral_type, &c.field_name)
+                        )
+                    })
                     .collect::<Vec<_>>()
                     .join(", ");
 
@@ -298,14 +359,22 @@ impl CodegenBackend for ElixirJamdbBackend {
                 let _ = writeln!(out, "  end");
             }
             QueryCommand::Exec => {
-                let _ = writeln!(out, "  case Jamdb.Oracle.query(conn, \"{}\", {}) do", sql, param_args);
-                let _ = writeln!(out, "    {{:ok, _}} -> :ok");
+                let _ = writeln!(
+                    out,
+                    "  case DBConnection.execute(conn, %Jamdb.Oracle.Query{{statement: \"{}\"}}, {}) do",
+                    sql, param_args
+                );
+                let _ = writeln!(out, "    {{:ok, _query, _result}} -> :ok");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
-                let _ = writeln!(out, "  case Jamdb.Oracle.query(conn, \"{}\", {}) do", sql, param_args);
-                let _ = writeln!(out, "    {{:ok, %{{num_rows: n}}}} -> {{:ok, n}}");
+                let _ = writeln!(
+                    out,
+                    "  case DBConnection.execute(conn, %Jamdb.Oracle.Query{{statement: \"{}\"}}, {}) do",
+                    sql, param_args
+                );
+                let _ = writeln!(out, "    {{:ok, _query, %{{num_rows: n}}}} -> {{:ok, n}}");
                 let _ = writeln!(out, "    {{:error, err}} -> {{:error, err}}");
                 let _ = writeln!(out, "  end");
             }
@@ -486,12 +555,24 @@ impl CodegenBackend for ElixirJamdbBackend {
             .join(", ");
         let child_struct_fields = child_columns
             .iter()
-            .map(|c| format!("{}: {}", c.field_name, c.field_name))
+            .map(|c| {
+                format!(
+                    "{}: {}",
+                    c.field_name,
+                    jamdb_column_value_expr(&c.neutral_type, &c.field_name)
+                )
+            })
             .collect::<Vec<_>>()
             .join(", ");
         let parent_struct_fields = parent_columns
             .iter()
-            .map(|c| format!("{}: {}", c.field_name, c.field_name))
+            .map(|c| {
+                format!(
+                    "{}: {}",
+                    c.field_name,
+                    jamdb_column_value_expr(&c.neutral_type, &c.field_name)
+                )
+            })
             .collect::<Vec<_>>()
             .join(", ");
 
@@ -504,8 +585,12 @@ impl CodegenBackend for ElixirJamdbBackend {
             func_name, param_specs, parent_struct_name
         );
         let _ = writeln!(out, "def {}(conn{}{}) do", func_name, sep, param_list);
-        let _ = writeln!(out, "  case Jamdb.Oracle.query(conn, \"{}\", {}) do", sql, param_args);
-        let _ = writeln!(out, "    {{:ok, %{{rows: rows}}}} ->");
+        let _ = writeln!(
+            out,
+            "  case DBConnection.execute(conn, %Jamdb.Oracle.Query{{statement: \"{}\"}}, {}) do",
+            sql, param_args
+        );
+        let _ = writeln!(out, "    {{:ok, _query, %{{rows: rows}}}} when is_list(rows) ->");
         let _ = writeln!(
             out,
             "      {{order, acc}} = Enum.reduce(rows, {{[], %{{}}}}, fn row, {{order, acc}} ->"
@@ -657,9 +742,14 @@ mod tests {
             query_fn.contains("def get_users_with_orders(conn) do"),
             "missing fn head; got:\n{query_fn}"
         );
+        // ~keep board #223: `Jamdb.Oracle.query/3` wraps `sql_query/3`, which sends a
+        // `{:sql_query, ...}` GenServer call only a raw connection process answers. What
+        // `Jamdb.Oracle.start_link/1` returns is a DBConnection *pool*, which has no matching
+        // `handle_call/3` clause, so every generated function raised FunctionClauseError on
+        // first use. This assertion pinned the broken call, so it had to change with the fix.
         assert!(
-            query_fn.contains("Jamdb.Oracle.query(conn,"),
-            "fn must use Jamdb.Oracle.query; got:\n{query_fn}"
+            query_fn.contains("DBConnection.execute(conn, %Jamdb.Oracle.Query{statement:"),
+            "fn must execute through the DBConnection pool; got:\n{query_fn}"
         );
         assert!(
             query_fn.contains("Enum.reduce(rows,"),

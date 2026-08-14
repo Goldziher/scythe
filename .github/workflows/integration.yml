@@ -716,6 +716,15 @@ jobs:
         working-directory: integration_tests/csharp-oracle
         run: dotnet run
 
+      # jamdb_oracle is a pure Elixir/Erlang client speaking Oracle's wire
+      # protocol directly (no OCI/Instant Client dependency), so it needs
+      # nothing beyond the setup-beam step already in this job.
+      - name: Test elixir-jamdb-oracle
+        working-directory: integration_tests/elixir-jamdb-oracle
+        run: |
+          mix deps.get --quiet
+          mix run test/integration_test.exs
+
       # ruby-oci8 links against the Oracle Instant Client this job already
       # installs (basic + devel headers) for sqlplus above, so no extra
       # infrastructure step is needed here -- only the test step itself.
