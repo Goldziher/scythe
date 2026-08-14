@@ -2,11 +2,47 @@ use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{composite_type_name, enum_type_name, enum_variant_name, fn_name, to_snake_case};
 use std::fmt::Write;
 
-use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
+use scythe_core::analyzer::{AnalyzedQuery, CompositeFieldInfo, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
 use crate::backend_trait::{CodegenBackend, ResolvedColumn, ResolvedParam};
+
+/// Board #219: `Ecto.Adapters.SQL.query`'s raw-SQL path runs through the same Postgrex binary
+/// protocol as `elixir-postgrex` -- see the identical note there for what was verified live
+/// against PostgreSQL 16. An unregistered composite column decodes to a bare positional tuple,
+/// never the generated `%{Struct}{}`, so before this fix the tuple reached the row struct
+/// untouched. `{Struct}.from_tuple` (emitted by `generate_composite_def`) converts it and is
+/// already nil-safe.
+fn elixir_composite_column_expr(col: &ResolvedColumn, var: &str) -> Option<String> {
+    col.neutral_type
+        .starts_with("composite::")
+        .then(|| format!("{}.from_tuple({})", col.lang_type, var))
+}
+
+/// Build the `field: value` expression for one column already bound to a same-named local
+/// (the destructured `[field_name] = row` variable both `generate_query_fn` and
+/// `generate_grouped_query_fn` produce), routing a composite column through
+/// [`elixir_composite_column_expr`] and passing every other column's variable straight through.
+fn elixir_struct_field_assignment(col: &ResolvedColumn) -> String {
+    let expr = elixir_composite_column_expr(col, &col.field_name).unwrap_or_else(|| col.field_name.clone());
+    format!("{}: {}", col.field_name, expr)
+}
+
+/// The Elixir expression converting one composite field's already-decoded Postgrex value
+/// (`var`, the positional tuple-destructured variable) into the field's declared value. See
+/// `elixir_postgrex.rs`'s identical helper for why every non-composite field passes through
+/// unchanged.
+fn elixir_composite_field_from_tuple(field: &CompositeFieldInfo, var: &str, manifest: &BackendManifest) -> String {
+    if let Some(sql_name) = field.neutral_type.strip_prefix("composite::") {
+        return format!(
+            "{}.from_tuple({})",
+            composite_type_name(sql_name, &manifest.naming),
+            var
+        );
+    }
+    var.to_string()
+}
 
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/elixir-ecto.toml");
 
@@ -232,7 +268,7 @@ impl CodegenBackend for ElixirEctoBackend {
 
                 let struct_fields = columns
                     .iter()
-                    .map(|c| format!("{}: {}", c.field_name, c.field_name))
+                    .map(elixir_struct_field_assignment)
                     .collect::<Vec<_>>()
                     .join(", ");
                 let _ = writeln!(out, "      {{:ok, %{}{{{}}}}}", struct_name, struct_fields);
@@ -260,7 +296,7 @@ impl CodegenBackend for ElixirEctoBackend {
                     .join(", ");
                 let struct_fields = columns
                     .iter()
-                    .map(|c| format!("{}: {}", c.field_name, c.field_name))
+                    .map(elixir_struct_field_assignment)
                     .collect::<Vec<_>>()
                     .join(", ");
 
@@ -343,6 +379,9 @@ impl CodegenBackend for ElixirEctoBackend {
         let _ = writeln!(out);
         if composite.fields.is_empty() {
             let _ = writeln!(out, "  defstruct []");
+            // ~keep board #219: a composite with zero fields cannot exist in PostgreSQL
+            // (`CREATE TYPE ... AS ()` is rejected), so there is no reachable runtime tuple
+            // that would need `from_tuple` here.
         } else {
             let fields = composite
                 .fields
@@ -351,6 +390,25 @@ impl CodegenBackend for ElixirEctoBackend {
                 .collect::<Vec<_>>()
                 .join(", ");
             let _ = writeln!(out, "  defstruct [{}]", fields);
+            let _ = writeln!(out);
+            // ~keep board #219: Postgrex decodes an unregistered composite column into a bare
+            // positional tuple (every field already its natural Elixir type), never this
+            // struct -- build it from that tuple here.
+            let _ = writeln!(out, "  def from_tuple(nil), do: nil");
+            let _ = writeln!(out);
+            let field_vars: Vec<String> = composite
+                .fields
+                .iter()
+                .map(|f| to_snake_case(&f.name).into_owned())
+                .collect();
+            let _ = writeln!(out, "  def from_tuple({{{}}}) do", field_vars.join(", "));
+            let _ = writeln!(out, "    %__MODULE__{{");
+            for (field, var) in composite.fields.iter().zip(&field_vars) {
+                let expr = elixir_composite_field_from_tuple(field, var, &self.manifest);
+                let _ = writeln!(out, "      {}: {},", to_snake_case(&field.name), expr);
+            }
+            let _ = writeln!(out, "    }}");
+            let _ = writeln!(out, "  end");
         }
         let _ = write!(out, "end");
         Ok(out)
@@ -479,12 +537,12 @@ impl CodegenBackend for ElixirEctoBackend {
             .join(", ");
         let child_struct_fields = child_columns
             .iter()
-            .map(|c| format!("{}: {}", c.field_name, c.field_name))
+            .map(elixir_struct_field_assignment)
             .collect::<Vec<_>>()
             .join(", ");
         let parent_struct_fields = parent_columns
             .iter()
-            .map(|c| format!("{}: {}", c.field_name, c.field_name))
+            .map(elixir_struct_field_assignment)
             .collect::<Vec<_>>()
             .join(", ");
 

@@ -5,12 +5,61 @@ package queries
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/shopspring/decimal"
 )
 
+func parseCompositeFields(text string) []*string {
+	inner := text[1 : len(text)-1]
+	var fields []*string
+	i := 0
+	n := len(inner)
+	for {
+		var field []byte
+		isNull := false
+		if i < n && inner[i] == '"' {
+			i++
+			for i < n {
+				c := inner[i]
+				if c == '\\' && i + 1 < n {
+					field = append(field, inner[i+1])
+					i += 2
+				} else if c == '"' && i + 1 < n && inner[i+1] == '"' {
+					field = append(field, '"')
+					i += 2
+				} else if c == '"' {
+					i++
+					break
+				} else {
+					field = append(field, c)
+					i++
+				}
+			}
+		} else {
+			start := i
+			for i < n && inner[i] != ',' {
+				i++
+			}
+			field = append(field, inner[start:i]...)
+			isNull = len(field) == 0
+		}
+		if isNull {
+			fields = append(fields, nil)
+		} else {
+			s := string(field)
+			fields = append(fields, &s)
+		}
+		if i < n && inner[i] == ',' {
+			i++
+			continue
+		}
+		break
+	}
+	return fields
+}
 
 type UserStatus string
 
@@ -240,6 +289,40 @@ type UserAddress struct {
 	Zip string `json:"zip"`
 }
 
+// ~keep pgx registers no CompositeCodec for UserAddress without a runtime type-map
+// registration this generated code has no connection to perform (see board #221).
+// Parse the driver's composite text form instead.
+func UserAddressFromText(text string) (UserAddress, error) {
+	var zero UserAddress
+	f := parseCompositeFields(text)
+	if len(f) < 3 {
+		return zero, fmt.Errorf("UserAddress: expected 3 fields, got %d", len(f))
+	}
+	var v UserAddress
+	if f[0] == nil {
+		return zero, fmt.Errorf("UserAddress: field 0 (street) is NULL")
+	}
+	{
+		raw := *f[0]
+		v.Street = raw
+	}
+	if f[1] == nil {
+		return zero, fmt.Errorf("UserAddress: field 1 (city) is NULL")
+	}
+	{
+		raw := *f[1]
+		v.City = raw
+	}
+	if f[2] == nil {
+		return zero, fmt.Errorf("UserAddress: field 2 (zip) is NULL")
+	}
+	{
+		raw := *f[2]
+		v.Zip = raw
+	}
+	return v, nil
+}
+
 type GetUserProfileRow struct {
 	Id int32 `json:"id"`
 	SecondaryStatus *UserStatus `json:"secondary_status"`
@@ -249,6 +332,17 @@ type GetUserProfileRow struct {
 func GetUserProfile(ctx context.Context, db *pgxpool.Pool, Id int32) (GetUserProfileRow, error) {
 	row := db.QueryRow(ctx, "SELECT id, secondary_status, address FROM users WHERE id = $1", Id)
 	var r GetUserProfileRow
-	err := row.Scan(&r.Id, &r.SecondaryStatus, &r.Address)
-	return r, err
+	var addressRaw *string
+	err := row.Scan(&r.Id, &r.SecondaryStatus, &addressRaw)
+	if err != nil {
+		return r, err
+	}
+	if addressRaw != nil {
+		parsed, err := UserAddressFromText(*addressRaw)
+		if err != nil {
+			return r, err
+		}
+		r.Address = &parsed
+	}
+	return r, nil
 }

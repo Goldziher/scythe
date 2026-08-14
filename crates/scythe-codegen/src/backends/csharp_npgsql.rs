@@ -76,6 +76,17 @@ fn reader_method(neutral_type: &str, lang_type: &str) -> String {
 }
 
 /// Build the expression to read a column from NpgsqlDataReader.
+///
+/// ~keep board #220: a composite column cannot go through `reader.GetFieldValue<{typ}>` --
+/// Npgsql registers no binary decoder for a user-defined composite unless the caller
+/// registers one with `NpgsqlDataSourceBuilder.MapComposite<T>()` on the connection *before*
+/// this generated code ever runs, which this code is in no position to do on the caller's
+/// behalf. Verified against a live PostgreSQL 16 through Npgsql 10: with no mapping,
+/// `GetFieldValue<UserAddress>`/`GetValue`/`GetFieldValue<string>` all throw
+/// `InvalidCastException` on an unmapped composite OID, even for a `NULL` value. Setting
+/// `cmd.UnknownResultTypeList` (see [`unknown_result_type_list`]) forces that one column back
+/// to Npgsql's text wire format, which `GetFieldValue<string>` can then read -- the same text
+/// form `record_out` writes, parsed by `{Type}.FromText` below.
 fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
     if col.neutral_type.starts_with("enum::") {
         format!(
@@ -83,9 +94,198 @@ fn column_read_expr(col: &ResolvedColumn, ordinal: usize) -> String {
             typ = col.lang_type,
             ord = ordinal
         )
+    } else if col.neutral_type.starts_with("composite::") {
+        format!(
+            "{typ}.FromText(reader.GetFieldValue<string>({ord}))!",
+            typ = col.lang_type,
+            ord = ordinal
+        )
     } else {
         let method = reader_method(&col.neutral_type, &col.lang_type);
         format!("reader.{}({})", method, ordinal)
+    }
+}
+
+/// The `NpgsqlCommand.UnknownResultTypeList` boolean mask needed before executing a query that
+/// selects a composite column -- `true` at every composite ordinal, `false` elsewhere -- so
+/// Npgsql hands that column back as text instead of attempting (and failing) its binary
+/// decode. `None` when `columns` has no composite, so a query with none emits no extra line and
+/// every other generated query stays byte-identical to before this fix.
+fn unknown_result_type_list(columns: &[ResolvedColumn]) -> Option<String> {
+    if !columns.iter().any(|c| c.neutral_type.starts_with("composite::")) {
+        return None;
+    }
+    let flags = columns
+        .iter()
+        .map(|c| {
+            if c.neutral_type.starts_with("composite::") {
+                "true"
+            } else {
+                "false"
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    Some(format!("new[] {{ {flags} }}"))
+}
+
+/// Splits a PostgreSQL composite's text form (`"(a,b,c)"`) into its raw field tokens, honoring
+/// its escaping rules -- an empty unquoted field is SQL NULL, and a field containing a comma,
+/// paren, quote, backslash, or leading/trailing space (or the empty string) is double-quoted,
+/// with an inner `"` **doubled** and an inner `\` backslash-escaped.
+const CSHARP_PARSE_COMPOSITE_FIELDS_METHOD: &str = r#"    /// <summary>
+    /// ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
+    /// honoring its escaping rules: an empty unquoted field is SQL NULL (returned as null); a
+    /// field needing quoting (containing a comma, paren, quote, backslash, or leading/trailing
+    /// space, or the empty string) is wrapped in double quotes; every other field is unquoted
+    /// and taken literally. A nested composite's own "(x,y)" text form always contains parens,
+    /// so it always comes back quoted here, ready for that type's own FromText to parse
+    /// recursively.
+    ///
+    /// Inside a quoted field record_out writes a literal '"' as '""' and a literal '\' as '\\'.
+    /// Both spellings must be accepted: reading '""' as "closing quote, then a new field" both
+    /// truncates the value and desynchronizes every field after it. Verified against
+    /// PostgreSQL 16 -- ROW('he said "hi"', 'back\slash', NULL) renders as
+    /// ("he said ""hi""","back\\slash",).
+    /// </summary>
+    private static List<string?> ParseCompositeFields(string text)
+    {
+        var fields = new List<string?>();
+        var inner = text.Substring(1, text.Length - 2);
+        int i = 0;
+        int n = inner.Length;
+        while (true)
+        {
+            var field = new System.Text.StringBuilder();
+            bool isNull = false;
+            if (i < n && inner[i] == '"')
+            {
+                i++;
+                while (i < n)
+                {
+                    char c = inner[i];
+                    if (c == '\\' && i + 1 < n)
+                    {
+                        field.Append(inner[i + 1]);
+                        i += 2;
+                    }
+                    else if (c == '"' && i + 1 < n && inner[i + 1] == '"')
+                    {
+                        field.Append('"');
+                        i += 2;
+                    }
+                    else if (c == '"')
+                    {
+                        i++;
+                        break;
+                    }
+                    else
+                    {
+                        field.Append(c);
+                        i++;
+                    }
+                }
+            }
+            else
+            {
+                int start = i;
+                while (i < n && inner[i] != ',')
+                {
+                    i++;
+                }
+                field.Append(inner, start, i - start);
+                isNull = field.Length == 0;
+            }
+            fields.Add(isNull ? null : field.ToString());
+            if (i < n && inner[i] == ',')
+            {
+                i++;
+                continue;
+            }
+            break;
+        }
+        return fields;
+    }
+"#;
+
+/// PostgreSQL's default `bytea` text output is hex (`"\x48656c6c6f"`); decode the digits after
+/// the `\x` prefix back into bytes. Emitted only when a composite has a `bytes` field.
+const CSHARP_PARSE_COMPOSITE_BYTES_METHOD: &str = r#"    /// <summary>
+    /// ~keep PostgreSQL's default `bytea` text output is hex: "\x48656c6c6f". Decode the hex
+    /// digits after the "\x" prefix back into bytes.
+    /// </summary>
+    private static byte[] ParseCompositeBytes(string hex)
+    {
+        return Convert.FromHexString(hex.Substring(2));
+    }
+"#;
+
+/// `time_tz`'s manifest type is `TimeOnly`, which (unlike `DateTimeOffset`) has no offset
+/// field, so the trailing PostgreSQL offset (`"13:22:43-05"`) has to be stripped before
+/// `TimeOnly.Parse` -- it throws `FormatException` on any text it cannot fully consume.
+/// Emitted only when a composite has a `time_tz` field.
+const CSHARP_PARSE_COMPOSITE_TIME_ONLY_METHOD: &str = r#"    /// <summary>
+    /// ~keep `time_tz`'s manifest type is `TimeOnly`, which carries no UTC offset, so the
+    /// trailing PostgreSQL offset ("13:22:43-05") is dropped before parsing -- `TimeOnly.Parse`
+    /// rejects any text it cannot fully consume.
+    /// </summary>
+    private static TimeOnly ParseCompositeTimeOnly(string raw)
+    {
+        int signIndex = raw.LastIndexOfAny(new[] { '+', '-' });
+        var timePart = signIndex > 0 ? raw.Substring(0, signIndex) : raw;
+        return TimeOnly.Parse(timePart, System.Globalization.CultureInfo.InvariantCulture);
+    }
+"#;
+
+fn composite_needs_bytes_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "bytes")
+}
+
+fn composite_needs_time_only_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "time_tz")
+}
+
+/// The C# expression converting one composite field's raw text token (`raw`, a `string`
+/// already unescaped by `ParseCompositeFields` and null-forgiven) into the field's declared C#
+/// type -- the inverse of what PostgreSQL's composite output function wrote for that field.
+///
+/// A field's own declared type is always non-nullable (`generate_composite_def` resolves every
+/// field with `nullable: false` -- composite fields carry no per-field nullability), so a
+/// genuinely NULL sub-field converted through a non-string arm (`int.Parse(null)`, ...) throws
+/// at runtime. That is a pre-existing gap in what `CompositeFieldInfo` tracks (matching
+/// `java_jdbc.rs`'s identical note), not one this fix introduces or can close from here.
+fn composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str) -> String {
+    if neutral_type.starts_with("composite::") {
+        return format!("{field_type}.FromText({raw})!");
+    }
+    if neutral_type.starts_with("enum::") {
+        return format!("Enum.Parse<{field_type}>({raw}, true)");
+    }
+    match neutral_type {
+        "bool" => format!("{raw} == \"t\""),
+        "int16" => format!("short.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        "int32" => format!("int.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        "int64" => format!("long.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        "float32" => format!("float.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        "float64" => format!("double.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        "decimal" => format!("decimal.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        "uuid" => format!("Guid.Parse({raw})"),
+        "date" => format!("DateOnly.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        "time" => format!("TimeOnly.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        "time_tz" => format!("ParseCompositeTimeOnly({raw})"),
+        // ~keep Verified against live PostgreSQL 16: unlike Java's `LocalDateTime`/`OffsetDateTime`,
+        // `DateTime.Parse`/`DateTimeOffset.Parse` accept the space-separated form and an offset
+        // with no minutes ("2024-01-15 10:30:00+00") natively -- no normalization needed.
+        "datetime" => format!("DateTime.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        "datetime_tz" => format!("DateTimeOffset.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        "bytes" => format!("ParseCompositeBytes({raw})"),
+        "inet" => format!("System.Net.IPAddress.Parse({raw})"),
+        "interval" => format!("TimeSpan.Parse({raw}, System.Globalization.CultureInfo.InvariantCulture)"),
+        // ~keep "string"/"json" both resolve to C# `string`, so the already-parsed text needs no
+        // further conversion. Any neutral type not named above (e.g. an array-typed composite
+        // field) falls through here too; passing the raw text through is the least-wrong
+        // fallback available at generate time rather than a hard error.
+        _ => raw.to_string(),
     }
 }
 
@@ -305,6 +505,10 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             let _ = writeln!(out, "    cmd.Parameters.AddWithValue(\"p{}\", {});", i + 1, value_expr);
         }
 
+        if let Some(list) = unknown_result_type_list(columns) {
+            let _ = writeln!(out, "    cmd.UnknownResultTypeList = {list};");
+        }
+
         match &analyzed.command {
             QueryCommand::One | QueryCommand::Opt => {
                 let _ = writeln!(out, "    await using var reader = await cmd.ExecuteReaderAsync();");
@@ -445,6 +649,9 @@ impl CodegenBackend for CsharpNpgsqlBackend {
             };
             let _ = writeln!(out, "    cmd.Parameters.AddWithValue(\"p{}\", {});", i + 1, value_expr);
         }
+        if let Some(list) = unknown_result_type_list(all_columns) {
+            let _ = writeln!(out, "    cmd.UnknownResultTypeList = {list};");
+        }
         let _ = writeln!(out, "    await using var reader = await cmd.ExecuteReaderAsync();");
         let _ = writeln!(
             out,
@@ -519,20 +726,72 @@ impl CodegenBackend for CsharpNpgsqlBackend {
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
+        // ~keep board #220: a composite with zero fields cannot exist in PostgreSQL
+        // (`CREATE TYPE ... AS ()` is rejected), so there is no reachable runtime value that
+        // would need `FromText` here. Left as the bare record it always was.
         if composite.fields.is_empty() {
             let _ = writeln!(out, "public record {}();", name);
-        } else {
-            let _ = writeln!(out, "public record {}(", name);
-            for (i, field) in composite.fields.iter().enumerate() {
-                let cs_type = resolve_type(&field.neutral_type, &self.manifest, false)
-                    .map(|t| t.into_owned())
-                    .unwrap_or_else(|_| "object".to_string());
-                let field_name = to_pascal_case(&field.name);
-                let sep = if i + 1 < composite.fields.len() { "," } else { "" };
-                let _ = writeln!(out, "    {} {}{}", cs_type, field_name, sep);
-            }
-            let _ = write!(out, ");");
+            return Ok(out);
         }
+        let field_types: Vec<String> = composite
+            .fields
+            .iter()
+            .map(|f| {
+                resolve_type(&f.neutral_type, &self.manifest, false)
+                    .map(|t| t.into_owned())
+                    .unwrap_or_else(|_| "object".to_string())
+            })
+            .collect();
+        let _ = writeln!(out, "public record {}(", name);
+        for (i, field) in composite.fields.iter().enumerate() {
+            let field_name = to_pascal_case(&field.name);
+            let sep = if i + 1 < composite.fields.len() { "," } else { "" };
+            let _ = writeln!(out, "    {} {}{}", field_types[i], field_name, sep);
+        }
+        let _ = writeln!(out, ") {{");
+        let _ = writeln!(out, "    /// <summary>");
+        let _ = writeln!(
+            out,
+            "    /// ~keep board #220: Npgsql has no binary decoder for this composite unless the"
+        );
+        let _ = writeln!(
+            out,
+            "    /// caller registers one with NpgsqlDataSourceBuilder.MapComposite&lt;{}&gt;() --",
+            name
+        );
+        let _ = writeln!(
+            out,
+            "    /// this generated code cannot do that on the caller's behalf, so it parses the"
+        );
+        let _ = writeln!(out, "    /// driver's composite text form instead.");
+        let _ = writeln!(out, "    /// </summary>");
+        let _ = writeln!(out, "    public static {}? FromText(string? text)", name);
+        let _ = writeln!(out, "    {{");
+        let _ = writeln!(out, "        if (text is null)");
+        let _ = writeln!(out, "        {{");
+        let _ = writeln!(out, "            return null;");
+        let _ = writeln!(out, "        }}");
+        let _ = writeln!(out, "        var f = ParseCompositeFields(text);");
+        let _ = writeln!(out, "        return new {}(", name);
+        for (i, field) in composite.fields.iter().enumerate() {
+            let raw = format!("f[{}]!", i);
+            let value_expr = composite_field_from_text(&field.neutral_type, &field_types[i], &raw);
+            let sep = if i + 1 < composite.fields.len() { "," } else { "" };
+            let _ = writeln!(out, "            {}{}", value_expr, sep);
+        }
+        let _ = writeln!(out, "        );");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out);
+        out.push_str(CSHARP_PARSE_COMPOSITE_FIELDS_METHOD);
+        if composite_needs_bytes_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(CSHARP_PARSE_COMPOSITE_BYTES_METHOD);
+        }
+        if composite_needs_time_only_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(CSHARP_PARSE_COMPOSITE_TIME_ONLY_METHOD);
+        }
+        let _ = write!(out, "}}");
         Ok(out)
     }
 }

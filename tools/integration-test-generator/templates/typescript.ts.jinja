@@ -128,6 +128,9 @@ import {
 {%- endif %}
 	deleteOrdersByUser,
 	deleteUser,
+{%- if engine == "postgresql" and engine != "redshift" and (driver == "pg" or driver == "kysely-pg" or driver == "postgres") %}
+	getUserProfile,
+{%- endif %}
 {%- if engine == "postgresql" and engine != "redshift" %}
 {%- if (driver == "pg" or driver == "kysely-pg") and options.row_type != "zod" %}
 	UserStatusValues,
@@ -455,14 +458,89 @@ async function main(): Promise<void> {
 		);
 {%- endif %}
 		console.log("PASS: GetOrdersByUser");
-{#- board #204: the pg-driver generated GetUserProfileRow declares `address`
-   as the composite UserAddress type, but the generated reader assigns pg's
-   raw row value straight through without a composite parser -- fields come
-   back undefined. The GetUserProfile test is left out of this harness
-   until that's fixed. When typescript-pg starts emitting a composite
-   parser for nullable composite columns, restore this test (and the
-   getUserProfile import above) for every pg-driver variant -- zod,
-   outer-join-unions, structs-only -- not just the default. #}
+{%- if engine == "postgresql" and engine != "redshift" %}
+
+		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
+		// nullable composite column, each observed both present and as SQL
+		// NULL, plus a composite field containing a double quote and a comma
+		// to prove parseUserAddress handles record_out's doubled-quote
+		// escaping (board #204) rather than truncating on it.
+		const presentRow = await client.query(
+			"INSERT INTO users (name, email, status, secondary_status, address) " +
+				"VALUES ('Carol', 'carol@example.com', 'active', 'inactive', " +
+				"ROW('1 Main St', 'Springfield', '12345')) RETURNING id",
+		);
+		const presentId: number = presentRow.rows[0]!.id;
+		const absentRow = await client.query(
+			"INSERT INTO users (name, email, status, secondary_status, address) " +
+				"VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id",
+		);
+		const absentId: number = absentRow.rows[0]!.id;
+		const quotedRow = await client.query(
+			"INSERT INTO users (name, email, status, secondary_status, address) " +
+				"VALUES ('Eve', 'eve@example.com', 'active', 'inactive', " +
+				"ROW('12 \"Main\", Apt 3', 'Berlin', '10115')) RETURNING id",
+		);
+		const quotedId: number = quotedRow.rows[0]!.id;
+
+		const profile = await getUserProfile(client, presentId);
+		assert(
+			profile.secondary_status === "inactive",
+			"GetUserProfile",
+			`expected secondary_status inactive, got ${profile.secondary_status}`,
+		);
+		assert(profile.address !== null, "GetUserProfile", "expected address to be present");
+		assert(
+			profile.address!.street === "1 Main St",
+			"GetUserProfile",
+			`expected address.street '1 Main St', got ${profile.address!.street}`,
+		);
+		assert(
+			profile.address!.city === "Springfield",
+			"GetUserProfile",
+			`expected address.city 'Springfield', got ${profile.address!.city}`,
+		);
+		assert(
+			profile.address!.zip === "12345",
+			"GetUserProfile",
+			`expected address.zip '12345', got ${profile.address!.zip}`,
+		);
+
+		const nullProfile = await getUserProfile(client, absentId);
+		assert(
+			nullProfile.secondary_status === null,
+			"GetUserProfile",
+			`expected secondary_status null, got ${nullProfile.secondary_status}`,
+		);
+		assert(
+			nullProfile.address === null,
+			"GetUserProfile",
+			`expected address null, got ${JSON.stringify(nullProfile.address)}`,
+		);
+
+		const quotedProfile = await getUserProfile(client, quotedId);
+		assert(quotedProfile.address !== null, "GetUserProfile", "expected quoted address to be present");
+		assert(
+			quotedProfile.address!.street === '12 "Main", Apt 3',
+			"GetUserProfile",
+			`expected address.street '12 "Main", Apt 3', got ${quotedProfile.address!.street}`,
+		);
+		assert(
+			quotedProfile.address!.city === "Berlin",
+			"GetUserProfile",
+			`expected address.city 'Berlin', got ${quotedProfile.address!.city}`,
+		);
+		assert(
+			quotedProfile.address!.zip === "10115",
+			"GetUserProfile",
+			`expected address.zip '10115', got ${quotedProfile.address!.zip}`,
+		);
+		console.log("PASS: GetUserProfile (nullable enum + composite)");
+
+		await deleteUser(client, presentId);
+		await deleteUser(client, absentId);
+		await deleteUser(client, quotedId);
+{%- endif %}
 {%- if options.outer_join_unions == "true" %}
 
 		// Test: GetUserOrders (LEFT JOIN discriminated union). Bob has no
@@ -559,11 +637,16 @@ async function main(): Promise<void> {
 		await sql`DROP TYPE IF EXISTS user_address CASCADE`.execute(db);
 
 		await sql`CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')`.execute(db);
+		// board #197: a nullable composite type, used by the nullable
+		// `address` column below.
+		await sql`CREATE TYPE user_address AS (street TEXT, city TEXT, zip TEXT)`.execute(db);
 		await sql`CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       email TEXT,
       status user_status NOT NULL DEFAULT 'active',
+      secondary_status user_status,
+      address user_address,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`.execute(db);
 		await sql`CREATE TABLE orders (
@@ -735,6 +818,82 @@ async function main(): Promise<void> {
 		);
 		console.log("PASS: SearchUsers");
 
+		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
+		// nullable composite column, each observed both present and as SQL
+		// NULL, plus a composite field containing a double quote and a comma
+		// to prove parseUserAddress handles record_out's doubled-quote
+		// escaping (board #204) rather than truncating on it.
+		const presentRow = await sql<{ id: number }>`INSERT INTO users (name, email, status, secondary_status, address)
+      VALUES ('Carol', 'carol@example.com', 'active', 'inactive', ROW('1 Main St', 'Springfield', '12345'))
+      RETURNING id`.execute(db);
+		const presentId = presentRow.rows[0]!.id;
+		const absentRow = await sql<{ id: number }>`INSERT INTO users (name, email, status, secondary_status, address)
+      VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL)
+      RETURNING id`.execute(db);
+		const absentId = absentRow.rows[0]!.id;
+		const quotedRow = await sql<{ id: number }>`INSERT INTO users (name, email, status, secondary_status, address)
+      VALUES ('Eve', 'eve@example.com', 'active', 'inactive', ROW('12 "Main", Apt 3', 'Berlin', '10115'))
+      RETURNING id`.execute(db);
+		const quotedId = quotedRow.rows[0]!.id;
+
+		const profile = await getUserProfile(db, presentId);
+		assert(
+			profile.secondary_status === "inactive",
+			"GetUserProfile",
+			`expected secondary_status inactive, got ${profile.secondary_status}`,
+		);
+		assert(profile.address !== null, "GetUserProfile", "expected address to be present");
+		assert(
+			profile.address!.street === "1 Main St",
+			"GetUserProfile",
+			`expected address.street '1 Main St', got ${profile.address!.street}`,
+		);
+		assert(
+			profile.address!.city === "Springfield",
+			"GetUserProfile",
+			`expected address.city 'Springfield', got ${profile.address!.city}`,
+		);
+		assert(
+			profile.address!.zip === "12345",
+			"GetUserProfile",
+			`expected address.zip '12345', got ${profile.address!.zip}`,
+		);
+
+		const nullProfile = await getUserProfile(db, absentId);
+		assert(
+			nullProfile.secondary_status === null,
+			"GetUserProfile",
+			`expected secondary_status null, got ${nullProfile.secondary_status}`,
+		);
+		assert(
+			nullProfile.address === null,
+			"GetUserProfile",
+			`expected address null, got ${JSON.stringify(nullProfile.address)}`,
+		);
+
+		const quotedProfile = await getUserProfile(db, quotedId);
+		assert(quotedProfile.address !== null, "GetUserProfile", "expected quoted address to be present");
+		assert(
+			quotedProfile.address!.street === '12 "Main", Apt 3',
+			"GetUserProfile",
+			`expected address.street '12 "Main", Apt 3', got ${quotedProfile.address!.street}`,
+		);
+		assert(
+			quotedProfile.address!.city === "Berlin",
+			"GetUserProfile",
+			`expected address.city 'Berlin', got ${quotedProfile.address!.city}`,
+		);
+		assert(
+			quotedProfile.address!.zip === "10115",
+			"GetUserProfile",
+			`expected address.zip '10115', got ${quotedProfile.address!.zip}`,
+		);
+		console.log("PASS: GetUserProfile (nullable enum + composite)");
+
+		await deleteUser(db, presentId);
+		await deleteUser(db, absentId);
+		await deleteUser(db, quotedId);
+
 		await sql`DELETE FROM user_tags WHERE user_id = ${userId}`.execute(db);
 		await deleteUser(db, bobId);
 
@@ -780,11 +939,16 @@ async function main(): Promise<void> {
 		await sql`DROP TYPE IF EXISTS user_address CASCADE`;
 
 		await sql`CREATE TYPE user_status AS ENUM ('active', 'inactive', 'banned')`;
+		// board #197: a nullable composite type, used by the nullable
+		// `address` column below.
+		await sql`CREATE TYPE user_address AS (street TEXT, city TEXT, zip TEXT)`;
 		await sql`CREATE TABLE users (
       id SERIAL PRIMARY KEY,
       name TEXT NOT NULL,
       email TEXT,
       status user_status NOT NULL DEFAULT 'active',
+      secondary_status user_status,
+      address user_address,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
     )`;
 		await sql`CREATE TABLE orders (
@@ -884,6 +1048,84 @@ async function main(): Promise<void> {
 			`expected total 99.95`,
 		);
 		console.log("PASS: GetOrdersByUser");
+{%- if engine == "postgresql" and engine != "redshift" %}
+
+		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
+		// nullable composite column, each observed both present and as SQL
+		// NULL, plus a composite field containing a double quote and a comma
+		// to prove parseUserAddress handles record_out's doubled-quote
+		// escaping (board #204) rather than truncating on it.
+		const presentRow = await sql`INSERT INTO users (name, email, status, secondary_status, address)
+      VALUES ('Carol', 'carol@example.com', 'active', 'inactive', ROW('1 Main St', 'Springfield', '12345'))
+      RETURNING id`;
+		const presentId: number = presentRow[0]!.id;
+		const absentRow = await sql`INSERT INTO users (name, email, status, secondary_status, address)
+      VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL)
+      RETURNING id`;
+		const absentId: number = absentRow[0]!.id;
+		const quotedRow = await sql`INSERT INTO users (name, email, status, secondary_status, address)
+      VALUES ('Eve', 'eve@example.com', 'active', 'inactive', ROW('12 "Main", Apt 3', 'Berlin', '10115'))
+      RETURNING id`;
+		const quotedId: number = quotedRow[0]!.id;
+
+		const profile = await getUserProfile(sql, presentId);
+		assert(
+			profile.secondary_status === "inactive",
+			"GetUserProfile",
+			`expected secondary_status inactive, got ${profile.secondary_status}`,
+		);
+		assert(profile.address !== null, "GetUserProfile", "expected address to be present");
+		assert(
+			profile.address!.street === "1 Main St",
+			"GetUserProfile",
+			`expected address.street '1 Main St', got ${profile.address!.street}`,
+		);
+		assert(
+			profile.address!.city === "Springfield",
+			"GetUserProfile",
+			`expected address.city 'Springfield', got ${profile.address!.city}`,
+		);
+		assert(
+			profile.address!.zip === "12345",
+			"GetUserProfile",
+			`expected address.zip '12345', got ${profile.address!.zip}`,
+		);
+
+		const nullProfile = await getUserProfile(sql, absentId);
+		assert(
+			nullProfile.secondary_status === null,
+			"GetUserProfile",
+			`expected secondary_status null, got ${nullProfile.secondary_status}`,
+		);
+		assert(
+			nullProfile.address === null,
+			"GetUserProfile",
+			`expected address null, got ${JSON.stringify(nullProfile.address)}`,
+		);
+
+		const quotedProfile = await getUserProfile(sql, quotedId);
+		assert(quotedProfile.address !== null, "GetUserProfile", "expected quoted address to be present");
+		assert(
+			quotedProfile.address!.street === '12 "Main", Apt 3',
+			"GetUserProfile",
+			`expected address.street '12 "Main", Apt 3', got ${quotedProfile.address!.street}`,
+		);
+		assert(
+			quotedProfile.address!.city === "Berlin",
+			"GetUserProfile",
+			`expected address.city 'Berlin', got ${quotedProfile.address!.city}`,
+		);
+		assert(
+			quotedProfile.address!.zip === "10115",
+			"GetUserProfile",
+			`expected address.zip '10115', got ${quotedProfile.address!.zip}`,
+		);
+		console.log("PASS: GetUserProfile (nullable enum + composite)");
+
+		await deleteUser(sql, presentId);
+		await deleteUser(sql, absentId);
+		await deleteUser(sql, quotedId);
+{%- endif %}
 
 		// Test: DeleteUser
 		const deletedOrders = await deleteOrdersByUser(sql, userId);

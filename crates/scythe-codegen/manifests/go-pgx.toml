@@ -73,3 +73,10 @@ reserved = [
 "json." = "\"encoding/json\""
 "netip." = "\"net/netip\""
 "pgtype." = "\"github.com/jackc/pgx/v5/pgtype\""
+# ~keep board #221: a composite column's generated `fromText` (see go_pgx.rs's
+# `generate_composite_from_text`) uses these four for its own parsing, independently of whatever
+# scalar types the composite's fields resolve to.
+"fmt." = "\"fmt\""
+"strconv." = "\"strconv\""
+"strings." = "\"strings\""
+"hex." = "\"encoding/hex\""

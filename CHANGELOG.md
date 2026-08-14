@@ -116,10 +116,23 @@ building a `SqruffLinter` once (see **Removed**). Details below.
   through a generated `_from_text` / `parse{Name}`; asyncpg reads the `Record` it already decodes
   through `_from_record`. A nullable enum column likewise now reads as `None if raw is None else T(raw)`
   rather than calling the enum constructor on `None`. Verified live against PostgreSQL 16, which is
-  how the defect was found in the first place. Seven backends still decode a composite column to the
-  driver's raw value and are **not** fixed by this change: `go-pgx`, `ruby-pg`, `elixir-postgrex`,
-  `elixir-ecto`, `php-pdo`, `php-amphp` and `csharp-npgsql`. `php-pdo`, `php-amphp` and
-  `csharp-npgsql` fail loudly there; the rest hand back a wrong-typed value. (#204)
+  how the defect was found in the first place.
+
+  The remaining seven PostgreSQL backends are now fixed too, each according to what its driver
+  actually does — established by reading the vendored driver source rather than assuming:
+  `elixir-postgrex` and `elixir-ecto` get a `from_tuple` conversion, because Postgrex already
+  decodes a composite into a natively-typed positional tuple and never hands back text; `ruby-pg`,
+  `php-pdo`, `php-amphp`, `csharp-npgsql` and `go-pgx` get a text parser, because their drivers do
+  hand back `record_out` text. `csharp-npgsql` additionally sets `UnknownResultTypeList` for the
+  composite column, since Npgsql's native `MapComposite<T>` needs a registration the generated code
+  cannot perform on the caller's behalf; `go-pgx` is the same story for pgx's type map. PHP's parser
+  is emitted once per file as a shared class rather than copied into each composite. (#204)
+
+  **Coverage gap, stated plainly:** none of those seven integration harnesses selects a composite
+  column, so their passing runs prove compilation and absence of regression, not the fix. The fix is
+  backed by unit and regression tests that execute the emitted parsers through the real interpreter
+  against PostgreSQL 16's exact output, and by live driver probes — but end-to-end harness coverage
+  is tracked separately as board #226 and is not yet in place.
 
 - **The generated python composite parser did not type-check, and cast a NULL sub-field away.**
   `_from_text` fed `_parse_composite_fields`' `str | None` tokens straight into fields declared

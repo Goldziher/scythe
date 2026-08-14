@@ -104,6 +104,19 @@ fn emitted_read_type(code: &str) -> Result<String, String> {
         return Ok(type_arg.to_string());
     }
 
+    // ~keep board #220: the composite path never consults the accessor table either -- it
+    // reads the driver's raw text through `GetFieldValue<string>` and hands it to the
+    // composite's own `FromText`, so the expression's *declared* type is `FromText`'s
+    // receiver, not the `string` it decodes from.
+    if let Some(idx) = code.find(".FromText(reader.GetFieldValue<string>(") {
+        let head = &code[..idx];
+        let start = head
+            .rfind(|c: char| !(c.is_alphanumeric() || c == '_'))
+            .map(|p| p + 1)
+            .unwrap_or(0);
+        return Ok(head[start..].to_string());
+    }
+
     let mut found: Vec<&str> = Vec::new();
     let mut rest = code;
     while let Some(pos) = rest.find("reader.") {
@@ -171,12 +184,16 @@ const PG_QUERY: &str = "-- @name GetWidget\n-- @returns :one\n\
 
 /// The typed reads `PG_SCHEMA` must produce. Each one is a column whose
 /// manifest declaration `GetValue` (or, for the last two, `GetString`) could
-/// not bind to.
+/// not bind to. `home_address` is the odd one out: board #220 found that
+/// `reader.GetFieldValue<WidgetAddress>` -- what this list used to pin -- compiles but throws
+/// `InvalidCastException` at runtime, because Npgsql has no binary decoder for a composite
+/// unless the caller registers one. The fix parses the driver's text form instead of asking
+/// the reader for the composite type directly.
 const PG_EXPECTED_READS: &[&str] = &[
     "reader.GetFieldValue<List<string>>(1)",
     "reader.GetFieldValue<List<int>>(2)",
     "reader.GetFieldValue<List<WidgetStatus>>(3)",
-    "reader.GetFieldValue<WidgetAddress>(4)",
+    "WidgetAddress.FromText(reader.GetFieldValue<string>(4))",
     "reader.GetFieldValue<TimeSpan>(5)",
     "reader.GetFieldValue<System.Net.IPAddress>(6)",
     "reader.GetFieldValue<byte[]>(7)",

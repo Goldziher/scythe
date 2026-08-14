@@ -148,6 +148,16 @@ defmodule UserAddress do
   }
 
   defstruct [:street, :city, :zip]
+
+  def from_tuple(nil), do: nil
+
+  def from_tuple({street, city, zip}) do
+    %__MODULE__{
+      street: street,
+      city: city,
+      zip: zip,
+    }
+  end
 end
 
 defmodule GetUserProfileRow do
@@ -330,7 +340,7 @@ def get_user_profile(conn, id) do
   case Postgrex.query(conn, "SELECT id, secondary_status, address FROM users WHERE id = $1", [id]) do
     {:ok, %{rows: [row | _]}} ->
       [id, secondary_status, address] = row
-      {:ok, %GetUserProfileRow{id: id, secondary_status: secondary_status, address: address}}
+      {:ok, %GetUserProfileRow{id: id, secondary_status: secondary_status, address: UserAddress.from_tuple(address)}}
     {:ok, %{rows: []}} -> {:error, :not_found}
     {:error, err} -> {:error, err}
   end

@@ -145,7 +145,62 @@ WHERE u.id = $1", [id])
     end
   end
 
-  UserAddress = Data.define(:street, :city, :zip)
+  UserAddress = Data.define(:street, :city, :zip) do
+    # ~keep board #219: pg hands back a PostgreSQL composite as its raw text form,
+    # not this generated type; parse it here instead.
+    def self.from_text(text)
+      return nil if text.nil?
+
+      f = _parse_composite_fields(text)
+      new(
+        street: f[0],
+        city: f[1],
+        zip: f[2]
+      )
+    end
+
+    def self._parse_composite_fields(text)
+      fields = []
+      inner = text[1..-2]
+      i = 0
+      n = inner.length
+      loop do
+        chars = []
+        is_null = false
+        if i < n && inner[i] == '"'
+          i += 1
+          while i < n
+            c = inner[i]
+            if c == "\\" && i + 1 < n
+              chars << inner[i + 1]
+              i += 2
+            elsif c == '"' && i + 1 < n && inner[i + 1] == '"'
+              chars << '"'
+              i += 2
+            elsif c == '"'
+              i += 1
+              break
+            else
+              chars << c
+              i += 1
+            end
+          end
+        else
+          start = i
+          i += 1 while i < n && inner[i] != ','
+          chars = inner[start...i].chars
+          is_null = chars.empty?
+        end
+        fields << (is_null ? nil : chars.join)
+        if i < n && inner[i] == ','
+          i += 1
+          next
+        end
+        break
+      end
+      fields
+    end
+  end
 
 
   GetUserProfileRow = Data.define(:id, :secondary_status, :address)
@@ -155,7 +210,7 @@ WHERE u.id = $1", [id])
     result = conn.exec_params("SELECT id, secondary_status, address FROM users WHERE id = $1", [id])
     raise RecordNotFound, "get_user_profile: no row found" if result.ntuples.zero?
     row = result[0]
-    GetUserProfileRow.new(id: row["id"].to_i, secondary_status: row["secondary_status"]&.then { |v| v }, address: row["address"]&.then { |v| v })
+    GetUserProfileRow.new(id: row["id"].to_i, secondary_status: row["secondary_status"]&.then { |v| v }, address: UserAddress.from_text(row["address"]))
   end
 
 end

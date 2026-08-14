@@ -8,6 +8,7 @@ import {
 	getUserOrders,
 	deleteOrdersByUser,
 	deleteUser,
+	getUserProfile,
 	UserStatusValues,
 } from "./generated/queries.js";
 
@@ -147,6 +148,87 @@ async function main(): Promise<void> {
 			`expected total 99.95`,
 		);
 		console.log("PASS: GetOrdersByUser");
+
+		// Test: GetUserProfile (board #197/#204) -- a nullable enum and a
+		// nullable composite column, each observed both present and as SQL
+		// NULL, plus a composite field containing a double quote and a comma
+		// to prove parseUserAddress handles record_out's doubled-quote
+		// escaping (board #204) rather than truncating on it.
+		const presentRow = await client.query(
+			"INSERT INTO users (name, email, status, secondary_status, address) " +
+				"VALUES ('Carol', 'carol@example.com', 'active', 'inactive', " +
+				"ROW('1 Main St', 'Springfield', '12345')) RETURNING id",
+		);
+		const presentId: number = presentRow.rows[0]!.id;
+		const absentRow = await client.query(
+			"INSERT INTO users (name, email, status, secondary_status, address) " +
+				"VALUES ('Dave', 'dave@example.com', 'active', NULL, NULL) RETURNING id",
+		);
+		const absentId: number = absentRow.rows[0]!.id;
+		const quotedRow = await client.query(
+			"INSERT INTO users (name, email, status, secondary_status, address) " +
+				"VALUES ('Eve', 'eve@example.com', 'active', 'inactive', " +
+				"ROW('12 \"Main\", Apt 3', 'Berlin', '10115')) RETURNING id",
+		);
+		const quotedId: number = quotedRow.rows[0]!.id;
+
+		const profile = await getUserProfile(client, presentId);
+		assert(
+			profile.secondary_status === "inactive",
+			"GetUserProfile",
+			`expected secondary_status inactive, got ${profile.secondary_status}`,
+		);
+		assert(profile.address !== null, "GetUserProfile", "expected address to be present");
+		assert(
+			profile.address!.street === "1 Main St",
+			"GetUserProfile",
+			`expected address.street '1 Main St', got ${profile.address!.street}`,
+		);
+		assert(
+			profile.address!.city === "Springfield",
+			"GetUserProfile",
+			`expected address.city 'Springfield', got ${profile.address!.city}`,
+		);
+		assert(
+			profile.address!.zip === "12345",
+			"GetUserProfile",
+			`expected address.zip '12345', got ${profile.address!.zip}`,
+		);
+
+		const nullProfile = await getUserProfile(client, absentId);
+		assert(
+			nullProfile.secondary_status === null,
+			"GetUserProfile",
+			`expected secondary_status null, got ${nullProfile.secondary_status}`,
+		);
+		assert(
+			nullProfile.address === null,
+			"GetUserProfile",
+			`expected address null, got ${JSON.stringify(nullProfile.address)}`,
+		);
+
+		const quotedProfile = await getUserProfile(client, quotedId);
+		assert(quotedProfile.address !== null, "GetUserProfile", "expected quoted address to be present");
+		assert(
+			quotedProfile.address!.street === '12 "Main", Apt 3',
+			"GetUserProfile",
+			`expected address.street '12 "Main", Apt 3', got ${quotedProfile.address!.street}`,
+		);
+		assert(
+			quotedProfile.address!.city === "Berlin",
+			"GetUserProfile",
+			`expected address.city 'Berlin', got ${quotedProfile.address!.city}`,
+		);
+		assert(
+			quotedProfile.address!.zip === "10115",
+			"GetUserProfile",
+			`expected address.zip '10115', got ${quotedProfile.address!.zip}`,
+		);
+		console.log("PASS: GetUserProfile (nullable enum + composite)");
+
+		await deleteUser(client, presentId);
+		await deleteUser(client, absentId);
+		await deleteUser(client, quotedId);
 
 		// Test: GetUserOrders (LEFT JOIN discriminated union). Bob has no
 		// orders, so his row must land in the "unmatched" variant (every

@@ -2,7 +2,7 @@ use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{composite_type_name, enum_type_name, enum_variant_name, fn_name};
 use std::fmt::Write;
 
-use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
+use scythe_core::analyzer::{AnalyzedQuery, CompositeFieldInfo, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
@@ -54,6 +54,83 @@ fn ruby_coercion(neutral_type: &str, manifest: &BackendManifest) -> &'static str
         _ => "",
     }
 }
+
+/// Board #219: the `pg` gem does no client-side decoding of a user-defined composite -- a
+/// column typed `composite::address` comes back exactly like every other `pg` value, the
+/// driver's raw text form, but `ruby_coercion` has no table entry for it (`composite::*` is
+/// never a manifest scalar), so it fell through to the empty-string arm and the raw text
+/// reached the row struct untouched, silently wrong against the declared `Address` type.
+/// `{Struct}.from_text` (emitted by `generate_composite_def`) parses that text and is already
+/// nil-safe, so it replaces the coercion entirely rather than composing with it.
+fn ruby_composite_column_expr(col: &ResolvedColumn, raw: &str) -> Option<String> {
+    col.neutral_type
+        .starts_with("composite::")
+        .then(|| format!("{}.from_text({})", col.lang_type, raw))
+}
+
+/// The Ruby expression converting one composite field's raw text token (`raw`, already
+/// unescaped by `_parse_composite_fields`) into the field's declared value.
+///
+/// Reuses `ruby_coercion` -- the same table every top-level column already goes through --
+/// rather than a bespoke per-field table, so a scalar composite field behaves identically to a
+/// column of that same neutral type (including the existing gaps in that table, e.g. no
+/// `date`/`time` parsing: not something this fix introduces or can close from here). A nested
+/// `composite::` field recurses through that nested type's own `from_text`, which is already
+/// nil-safe on a genuinely NULL sub-field.
+fn ruby_composite_field_from_text(field: &CompositeFieldInfo, raw: &str, manifest: &BackendManifest) -> String {
+    if let Some(sql_name) = field.neutral_type.strip_prefix("composite::") {
+        return format!("{}.from_text({})", composite_type_name(sql_name, &manifest.naming), raw);
+    }
+    format!("{raw}{}", ruby_coercion(&field.neutral_type, manifest))
+}
+
+/// Splits a PostgreSQL composite's text form (`"(a,b,c)"`) into its raw field tokens, honoring
+/// its escaping rules -- an empty unquoted field is SQL NULL, and a field containing a comma,
+/// paren, quote, backslash, or leading/trailing space (or the empty string) is double-quoted,
+/// with an inner `"` **doubled** and an inner `\` backslash-escaped. See
+/// `tests/composite_text_escaping_regression.rs` for the PostgreSQL 16 output this was read off.
+const RUBY_PARSE_COMPOSITE_FIELDS_METHOD: &str = r#"    def self._parse_composite_fields(text)
+      fields = []
+      inner = text[1..-2]
+      i = 0
+      n = inner.length
+      loop do
+        chars = []
+        is_null = false
+        if i < n && inner[i] == '"'
+          i += 1
+          while i < n
+            c = inner[i]
+            if c == "\\" && i + 1 < n
+              chars << inner[i + 1]
+              i += 2
+            elsif c == '"' && i + 1 < n && inner[i + 1] == '"'
+              chars << '"'
+              i += 2
+            elsif c == '"'
+              i += 1
+              break
+            else
+              chars << c
+              i += 1
+            end
+          end
+        else
+          start = i
+          i += 1 while i < n && inner[i] != ','
+          chars = inner[start...i].chars
+          is_null = chars.empty?
+        end
+        fields << (is_null ? nil : chars.join)
+        if i < n && inner[i] == ','
+          i += 1
+          next
+        end
+        break
+      end
+      fields
+    end
+"#;
 
 impl CodegenBackend for RubyPgBackend {
     fn name(&self) -> &str {
@@ -177,11 +254,15 @@ impl CodegenBackend for RubyPgBackend {
                 let fields = columns
                     .iter()
                     .map(|c| {
+                        let raw = format!("row[\"{}\"]", c.name);
+                        if let Some(expr) = ruby_composite_column_expr(c, &raw) {
+                            return format!("{}: {}", c.field_name, expr);
+                        }
                         let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
-                            format!("{}: row[\"{}\"]&.then {{ |v| v{} }}", c.field_name, c.name, coercion)
+                            format!("{}: {}&.then {{ |v| v{} }}", c.field_name, raw, coercion)
                         } else {
-                            format!("{}: row[\"{}\"]{}", c.field_name, c.name, coercion)
+                            format!("{}: {}{}", c.field_name, raw, coercion)
                         }
                     })
                     .collect::<Vec<_>>()
@@ -196,11 +277,15 @@ impl CodegenBackend for RubyPgBackend {
                 let fields = columns
                     .iter()
                     .map(|c| {
+                        let raw = format!("row[\"{}\"]", c.name);
+                        if let Some(expr) = ruby_composite_column_expr(c, &raw) {
+                            return format!("{}: {}", c.field_name, expr);
+                        }
                         let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
-                            format!("{}: row[\"{}\"]&.then {{ |v| v{} }}", c.field_name, c.name, coercion)
+                            format!("{}: {}&.then {{ |v| v{} }}", c.field_name, raw, coercion)
                         } else {
-                            format!("{}: row[\"{}\"]{}", c.field_name, c.name, coercion)
+                            format!("{}: {}{}", c.field_name, raw, coercion)
                         }
                     })
                     .collect::<Vec<_>>()
@@ -230,11 +315,15 @@ impl CodegenBackend for RubyPgBackend {
                 let fields = columns
                     .iter()
                     .map(|c| {
+                        let raw = format!("row[\"{}\"]", c.name);
+                        if let Some(expr) = ruby_composite_column_expr(c, &raw) {
+                            return format!("{}: {}", c.field_name, expr);
+                        }
                         let coercion = ruby_coercion(&c.neutral_type, &self.manifest);
                         if c.nullable {
-                            format!("{}: row[\"{}\"]&.then {{ |v| v{} }}", c.field_name, c.name, coercion)
+                            format!("{}: {}&.then {{ |v| v{} }}", c.field_name, raw, coercion)
                         } else {
-                            format!("{}: row[\"{}\"]{}", c.field_name, c.name, coercion)
+                            format!("{}: {}{}", c.field_name, raw, coercion)
                         }
                     })
                     .collect::<Vec<_>>()
@@ -327,15 +416,20 @@ impl CodegenBackend for RubyPgBackend {
         let _ = writeln!(out, "        _index[key] = _entries.size");
         let _ = writeln!(out, "        _entries << {{");
         for col in parent_columns {
+            let raw = format!("row[\"{}\"]", col.name);
+            if let Some(expr) = ruby_composite_column_expr(col, &raw) {
+                let _ = writeln!(out, "          {}: {},", col.field_name, expr);
+                continue;
+            }
             let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
             if col.nullable && !coercion.is_empty() {
                 let _ = writeln!(
                     out,
-                    "          {}: row[\"{}\"]&.then {{ |v| v{} }},",
-                    col.field_name, col.name, coercion
+                    "          {}: {}&.then {{ |v| v{} }},",
+                    col.field_name, raw, coercion
                 );
             } else {
-                let _ = writeln!(out, "          {}: row[\"{}\"]{},", col.field_name, col.name, coercion);
+                let _ = writeln!(out, "          {}: {}{},", col.field_name, raw, coercion);
             }
         }
         let _ = writeln!(out, "          children: []");
@@ -347,15 +441,20 @@ impl CodegenBackend for RubyPgBackend {
             child_struct_name
         );
         for col in child_columns {
+            let raw = format!("row[\"{}\"]", col.name);
+            if let Some(expr) = ruby_composite_column_expr(col, &raw) {
+                let _ = writeln!(out, "        {}: {},", col.field_name, expr);
+                continue;
+            }
             let coercion = ruby_coercion(&col.neutral_type, &self.manifest);
             if col.nullable && !coercion.is_empty() {
                 let _ = writeln!(
                     out,
-                    "        {}: row[\"{}\"]&.then {{ |v| v{} }},",
-                    col.field_name, col.name, coercion
+                    "        {}: {}&.then {{ |v| v{} }},",
+                    col.field_name, raw, coercion
                 );
             } else {
-                let _ = writeln!(out, "        {}: row[\"{}\"]{},", col.field_name, col.name, coercion);
+                let _ = writeln!(out, "        {}: {}{},", col.field_name, raw, coercion);
             }
         }
         let _ = writeln!(out, "      )");
@@ -388,17 +487,41 @@ impl CodegenBackend for RubyPgBackend {
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
         let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
         let mut out = String::new();
+        // ~keep board #219: a composite with zero fields cannot exist in PostgreSQL
+        // (`CREATE TYPE ... AS ()` is rejected), so there is no reachable runtime value that
+        // would need `from_text` here. Left as the bare `Data.define()` it always was.
         if composite.fields.is_empty() {
             let _ = writeln!(out, "  {} = Data.define()", name);
-        } else {
-            let fields = composite
-                .fields
-                .iter()
-                .map(|f| format!(":{}", f.name))
-                .collect::<Vec<_>>()
-                .join(", ");
-            let _ = writeln!(out, "  {} = Data.define({})", name, fields);
+            return Ok(out);
         }
+        let fields = composite
+            .fields
+            .iter()
+            .map(|f| format!(":{}", f.name))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let _ = writeln!(out, "  {} = Data.define({}) do", name, fields);
+        let _ = writeln!(
+            out,
+            "    # ~keep board #219: pg hands back a PostgreSQL composite as its raw text form,"
+        );
+        let _ = writeln!(out, "    # not this generated type; parse it here instead.");
+        let _ = writeln!(out, "    def self.from_text(text)");
+        let _ = writeln!(out, "      return nil if text.nil?");
+        let _ = writeln!(out);
+        let _ = writeln!(out, "      f = _parse_composite_fields(text)");
+        let _ = writeln!(out, "      new(");
+        for (i, field) in composite.fields.iter().enumerate() {
+            let raw = format!("f[{}]", i);
+            let expr = ruby_composite_field_from_text(field, &raw, &self.manifest);
+            let sep = if i + 1 < composite.fields.len() { "," } else { "" };
+            let _ = writeln!(out, "        {}: {}{}", field.name, expr, sep);
+        }
+        let _ = writeln!(out, "      )");
+        let _ = writeln!(out, "    end");
+        let _ = writeln!(out);
+        out.push_str(RUBY_PARSE_COMPOSITE_FIELDS_METHOD);
+        let _ = writeln!(out, "  end");
         Ok(out)
     }
 }

@@ -7,6 +7,68 @@ namespace App\Generated;
 
 final class RecordNotFoundException extends \RuntimeException {}
 
+final class ScytheCompositeText {
+    /**
+     * ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
+     * honoring its escaping rules: an empty unquoted field is SQL NULL (returned as null); a
+     * field needing quoting (containing a comma, paren, quote, backslash, or leading/trailing
+     * space, or the empty string) is wrapped in double quotes; every other field is unquoted and
+     * taken literally. A nested composite's own "(x,y)" text form always contains parens, so it
+     * always comes back quoted here, ready for that type's own fromText to parse recursively.
+     *
+     * Inside a quoted field record_out writes a literal '"' as '""' and a literal '\' as '\\'.
+     * Both spellings must be accepted: reading '""' as "closing quote, then a new field" both
+     * truncates the value and desynchronizes every field after it. Verified against
+     * PostgreSQL 16 -- ROW('he said "hi"', 'back\slash', NULL) renders as
+     * ("he said ""hi""","back\\slash",).
+     *
+     * @return array<int, string|null>
+     */
+    public static function parseCompositeFields(string $text): array {
+        $fields = [];
+        $inner = substr($text, 1, strlen($text) - 2);
+        $i = 0;
+        $n = strlen($inner);
+        while (true) {
+            $field = '';
+            $isNull = false;
+            if ($i < $n && $inner[$i] === '"') {
+                $i++;
+                while ($i < $n) {
+                    $c = $inner[$i];
+                    if ($c === '\\' && $i + 1 < $n) {
+                        $field .= $inner[$i + 1];
+                        $i += 2;
+                    } elseif ($c === '"' && $i + 1 < $n && $inner[$i + 1] === '"') {
+                        $field .= '"';
+                        $i += 2;
+                    } elseif ($c === '"') {
+                        $i++;
+                        break;
+                    } else {
+                        $field .= $c;
+                        $i++;
+                    }
+                }
+            } else {
+                $start = $i;
+                while ($i < $n && $inner[$i] !== ',') {
+                    $i++;
+                }
+                $field = substr($inner, $start, $i - $start);
+                $isNull = $field === '';
+            }
+            $fields[] = $isNull ? null : $field;
+            if ($i < $n && $inner[$i] === ',') {
+                $i++;
+                continue;
+            }
+            break;
+        }
+        return $fields;
+    }
+}
+
 
 enum UserStatus: string {
     case ACTIVE = "active";
@@ -198,10 +260,22 @@ readonly class SearchUsersRow {
 
 readonly class UserAddress {
     public function __construct(
-        public mixed $street,
-        public mixed $city,
-        public mixed $zip,
+        public string $street,
+        public string $city,
+        public string $zip,
     ) {}
+
+    public static function fromText(?string $text): ?self {
+        if ($text === null) {
+            return null;
+        }
+        $f = ScytheCompositeText::parseCompositeFields($text);
+        return new self(
+            (string) $f[0],
+            (string) $f[1],
+            (string) $f[2],
+        );
+    }
 }
 
 readonly class GetUserProfileRow {
@@ -215,7 +289,7 @@ readonly class GetUserProfileRow {
         return new self(
             id: (int) $row['id'],
             secondary_status: $row['secondary_status'] !== null ? UserStatus::from($row['secondary_status']) : null,
-            address: $row['address'] !== null ? $row['address'] : null,
+            address: UserAddress::fromText($row['address']),
         );
     }
 }

@@ -1,5 +1,5 @@
 use scythe_backend::manifest::BackendManifest;
-use scythe_backend::naming::{composite_type_name, enum_type_name, enum_variant_name, fn_name};
+use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name};
 use std::collections::HashMap;
 use std::fmt::Write;
 
@@ -8,6 +8,7 @@ use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
+use crate::GeneratedCode;
 use crate::backend_options::reject_unknown_options;
 use crate::backend_trait::{CodegenBackend, GroupedQueryFn, ResolvedColumn, ResolvedParam};
 use crate::backends::php_common::{
@@ -90,6 +91,7 @@ fn php_convert_column(neutral_type: &str, lang_type: &str, value_expr: &str) -> 
 /// conversions as the regular `fromRow` factory.
 fn php_row_expr(c: &ResolvedColumn) -> String {
     let is_enum = c.neutral_type.starts_with("enum::");
+    let is_composite = c.neutral_type.starts_with("composite::");
     let is_datetime = matches!(
         c.neutral_type.as_str(),
         "date" | "time" | "time_tz" | "datetime" | "datetime_tz"
@@ -103,6 +105,11 @@ fn php_row_expr(c: &ResolvedColumn) -> String {
         } else {
             format!("{}::from($row['{}'])", c.lang_type, c.name)
         }
+    } else if is_composite {
+        // ~keep board #220: `fromText` already returns null for a null column, so no ternary
+        // guard is needed here regardless of `c.nullable` -- unlike enum's `::from`/datetime's
+        // `new \DateTimeImmutable`, both of which throw on null and must be guarded above.
+        format!("{}::fromText($row['{}'])", c.lang_type, c.name)
     } else if is_datetime {
         if c.nullable {
             format!(
@@ -133,6 +140,7 @@ fn write_php_from_row_method(out: &mut String, columns: &[ResolvedColumn]) {
     for c in columns.iter() {
         let sep = ",";
         let is_enum = c.neutral_type.starts_with("enum::");
+        let is_composite = c.neutral_type.starts_with("composite::");
         let is_datetime = matches!(
             c.neutral_type.as_str(),
             "date" | "time" | "time_tz" | "datetime" | "datetime_tz"
@@ -152,6 +160,12 @@ fn write_php_from_row_method(out: &mut String, columns: &[ResolvedColumn]) {
                     c.field_name, enum_type, c.name, sep
                 );
             }
+        } else if is_composite {
+            let _ = writeln!(
+                out,
+                "            {}: {}::fromText($row['{}']){}",
+                c.field_name, c.lang_type, c.name, sep
+            );
         } else if is_datetime {
             if c.nullable {
                 let _ = writeln!(
@@ -226,6 +240,18 @@ impl CodegenBackend for PhpAmphpBackend {
         )
     }
 
+    fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
+        // ~keep Each composite's `fromText` calls the shared parser, which is declared exactly
+        // once per file rather than copied into every composite class -- see
+        // `php_common::PHP_COMPOSITE_PARSER_CLASS`. Gated on an actual call site so a file with
+        // no composite column does not carry a class nothing references.
+        format!(
+            "{}{}",
+            self.file_header(),
+            super::php_common::composite_parser_class_if_used(generated)
+        )
+    }
+
     fn query_class_header(&self) -> String {
         "final class Queries {".to_string()
     }
@@ -255,6 +281,7 @@ impl CodegenBackend for PhpAmphpBackend {
         for c in columns.iter() {
             let sep = ",";
             let is_enum = c.neutral_type.starts_with("enum::");
+            let is_composite = c.neutral_type.starts_with("composite::");
             let is_datetime = matches!(
                 c.neutral_type.as_str(),
                 "date" | "time" | "time_tz" | "datetime" | "datetime_tz"
@@ -274,6 +301,12 @@ impl CodegenBackend for PhpAmphpBackend {
                         c.field_name, enum_type, c.name, sep
                     );
                 }
+            } else if is_composite {
+                let _ = writeln!(
+                    out,
+                    "            {}: {}::fromText($row['{}']){}",
+                    c.field_name, c.lang_type, c.name, sep
+                );
             } else if is_datetime {
                 if c.nullable {
                     let _ = writeln!(
@@ -644,19 +677,7 @@ impl CodegenBackend for PhpAmphpBackend {
     }
 
     fn generate_composite_def(&self, composite: &CompositeInfo) -> Result<String, ScytheError> {
-        let name = composite_type_name(&composite.sql_name, &self.manifest.naming);
-        let mut out = String::new();
-        let _ = writeln!(out, "readonly class {} {{", name);
-        let _ = writeln!(out, "    public function __construct(");
-        if composite.fields.is_empty() {
-        } else {
-            for field in &composite.fields {
-                let _ = writeln!(out, "        public mixed ${},", field.name);
-            }
-        }
-        let _ = writeln!(out, "    ) {{}}");
-        let _ = write!(out, "}}");
-        Ok(out)
+        crate::backends::php_common::generate_composite_def(composite, &self.manifest)
     }
 }
 

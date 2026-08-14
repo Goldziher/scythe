@@ -257,7 +257,101 @@ public record UserAddress(
     string Street,
     string City,
     string Zip
-);
+) {
+    /// <summary>
+    /// ~keep board #220: Npgsql has no binary decoder for this composite unless the
+    /// caller registers one with NpgsqlDataSourceBuilder.MapComposite&lt;UserAddress&gt;() --
+    /// this generated code cannot do that on the caller's behalf, so it parses the
+    /// driver's composite text form instead.
+    /// </summary>
+    public static UserAddress? FromText(string? text)
+    {
+        if (text is null)
+        {
+            return null;
+        }
+        var f = ParseCompositeFields(text);
+        return new UserAddress(
+            f[0]!,
+            f[1]!,
+            f[2]!
+        );
+    }
+
+    /// <summary>
+    /// ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
+    /// honoring its escaping rules: an empty unquoted field is SQL NULL (returned as null); a
+    /// field needing quoting (containing a comma, paren, quote, backslash, or leading/trailing
+    /// space, or the empty string) is wrapped in double quotes; every other field is unquoted
+    /// and taken literally. A nested composite's own "(x,y)" text form always contains parens,
+    /// so it always comes back quoted here, ready for that type's own FromText to parse
+    /// recursively.
+    ///
+    /// Inside a quoted field record_out writes a literal '"' as '""' and a literal '\' as '\\'.
+    /// Both spellings must be accepted: reading '""' as "closing quote, then a new field" both
+    /// truncates the value and desynchronizes every field after it. Verified against
+    /// PostgreSQL 16 -- ROW('he said "hi"', 'back\slash', NULL) renders as
+    /// ("he said ""hi""","back\\slash",).
+    /// </summary>
+    private static List<string?> ParseCompositeFields(string text)
+    {
+        var fields = new List<string?>();
+        var inner = text.Substring(1, text.Length - 2);
+        int i = 0;
+        int n = inner.Length;
+        while (true)
+        {
+            var field = new System.Text.StringBuilder();
+            bool isNull = false;
+            if (i < n && inner[i] == '"')
+            {
+                i++;
+                while (i < n)
+                {
+                    char c = inner[i];
+                    if (c == '\\' && i + 1 < n)
+                    {
+                        field.Append(inner[i + 1]);
+                        i += 2;
+                    }
+                    else if (c == '"' && i + 1 < n && inner[i + 1] == '"')
+                    {
+                        field.Append('"');
+                        i += 2;
+                    }
+                    else if (c == '"')
+                    {
+                        i++;
+                        break;
+                    }
+                    else
+                    {
+                        field.Append(c);
+                        i++;
+                    }
+                }
+            }
+            else
+            {
+                int start = i;
+                while (i < n && inner[i] != ',')
+                {
+                    i++;
+                }
+                field.Append(inner, start, i - start);
+                isNull = field.Length == 0;
+            }
+            fields.Add(isNull ? null : field.ToString());
+            if (i < n && inner[i] == ',')
+            {
+                i++;
+                continue;
+            }
+            break;
+        }
+        return fields;
+    }
+}
 
 public record GetUserProfileRow(
     int Id,
@@ -268,12 +362,13 @@ public record GetUserProfileRow(
 public static async Task<GetUserProfileRow> GetUserProfile(NpgsqlConnection conn, int id) {
     await using var cmd = new NpgsqlCommand(@"SELECT id, secondary_status, address FROM users WHERE id = @p1", conn);
     cmd.Parameters.AddWithValue("p1", id);
+    cmd.UnknownResultTypeList = new[] { false, false, true };
     await using var reader = await cmd.ExecuteReaderAsync();
     if (!await reader.ReadAsync()) throw new InvalidOperationException("GetUserProfile expected exactly one row but found none");
     return new GetUserProfileRow(
         reader.GetInt32(0),
         reader.IsDBNull(1) ? null : (Enum.TryParse<UserStatus>(reader.GetString(1), true, out var enumVal1) ? enumVal1 : throw new InvalidOperationException($"Invalid enum value '{reader.GetString(1)}' for UserStatus")),
-        reader.IsDBNull(2) ? null : reader.GetFieldValue<UserAddress>(2)
+        reader.IsDBNull(2) ? null : UserAddress.FromText(reader.GetFieldValue<string>(2))!
     );
 }
 

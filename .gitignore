@@ -53,6 +53,10 @@ website/.astro/
 # snowflake-sdk writes this on every run
 snowflake.log
 
+# The BEUM VM dumps this at the repo root when an elixir harness crashes -- a few MB
+# of run artifact that trips the large-file pre-commit hook if it is ever staged.
+erl_crash.dump
+
 # BEGIN ai-rulez (DO NOT EDIT - managed by ai-rulez)
 .ai-rulez/.generated-manifest.json
 .codex/
