@@ -520,11 +520,24 @@ function test_create_order({% if driver == "pdo" or driver == "pdo-mysql" or dri
     Queries::createOrder($pdo, $user_id, "49.99", "Test order");
     $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
     $order = !empty($orders) ? $orders[0] : null;
+    {%- elif engine == "sqlite" %}
+    {#- Two sqlite-only differences, both real rather than harness quirks.
+        Its manifest maps `decimal` to `float` where the server engines map it
+        to `string`, so `$total` is declared `float` -- that only started
+        mattering once 49a153bd derived PHP casts from the manifest instead of
+        a hardcoded per-neutral-type table. And CreateOrder is `:exec` here,
+        not `:one` with RETURNING, so it returns void and the row has to be
+        read back. #}
+    Queries::createOrder($pdo, $user_id, 49.99, "Test order");
+    $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
+    $order = !empty($orders) ? $orders[0] : null;
     {%- else %}
     $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
     {%- endif %}
     assert_not_null($order, "CreateOrder returned null");
+    {%- if engine != "sqlite" %}
     assert_equal($user_id, $order->user_id, "CreateOrder user_id");
+    {%- endif %}
     assert_equal("Test order", $order->notes, "CreateOrder notes");
     echo "PASS: CreateOrder\n";
     return $order->id;

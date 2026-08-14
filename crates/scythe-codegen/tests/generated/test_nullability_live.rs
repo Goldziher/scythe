@@ -1705,7 +1705,7 @@ fn test_live_nullif_with_equal_operands_is_null() {
 #[test]
 fn test_live_like_on_nullable_operand_is_null() {
     // From: testing_data/nullability_live/pattern_matching/live_like_on_nullable_operand_is_null.json
-    // "LIKE over a nullable column is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised LIKE at all, so a fix that only changed the analyzer's model of NULL LIKE 'x' could regress silently"
+    // "LIKE over a nullable column is observed NULL against a live engine, not merely asserted from the model -- the #163 gap: no live fixture exercised LIKE at all, so a fix that only changed the analyzer's model of NULL LIKE 'x' could regress silently. Restricted to the engines where a LIKE predicate is a legal value expression in a select list: T-SQL and Oracle have no boolean type there, so MSSQL fails with 'Incorrect syntax near the keyword LIKE' and Oracle with ORA-00923 before any nullability is observed. Covering them needs a CASE wrapper, and the harness runs one literal query_sql per engine with no per-engine rewrite."
     let schema_sql = &[
         "CREATE TABLE users (id SERIAL PRIMARY KEY, name TEXT NOT NULL, email TEXT, created_at TIMESTAMPTZ NOT NULL DEFAULT now())",
     ];

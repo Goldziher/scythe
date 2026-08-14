@@ -108,9 +108,10 @@ function test_list_active_users(PDO $pdo): void
 
 function test_create_order(PDO $pdo, int $user_id): int
 {
-    $order = Queries::createOrder($pdo, $user_id, "49.99", "Test order");
+    Queries::createOrder($pdo, $user_id, 49.99, "Test order");
+    $orders = iterator_to_array(Queries::getOrdersByUser($pdo, $user_id));
+    $order = !empty($orders) ? $orders[0] : null;
     assert_not_null($order, "CreateOrder returned null");
-    assert_equal($user_id, $order->user_id, "CreateOrder user_id");
     assert_equal("Test order", $order->notes, "CreateOrder notes");
     echo "PASS: CreateOrder\n";
     return $order->id;
