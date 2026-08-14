@@ -6,6 +6,7 @@ use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_came
 
 use scythe_backend::types::resolve_type;
 
+use scythe_core::SqlDialect;
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
@@ -518,10 +519,16 @@ impl CodegenBackend for JavaJdbcBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_java_string(&super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
-            |_| "?".to_string(),
-        ));
+        let dialect = SqlDialect::from_str(&self.engine).unwrap_or_default();
+        let cleaned_sql = super::clean_sql_oneline_with_optional_dialect(
+            &analyzed.sql,
+            dialect,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
+        let (rewritten_sql, occurrences) =
+            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let sql = crate::sql_literal::escape_java_string(&rewritten_sql);
 
         let param_list = params.iter().map(java_annotated_param).collect::<Vec<_>>().join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
@@ -536,7 +543,8 @@ impl CodegenBackend for JavaJdbcBackend {
                     func_name, sep, param_list
                 );
                 let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
-                for (i, param) in params.iter().enumerate() {
+                for (i, position) in occurrences.iter().enumerate() {
+                    let param = super::resolved_param_for_position(&analyzed.params, params, *position);
                     let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
                 }
                 let _ = writeln!(out, "        ps.executeUpdate();");
@@ -550,7 +558,8 @@ impl CodegenBackend for JavaJdbcBackend {
                     func_name, sep, param_list
                 );
                 let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
-                for (i, param) in params.iter().enumerate() {
+                for (i, position) in occurrences.iter().enumerate() {
+                    let param = super::resolved_param_for_position(&analyzed.params, params, *position);
                     let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
                 }
                 let _ = writeln!(out, "        return ps.executeUpdate();");
@@ -585,7 +594,8 @@ impl CodegenBackend for JavaJdbcBackend {
                 let is_mariadb_returning = self.engine == "mariadb" && sql.to_uppercase().contains("RETURNING");
                 if is_mariadb_returning {
                     let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
-                    for (i, param) in params.iter().enumerate() {
+                    for (i, position) in occurrences.iter().enumerate() {
+                        let param = super::resolved_param_for_position(&analyzed.params, params, *position);
                         let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
                     }
                     let _ = writeln!(out, "        ps.execute();");
@@ -604,7 +614,8 @@ impl CodegenBackend for JavaJdbcBackend {
                     let into_placeholders = columns.iter().map(|_| "?").collect::<Vec<_>>().join(", ");
                     let full_sql = format!("BEGIN {} INTO {}; END;", sql, into_placeholders);
                     let _ = writeln!(out, "    try (var cs = conn.prepareCall(\"{}\")) {{", full_sql);
-                    for (i, param) in params.iter().enumerate() {
+                    for (i, position) in occurrences.iter().enumerate() {
+                        let param = super::resolved_param_for_position(&analyzed.params, params, *position);
                         let setter = ps_setter(&param.lang_type);
                         let _ = writeln!(out, "        cs.{}({}, {});", setter, i + 1, param.field_name);
                     }
@@ -613,14 +624,14 @@ impl CodegenBackend for JavaJdbcBackend {
                         let _ = writeln!(
                             out,
                             "        cs.registerOutParameter({}, {});",
-                            params.len() + i + 1,
+                            occurrences.len() + i + 1,
                             jdbc_type
                         );
                     }
                     let _ = writeln!(out, "        cs.execute();");
                     let _ = writeln!(out, "        return new {}(", struct_name);
                     for (i, col) in columns.iter().enumerate() {
-                        let getter_call = oracle_cs_getter_call(&col.neutral_type, params.len() + i + 1);
+                        let getter_call = oracle_cs_getter_call(&col.neutral_type, occurrences.len() + i + 1);
                         let sep = if i + 1 < columns.len() { "," } else { "" };
                         let _ = writeln!(out, "            cs.{}{}", getter_call, sep);
                     }
@@ -629,7 +640,8 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = write!(out, "}}");
                 } else {
                     let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
-                    for (i, param) in params.iter().enumerate() {
+                    for (i, position) in occurrences.iter().enumerate() {
+                        let param = super::resolved_param_for_position(&analyzed.params, params, *position);
                         let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
                     }
                     let _ = writeln!(out, "        try (ResultSet rs = ps.executeQuery()) {{");
@@ -653,7 +665,8 @@ impl CodegenBackend for JavaJdbcBackend {
                     struct_name, func_name, sep, param_list
                 );
                 let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
-                for (i, param) in params.iter().enumerate() {
+                for (i, position) in occurrences.iter().enumerate() {
+                    let param = super::resolved_param_for_position(&analyzed.params, params, *position);
                     let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
                 }
                 let _ = writeln!(out, "        try (ResultSet rs = ps.executeQuery()) {{");
@@ -685,7 +698,8 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "    conn.setAutoCommit(false);");
                     let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                     let _ = writeln!(out, "        for (var item : items) {{");
-                    for (i, param) in params.iter().enumerate() {
+                    for (i, position) in occurrences.iter().enumerate() {
+                        let param = super::resolved_param_for_position(&analyzed.params, params, *position);
                         let setter = ps_setter(&param.lang_type);
                         let _ = writeln!(
                             out,
@@ -718,7 +732,9 @@ impl CodegenBackend for JavaJdbcBackend {
                     let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{}\")) {{", sql);
                     let _ = writeln!(out, "        for (var item : items) {{");
                     let setter = ps_setter(&param.lang_type);
-                    let _ = writeln!(out, "            ps.{}(1, item);", setter);
+                    for i in 0..occurrences.len() {
+                        let _ = writeln!(out, "            ps.{}({}, item);", setter, i + 1);
+                    }
                     let _ = writeln!(out, "            ps.addBatch();");
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "        ps.executeBatch();");
@@ -871,10 +887,16 @@ impl CodegenBackend for JavaJdbcBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_java_string(&super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
-            |_| "?".to_string(),
-        ));
+        let dialect = SqlDialect::from_str(&self.engine).unwrap_or_default();
+        let cleaned_sql = super::clean_sql_oneline_with_optional_dialect(
+            &analyzed.sql,
+            dialect,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
+        let (rewritten_sql, occurrences) =
+            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let sql = crate::sql_literal::escape_java_string(&rewritten_sql);
 
         let param_list = params.iter().map(java_annotated_param).collect::<Vec<_>>().join(", ");
         let sep = if param_list.is_empty() { "" } else { ", " };
@@ -896,7 +918,8 @@ impl CodegenBackend for JavaJdbcBackend {
         );
         let _ = writeln!(out, "    var result = new ArrayList<{parent_struct_name}>();");
         let _ = writeln!(out, "    try (var ps = conn.prepareStatement(\"{sql}\")) {{");
-        for (i, param) in params.iter().enumerate() {
+        for (i, position) in occurrences.iter().enumerate() {
+            let param = super::resolved_param_for_position(&analyzed.params, params, *position);
             let _ = writeln!(out, "        {}", ps_bind_param(param, i, &self.engine));
         }
         let _ = writeln!(out, "        try (ResultSet rs = ps.executeQuery()) {{");
@@ -957,7 +980,9 @@ impl CodegenBackend for JavaJdbcBackend {
 mod tests {
     use std::collections::HashMap;
 
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig};
+    use scythe_core::analyzer::{
+        AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig,
+    };
     use scythe_core::parser::QueryCommand;
 
     use super::JavaJdbcBackend;
@@ -1209,7 +1234,18 @@ mod tests {
                     ..Default::default()
                 },
             ];
-            q.params = vec![];
+            // ~keep The SQL text declares `$1`; the analyzer would always
+            // register a matching `AnalyzedParam` for a placeholder it sees,
+            // so an empty list here (as this fixture had before #149) is a
+            // combination the real pipeline never produces and panics
+            // `resolved_param_for_position` (#149's occurrence-based bind
+            // lookup has no position to resolve `$1` against).
+            q.params = vec![AnalyzedParam {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                position: 1,
+            }];
             q.deprecated = None;
             q.source_table = None;
             q.composites = vec![];

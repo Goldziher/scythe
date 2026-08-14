@@ -54,6 +54,30 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **Parameters were bound by declaration order rather than by where they appear in the SQL, so a
+  repeated or out-of-order placeholder bound the wrong argument.** `java-jdbc`, `kotlin-jdbc`,
+  `kotlin-exposed` and `php-amphp` emitted one `?` per *declared* parameter and then set them
+  `1..n` in declaration order. A query writing `$2` before `$1` therefore bound the caller's first
+  argument to the second slot — silently wrong results, no error — and a query repeating `$1` emitted
+  fewer binds than the rewritten SQL contained, which the driver rejects at execute time. Placeholder
+  rewriting now returns the sequence of parameter positions it actually emitted, and each backend
+  binds from that sequence. `preprocess_oracle_sql` and `preprocess_mssql_sql` were also collapsing
+  `:N` / `@pN` to a bare `?` before parsing, discarding which N each referred to; they now emit `$N`,
+  which sqlparser's `OracleDialect` and `MsSqlDialect` both tokenize as `Token::Placeholder` through
+  the default `supports_dollar_placeholder` impl. (#149)
+
+- **SQL-text cleanup and placeholder rewriting were dialect-blind, corrupting MySQL and MSSQL
+  identifiers.** The comment stripper and placeholder rewriter knew only PostgreSQL quoting, so a
+  MySQL backtick-quoted identifier containing `--` had the rest of the query deleted, a MySQL `#`
+  line comment was left in place, and an MSSQL `[bracketed]` identifier containing a comment marker
+  was truncated the same way. `SqlDialect` is now threaded through the whole SQL-text pipeline, and
+  backtick and bracket spans are recognised as quoted regions alongside PostgreSQL's. Bare `?` under
+  PostgreSQL was previously governed by a heuristic — rewrite `?` only if the query contains no
+  `$<digit>` anywhere — which corrupted a zero-parameter query using the JSONB `?` operator; the
+  decision is now made from the dialect instead of from a scan of the text. This is the last of
+  #186's items; the JSONB `?` operator, dollar-quoted strings and `NOT LIKE` were fixed earlier.
+  (#186)
+
 - **`:one` and `:opt` rendered identical code on 53 backends, so one of the two contracts was always
   silently wrong.** `:one` means "exactly one row, error if absent"; `:opt` means "zero or one". Every
   affected backend matched `QueryCommand::One | QueryCommand::Opt` in a single arm, so whichever

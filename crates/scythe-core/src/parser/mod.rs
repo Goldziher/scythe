@@ -547,7 +547,23 @@ fn find_keyword(haystack: &str, keyword: &str) -> Option<usize> {
 
 /// Preprocess Oracle SQL before parsing:
 /// 1. Strip `INTO :N, :N, ...` suffix from `RETURNING ... INTO` clauses.
-/// 2. Convert `:N` positional placeholders to `?` (universally supported).
+/// 2. Convert `:N` positional placeholders to `$N`, preserving the declared
+///    position (#149).
+///
+/// `$N`, not bare `?`: collapsing every `:N` to the same `?` spelling
+/// discarded which N a repeated (`:1 ... :1`) or out-of-order
+/// (`:2` before `:1`) placeholder referred to, so a backend binding by SQL
+/// occurrence order could no longer recover the caller's intended argument
+/// -- a repeated placeholder produced too few binds (runtime error) and an
+/// out-of-order one silently bound the wrong argument to the wrong slot.
+/// `$N` is safe to emit here for two independent reasons: sqlparser's
+/// tokenizer accepts `$<digits>` as `Token::Placeholder` under the default
+/// `Dialect` impl that `OracleDialect` inherits (verified by inspecting
+/// `tokenize_dollar_preceded_value` in sqlparser 0.62's `tokenizer.rs`: a
+/// `$`-prefixed all-digit run with no following `$` always falls through to
+/// `Token::Placeholder(format!("${value}"))`), and the downstream SQL-text
+/// pipeline (`rewrite_placeholders_indexed` in scythe-codegen) already
+/// treats Oracle and PostgreSQL identically as "`$N`-style" dialects.
 fn preprocess_oracle_sql(sql: &str) -> String {
     let sql = strip_returning_into(sql);
 
@@ -567,9 +583,9 @@ fn preprocess_oracle_sql(sql: &str) -> String {
                 }
             }
         } else if ch == ':' && chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-            result.push('?');
+            result.push('$');
             while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                chars.next();
+                result.push(chars.next().unwrap());
             }
         } else {
             result.push(ch);
@@ -578,9 +594,15 @@ fn preprocess_oracle_sql(sql: &str) -> String {
     result
 }
 
-/// Convert MSSQL `@pN` positional placeholders to `?` (outside string literals).
-/// MsSqlDialect treats `@` as an identifier start, so `@p1` becomes an identifier
-/// rather than a `Placeholder` token — preprocessing normalises it to `?`.
+/// Convert MSSQL `@pN` positional placeholders to `$N` (outside string
+/// literals), preserving the declared position (#149) instead of collapsing
+/// every occurrence to bare `?` -- see [`preprocess_oracle_sql`]'s doc
+/// comment for why `$N` and not `?`, and why it is safe to hand sqlparser's
+/// `MsSqlDialect` (which, like `OracleDialect`, inherits the default
+/// `Dialect::supports_dollar_placeholder` impl that makes `$N` tokenize as
+/// `Token::Placeholder`). MsSqlDialect treats bare `@` as an identifier
+/// start, so `@p1` would otherwise become an identifier rather than a
+/// `Placeholder` token.
 fn convert_mssql_placeholders(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len());
     let mut chars = sql.chars().peekable();
@@ -602,10 +624,10 @@ fn convert_mssql_placeholders(sql: &str) -> String {
             lookahead.next();
             if lookahead.peek().is_some_and(|c| c.is_ascii_digit()) {
                 chars.next();
+                result.push('$');
                 while chars.peek().is_some_and(|c| c.is_ascii_digit()) {
-                    chars.next();
+                    result.push(chars.next().unwrap());
                 }
-                result.push('?');
             } else {
                 result.push(ch);
             }
@@ -618,7 +640,8 @@ fn convert_mssql_placeholders(sql: &str) -> String {
 
 /// Preprocess MSSQL SQL before parsing:
 /// 1. Strip `OUTPUT INSERTED.col, ...` clauses and convert to RETURNING
-/// 2. Convert `@pN` positional placeholders to `?`
+/// 2. Convert `@pN` positional placeholders to `$N` (see
+///    [`convert_mssql_placeholders`])
 fn preprocess_mssql_sql(sql: &str) -> String {
     let sql = strip_and_convert_mssql_output(sql);
     convert_mssql_placeholders(&sql)
@@ -1019,6 +1042,27 @@ SELECT 1";
         assert_eq!(q.sql, "SELECT id, name FROM users WHERE id = $1");
     }
 
+    /// End-to-end confirmation for #149: sqlparser must actually accept the
+    /// `$N` spelling `preprocess_oracle_sql`/`convert_mssql_placeholders` now
+    /// emit under `OracleDialect`/`MsSqlDialect` -- not just produce text that
+    /// looks plausible. An out-of-order `:2 ... :1` (Oracle) / `@p2 ... @p1`
+    /// (MSSQL) proves the position survives into `Query.sql` unrenumbered,
+    /// which is what lets a codegen backend bind by occurrence instead of by
+    /// declaration order.
+    #[test]
+    fn test_oracle_out_of_order_placeholders_parse_and_preserve_position_in_sql() {
+        let input = "-- @name Foo\n-- @returns :one\nSELECT * FROM users WHERE b = :2 AND a = :1";
+        let q = parse_query_with_dialect(input, &SqlDialect::Oracle).unwrap();
+        assert_eq!(q.sql, "SELECT * FROM users WHERE b = $2 AND a = $1");
+    }
+
+    #[test]
+    fn test_mssql_out_of_order_placeholders_parse_and_preserve_position_in_sql() {
+        let input = "-- @name Foo\n-- @returns :one\nSELECT * FROM users WHERE b = @p2 AND a = @p1";
+        let q = parse_query_with_dialect(input, &SqlDialect::MsSql).unwrap();
+        assert_eq!(q.sql, "SELECT * FROM users WHERE b = $2 AND a = $1");
+    }
+
     #[test]
     fn test_returns_without_colon_prefix() {
         let input = "-- @name Foo\n-- @returns many\nSELECT 1";
@@ -1126,11 +1170,11 @@ SELECT 1";
     fn test_preprocess_oracle_colon_placeholders() {
         assert_eq!(
             preprocess_oracle_sql("SELECT * FROM users WHERE id = :1"),
-            "SELECT * FROM users WHERE id = ?"
+            "SELECT * FROM users WHERE id = $1"
         );
         assert_eq!(
             preprocess_oracle_sql("INSERT INTO users (name, email) VALUES (:1, :2)"),
-            "INSERT INTO users (name, email) VALUES (?, ?)"
+            "INSERT INTO users (name, email) VALUES ($1, $2)"
         );
     }
 
@@ -1138,7 +1182,7 @@ SELECT 1";
     fn test_preprocess_oracle_preserves_string_literals() {
         assert_eq!(
             preprocess_oracle_sql("SELECT * FROM users WHERE name = ':1' AND id = :1"),
-            "SELECT * FROM users WHERE name = ':1' AND id = ?"
+            "SELECT * FROM users WHERE name = ':1' AND id = $1"
         );
     }
 
@@ -1146,7 +1190,7 @@ SELECT 1";
     fn test_preprocess_oracle_strips_returning_into() {
         assert_eq!(
             preprocess_oracle_sql("INSERT INTO users (name) VALUES (:1) RETURNING id, name INTO :2, :3"),
-            "INSERT INTO users (name) VALUES (?) RETURNING id, name"
+            "INSERT INTO users (name) VALUES ($1) RETURNING id, name"
         );
     }
 
@@ -1156,7 +1200,7 @@ SELECT 1";
         let result = preprocess_oracle_sql(sql);
         assert_eq!(
             result,
-            "INSERT INTO users (name, email, active) VALUES (?, ?, ?) RETURNING id, name, email, active, created_at"
+            "INSERT INTO users (name, email, active) VALUES ($1, $2, $3) RETURNING id, name, email, active, created_at"
         );
     }
 
@@ -1164,7 +1208,29 @@ SELECT 1";
     fn test_preprocess_oracle_no_returning_into_unchanged() {
         assert_eq!(
             preprocess_oracle_sql("DELETE FROM users WHERE id = :1"),
-            "DELETE FROM users WHERE id = ?"
+            "DELETE FROM users WHERE id = $1"
+        );
+    }
+
+    /// #149: a repeated `:1` must resolve to two occurrences of the *same*
+    /// position, not collapse to indistinguishable bare `?`s a bind-per-
+    /// occurrence backend can no longer tell apart.
+    #[test]
+    fn test_preprocess_oracle_repeated_placeholder_keeps_its_own_position() {
+        assert_eq!(
+            preprocess_oracle_sql("SELECT * FROM users WHERE id = :1 OR parent_id = :1"),
+            "SELECT * FROM users WHERE id = $1 OR parent_id = $1"
+        );
+    }
+
+    /// #149: `:2` declared before `:1` in the SQL text must keep its own
+    /// number rather than being renumbered by text order -- renumbering is
+    /// exactly what silently swapped a caller's arguments before this fix.
+    #[test]
+    fn test_preprocess_oracle_out_of_order_placeholders_keep_their_own_numbers() {
+        assert_eq!(
+            preprocess_oracle_sql("SELECT * FROM users WHERE b = :2 AND a = :1"),
+            "SELECT * FROM users WHERE b = $2 AND a = $1"
         );
     }
 
@@ -1172,7 +1238,7 @@ SELECT 1";
     fn test_preprocess_mssql_single_placeholder() {
         assert_eq!(
             preprocess_mssql_sql("SELECT * FROM users WHERE id = @p1"),
-            "SELECT * FROM users WHERE id = ?"
+            "SELECT * FROM users WHERE id = $1"
         );
     }
 
@@ -1180,7 +1246,7 @@ SELECT 1";
     fn test_preprocess_mssql_multiple_placeholders() {
         assert_eq!(
             preprocess_mssql_sql("INSERT INTO users (name, email) VALUES (@p1, @p2)"),
-            "INSERT INTO users (name, email) VALUES (?, ?)"
+            "INSERT INTO users (name, email) VALUES ($1, $2)"
         );
     }
 
@@ -1188,7 +1254,7 @@ SELECT 1";
     fn test_preprocess_mssql_preserves_string_literals() {
         assert_eq!(
             preprocess_mssql_sql("SELECT * FROM users WHERE name = '@p1' AND id = @p1"),
-            "SELECT * FROM users WHERE name = '@p1' AND id = ?"
+            "SELECT * FROM users WHERE name = '@p1' AND id = $1"
         );
     }
 
@@ -1196,7 +1262,7 @@ SELECT 1";
     fn test_preprocess_mssql_case_insensitive_p() {
         assert_eq!(
             preprocess_mssql_sql("SELECT * FROM users WHERE id = @P1"),
-            "SELECT * FROM users WHERE id = ?"
+            "SELECT * FROM users WHERE id = $1"
         );
     }
 
@@ -1207,7 +1273,26 @@ SELECT 1";
 
     #[test]
     fn test_preprocess_mssql_multi_digit_placeholder() {
-        assert_eq!(preprocess_mssql_sql("SELECT @p10, @p2"), "SELECT ?, ?");
+        assert_eq!(preprocess_mssql_sql("SELECT @p10, @p2"), "SELECT $10, $2");
+    }
+
+    /// #149: a repeated `@p1` must resolve to two occurrences of the same
+    /// position; see the Oracle counterpart above for the full reasoning.
+    #[test]
+    fn test_preprocess_mssql_repeated_placeholder_keeps_its_own_position() {
+        assert_eq!(
+            preprocess_mssql_sql("SELECT * FROM users WHERE id = @p1 OR parent_id = @p1"),
+            "SELECT * FROM users WHERE id = $1 OR parent_id = $1"
+        );
+    }
+
+    /// #149: `@p2` declared before `@p1` must keep its own number.
+    #[test]
+    fn test_preprocess_mssql_out_of_order_placeholders_keep_their_own_numbers() {
+        assert_eq!(
+            preprocess_mssql_sql("SELECT * FROM users WHERE b = @p2 AND a = @p1"),
+            "SELECT * FROM users WHERE b = $2 AND a = $1"
+        );
     }
 
     #[test]
@@ -1215,7 +1300,7 @@ SELECT 1";
         let sql = "INSERT INTO users (id, name) OUTPUT INSERTED.id, INSERTED.name VALUES (@p1, @p2)";
         let result = preprocess_mssql_sql(sql);
         assert!(result.contains("RETURNING id, name"), "got: {}", result);
-        assert!(result.contains("VALUES (?, ?)"), "got: {}", result);
+        assert!(result.contains("VALUES ($1, $2)"), "got: {}", result);
         assert!(!result.contains("OUTPUT"), "got: {}", result);
     }
 
@@ -1228,7 +1313,7 @@ SELECT 1";
             "got: {}",
             result
         );
-        assert!(result.contains("VALUES (?, ?, ?, ?)"), "got: {}", result);
+        assert!(result.contains("VALUES ($1, $2, $3, $4)"), "got: {}", result);
     }
 
     #[test]
@@ -1237,7 +1322,7 @@ SELECT 1";
         let result = preprocess_mssql_sql(sql);
         assert!(result.contains("RETURNING id"), "got: {}", result);
         assert!(
-            result.contains("values (?)") || result.contains("VALUES (?)"),
+            result.contains("values ($1)") || result.contains("VALUES ($1)"),
             "got: {}",
             result
         );
@@ -1247,7 +1332,7 @@ SELECT 1";
     fn test_preprocess_mssql_no_output_unchanged() {
         let sql = "INSERT INTO users (id, name) VALUES (@p1, @p2)";
         let result = preprocess_mssql_sql(sql);
-        assert_eq!(result, "INSERT INTO users (id, name) VALUES (?, ?)");
+        assert_eq!(result, "INSERT INTO users (id, name) VALUES ($1, $2)");
     }
 
     #[test]
@@ -1255,7 +1340,7 @@ SELECT 1";
         let sql = "INSERT INTO users (id, name) OUTPUT INSERTED.id, INSERTED.name VALUES (@p1, '@p2')";
         let result = preprocess_mssql_sql(sql);
         assert!(result.contains("RETURNING id, name"), "got: {}", result);
-        assert!(result.contains("(?, '@p2')"), "got: {}", result);
+        assert!(result.contains("($1, '@p2')"), "got: {}", result);
     }
 
     #[test]
@@ -1263,6 +1348,6 @@ SELECT 1";
         let sql = "INSERT INTO users (id, name)\nOUTPUT INSERTED.id,\n  INSERTED.name\nVALUES (@p1, @p2)";
         let result = preprocess_mssql_sql(sql);
         assert!(result.contains("RETURNING id, name"), "got: {}", result);
-        assert!(result.contains("VALUES (?, ?)"), "got: {}", result);
+        assert!(result.contains("VALUES ($1, $2)"), "got: {}", result);
     }
 }

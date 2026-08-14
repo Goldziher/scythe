@@ -3,6 +3,7 @@ use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_pasc
 use std::collections::HashMap;
 use std::fmt::Write;
 
+use scythe_core::SqlDialect;
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
@@ -20,6 +21,11 @@ const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/php-amphp.mys
 pub struct PhpAmphpBackend {
     manifest: BackendManifest,
     namespace: String,
+    /// Canonical engine string, kept (like `java-jdbc`/`kotlin-jdbc`) so
+    /// `generate_query_fn`/`generate_grouped_query_fn` can resolve the
+    /// [`SqlDialect`] the SQL-text pipeline needs (board #148) -- `new` only had
+    /// this as a local before.
+    engine: String,
 }
 
 impl PhpAmphpBackend {
@@ -38,6 +44,7 @@ impl PhpAmphpBackend {
         Ok(Self {
             manifest,
             namespace: "App\\Generated".to_string(),
+            engine: engine.to_string(),
         })
     }
 }
@@ -309,10 +316,16 @@ impl CodegenBackend for PhpAmphpBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_php_single_quoted(&super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
-            |_| "?".to_string(),
-        ));
+        let dialect = SqlDialect::from_str(&self.engine).unwrap_or_default();
+        let cleaned_sql = super::clean_sql_oneline_with_optional_dialect(
+            &analyzed.sql,
+            dialect,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
+        let (rewritten_sql, occurrences) =
+            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let sql = crate::sql_literal::escape_php_single_quoted(&rewritten_sql);
         let mut out = String::new();
 
         let param_list = params
@@ -409,12 +422,13 @@ impl CodegenBackend for PhpAmphpBackend {
         );
 
         // NOTE: This prepares the statement on every call for simplicity.
-        if params.is_empty() {
+        if occurrences.is_empty() {
             let _ = writeln!(out, "        $result = $pool->prepare('{}')->execute([]);", sql);
         } else {
-            let bindings = params
+            let bindings = occurrences
                 .iter()
-                .map(|p| {
+                .map(|&position| {
+                    let p = super::resolved_param_for_position(&analyzed.params, params, position);
                     if p.neutral_type.starts_with("enum::") {
                         format!("${}->value", p.field_name)
                     } else {
@@ -511,10 +525,16 @@ impl CodegenBackend for PhpAmphpBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_php_single_quoted(&super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
-            |_| "?".to_string(),
-        ));
+        let dialect = SqlDialect::from_str(&self.engine).unwrap_or_default();
+        let cleaned_sql = super::clean_sql_oneline_with_optional_dialect(
+            &analyzed.sql,
+            dialect,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
+        let (rewritten_sql, occurrences) =
+            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let sql = crate::sql_literal::escape_php_single_quoted(&rewritten_sql);
         let mut out = String::new();
 
         let param_list = params
@@ -543,12 +563,13 @@ impl CodegenBackend for PhpAmphpBackend {
             func_name, sep, param_list
         );
 
-        if params.is_empty() {
+        if occurrences.is_empty() {
             let _ = writeln!(out, "        $resultSet = $pool->prepare('{}')->execute([]);", sql);
         } else {
-            let bindings = params
+            let bindings = occurrences
                 .iter()
-                .map(|p| {
+                .map(|&position| {
+                    let p = super::resolved_param_for_position(&analyzed.params, params, position);
                     if p.neutral_type.starts_with("enum::") {
                         format!("${}->value", p.field_name)
                     } else {

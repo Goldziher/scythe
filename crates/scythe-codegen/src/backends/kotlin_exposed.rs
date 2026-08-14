@@ -5,6 +5,7 @@ use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{enum_type_name, enum_variant_name, fn_name, to_camel_case, to_pascal_case};
 use scythe_backend::types::resolve_type;
 
+use scythe_core::SqlDialect;
 use scythe_core::analyzer::{AnalyzedQuery, CompositeInfo, EnumInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
@@ -295,10 +296,16 @@ impl CodegenBackend for KotlinExposedBackend {
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_kotlin_string(&super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
-            |_| "?".to_string(),
-        ));
+        let dialect = SqlDialect::PostgreSQL;
+        let cleaned_sql = super::clean_sql_oneline_with_optional_dialect(
+            &analyzed.sql,
+            dialect,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
+        let (rewritten_sql, occurrences) =
+            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let sql = crate::sql_literal::escape_kotlin_string(&rewritten_sql);
 
         let mut out = String::new();
 
@@ -321,13 +328,16 @@ impl CodegenBackend for KotlinExposedBackend {
             let _ = writeln!(out, "    transaction {{");
         };
 
-        let build_args = |params: &[ResolvedParam]| -> String {
-            if params.is_empty() {
+        let build_args = |occurrences: &[u32]| -> String {
+            if occurrences.is_empty() {
                 return String::new();
             }
-            let pairs: Vec<String> = params
+            let pairs: Vec<String> = occurrences
                 .iter()
-                .map(|p| format!("{} to {}", exposed_column_type_class(&p.lang_type), p.field_name))
+                .map(|&position| {
+                    let p = super::resolved_param_for_position(&analyzed.params, params, position);
+                    format!("{} to {}", exposed_column_type_class(&p.lang_type), p.field_name)
+                })
                 .collect();
             format!(", listOf({})", pairs.join(", "))
         };
@@ -335,13 +345,13 @@ impl CodegenBackend for KotlinExposedBackend {
         match &analyzed.command {
             QueryCommand::Exec => {
                 write_fn_sig(&mut out, &func_name, "", params);
-                let args = build_args(params);
+                let args = build_args(&occurrences);
                 let _ = writeln!(out, "        exec(\"{}\"{})", sql, args);
                 let _ = writeln!(out, "    }}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
                 write_fn_sig(&mut out, &func_name, ": Int", params);
-                let args = build_args(params);
+                let args = build_args(&occurrences);
                 let _ = writeln!(out, "        exec(\"{}\"{}) ?: 0", sql, args);
                 let _ = writeln!(out, "    }}");
             }
@@ -370,7 +380,7 @@ impl CodegenBackend for KotlinExposedBackend {
                     format!(": {}?", struct_name)
                 };
                 write_fn_sig(&mut out, &func_name, &ret, params);
-                let args = build_args(params);
+                let args = build_args(&occurrences);
                 let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
                 let _ = writeln!(out, "            if (rs.next()) {{");
                 write_exposed_nullable_preamble(&mut out, columns, "                ", &self.manifest);
@@ -411,9 +421,12 @@ impl CodegenBackend for KotlinExposedBackend {
                     let _ = writeln!(out, "fun {}(items: List<{}>) =", batch_fn_name, params_class_name);
                     let _ = writeln!(out, "    transaction {{");
                     let _ = writeln!(out, "        for (item in items) {{");
-                    let args: Vec<String> = params
+                    let args: Vec<String> = occurrences
                         .iter()
-                        .map(|p| format!("{} to item.{}", exposed_column_type_class(&p.lang_type), p.field_name))
+                        .map(|&position| {
+                            let p = super::resolved_param_for_position(&analyzed.params, params, position);
+                            format!("{} to item.{}", exposed_column_type_class(&p.lang_type), p.field_name)
+                        })
                         .collect();
                     let _ = writeln!(out, "            exec(\"{}\", listOf({}))", sql, args.join(", "));
                     let _ = writeln!(out, "        }}");
@@ -422,12 +435,11 @@ impl CodegenBackend for KotlinExposedBackend {
                     let _ = writeln!(out, "fun {}(items: List<{}>) =", batch_fn_name, params[0].full_type);
                     let _ = writeln!(out, "    transaction {{");
                     let _ = writeln!(out, "        for (item in items) {{");
-                    let _ = writeln!(
-                        out,
-                        "            exec(\"{}\", listOf({} to item))",
-                        sql,
-                        exposed_column_type_class(&params[0].lang_type)
-                    );
+                    let args: Vec<String> = occurrences
+                        .iter()
+                        .map(|_| format!("{} to item", exposed_column_type_class(&params[0].lang_type)))
+                        .collect();
+                    let _ = writeln!(out, "            exec(\"{}\", listOf({}))", sql, args.join(", "));
                     let _ = writeln!(out, "        }}");
                     let _ = writeln!(out, "    }}");
                 } else {
@@ -445,7 +457,7 @@ impl CodegenBackend for KotlinExposedBackend {
             QueryCommand::Many => {
                 let ret = format!(": List<{}>", struct_name);
                 write_fn_sig(&mut out, &func_name, &ret, params);
-                let args = build_args(params);
+                let args = build_args(&occurrences);
                 let _ = writeln!(out, "        val result = mutableListOf<{}>()", struct_name);
                 let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
                 let _ = writeln!(out, "            while (rs.next()) {{");
@@ -551,10 +563,16 @@ impl CodegenBackend for KotlinExposedBackend {
         let key_column = request.key_column;
 
         let func_name = fn_name(&analyzed.name, &self.manifest.naming);
-        let sql = crate::sql_literal::escape_kotlin_string(&super::rewrite_pg_placeholders(
-            &super::clean_sql_oneline_with_optional(&analyzed.sql, &analyzed.optional_params, &analyzed.params),
-            |_| "?".to_string(),
-        ));
+        let dialect = SqlDialect::PostgreSQL;
+        let cleaned_sql = super::clean_sql_oneline_with_optional_dialect(
+            &analyzed.sql,
+            dialect,
+            &analyzed.optional_params,
+            &analyzed.params,
+        );
+        let (rewritten_sql, occurrences) =
+            super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let sql = crate::sql_literal::escape_kotlin_string(&rewritten_sql);
 
         let key_col = parent_columns
             .iter()
@@ -562,12 +580,15 @@ impl CodegenBackend for KotlinExposedBackend {
             .unwrap_or(&parent_columns[0]);
         let key_type = key_col.full_type.trim_end_matches('?');
 
-        let args = if params.is_empty() {
+        let args = if occurrences.is_empty() {
             String::new()
         } else {
-            let pairs: Vec<String> = params
+            let pairs: Vec<String> = occurrences
                 .iter()
-                .map(|p| format!("{} to {}", exposed_column_type_class(&p.lang_type), p.field_name))
+                .map(|&position| {
+                    let p = super::resolved_param_for_position(&analyzed.params, params, position);
+                    format!("{} to {}", exposed_column_type_class(&p.lang_type), p.field_name)
+                })
                 .collect();
             format!(", listOf({})", pairs.join(", "))
         };
@@ -655,7 +676,9 @@ fn exposed_id_table_type(columns: &[ResolvedColumn]) -> &str {
 mod tests {
     use std::collections::HashMap;
 
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig};
+    use scythe_core::analyzer::{
+        AnalyzedColumn, AnalyzedParam, AnalyzedQuery, CompositeFieldInfo, CompositeInfo, GroupByConfig,
+    };
     use scythe_core::parser::QueryCommand;
 
     use super::KotlinExposedBackend;
@@ -785,7 +808,18 @@ mod tests {
                     ..Default::default()
                 },
             ];
-            q.params = vec![];
+            // ~keep The SQL text declares `$1`; the analyzer would always
+            // register a matching `AnalyzedParam` for a placeholder it sees,
+            // so an empty list here (as this fixture had before #149) is a
+            // combination the real pipeline never produces and panics
+            // `resolved_param_for_position` (#149's occurrence-based bind
+            // lookup has no position to resolve `$1` against).
+            q.params = vec![AnalyzedParam {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                position: 1,
+            }];
             q.deprecated = None;
             q.source_table = None;
             q.composites = vec![];

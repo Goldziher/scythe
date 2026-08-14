@@ -60,10 +60,11 @@ pub(crate) mod typescript_wasm_sqlite;
 
 use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::NamingConfig;
+use scythe_core::SqlDialect;
 use scythe_core::analyzer::AnalyzedParam;
 use scythe_core::errors::{ErrorCode, ScytheError};
 
-use crate::backend_trait::CodegenBackend;
+use crate::backend_trait::{CodegenBackend, ResolvedParam};
 
 /// Parse a backend's compiled-in manifest.
 ///
@@ -160,7 +161,7 @@ pub(crate) fn csharp_typed_reader_method(lang_type: &str) -> String {
 ///
 /// One lexer pass drives both comment-stripping (`clean_sql`,
 /// `clean_sql_oneline`) and placeholder-rewriting (`rewrite_pg_placeholders`)
-/// -- see #186 and #148, where two independent character scanners each got
+/// -- see #186 and board #148, where two independent character scanners each got
 /// string/comment handling wrong in a different way. `Code` spans are the
 /// only spans either consumer may rewrite; every other span is opaque SQL
 /// text that must be reproduced byte-for-byte (module the caller's own
@@ -175,6 +176,15 @@ enum SqlSpanKind {
     DoubleQuoted,
     /// A PostgreSQL `$$...$$` or `$tag$...$tag$` dollar-quoted string.
     DollarQuoted,
+    /// A MySQL/MariaDB `` `...` `` quoted identifier, with `` `` `` as the
+    /// escape for an embedded backtick. Only ever produced when the caller's
+    /// dialect is [`SqlDialect::MySQL`] (board #148 item 2).
+    Backtick,
+    /// An MSSQL `[...]` delimited identifier, with `]]` as the escape for an
+    /// embedded `]`. Only ever produced when the caller's dialect is
+    /// [`SqlDialect::MsSql`] (board #148 item 4) -- gating on dialect is what keeps
+    /// this from misreading PostgreSQL array-subscript syntax (`arr[1]`).
+    Bracketed,
     /// A `-- ...` comment, running to end of line (the newline itself is not
     /// part of the span).
     LineComment,
@@ -187,17 +197,15 @@ enum SqlSpanKind {
 /// concatenates back to exactly `sql`.
 ///
 /// This is the single source of truth for "is this character part of a
-/// string/identifier/comment, or is it live SQL". Dialect-specific lexical
-/// forms that would require knowing the target engine (MySQL backtick
-/// identifiers and `#` comments, MSSQL `[bracketed]` identifiers) are
-/// deliberately not handled here: none of these functions are told which
-/// engine produced the SQL, and guessing from the text alone is unsafe --
-/// `#` in particular collides with PostgreSQL's `#>`/`#>>` JSON operators.
-/// Handling those dialects needs the caller to pass an explicit engine/
-/// dialect value through to this module; until that plumbing exists, this
-/// lexer only recognizes the ANSI-ish subset (`'...'`, `"..."`, `$$...$$`,
-/// `--`, `/* */`) that is safe across every engine this crate targets.
-fn tokenize_sql(sql: &str) -> Vec<(SqlSpanKind, String)> {
+/// string/identifier/comment, or is it live SQL". `dialect` gates the lexical
+/// forms that cannot be told apart from the text alone without knowing the
+/// target engine: MySQL/MariaDB backtick identifiers and `#` line comments
+/// (only under [`SqlDialect::MySQL`]), and MSSQL `[bracketed]` identifiers
+/// (only under [`SqlDialect::MsSql`]) -- `#` in particular collides with
+/// PostgreSQL's `#>`/`#>>` JSON operators, and `[`/`]` collide with
+/// PostgreSQL array-subscript syntax, so neither can be recognized
+/// dialect-blind (board #148).
+fn tokenize_sql(sql: &str, dialect: SqlDialect) -> Vec<(SqlSpanKind, String)> {
     let chars: Vec<char> = sql.chars().collect();
     let len = chars.len();
     let mut spans: Vec<(SqlSpanKind, String)> = Vec::new();
@@ -276,6 +284,54 @@ fn tokenize_sql(sql: &str) -> Vec<(SqlSpanKind, String)> {
             continue;
         }
 
+        if c == '`' && dialect == SqlDialect::MySQL {
+            flush_code_buf(&mut code_buf, &mut spans);
+            let start = i;
+            i += 1;
+            while i < len {
+                if chars[i] == '`' {
+                    if i + 1 < len && chars[i + 1] == '`' {
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            spans.push((SqlSpanKind::Backtick, chars[start..i].iter().collect()));
+            continue;
+        }
+
+        if c == '#' && dialect == SqlDialect::MySQL {
+            flush_code_buf(&mut code_buf, &mut spans);
+            let start = i;
+            while i < len && chars[i] != '\n' {
+                i += 1;
+            }
+            spans.push((SqlSpanKind::LineComment, chars[start..i].iter().collect()));
+            continue;
+        }
+
+        if c == '[' && dialect == SqlDialect::MsSql {
+            flush_code_buf(&mut code_buf, &mut spans);
+            let start = i;
+            i += 1;
+            while i < len {
+                if chars[i] == ']' {
+                    if i + 1 < len && chars[i + 1] == ']' {
+                        i += 2;
+                        continue;
+                    }
+                    i += 1;
+                    break;
+                }
+                i += 1;
+            }
+            spans.push((SqlSpanKind::Bracketed, chars[start..i].iter().collect()));
+            continue;
+        }
+
         if c == '$'
             && let Some(open_end) = match_dollar_quote_open(&chars, i)
         {
@@ -335,8 +391,14 @@ fn match_dollar_quote_open(chars: &[char], i: usize) -> Option<usize> {
 
 /// Strip SQL comments, trailing semicolons, and excess whitespace.
 /// Preserves newlines between lines.
+///
+/// Dialect-blind: kept for the call sites this multi-agent change did not
+/// reach (see [`clean_sql_dialect`] for the dialect-aware replacement, which
+/// every owned call site now uses). Passing `SqlDialect::PostgreSQL` into
+/// [`tokenize_sql`] here gates off the MySQL backtick/`#` and MSSQL bracket
+/// handling, reproducing this function's pre-board #148 behaviour exactly.
 pub(crate) fn clean_sql(sql: &str) -> String {
-    clean_sql_lines(sql)
+    clean_sql_lines(sql, SqlDialect::PostgreSQL)
         .join("\n")
         .trim()
         .trim_end_matches(';')
@@ -345,8 +407,43 @@ pub(crate) fn clean_sql(sql: &str) -> String {
 }
 
 /// Like clean_sql but joins lines with spaces (for languages that embed SQL inline).
+/// Dialect-blind; see [`clean_sql`]'s doc comment.
 pub(crate) fn clean_sql_oneline(sql: &str) -> String {
-    clean_sql_lines(sql)
+    clean_sql_lines(sql, SqlDialect::PostgreSQL)
+        .join(" ")
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_string()
+}
+
+/// Dialect-aware [`clean_sql`]: recognizes MySQL backtick identifiers/`#`
+/// comments and MSSQL `[bracketed]` identifiers per `dialect` (board #148).
+///
+/// ~keep No production caller yet: the four backends migrated to the
+/// dialect-aware pipeline all embed SQL as a single line and so reach for
+/// [`clean_sql_oneline_dialect`]. The multiline form is what the ~44
+/// still-unmigrated backends will need, and its tests below pin the MySQL
+/// backtick / `#`-comment and MSSQL bracket behaviour that only this
+/// signature exercises. `expect`, not `allow`, deliberately: it becomes a
+/// hard error the moment a caller appears, so the attribute cannot outlive
+/// the reason for it.
+#[cfg_attr(
+    not(test),
+    expect(dead_code, reason = "staged board #148 migration; see doc comment")
+)]
+pub(crate) fn clean_sql_dialect(sql: &str, dialect: SqlDialect) -> String {
+    clean_sql_lines(sql, dialect)
+        .join("\n")
+        .trim()
+        .trim_end_matches(';')
+        .trim()
+        .to_string()
+}
+
+/// Dialect-aware [`clean_sql_oneline`]; see [`clean_sql_dialect`].
+pub(crate) fn clean_sql_oneline_dialect(sql: &str, dialect: SqlDialect) -> String {
+    clean_sql_lines(sql, dialect)
         .join(" ")
         .trim()
         .trim_end_matches(';')
@@ -362,12 +459,12 @@ pub(crate) fn clean_sql_oneline(sql: &str) -> String {
 /// was already blank in the source (no comment token touched it) is kept,
 /// matching the previous behaviour of the naive `starts_with("--")` filter
 /// for every case that filter got right. This is what lets a mid-line
-/// trailing comment (#148) be stripped without deleting the rest of the
+/// trailing comment (board #148) be stripped without deleting the rest of the
 /// query, while a `-- @name Foo` header line still disappears instead of
 /// leaving a blank line behind (every generated fixture depends on that).
-fn clean_sql_lines(sql: &str) -> Vec<String> {
+fn clean_sql_lines(sql: &str, dialect: SqlDialect) -> Vec<String> {
     let normalized = sql.replace("\r\n", "\n");
-    let spans = tokenize_sql(&normalized);
+    let spans = tokenize_sql(&normalized, dialect);
 
     let mut lines: Vec<String> = vec![String::new()];
     let mut touched_by_comment: Vec<bool> = vec![false];
@@ -611,18 +708,31 @@ fn try_match_ph_op_col(chars: &[char], i: usize, op: &str, placeholder: &str) ->
 }
 
 /// Clean SQL and apply optional parameter rewriting.
+/// Dialect-blind; see [`clean_sql`]'s doc comment.
 pub(crate) fn clean_sql_with_optional(sql: &str, optional_params: &[String], params: &[AnalyzedParam]) -> String {
     let cleaned = clean_sql(sql);
     rewrite_optional_params(&cleaned, optional_params, params)
 }
 
 /// Clean SQL (oneline) and apply optional parameter rewriting.
+/// Dialect-blind; see [`clean_sql`]'s doc comment.
 pub(crate) fn clean_sql_oneline_with_optional(
     sql: &str,
     optional_params: &[String],
     params: &[AnalyzedParam],
 ) -> String {
     let cleaned = clean_sql_oneline(sql);
+    rewrite_optional_params(&cleaned, optional_params, params)
+}
+
+/// Dialect-aware [`clean_sql_oneline_with_optional`]; see [`clean_sql_dialect`].
+pub(crate) fn clean_sql_oneline_with_optional_dialect(
+    sql: &str,
+    dialect: SqlDialect,
+    optional_params: &[String],
+    params: &[AnalyzedParam],
+) -> String {
+    let cleaned = clean_sql_oneline_dialect(sql, dialect);
     rewrite_optional_params(&cleaned, optional_params, params)
 }
 
@@ -636,17 +746,12 @@ fn is_ident_char(c: char) -> bool {
 /// and inside comments (see [`tokenize_sql`]). The `formatter` closure
 /// receives the parameter number (1-based) and returns the replacement.
 ///
-/// A query uses exactly one placeholder style: PostgreSQL/Redshift/
-/// CockroachDB SQL always uses `$N` (the core parser normalizes MySQL's
-/// bare `?`, and rewrites Oracle `:N`/MSSQL `@pN` to bare `?`, before this
-/// function ever sees the SQL). Whether the *current* query is `$N`-style is
-/// therefore determined by scanning the code spans for a `$`-followed-by-
-/// digit occurrence: if one exists, a bare `?` is left untouched, because on
-/// a `$N`-style (PostgreSQL-family) query a bare `?` can only be the JSONB
-/// `?` key-existence operator, never a placeholder (#186). Otherwise a bare
-/// `?` not immediately followed by a digit is treated as a sequential
-/// positional placeholder, matching every non-PostgreSQL caller's existing
-/// behaviour.
+/// Dialect-blind, kept for the call sites this multi-agent change did not
+/// reach: whether a bare `?` is a placeholder is decided by scanning the code
+/// spans for a `$`-followed-by-digit occurrence, and treating a bare `?` as a
+/// placeholder only when none exists. That heuristic has a known gap --
+/// [`rewrite_placeholders_indexed`]'s doc comment explains why, and is what
+/// every owned call site now uses instead.
 ///
 /// `?|`, `?&`, `?-`, `?-|`, `?||`, and `@?` are multi-character PostgreSQL
 /// operators (JSONB key/path existence, geometric comparisons) that are
@@ -655,27 +760,127 @@ fn is_ident_char(c: char) -> bool {
 /// -- independent of the `$N` heuristic above, and correct even for a
 /// zero-placeholder query that has no `$N` to anchor that heuristic on.
 pub(crate) fn rewrite_pg_placeholders(sql: &str, formatter: impl Fn(u32) -> String) -> String {
-    let spans = tokenize_sql(sql);
+    let spans = tokenize_sql(sql, SqlDialect::PostgreSQL);
     let uses_dollar_placeholders = spans
         .iter()
         .any(|(kind, text)| *kind == SqlSpanKind::Code && code_span_has_dollar_number(text));
 
     let mut result = String::with_capacity(sql.len());
     let mut positional_counter: u32 = 0;
+    let mut occurrences: Vec<u32> = Vec::new();
     for (kind, text) in &spans {
         if *kind == SqlSpanKind::Code {
             rewrite_code_span_placeholders(
                 text,
-                uses_dollar_placeholders,
+                !uses_dollar_placeholders,
                 &formatter,
                 &mut positional_counter,
                 &mut result,
+                &mut occurrences,
             );
         } else {
             result.push_str(text);
         }
     }
     result
+}
+
+/// Whether a bare `?` can ever be a placeholder under `dialect`, decided from
+/// the dialect alone -- replacing the `$N`-occurrence heuristic in
+/// [`rewrite_pg_placeholders`] (board #148 item 1, #186).
+///
+/// Verified against sqlparser 0.62's own tokenizer (`src/tokenizer.rs`,
+/// the `'?' if self.dialect.supports_geometric_types()` arm, with the
+/// source comment "Postgres uses ? for jsonb operators, not prepared
+/// statements"): `PostgreSqlDialect` is the only builtin dialect that
+/// overrides `supports_geometric_types()` to `true` (`dialect/postgresql.rs`),
+/// so it is the only dialect whose tokenizer never emits `Token::Placeholder`
+/// for a lone `?` -- it always emits `Token::Question` or one of the
+/// JSONB/geometric operator tokens instead. A PostgreSQL query containing
+/// `data ? 'active'` therefore never held a placeholder in the first place,
+/// with or without another `$N` elsewhere in the query, and no
+/// parameter-count heuristic is needed to tell the two apart. Every other
+/// dialect this crate targets (MySQL, SQLite, MsSql, Oracle, Snowflake) uses
+/// bare `?` as its native positional placeholder syntax and has no
+/// JSONB-style operator that collides with it.
+fn dialect_allows_bare_question_mark_placeholder(dialect: SqlDialect) -> bool {
+    !matches!(dialect, SqlDialect::PostgreSQL)
+}
+
+/// Dialect-aware rewrite of SQL placeholders (`$N` or bare `?`), returning
+/// both the rewritten SQL and, for each placeholder occurrence rewritten (in
+/// textual order, including repeats), the `$N`/`?N` position number it
+/// resolved to.
+///
+/// Unlike [`rewrite_pg_placeholders`], whether a bare `?` is a placeholder is
+/// decided from `dialect` alone via
+/// [`dialect_allows_bare_question_mark_placeholder`], never from whether the
+/// query happens to also contain a `$N`.
+///
+/// The returned position list is what lets a caller bind per SQL-text
+/// occurrence instead of per declared parameter (GH #149): `$2 ... $1`
+/// binds out of declaration order, a repeated `$1` produces two occurrences
+/// of position `1`, and an `@optional` rewrite (`($1 IS NULL OR col = $1)`)
+/// likewise produces two occurrences of the same position -- all three need
+/// one bind per occurrence, not one bind per unique parameter, or the
+/// generated code either swaps arguments or throws a parameter-count
+/// mismatch at runtime.
+pub(crate) fn rewrite_placeholders_indexed(
+    sql: &str,
+    dialect: SqlDialect,
+    formatter: impl Fn(u32) -> String,
+) -> (String, Vec<u32>) {
+    let spans = tokenize_sql(sql, dialect);
+    let bare_question_is_placeholder = dialect_allows_bare_question_mark_placeholder(dialect);
+
+    let mut result = String::with_capacity(sql.len());
+    let mut positional_counter: u32 = 0;
+    let mut occurrences: Vec<u32> = Vec::new();
+    for (kind, text) in &spans {
+        if *kind == SqlSpanKind::Code {
+            rewrite_code_span_placeholders(
+                text,
+                bare_question_is_placeholder,
+                &formatter,
+                &mut positional_counter,
+                &mut result,
+                &mut occurrences,
+            );
+        } else {
+            result.push_str(text);
+        }
+    }
+    (result, occurrences)
+}
+
+/// Resolve the [`ResolvedParam`] that a [`rewrite_placeholders_indexed`]
+/// occurrence position refers to.
+///
+/// `resolve::resolve_params` builds `resolved` from `analyzed_params` in the
+/// same order (one output per input, positionally), so the index into one
+/// slice is the index into the other; `analyzed_params[i].position` is the
+/// actual `$N` the analyzer resolved parameter `i` to. This is what lets a
+/// backend bind an occurrence's own position back to a concrete parameter
+/// instead of assuming SQL-declaration order matches bind order (#149): a
+/// repeated `$1`, an out-of-order `$2 ... $1`, and an `@optional` rewrite all
+/// resolve correctly through this lookup because it is driven by the
+/// occurrence's own position, never by loop index.
+///
+/// Panics if `position` is not among `analyzed_params` -- every position
+/// [`rewrite_placeholders_indexed`] returns came from the same SQL text the
+/// analyzer walked to build `analyzed_params`, so a miss here means the two
+/// disagree about what that SQL contains, which is a scythe bug, not
+/// something a caller can recover from.
+pub(crate) fn resolved_param_for_position<'a>(
+    analyzed_params: &[AnalyzedParam],
+    resolved: &'a [ResolvedParam],
+    position: u32,
+) -> &'a ResolvedParam {
+    let idx = analyzed_params
+        .iter()
+        .position(|p| p.position == i64::from(position))
+        .unwrap_or_else(|| panic!("no analyzed parameter at position {position}; analyzed_params={analyzed_params:?}"));
+    &resolved[idx]
 }
 
 /// Whether `text` (a `Code`-span substring, guaranteed free of strings and
@@ -704,24 +909,26 @@ fn match_unambiguous_operator(chars: &[char], i: usize) -> Option<usize> {
     })
 }
 
-/// Rewrite `$N` and (when `uses_dollar_placeholders` is false) bare `?`
-/// placeholders within a single `Code` span, appending the result to `out`
-/// and advancing `counter` for each `?` consumed.
+/// Rewrite `$N` and (when `bare_question_is_placeholder` is true) bare `?`
+/// placeholders within a single `Code` span, appending the result to `out`,
+/// advancing `counter` for each `?` consumed, and recording each rewritten
+/// occurrence's resolved position (in output order) into `occurrences`.
 ///
-/// A lone `?` between two expressions is genuinely ambiguous without dialect
-/// information -- it is a positional placeholder on `?`-style engines and
-/// PostgreSQL's JSONB key-existence operator on `$N`-style engines -- so it
-/// stays governed by the `uses_dollar_placeholders` heuristic and can still
-/// misfire on a zero-placeholder PostgreSQL query that uses bare `?` (no
-/// `$N` present to detect the dialect from). The multi-character operators
-/// in [`UNAMBIGUOUS_OPERATORS`] have no such ambiguity and are always passed
-/// through, regardless of that heuristic.
+/// Shared by [`rewrite_pg_placeholders`] (which computes
+/// `bare_question_is_placeholder` from the `$N`-occurrence heuristic and
+/// discards `occurrences`) and [`rewrite_placeholders_indexed`] (which
+/// computes it from the dialect and returns `occurrences`) -- the actual
+/// rewriting is one implementation; only how the two callers decide whether a
+/// bare `?` counts differs. The multi-character operators in
+/// [`UNAMBIGUOUS_OPERATORS`] have no such ambiguity and are always passed
+/// through, regardless of `bare_question_is_placeholder`.
 fn rewrite_code_span_placeholders(
     text: &str,
-    uses_dollar_placeholders: bool,
+    bare_question_is_placeholder: bool,
     formatter: &impl Fn(u32) -> String,
     counter: &mut u32,
     out: &mut String,
+    occurrences: &mut Vec<u32>,
 ) {
     let chars: Vec<char> = text.chars().collect();
     let len = chars.len();
@@ -743,10 +950,12 @@ fn rewrite_code_span_placeholders(
             }
             let num: u32 = num_str.parse().unwrap_or(0);
             out.push_str(&formatter(num));
+            occurrences.push(num);
             i = j;
-        } else if ch == '?' && !uses_dollar_placeholders && !chars.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
+        } else if ch == '?' && bare_question_is_placeholder && !chars.get(i + 1).is_some_and(|c| c.is_ascii_digit()) {
             *counter += 1;
             out.push_str(&formatter(*counter));
+            occurrences.push(*counter);
             i += 1;
         } else {
             out.push(ch);
@@ -1194,7 +1403,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // SQL lexer / rewriting tests (#148, #186, #149-adjacent).
+    // SQL lexer / rewriting tests (board #148, #186, #149-adjacent).
     //
     // These pin down the behaviour of `clean_sql`, `clean_sql_oneline`, and
     // `rewrite_pg_placeholders` against a real SQL lexer instead of the
@@ -1377,5 +1586,170 @@ mod tests {
         let params = vec![param("name", 1)];
         let result = rewrite_optional_params(sql, &["name".to_string()], &params);
         assert_eq!(result, "SELECT id FROM t WHERE ($1 IS NULL OR name NOT LIKE $1)");
+    }
+
+    // -----------------------------------------------------------------
+    // Dialect-aware tokenizer / placeholder tests (board #148, GH #149).
+    //
+    // These exercise `rewrite_placeholders_indexed` and `clean_sql_dialect`/
+    // `clean_sql_oneline_dialect` directly -- the dialect-driven replacements
+    // every owned backend (java-jdbc, kotlin-jdbc, kotlin-exposed, php-amphp)
+    // now calls instead of the heuristic-based `rewrite_pg_placeholders`/
+    // `clean_sql`/`clean_sql_oneline`. Each test states, in its doc comment or
+    // inline, what the OLD (heuristic-based, dialect-blind) code produced for
+    // the same input.
+    // -----------------------------------------------------------------
+
+    /// The headline board #148 defect, reproduced against both the OLD heuristic
+    /// entry point and the NEW dialect-driven one on the exact same input.
+    /// `rewrite_pg_placeholders` (unchanged, kept for callers this change did
+    /// not reach) has no `$N` to anchor its heuristic on, so it guesses "no
+    /// dollar placeholders exist -> bare `?` is positional" and corrupts the
+    /// JSONB key-existence operator into a placeholder reference:
+    /// `WHERE data $1 'active'`. `rewrite_placeholders_indexed` under
+    /// `SqlDialect::PostgreSQL` is told the dialect directly and never
+    /// rewrites it, with zero occurrences recorded.
+    #[test]
+    fn test_bare_question_mark_is_never_a_placeholder_under_postgresql_even_with_zero_dollar_placeholders() {
+        let sql = "SELECT * FROM docs WHERE data ? 'active'";
+
+        let old_result = rewrite_pg_placeholders(sql, |n| format!("${n}"));
+        assert_eq!(
+            old_result, "SELECT * FROM docs WHERE data $1 'active'",
+            "pins the OLD heuristic's corruption of the JSONB operator"
+        );
+
+        let (new_result, occurrences) = rewrite_placeholders_indexed(sql, SqlDialect::PostgreSQL, |n| format!("${n}"));
+        assert_eq!(
+            new_result, sql,
+            "dialect-driven rewrite must leave the JSONB operator untouched"
+        );
+        assert!(
+            occurrences.is_empty(),
+            "no placeholder was ever present; got: {occurrences:?}"
+        );
+    }
+
+    /// Same bare `?`, but under a dialect that genuinely uses it as a
+    /// positional placeholder -- proving the decision is dialect-driven, not
+    /// "always leave `?` alone now".
+    #[test]
+    fn test_bare_question_mark_is_a_placeholder_under_mysql() {
+        let sql = "SELECT * FROM docs WHERE data ? 'active'";
+        let (result, occurrences) = rewrite_placeholders_indexed(sql, SqlDialect::MySQL, |n| format!("${n}"));
+        assert_eq!(result, "SELECT * FROM docs WHERE data $1 'active'");
+        assert_eq!(occurrences, vec![1]);
+    }
+
+    /// GH #149: `$2` declared before `$1` in the SQL text must report its
+    /// own position at each occurrence, in textual order -- this is what lets
+    /// a backend bind per SQL-text occurrence instead of assuming declaration
+    /// order.
+    #[test]
+    fn test_rewrite_placeholders_indexed_returns_positions_in_textual_order_out_of_order() {
+        let (result, occurrences) =
+            rewrite_placeholders_indexed("WHERE b = $2 AND a = $1", SqlDialect::PostgreSQL, |_| "?".to_string());
+        assert_eq!(result, "WHERE b = ? AND a = ?");
+        assert_eq!(occurrences, vec![2, 1]);
+    }
+
+    /// GH #149: a repeated `$1` must report position `1` twice, once per
+    /// occurrence -- not collapse to a single entry the way a per-declared-
+    /// parameter bind loop would.
+    #[test]
+    fn test_rewrite_placeholders_indexed_repeated_placeholder_reports_one_occurrence_per_use() {
+        let (result, occurrences) =
+            rewrite_placeholders_indexed("WHERE a = $1 OR b = $1", SqlDialect::PostgreSQL, |_| "?".to_string());
+        assert_eq!(result, "WHERE a = ? OR b = ?");
+        assert_eq!(occurrences, vec![1, 1]);
+    }
+
+    /// board #148 item 2/#186: a MySQL backtick-quoted identifier containing a bare
+    /// `?` must not have the `?` inside it rewritten, and the identifier's own
+    /// characters must not desynchronize the *later* placeholder's number.
+    /// Matches the `WRONG:`-documented expectation in
+    /// `sql_text_characterization_tests.rs`'s
+    /// `question_mark_inside_a_mysql_backtick_identifier_is_rewritten_as_a_placeholder`.
+    #[test]
+    fn test_mysql_backtick_identifier_is_not_corrupted_by_bare_question_mark() {
+        let sql = "SELECT `a?b` FROM t WHERE c = ?";
+        let (result, occurrences) = rewrite_placeholders_indexed(sql, SqlDialect::MySQL, |n| format!("[P{n}]"));
+        assert_eq!(result, "SELECT `a?b` FROM t WHERE c = [P1]");
+        assert_eq!(occurrences, vec![1]);
+    }
+
+    /// board #148 item 4: same as above for an MSSQL `[bracketed]` identifier.
+    #[test]
+    fn test_mssql_bracket_identifier_is_not_corrupted_by_bare_question_mark() {
+        let sql = "SELECT [a?b] FROM t WHERE c = ?";
+        let (result, occurrences) = rewrite_placeholders_indexed(sql, SqlDialect::MsSql, |n| format!("[P{n}]"));
+        assert_eq!(result, "SELECT [a?b] FROM t WHERE c = [P1]");
+        assert_eq!(occurrences, vec![1]);
+    }
+
+    /// board #148 item 2: a MySQL backtick identifier containing `-- ` must not be
+    /// read as opening a line comment. Matches the `clean_sql_dialect`
+    /// counterpart of the `WRONG:`-documented
+    /// `clean_sql_treats_a_double_dash_inside_a_mysql_backtick_identifier_as_a_comment`
+    /// characterization test (which pins the OLD, dialect-blind `clean_sql`'s
+    /// corruption of the same input to `"SELECT \`a"`).
+    #[test]
+    fn test_clean_sql_dialect_mysql_backtick_preserves_double_dash_inside() {
+        let sql = "SELECT `a -- b` FROM t";
+        assert_eq!(
+            clean_sql(sql),
+            "SELECT `a",
+            "pins the OLD dialect-blind clean_sql's corruption"
+        );
+        assert_eq!(clean_sql_dialect(sql, SqlDialect::MySQL), sql);
+    }
+
+    /// board #148 item 4: same as above for an MSSQL `[bracketed]` identifier.
+    #[test]
+    fn test_clean_sql_dialect_mssql_bracket_preserves_double_dash_inside() {
+        let sql = "SELECT [a -- b] FROM t";
+        assert_eq!(
+            clean_sql(sql),
+            "SELECT [a",
+            "pins the OLD dialect-blind clean_sql's corruption"
+        );
+        assert_eq!(clean_sql_dialect(sql, SqlDialect::MsSql), sql);
+    }
+
+    /// board #148 item 3: MySQL `#` line comments were deliberately unrecognized
+    /// dialect-blind (`#` collides with PostgreSQL's `#>`/`#>>` JSON
+    /// operators), so the OLD `clean_sql` leaves the whole comment in the
+    /// output. Under `SqlDialect::MySQL` it must be stripped like `--`.
+    #[test]
+    fn test_clean_sql_dialect_mysql_hash_comment_is_stripped() {
+        let sql = "SELECT 1 # note\nFROM t";
+        assert_eq!(
+            clean_sql(sql),
+            "SELECT 1 # note\nFROM t",
+            "pins the OLD dialect-blind clean_sql leaving the # comment in place"
+        );
+        // WRONG-adjacent (matches the pre-existing `--` wart pinned by
+        // `clean_sql_strips_a_trailing_line_comment_but_leaves_the_space_before_it`
+        // in sql_text_characterization_tests.rs): stripping a trailing
+        // comment does not also strip the space that preceded it.
+        assert_eq!(clean_sql_dialect(sql, SqlDialect::MySQL), "SELECT 1 \nFROM t");
+    }
+
+    /// The oneline variant of the `#` test above, since every owned backend
+    /// calls `clean_sql_oneline_dialect` (or its `_with_optional` wrapper),
+    /// never `clean_sql_dialect`, to flatten SQL into one embedded literal.
+    #[test]
+    fn test_clean_sql_oneline_dialect_mysql_hash_comment_is_stripped() {
+        let sql = "SELECT 1 # note\nFROM t";
+        assert_eq!(clean_sql_oneline_dialect(sql, SqlDialect::MySQL), "SELECT 1  FROM t");
+    }
+
+    /// PostgreSQL's `#>`/`#>>` JSON operators are exactly why `#` cannot be
+    /// treated as a comment dialect-blind -- confirm they still survive
+    /// untouched under `SqlDialect::PostgreSQL`.
+    #[test]
+    fn test_clean_sql_dialect_postgresql_hash_is_not_a_comment() {
+        let sql = "SELECT data #> '{a,b}' AS x FROM t";
+        assert_eq!(clean_sql_dialect(sql, SqlDialect::PostgreSQL), sql);
     }
 }
