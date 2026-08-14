@@ -916,6 +916,9 @@ jobs:
         with:
           distribution: temurin
           java-version: "21"
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: integration_tests/go-database-sql-duckdb/go.mod
 
       - run: pip install uv
       - uses: pnpm/setup@v2
@@ -943,6 +946,10 @@ jobs:
       - name: Test kotlin-jdbc-duckdb
         working-directory: integration_tests/kotlin-jdbc-duckdb
         run: gradle run --quiet
+
+      - name: Test go-database-sql-duckdb
+        working-directory: integration_tests/go-database-sql-duckdb
+        run: go mod tidy && go run .
 
   integration-sqlite:
     name: SQLite Integration Tests

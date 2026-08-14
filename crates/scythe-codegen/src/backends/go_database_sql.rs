@@ -41,7 +41,32 @@ impl GoDatabaseSqlBackend {
             engine: engine.to_string(),
         })
     }
+
+    // ~keep Measured against go-duckdb v2.3.3 with `SELECT ?::VARCHAR`: binding a `*T` fails with
+    // "could not bind parameter / unsupported data type: unknown type" whether or not the pointer
+    // is nil, while an untyped nil and a bare value both bind. The manifest's `nullable = "*{T}"`
+    // therefore breaks every nullable parameter on DuckDB, not just the NULL ones, so each
+    // pointer-typed argument is dereferenced at the bind site. Board #228.
+    fn nullable_bind_helper(&self) -> &'static str {
+        if self.engine == "duckdb" {
+            GO_DUCKDB_BIND_HELPER
+        } else {
+            ""
+        }
+    }
+
+    fn bind_arg(&self, param: &ResolvedParam, expr: String) -> String {
+        if self.engine == "duckdb" && param.full_type.starts_with('*') {
+            format!("{DUCKDB_BIND_FN}({expr})")
+        } else {
+            expr
+        }
+    }
 }
+
+const DUCKDB_BIND_FN: &str = "duckdbBindValue";
+
+const GO_DUCKDB_BIND_HELPER: &str = "\n// go-duckdb cannot bind a typed pointer, so a nullable\n// parameter is passed as its value or as an untyped nil.\nfunc duckdbBindValue[T any](v *T) any {\n\tif v == nil {\n\t\treturn nil\n\t}\n\treturn *v\n}";
 
 impl CodegenBackend for GoDatabaseSqlBackend {
     fn name(&self) -> &str {
@@ -61,23 +86,25 @@ impl CodegenBackend for GoDatabaseSqlBackend {
     }
 
     fn file_header(&self) -> String {
-        go_file_header(
+        let header = go_file_header(
             "package queries",
             &["context", "database/sql"],
             &[],
             &self.manifest,
             &[],
-        )
+        );
+        format!("{header}{}", self.nullable_bind_helper())
     }
 
     fn file_header_for_results(&self, generated: &[GeneratedCode]) -> String {
-        go_file_header(
+        let header = go_file_header(
             "package queries",
             &["context", "database/sql"],
             &[],
             &self.manifest,
             generated,
-        )
+        );
+        format!("{header}{}", self.nullable_bind_helper())
     }
 
     fn generate_struct_decl(
@@ -124,7 +151,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
 
         let args = params
             .iter()
-            .map(|p| to_pascal_case(&p.field_name).into_owned())
+            .map(|p| self.bind_arg(p, to_pascal_case(&p.field_name).into_owned()))
             .collect::<Vec<_>>();
 
         let mut out = String::new();
@@ -254,7 +281,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                     if params.len() > 1 {
                         let item_args: Vec<String> = params
                             .iter()
-                            .map(|p| format!("item.{}", to_pascal_case(&p.field_name)))
+                            .map(|p| self.bind_arg(p, format!("item.{}", to_pascal_case(&p.field_name))))
                             .collect();
                         let _ = writeln!(
                             out,
@@ -263,7 +290,10 @@ impl CodegenBackend for GoDatabaseSqlBackend {
                             item_args.join(", ")
                         );
                     } else {
-                        let _ = writeln!(out, "\t\t_, err := tx.ExecContext(ctx, \"{}\", item)", sql);
+                        let item_arg = params
+                            .first()
+                            .map_or_else(|| "item".to_string(), |p| self.bind_arg(p, "item".to_string()));
+                        let _ = writeln!(out, "\t\t_, err := tx.ExecContext(ctx, \"{}\", {})", sql, item_arg);
                     }
                 }
                 let _ = writeln!(out, "\t\tif err != nil {{");
@@ -378,7 +408,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
         } else {
             let args: Vec<String> = params
                 .iter()
-                .map(|p| to_pascal_case(&p.field_name).into_owned())
+                .map(|p| self.bind_arg(p, to_pascal_case(&p.field_name).into_owned()))
                 .collect();
             format!(", {}", args.join(", "))
         };
@@ -473,7 +503,7 @@ impl CodegenBackend for GoDatabaseSqlBackend {
 
 #[cfg(test)]
 mod tests {
-    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, GroupByConfig};
+    use scythe_core::analyzer::{AnalyzedColumn, AnalyzedParam, AnalyzedQuery, GroupByConfig};
     use scythe_core::parser::QueryCommand;
 
     use crate::backends::get_backend;
@@ -616,6 +646,90 @@ mod tests {
             query_fn.contains("rows.Err()"),
             "must return rows.Err(); got:\n{query_fn}"
         );
+    }
+
+    fn make_nullable_param_query() -> AnalyzedQuery {
+        AnalyzedQuery::build(|aq| {
+            aq.name = "ListUsersByNickname".to_string();
+            aq.command = QueryCommand::Many;
+            aq.sql =
+                "-- @name ListUsersByNickname\n-- @returns :many\nSELECT id FROM users WHERE nickname = $1 AND id > $2"
+                    .to_string();
+            aq.columns = vec![AnalyzedColumn {
+                name: "id".to_string(),
+                neutral_type: "int32".to_string(),
+                nullable: false,
+                ..Default::default()
+            }];
+            aq.params = vec![
+                AnalyzedParam {
+                    name: "nickname".to_string(),
+                    neutral_type: "string".to_string(),
+                    nullable: true,
+                    position: 1,
+                    ..Default::default()
+                },
+                AnalyzedParam {
+                    name: "min_id".to_string(),
+                    neutral_type: "int32".to_string(),
+                    nullable: false,
+                    position: 2,
+                    ..Default::default()
+                },
+            ];
+        })
+    }
+
+    /// Board #228. Measured against go-duckdb v2.3.3: binding a `*T` fails with
+    /// "could not bind parameter / unsupported data type: unknown type" whether or not the
+    /// pointer is nil, so every nullable parameter -- not only the NULL ones -- must be
+    /// dereferenced before it reaches the driver.
+    #[test]
+    fn should_deref_nullable_params_at_the_bind_site_on_duckdb() {
+        let backend = get_backend("go-database-sql", "duckdb").unwrap();
+        let code = generate_with_backend(&make_nullable_param_query(), &*backend).unwrap();
+        let query_fn = code.query_fn.clone().expect("a query fn must be emitted");
+
+        assert!(
+            query_fn.contains("Nickname *string"),
+            "the public signature must keep the pointer; got:\n{query_fn}"
+        );
+        assert!(
+            query_fn.contains("duckdbBindValue(Nickname)"),
+            "nullable param must be dereferenced at the bind site; got:\n{query_fn}"
+        );
+        assert!(
+            !query_fn.contains("duckdbBindValue(MinId)"),
+            "a non-nullable param binds directly and must not be wrapped; got:\n{query_fn}"
+        );
+
+        let header = backend.file_header_for_results(&[code]);
+        assert!(
+            header.contains("func duckdbBindValue[T any](v *T) any {"),
+            "the helper the bind sites call must be emitted; got:\n{header}"
+        );
+    }
+
+    /// The other database/sql engines bind a `*T` natively, so wrapping there would be a
+    /// gratuitous divergence -- and would emit a helper no call site references, which
+    /// `go build` rejects only for imports, not for functions, so nothing else would catch it.
+    #[test]
+    fn should_not_deref_nullable_params_on_engines_that_bind_pointers() {
+        for engine in ["mysql", "mariadb", "sqlite", "mssql"] {
+            let backend = get_backend("go-database-sql", engine).unwrap();
+            let code = generate_with_backend(&make_nullable_param_query(), &*backend).unwrap();
+            let query_fn = code.query_fn.clone().expect("a query fn must be emitted");
+
+            assert!(
+                !query_fn.contains("duckdbBindValue"),
+                "{engine} must bind the pointer directly; got:\n{query_fn}"
+            );
+            let header = backend.file_header_for_results(&[code]);
+            assert!(
+                !header.contains("duckdbBindValue"),
+                "{engine} must not emit the DuckDB helper; got:\n{header}"
+            );
+        }
     }
 
     fn make_simple_query(name: &str, sql: &str, columns: Vec<AnalyzedColumn>) -> AnalyzedQuery {

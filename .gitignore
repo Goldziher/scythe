@@ -55,8 +55,11 @@ snowflake.log
 
 # The go-database-sql duckdb harness opens a file-backed database next to itself
 # rather than :memory:, because database/sql pools connections and each pooled
-# connection would otherwise get its own empty in-memory database.
+# connection would otherwise get its own empty in-memory database. DuckDB writes
+# a `<name>.duckdb.wal` sibling that `*.duckdb` does not match, so it needs its
+# own line -- one was committed by accident before this entry existed.
 *.duckdb
+*.duckdb.wal
 
 # The BEUM VM dumps this at the repo root when an elixir harness crashes -- a few MB
 # of run artifact that trips the large-file pre-commit hook if it is ever staged.

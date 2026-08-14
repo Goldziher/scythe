@@ -7,9 +7,17 @@ import (
 	"time"
 )
 
+// go-duckdb cannot bind a typed pointer, so a nullable
+// parameter is passed as its value or as an untyped nil.
+func duckdbBindValue[T any](v *T) any {
+	if v == nil {
+		return nil
+	}
+	return *v
+}
 
 func CreateOrder(ctx context.Context, db *sql.DB, UserId int32, Total float64, Notes *string) error {
-	_, err := db.ExecContext(ctx, "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3)", UserId, Total, Notes)
+	_, err := db.ExecContext(ctx, "INSERT INTO orders (user_id, total, notes) VALUES ($1, $2, $3)", UserId, Total, duckdbBindValue(Notes))
 	return err
 }
 
@@ -95,7 +103,7 @@ func ListActiveUsers(ctx context.Context, db *sql.DB, Status string) ([]ListActi
 }
 
 func CreateUser(ctx context.Context, db *sql.DB, Name string, Email *string, Status string) error {
-	_, err := db.ExecContext(ctx, "INSERT INTO users (name, email, status) VALUES ($1, $2, $3)", Name, Email, Status)
+	_, err := db.ExecContext(ctx, "INSERT INTO users (name, email, status) VALUES ($1, $2, $3)", Name, duckdbBindValue(Email), Status)
 	return err
 }
 

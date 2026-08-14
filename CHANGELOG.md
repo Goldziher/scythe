@@ -93,6 +93,16 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **`go-database-sql` on DuckDB failed at runtime on every nullable parameter.** The manifest maps a
+  nullable parameter to `*{T}`, and `go-duckdb` cannot bind a typed pointer at all: measured against
+  v2.3.3, both a nil and a *non-nil* `*string` fail with `could not bind parameter / unsupported data
+  type: unknown type`, while an untyped nil and a bare value both bind. So this was never limited to
+  NULL arguments — any query with a nullable parameter was unusable. Pointer-typed arguments are now
+  dereferenced at the bind site (nil becoming an untyped nil) by a generated helper, leaving the
+  public function signature unchanged. The other `database/sql` engines bind pointers natively and
+  are untouched. `go-database-sql-duckdb` now runs in the `integration-duckdb` CI job, which is what
+  surfaced this. (#228)
+
 - **`ruby-oci8` handed back a LOB locator where the generated row type declared a `String`.**
   OCI8 returns a lazy `OCI8::CLOB` / `NCLOB` / `BLOB` / `BFILE` handle rather than a materialized
   value, so a LOB-backed field held the locator instead of its contents. Both CLOB and VARCHAR2
