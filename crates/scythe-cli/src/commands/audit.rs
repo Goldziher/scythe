@@ -17,8 +17,9 @@ use scythe_core::dialect::SqlDialect;
 use scythe_core::parser::Annotations;
 use scythe_lint::reporters::{Finding, Format};
 use scythe_lint::{
-    AuditConfigError, LintContext, LintRule, MatcherRegistry, RuleCategory, RuleRegistry, RuleSpec, Severity,
-    SuppressionSet, default_registry, emit_findings, load_rules_from_file, register_user_rules,
+    AuditConfigError, KNOWN_ENGINE_ALIASES, LintContext, LintRule, MatcherRegistry, RuleCategory, RuleRegistry,
+    RuleSpec, Severity, SuppressionSet, default_registry, emit_findings, load_rules_from_file, parse_engine_dialect,
+    register_user_rules,
 };
 
 use super::shared::{config_dir, resolve_globs};
@@ -124,38 +125,25 @@ pub fn run_audit(opts: RunAuditOpts) -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Every alias [`SqlDialect::from_str`] recognizes, kept in sync with it so
-/// `audit --dialect` rejects exactly what that parser would otherwise
-/// silently default to PostgreSQL for.
+/// Validates against [`KNOWN_ENGINE_ALIASES`] -- the same list
+/// [`parse_engine_dialect`] validates the config's `engine = "..."` against
+/// (#165, item 3) -- so `--dialect` and `engine` reject exactly the same
+/// set, with one list to keep in sync with `SqlDialect::from_str` instead of
+/// two drifting independently.
 ///
 /// Before this, an unrecognized `--dialect` (a typo, or literal gibberish
 /// like `klingon`) fell through `SqlDialect::from_str(..).unwrap_or(PostgreSQL)`
 /// and silently became PostgreSQL -- identical output to `--dialect
 /// postgres`, with no error either way. See #212.
 fn validate_audit_dialect(raw: &str) -> Result<String, String> {
-    const KNOWN: &[&str] = &[
-        "postgresql",
-        "postgres",
-        "pg",
-        "cockroachdb",
-        "crdb",
-        "mysql",
-        "mariadb",
-        "sqlite",
-        "sqlite3",
-        "duckdb",
-        "redshift",
-        "mssql",
-        "sqlserver",
-        "tsql",
-        "oracle",
-        "snowflake",
-    ];
     let lower = raw.to_ascii_lowercase();
-    if KNOWN.contains(&lower.as_str()) {
+    if KNOWN_ENGINE_ALIASES.contains(&lower.as_str()) {
         Ok(lower)
     } else {
-        Err(format!("unknown --dialect '{raw}' (expected {})", KNOWN.join("|")))
+        Err(format!(
+            "unknown --dialect '{raw}' (expected {})",
+            KNOWN_ENGINE_ALIASES.join("|")
+        ))
     }
 }
 
@@ -466,8 +454,6 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
     let mut findings = Vec::new();
 
     for sql_config in &config.sql {
-        let sql_dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
-
         // Per `[[sql]]` block, because the dialect gate is per block: the
         // same registry can yield a different executable rule set for a
         // postgres block and a mysql block in one config.
@@ -476,6 +462,13 @@ fn audit_from_config(config_path: &str, ignore_suppressions: bool) -> Result<Vec
         } else {
             sql_config.engine.as_str()
         };
+        // `parse_engine_dialect`, not `SqlDialect::from_str(..).unwrap_or(PostgreSQL)`:
+        // a typo'd engine (`mysql8`) used to be silently audited as
+        // PostgreSQL -- wrong catalog parsing and a wrong dialect-gated rule
+        // set, with `scythe audit` reporting success regardless (#165, item
+        // 3). `--dialect` already rejects this same mistake via
+        // `validate_audit_dialect`; the config's `engine` field did not.
+        let sql_dialect = parse_engine_dialect(engine_label).map_err(|e| format!("[{}] {}", sql_config.name, e))?;
         let (rules, no_rules_finding) = prepare_audit_rules(&rules, sql_dialect, engine_label);
         if let Some(finding) = no_rules_finding {
             findings.push(finding);
@@ -531,7 +524,14 @@ pub(crate) fn audit_explicit_files(
     ignore_suppressions: bool,
     config_path: &str,
 ) -> Result<Vec<Finding>, Box<dyn std::error::Error>> {
-    let sql_dialect = SqlDialect::from_str(engine).unwrap_or(SqlDialect::PostgreSQL);
+    // `parse_engine_dialect`, not `SqlDialect::from_str(..).unwrap_or(PostgreSQL)`
+    // (#165, item 3). `engine` is always already-validated here in practice
+    // -- `run_audit` passes either its `--dialect` value (validated by
+    // `validate_audit_dialect`) or the literal default `"postgres"` -- but
+    // this function is `pub(crate)`, so a future in-crate caller that skips
+    // that validation must still get an error naming the bad value instead
+    // of a silent PostgreSQL fallback.
+    let sql_dialect = parse_engine_dialect(engine).map_err(|e| format!("audit: {e}"))?;
 
     let catalog = Catalog::from_ddl_with_dialect(&[], &sql_dialect)
         .unwrap_or_else(|_| Catalog::from_ddl_with_dialect(&[], &SqlDialect::PostgreSQL).expect("empty catalog"));

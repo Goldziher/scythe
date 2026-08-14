@@ -31,6 +31,45 @@ impl Severity {
     }
 }
 
+/// Every alias [`SqlDialect::from_str`] recognizes, kept in one place so a
+/// config- or CLI-supplied engine name can be validated against exactly what
+/// that parser accepts, instead of two independently maintained copies of
+/// the same list drifting apart.
+pub const KNOWN_ENGINE_ALIASES: &[&str] = &[
+    "postgresql",
+    "postgres",
+    "pg",
+    "cockroachdb",
+    "crdb",
+    "mysql",
+    "mariadb",
+    "sqlite",
+    "sqlite3",
+    "duckdb",
+    "redshift",
+    "mssql",
+    "sqlserver",
+    "tsql",
+    "oracle",
+    "snowflake",
+];
+
+/// Parse an `engine = "..."` value into the [`SqlDialect`] it names.
+///
+/// Unlike `SqlDialect::from_str(..).unwrap_or(SqlDialect::PostgreSQL)`, an
+/// unrecognized value is an error, not a silent fallback to PostgreSQL: a
+/// typo like `mysql8` used to be analyzed as PostgreSQL with no diagnostic,
+/// so a query written for one dialect was checked against another's rules
+/// and syntax while the run reported success (#165, item 3).
+pub fn parse_engine_dialect(engine: &str) -> Result<SqlDialect, String> {
+    SqlDialect::from_str(engine).ok_or_else(|| {
+        format!(
+            "unknown engine '{engine}' (expected {})",
+            KNOWN_ENGINE_ALIASES.join("|")
+        )
+    })
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum RuleCategory {

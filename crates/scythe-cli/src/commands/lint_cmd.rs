@@ -99,6 +99,21 @@ pub fn run_lint(opts: RunLintOpts) -> Result<(), Box<dyn std::error::Error>> {
     report_violations(&violations, format, output.as_deref(), exit_zero)
 }
 
+/// Resolve a `[[sql]] engine = "..."` value to a [`scythe_core::dialect::SqlDialect`],
+/// treating an empty string (the field's default when the key is omitted) as
+/// `"postgresql"` -- scythe's own documented default -- and rejecting
+/// anything else [`scythe_lint::parse_engine_dialect`] does not recognize.
+///
+/// Before this, both call sites below used
+/// `SqlDialect::from_str(engine).unwrap_or(SqlDialect::PostgreSQL)`: a typo'd
+/// engine (`mysql8`) was silently analyzed as PostgreSQL -- wrong catalog
+/// parsing, wrong dialect-gated rule set -- with `scythe lint` reporting
+/// success regardless (#165, item 3).
+fn resolve_sql_dialect(engine: &str) -> Result<scythe_core::dialect::SqlDialect, String> {
+    let engine = if engine.is_empty() { "postgresql" } else { engine };
+    scythe_lint::parse_engine_dialect(engine)
+}
+
 /// Schema-aware context for running scythe-native lint rules against
 /// explicitly-listed files, built from `scythe.toml` when one is present and
 /// declares a resolvable schema. See [`load_native_lint_context`].
@@ -136,7 +151,6 @@ struct NativeLintContext {
 /// run against the same project.
 fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContext>, Box<dyn std::error::Error>> {
     use scythe_core::catalog::Catalog;
-    use scythe_core::dialect::SqlDialect;
     use scythe_lint::{LintEngine, default_registry};
     use serde::Deserialize;
 
@@ -181,7 +195,7 @@ fn load_native_lint_context(config_path: &str) -> Result<Option<NativeLintContex
     let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
     let sql_dialect =
-        SqlDialect::from_str(first.engine.as_deref().unwrap_or("postgresql")).unwrap_or(SqlDialect::PostgreSQL);
+        resolve_sql_dialect(first.engine.as_deref().unwrap_or("")).map_err(|e| format!("[native lint] {}", e))?;
     let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
 
     let mut registry = default_registry();
@@ -503,6 +517,19 @@ fn lint_from_config(
         .map(|(rule, _)| (rule.id().to_string(), rule.cwe()))
         .collect();
 
+    // Resolved once, per block, before any rule-applicability or catalog
+    // work: `resolve_sql_dialect` errors on an engine `SqlDialect::from_str`
+    // does not recognize instead of silently defaulting to PostgreSQL
+    // (#165, item 3), and every later use of a block's dialect (the
+    // applicability filter just below, and the catalog build in the loop)
+    // reuses this same resolved value rather than re-parsing `sc.engine` and
+    // risking the two falling out of sync.
+    let block_dialects: Vec<SqlDialect> = config
+        .sql
+        .iter()
+        .map(|sc| resolve_sql_dialect(&sc.engine).map_err(|e| format!("[{}] {}", sc.name, e)))
+        .collect::<Result<_, _>>()?;
+
     // Rules that will not fire for a `[[sql]]` block because
     // `LintRule::is_applicable_to` excludes the block's engine -- most
     // canonical security and migration rules declare `dialects =
@@ -510,11 +537,9 @@ fn lint_from_config(
     // internally and returns an empty `Vec`, which is indistinguishable from
     // "the rule ran and found nothing"; reporting the ids here is what makes
     // the difference visible (#167). Indexed in `config.sql` order.
-    let inapplicable_rules_per_block: Vec<Vec<&'static str>> = config
-        .sql
+    let inapplicable_rules_per_block: Vec<Vec<&'static str>> = block_dialects
         .iter()
-        .map(|sc| {
-            let block_dialect = SqlDialect::from_str(&sc.engine).unwrap_or(SqlDialect::PostgreSQL);
+        .map(|&block_dialect| {
             registry
                 .active_rules()
                 .iter()
@@ -595,7 +620,7 @@ fn lint_from_config(
             .collect::<Result<_, _>>()?;
         let schema_refs: Vec<&str> = schema_contents.iter().map(|s| s.as_str()).collect();
 
-        let sql_dialect = SqlDialect::from_str(&sql_config.engine).unwrap_or(SqlDialect::PostgreSQL);
+        let sql_dialect = block_dialects[block_index];
         let catalog = Catalog::from_ddl_with_dialect(&schema_refs, &sql_dialect)?;
 
         let query_files = resolve_globs(&sql_config.queries, base_dir, &format!("[{}] queries", sql_config.name))?;
