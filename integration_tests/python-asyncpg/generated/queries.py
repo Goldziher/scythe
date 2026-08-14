@@ -145,7 +145,7 @@ async def get_user_by_id(conn: Connection, *, id: int) -> GetUserByIdRow:
         id=row["id"],
         name=row["name"],
         email=row["email"],
-        status=row["status"],
+        status=UserStatus(row["status"]),
         created_at=row["created_at"],
     )
 
@@ -198,7 +198,7 @@ async def create_user(conn: Connection, *, name: str, email: str | None, status:
         id=row["id"],
         name=row["name"],
         email=row["email"],
-        status=row["status"],
+        status=UserStatus(row["status"]),
         created_at=row["created_at"],
     )
 
@@ -265,7 +265,10 @@ async def count_users_by_status(conn: Connection, *, status: UserStatus) -> Coun
     )
     if row is None:
         raise ScytheNoRowsError("CountUsersByStatus: no rows returned")
-    return CountUsersByStatusRow(status=row["status"], user_count=row["user_count"])
+    return CountUsersByStatusRow(
+        status=UserStatus(row["status"]),
+        user_count=row["user_count"],
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -323,6 +326,18 @@ class UserAddress:
     city: str
     zip: str
 
+    @classmethod
+    def _from_record(cls, record) -> "UserAddress | None":
+        """~keep board #204: asyncpg decodes a composite column to its own
+        `Record` (tuple-like, not our declared type) -- wrap it into this class."""
+        if record is None:
+            return None
+        return cls(
+            street=record["street"],
+            city=record["city"],
+            zip=record["zip"],
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class GetUserProfileRow:
@@ -343,7 +358,7 @@ async def get_user_profile(conn: Connection, *, id: int) -> GetUserProfileRow:
         raise ScytheNoRowsError("GetUserProfile: no rows returned")
     return GetUserProfileRow(
         id=row["id"],
-        secondary_status=row["secondary_status"],
-        address=row["address"],
+        secondary_status=None if row["secondary_status"] is None else UserStatus(row["secondary_status"]),
+        address=UserAddress._from_record(row["address"]),
     )
 

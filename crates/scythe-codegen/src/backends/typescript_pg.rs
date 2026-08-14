@@ -22,6 +22,184 @@ use crate::backends::typescript_common::{
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/typescript-pg.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/typescript-pg.redshift.toml");
 
+/// Board #204: node-postgres (`pg`) registers no parser for a user-defined composite type, so
+/// a composite column arrives as PostgreSQL's raw composite *text form* (`"(a,b,c)"`), a plain
+/// `string` -- not the generated `interface`. Casting it (`row.field as WidgetAddress`, what
+/// every read path here did before this fix) is a compile-time-only assertion; at runtime the
+/// value is still a string, so `row.field.street` reads `undefined`, silently, because
+/// TypeScript's structural typing gives no runtime check the way Python's attribute access
+/// does. The fix parses the text form by hand through a generated `parse{Name}` function,
+/// mirroring `java_jdbc.rs`'s `fromText`/`parseCompositeFields` (see that file's doc comment
+/// for the escaping rules). Unlike Java, the field-splitting helper is named
+/// `parse{Name}Fields` rather than a shared private method: TypeScript backends emit composite
+/// definitions as free functions at module scope, not nested inside a class, so two composites
+/// declared in the same generated file would collide on a single shared helper name.
+///
+/// Unlike composites, a generated TypeScript `enum::` type is a string-literal union
+/// (`export type Status = "active" | "inactive"`, see `generate_enum_def`) with no runtime
+/// representation distinct from the driver's raw string -- a bare `as Status` cast is already
+/// correct at runtime, so enum columns need no equivalent fix here.
+fn ts_parse_composite_fields_helper(name: &str) -> String {
+    format!(
+        "function parse{name}Fields(text: string): (string | null)[] {{\n\
+\t// ~keep Splits a PostgreSQL composite's text form (\"(a,b,c)\") into its raw field\n\
+\t// tokens, honoring its escaping rules: an empty unquoted field is SQL NULL (returned as\n\
+\t// null); a field needing quoting (comma, paren, quote, backslash, leading/trailing\n\
+\t// space, or the empty string) is wrapped in double quotes; every other field is\n\
+\t// unquoted and taken literally. Inside a quoted field `record_out` writes a literal\n\
+\t// '\"' as '\"\"' and a literal '\\\\' as '\\\\\\\\' -- reading '\"\"' as a closing quote both\n\
+\t// truncates the value and desynchronizes every field after it. Verified against\n\
+\t// PostgreSQL 16.\n\
+\tconst fields: (string | null)[] = [];\n\
+\tconst inner = text.slice(1, -1);\n\
+\tlet i = 0;\n\
+\tconst n = inner.length;\n\
+\tfor (;;) {{\n\
+\t\tlet chars = \"\";\n\
+\t\tlet isNull = false;\n\
+\t\tif (i < n && inner[i] === '\"') {{\n\
+\t\t\ti++;\n\
+\t\t\twhile (i < n) {{\n\
+\t\t\t\tconst c = inner[i];\n\
+\t\t\t\tif (c === \"\\\\\" && i + 1 < n) {{\n\
+\t\t\t\t\tchars += inner[i + 1];\n\
+\t\t\t\t\ti += 2;\n\
+\t\t\t\t}} else if (c === '\"' && i + 1 < n && inner[i + 1] === '\"') {{\n\
+\t\t\t\t\tchars += '\"';\n\
+\t\t\t\t\ti += 2;\n\
+\t\t\t\t}} else if (c === '\"') {{\n\
+\t\t\t\t\ti++;\n\
+\t\t\t\t\tbreak;\n\
+\t\t\t\t}} else {{\n\
+\t\t\t\t\tchars += c;\n\
+\t\t\t\t\ti++;\n\
+\t\t\t\t}}\n\
+\t\t\t}}\n\
+\t\t}} else {{\n\
+\t\t\tconst start = i;\n\
+\t\t\twhile (i < n && inner[i] !== \",\") {{\n\
+\t\t\t\ti++;\n\
+\t\t\t}}\n\
+\t\t\tchars = inner.slice(start, i);\n\
+\t\t\tisNull = chars.length === 0;\n\
+\t\t}}\n\
+\t\tfields.push(isNull ? null : chars);\n\
+\t\tif (i < n && inner[i] === \",\") {{\n\
+\t\t\ti++;\n\
+\t\t\tcontinue;\n\
+\t\t}}\n\
+\t\tbreak;\n\
+\t}}\n\
+\treturn fields;\n\
+}}"
+    )
+}
+
+/// PostgreSQL's default `bytea` text output is hex (`"\x48656c6c6f"`); decode the digits after
+/// the `\x` prefix back into a `Buffer`. Emitted only when a composite has a `bytes` field.
+fn ts_parse_composite_bytes_helper(name: &str) -> String {
+    format!(
+        "function parse{name}Bytes(hex: string): Buffer {{\n\
+\t// ~keep PostgreSQL's default bytea text output is hex: \"\\x48656c6c6f\". Decode the hex\n\
+\t// digits after the \"\\x\" prefix back into a Buffer.\n\
+\treturn Buffer.from(hex.slice(2), \"hex\");\n\
+}}"
+    )
+}
+
+/// PostgreSQL's default `timestamptz` text output uses a space instead of `T` and omits the
+/// offset's minutes when they are zero; normalize both before handing the text to the `Date`
+/// constructor. Emitted only when a composite has a `datetime_tz` field.
+fn ts_parse_composite_offset_datetime_helper(name: &str) -> String {
+    format!(
+        "function parse{name}OffsetDateTime(raw: string): Date {{\n\
+\t// ~keep PostgreSQL's default timestamptz text output uses a space instead of \"T\"\n\
+\t// (\"2024-01-15 10:30:00+00\") and omits the offset's minutes when they are zero (\"+00\"\n\
+\t// rather than \"+00:00\"); normalize both before parsing.\n\
+\tlet s = raw.replace(\" \", \"T\");\n\
+\tconst sign = s[s.length - 3];\n\
+\tif (sign === \"+\" || sign === \"-\") {{\n\
+\t\ts = s + \":00\";\n\
+\t}}\n\
+\treturn new Date(s);\n\
+}}"
+    )
+}
+
+fn ts_composite_needs_bytes_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "bytes")
+}
+
+fn ts_composite_needs_offset_datetime_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "datetime_tz")
+}
+
+/// The TypeScript expression converting one composite field's raw text token (`raw`, a
+/// possibly-`null` `string` already unescaped by `parse{composite_name}Fields`) into the
+/// field's declared type -- the inverse of what PostgreSQL's composite output function wrote
+/// for that field. `composite_name` names the enclosing composite, needed to call that
+/// composite's own `parse{composite_name}Bytes`/`parse{composite_name}OffsetDateTime` helpers.
+///
+/// A field's own declared type is always non-nullable (`generate_composite_def` resolves every
+/// field with `nullable: false` -- `CompositeFieldInfo` carries no per-field nullability), so a
+/// genuinely NULL sub-field converted through a scalar arm throws at runtime. That mirrors the
+/// same pre-existing gap `java_jdbc.rs`'s `composite_field_from_text` documents -- not one this
+/// fix introduces or can close from here.
+fn ts_composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str, composite_name: &str) -> String {
+    if neutral_type.strip_prefix("composite::").is_some() {
+        return format!("parse{field_type}({raw}) as {field_type}");
+    }
+    if neutral_type.starts_with("enum::") {
+        return format!("{raw} as {field_type}");
+    }
+    match neutral_type {
+        "bool" => format!("{raw} === \"t\""),
+        "int16" | "int32" | "int64" | "float32" | "float64" => format!("Number({raw})"),
+        "bytes" => format!("parse{composite_name}Bytes({raw} as string)"),
+        "datetime" => format!("new Date(({raw} as string).replace(\" \", \"T\"))"),
+        "datetime_tz" => format!("parse{composite_name}OffsetDateTime({raw} as string)"),
+        // "string"/"uuid"/"decimal"/"date"/"time"/"time_tz"/"interval" all resolve to a plain
+        // TS `string` already, so the already-parsed text needs only a type assertion, not
+        // further conversion. Any neutral type not named above (e.g. `json`, or an array-typed
+        // composite field) falls through here too; the assertion is the least-wrong fallback
+        // available at generate time rather than a hard error.
+        _ => format!("{raw} as {field_type}"),
+    }
+}
+
+/// The `field: value` overrides a composite-column read path must splice into an otherwise
+/// spread-through row object (`{ ...row, field: parseWidgetAddress(row.field) as WidgetAddress
+/// | null }`), for every `composite::` column in `columns`. Empty when the query selects no
+/// composite column, so a caller can skip the spread rewrite entirely in the common case.
+fn ts_composite_field_overrides(columns: &[ResolvedColumn], var: &str) -> Vec<(String, String)> {
+    columns
+        .iter()
+        .filter(|c| c.neutral_type.starts_with("composite::"))
+        .map(|c| {
+            let key = ts_property_key(&c.field_name);
+            let member = ts_member_access(var, &c.name);
+            (key, format!("parse{}({member}) as {}", c.lang_type, c.full_type))
+        })
+        .collect()
+}
+
+/// Build a `row_access` closure for [`generate_ts_one_row_remap`]/[`generate_ts_many_row_remap`]/
+/// [`generate_ts_grouped_fold_body`] that routes a `composite::` column through its generated
+/// `parse{Name}` function instead of a bare (compile-time-only) cast -- see
+/// [`ts_parse_composite_fields_helper`]'s doc comment for why the cast alone is wrong. Every
+/// other column keeps the plain `row.field as T` cast these three callers already emitted.
+fn ts_composite_aware_row_access(columns: &[ResolvedColumn]) -> impl Fn(&str, &str) -> String + '_ {
+    move |name: &str, ty: &str| {
+        let member = ts_member_access("row", name);
+        if let Some(col) = columns.iter().find(|c| c.name == name)
+            && col.neutral_type.starts_with("composite::")
+        {
+            return format!("parse{}({member}) as {ty}", col.lang_type);
+        }
+        format!("{member} as {ty}")
+    }
+}
+
 pub struct TypescriptPgBackend {
     manifest: BackendManifest,
     row_type: TsRowType,
@@ -246,7 +424,17 @@ impl CodegenBackend for TypescriptPgBackend {
                         let _ = writeln!(out, "\tif (row === undefined) {{");
                         let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
                         let _ = writeln!(out, "\t}}");
-                        let _ = writeln!(out, "\treturn row;");
+                        let overrides = ts_composite_field_overrides(columns, "row");
+                        if overrides.is_empty() {
+                            let _ = writeln!(out, "\treturn row;");
+                        } else {
+                            let _ = writeln!(out, "\treturn {{");
+                            let _ = writeln!(out, "\t\t...row,");
+                            for (key, expr) in &overrides {
+                                let _ = writeln!(out, "\t\t{key}: {expr},");
+                            }
+                            let _ = writeln!(out, "\t}};");
+                        }
                     }
                     TsFieldCase::Camel => {
                         write_typed_query(
@@ -262,7 +450,7 @@ impl CodegenBackend for TypescriptPgBackend {
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
                             &analyzed.command,
                             &analyzed.name,
-                            |name, ty| format!("{} as {ty}", ts_member_access("row", name)),
+                            ts_composite_aware_row_access(columns),
                         ));
                     }
                 }
@@ -275,7 +463,21 @@ impl CodegenBackend for TypescriptPgBackend {
                 match self.field_case {
                     TsFieldCase::Snake => {
                         write_typed_query(&mut out, "\tconst { rows } = await ", struct_name, &sql, params);
-                        let _ = writeln!(out, "\treturn rows[0] ?? null;");
+                        let overrides = ts_composite_field_overrides(columns, "row");
+                        if overrides.is_empty() {
+                            let _ = writeln!(out, "\treturn rows[0] ?? null;");
+                        } else {
+                            let _ = writeln!(out, "\tconst row = rows[0];");
+                            let _ = writeln!(out, "\tif (row === undefined) {{");
+                            let _ = writeln!(out, "\t\treturn null;");
+                            let _ = writeln!(out, "\t}}");
+                            let _ = writeln!(out, "\treturn {{");
+                            let _ = writeln!(out, "\t\t...row,");
+                            for (key, expr) in &overrides {
+                                let _ = writeln!(out, "\t\t{key}: {expr},");
+                            }
+                            let _ = writeln!(out, "\t}};");
+                        }
                     }
                     TsFieldCase::Camel => {
                         write_typed_query(
@@ -291,7 +493,7 @@ impl CodegenBackend for TypescriptPgBackend {
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
                             &analyzed.command,
                             &analyzed.name,
-                            |name, ty| format!("{} as {ty}", ts_member_access("row", name)),
+                            ts_composite_aware_row_access(columns),
                         ));
                     }
                 }
@@ -304,7 +506,17 @@ impl CodegenBackend for TypescriptPgBackend {
                 match self.field_case {
                     TsFieldCase::Snake => {
                         write_typed_query(&mut out, "\tconst { rows } = await ", struct_name, &sql, params);
-                        let _ = writeln!(out, "\treturn rows;");
+                        let overrides = ts_composite_field_overrides(columns, "row");
+                        if overrides.is_empty() {
+                            let _ = writeln!(out, "\treturn rows;");
+                        } else {
+                            let _ = writeln!(out, "\treturn rows.map((row) => ({{");
+                            let _ = writeln!(out, "\t\t...row,");
+                            for (key, expr) in &overrides {
+                                let _ = writeln!(out, "\t\t{key}: {expr},");
+                            }
+                            let _ = writeln!(out, "\t}}));");
+                        }
                     }
                     TsFieldCase::Camel => {
                         write_typed_query(
@@ -317,7 +529,7 @@ impl CodegenBackend for TypescriptPgBackend {
                         out.push_str(&generate_ts_many_row_remap(
                             columns,
                             TsRowShape::from_outer_join_unions(self.outer_join_unions),
-                            |name, ty| format!("{} as {ty}", ts_member_access("row", name)),
+                            ts_composite_aware_row_access(columns),
                         ));
                     }
                 }
@@ -516,6 +728,7 @@ impl CodegenBackend for TypescriptPgBackend {
         }
         let _ = writeln!(out, "\t);");
 
+        let all_columns: Vec<ResolvedColumn> = parent_columns.iter().chain(child_columns.iter()).cloned().collect();
         let fold = generate_ts_grouped_fold_body(
             parent_struct_name,
             child_struct_name,
@@ -523,7 +736,7 @@ impl CodegenBackend for TypescriptPgBackend {
             child_columns,
             key_column,
             false,
-            |name, ty| format!("{} as {ty}", ts_member_access("row", name)),
+            ts_composite_aware_row_access(&all_columns),
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");
@@ -563,18 +776,63 @@ impl CodegenBackend for TypescriptPgBackend {
         let mut out = String::new();
         let _ = writeln!(out, "/** Composite type {}. */", composite.sql_name);
         let _ = writeln!(out, "export interface {} {{", name);
+        // ~keep board #204: a composite with zero fields cannot exist in PostgreSQL
+        // (`CREATE TYPE ... AS ()` is rejected), so there is no reachable runtime value that
+        // would need `parse{name}` here.
         if composite.fields.is_empty() {
-        } else {
-            for field in &composite.fields {
-                let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
-                    .map(|t| t.into_owned())
-                    .map_err(|e| {
-                        ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
-                    })?;
-                let _ = writeln!(out, "\t{}: {};", ts_property_key(&to_camel_case(&field.name)), ts_type);
-            }
+            let _ = write!(out, "}}");
+            return Ok(out);
         }
-        let _ = write!(out, "}}");
+        let mut field_types: Vec<String> = Vec::with_capacity(composite.fields.len());
+        for field in &composite.fields {
+            let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|t| t.into_owned())
+                .map_err(|e| {
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
+                })?;
+            let _ = writeln!(out, "\t{}: {};", ts_property_key(&to_camel_case(&field.name)), ts_type);
+            field_types.push(ts_type);
+        }
+        let _ = writeln!(out, "}}");
+
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "// ~keep board #204: pg has no adapter for a user-defined composite -- it hands back"
+        );
+        let _ = writeln!(
+            out,
+            "// the driver's raw text form as a plain string. Parse it here instead."
+        );
+        let _ = writeln!(out, "export function parse{name}(raw: unknown): {name} | null {{");
+        let _ = writeln!(out, "\tif (raw === null || raw === undefined) {{");
+        let _ = writeln!(out, "\t\treturn null;");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\tconst f = parse{name}Fields(raw as string);");
+        let _ = writeln!(out, "\treturn {{");
+        for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
+            let raw = format!("f[{i}]");
+            let value_expr = ts_composite_field_from_text(&field.neutral_type, field_type, &raw, &name);
+            let _ = writeln!(
+                out,
+                "\t\t{}: {value_expr},",
+                ts_property_key(&to_camel_case(&field.name))
+            );
+        }
+        let _ = writeln!(out, "\t}};");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        out.push_str(&ts_parse_composite_fields_helper(&name));
+        if ts_composite_needs_bytes_helper(composite) {
+            let _ = writeln!(out);
+            let _ = writeln!(out);
+            out.push_str(&ts_parse_composite_bytes_helper(&name));
+        }
+        if ts_composite_needs_offset_datetime_helper(composite) {
+            let _ = writeln!(out);
+            let _ = writeln!(out);
+            out.push_str(&ts_parse_composite_offset_datetime_helper(&name));
+        }
         Ok(out)
     }
 

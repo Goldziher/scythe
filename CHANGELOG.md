@@ -84,6 +84,51 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Fixed
 
+- **A composite value containing a double quote came back truncated, with every field after it
+  shifted.** PostgreSQL's `record_out` escapes a literal `"` inside a quoted composite field by
+  *doubling* it (`ROW('he said "hi"', 'back\slash')` renders as `("he said ""hi""","back\\slash")`),
+  but every composite text parser scythe emits recognized only the backslash spelling. On a doubled
+  quote each one took the first `"` for the field's closing quote — truncating that field's value and
+  then resynchronizing on the wrong character, so unrelated later fields silently received wrong
+  values. Fixed in all nine emitted parsers (`java-jdbc`, `java-r2dbc`, `kotlin-jdbc`, `kotlin-r2dbc`,
+  `kotlin-exposed`, `python-psycopg3`, `typescript-pg`, `typescript-postgres`, `typescript-kysely`);
+  the five JVM ones shipped with the defect, the rest inherited it from `java_jdbc.rs` as the model.
+  Covered by `composite_text_escaping_regression.rs`, which runs the emitted python parser against
+  the exact text PostgreSQL 16 produced. (#204)
+
+- **A nullable composite column decoded to the driver's raw value while the generated type claimed
+  otherwise.** `python-psycopg3` and `python-asyncpg` declared `address: UserAddress | None` and the
+  three typescript backends declared the composite interface, but all five assigned the driver's raw
+  value straight through — a `str` for psycopg3, an `asyncpg.Record` for asyncpg, `undefined` fields
+  for the typescript drivers. psycopg3 and typescript now parse PostgreSQL's composite text form
+  through a generated `_from_text` / `parse{Name}`; asyncpg reads the `Record` it already decodes
+  through `_from_record`. A nullable enum column likewise now reads as `None if raw is None else T(raw)`
+  rather than calling the enum constructor on `None`. Verified live against PostgreSQL 16, which is
+  how the defect was found in the first place. Seven backends still decode a composite column to the
+  driver's raw value and are **not** fixed by this change: `go-pgx`, `ruby-pg`, `elixir-postgrex`,
+  `elixir-ecto`, `php-pdo`, `php-amphp` and `csharp-npgsql`. `php-pdo`, `php-amphp` and
+  `csharp-npgsql` fail loudly there; the rest hand back a wrong-typed value. (#204)
+
+- **A composite whose field named another composite emitted the two definitions in the wrong order.**
+  The analyzer discovers composites breadth-first, so a type reached only through another composite's
+  field list landed *after* the type that references it. Languages whose declarations hoist never
+  noticed; python evaluates `@dataclass` annotations when the class body runs, so the generated module
+  raised `NameError` on import. Definitions are now emitted in dependency order. (#204)
+
+- **`SC-PRV09`, `SC-PRV10`, `SC-PARSE01` and `SC-PARSE02` could not be configured, counted, or
+  discovered.** All four were ad hoc `Error`-severity findings `scythe-cli` constructed directly at
+  the point of failure (an unconstructable `[[sql.gen]]` target, a query file with zero recognized
+  blocks, a query that fails to parse, a query that fails semantic analysis), never as registered
+  `LintRule`s — so `[lint.rules]` and `[lint.categories]` had no effect on any of the four, and the
+  documented "8 provenance rules" undercounted the 11 that actually exist by two. `SC-PRV09`
+  (`gen-target-invalid`) and `SC-PRV10` (`empty-query-file`) now join `SC-PRV01`-`08`/`SC-PRV11` in
+  `scythe_lint::provenance_registry`; `SC-PARSE01` (`unparseable-query`) and `SC-PARSE02`
+  (`unanalyzable-query`) get a new `scythe_lint::parse_registry` and `RuleCategory::Parse`, since they
+  fire from `check`, `lint`, and `audit` alike rather than a single check-time command. All four are
+  zero-behavior `LintRule`s exactly like the rest of the provenance family: the finding itself is
+  still built where the failure is detected, but its severity is now resolved from the registry
+  instead of hardcoded. (#216)
+
 - **A schema-qualified enum or composite generated two different names for the same type.** The
   declaration side spelled the type through `enum_type_name` / `composite_type_name`, which strip
   characters an identifier cannot hold; the reference side — the type as it appears in a column,

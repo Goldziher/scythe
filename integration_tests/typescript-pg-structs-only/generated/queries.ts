@@ -122,6 +122,72 @@ export interface UserAddress {
 	zip: string;
 }
 
+// ~keep board #204: pg has no adapter for a user-defined composite -- it hands back
+// the driver's raw text form as a plain string. Parse it here instead.
+export function parseUserAddress(raw: unknown): UserAddress | null {
+	if (raw === null || raw === undefined) {
+		return null;
+	}
+	const f = parseUserAddressFields(raw as string);
+	return {
+		street: f[0] as string,
+		city: f[1] as string,
+		zip: f[2] as string,
+	};
+}
+
+function parseUserAddressFields(text: string): (string | null)[] {
+	// ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field
+	// tokens, honoring its escaping rules: an empty unquoted field is SQL NULL (returned as
+	// null); a field needing quoting (comma, paren, quote, backslash, leading/trailing
+	// space, or the empty string) is wrapped in double quotes; every other field is
+	// unquoted and taken literally. Inside a quoted field `record_out` writes a literal
+	// '"' as '""' and a literal '\\' as '\\\\' -- reading '""' as a closing quote both
+	// truncates the value and desynchronizes every field after it. Verified against
+	// PostgreSQL 16.
+	const fields: (string | null)[] = [];
+	const inner = text.slice(1, -1);
+	let i = 0;
+	const n = inner.length;
+	for (;;) {
+		let chars = "";
+		let isNull = false;
+		if (i < n && inner[i] === '"') {
+			i++;
+			while (i < n) {
+				const c = inner[i];
+				if (c === "\\" && i + 1 < n) {
+					chars += inner[i + 1];
+					i += 2;
+				} else if (c === '"' && i + 1 < n && inner[i + 1] === '"') {
+					chars += '"';
+					i += 2;
+				} else if (c === '"') {
+					i++;
+					break;
+				} else {
+					chars += c;
+					i++;
+				}
+			}
+		} else {
+			const start = i;
+			while (i < n && inner[i] !== ",") {
+				i++;
+			}
+			chars = inner.slice(start, i);
+			isNull = chars.length === 0;
+		}
+		fields.push(isNull ? null : chars);
+		if (i < n && inner[i] === ",") {
+			i++;
+			continue;
+		}
+		break;
+	}
+	return fields;
+}
+
 /** Row type for GetUserProfile queries. */
 export interface GetUserProfileRow {
 	id: number;

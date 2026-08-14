@@ -21,6 +21,148 @@ use super::python_common::{
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-psycopg3.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/python-psycopg3.redshift.toml");
 
+/// Splits a PostgreSQL composite's text form (`"(a,b,c)"`) into its raw field tokens, honoring
+/// its escaping rules -- an empty unquoted field is SQL NULL, and a field containing a comma,
+/// paren, quote, backslash, or leading/trailing space (or the empty string) is double-quoted,
+/// with an inner `"` **doubled** and an inner `\` backslash-escaped. See
+/// `tests/composite_text_escaping_regression.rs` for the PostgreSQL 16 output this was read off.
+const PY_PARSE_COMPOSITE_FIELDS_METHOD: &str = r#"    @staticmethod
+    def _parse_composite_fields(text: str) -> list[str | None]:
+        """~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field
+        tokens, honoring its escaping rules: an empty unquoted field is SQL NULL (returned
+        as None); a field needing quoting (comma, paren, quote, backslash, leading/trailing
+        space, or the empty string) is wrapped in double quotes; every other field is
+        unquoted and taken literally. A nested composite's own "(x,y)" text form always
+        contains parens, so it always comes back quoted here, ready for that type's own
+        `_from_text` to parse recursively.
+
+        Inside a quoted field `record_out` doubles a literal double-quote and backslash-
+        escapes a literal backslash. Both spellings must be accepted: reading a doubled
+        quote as "closing quote, then a new field" both truncates the value and
+        desynchronizes every field after it. Verified against PostgreSQL 16.
+        """
+        fields: list[str | None] = []
+        inner = text[1:-1]
+        i = 0
+        n = len(inner)
+        while True:
+            chars: list[str] = []
+            is_null = False
+            if i < n and inner[i] == '"':
+                i += 1
+                while i < n:
+                    c = inner[i]
+                    if c == "\\" and i + 1 < n:
+                        chars.append(inner[i + 1])
+                        i += 2
+                    elif c == '"' and i + 1 < n and inner[i + 1] == '"':
+                        chars.append('"')
+                        i += 2
+                    elif c == '"':
+                        i += 1
+                        break
+                    else:
+                        chars.append(c)
+                        i += 1
+            else:
+                start = i
+                while i < n and inner[i] != ",":
+                    i += 1
+                chars = list(inner[start:i])
+                is_null = len(chars) == 0
+            fields.append(None if is_null else "".join(chars))
+            if i < n and inner[i] == ",":
+                i += 1
+                continue
+            break
+        return fields
+"#;
+
+/// PostgreSQL's default `bytea` text output is hex (`"\x48656c6c6f"`); decode the digits after
+/// the `\x` prefix back into bytes. Emitted only when a composite has a `bytes` field.
+const PY_PARSE_COMPOSITE_BYTES_METHOD: &str = r#"    @staticmethod
+    def _parse_composite_bytes(hex_str: str) -> bytes:
+        """~keep PostgreSQL's default `bytea` text output is hex: "\\x48656c6c6f". Decode
+        the hex digits after the "\\x" prefix back into bytes."""
+        return bytes.fromhex(hex_str[2:])
+"#;
+
+/// PostgreSQL's default `timestamptz` text output uses a space instead of `T` and omits the
+/// offset's minutes when they are zero; normalize both before handing the text to
+/// `datetime.fromisoformat`. Emitted only when a composite has a `datetime_tz` field.
+const PY_PARSE_COMPOSITE_OFFSET_DATETIME_METHOD: &str = r#"    @staticmethod
+    def _parse_composite_offset_datetime(raw: str) -> datetime.datetime:
+        """~keep PostgreSQL's default `timestamptz` text output uses a space instead of "T"
+        ("2024-01-15 10:30:00+00") and omits the offset's minutes when they are zero ("+00"
+        rather than "+00:00"); normalize both before parsing."""
+        s = raw.replace(" ", "T")
+        if s[-3] in ("+", "-"):
+            s = s + ":00"
+        return datetime.datetime.fromisoformat(s)
+"#;
+
+/// PostgreSQL's default `timetz` text output omits the offset's minutes when they are zero;
+/// normalize it the same way as `datetime_tz` before parsing. Emitted only when a composite
+/// has a `time_tz` field.
+const PY_PARSE_COMPOSITE_OFFSET_TIME_METHOD: &str = r#"    @staticmethod
+    def _parse_composite_offset_time(raw: str) -> datetime.time:
+        """~keep PostgreSQL's default `timetz` text output omits the offset's minutes when
+        they are zero ("13:22:43-05" rather than "13:22:43-05:00")."""
+        s = raw
+        if s[-3] in ("+", "-"):
+            s = s + ":00"
+        return datetime.time.fromisoformat(s)
+"#;
+
+fn py_composite_needs_bytes_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "bytes")
+}
+
+fn py_composite_needs_offset_datetime_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "datetime_tz")
+}
+
+fn py_composite_needs_offset_time_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "time_tz")
+}
+
+/// The Python expression converting one composite field's raw text token (`raw`, a
+/// possibly-`None` `str` already unescaped by `_parse_composite_fields`) into the field's
+/// declared Python type -- the inverse of what PostgreSQL's composite output function wrote
+/// for that field.
+///
+/// A field's own declared type is always non-nullable (`generate_composite_def` resolves
+/// every field with `nullable: false` -- `CompositeFieldInfo` carries no per-field
+/// nullability), so a genuinely NULL sub-field converted through a scalar arm (`int(None)`,
+/// ...) raises `TypeError`. That mirrors the same pre-existing gap in `java_jdbc.rs`'s
+/// `composite_field_from_text` -- not one this fix introduces or can close from here.
+fn py_composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str) -> String {
+    if neutral_type.starts_with("composite::") {
+        return format!("{field_type}._from_text({raw})");
+    }
+    if neutral_type.starts_with("enum::") {
+        return format!("{field_type}({raw})");
+    }
+    match neutral_type {
+        "bool" => format!("{raw} == \"t\""),
+        "int16" | "int32" | "int64" => format!("int({raw})"),
+        "float32" | "float64" => format!("float({raw})"),
+        "decimal" => format!("decimal.Decimal({raw})"),
+        "uuid" => format!("uuid.UUID({raw})"),
+        "date" => format!("datetime.date.fromisoformat({raw})"),
+        "time" => format!("datetime.time.fromisoformat({raw})"),
+        "datetime" => format!("datetime.datetime.fromisoformat({raw}.replace(\" \", \"T\"))"),
+        "datetime_tz" => format!("cls._parse_composite_offset_datetime({raw})"),
+        "time_tz" => format!("cls._parse_composite_offset_time({raw})"),
+        "bytes" => format!("cls._parse_composite_bytes({raw})"),
+        // "string"/"json"/"inet"/"interval" all resolve to Python `str`, so the already-parsed
+        // text needs no further conversion. Any neutral type not named above (e.g. an
+        // array-typed composite field) falls through here too; passing the raw text through is
+        // the least-wrong fallback available at generate time rather than a hard error.
+        _ => raw.to_string(),
+    }
+}
+
 /// Build the `field=value` expression for one column read from a raw
 /// positionally-indexed row (`row[i]` / `r[i]`).
 ///
@@ -38,8 +180,26 @@ const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/python-psy
 /// from a mapping at all -- so calling a constructor on it would break code
 /// that works today. Every non-nested column keeps the exact `field=row[i]`
 /// form this always emitted.
+///
+/// A `composite::`/`enum::` column is neither: psycopg3 has no adapter for a
+/// user-defined composite (returns the driver's raw text form) nor does it
+/// construct our generated `Enum` subclass from a plain string column, so
+/// both are routed through an explicit conversion -- `T._from_text(...)`
+/// (null-safe on its own, board #204) for a composite, `T(...)` (the `str,
+/// Enum` value-lookup constructor) guarded by a `None` check for a nullable
+/// enum, since `T(None)` raises `ValueError` rather than returning `None`.
 fn field_assignment_expr(col: &ResolvedColumn, var: &str, index: usize) -> String {
     let raw = format!("{var}[{index}]");
+    if col.neutral_type.starts_with("composite::") {
+        return format!("{}={}._from_text({raw})", col.field_name, col.lang_type);
+    }
+    if col.neutral_type.starts_with("enum::") {
+        return if col.nullable {
+            format!("{}=None if {raw} is None else {}({raw})", col.field_name, col.lang_type)
+        } else {
+            format!("{}={}({raw})", col.field_name, col.lang_type)
+        };
+    }
     let Some(shape) = crate::nested_struct_shape(&col.neutral_type) else {
         return format!("{}={raw}", col.field_name);
     };
@@ -455,18 +615,60 @@ impl CodegenBackend for PythonPsycopg3Backend {
         let _ = write!(out, "{}", self.row_type.decorator());
         let _ = writeln!(out, "{}", self.row_type.class_def(&name));
         let _ = writeln!(out, "    \"\"\"Composite type {}.\"\"\"", composite.sql_name);
+        // ~keep board #204: a composite with zero fields cannot exist in PostgreSQL
+        // (`CREATE TYPE ... AS ()` is rejected), so there is no reachable runtime value
+        // that would need `_from_text` here. Left as the bare stub it always was.
         if composite.fields.is_empty() {
             let _ = writeln!(out, "    pass");
-        } else {
+            return Ok(out);
+        }
+        let _ = writeln!(out);
+        let mut field_types: Vec<String> = Vec::with_capacity(composite.fields.len());
+        for field in &composite.fields {
+            let py_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|t| t.into_owned())
+                .map_err(|e| {
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
+                })?;
+            let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
+            field_types.push(py_type);
+        }
+
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    @classmethod");
+        let _ = writeln!(out, "    def _from_text(cls, text: str | None) -> \"{} | None\":", name);
+        let _ = writeln!(
+            out,
+            "        \"\"\"~keep board #204: psycopg3 registers no adapter for a"
+        );
+        let _ = writeln!(
+            out,
+            "        user-defined composite -- it hands back the driver's raw text form"
+        );
+        let _ = writeln!(out, "        as a plain str. Parse it here instead.\"\"\"");
+        let _ = writeln!(out, "        if text is None:");
+        let _ = writeln!(out, "            return None");
+        let _ = writeln!(out, "        f = cls._parse_composite_fields(text)");
+        let _ = writeln!(out, "        return cls(");
+        for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
+            let raw = format!("f[{i}]");
+            let value_expr = py_composite_field_from_text(&field.neutral_type, field_type, &raw);
+            let _ = writeln!(out, "            {}={value_expr},", to_snake_case(&field.name));
+        }
+        let _ = writeln!(out, "        )");
+        let _ = writeln!(out);
+        out.push_str(PY_PARSE_COMPOSITE_FIELDS_METHOD);
+        if py_composite_needs_bytes_helper(composite) {
             let _ = writeln!(out);
-            for field in &composite.fields {
-                let py_type = resolve_type(&field.neutral_type, &self.manifest, false)
-                    .map(|t| t.into_owned())
-                    .map_err(|e| {
-                        ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
-                    })?;
-                let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
-            }
+            out.push_str(PY_PARSE_COMPOSITE_BYTES_METHOD);
+        }
+        if py_composite_needs_offset_datetime_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(PY_PARSE_COMPOSITE_OFFSET_DATETIME_METHOD);
+        }
+        if py_composite_needs_offset_time_helper(composite) {
+            let _ = writeln!(out);
+            out.push_str(PY_PARSE_COMPOSITE_OFFSET_TIME_METHOD);
         }
         Ok(out)
     }

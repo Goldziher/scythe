@@ -105,6 +105,9 @@ const KT_PARSE_COMPOSITE_FIELDS_METHOD: &str = r#"        /**
                         if (c == '\\' && i + 1 < n) {
                             field.append(inner[i + 1])
                             i += 2
+                        } else if (c == '"' && i + 1 < n && inner[i + 1] == '"') {
+                            field.append('"')
+                            i += 2
                         } else if (c == '"') {
                             i++
                             break

@@ -16,7 +16,7 @@ pub use overrides::TypeOverride;
 use scythe_backend::manifest::BackendManifest;
 use scythe_backend::naming::{NamingConfig, apply_case, row_struct_name, sanitize_for_identifier, to_pascal_case};
 
-use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, EnumInfo, NestedStructInfo};
+use scythe_core::analyzer::{AnalyzedColumn, AnalyzedQuery, CompositeInfo, EnumInfo, NestedStructInfo};
 use scythe_core::errors::{ErrorCode, ScytheError};
 use scythe_core::parser::QueryCommand;
 
@@ -224,7 +224,7 @@ pub fn generate_with_backend_and_overrides(
 
     let mut extra_defs = String::new();
     let reachable_composites = reachable_composite_names(analyzed, &nested_refs);
-    for comp in &analyzed.composites {
+    for comp in composites_in_dependency_order(&analyzed.composites) {
         // `analyzed.composites` covers types reachable from the top-level
         // columns, from nested-aggregate fields, and (recursively) from
         // another reachable composite's own field list --
@@ -389,6 +389,66 @@ impl NestedTypeRefs {
         }
         refs
     }
+}
+
+/// Order composite definitions so a composite is emitted *after* every
+/// composite its own fields name.
+///
+/// `analyzed.composites` arrives in the analyzer's breadth-first discovery
+/// order: types reached from the query's columns go in first, and a type
+/// reached only through another composite's field list is appended behind the
+/// composite that named it. That is exactly backwards for any target language
+/// where a type reference is resolved at definition time. `CREATE TYPE outer
+/// AS (inner_field inner_type)`, selected as a column, yields
+/// `[outer, inner]` -- and python's `@dataclass` annotations are evaluated
+/// when the class body runs, so the emitted module raised `NameError: name
+/// 'Inner' is not defined` on import. The languages whose declarations hoist
+/// (TypeScript types, Java/Kotlin classes, Rust items) never noticed, which is
+/// why this survived: it is invisible unless the generated file is executed.
+///
+/// A post-order depth-first walk puts dependencies first. Ties and unreachable
+/// entries keep their original relative order, so this only ever moves a
+/// composite earlier than something that references it -- it is a no-op for
+/// the flat case that has no nested composites at all.
+///
+/// PostgreSQL rejects a genuine composite cycle at `CREATE TYPE` time, but the
+/// `visiting` set does not assume that has been enforced against every catalog
+/// this runs against: a cycle degrades to "emit in discovery order" rather
+/// than recursing forever.
+fn composites_in_dependency_order(composites: &[CompositeInfo]) -> Vec<&CompositeInfo> {
+    let by_name: ahash::AHashMap<&str, &CompositeInfo> = composites.iter().map(|c| (c.sql_name.as_str(), c)).collect();
+    let mut ordered: Vec<&CompositeInfo> = Vec::with_capacity(composites.len());
+    let mut emitted: ahash::AHashSet<&str> = ahash::AHashSet::new();
+    let mut visiting: ahash::AHashSet<&str> = ahash::AHashSet::new();
+
+    fn visit<'a>(
+        comp: &'a CompositeInfo,
+        by_name: &ahash::AHashMap<&'a str, &'a CompositeInfo>,
+        emitted: &mut ahash::AHashSet<&'a str>,
+        visiting: &mut ahash::AHashSet<&'a str>,
+        ordered: &mut Vec<&'a CompositeInfo>,
+    ) {
+        let name = comp.sql_name.as_str();
+        if emitted.contains(name) || !visiting.insert(name) {
+            return;
+        }
+        for field in &comp.fields {
+            if let Some(dep) = unwrap_containers(&field.neutral_type).strip_prefix("composite::")
+                && let Some(dep) = by_name.get(dep)
+            {
+                visit(dep, by_name, emitted, visiting, ordered);
+            }
+        }
+        visiting.remove(name);
+        if emitted.insert(name) {
+            ordered.push(comp);
+        }
+    }
+
+    for comp in composites {
+        visit(comp, &by_name, &mut emitted, &mut visiting, &mut ordered);
+    }
+    ordered
 }
 
 /// Strip any number of `array<...>` / `nullable<...>` container wrappers
@@ -1891,6 +1951,87 @@ mod tests {
             "inner_point, reachable only through outer_shape's own field list, must also get a \
              definition emitted; got:\n{model}"
         );
+    }
+
+    /// Must fail before the fix: `analyzed.composites` arrives in the analyzer's
+    /// breadth-first discovery order, which puts a composite *before* the nested
+    /// composite its own field names -- so the emission loop, which walked that
+    /// vector directly, wrote `OuterShape` ahead of `InnerPoint`. Rust, TypeScript
+    /// and the JVM backends hoist declarations and never noticed; python's
+    /// `@dataclass` annotations are evaluated when the class body runs, so the
+    /// generated module raised `NameError` on import. Found by
+    /// `python_composite_enum_read_regression.rs`, whose `poly` pass runs ruff over
+    /// the emitted file and reported `F821 Undefined name`.
+    #[test]
+    fn composites_are_emitted_after_the_composites_their_fields_reference() {
+        use scythe_core::analyzer::{CompositeFieldInfo, CompositeInfo};
+
+        let composites = vec![
+            CompositeInfo {
+                sql_name: "outer_shape".to_string(),
+                fields: vec![CompositeFieldInfo {
+                    name: "origin".to_string(),
+                    neutral_type: "array<composite::inner_point>".to_string(),
+                }],
+            },
+            CompositeInfo {
+                sql_name: "inner_point".to_string(),
+                fields: vec![CompositeFieldInfo {
+                    name: "unit".to_string(),
+                    neutral_type: "composite::scale".to_string(),
+                }],
+            },
+            CompositeInfo {
+                sql_name: "scale".to_string(),
+                fields: vec![CompositeFieldInfo {
+                    name: "factor".to_string(),
+                    neutral_type: "int32".to_string(),
+                }],
+            },
+        ];
+
+        let ordered: Vec<&str> = composites_in_dependency_order(&composites)
+            .iter()
+            .map(|c| c.sql_name.as_str())
+            .collect();
+
+        // Two levels deep, and the outer edge is wrapped in `array<...>` -- the
+        // dependency has to be found through `unwrap_containers`, not by an exact
+        // `composite::` prefix match on the raw field type.
+        assert_eq!(ordered, vec!["scale", "inner_point", "outer_shape"]);
+    }
+
+    /// A cycle cannot arise from a catalog PostgreSQL accepted, but the walk must
+    /// still terminate and still emit every composite exactly once rather than
+    /// recursing forever on a catalog assembled some other way.
+    #[test]
+    fn composites_in_dependency_order_terminates_on_a_cycle() {
+        use scythe_core::analyzer::{CompositeFieldInfo, CompositeInfo};
+
+        let composites = vec![
+            CompositeInfo {
+                sql_name: "a".to_string(),
+                fields: vec![CompositeFieldInfo {
+                    name: "b".to_string(),
+                    neutral_type: "composite::b".to_string(),
+                }],
+            },
+            CompositeInfo {
+                sql_name: "b".to_string(),
+                fields: vec![CompositeFieldInfo {
+                    name: "a".to_string(),
+                    neutral_type: "composite::a".to_string(),
+                }],
+            },
+        ];
+
+        let ordered: Vec<&str> = composites_in_dependency_order(&composites)
+            .iter()
+            .map(|c| c.sql_name.as_str())
+            .collect();
+
+        assert_eq!(ordered.len(), 2, "every composite must still be emitted exactly once");
+        assert!(ordered.contains(&"a") && ordered.contains(&"b"));
     }
 
     #[test]

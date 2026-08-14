@@ -18,6 +18,150 @@ use crate::backends::typescript_common::{
     ts_index_access, ts_member_access, ts_property_key, ts_row_not_found_throw,
 };
 
+/// Board #204: whatever driver the caller's `Kysely<DB>`/`QueryExecutorProvider` wraps (`pg`
+/// by default), a user-defined composite column arrives through this `sql` tag as PostgreSQL's
+/// raw composite *text form* (`"(a,b,c)"`), a plain `string` -- not the generated `interface`.
+/// See `typescript_pg.rs`'s identical fix for the full rationale and the escaping rules; this
+/// is that same fix for Kysely's `sql<T>\`...\`.execute(db)` row shape.
+fn ts_parse_composite_fields_helper(name: &str) -> String {
+    format!(
+        "function parse{name}Fields(text: string): (string | null)[] {{\n\
+\t// ~keep Splits a PostgreSQL composite's text form (\"(a,b,c)\") into its raw field\n\
+\t// tokens, honoring its escaping rules: an empty unquoted field is SQL NULL (returned as\n\
+\t// null); a field needing quoting (comma, paren, quote, backslash, leading/trailing\n\
+\t// space, or the empty string) is wrapped in double quotes; every other field is\n\
+\t// unquoted and taken literally. Inside a quoted field `record_out` writes a literal\n\
+\t// '\"' as '\"\"' and a literal '\\\\' as '\\\\\\\\' -- reading '\"\"' as a closing quote both\n\
+\t// truncates the value and desynchronizes every field after it. Verified against\n\
+\t// PostgreSQL 16.\n\
+\tconst fields: (string | null)[] = [];\n\
+\tconst inner = text.slice(1, -1);\n\
+\tlet i = 0;\n\
+\tconst n = inner.length;\n\
+\tfor (;;) {{\n\
+\t\tlet chars = \"\";\n\
+\t\tlet isNull = false;\n\
+\t\tif (i < n && inner[i] === '\"') {{\n\
+\t\t\ti++;\n\
+\t\t\twhile (i < n) {{\n\
+\t\t\t\tconst c = inner[i];\n\
+\t\t\t\tif (c === \"\\\\\" && i + 1 < n) {{\n\
+\t\t\t\t\tchars += inner[i + 1];\n\
+\t\t\t\t\ti += 2;\n\
+\t\t\t\t}} else if (c === '\"' && i + 1 < n && inner[i + 1] === '\"') {{\n\
+\t\t\t\t\tchars += '\"';\n\
+\t\t\t\t\ti += 2;\n\
+\t\t\t\t}} else if (c === '\"') {{\n\
+\t\t\t\t\ti++;\n\
+\t\t\t\t\tbreak;\n\
+\t\t\t\t}} else {{\n\
+\t\t\t\t\tchars += c;\n\
+\t\t\t\t\ti++;\n\
+\t\t\t\t}}\n\
+\t\t\t}}\n\
+\t\t}} else {{\n\
+\t\t\tconst start = i;\n\
+\t\t\twhile (i < n && inner[i] !== \",\") {{\n\
+\t\t\t\ti++;\n\
+\t\t\t}}\n\
+\t\t\tchars = inner.slice(start, i);\n\
+\t\t\tisNull = chars.length === 0;\n\
+\t\t}}\n\
+\t\tfields.push(isNull ? null : chars);\n\
+\t\tif (i < n && inner[i] === \",\") {{\n\
+\t\t\ti++;\n\
+\t\t\tcontinue;\n\
+\t\t}}\n\
+\t\tbreak;\n\
+\t}}\n\
+\treturn fields;\n\
+}}"
+    )
+}
+
+/// PostgreSQL's default `bytea` text output is hex (`"\x48656c6c6f"`); decode the digits after
+/// the `\x` prefix back into a `Buffer`. Emitted only when a composite has a `bytes` field.
+fn ts_parse_composite_bytes_helper(name: &str) -> String {
+    format!(
+        "function parse{name}Bytes(hex: string): Buffer {{\n\
+\t// ~keep PostgreSQL's default bytea text output is hex: \"\\x48656c6c6f\". Decode the hex\n\
+\t// digits after the \"\\x\" prefix back into a Buffer.\n\
+\treturn Buffer.from(hex.slice(2), \"hex\");\n\
+}}"
+    )
+}
+
+/// PostgreSQL's default `timestamptz` text output uses a space instead of `T` and omits the
+/// offset's minutes when they are zero; normalize both before handing the text to the `Date`
+/// constructor. Emitted only when a composite has a `datetime_tz` field.
+fn ts_parse_composite_offset_datetime_helper(name: &str) -> String {
+    format!(
+        "function parse{name}OffsetDateTime(raw: string): Date {{\n\
+\t// ~keep PostgreSQL's default timestamptz text output uses a space instead of \"T\"\n\
+\t// (\"2024-01-15 10:30:00+00\") and omits the offset's minutes when they are zero (\"+00\"\n\
+\t// rather than \"+00:00\"); normalize both before parsing.\n\
+\tlet s = raw.replace(\" \", \"T\");\n\
+\tconst sign = s[s.length - 3];\n\
+\tif (sign === \"+\" || sign === \"-\") {{\n\
+\t\ts = s + \":00\";\n\
+\t}}\n\
+\treturn new Date(s);\n\
+}}"
+    )
+}
+
+fn ts_composite_needs_bytes_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "bytes")
+}
+
+fn ts_composite_needs_offset_datetime_helper(composite: &CompositeInfo) -> bool {
+    composite.fields.iter().any(|f| f.neutral_type == "datetime_tz")
+}
+
+/// The TypeScript expression converting one composite field's raw text token into the field's
+/// declared type. See `typescript_pg.rs`'s identical helper for the full rationale, including
+/// the pre-existing per-field-NULL gap this mirrors from `java_jdbc.rs`.
+fn ts_composite_field_from_text(neutral_type: &str, field_type: &str, raw: &str, composite_name: &str) -> String {
+    if neutral_type.strip_prefix("composite::").is_some() {
+        return format!("parse{field_type}({raw}) as {field_type}");
+    }
+    if neutral_type.starts_with("enum::") {
+        return format!("{raw} as {field_type}");
+    }
+    match neutral_type {
+        "bool" => format!("{raw} === \"t\""),
+        "int16" | "int32" | "int64" | "float32" | "float64" => format!("Number({raw})"),
+        "bytes" => format!("parse{composite_name}Bytes({raw} as string)"),
+        "datetime" => format!("new Date(({raw} as string).replace(\" \", \"T\"))"),
+        "datetime_tz" => format!("parse{composite_name}OffsetDateTime({raw} as string)"),
+        _ => format!("{raw} as {field_type}"),
+    }
+}
+
+/// The `field: value` overrides a composite-column read path must splice into an otherwise
+/// spread-through row object, for every `composite::` column in `columns`. Empty when the
+/// query selects no composite column, so a caller can skip the spread rewrite entirely in the
+/// common case.
+///
+/// Keys the raw driver read by `col.name` (the default/`Snake` shape -- see
+/// `generate_grouped_query_fn`'s `driver_key_for` doc comment for why that is *not* generally
+/// the same as `col.field_name`, and for the one case this does not cover: a caller running
+/// `field_case = "camelCase"` with Kysely's `CamelCasePlugin` registered, whose `flatRows` are
+/// already camelCase-keyed before this code runs. `generate_query_fn` ignored every column's
+/// name before this fix regardless of `field_case`, so this is a strict improvement for the
+/// default shape without claiming to fix that pre-existing, separate gap.
+fn ts_composite_field_overrides(columns: &[ResolvedColumn], var: &str) -> Vec<(String, String)> {
+    columns
+        .iter()
+        .filter(|c| c.neutral_type.starts_with("composite::"))
+        .map(|c| {
+            let key = ts_property_key(&c.field_name);
+            let member = ts_member_access(var, &c.name);
+            (key, format!("parse{}({member}) as {}", c.lang_type, c.full_type))
+        })
+        .collect()
+}
+
 const DEFAULT_MANIFEST_PG: &str = include_str!("../../manifests/typescript-kysely.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/typescript-kysely.redshift.toml");
 const DEFAULT_MANIFEST_MYSQL: &str = include_str!("../../manifests/typescript-kysely.mysql.toml");
@@ -259,7 +403,7 @@ impl CodegenBackend for TypescriptKyselyBackend {
         &self,
         analyzed: &AnalyzedQuery,
         struct_name: &str,
-        _columns: &[ResolvedColumn],
+        columns: &[ResolvedColumn],
         params: &[ResolvedParam],
     ) -> Result<String, ScytheError> {
         if self.structs_only {
@@ -325,7 +469,17 @@ impl CodegenBackend for TypescriptKyselyBackend {
                 let _ = writeln!(out, "\tif (row === undefined) {{");
                 let _ = writeln!(out, "\t\t{}", ts_row_not_found_throw(&analyzed.name));
                 let _ = writeln!(out, "\t}}");
-                let _ = writeln!(out, "\treturn row;");
+                let overrides = ts_composite_field_overrides(columns, "row");
+                if overrides.is_empty() {
+                    let _ = writeln!(out, "\treturn row;");
+                } else {
+                    let _ = writeln!(out, "\treturn {{");
+                    let _ = writeln!(out, "\t\t...row,");
+                    for (key, expr) in &overrides {
+                        let _ = writeln!(out, "\t\t{key}: {expr},");
+                    }
+                    let _ = writeln!(out, "\t}};");
+                }
                 let _ = write!(out, "}}");
             }
             QueryCommand::Opt => {
@@ -337,7 +491,21 @@ impl CodegenBackend for TypescriptKyselyBackend {
                     "\tconst result = await sql<{}>`{}`.execute(db);",
                     struct_name, sql_text
                 );
-                let _ = writeln!(out, "\treturn result.rows[0] ?? null;");
+                let overrides = ts_composite_field_overrides(columns, "row");
+                if overrides.is_empty() {
+                    let _ = writeln!(out, "\treturn result.rows[0] ?? null;");
+                } else {
+                    let _ = writeln!(out, "\tconst row = result.rows[0];");
+                    let _ = writeln!(out, "\tif (row === undefined) {{");
+                    let _ = writeln!(out, "\t\treturn null;");
+                    let _ = writeln!(out, "\t}}");
+                    let _ = writeln!(out, "\treturn {{");
+                    let _ = writeln!(out, "\t\t...row,");
+                    for (key, expr) in &overrides {
+                        let _ = writeln!(out, "\t\t{key}: {expr},");
+                    }
+                    let _ = writeln!(out, "\t}};");
+                }
                 let _ = write!(out, "}}");
             }
             QueryCommand::Many => {
@@ -349,7 +517,17 @@ impl CodegenBackend for TypescriptKyselyBackend {
                     "\tconst result = await sql<{}>`{}`.execute(db);",
                     struct_name, sql_text
                 );
-                let _ = writeln!(out, "\treturn result.rows;");
+                let overrides = ts_composite_field_overrides(columns, "row");
+                if overrides.is_empty() {
+                    let _ = writeln!(out, "\treturn result.rows;");
+                } else {
+                    let _ = writeln!(out, "\treturn result.rows.map((row) => ({{");
+                    let _ = writeln!(out, "\t\t...row,");
+                    for (key, expr) in &overrides {
+                        let _ = writeln!(out, "\t\t{key}: {expr},");
+                    }
+                    let _ = writeln!(out, "\t}}));");
+                }
                 let _ = write!(out, "}}");
             }
             QueryCommand::Batch => {
@@ -568,7 +746,16 @@ impl CodegenBackend for TypescriptKyselyBackend {
             child_columns,
             key_column,
             false,
-            |name, ty| format!("{} as {}", ts_index_access("row", &driver_key_for(name)), ty),
+            |name, ty| {
+                let key = driver_key_for(name);
+                let member = ts_index_access("row", &key);
+                if let Some(col) = all_columns.iter().find(|c| c.name == name)
+                    && col.neutral_type.starts_with("composite::")
+                {
+                    return format!("parse{}({member}) as {ty}", col.lang_type);
+                }
+                format!("{member} as {ty}")
+            },
         );
         out.push_str(&fold);
         let _ = write!(out, "}}");
@@ -602,6 +789,14 @@ impl CodegenBackend for TypescriptKyselyBackend {
         let mut out = String::new();
         let _ = writeln!(out, "/** Composite type {}. */", composite.sql_name);
         let _ = writeln!(out, "export interface {} {{", name);
+        // ~keep board #204: a composite with zero fields cannot exist in PostgreSQL
+        // (`CREATE TYPE ... AS ()` is rejected), so there is no reachable runtime value that
+        // would need `parse{name}` here.
+        if composite.fields.is_empty() {
+            let _ = write!(out, "}}");
+            return Ok(out);
+        }
+        let mut field_types: Vec<String> = Vec::with_capacity(composite.fields.len());
         for field in &composite.fields {
             let ts_type = resolve_type(&field.neutral_type, &self.manifest, false)
                 .map(|t| t.into_owned())
@@ -609,8 +804,48 @@ impl CodegenBackend for TypescriptKyselyBackend {
                     ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
                 })?;
             let _ = writeln!(out, "\t{}: {};", ts_property_key(&to_camel_case(&field.name)), ts_type);
+            field_types.push(ts_type);
         }
-        let _ = write!(out, "}}");
+        let _ = writeln!(out, "}}");
+
+        let _ = writeln!(out);
+        let _ = writeln!(
+            out,
+            "// ~keep board #204: whatever driver this wraps has no adapter for a user-defined"
+        );
+        let _ = writeln!(
+            out,
+            "// composite -- it hands back the raw text form as a plain string."
+        );
+        let _ = writeln!(out, "export function parse{name}(raw: unknown): {name} | null {{");
+        let _ = writeln!(out, "\tif (raw === null || raw === undefined) {{");
+        let _ = writeln!(out, "\t\treturn null;");
+        let _ = writeln!(out, "\t}}");
+        let _ = writeln!(out, "\tconst f = parse{name}Fields(raw as string);");
+        let _ = writeln!(out, "\treturn {{");
+        for (i, (field, field_type)) in composite.fields.iter().zip(&field_types).enumerate() {
+            let raw = format!("f[{i}]");
+            let value_expr = ts_composite_field_from_text(&field.neutral_type, field_type, &raw, &name);
+            let _ = writeln!(
+                out,
+                "\t\t{}: {value_expr},",
+                ts_property_key(&to_camel_case(&field.name))
+            );
+        }
+        let _ = writeln!(out, "\t}};");
+        let _ = writeln!(out, "}}");
+        let _ = writeln!(out);
+        out.push_str(&ts_parse_composite_fields_helper(&name));
+        if ts_composite_needs_bytes_helper(composite) {
+            let _ = writeln!(out);
+            let _ = writeln!(out);
+            out.push_str(&ts_parse_composite_bytes_helper(&name));
+        }
+        if ts_composite_needs_offset_datetime_helper(composite) {
+            let _ = writeln!(out);
+            let _ = writeln!(out);
+            out.push_str(&ts_parse_composite_offset_datetime_helper(&name));
+        }
         Ok(out)
     }
 

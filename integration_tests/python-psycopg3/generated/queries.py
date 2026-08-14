@@ -150,7 +150,7 @@ async def get_user_by_id(conn: AsyncConnection, *, id: int) -> GetUserByIdRow:
         id=row[0],
         name=row[1],
         email=row[2],
-        status=row[3],
+        status=UserStatus(row[3]),
         created_at=row[4],
     )
 
@@ -198,7 +198,7 @@ async def create_user(conn: AsyncConnection, *, name: str, email: str | None, st
         id=row[0],
         name=row[1],
         email=row[2],
-        status=row[3],
+        status=UserStatus(row[3]),
         created_at=row[4],
     )
 
@@ -259,7 +259,7 @@ async def count_users_by_status(conn: AsyncConnection, *, status: UserStatus) ->
     row = await cur.fetchone()
     if row is None:
         raise ScytheNoRowsError("CountUsersByStatus: no rows returned")
-    return CountUsersByStatusRow(status=row[0], user_count=row[1])
+    return CountUsersByStatusRow(status=UserStatus(row[0]), user_count=row[1])
 
 
 @dataclass(frozen=True, slots=True)
@@ -312,6 +312,71 @@ class UserAddress:
     city: str
     zip: str
 
+    @classmethod
+    def _from_text(cls, text: str | None) -> "UserAddress | None":
+        """~keep board #204: psycopg3 registers no adapter for a
+        user-defined composite -- it hands back the driver's raw text form
+        as a plain str. Parse it here instead."""
+        if text is None:
+            return None
+        f = cls._parse_composite_fields(text)
+        return cls(
+            street=f[0],
+            city=f[1],
+            zip=f[2],
+        )
+
+    @staticmethod
+    def _parse_composite_fields(text: str) -> list[str | None]:
+        """~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field
+        tokens, honoring its escaping rules: an empty unquoted field is SQL NULL (returned
+        as None); a field needing quoting (comma, paren, quote, backslash, leading/trailing
+        space, or the empty string) is wrapped in double quotes; every other field is
+        unquoted and taken literally. A nested composite's own "(x,y)" text form always
+        contains parens, so it always comes back quoted here, ready for that type's own
+        `_from_text` to parse recursively.
+
+        Inside a quoted field `record_out` doubles a literal double-quote and backslash-
+        escapes a literal backslash. Both spellings must be accepted: reading a doubled
+        quote as "closing quote, then a new field" both truncates the value and
+        desynchronizes every field after it. Verified against PostgreSQL 16.
+        """
+        fields: list[str | None] = []
+        inner = text[1:-1]
+        i = 0
+        n = len(inner)
+        while True:
+            chars: list[str] = []
+            is_null = False
+            if i < n and inner[i] == '"':
+                i += 1
+                while i < n:
+                    c = inner[i]
+                    if c == "\\" and i + 1 < n:
+                        chars.append(inner[i + 1])
+                        i += 2
+                    elif c == '"' and i + 1 < n and inner[i + 1] == '"':
+                        chars.append('"')
+                        i += 2
+                    elif c == '"':
+                        i += 1
+                        break
+                    else:
+                        chars.append(c)
+                        i += 1
+            else:
+                start = i
+                while i < n and inner[i] != ",":
+                    i += 1
+                chars = list(inner[start:i])
+                is_null = len(chars) == 0
+            fields.append(None if is_null else "".join(chars))
+            if i < n and inner[i] == ",":
+                i += 1
+                continue
+            break
+        return fields
+
 
 @dataclass(frozen=True, slots=True)
 class GetUserProfileRow:
@@ -331,5 +396,9 @@ async def get_user_profile(conn: AsyncConnection, *, id: int) -> GetUserProfileR
     row = await cur.fetchone()
     if row is None:
         raise ScytheNoRowsError("GetUserProfile: no rows returned")
-    return GetUserProfileRow(id=row[0], secondary_status=row[1], address=row[2])
+    return GetUserProfileRow(
+        id=row[0],
+        secondary_status=None if row[1] is None else UserStatus(row[1]),
+        address=UserAddress._from_text(row[2]),
+    )
 

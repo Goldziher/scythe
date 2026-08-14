@@ -16,6 +16,58 @@ use super::python_common::{PythonRowType, no_rows_exception_def, type_support_im
 const DEFAULT_MANIFEST_TOML: &str = include_str!("../../manifests/python-asyncpg.toml");
 const DEFAULT_MANIFEST_REDSHIFT: &str = include_str!("../../manifests/python-asyncpg.redshift.toml");
 
+/// The Python expression converting one composite field's already-decoded `asyncpg.Record`
+/// value (`raw`, e.g. `record["street"]`) into the field's declared Python type.
+///
+/// Unlike psycopg3 (board #204's `python_psycopg3.rs`), asyncpg needs no hand-written text
+/// parser here -- verified by reading the vendored driver's own decode path, not from memory
+/// (`asyncpg/protocol/codecs/base.pyx`): `DataCodecConfig.add_types` runs automatically off
+/// introspection results and, for every `kind == b'c'` (composite) type touched by a query,
+/// registers a per-column binary codec via `Codec.new_composite_codec`; `decode_composite`
+/// then builds a real `self.record_desc.make_record(asyncpg.Record, ...)` keyed by the
+/// composite's own attribute names, decoding each sub-field through *its own* element codec
+/// (native `int`/`Decimal`/`datetime.datetime`/`uuid.UUID`/...) and mapping a NULL sub-field
+/// (`elem_len == -1`) straight to `None` -- no text escaping to reimplement. An `enum` (`kind
+/// == b'e'`) is registered as a plain `TEXTOID` scalar codec ("Enum types are essentially
+/// text"), so an enum sub-field still decodes to `str` and needs `T(value)` to become our
+/// generated `Enum` subclass; a composite sub-field only needs wrapping into its own generated
+/// class, recursing through that class's own `_from_record`.
+fn asyncpg_composite_field_from_record(neutral_type: &str, field_type: &str, raw: &str) -> String {
+    if neutral_type.starts_with("composite::") {
+        return format!("{field_type}._from_record({raw})");
+    }
+    if neutral_type.starts_with("enum::") {
+        return format!("{field_type}({raw})");
+    }
+    raw.to_string()
+}
+
+/// Build the `field=value` expression for one column read from an `asyncpg.Record`
+/// (`row`/`r`, both keyed by column name).
+///
+/// A `composite::` column arrives as asyncpg's own `Record` (see
+/// [`asyncpg_composite_field_from_record`]'s doc comment), not our generated
+/// dataclass/BaseModel/Struct, so it is routed through that class's `_from_record`
+/// classmethod -- null-safe on its own, so no extra guard is needed regardless of
+/// `col.nullable`. An `enum::` column decodes to a plain `str`; the generated `Enum`
+/// subclass's `str, Enum` base makes `T(value)` the value-lookup constructor, guarded by a
+/// `None` check for a nullable column since `T(None)` raises `ValueError` rather than
+/// returning `None`.
+fn field_assignment_expr(col: &ResolvedColumn, var: &str) -> String {
+    let raw = format!("{var}[\"{}\"]", col.name);
+    if col.neutral_type.starts_with("composite::") {
+        return format!("{}={}._from_record({raw})", col.field_name, col.lang_type);
+    }
+    if col.neutral_type.starts_with("enum::") {
+        return if col.nullable {
+            format!("{}=None if {raw} is None else {}({raw})", col.field_name, col.lang_type)
+        } else {
+            format!("{}={}({raw})", col.field_name, col.lang_type)
+        };
+    }
+    format!("{}={raw}", col.field_name)
+}
+
 pub struct PythonAsyncpgBackend {
     manifest: BackendManifest,
     row_type: PythonRowType,
@@ -175,10 +227,8 @@ impl CodegenBackend for PythonAsyncpgBackend {
                 }
                 let _ = writeln!(out, "    )");
                 write_missing_row_guard(&mut out, "    ", "row", is_one, &analyzed.name);
-                let field_assignments: Vec<String> = columns
-                    .iter()
-                    .map(|col| format!("{}=row[\"{}\"]", col.field_name, col.name))
-                    .collect();
+                let field_assignments: Vec<String> =
+                    columns.iter().map(|col| field_assignment_expr(col, "row")).collect();
                 let oneliner = format!("    return {}({})", struct_name, field_assignments.join(", "));
                 if oneliner.len() <= 88 {
                     let _ = writeln!(out, "{}", oneliner);
@@ -204,10 +254,8 @@ impl CodegenBackend for PythonAsyncpgBackend {
                     let _ = writeln!(out, "        {},", args.join(", "));
                 }
                 let _ = writeln!(out, "    )");
-                let field_assignments: Vec<String> = columns
-                    .iter()
-                    .map(|col| format!("{}=r[\"{}\"]", col.field_name, col.name))
-                    .collect();
+                let field_assignments: Vec<String> =
+                    columns.iter().map(|col| field_assignment_expr(col, "r")).collect();
                 let oneliner = format!(
                     "    return [{}({}) for r in rows]",
                     struct_name,
@@ -391,11 +439,19 @@ impl CodegenBackend for PythonAsyncpgBackend {
         let _ = writeln!(out, "            _entries.append((");
         let _ = writeln!(out, "                {{");
         for col in parent_columns {
-            let _ = writeln!(
-                out,
-                "                    \"{}\": row[\"{}\"],",
-                col.field_name, col.name
-            );
+            let raw = format!("row[\"{}\"]", col.name);
+            let value_expr = if col.neutral_type.starts_with("composite::") {
+                format!("{}._from_record({raw})", col.lang_type)
+            } else if col.neutral_type.starts_with("enum::") {
+                if col.nullable {
+                    format!("None if {raw} is None else {}({raw})", col.lang_type)
+                } else {
+                    format!("{}({raw})", col.lang_type)
+                }
+            } else {
+                raw
+            };
+            let _ = writeln!(out, "                    \"{}\": {value_expr},", col.field_name);
         }
         let _ = writeln!(out, "                }},");
         let _ = writeln!(out, "                [],");
@@ -403,7 +459,7 @@ impl CodegenBackend for PythonAsyncpgBackend {
 
         let _ = writeln!(out, "        _entries[_index[key]][1].append({child_struct_name}(");
         for col in child_columns {
-            let _ = writeln!(out, "            {}=row[\"{}\"],", col.field_name, col.name);
+            let _ = writeln!(out, "            {},", field_assignment_expr(col, "row"));
         }
         let _ = writeln!(out, "        ))");
 
@@ -438,19 +494,45 @@ impl CodegenBackend for PythonAsyncpgBackend {
         let _ = write!(out, "{}", self.row_type.decorator());
         let _ = writeln!(out, "{}", self.row_type.class_def(&name));
         let _ = writeln!(out, "    \"\"\"Composite type {}.\"\"\"", composite.sql_name);
+        // ~keep board #204: a composite with zero fields cannot exist in PostgreSQL
+        // (`CREATE TYPE ... AS ()` is rejected), so there is no reachable runtime value
+        // that would need `_from_record` here. Left as the bare stub it always was.
         if composite.fields.is_empty() {
             let _ = writeln!(out, "    pass");
-        } else {
-            let _ = writeln!(out);
-            for field in &composite.fields {
-                let py_type = resolve_type(&field.neutral_type, &self.manifest, false)
-                    .map(|t| t.into_owned())
-                    .map_err(|e| {
-                        ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
-                    })?;
-                let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
-            }
+            return Ok(out);
         }
+        let _ = writeln!(out);
+        let mut field_types: Vec<String> = Vec::with_capacity(composite.fields.len());
+        for field in &composite.fields {
+            let py_type = resolve_type(&field.neutral_type, &self.manifest, false)
+                .map(|t| t.into_owned())
+                .map_err(|e| {
+                    ScytheError::new(ErrorCode::InternalError, format!("composite field type error: {}", e))
+                })?;
+            let _ = writeln!(out, "    {}: {}", to_snake_case(&field.name), py_type);
+            field_types.push(py_type);
+        }
+
+        let _ = writeln!(out);
+        let _ = writeln!(out, "    @classmethod");
+        let _ = writeln!(out, "    def _from_record(cls, record) -> \"{} | None\":", name);
+        let _ = writeln!(
+            out,
+            "        \"\"\"~keep board #204: asyncpg decodes a composite column to its own"
+        );
+        let _ = writeln!(
+            out,
+            "        `Record` (tuple-like, not our declared type) -- wrap it into this class.\"\"\""
+        );
+        let _ = writeln!(out, "        if record is None:");
+        let _ = writeln!(out, "            return None");
+        let _ = writeln!(out, "        return cls(");
+        for (field, field_type) in composite.fields.iter().zip(&field_types) {
+            let raw = format!("record[\"{}\"]", field.name);
+            let value_expr = asyncpg_composite_field_from_record(&field.neutral_type, field_type, &raw);
+            let _ = writeln!(out, "            {}={value_expr},", to_snake_case(&field.name));
+        }
+        let _ = writeln!(out, "        )");
         Ok(out)
     }
 }

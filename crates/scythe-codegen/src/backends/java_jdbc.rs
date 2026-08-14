@@ -236,16 +236,21 @@ fn array_list_expr(sql_array_expr: &str, boxed_element_type: &str) -> String {
 
 /// Splits a PostgreSQL composite's text form (`"(a,b,c)"`) into its raw field tokens, honoring
 /// its escaping rules -- an empty unquoted field is SQL NULL, and a field containing a comma,
-/// paren, quote, backslash, or leading/trailing space (or the empty string) is double-quoted
-/// with `"`/`\` backslash-escaped inside.
+/// paren, quote, backslash, or leading/trailing space (or the empty string) is double-quoted,
+/// with an inner `"` **doubled** and an inner `\` backslash-escaped.
 const JAVA_PARSE_COMPOSITE_FIELDS_METHOD: &str = r#"    /**
      * ~keep Splits a PostgreSQL composite's text form ("(a,b,c)") into its raw field tokens,
      * honoring its escaping rules: an empty unquoted field is SQL NULL (returned as `null`); a
      * field needing quoting (containing a comma, paren, quote, backslash, or leading/trailing
-     * space, or the empty string) is wrapped in double quotes with `"` and `\` backslash-escaped
-     * inside; every other field is unquoted and taken literally. A nested composite's own
-     * "(x,y)" text form always contains parens, so it always comes back quoted here, ready for
-     * that type's own `fromText` to parse recursively.
+     * space, or the empty string) is wrapped in double quotes; every other field is unquoted and
+     * taken literally. A nested composite's own "(x,y)" text form always contains parens, so it
+     * always comes back quoted here, ready for that type's own `fromText` to parse recursively.
+     *
+     * Inside a quoted field `record_out` writes a literal `"` as `""` and a literal `\` as `\\`.
+     * Both spellings must be accepted: reading `""` as "closing quote, then a new field" both
+     * truncates the value and desynchronizes every field after it. Verified against
+     * PostgreSQL 16 -- ROW('he said "hi"', 'back\slash', NULL) renders as
+     * ("he said ""hi""","back\\slash",).
      */
     private static java.util.List<String> parseCompositeFields(String text) {
         java.util.List<String> fields = new java.util.ArrayList<>();
@@ -261,6 +266,9 @@ const JAVA_PARSE_COMPOSITE_FIELDS_METHOD: &str = r#"    /**
                     char c = inner.charAt(i);
                     if (c == '\\' && i + 1 < n) {
                         field.append(inner.charAt(i + 1));
+                        i += 2;
+                    } else if (c == '"' && i + 1 < n && inner.charAt(i + 1) == '"') {
+                        field.append('"');
                         i += 2;
                     } else if (c == '"') {
                         i++;
