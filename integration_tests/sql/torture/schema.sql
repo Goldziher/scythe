@@ -8,8 +8,8 @@
 -- primary key, a non-ASCII identifier, columns named for words reserved in
 -- one or more target languages, and a column name that collides with a
 -- name scythe itself might synthesize. This schema exists only to give the
--- compile gate (scripts/check-generated-backends.py) something with teeth;
--- it is never migrated into the live database used by the `task test:*`
+-- compile gate (scripts/check-generated-backends.py) something with teeth.
+-- It is never migrated into the live database used by the `task test:*`
 -- integration tests, and no `scythe.toml` under integration_tests/ other
 -- than the ones the gate writes into a scratch copy points at it.
 --
@@ -27,7 +27,7 @@
 -- not something to route around.
 --
 -- The three non-identifier names below (`"my col"`, `"with-dash"`, `"2fa"`)
--- have no testing_data/ fixture; they were verified directly instead, by
+-- have no testing_data/ fixture. They were verified directly instead, by
 -- running `scythe generate` over a two-column schema using them and reading
 -- the result: scythe-core resolves all three between DDL and query, and
 -- python-psycopg3 emits `my_col` / `with_dash` / `col_2fa` read positionally
@@ -76,8 +76,8 @@ CREATE TABLE "torture_widgets" (
     -- `pub my col: String` / `my col: str` / `String my col` in nine
     -- languages, none of which parse, and this gate stayed green throughout
     -- because no column here had a space, a dash, or a leading digit. The
-    -- reserved-word case above (`class`, `fn`, `end`, `type`) was covered;
-    -- this class was not. A gate is only as strong as its worst input.
+    -- reserved-word case above (`class`, `fn`, `end`, `type`) was covered.
+    -- This class was not. A gate is only as strong as its worst input.
     "my col" TEXT,                             -- space
     "with-dash" TEXT,                          -- dash
     "2fa" TEXT,                                -- leading digit

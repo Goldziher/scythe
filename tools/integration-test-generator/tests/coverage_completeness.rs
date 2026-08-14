@@ -319,3 +319,72 @@ fn every_integration_project_runs_in_ci() {
 
     assert_ratchet(&gaps, &load_exemptions(&exemptions_path(), "ci-steps"), "ci-steps");
 }
+
+/// Every generated harness executes the shared schema by splitting it on `";"` and running one
+/// fragment at a time (`elixir.exs.jinja`, `kotlin.kt.jinja`, `java.java.jinja`, `php.php.jinja`,
+/// `ruby.rb.jinja`, `typescript.ts.jinja`, `python.py.jinja`, `csharp.cs.jinja` all do this). That
+/// split is not SQL-aware: a `;` inside a `--` comment ends the fragment there, and the rest of
+/// the comment line — no longer preceded by its `--` — becomes the head of the next fragment and
+/// is sent to the server as bare SQL.
+///
+/// This is not hypothetical. `sql/pg/schema.sql` carried the comment "...under compile-only
+/// coverage; this one is exercised live...", and `elixir-postgrex` failed with
+/// `ERROR 42601 (syntax_error) syntax error at or near "this"` — the fragment began `this one`.
+/// Only elixir surfaced it because the postgres job fails fast and the harnesses ahead of it in
+/// the job happen not to split that schema, so the same latent break sat behind them.
+///
+/// Splitting SQL naively is the real defect and it is tracked separately; until the harnesses
+/// parse properly, this keeps the fixture side of the contract enforced rather than relying on
+/// whoever edits a schema comment remembering an invariant nothing states.
+#[test]
+fn schema_sql_comments_contain_no_semicolon() {
+    let sql_root = repo_root().join("integration_tests/sql");
+    let mut offenders: Vec<String> = Vec::new();
+    let mut files_scanned = 0usize;
+
+    let mut stack = vec![sql_root.clone()];
+    while let Some(dir) = stack.pop() {
+        let Ok(entries) = fs::read_dir(&dir) else {
+            continue;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if path.extension().and_then(|e| e.to_str()) != Some("sql") {
+                continue;
+            }
+            files_scanned += 1;
+            for (index, line) in read_to_string(&path).lines().enumerate() {
+                // Only a whole-line `--` comment can strand its tail as SQL. A trailing comment
+                // after a statement is preceded by that statement's own text, and a `;` inside a
+                // string literal is a genuine statement terminator question this does not touch.
+                let trimmed = line.trim_start();
+                if trimmed.starts_with("--") && trimmed.contains(';') {
+                    offenders.push(format!(
+                        "  {}:{}: {}",
+                        path.strip_prefix(repo_root()).unwrap_or(&path).display(),
+                        index + 1,
+                        line.trim()
+                    ));
+                }
+            }
+        }
+    }
+
+    // A zero-file scan would make this pass vacuously — the same shape the `[ci-steps]` ratchet
+    // guards against. `integration_tests/sql` has never been empty.
+    assert!(
+        files_scanned > 0,
+        "scanned no .sql files under {}; this check would pass without inspecting anything",
+        sql_root.display()
+    );
+    assert!(
+        offenders.is_empty(),
+        "a `;` inside a whole-line SQL comment breaks every harness that splits the schema on \
+         \";\" -- rewrite the comment without it:\n{}",
+        offenders.join("\n")
+    );
+}
