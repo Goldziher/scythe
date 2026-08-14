@@ -30,6 +30,19 @@ building a `SqruffLinter` once (see **Removed**). Details below.
 
 ### Added
 
+- **`kotlin-exposed` has a running integration project, and running it found seven defects.** The
+  backend had shipped since 0.6.0 with nothing ever executing its output, and none of the seven was
+  reachable by a string-matching test: the generated file declared no `package generated`, so any
+  caller importing it failed outright; an enum parameter was bound as the Kotlin enum object rather
+  than its SQL spelling; those parameters then needed an explicit `::<enum type>` cast, because
+  Exposed sends a typed `character varying` that PostgreSQL will not coerce to a user enum;
+  `:exec_rows` and `:exec_result` read a row count off `Transaction.exec`, which returns `Unit`, so
+  they never compiled; a `RETURNING` query ran as an `INSERT` and the driver raised "A result was
+  returned when none was expected", now fixed with an explicit `StatementType.SELECT`; the bind list
+  was an unannotated `listOf(...)` whose type inference collapsed on a heterogeneous parameter set;
+  and `UUIDColumnType` was emitted but never imported. The project runs 14 assertions in CI,
+  including the composite-escaping and nullable-enum reads. (#213, #214)
+
 - **`java-r2dbc` and `kotlin-r2dbc` have running integration projects on PostgreSQL.** Both backends
   shipped with nothing executing their output, and running them found defects no string-matching
   test could see: an enum parameter was bound as the Java/Kotlin enum object, which

@@ -70,30 +70,6 @@ kotlin-r2dbc|mariadb : generated and run; io.asyncer:r2dbc-mysql has no UUID cod
 java-r2dbc|sqlite : no io.r2dbc:r2dbc-sqlite artifact exists on Maven Central; the harness branch is no longer the blocker
 kotlin-r2dbc|sqlite : no io.r2dbc:r2dbc-sqlite artifact exists on Maven Central; the harness branch is no longer the blocker
 
-# Exposed is a DSL, not a driver: the harness reads results through Exposed's
-# own column types rather than java.sql, so it needs its own kotlin.kt.jinja
-# branch and its own Gradle dependency set.
-#
-# board #213 follow-up: this is not blocked on codegen. #214 already fixed
-# generate_model_struct (kotlin_exposed.rs:455-475) to emit both the Exposed
-# `object XTable : IntIdTable(...)` and the row `data class` a caller reads --
-# KNOWN_DIVERGENT_BACKENDS in crates/scythe-codegen/src/lib.rs (:2353) is empty,
-# kotlin-exposed included. generate_query_fn (kotlin_exposed.rs:477) already
-# emits a full, callable function body per query (`:one` throws
-# NoSuchElementException on a missing row like every other backend, `:many`
-# collects into the row list, enums/composites round-trip). The real
-# difference from kotlin-jdbc is call shape, not missing codegen: an Exposed
-# query function takes no `Connection` parameter at all -- it opens its own
-# `transaction { }` against Exposed's ambient default `Database`, so the
-# harness must call `Database.connect(...)` once and then call generated
-# functions bare (`createUser("Alice", ...)`, not `createUser(conn, "Alice",
-# ...)`), which is exactly what makes this a new kotlin.kt.jinja branch rather
-# than a driver swap inside the existing `engine == "postgresql"` one. A
-# proposed branch and the matching build.gradle.kts.jinja Exposed dependency
-# set were drafted (see the board #213 handoff) but not applied: another
-# agent owns kotlin.kt.jinja and build.gradle.kts.jinja in a separate
-# worktree right now, so editing them here would conflict on merge.
-kotlin-exposed|postgresql : harness branch and Gradle deps are drafted (not codegen-blocked -- #214 already fixed the row-struct gap) but not applied, pending the kotlin.kt.jinja/build.gradle.kts.jinja worktree owner; no CI job either
 
 # php-pdo on Oracle is blocked before the CI-infrastructure question even
 # comes up. crates/scythe-codegen/src/backends/php_pdo.rs::PhpPdoBackend::new

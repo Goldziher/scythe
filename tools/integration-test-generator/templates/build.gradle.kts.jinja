@@ -11,7 +11,15 @@ repositories {
 }
 
 dependencies {
-{%- if driver == "r2dbc" and engine == "postgresql" %}
+{%- if backend == "kotlin-exposed" %}
+    implementation("org.postgresql:postgresql:42.7.12")
+    implementation("org.jetbrains.exposed:exposed-core:0.61.0")
+    implementation("org.jetbrains.exposed:exposed-jdbc:0.61.0")
+    implementation("org.jetbrains.exposed:exposed-dao:0.61.0")
+    // exposed-java-time supplies the Java*ColumnType classes the generated
+    // queries.kt imports for date/time columns; exposed-core alone does not.
+    implementation("org.jetbrains.exposed:exposed-java-time:0.61.0")
+{%- elif driver == "r2dbc" and engine == "postgresql" %}
     implementation("org.postgresql:r2dbc-postgresql:1.0.7.RELEASE")
 {%- elif driver == "r2dbc" and (engine == "mysql" or engine == "mariadb") %}
     implementation("io.asyncer:r2dbc-mysql:1.3.1")

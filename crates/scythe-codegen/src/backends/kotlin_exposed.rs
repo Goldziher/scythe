@@ -375,6 +375,81 @@ fn exposed_column_type_class(kotlin_type: &str) -> &str {
     }
 }
 
+/// ~keep The value bound at an Exposed `exec` placeholder for `param`.
+///
+/// An enum parameter is paired with `TextColumnType()` -- the SQL side genuinely is text --
+/// but the *value* must be the enum's SQL spelling, not the Kotlin enum object. Exposed's
+/// `exec(sql, args: List<Pair<IColumnType, Any?>>)` takes `Any?`, so binding the object
+/// compiles and then fails at execution time against a `user_status` column. `.value` is the
+/// accessor `generate_enum_def` already emits and the exact inverse of the `fromValue(...)`
+/// the read path uses, so a value round-trips even when its SQL spelling is not the uppercase
+/// of its variant name.
+fn exposed_bind_value(param: &ResolvedParam) -> String {
+    if param.neutral_type.starts_with("enum::") {
+        format!("{}.value", param.field_name)
+    } else {
+        param.field_name.clone()
+    }
+}
+
+/// ~keep Append an explicit `::<enum type>` cast to each `?` placeholder whose parameter is an
+/// enum.
+///
+/// Exposed binds an enum parameter through `TextColumnType()`, which sends a *typed*
+/// `character varying`. PostgreSQL will not coerce that to a user enum type, so a bare
+/// placeholder fails with `column "status" is of type user_status but expression is of type
+/// character varying`, or `operator does not exist: user_status = character varying` in a
+/// predicate. Casting at the placeholder keeps the generated code self-sufficient. This is the
+/// same defect, and the same fix, as `add_pg_enum_casts` in java_r2dbc.rs/kotlin_r2dbc.rs --
+/// three backends now, so it is a property of sending a typed varchar at an enum column rather
+/// than anything specific to one driver.
+///
+/// `occurrences[k]` is the 1-based parameter position bound at the k-th `?`, as returned by
+/// `rewrite_placeholders_indexed`. The scan skips single-quoted string literals: a `?` inside
+/// one is data, not a placeholder, and counting it would shift every cast after it onto the
+/// wrong parameter.
+fn add_exposed_enum_casts(
+    sql: &str,
+    occurrences: &[u32],
+    analyzed_params: &[scythe_core::analyzer::AnalyzedParam],
+    params: &[ResolvedParam],
+) -> String {
+    if occurrences.is_empty() {
+        return sql.to_string();
+    }
+    let mut result = String::with_capacity(sql.len());
+    let mut in_string = false;
+    let mut seen = 0usize;
+    let mut chars = sql.chars().peekable();
+    while let Some(ch) = chars.next() {
+        if ch == '\'' {
+            // '' is an escaped quote inside a literal, not the end of one.
+            if in_string && chars.peek() == Some(&'\'') {
+                result.push(ch);
+                result.push('\'');
+                chars.next();
+                continue;
+            }
+            in_string = !in_string;
+            result.push(ch);
+            continue;
+        }
+        result.push(ch);
+        if ch != '?' || in_string {
+            continue;
+        }
+        let position = occurrences.get(seen).copied();
+        seen += 1;
+        let Some(position) = position else { continue };
+        let p = super::resolved_param_for_position(analyzed_params, params, position);
+        if let Some(enum_type) = p.neutral_type.strip_prefix("enum::") {
+            result.push_str("::");
+            result.push_str(enum_type);
+        }
+    }
+    result
+}
+
 impl CodegenBackend for KotlinExposedBackend {
     fn name(&self) -> &str {
         "kotlin-exposed"
@@ -402,23 +477,32 @@ impl CodegenBackend for KotlinExposedBackend {
     }
 
     fn file_header(&self) -> String {
-        "import org.jetbrains.exposed.dao.id.IntIdTable\n\
+        // ~keep `package generated` to match kotlin_jdbc.rs:593 and the directory the CLI writes
+        // into. Without it the file lands in the default package and any caller doing
+        // `import generated.*` -- which is how every kotlin harness reaches the query functions --
+        // fails with "Unresolved reference 'generated'". java_r2dbc and kotlin_r2dbc shipped with
+        // the same omission; it stays invisible until something actually imports the output.
+        "package generated\n\n\
+         import org.jetbrains.exposed.dao.id.IntIdTable\n\
          import org.jetbrains.exposed.dao.id.LongIdTable\n\
          import org.jetbrains.exposed.dao.id.UUIDTable\n\
          import org.jetbrains.exposed.sql.BinaryColumnType\n\
          import org.jetbrains.exposed.sql.BooleanColumnType\n\
          import org.jetbrains.exposed.sql.ByteColumnType\n\
          import org.jetbrains.exposed.sql.DecimalColumnType\n\
+         import org.jetbrains.exposed.sql.IColumnType\n\
          import org.jetbrains.exposed.sql.DoubleColumnType\n\
          import org.jetbrains.exposed.sql.FloatColumnType\n\
          import org.jetbrains.exposed.sql.IntegerColumnType\n\
          import org.jetbrains.exposed.sql.LongColumnType\n\
          import org.jetbrains.exposed.sql.ShortColumnType\n\
          import org.jetbrains.exposed.sql.TextColumnType\n\
+         import org.jetbrains.exposed.sql.UUIDColumnType\n\
          import org.jetbrains.exposed.sql.javatime.JavaLocalDateColumnType\n\
          import org.jetbrains.exposed.sql.javatime.JavaLocalDateTimeColumnType\n\
          import org.jetbrains.exposed.sql.javatime.JavaLocalTimeColumnType\n\
          import org.jetbrains.exposed.sql.javatime.JavaOffsetDateTimeColumnType\n\
+         import org.jetbrains.exposed.sql.statements.StatementType\n\
          import org.jetbrains.exposed.sql.transactions.transaction\n"
             .to_string()
     }
@@ -491,6 +575,7 @@ impl CodegenBackend for KotlinExposedBackend {
         );
         let (rewritten_sql, occurrences) =
             super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let rewritten_sql = add_exposed_enum_casts(&rewritten_sql, &occurrences, &analyzed.params, params);
         let sql = crate::sql_literal::escape_kotlin_string(&rewritten_sql);
 
         let mut out = String::new();
@@ -522,10 +607,22 @@ impl CodegenBackend for KotlinExposedBackend {
                 .iter()
                 .map(|&position| {
                     let p = super::resolved_param_for_position(&analyzed.params, params, position);
-                    format!("{} to {}", exposed_column_type_class(&p.lang_type), p.field_name)
+                    format!(
+                        "{} to {}",
+                        exposed_column_type_class(&p.lang_type),
+                        exposed_bind_value(p)
+                    )
                 })
                 .collect();
-            format!(", listOf({})", pairs.join(", "))
+            // ~keep The explicit element type is load-bearing, not decoration. A bare `listOf(...)`
+            // makes Kotlin infer one `T` across heterogeneous pairs, and with a mixed
+            // parameter set -- `Pair<TextColumnType, String>` beside
+            // `Pair<UUIDColumnType, UUID>` and `Pair<TextColumnType, TortureAddress?>` --
+            // inference gives up: "Not enough information to infer type argument for 'T'",
+            // then a cascade that even reports "actual type is 'String', but 'String' was
+            // expected". Naming the type Exposed's `exec` actually takes short-circuits all
+            // of it. The pg fixture happened to infer cleanly; the torture schema did not.
+            format!(", listOf<Pair<IColumnType<*>, Any?>>({})", pairs.join(", "))
         };
 
         match &analyzed.command {
@@ -536,9 +633,29 @@ impl CodegenBackend for KotlinExposedBackend {
                 let _ = writeln!(out, "    }}");
             }
             QueryCommand::ExecResult | QueryCommand::ExecRows => {
+                // ~keep This used to emit `exec(sql, args) ?: 0` typed `: Int`, which never
+                // compiled against any Exposed this backend could resolve: the no-transform
+                // `Transaction.exec(String, Iterable<Pair<IColumnType<*>, Any?>>, StatementType?)`
+                // returns `Unit`, not `Int?` (verified from the exposed-core jar for both 0.56.0
+                // and 0.61.0), so the elvis produced `Any` and the function failed with
+                // "actual type is 'Any', but 'Int' was expected". Exposed surfaces an update count
+                // only through the prepared-statement API, so that is what an affected-rows query
+                // has to use. `false` is `returnKeys` -- these queries want the count, not
+                // generated keys.
                 write_fn_sig(&mut out, &func_name, ": Int", params);
                 let args = build_args(&occurrences);
-                let _ = writeln!(out, "        exec(\"{}\"{}) ?: 0", sql, args);
+                let _ = writeln!(
+                    out,
+                    "        val stmt = connection.prepareStatement(\"{}\", false)",
+                    sql
+                );
+                if !args.is_empty() {
+                    // `build_args` renders a leading ", " for the exec call site; this one needs
+                    // the list on its own.
+                    let list = args.trim_start_matches(", ");
+                    let _ = writeln!(out, "        stmt.fillParameters({})", list);
+                }
+                let _ = writeln!(out, "        stmt.executeUpdate()");
                 let _ = writeln!(out, "    }}");
             }
             QueryCommand::One | QueryCommand::Opt => {
@@ -567,7 +684,11 @@ impl CodegenBackend for KotlinExposedBackend {
                 };
                 write_fn_sig(&mut out, &func_name, &ret, params);
                 let args = build_args(&occurrences);
-                let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
+                let _ = writeln!(
+                    out,
+                    "        exec(\"{}\"{}, explicitStatementType = StatementType.SELECT) {{ rs ->",
+                    sql, args
+                );
                 let _ = writeln!(out, "            if (rs.next()) {{");
                 write_exposed_nullable_preamble(&mut out, columns, "                ", &self.manifest);
                 let _ = writeln!(out, "                {}(", struct_name);
@@ -645,7 +766,11 @@ impl CodegenBackend for KotlinExposedBackend {
                 write_fn_sig(&mut out, &func_name, &ret, params);
                 let args = build_args(&occurrences);
                 let _ = writeln!(out, "        val result = mutableListOf<{}>()", struct_name);
-                let _ = writeln!(out, "        exec(\"{}\"{}) {{ rs ->", sql, args);
+                let _ = writeln!(
+                    out,
+                    "        exec(\"{}\"{}, explicitStatementType = StatementType.SELECT) {{ rs ->",
+                    sql, args
+                );
                 let _ = writeln!(out, "            while (rs.next()) {{");
                 write_exposed_nullable_preamble(&mut out, columns, "                ", &self.manifest);
                 let _ = writeln!(out, "                result.add(");
@@ -817,6 +942,7 @@ impl CodegenBackend for KotlinExposedBackend {
         );
         let (rewritten_sql, occurrences) =
             super::rewrite_placeholders_indexed(&cleaned_sql, dialect, |_| "?".to_string());
+        let rewritten_sql = add_exposed_enum_casts(&rewritten_sql, &occurrences, &analyzed.params, params);
         let sql = crate::sql_literal::escape_kotlin_string(&rewritten_sql);
 
         let key_col = parent_columns
@@ -832,10 +958,22 @@ impl CodegenBackend for KotlinExposedBackend {
                 .iter()
                 .map(|&position| {
                     let p = super::resolved_param_for_position(&analyzed.params, params, position);
-                    format!("{} to {}", exposed_column_type_class(&p.lang_type), p.field_name)
+                    format!(
+                        "{} to {}",
+                        exposed_column_type_class(&p.lang_type),
+                        exposed_bind_value(p)
+                    )
                 })
                 .collect();
-            format!(", listOf({})", pairs.join(", "))
+            // ~keep The explicit element type is load-bearing, not decoration. A bare `listOf(...)`
+            // makes Kotlin infer one `T` across heterogeneous pairs, and with a mixed
+            // parameter set -- `Pair<TextColumnType, String>` beside
+            // `Pair<UUIDColumnType, UUID>` and `Pair<TextColumnType, TortureAddress?>` --
+            // inference gives up: "Not enough information to infer type argument for 'T'",
+            // then a cascade that even reports "actual type is 'String', but 'String' was
+            // expected". Naming the type Exposed's `exec` actually takes short-circuits all
+            // of it. The pg fixture happened to infer cleanly; the torture schema did not.
+            format!(", listOf<Pair<IColumnType<*>, Any?>>({})", pairs.join(", "))
         };
 
         let inline_params: String = params

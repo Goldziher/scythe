@@ -135,7 +135,7 @@ fn kotlin_exposed_binds_out_of_order_placeholders_in_sql_text_order() {
     assert_contains(
         "kotlin-exposed",
         &code,
-        "exec(\"UPDATE t SET touched = true WHERE b = ? AND a = ?\", listOf(TextColumnType() to b, IntegerColumnType() to a))",
+        "exec(\"UPDATE t SET touched = true WHERE b = ? AND a = ?\", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to b, IntegerColumnType() to a))",
     );
 }
 
@@ -188,7 +188,7 @@ fn kotlin_exposed_binds_a_repeated_placeholder_once_per_occurrence() {
     assert_contains(
         "kotlin-exposed",
         &code,
-        "listOf(IntegerColumnType() to a, IntegerColumnType() to a)",
+        "listOf<Pair<IColumnType<*>, Any?>>(IntegerColumnType() to a, IntegerColumnType() to a)",
     );
 }
 
@@ -255,7 +255,7 @@ fn kotlin_exposed_optional_param_produces_matching_marker_and_bind_counts() {
     assert_contains(
         "kotlin-exposed",
         &code,
-        "exec(\"UPDATE t SET touched = true WHERE (? IS NULL OR name = ?)\", listOf(TextColumnType() to name, TextColumnType() to name))",
+        "exec(\"UPDATE t SET touched = true WHERE (? IS NULL OR name = ?)\", listOf<Pair<IColumnType<*>, Any?>>(TextColumnType() to name, TextColumnType() to name))",
     );
 }
 

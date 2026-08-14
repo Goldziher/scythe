@@ -316,6 +316,12 @@ tasks:
     cmds:
       - gradle run --quiet
 
+  test:kotlin-exposed:
+    desc: Run kotlin-exposed integration test
+    dir: kotlin-exposed
+    cmds:
+      - gradle run --quiet
+
   test:csharp-npgsql:
     desc: Run csharp-npgsql integration test
     dir: csharp-npgsql
@@ -988,6 +994,7 @@ tasks:
       - task: test:kotlin-jdbc
       - task: test:java-r2dbc
       - task: test:kotlin-r2dbc
+      - task: test:kotlin-exposed
       - task: test:csharp-npgsql
       - task: test:elixir-postgrex
       - task: test:elixir-ecto

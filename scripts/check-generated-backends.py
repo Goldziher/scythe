@@ -112,6 +112,7 @@ BUILD_COMMANDS: dict[str, list[str] | None] = {
     # records why this fact must not have two derivations that can disagree.
     "kotlin-jdbc": ["gradle", "compileKotlin", "--quiet"],
     "kotlin-r2dbc": ["gradle", "compileKotlin", "--quiet"],
+    "kotlin-exposed": ["gradle", "compileKotlin", "--quiet"],
     "elixir-ecto": ["sh", "-c", "mix deps.get --force && mix compile --force"],
     "elixir-postgrex": ["sh", "-c", "mix deps.get --force && mix compile --force"],
     "python-asyncpg": None,
@@ -206,6 +207,7 @@ HARNESS_STUBS: dict[str, tuple[str, str]] = {
     # harness stubbed -- kotlin-jdbc did not while bare kotlinc only ever saw queries.kt.
     "kotlin-jdbc": ("src/main/kotlin/IntegrationTest.kt", "fun main() {}\n"),
     "kotlin-r2dbc": ("src/main/kotlin/IntegrationTest.kt", "fun main() {}\n"),
+    "kotlin-exposed": ("src/main/kotlin/IntegrationTest.kt", "fun main() {}\n"),
 }
 
 

@@ -670,6 +670,15 @@ fn backend_variants() -> Vec<BackendConfig> {
         // H2 is a different SQL dialect and would silently run a different database than
         // every other sqlite integration project in this list. See board #212's report.
         BackendConfig {
+            name: "kotlin-exposed".into(),
+            language: "kotlin".into(),
+            engine: "postgresql".into(),
+            driver: "exposed".into(),
+            connection_env: "DATABASE_URL".into(),
+            backend: "kotlin-exposed".into(),
+            options: HashMap::new(),
+        },
+        BackendConfig {
             name: "kotlin-r2dbc".into(),
             language: "kotlin".into(),
             engine: "postgresql".into(),

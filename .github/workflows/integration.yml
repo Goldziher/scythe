@@ -265,6 +265,10 @@ jobs:
         working-directory: integration_tests/kotlin-r2dbc
         run: gradle run --quiet
 
+      - name: Test kotlin-exposed
+        working-directory: integration_tests/kotlin-exposed
+        run: gradle run --quiet
+
       - name: Test kotlin-jdbc-ext
         working-directory: integration_tests/kotlin-jdbc-ext
         run: gradle run --quiet
