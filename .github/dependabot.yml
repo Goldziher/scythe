@@ -98,6 +98,15 @@ updates:
   # config change -- nothing published carries the vulnerable path, since this
   # project is generated test-harness code that never ships.
   #
+  # That decision was taken on 2026-08-14: alerts #137, #138 and #139 are
+  # dismissed as `not_used`, matching #134-#136 against the root Cargo.lock.
+  # Do not re-open them expecting a fix; Dependabot's own log reports
+  # `security_update_not_possible` with an empty `conflicting-dependencies`
+  # list -- latest resolvable 0.101.7 against earliest fixed 0.103.13 -- which
+  # means the fixed version is unreachable, not merely unselected. A new alert
+  # will be filed for each new rustls-webpki advisory and will need the same
+  # decision until the move off tiberius lands.
+  #
   # `open-pull-requests-limit: 0` still earns its place: it keeps ordinary
   # version updates off a generated manifest (see the header). Drop this entry
   # when the move off tiberius lands.
