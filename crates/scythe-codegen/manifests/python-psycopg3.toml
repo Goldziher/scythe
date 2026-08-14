@@ -28,7 +28,7 @@ inet = "str"
 [types.containers]
 array = "list[{T}]"
 nullable = "{T} | None"
-range = "tuple[{T}, {T}]"
+range = "psycopg.types.range.Range[{T}]"
 json_typed = "{T}"
 json_nested = "{T}"
 
@@ -81,3 +81,4 @@ reserved = [
 "datetime." = "import datetime"
 "decimal." = "import decimal"
 "dict[" = "from typing import Any"
+"psycopg.types.range." = "import psycopg.types.range"

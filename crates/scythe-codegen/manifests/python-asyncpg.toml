@@ -29,7 +29,7 @@ inet = "str"
 [types.containers]
 array = "list[{T}]"
 nullable = "{T} | None"
-range = "tuple[{T}, {T}]"
+range = "asyncpg.Range[{T}]"
 json_typed = "{T}"
 
 [naming]
@@ -81,3 +81,4 @@ reserved = [
 "datetime." = "import datetime"
 "decimal." = "import decimal"
 "dict[" = "from typing import Any"
+"asyncpg." = "import asyncpg"

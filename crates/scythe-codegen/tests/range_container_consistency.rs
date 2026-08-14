@@ -43,36 +43,102 @@
 //! MySQL target now fails generation loudly instead of quietly producing a
 //! `string` field for a column that engine cannot have.
 //!
-//! # What is deliberately still a text mapping
+//! # Runtime verification (this pass)
 //!
-//! Of the 19 surviving declarations only `rust-sqlx` names a decodable type
-//! (`sqlx::postgres::types::PgRange<T>`). The rest render the range's text
-//! form, which for several drivers is exactly what comes back: node-postgres
-//! and postgres.js have no type parser registered for range OIDs and hand
-//! back the raw `"[1,4)"` string, JDBC's `getString` returns the same, and
-//! PDO's pgsql driver stringifies everything. For those, `string`/`String` is
-//! lossy but true.
+//! `6e3b85e4` settled *where* `range` is declared but explicitly punted on
+//! *whether the 19 survivors decode at runtime* -- three were flagged as
+//! "believed wrong" from reasoning alone, never checked. This pass checked
+//! all 19, against a live `postgres:14-alpine` container (`scythe-live-pg`,
+//! `postgresql://scythe:scythe@localhost:55432/scythe_inspect_test`) seeded
+//! with an `int4range`/`int8range`/`tsrange`/`tstzrange`/`daterange`/
+//! `numrange` probe table, using each driver's real client library. Where a
+//! client could not be run live (no ecosystem tooling reachable), the
+//! decision fell back to the driver's own source, not to inference -- see
+//! each line below.
 //!
-//! ~keep It is NOT true everywhere, and a green run of this file must not be
-//! read as saying otherwise. This file checks that each language family
-//! declares ONE spelling; it does not and cannot check that the spelling is
-//! what the driver returns at runtime. Three surviving mappings are believed
-//! wrong and are tracked separately rather than papered over here, because
-//! correcting them needs reader changes under `src/backends/` plus
-//! `[imports.rules]` entries, and none of it was verified against a live
-//! database:
+//! **Confirmed correct as a text mapping** (the driver hands back the range's
+//! literal form, e.g. `"[1,10)"`, on both read and bind): `java-jdbc` /
+//! `kotlin-jdbc` / `kotlin-exposed` (pgjdbc 42.7.4 `ResultSet.getString`,
+//! live), `java-r2dbc` / `kotlin-r2dbc` (`org.postgresql:r2dbc-postgresql`
+//! 1.0.7.RELEASE `Row.get(col, String.class)`, live), `typescript-pg` (`pg`
+//! 8.x, live), `typescript-postgres` (`postgres` 8.x, live),
+//! `typescript-kysely` (its PostgreSQL dialect wraps `pg`, so it inherits
+//! that result), `php-pdo` (PDO pgsql, live), `php-amphp`
+//! (`amphp/postgres` 2.2.1 over the `pgsql` extension, live), `ruby-pg`
+//! (`pg` gem, live).
 //!
-//! - `csharp-npgsql` maps to `string`, but Npgsql materializes `int4range`
-//!   as `NpgsqlRange<int>`, so a `GetString` would throw.
-//! - `rust-tokio-postgres` maps to `String`, but `postgres-types`'
-//!   `FromSql for String` accepts only TEXT/VARCHAR/BPCHAR/NAME/UNKNOWN and
-//!   would reject a range OID.
-//! - `python-asyncpg` / `python-psycopg3` map to `tuple[{T}, {T}]`, but both
-//!   drivers return a `Range` object, never a tuple.
+//! **Confirmed correct as a typed mapping**: `rust-sqlx` --
+//! `sqlx::postgres::types::PgRange<T>` has `Type`/`Encode`/`Decode` impls in
+//! `sqlx-postgres` 0.9.0 for every element type this repo's range scalars
+//! produce (`i32`, `i64`, `BigDecimal`/`Decimal`, `NaiveDate`,
+//! `NaiveDateTime`, `DateTime<Tz>`), read from the vendored crate source.
 //!
-//! Those are now confined to PostgreSQL, where a range can actually occur and
-//! the mapping is reviewable, instead of being sprayed across eight engines
-//! where they were pure noise.
+//! **Confirmed WRONG and fixed in this pass**:
+//!
+//! - `csharp-npgsql` said `string`; Npgsql 10.0.3 throws
+//!   `InvalidCastException` from `GetString` on a range column (live) and
+//!   decodes correctly through `GetFieldValue<NpgsqlTypes.NpgsqlRange<T>>`
+//!   (live, both read and bind). Fixed to
+//!   `NpgsqlTypes.NpgsqlRange<{T}>` -- fully qualified, matching how `inet`
+//!   already spells `System.Net.IPAddress` in this same manifest, so no
+//!   `[imports.rules]` entry is needed. `reader_method` in
+//!   `csharp_npgsql.rs` has no special case for `range`; it falls through to
+//!   `GetFieldValue<{lang_type}>`, so the manifest edit alone changes the
+//!   emitted reader call.
+//! - `go-pgx` said `string`; pgx v5.10.0 refuses to scan `int4range` into
+//!   `*string` at all (`cannot scan int4range (OID 3904) in binary format
+//!   into *string`, live) and decodes correctly into
+//!   `pgtype.Range[T]` for every element type exercised (`int32`, `int64`,
+//!   `time.Time`, `decimal.Decimal`, live). This one was not named as a
+//!   suspect by #190 or board #198 -- it surfaced only from running the
+//!   driver. Fixed to `pgtype.Range[{T}]`, with a new
+//!   `"pgtype." = "\"github.com/jackc/pgx/v5/pgtype\""` import rule.
+//! - `elixir-postgrex` and `elixir-ecto` said `String.t()`; Postgrex 0.22.4
+//!   decodes every range OID into a `%Postgrex.Range{}` struct, never a
+//!   binary, and rejects a plain string bound as a range parameter
+//!   (`DBConnection.EncodeError`, live). Ecto's raw-SQL path
+//!   (`Ecto.Adapters.SQL.query/4`, which is what this backend generates)
+//!   delegates straight to Postgrex with no additional casting, so the same
+//!   struct comes back through Ecto too -- confirmed by reading
+//!   `elixir_ecto.rs`, not assumed. Both fixed to `Postgrex.Range.t()`
+//!   (`Postgrex.Range`'s own `@type t`, from `postgrex/builtins.ex`); no
+//!   `{T}` substitution exists on that struct (fields are `term`), and Elixir
+//!   needs no import rule for a fully-qualified module reference.
+//! - `python-asyncpg` and `python-psycopg3` said `tuple[{T}, {T}]`; asyncpg
+//!   0.31.0 returns `asyncpg.Range` and psycopg 3.3.4 returns
+//!   `psycopg.types.range.Range` (both live) -- neither is a tuple, neither
+//!   supports tuple-unpacking (`asyncpg.Range` raises `TypeError: cannot
+//!   unpack non-iterable Range object`), and both are themselves generic
+//!   (`Range[int]` subscripts cleanly on both, live). Fixed to
+//!   `asyncpg.Range[{T}]` (new `"asyncpg." = "import asyncpg"` rule) and
+//!   `psycopg.types.range.Range[{T}]` (new
+//!   `"psycopg.types.range." = "import psycopg.types.range"` rule). The two
+//!   spellings differ because the two drivers ship genuinely different,
+//!   mutually incompatible `Range` classes -- see
+//!   `RANGE_SPELLING_EXCEPTIONS`.
+//!
+//! **Confirmed WRONG, not fixable within this manifest**:
+//!
+//! - `rust-tokio-postgres` said `String`; read from the vendored
+//!   `postgres-types` 0.2.14 source (`~/.cargo/registry`, cargo is off-limits
+//!   in this pass so this is source inspection, not a live run):
+//!   `impl FromSql for String` delegates its `accepts()` to `&str`'s, which
+//!   matches only `VARCHAR | TEXT | BPCHAR | NAME | UNKNOWN` plus a few
+//!   ltree-family OIDs -- no range OID is in that list, so `Row::get::<_,
+//!   String>` would panic before `from_sql` ever runs. `postgres-types`
+//!   0.2.14 ships no `Range<T>` type with a `FromSql`/`ToSql` impl at all
+//!   (unlike `sqlx-postgres`), so there is no string this manifest can name
+//!   that both compiles and decodes correctly -- fixing this needs a reader
+//!   change in `tokio_postgres.rs` (a hand-rolled `FromSql`/`ToSql` wrapper)
+//!   that is out of scope for a manifest-only pass. The declaration is
+//!   removed rather than left wrong; see `RANGE_CAPABILITY_EXCEPTIONS`.
+//!
+//! What would settle the two typed-reader gaps above, for whoever picks them
+//! up: a `PgRangeRust` (or similar) wrapper in `tokio_postgres.rs` built on
+//! `postgres_protocol::types::range_from_sql`/`range_to_sql`, with matching
+//! `[imports.rules]`; nothing else in this file changes as a result, since
+//! the capability/spelling exceptions here are written to go stale (and
+//! therefore fail) the moment such a mapping is declared.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
@@ -88,9 +154,11 @@ const RANGE_CAPABLE_ENGINES: &[&str] = &["postgresql"];
 /// stopped matching must fail rather than sweep nothing and pass.
 const MANIFEST_FLOOR: usize = 102;
 
-/// Manifests expected to declare `range` -- the PostgreSQL targets. Also a
-/// floor.
-const DECLARATION_FLOOR: usize = 19;
+/// Manifests expected to declare `range` -- the PostgreSQL targets, minus
+/// `rust-tokio-postgres` (see `RANGE_CAPABILITY_EXCEPTIONS`: its driver stack
+/// has no usable range representation, so it legitimately omits the key).
+/// Also a floor.
+const DECLARATION_FLOOR: usize = 18;
 
 /// One entry in an exception list: the manifest file it exempts, and why.
 /// Same shape as `opt_command_regression.rs`'s `BackendNote`, and for the
@@ -104,20 +172,26 @@ struct ManifestNote {
 /// Manifests allowed to disagree with their engine's range capability --
 /// either declaring `range` for an engine that has none, or omitting it for
 /// an engine that has one.
-///
-/// Empty, and kept rather than deleted with its last entry: an empty list is
-/// what makes the next mismatched declaration show up as a regression instead
-/// of as the status quo.
-const RANGE_CAPABILITY_EXCEPTIONS: &[ManifestNote] = &[];
+const RANGE_CAPABILITY_EXCEPTIONS: &[ManifestNote] = &[ManifestNote {
+    manifest: "rust-tokio-postgres.toml",
+    reason: "postgresql is range-capable, but postgres-types 0.2.14 (tokio-postgres's type crate, \
+             read from ~/.cargo/registry) ships no Range<T> with a FromSql/ToSql impl, and its \
+             FromSql for String explicitly excludes every range OID from accepts() -- so no string \
+             this manifest could name both compiles and decodes correctly. Fixing this for real \
+             needs a hand-rolled FromSql/ToSql wrapper in tokio_postgres.rs, out of scope for a \
+             manifest-only pass. Delete this entry once that reader lands and the manifest \
+             declares a real mapping.",
+}];
 
 /// Manifests allowed to spell `range` differently from the rest of their
 /// language family.
 const RANGE_SPELLING_EXCEPTIONS: &[ManifestNote] = &[ManifestNote {
-    manifest: "rust-sqlx.toml",
-    reason: "sqlx is the only driver in the tree that ships a range type with a real Decode impl \
-             (sqlx::postgres::types::PgRange<T>), so it is the one backend that can hand back a \
-             typed range instead of its text form. Normalizing it onto rust-tokio-postgres' \
-             String would throw away the only correct mapping in the file to buy uniformity.",
+    manifest: "python-psycopg3.toml",
+    reason: "asyncpg and psycopg3 each ship their own Range class -- asyncpg.Range and \
+             psycopg.types.range.Range -- confirmed live to be two distinct classes (asyncpg.Range \
+             is not psycopg.types.range.Range, and each driver decodes a range column into its own \
+             class, never the other's). Normalizing python-psycopg3 onto asyncpg.Range[{T}] would \
+             produce a type hint the psycopg driver never actually returns.",
 }];
 
 /// A manifest's `range` declaration as it exists on disk.

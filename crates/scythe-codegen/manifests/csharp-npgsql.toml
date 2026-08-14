@@ -28,7 +28,7 @@ inet = "System.Net.IPAddress"
 [types.containers]
 array = "List<{T}>"
 nullable = "{T}?"
-range = "string"
+range = "NpgsqlTypes.NpgsqlRange<{T}>"
 json_typed = "{T}"
 
 [naming]

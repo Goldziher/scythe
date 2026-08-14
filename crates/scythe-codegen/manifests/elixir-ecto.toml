@@ -28,7 +28,7 @@ inet = "String.t()"
 [types.containers]
 array = "list({T})"
 nullable = "{T} | nil"
-range = "String.t()"
+range = "Postgrex.Range.t()"
 json_typed = "{T}"
 
 [naming]

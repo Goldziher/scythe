@@ -28,7 +28,7 @@ inet = "netip.Addr"
 [types.containers]
 array = "[]{T}"
 nullable = "*{T}"
-range = "string"
+range = "pgtype.Range[{T}]"
 json_typed = "{T}"
 json_nested = "{T}"
 
@@ -72,3 +72,4 @@ reserved = [
 "uuid." = "\"github.com/google/uuid\""
 "json." = "\"encoding/json\""
 "netip." = "\"net/netip\""
+"pgtype." = "\"github.com/jackc/pgx/v5/pgtype\""
